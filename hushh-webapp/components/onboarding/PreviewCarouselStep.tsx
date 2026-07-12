@@ -12,6 +12,7 @@ import {
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/lib/morphy-ux/button";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
 import { cn } from "@/lib/utils";
 import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
 import { prefersReducedMotion, getGsap } from "@/lib/morphy-ux/gsap";
@@ -39,24 +40,24 @@ export function PreviewCarouselStep({
   const slides: Slide[] = useMemo(
     () => [
       {
-        title: "Unified memory,",
-        accent: "only yours",
+        title: "A memory",
+        accent: "built for you",
         subtitle:
-          "Your memory lives in an encrypted vault. The server only ever holds ciphertext, only you hold the key.",
-        preview: <VaultPreviewCompact />,
-      },
-      {
-        title: "Unified memory,",
-        accent: "every app",
-        subtitle:
-          "Finance, Gmail, and location all draw on one private memory, no silos.",
+          "One learns from the apps you connect, starting with Gmail and growing to everything you use.",
         preview: <WorkflowsPreviewCompact />,
       },
       {
-        title: "Shared only",
-        accent: "with your consent",
+        title: "Your world,",
+        accent: "kept private",
         subtitle:
-          "Nothing is released without your yes: scoped, temporary, and audited every time.",
+          "Everything lives in an encrypted vault. Only you hold the key, not even we can read it.",
+        preview: <VaultPreviewCompact />,
+      },
+      {
+        title: "It acts only",
+        accent: "with your yes",
+        subtitle:
+          "Every move is scoped, logged, and yours to revoke. Nothing happens without your consent.",
         preview: <ConsentPreviewCompact />,
       },
     ],
@@ -170,13 +171,17 @@ export function PreviewCarouselStep({
   return (
     <main
       ref={mountRef}
-      className="min-h-[100dvh] w-full bg-transparent"
+      className="relative min-h-[100dvh] w-full overflow-hidden"
     >
+      {/* Shared immersive gradient backdrop (welcome / login / carousel) so the
+          glass preview cards read the same rich colour behind them everywhere. */}
+      <OnboardingHeroBackground />
+
       {/* Normal-flow, centered column. Scrolls naturally if a short viewport
           can't fit it: no height-locked flex distribution, no clipping.
           Top padding clears the FIXED top controls (back button + theme pill,
           ~8px offset + 36px tall) so the title never tucks under them. */}
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-md flex-col px-6 pb-[calc(24px+var(--app-safe-area-bottom-effective,0px))] pt-[calc(60px+var(--app-safe-area-top-effective,0px))]">
+      <div className="relative mx-auto flex min-h-[100dvh] w-full max-w-md flex-col px-6 pb-[calc(24px+var(--app-safe-area-bottom-effective,0px))] pt-[calc(60px+var(--app-safe-area-top-effective,0px))]">
         {/* Top bar: back button. Fixed + offset to sit on the exact same top
             line as the lean theme pill (navbar uses the same fixed top + px-4).
             Uses the shared ShellActionSurface primitive so it stays in lockstep
@@ -201,12 +206,14 @@ export function PreviewCarouselStep({
             the title at the top, it simply scrolls. */}
         <div className="flex flex-1 flex-col items-center justify-center gap-6 py-4 max-[700px]:justify-start">
           <div ref={headerRef} className="w-full text-center">
-            <h2 className="text-[clamp(24px,7vw,32px)] font-medium leading-[1.1] text-[#1d1d1f] dark:text-[#f5f5f7]">
+            {/* Theme-aware copy over the shared gradient: dark ink on the light
+                gradient, cream on the dark gradient. */}
+            <h2 className="text-[clamp(24px,7vw,32px)] font-medium leading-[1.1] text-[#17130C] dark:text-[#FAF6EE]">
               {slides[displayIndex]?.title}{" "}
               <br />
-              <span>{slides[displayIndex]?.accent}</span>
+              <span className="text-accent-strong">{slides[displayIndex]?.accent}</span>
             </h2>
-            <p className="mx-auto mt-3 max-w-[20rem] text-[15px] leading-snug text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]">
+            <p className="mx-auto mt-3 max-w-[20rem] text-[15px] leading-snug text-[rgba(23,19,12,0.58)] dark:text-[rgba(250,246,238,0.62)]">
               {slides[displayIndex]?.subtitle}
             </p>
           </div>
@@ -255,7 +262,7 @@ export function PreviewCarouselStep({
           <button
             type="button"
             onClick={completeAndContinue}
-            className="min-h-10 px-4 text-[15px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            className="min-h-10 px-4 text-[15px] font-medium text-[rgba(23,19,12,0.55)] transition-colors hover:text-[#17130C] dark:text-[rgba(250,246,238,0.6)] dark:hover:text-[#FAF6EE]"
           >
             Skip
           </button>
@@ -278,7 +285,7 @@ function Dots(props: { count: number; activeIndex: number }) {
             "h-[7px] rounded-full transition-[width,background-color]",
             i === props.activeIndex
               ? "w-6 bg-[#d4a574]"
-              : "w-[7px] bg-black/10 dark:bg-white/15"
+              : "w-[7px] bg-white/20"
           )}
           aria-hidden
         />

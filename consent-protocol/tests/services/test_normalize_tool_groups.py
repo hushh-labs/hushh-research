@@ -20,7 +20,7 @@ visible_tool_names_for_groups(tool_groups)
 
 Constants exercised
 -------------------
-KNOWN_TOOL_GROUPS = ("core_consent", "ria_read", "kai_voice", "internal_only")
+KNOWN_TOOL_GROUPS = ("core_consent", "ria_read", "kai_voice")
 DEFAULT_PUBLIC_TOOL_GROUPS = ("core_consent",)
 """
 
@@ -33,7 +33,6 @@ from hushh_mcp.services.developer_registry_service import (
     KNOWN_TOOL_GROUPS,
     TOOL_CATALOG,
     TOOL_GROUP_CORE_CONSENT,
-    TOOL_GROUP_INTERNAL_ONLY,
     TOOL_GROUP_KAI_VOICE,
     TOOL_GROUP_RIA_READ,
     normalize_tool_groups,
@@ -152,11 +151,11 @@ class TestNormalizeToolGroupsCommaSep:
         result = normalize_tool_groups("kai_voice,,ria_read")
         assert set(result) == {TOOL_GROUP_KAI_VOICE, TOOL_GROUP_RIA_READ}
 
-    def test_all_four_groups_comma_sep(self):
+    def test_all_known_groups_comma_sep(self):
         raw = ",".join(KNOWN_TOOL_GROUPS)
         result = normalize_tool_groups(raw)
         assert set(result) == set(KNOWN_TOOL_GROUPS)
-        assert len(result) == 4
+        assert len(result) == 3
 
 
 # ===========================================================================
@@ -222,9 +221,9 @@ class TestNormalizeToolGroupsCollections:
 
     def test_list_order_preserved(self):
         result = normalize_tool_groups(
-            [TOOL_GROUP_INTERNAL_ONLY, TOOL_GROUP_CORE_CONSENT, TOOL_GROUP_RIA_READ]
+            [TOOL_GROUP_KAI_VOICE, TOOL_GROUP_CORE_CONSENT, TOOL_GROUP_RIA_READ]
         )
-        assert result[0] == TOOL_GROUP_INTERNAL_ONLY
+        assert result[0] == TOOL_GROUP_KAI_VOICE
         assert result[1] == TOOL_GROUP_CORE_CONSENT
         assert result[2] == TOOL_GROUP_RIA_READ
 
@@ -307,9 +306,10 @@ class TestVisibleToolNamesForGroups:
         assert "kai_navigate_back" in result
         assert "request_consent" not in result
 
-    def test_internal_only_group_returns_delegate_tool(self):
-        result = visible_tool_names_for_groups([TOOL_GROUP_INTERNAL_ONLY])
-        assert "delegate_to_agent" in result
+    def test_removed_internal_group_cannot_expose_delegate_tool(self):
+        result = visible_tool_names_for_groups(["internal_only"])
+        assert "delegate_to_agent" not in result
+        assert result == visible_tool_names_for_groups(DEFAULT_PUBLIC_TOOL_GROUPS)
 
     def test_two_groups_returns_union_of_tools(self):
         result = visible_tool_names_for_groups([TOOL_GROUP_CORE_CONSENT, TOOL_GROUP_RIA_READ])

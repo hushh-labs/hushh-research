@@ -39,7 +39,13 @@ CANONICAL_BUNDLES: dict[str, ScopeBundle] = {
         description="Complete financial data including analysis history and decisions",
         icon_name="briefcase",
         color_hex="#D4AF37",
-        scopes=("attr.financial.*",),
+        scopes=(
+            "attr.financial.portfolio.*",
+            "attr.financial.profile.*",
+            "attr.financial.documents.*",
+            "attr.financial.analysis_history.*",
+            "attr.financial.decisions.*",
+        ),
     ),
     "risk_assessment": ScopeBundle(
         bundle_key="risk_assessment",
@@ -58,7 +64,11 @@ CANONICAL_BUNDLES: dict[str, ScopeBundle] = {
         description="Fitness data, health metrics, and wellness preferences",
         icon_name="heart",
         color_hex="#EF4444",
-        scopes=("attr.health.*",),
+        scopes=(
+            "attr.health.fitness.*",
+            "attr.health.metrics.*",
+            "attr.health.wellness_preferences.*",
+        ),
     ),
     "lifestyle_preferences": ScopeBundle(
         bundle_key="lifestyle_preferences",
@@ -67,10 +77,10 @@ CANONICAL_BUNDLES: dict[str, ScopeBundle] = {
         icon_name="compass",
         color_hex="#F97316",
         scopes=(
-            "attr.food.*",
-            "attr.travel.*",
-            "attr.entertainment.*",
-            "attr.shopping.*",
+            "attr.food.preferences.*",
+            "attr.travel.preferences.*",
+            "attr.entertainment.preferences.*",
+            "attr.shopping.preferences.*",
         ),
     ),
     "kyc_workflow": ScopeBundle(
@@ -81,9 +91,7 @@ CANONICAL_BUNDLES: dict[str, ScopeBundle] = {
         color_hex="#6366F1",
         scopes=(
             "agent.kyc.process",
-            "agent.kyc.draft",
-            "agent.kyc.writeback",
-            "pkm.write",
+            "agent.kyc.redraft.llm",
         ),
     ),
 }

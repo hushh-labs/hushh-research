@@ -11,8 +11,6 @@ from pydantic import ValidationError
 
 from api.routes.pkm_routes_shared import (
     DecisionRecord,
-    DefaultAvailableProjectionRequest,
-    DefaultAvailableProjectionResponse,
     DeleteDomainResponse,
     DomainDataResponse,
     DomainManifestPayload,
@@ -23,6 +21,8 @@ from api.routes.pkm_routes_shared import (
     EncryptedBlob,
     PathDescriptorPayload,
     PersonalKnowledgeModelMetadataResponse,
+    PublicProfileProjectionRequest,
+    PublicProfileProjectionResponse,
     ReconcilePkmResponse,
     ScopeExposureChangePayload,
     ScopeExposureRequest,
@@ -611,14 +611,13 @@ class TestScopeExposureResponse:
             )
 
 
-class TestDefaultAvailableProjectionRequest:
+class TestPublicProfileProjectionRequest:
     """Default available projection request bounds (CWE-400)."""
 
     def test_valid_request(self):
         """Valid request within bounds."""
-        req = DefaultAvailableProjectionRequest(
+        req = PublicProfileProjectionRequest(
             user_id="user-123",
-            scope="read",
             top_level_scope_path="$.financial",
         )
         assert req.user_id == "user-123"
@@ -626,43 +625,32 @@ class TestDefaultAvailableProjectionRequest:
     def test_user_id_max_length(self):
         """User ID bounded to 256 chars."""
         with pytest.raises(ValidationError):
-            DefaultAvailableProjectionRequest(
+            PublicProfileProjectionRequest(
                 user_id="A" * 257,
-                scope="read",
-                top_level_scope_path="$.financial",
-            )
-
-    def test_scope_max_length(self):
-        """Scope bounded to 256 chars."""
-        with pytest.raises(ValidationError):
-            DefaultAvailableProjectionRequest(
-                user_id="user-123",
-                scope="A" * 257,
                 top_level_scope_path="$.financial",
             )
 
     def test_top_level_scope_path_max_length(self):
         """Top level scope path bounded to 1024 chars."""
         with pytest.raises(ValidationError):
-            DefaultAvailableProjectionRequest(
+            PublicProfileProjectionRequest(
                 user_id="user-123",
-                scope="read",
                 top_level_scope_path="A" * 1025,
             )
 
 
-class TestDefaultAvailableProjectionResponse:
+class TestPublicProfileProjectionResponse:
     """Default available projection response bounds (CWE-400)."""
 
     def test_valid_response(self):
         """Valid response within bounds."""
-        resp = DefaultAvailableProjectionResponse(success=True)
+        resp = PublicProfileProjectionResponse(success=True)
         assert resp.success is True
 
     def test_message_max_length(self):
         """Message bounded to 512 chars."""
         with pytest.raises(ValidationError):
-            DefaultAvailableProjectionResponse(
+            PublicProfileProjectionResponse(
                 success=True,
                 message="A" * 513,
             )
@@ -670,7 +658,7 @@ class TestDefaultAvailableProjectionResponse:
     def test_projection_hash_max_length(self):
         """Projection hash bounded to 256 chars."""
         with pytest.raises(ValidationError):
-            DefaultAvailableProjectionResponse(
+            PublicProfileProjectionResponse(
                 success=True,
                 projection_hash="A" * 257,
             )
@@ -678,7 +666,7 @@ class TestDefaultAvailableProjectionResponse:
     def test_projection_updated_at_max_length(self):
         """Projection updated at bounded to 64 chars."""
         with pytest.raises(ValidationError):
-            DefaultAvailableProjectionResponse(
+            PublicProfileProjectionResponse(
                 success=True,
                 projection_updated_at="A" * 65,
             )

@@ -60,10 +60,11 @@ Portal endpoints:
 | `PATCH` | `/api/developer/access/profile` | Firebase bearer token | Update display name, website, support, and policy links |
 | `POST` | `/api/developer/access/rotate-key` | Firebase bearer token | Revoke the current token and issue a replacement |
 
-The developer token is then used as:
+The developer token is then sent only in an Authorization header:
 
 ```http
-GET /api/v1/user-scopes/{user_id}?token=<developer-token>
+GET /api/v1/user-scopes/{user_id}
+Authorization: Bearer <developer-token>
 ```
 
 ---
@@ -74,23 +75,23 @@ GET /api/v1/user-scopes/{user_id}?token=<developer-token>
 | ------ | ---- | ---- | ------- |
 | `GET` | `/api/v1` | Developer API enabled | Root summary for the versioned contract |
 | `GET` | `/api/v1/list-scopes` | Developer API enabled | Canonical dynamic scope grammar |
-| `GET` | `/api/v1/tool-catalog` | Optional `?token=...` | Current public-beta tool visibility |
-| `GET` | `/api/v1/user-scopes/{user_id}` | `?token=<developer-token>` | Per-user discovered domains and scopes |
-| `GET` | `/api/v1/consent-status` | `?token=<developer-token>` | App-scoped consent status by scope or request id |
-| `POST` | `/api/v1/request-consent` | `?token=<developer-token>` | Create or reuse consent for one discovered scope |
-| `POST` | `/api/v1/scoped-export` | `?token=<developer-token>` | Return ciphertext plus wrapped-key metadata for one approved grant |
+| `GET` | `/api/v1/tool-catalog` | Optional bearer header | Current public-beta tool visibility |
+| `GET` | `/api/v1/user-scopes/{user_id}` | Bearer header | Per-user discovered domains and scopes |
+| `GET` | `/api/v1/consent-status` | Bearer header | App-scoped consent status by scope or request id |
+| `POST` | `/api/v1/request-consent` | Bearer header | Create or reuse consent for one discovered scope |
+| `POST` | `/api/v1/scoped-export` | Bearer header | Return envelope metadata plus an authenticated ciphertext resource link |
 
 ---
 
 ## Scope Model
 
-Requestable developer scopes:
+Private-information access uses only the exact, dynamically discovered form:
 
-- `pkm.read`
-- `pkm.write`
-- `attr.{domain}.*`
-- `attr.{domain}.{subintent}.*`
-- `attr.{domain}.{path}`
+- `attr.{domain_slug}.{scope_slug}.*`
+
+`pkm.read`, `pkm.write`, and `vault.owner` are internal-only authorities and
+are rejected from external discovery and consent requests. Public profiles are
+separate owner-controlled projections, not `attr.*` grants.
 
 Availability is derived from:
 
@@ -108,19 +109,19 @@ Two users can legitimately expose different scope catalogs.
 
 ```http
 GET /api/v1/user-scopes/{user_id}
-?token=<developer-token>
+Authorization: Bearer <developer-token>
 ```
 
 ### 2. Request consent
 
 ```http
 POST /api/v1/request-consent
-?token=<developer-token>
 Content-Type: application/json
+Authorization: Bearer <developer-token>
 
 {
   "user_id": "user_123",
-  "scope": "attr.financial.*",
+  "scope": "attr.financial.portfolio.*",
   "expiry_hours": 24,
   "approval_timeout_minutes": 60,
   "reason": "Explain why the app needs this scope",
@@ -135,8 +136,8 @@ For the raw HTTP developer API, the connector fields are required. They tell Hus
 ### 3. Poll status
 
 ```http
-GET /api/v1/consent-status?user_id=user_123&scope=attr.financial.*
-?token=<developer-token>
+GET /api/v1/consent-status?user_id=user_123&scope=attr.financial.portfolio.*
+Authorization: Bearer <developer-token>
 ```
 
 ### 4. Wait for first-party approval
@@ -147,26 +148,25 @@ The user approves in the first-party app surface. In founder language this is th
 
 ```http
 POST /api/v1/scoped-export
-?token=<developer-token>
 Content-Type: application/json
+Authorization: Bearer <developer-token>
 
 {
   "user_id": "user_123",
   "consent_token": "HCT:...",
-  "expected_scope": "attr.financial.*"
+  "expected_scope": "attr.financial.portfolio.*"
 }
 ```
 
-The response contains ciphertext only:
+The response contains envelope metadata and an authenticated ciphertext resource link:
 
 ```json
 {
   "status": "success",
   "user_id": "user_123",
-  "granted_scope": "attr.financial.*",
-  "expected_scope": "attr.financial.*",
+  "granted_scope": "attr.financial.portfolio.*",
+  "expected_scope": "attr.financial.portfolio.*",
   "coverage_kind": "exact",
-  "encrypted_data": "<base64-ciphertext>",
   "iv": "<base64-iv>",
   "tag": "<base64-tag>",
   "wrapped_key_bundle": {
@@ -179,11 +179,16 @@ The response contains ciphertext only:
   },
   "export_revision": 3,
   "export_generated_at": "2026-03-24T18:30:00Z",
-  "export_refresh_status": "current"
+  "export_refresh_status": "current",
+  "resource_link": {
+    "uri": "https://api.example.test/api/v1/scoped-export/resources/<export-id>/revisions/3",
+    "mime_type": "application/octet-stream",
+    "auth": "developer_bearer"
+  }
 }
 ```
 
-Hussh does not return plaintext user data to developer callers. The external connector unwraps the export key locally, decrypts the payload locally, and narrows the export locally when `granted_scope` is broader than `expected_scope`. That is the current implementation shape behind the founder-language `Cryptographic Primitives` claim.
+Hussh does not return plaintext user data to developer callers. The external connector fetches the authenticated ciphertext resource outside model context, unwraps the export key locally, decrypts locally, and narrows the export when `granted_scope` is broader than `expected_scope`.
 
 For the layer-by-layer PKM storage, consent, MCP, connector, and partner handoff
 map, use [Personal Knowledge Model: PKM to MCP encrypted export flow](./personal-knowledge-model.md#pkm-to-mcp-encrypted-export-flow).
@@ -237,12 +242,15 @@ const connectorPublicKey = btoa(
 Request consent with that public key bundle:
 
 ```js
-await fetch("/api/v1/request-consent?token=<developer-token>", {
+await fetch("/api/v1/request-consent", {
   method: "POST",
-  headers: { "Content-Type": "application/json" },
+  headers: {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer <developer-token>",
+  },
   body: JSON.stringify({
     user_id: "user_123",
-    scope: "attr.financial.*",
+    scope: "attr.financial.portfolio.*",
     connector_public_key: connectorPublicKey,
     connector_key_id: "connector-key-1",
     connector_wrapping_alg: "X25519-AES256-GCM",
@@ -253,21 +261,28 @@ await fetch("/api/v1/request-consent?token=<developer-token>", {
 Fetch the encrypted export after approval:
 
 ```js
-const scopedExport = await fetch("/api/v1/scoped-export?token=<developer-token>", {
+const scopedExport = await fetch("/api/v1/scoped-export", {
   method: "POST",
-  headers: { "Content-Type": "application/json" },
+  headers: {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer <developer-token>",
+  },
   body: JSON.stringify({
     user_id: "user_123",
     consent_token: "HCT:...",
-    expected_scope: "attr.financial.profile.*",
+    expected_scope: "attr.financial.portfolio.*",
   }),
 }).then((response) => response.json());
+
+const ciphertext = await fetch(scopedExport.resource_link.uri, {
+  headers: { "Authorization": "Bearer <developer-token>" },
+}).then((response) => response.arrayBuffer());
 ```
 
 Then unwrap and decrypt locally:
 
 ```js
-async function decryptScopedExport(scopedExport, connectorPrivateKey) {
+async function decryptScopedExport(scopedExport, ciphertext, connectorPrivateKey) {
   const senderPublicKey = await crypto.subtle.importKey(
     "raw",
     base64ToBytes(scopedExport.wrapped_key_bundle.sender_public_key),
@@ -312,7 +327,7 @@ async function decryptScopedExport(scopedExport, connectorPrivateKey) {
     ["decrypt"]
   );
   const encryptedPayload = concatBytes(
-    base64ToBytes(scopedExport.encrypted_data),
+    new Uint8Array(ciphertext),
     base64ToBytes(scopedExport.tag)
   );
   const plaintext = await crypto.subtle.decrypt(

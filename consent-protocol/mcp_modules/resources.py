@@ -72,11 +72,10 @@ async def read_resource(uri: str) -> str:
             ],
             "token_format": "HCT:base64(user|agent|scope|issued|expires).signature",
             "scopes_are_dynamic": True,
-            "scope_note": "Scopes are NOT a fixed list. They come from the PKM scope registry and per-user metadata. Always use discover_user_domains(user_id) or GET /api/v1/user-scopes/{user_id} to get the actual scope strings for a user. Use pkm.read only for approved first-party/internal full-PKM access; prefer discovered attr.{domain}.* scopes for partner or external access.",
+            "scope_note": "External information scopes are discovered per user from the PKM scope registry. pkm.read, pkm.write, and vault.owner are internal-only and are never externally requestable.",
             "scope_examples": [
-                "pkm.read - Full PKM read access for approved first-party/internal flows",
-                "pkm.write - Write to PKM through approved first-party/internal flows",
-                "attr.{domain}.* - One domain (domain key from discover_user_domains or metadata; e.g. attr.financial.*, attr.food.*)",
+                "cap.one.invoke - Start or resume One without granting information access",
+                "attr.{domain}.{scope}.* - Exact discovered information authority",
             ],
             "zero_knowledge": True,
             "server_sees_plaintext": False,
@@ -123,8 +122,8 @@ async def read_resource(uri: str) -> str:
                 },
                 {
                     "name": "get_encrypted_scoped_export",
-                    "purpose": "Fetch wrapped-key ciphertext for an approved token",
-                    "when_to_use": "After check_consent_status or request_consent returns granted",
+                    "purpose": "Fetch envelope metadata plus an authenticated binary ResourceLink, or decrypt locally in stdio",
+                    "when_to_use": "After check_consent_status or request_consent returns granted and current",
                 },
                 {
                     "name": "validate_token",
@@ -139,11 +138,18 @@ async def read_resource(uri: str) -> str:
                 "3. check_consent_status(user_id, scope) to reuse existing approval before creating a request",
                 "4. request_consent(user_id, scope, connector_public_key, connector_key_id, connector_wrapping_alg, expiry_hours, approval_timeout_minutes) only when status is not_found or requires_reconsent",
                 "5. if status is pending, bounded-poll check_consent_status(user_id, scope, request_id); do not fabricate approval",
-                "6. when granted, call get_encrypted_scoped_export and decrypt locally with the connector private key",
+                "6. when granted, call get_encrypted_scoped_export; stdio decrypts locally, hosted connectors fetch the ResourceLink and decrypt outside model context",
             ],
             "public_tools": public_tools,
             "scopes_are_dynamic": True,
-            "supported_scopes": "pkm.read, pkm.write, attr.{domain}.*, and attr.{domain}.{subintent}.* when metadata exposes subintents. No fixed dynamic-domain list.",
+            "supported_scopes": "cap.one.invoke plus exact discovered attr.{domain}.{scope}.* authorities. Internal PKM/vault authorities are excluded.",
+            "connector_capabilities": {
+                "crypto_mode": "local for stdio; host for hosted MCP",
+                "envelope_versions": [2],
+                "wrapping_versions": ["X25519-AES256-GCM"],
+                "resource_fetch_required": True,
+                "inline_ciphertext": False,
+            },
             "discover_scopes": "Call discover_user_domains(user_id) first to get this user's domains and scope strings. Backend uses GET /api/v1/user-scopes/{user_id} (developer-auth) and validates against PKM metadata + domain_registry metadata.",
             "server_backend": "Backend: FastAPI consent API. Set CONSENT_API_URL if not using default (e.g. http://localhost:8000).",
             "duration_controls": {
@@ -159,9 +165,9 @@ async def read_resource(uri: str) -> str:
         developer_api_info = {
             "base_path": "/api/v1",
             "auth": {
-                "developer_token_transport": "query",
-                "developer_token_query_param": "token",
-                "remote_mcp_url_template": "/mcp/?token=<developer-token>",
+                "developer_token_transport": "header_only",
+                "developer_auth": "Authorization: Bearer <developer-token>",
+                "remote_mcp_url_template": "/mcp/",
                 "header_transport": "Authorization: Bearer <developer-token>",
             },
             "mcp_resources": [
@@ -181,7 +187,7 @@ async def read_resource(uri: str) -> str:
                 "/api/v1/tool-catalog",
             ],
             "notes": [
-                "Remote MCP clients should use /mcp/ with the developer token carried in the query string when headers are unavailable.",
+                "Remote MCP clients must use Authorization: Bearer. Query-string credentials are rejected.",
                 "Scopes are dynamic. Call user-scopes or discover_user_domains before requesting attr.{domain}.* access.",
                 "Requestors can set expiry_hours and approval_timeout_minutes; the One user can approve with an adjusted duration.",
             ],
@@ -219,7 +225,7 @@ async def read_resource(uri: str) -> str:
                 {
                     "step": "fetch_export",
                     "tool": "get_encrypted_scoped_export",
-                    "expectation": "Call only after granted status. Hussh returns ciphertext plus wrapped key metadata; decrypt locally.",
+                    "expectation": "Call only after granted/current status. Local stdio decrypts in-process. Hosted MCP returns envelope metadata and a standard ResourceLink; fetch with bearer auth and decrypt in the connector, never in model context.",
                 },
             ],
             "response_contract": {

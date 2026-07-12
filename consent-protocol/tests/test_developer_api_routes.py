@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from api.routes import developer
 from api.routes.developer import _STATIC_REQUESTABLE_SCOPES, _is_supported_scope
 
-_CONNECTOR_PUBLIC_KEY = "U29tZUNvbm5lY3RvclB1YmxpY0tleURhdGE="
+_CONNECTOR_PUBLIC_KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
 _CONNECTOR_KEY_ID = "connector_demo"
 _CONNECTOR_WRAPPING_ALG = "X25519-AES256-GCM"
 
@@ -27,6 +27,7 @@ def _fake_principal():
         agent_id="developer:app_demo_123",
         display_name="Demo App",
         allowed_tool_groups=("core_consent",),
+        allowed_capabilities=("cap.one.invoke",),
         contact_email="founder@example.com",
     )
 
@@ -46,14 +47,14 @@ def test_list_scopes_returns_dynamic_catalog(monkeypatch):
     payload = response.json()
     names = [item["name"] for item in payload["scopes"]]
     assert payload["scopes_are_dynamic"] is True
-    assert "pkm.read" in names
-    assert "agent.one.orchestrate" in names
+    assert "pkm.read" not in names
+    assert "cap.one.invoke" in names
     assert all("world" not in name for name in names)
-    assert "attr.{domain}.*" in names
+    assert "attr.{domain_slug}.{scope_slug}.*" in names
     assert payload["request_endpoint"] == "/api/v1/request-consent"
-    assert payload["default_available_export_endpoint"] == "/api/v1/default-available-export"
+    assert payload["public_profile_export_endpoint"] == "/api/v1/public-profile-export"
     assert "hushh://info/developer-api" in payload["mcp_resources"]
-    assert "read_default_available_projection_when_ready" in payload["recommended_flow"]
+    assert "read_public_profile_projection_when_available" in payload["recommended_flow"]
     assert payload["recommended_flow"][-1] == "get_encrypted_scoped_export"
 
 
@@ -68,7 +69,7 @@ def test_developer_root_returns_self_serve_summary(monkeypatch):
     payload = response.json()
     assert payload["endpoints"]["user_scopes"] == "/api/v1/user-scopes/{user_id}"
     assert payload["endpoints"]["scoped_export"] == "/api/v1/scoped-export"
-    assert payload["endpoints"]["default_available_export"] == "/api/v1/default-available-export"
+    assert payload["endpoints"]["public_profile_export"] == "/api/v1/public-profile-export"
     assert payload["developer_access"]["mode"] == "self_serve"
     assert payload["developer_access"]["portal_api"]["enable"] == "/api/developer/access/enable"
 
@@ -246,9 +247,7 @@ def test_user_scopes_authorization_bearer_takes_precedence_over_query(monkeypatc
     assert captured["raw_token"] == "from_header"  # noqa: S105
 
 
-def test_user_scopes_query_token_logs_url_leak_warning(monkeypatch, caplog):
-    import logging as _logging
-
+def test_user_scopes_rejects_query_token_authentication(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
 
@@ -260,15 +259,10 @@ def test_user_scopes_query_token_logs_url_leak_warning(monkeypatch, caplog):
     monkeypatch.setattr(developer, "get_pkm_service", lambda: _EmptyPkmService())
 
     client = TestClient(_build_app())
-    with caplog.at_level(_logging.WARNING, logger="api.developer_auth"):
-        response = client.get("/api/v1/user-scopes/user_123?token=hdk_demo")
+    response = client.get("/api/v1/user-scopes/user_123?token=hdk_demo")
 
-    assert response.status_code == 200
-    assert any(
-        getattr(rec, "event_type", "") == "developer_token_query_param_use"
-        or "Authorization: Bearer" in rec.getMessage()
-        for rec in caplog.records
-    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["error_code"] == "QUERY_TOKEN_AUTH_UNSUPPORTED"
 
 
 def test_user_scopes_returns_discovered_domains(monkeypatch):
@@ -378,10 +372,10 @@ def test_user_scopes_returns_discovered_domains(monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["available_domains"] == ["financial"]
-    assert "attr.financial.*" in payload["scopes"]
-    assert payload["scope_entries"][0]["source_kind"] == "pkm_index"
-    assert payload["scope_entries"][1]["meta_reference"] == "manifest top-level scope path"
-    assert len(payload["scope_entries"]) == 2
+    assert payload["scopes"] == ["attr.financial.profile.*"]
+    assert payload["scope_entries"][0]["source_kind"] == ("pkm_manifests.top_level_scope_paths")
+    assert payload["scope_entries"][0]["meta_reference"] == "manifest top-level scope path"
+    assert len(payload["scope_entries"]) == 1
     assert all(entry["path"] != "schema_version" for entry in payload["scope_entries"])
     assert payload["app_display_name"] == "Demo App"
 
@@ -448,7 +442,7 @@ def test_user_scopes_omits_private_entries_and_marks_default_available(monkeypat
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["scopes"] == ["attr.financial.portfolio.*", "pkm.read"]
+    assert payload["scopes"] == ["attr.financial.portfolio.*"]
     assert payload["scope_entries"] == [
         {
             "scope": "attr.financial.portfolio.*",
@@ -466,7 +460,7 @@ def test_user_scopes_omits_private_entries_and_marks_default_available(monkeypat
     ]
 
 
-def test_user_scopes_verbose_returns_path_level_entries(monkeypatch):
+def test_user_scopes_verbose_still_hides_internal_exact_paths(monkeypatch):
     class _FakeScopeGenerator:
         async def get_available_scopes(self, user_id: str) -> list[str]:
             assert user_id == "user_123"
@@ -543,8 +537,8 @@ def test_user_scopes_verbose_returns_path_level_entries(monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["available_domains"] == ["financial"]
-    assert payload["scope_entries"][2]["path"] == "profile.risk_tolerance"
-    assert "attr.financial.profile.risk_tolerance" in payload["scopes"]
+    assert [entry["path"] for entry in payload["scope_entries"]] == ["profile"]
+    assert payload["scopes"] == ["attr.financial.profile.*"]
 
 
 def test_tool_catalog_filters_to_public_beta_defaults(monkeypatch):
@@ -588,7 +582,7 @@ def test_request_consent_creates_pending_request(monkeypatch):
     class _FakeScopeGenerator:
         async def get_available_scopes(self, user_id: str) -> list[str]:
             assert user_id == "user_123"
-            return ["attr.financial.*", "pkm.read"]
+            return ["attr.financial.portfolio.*"]
 
     class _FakeIndex:
         available_domains = ["financial"]
@@ -610,7 +604,7 @@ def test_request_consent_creates_pending_request(monkeypatch):
         ):
             assert user_id == "user_123"
             assert agent_id == "developer:app_demo_123"
-            assert requested_scope == "attr.financial.*"
+            assert requested_scope == "attr.financial.portfolio.*"
             return []
 
         async def get_pending_request_for_scope(
@@ -622,7 +616,7 @@ def test_request_consent_creates_pending_request(monkeypatch):
         ):
             assert user_id == "user_123"
             assert agent_id == "developer:app_demo_123"
-            assert scope == "attr.financial.*"
+            assert scope == "attr.financial.portfolio.*"
             return None
 
         async def get_superseded_active_tokens(
@@ -634,7 +628,7 @@ def test_request_consent_creates_pending_request(monkeypatch):
         ):
             assert user_id == "user_123"
             assert agent_id == "developer:app_demo_123"
-            assert requested_scope == "attr.financial.*"
+            assert requested_scope == "attr.financial.portfolio.*"
             return []
 
         async def was_recently_denied(
@@ -645,7 +639,7 @@ def test_request_consent_creates_pending_request(monkeypatch):
             agent_id: str | None = None,
         ):
             assert user_id == "user_123"
-            assert scope == "attr.financial.*"
+            assert scope == "attr.financial.portfolio.*"
             assert agent_id == "developer:app_demo_123"
             return False
 
@@ -666,7 +660,7 @@ def test_request_consent_creates_pending_request(monkeypatch):
         "/api/v1/request-consent?token=hdk_demo",
         json={
             "user_id": "user_123",
-            "scope": "attr.financial.*",
+            "scope": "attr.financial.portfolio.*",
             "expiry_hours": 24,
             "reason": "Portfolio analysis",
             "connector_public_key": _CONNECTOR_PUBLIC_KEY,
@@ -678,12 +672,12 @@ def test_request_consent_creates_pending_request(monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "pending"
-    assert payload["scope"] == "attr.financial.*"
-    assert payload["requested_scope"] == "attr.financial.*"
+    assert payload["scope"] == "attr.financial.portfolio.*"
+    assert payload["requested_scope"] == "attr.financial.portfolio.*"
     assert payload["granted_scope"] is None
     assert inserted["action"] == "REQUESTED"
     assert inserted["agent_id"] == "developer:app_demo_123"
-    assert inserted["scope"] == "attr.financial.*"
+    assert inserted["scope"] == "attr.financial.portfolio.*"
     assert len(inserted["request_id"]) <= 32
     assert inserted["metadata"]["developer_app_display_name"] == "Demo App"
     assert inserted["metadata"]["connector_public_key"] == _CONNECTOR_PUBLIC_KEY
@@ -691,7 +685,7 @@ def test_request_consent_creates_pending_request(monkeypatch):
     assert inserted["metadata"]["connector_wrapping_alg"] == _CONNECTOR_WRAPPING_ALG
 
 
-def test_request_consent_creates_pending_agent_one_orchestration_request(monkeypatch):
+def test_request_consent_creates_pending_one_invocation_request(monkeypatch):
     inserted: dict[str, object] = {}
 
     class _FakeScopeGenerator:
@@ -714,7 +708,7 @@ def test_request_consent_creates_pending_agent_one_orchestration_request(monkeyp
             return _FakeIndex()
 
     class _FakeConsentDBService:
-        async def get_covering_active_tokens(
+        async def find_covering_active_token(
             self,
             user_id: str,
             *,
@@ -722,9 +716,9 @@ def test_request_consent_creates_pending_agent_one_orchestration_request(monkeyp
             agent_id: str | None = None,
         ):
             assert user_id == "user_123"
-            assert requested_scope == "agent.one.orchestrate"
+            assert requested_scope == "cap.one.invoke"
             assert agent_id == "developer:app_demo_123"
-            return []
+            return None
 
         async def get_pending_request_for_scope(
             self,
@@ -735,7 +729,7 @@ def test_request_consent_creates_pending_agent_one_orchestration_request(monkeyp
         ):
             assert user_id == "user_123"
             assert agent_id == "developer:app_demo_123"
-            assert scope == "agent.one.orchestrate"
+            assert scope == "cap.one.invoke"
             return None
 
         async def get_superseded_active_tokens(
@@ -746,7 +740,7 @@ def test_request_consent_creates_pending_agent_one_orchestration_request(monkeyp
             agent_id: str | None = None,
         ):
             assert user_id == "user_123"
-            assert requested_scope == "agent.one.orchestrate"
+            assert requested_scope == "cap.one.invoke"
             assert agent_id == "developer:app_demo_123"
             return []
 
@@ -758,7 +752,7 @@ def test_request_consent_creates_pending_agent_one_orchestration_request(monkeyp
             agent_id: str | None = None,
         ):
             assert user_id == "user_123"
-            assert scope == "agent.one.orchestrate"
+            assert scope == "cap.one.invoke"
             assert agent_id == "developer:app_demo_123"
             return False
 
@@ -776,32 +770,30 @@ def test_request_consent_creates_pending_agent_one_orchestration_request(monkeyp
 
     client = TestClient(_build_app())
     response = client.post(
-        "/api/v1/request-consent?token=hdk_demo",
+        "/api/v1/request-consent",
         json={
             "user_id": "user_123",
-            "scope": "agent.one.orchestrate",
+            "scope": "cap.one.invoke",
             "expiry_hours": 24,
             "approval_timeout_minutes": 60,
             "reason": "Coordinate this request through Agent One",
-            "connector_public_key": _CONNECTOR_PUBLIC_KEY,
-            "connector_key_id": _CONNECTOR_KEY_ID,
-            "connector_wrapping_alg": _CONNECTOR_WRAPPING_ALG,
         },
+        headers={"Authorization": "Bearer hdk_demo"},
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "pending"
-    assert payload["scope"] == "agent.one.orchestrate"
-    assert payload["requested_scope"] == "agent.one.orchestrate"
+    assert payload["scope"] == "cap.one.invoke"
+    assert payload["requested_scope"] == "cap.one.invoke"
     assert payload["granted_scope"] is None
     assert payload["agent_id"] == "developer:app_demo_123"
     assert payload["approval_timeout_minutes"] == 60
     assert inserted["action"] == "REQUESTED"
     assert inserted["agent_id"] == "developer:app_demo_123"
-    assert inserted["scope"] == "agent.one.orchestrate"
+    assert inserted["scope"] == "cap.one.invoke"
     assert inserted["metadata"]["reason"] == "Coordinate this request through Agent One"
-    assert inserted["metadata"]["connector_wrapping_alg"] == _CONNECTOR_WRAPPING_ALG
+    assert "connector_wrapping_alg" not in inserted["metadata"]
 
 
 def _offer_fakes(monkeypatch, inserted):
@@ -809,7 +801,7 @@ def _offer_fakes(monkeypatch, inserted):
 
     class _FakeScopeGenerator:
         async def get_available_scopes(self, user_id: str) -> list[str]:
-            return ["attr.financial.*", "pkm.read"]
+            return ["attr.financial.portfolio.*"]
 
     class _FakeIndex:
         available_domains = ["financial"]
@@ -855,7 +847,7 @@ def test_request_consent_records_reverse_auction_offer(monkeypatch):
         "/api/v1/request-consent?token=hdk_demo",
         json={
             "user_id": "user_123",
-            "scope": "attr.financial.*",
+            "scope": "attr.financial.portfolio.*",
             "reason": "Personalized wealth offer",
             "connector_public_key": _CONNECTOR_PUBLIC_KEY,
             "connector_key_id": _CONNECTOR_KEY_ID,
@@ -899,7 +891,7 @@ def test_request_consent_without_offer_returns_null_offer(monkeypatch):
         "/api/v1/request-consent?token=hdk_demo",
         json={
             "user_id": "user_123",
-            "scope": "attr.financial.*",
+            "scope": "attr.financial.portfolio.*",
             "connector_public_key": _CONNECTOR_PUBLIC_KEY,
             "connector_key_id": _CONNECTOR_KEY_ID,
             "connector_wrapping_alg": _CONNECTOR_WRAPPING_ALG,
@@ -922,7 +914,7 @@ def test_request_consent_rejects_nonpositive_bid(monkeypatch):
         "/api/v1/request-consent?token=hdk_demo",
         json={
             "user_id": "user_123",
-            "scope": "attr.financial.*",
+            "scope": "attr.financial.portfolio.*",
             "connector_public_key": _CONNECTOR_PUBLIC_KEY,
             "connector_key_id": _CONNECTOR_KEY_ID,
             "connector_wrapping_alg": _CONNECTOR_WRAPPING_ALG,
@@ -934,7 +926,9 @@ def test_request_consent_rejects_nonpositive_bid(monkeypatch):
     assert response.status_code == 422
 
 
-def test_request_consent_returns_already_available_for_ready_projection(monkeypatch):
+def test_request_consent_does_not_treat_public_projection_as_encrypted_grant(monkeypatch):
+    inserted: dict[str, object] = {}
+
     class _FakeScopeGenerator:
         async def get_available_scopes(self, user_id: str) -> list[str]:
             assert user_id == "user_123"
@@ -966,14 +960,27 @@ def test_request_consent_returns_already_available_for_ready_projection(monkeypa
             assert user_id == "user_123"
             return _FakeIndex()
 
-    class _UnexpectedConsentDBService:
-        def __init__(self, *args, **kwargs):
-            raise AssertionError("default-available request should not create consent service")
+    class _FakeConsentDBService:
+        async def get_covering_active_tokens(self, *_args, **_kwargs):
+            return []
+
+        async def get_pending_request_for_scope(self, *_args, **_kwargs):
+            return None
+
+        async def get_superseded_active_tokens(self, *_args, **_kwargs):
+            return []
+
+        async def was_recently_denied(self, *_args, **_kwargs):
+            return False
+
+        async def insert_event(self, **kwargs):
+            inserted.update(kwargs)
+            return 1
 
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
     monkeypatch.setattr(developer, "get_pkm_service", lambda: _FakePkmService())
-    monkeypatch.setattr(developer, "ConsentDBService", _UnexpectedConsentDBService)
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
     monkeypatch.setattr(
         developer, "authenticate_developer_principal", lambda **_: _fake_principal()
     )
@@ -992,23 +999,19 @@ def test_request_consent_returns_already_available_for_ready_projection(monkeypa
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["status"] == "already_available"
-    assert payload["coverage_kind"] == "default_available_projection"
-    assert payload["default_projection_ready"] is True
-    assert payload["default_projection_updated_at"] == "2026-05-21T10:00:00Z"
-    assert "consent_token" not in payload
+    assert payload["status"] == "pending"
+    assert payload["requested_scope"] == "attr.financial.portfolio.*"
+    assert inserted["action"] == "REQUESTED"
 
 
-def test_request_consent_reuses_covering_active_token(monkeypatch):
-    existing_grant = "grant_existing_superset"
+def test_request_consent_reuses_active_semantic_scope_token(monkeypatch):
+    existing_grant = "grant_existing_scope"
 
     class _FakeScopeGenerator:
         async def get_available_scopes(self, user_id: str) -> list[str]:
             assert user_id == "user_123"
             return [
-                "attr.financial.*",
                 "attr.financial.analytics.*",
-                "attr.financial.analytics.quality_metrics",
             ]
 
     class _FakeIndex:
@@ -1029,7 +1032,7 @@ def test_request_consent_reuses_covering_active_token(monkeypatch):
             requested_scope: str,
             agent_id: str | None = None,
         ):
-            assert requested_scope == "attr.financial.analytics.quality_metrics"
+            assert requested_scope == "attr.financial.analytics.*"
             return [
                 {
                     "scope": "attr.financial.analytics.*",
@@ -1077,7 +1080,7 @@ def test_request_consent_reuses_covering_active_token(monkeypatch):
         "/api/v1/request-consent?token=hdk_demo",
         json={
             "user_id": "user_123",
-            "scope": "attr.financial.analytics.quality_metrics",
+            "scope": "attr.financial.analytics.*",
             "connector_public_key": _CONNECTOR_PUBLIC_KEY,
             "connector_key_id": _CONNECTOR_KEY_ID,
             "connector_wrapping_alg": _CONNECTOR_WRAPPING_ALG,
@@ -1087,10 +1090,10 @@ def test_request_consent_reuses_covering_active_token(monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "already_granted"
-    assert payload["scope"] == "attr.financial.analytics.quality_metrics"
-    assert payload["requested_scope"] == "attr.financial.analytics.quality_metrics"
+    assert payload["scope"] == "attr.financial.analytics.*"
+    assert payload["requested_scope"] == "attr.financial.analytics.*"
     assert payload["granted_scope"] == "attr.financial.analytics.*"
-    assert payload["coverage_kind"] == "superset"
+    assert payload["coverage_kind"] == "exact"
     assert payload["covered_by_existing_grant"] is True
     assert payload["consent_token"] == existing_grant
     assert payload["export_revision"] == 2
@@ -1103,7 +1106,7 @@ def test_request_consent_reuses_exact_active_token(monkeypatch):
     class _FakeScopeGenerator:
         async def get_available_scopes(self, user_id: str) -> list[str]:
             assert user_id == "user_123"
-            return ["attr.financial.*"]
+            return ["attr.financial.portfolio.*"]
 
     class _FakeIndex:
         available_domains = ["financial"]
@@ -1125,10 +1128,10 @@ def test_request_consent_reuses_exact_active_token(monkeypatch):
         ):
             assert user_id == "user_123"
             assert agent_id == "developer:app_demo_123"
-            assert requested_scope == "attr.financial.*"
+            assert requested_scope == "attr.financial.portfolio.*"
             return [
                 {
-                    "scope": "attr.financial.*",
+                    "scope": "attr.financial.portfolio.*",
                     "request_id": "req_existing_exact",
                     "token_id": existing_grant,
                     "expires_at": 123456789,
@@ -1168,7 +1171,7 @@ def test_request_consent_reuses_exact_active_token(monkeypatch):
         "/api/v1/request-consent?token=hdk_demo",
         json={
             "user_id": "user_123",
-            "scope": "attr.financial.*",
+            "scope": "attr.financial.portfolio.*",
             "connector_public_key": _CONNECTOR_PUBLIC_KEY,
             "connector_key_id": _CONNECTOR_KEY_ID,
             "connector_wrapping_alg": _CONNECTOR_WRAPPING_ALG,
@@ -1179,8 +1182,8 @@ def test_request_consent_reuses_exact_active_token(monkeypatch):
     payload = response.json()
     assert payload["status"] == "already_granted"
     assert payload["request_id"] == "req_existing_exact"
-    assert payload["requested_scope"] == "attr.financial.*"
-    assert payload["granted_scope"] == "attr.financial.*"
+    assert payload["requested_scope"] == "attr.financial.portfolio.*"
+    assert payload["granted_scope"] == "attr.financial.portfolio.*"
     assert payload["coverage_kind"] == "exact"
     assert payload["covered_by_existing_grant"] is True
     assert payload["consent_token"] == existing_grant
@@ -1191,7 +1194,7 @@ def test_request_consent_reuses_exact_pending_request(monkeypatch):
     class _FakeScopeGenerator:
         async def get_available_scopes(self, user_id: str) -> list[str]:
             assert user_id == "user_123"
-            return ["attr.financial.*"]
+            return ["attr.financial.portfolio.*"]
 
     class _FakeIndex:
         available_domains = ["financial"]
@@ -1216,10 +1219,10 @@ def test_request_consent_reuses_exact_pending_request(monkeypatch):
         ):
             assert user_id == "user_123"
             assert agent_id == "developer:app_demo_123"
-            assert scope == "attr.financial.*"
+            assert scope == "attr.financial.portfolio.*"
             return {
                 "id": "req_pending_existing",
-                "scope": "attr.financial.*",
+                "scope": "attr.financial.portfolio.*",
                 "scopeDescription": "Access all your financial data",
                 "pollTimeoutAt": 123456789,
                 "approvalTimeoutAt": 123456789,
@@ -1252,7 +1255,7 @@ def test_request_consent_reuses_exact_pending_request(monkeypatch):
         "/api/v1/request-consent?token=hdk_demo",
         json={
             "user_id": "user_123",
-            "scope": "attr.financial.*",
+            "scope": "attr.financial.portfolio.*",
             "connector_public_key": _CONNECTOR_PUBLIC_KEY,
             "connector_key_id": _CONNECTOR_KEY_ID,
             "connector_wrapping_alg": _CONNECTOR_WRAPPING_ALG,
@@ -1283,7 +1286,7 @@ def test_request_consent_rejects_public_expiry_hours_outside_range(monkeypatch):
             "/api/v1/request-consent?token=hdk_demo",
             json={
                 "user_id": "user_123",
-                "scope": "attr.financial.*",
+                "scope": "attr.financial.portfolio.*",
                 "expiry_hours": expiry_hours,
                 "connector_public_key": _CONNECTOR_PUBLIC_KEY,
                 "connector_key_id": _CONNECTOR_KEY_ID,
@@ -1309,7 +1312,7 @@ def test_request_consent_rejects_public_approval_timeout_minutes_outside_range(
             "/api/v1/request-consent?token=hdk_demo",
             json={
                 "user_id": "user_123",
-                "scope": "attr.financial.*",
+                "scope": "attr.financial.portfolio.*",
                 "approval_timeout_minutes": approval_timeout_minutes,
                 "connector_public_key": _CONNECTOR_PUBLIC_KEY,
                 "connector_key_id": _CONNECTOR_KEY_ID,
@@ -1332,7 +1335,7 @@ def test_request_consent_rejects_unsupported_connector_wrapping_alg(monkeypatch)
         "/api/v1/request-consent?token=hdk_demo",
         json={
             "user_id": "user_123",
-            "scope": "attr.financial.*",
+            "scope": "attr.financial.portfolio.*",
             "connector_public_key": _CONNECTOR_PUBLIC_KEY,
             "connector_key_id": _CONNECTOR_KEY_ID,
             "connector_wrapping_alg": "unsupported",
@@ -1497,7 +1500,7 @@ def test_get_consent_status_pending_request_does_not_return_event_token(monkeypa
             return {
                 "action": "REQUESTED",
                 "agent_id": "developer:app_demo_123",
-                "scope": "agent.one.orchestrate",
+                "scope": "cap.one.invoke",
                 "request_id": "req_pending",
                 "token_id": "evt_internal_row_id",
                 "poll_timeout_at": 123456789,
@@ -1532,7 +1535,7 @@ def test_developer_consent_status_payload_only_returns_token_after_grant():
     pending = developer._developer_consent_status_payload(
         latest={
             "action": "REQUESTED",
-            "scope": "agent.one.orchestrate",
+            "scope": "cap.one.invoke",
             "token_id": "evt_internal",
             "metadata": {"requester_label": "Demo App"},
         },
@@ -1543,7 +1546,7 @@ def test_developer_consent_status_payload_only_returns_token_after_grant():
     granted = developer._developer_consent_status_payload(
         latest={
             "action": "CONSENT_GRANTED",
-            "scope": "agent.one.orchestrate",
+            "scope": "cap.one.invoke",
             "token_id": "HCT:granted",
             "expires_at": 123456789,
             "metadata": {"requester_label": "Demo App"},
@@ -1567,7 +1570,7 @@ def test_developer_consent_event_stream_rejects_other_developer(monkeypatch):
             return {
                 "action": "REQUESTED",
                 "agent_id": "developer:other_app",
-                "scope": "agent.one.orchestrate",
+                "scope": "cap.one.invoke",
                 "request_id": request_id,
             }
 
@@ -1594,7 +1597,7 @@ def test_developer_consent_event_stream_returns_terminal_snapshot(monkeypatch):
             return {
                 "action": "CONSENT_GRANTED",
                 "agent_id": "developer:app_demo_123",
-                "scope": "agent.one.orchestrate",
+                "scope": "cap.one.invoke",
                 "request_id": request_id,
                 "token_id": "HCT:granted",
                 "expires_at": 123456789,
@@ -1660,44 +1663,13 @@ def test_developer_consent_subscribers_are_fanout_not_shared_queue():
     asyncio.run(_run())
 
 
-def test_default_available_export_returns_safe_projection_and_audits(monkeypatch):
+def test_public_profile_export_returns_safe_projection_and_audits(monkeypatch):
     audit_event: dict[str, object] = {}
 
-    class _FakeScopeGenerator:
-        async def get_available_scopes(self, user_id: str) -> list[str]:
-            assert user_id == "user_123"
-            return ["attr.financial.portfolio.*"]
-
-        async def get_available_scope_entries(self, user_id: str) -> list[dict]:
-            assert user_id == "user_123"
-            return [
-                {
-                    "scope": "attr.financial.portfolio.*",
-                    "domain": "financial",
-                    "path": "portfolio",
-                    "wildcard": True,
-                    "source_kind": "pkm_manifests.top_level_scope_paths",
-                    "label": "Portfolio",
-                    "visibility_posture": "default_available",
-                    "default_projection_ready": True,
-                    "default_projection_updated_at": "2026-05-21T10:00:00Z",
-                    "top_level_scope_path": "portfolio",
-                }
-            ]
-
-    class _FakeIndex:
-        available_domains = ["financial"]
-
     class _FakePkmService:
-        scope_generator = _FakeScopeGenerator()
-
-        async def resolve_metadata_index(self, user_id: str):
+        async def get_public_profile_projection(self, *, user_id: str, public_profile_handle: str):
             assert user_id == "user_123"
-            return _FakeIndex()
-
-        async def get_default_available_projection(self, *, user_id: str, scope: str):
-            assert user_id == "user_123"
-            assert scope == "attr.financial.portfolio.*"
+            assert public_profile_handle == "profile_opaque_123"
             return {
                 "domain": "financial",
                 "top_level_scope_path": "portfolio",
@@ -1722,8 +1694,9 @@ def test_default_available_export_returns_safe_projection_and_audits(monkeypatch
 
     client = TestClient(_build_app())
     response = client.post(
-        "/api/v1/default-available-export?token=hdk_demo",
-        json={"user_id": "user_123", "scope": "attr.financial.portfolio.*"},
+        "/api/v1/public-profile-export",
+        headers={"Authorization": "Bearer hdk_demo"},
+        json={"user_id": "user_123", "public_profile_handle": "profile_opaque_123"},
     )
 
     assert response.status_code == 200
@@ -1732,12 +1705,12 @@ def test_default_available_export_returns_safe_projection_and_audits(monkeypatch
     assert payload["projection_payload"] == {"portfolio": {"summary": {"total_value": 1656064.53}}}
     assert payload["projection_hash"] == "sha256:projection"
     assert payload["app_id"] == "app_demo_123"
-    assert audit_event["action"] == "DEFAULT_AVAILABLE_READ"
-    assert audit_event["scope"] == "attr.financial.portfolio.*"
+    assert audit_event["action"] == "PUBLIC_PROFILE_READ"
+    assert audit_event["scope"] == "public_profile:profile_opaque_123"
     assert audit_event["metadata"]["projection_hash"] == "sha256:projection"
 
 
-def test_scoped_export_returns_ciphertext_only(monkeypatch):
+def test_scoped_export_returns_envelope_metadata_and_resource_link(monkeypatch):
     consent_token = "token_existing_1234"  # noqa: S105 - test fixture token id
 
     class _FakeConsentDBService:
@@ -1760,6 +1733,17 @@ def test_scoped_export_returns_ciphertext_only(monkeypatch):
                 "export_generated_at": datetime(2026, 3, 24, 18, 30, 0, tzinfo=timezone.utc),
                 "refresh_status": "current",
                 "is_strict_zero_knowledge": True,
+                "envelope_version": 2,
+                "export_id": "123e4567-e89b-12d3-a456-426614174000",
+                "grant_id": "req_existing_1234",
+                "app_id": "app_demo_123",
+                "scope_handle": "s_financial_123",
+                "recipient_key_fingerprint": f"sha256:{'a' * 64}",
+                "payload_algorithm": "AES-256-GCM",
+                "envelope_aad": {"version": 2},
+                "envelope_aad_sha256": f"sha256:{'b' * 64}",
+                "ciphertext_sha256": f"sha256:{'c' * 64}",
+                "ciphertext_bytes": 10,
             }
 
     async def _validate(token: str, expected_scope=None):  # noqa: ANN001
@@ -1802,8 +1786,12 @@ def test_scoped_export_returns_ciphertext_only(monkeypatch):
     assert payload["expected_scope"] == "attr.financial.profile.*"
     assert payload["coverage_kind"] == "superset"
     assert payload["export_generated_at"] == "2026-03-24 18:30:00+00:00"
-    assert payload["encrypted_data"] == "ciphertext"
+    assert payload["encrypted_data"] is None
     assert payload["wrapped_key_bundle"]["connector_key_id"] == _CONNECTOR_KEY_ID
+    assert payload["resource_link"]["uri"].endswith(
+        "/api/v1/scoped-export/resources/123e4567-e89b-12d3-a456-426614174000/revisions/7"
+    )
+    assert payload["export_envelope"]["ciphertext_bytes"] == 10
     assert "data" not in payload
 
 
@@ -2161,21 +2149,24 @@ def test_static_requestable_scopes_is_frozenset():
     assert isinstance(_STATIC_REQUESTABLE_SCOPES, frozenset)
 
 
-def test_is_supported_scope_accepts_pkm_read():
-    assert _is_supported_scope("pkm.read") is True
+def test_is_supported_scope_rejects_internal_pkm_read():
+    assert _is_supported_scope("pkm.read") is False
 
 
-def test_is_supported_scope_accepts_pkm_write():
-    assert _is_supported_scope("pkm.write") is True
+def test_is_supported_scope_rejects_internal_pkm_write():
+    assert _is_supported_scope("pkm.write") is False
 
 
-def test_is_supported_scope_accepts_agent_one_orchestrate():
-    assert _is_supported_scope("agent.one.orchestrate") is True
+def test_is_supported_scope_accepts_cap_one_invoke():
+    assert _is_supported_scope("cap.one.invoke") is True
+    assert _is_supported_scope("agent.one.orchestrate") is False
 
 
 def test_is_supported_scope_accepts_dynamic_attr_scope():
-    assert _is_supported_scope("attr.financial.holdings") is True
-    assert _is_supported_scope("attr.food.*") is True
+    assert _is_supported_scope("attr.financial.holdings.*") is True
+    assert _is_supported_scope("attr.food.preferences.*") is True
+    assert _is_supported_scope("attr.financial.holdings") is False
+    assert _is_supported_scope("attr.food.*") is False
 
 
 def test_is_supported_scope_rejects_unknown_static_scope():

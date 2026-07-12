@@ -1,3 +1,4 @@
+manifest_version: 2
 id: agent_summary_reducer
 name: PKM Summary Reducer
 version: 1.0.0

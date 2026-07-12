@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 86,
+  "expected_migration_version": 91,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -8,7 +8,10 @@
     "remove_domain_summary_key",
     "upsert_pkm_data_blob",
     "auto_register_domain",
-    "get_user_pkm_metadata"
+    "get_user_pkm_metadata",
+    "claim_consent_export_refresh_jobs_v2",
+    "complete_consent_export_refresh_v2",
+    "commit_pkm_domain_mutation_v2"
   ],
   "required_tables": {
     "vault_keys": [
@@ -187,6 +190,9 @@
       "revoked_at",
       "revoked_reason",
       "metadata",
+      "public_profile_handle",
+      "publication_provenance",
+      "publication_confirmed_at",
       "created_at",
       "updated_at"
     ],
@@ -265,6 +271,7 @@
       "poll_timeout_at"
     ],
     "consent_exports": [
+      "export_id",
       "consent_token",
       "user_id",
       "encrypted_data",
@@ -280,6 +287,17 @@
       "source_content_revision",
       "source_manifest_revision",
       "refresh_status",
+      "envelope_version",
+      "grant_id",
+      "app_id",
+      "scope_handle",
+      "recipient_key_fingerprint",
+      "payload_algorithm",
+      "envelope_aad",
+      "envelope_aad_sha256",
+      "ciphertext_sha256",
+      "ciphertext_bytes",
+      "refresh_policy",
       "expires_at",
       "created_at"
     ],
@@ -294,6 +312,10 @@
       "requested_at",
       "last_error",
       "attempt_count",
+      "claim_id",
+      "claimed_at",
+      "claim_expires_at",
+      "expected_export_revision",
       "created_at",
       "updated_at"
     ],
@@ -606,6 +628,7 @@
       "contact_email",
       "status",
       "allowed_tool_groups",
+      "allowed_capabilities",
       "owner_firebase_uid",
       "owner_email",
       "owner_display_name",

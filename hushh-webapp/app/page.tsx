@@ -24,9 +24,6 @@ function HomeContent() {
   const loginUrl = redirectPath
     ? `${ROUTES.LOGIN}?redirect=${encodeURIComponent(redirectPath)}`
     : ROUTES.LOGIN;
-  const gettingStartedUrl = redirectPath
-    ? `${ROUTES.GETTING_STARTED}?redirect=${encodeURIComponent(redirectPath)}`
-    : ROUTES.GETTING_STARTED;
 
   const { user, loading } = useAuth();
   const [step, setStep] = useState<HomeStep | null>(null);
@@ -51,7 +48,6 @@ function HomeContent() {
   }, [router]);
 
   useEffect(() => {
-    let cancelled = false;
     if (loading) return;
 
     if (user) {
@@ -60,33 +56,12 @@ function HomeContent() {
       return;
     }
 
-    (async () => {
-      if (forceOnboardingInDev) {
-        setStep("intro");
-        return;
-      }
-
-      const shouldForceIntro = await OnboardingLocalService.consumeForceIntroOnce();
-      if (shouldForceIntro) {
-        setStep("intro");
-        return;
-      }
-
-      const hasSeen = await OnboardingLocalService.hasSeenMarketing();
-      if (cancelled) return;
-      // Returning visitors who already saw the intro skip straight to the
-      // getting-started carousel route; first-timers see the intro.
-      if (hasSeen) {
-        router.replace(gettingStartedUrl);
-        return;
-      }
-      setStep("intro");
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [loading, user, router, forceOnboardingInDev, gettingStartedUrl]);
+    // The marketing carousel is disabled for now: every signed-out visitor
+    // lands on the single welcome (intro) screen, which leads to sign-in. The
+    // dev-only force-intro flag is consumed so it does not persist.
+    void OnboardingLocalService.consumeForceIntroOnce();
+    setStep("intro");
+  }, [loading, user, router, forceOnboardingInDev]);
 
   if (loading || (!user && step === null)) {
     return <HushhLoader label="Loading..." variant="fullscreen" />;
@@ -105,10 +80,7 @@ function HomeContent() {
           authState={user ? "authenticated" : "anonymous"}
           dataState="loaded"
         />
-        <IntroStep
-          onNext={() => router.push(gettingStartedUrl)}
-          onLogin={() => router.push(loginUrl)}
-        />
+        <IntroStep onLogin={() => router.push(loginUrl)} />
       </>
     );
   }

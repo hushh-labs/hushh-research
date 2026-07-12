@@ -18,7 +18,8 @@
   ],
   "task_types": [
     "bug-triage",
-    "mcp-surface-change"
+    "mcp-surface-change",
+    "product-agent-development"
   ],
   "required_reads": [
     "consent-protocol/docs/reference/agent-development.md",

@@ -84,8 +84,9 @@ fs.writeFileSync(
   manifestPath,
   JSON.stringify(
     {
-      sourceRoot,
-      stagedAt: new Date().toISOString(),
+      packageVersion: JSON.parse(
+        fs.readFileSync(path.join(packageDir, "package.json"), "utf8"),
+      ).version,
       copyList,
     },
     null,

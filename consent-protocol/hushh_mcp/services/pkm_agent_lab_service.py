@@ -14,7 +14,11 @@ from typing import Any
 
 from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
-from hushh_mcp.services.domain_contracts import CANONICAL_DOMAIN_REGISTRY
+from hushh_mcp.services.domain_contracts import (
+    CANONICAL_DOMAIN_REGISTRY,
+    DYNAMIC_DOMAIN_CONTRACT_VERSION,
+    validate_dynamic_top_level_domain,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +63,24 @@ _MERGE_MODES = {
     "correct_entity",
     "delete_entity",
     "no_op",
+}
+_BLOCKED_EXTERNAL_PATH_PARTS = {
+    "changes",
+    "created_at",
+    "debug",
+    "debug_fields",
+    "entity_id",
+    "hash",
+    "metadata",
+    "parser_metadata",
+    "provenance",
+    "schema_version",
+    "source_agent",
+    "timestamps",
+    "updated_at",
+    "workflow",
+    "workflow_id",
+    "workflow_state",
 }
 
 _FINANCIAL_PAYLOAD_HINTS = {
@@ -368,11 +390,16 @@ _PREVIEW_CACHE_MAX_SIZE = max(
 )
 _AGENT_CONTRACT_TIMEOUT_SECONDS = max(
     1.5,
-    float(os.getenv("PKM_AGENT_LAB_AGENT_TIMEOUT_SECONDS", "4") or "4"),
+    # A structured preview can call segmentation, financial guard, intent,
+    # merge, and structure contracts. Four seconds is below normal Vertex
+    # tail latency and forced valid model responses into fallback.
+    float(os.getenv("PKM_AGENT_LAB_AGENT_TIMEOUT_SECONDS", "8") or "8"),
 )
 _PREVIEW_TOTAL_BUDGET_SECONDS = max(
     4.0,
-    float(os.getenv("PKM_AGENT_LAB_PREVIEW_BUDGET_SECONDS", "12") or "12"),
+    # Keep a finite user-facing budget while allowing the sequential contract
+    # graph to complete under normal provider tail latency.
+    float(os.getenv("PKM_AGENT_LAB_PREVIEW_BUDGET_SECONDS", "30") or "30"),
 )
 _PREVIEW_CACHE: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
 _PREVIEW_INFLIGHT: dict[str, asyncio.Task[dict[str, Any]]] = {}
@@ -618,6 +645,10 @@ class PKMAgentLabService:
         try:
             from google import genai
 
+            # The GenAI SDK derives managed Vertex mode and endpoint selection
+            # from the configured environment. Passing an explicit location with
+            # an API key is invalid, so deployments select `global` through
+            # GOOGLE_CLOUD_LOCATION rather than this constructor.
             self._client = genai.Client(api_key=api_key)
         except Exception as exc:
             logger.warning("pkm.agent_lab_client_unavailable error=%s", exc)
@@ -1559,6 +1590,14 @@ class PKMAgentLabService:
     ) -> dict[str, Any]:
         normalized = cls._safe_excerpt(message, limit=600).lower()
         tokens = cls._message_tokens(message)
+        if cls._is_pkm_governance_message(message):
+            return {
+                "routing_decision": "non_financial_or_ephemeral",
+                "confidence": 0.96,
+                "reason": "PKM governance instructions do not grant financial routing authority.",
+                "source_agent": "financial_guard_agent",
+                "contract_version": 1,
+            }
         finance_signaled = cls._is_finance_message(message)
 
         if not finance_signaled:
@@ -1668,9 +1707,24 @@ class PKMAgentLabService:
         }
 
     @classmethod
+    def _is_pkm_governance_message(cls, message: str) -> bool:
+        normalized = cls._safe_excerpt(message, limit=800).lower()
+        return (
+            "pkm write" in normalized
+            or "memory is specific" in normalized
+            or normalized.startswith("broad food preferences")
+            or normalized.startswith("broad travel memories")
+            or normalized.startswith("broad health constraints")
+            or "reminders kept separate from durable pkm" in normalized
+            or "vague prompts to trigger confirmation" in normalized
+            or normalized.startswith("i want the system to ")
+        )
+
+    @classmethod
     def _sanitize_financial_guard_decision(
         cls,
         *,
+        message: str,
         raw: dict[str, Any] | None,
         fallback: dict[str, Any],
     ) -> dict[str, Any]:
@@ -1697,6 +1751,7 @@ class PKMAgentLabService:
         raw_financial_core_override = (
             decision.get("routing_decision") == "financial_core"
             and decision_confidence >= fallback_confidence + 0.05
+            and cls._is_finance_message(message)
         )
         if fallback_confidence >= 0.84 and not raw_financial_core_override:
             decision["routing_decision"] = fallback["routing_decision"]
@@ -1771,6 +1826,26 @@ class PKMAgentLabService:
             else ""
         )
         has_refinement_signal = cls._has_refinement_signal(message)
+        is_explicitly_unresolved = any(
+            phrase in normalized
+            for phrase in (
+                "not enough for you to store",
+                "have not said what that means",
+                "have not picked whether",
+                "still unsure",
+                "still too vague",
+            )
+        )
+        is_pkm_governance_note = (
+            "pkm write" in normalized
+            or "memory is specific" in normalized
+            or normalized.startswith("broad food preferences")
+            or normalized.startswith("broad travel memories")
+            or normalized.startswith("broad health constraints")
+            or "reminders kept separate from durable pkm" in normalized
+            or "vague prompts to trigger confirmation" in normalized
+            or normalized.startswith("i want the system to ")
+        )
         is_vague_capture = any(
             phrase in normalized
             for phrase in (
@@ -1820,7 +1895,11 @@ class PKMAgentLabService:
             intent_class = "ambiguous"
             mutation_intent = "no_op"
             confidence = 0.98
-        elif any(phrase in normalized for phrase in _AMBIGUOUS_PREFIXES) or is_vague_capture:
+        elif (
+            any(phrase in normalized for phrase in _AMBIGUOUS_PREFIXES)
+            or is_vague_capture
+            or is_explicitly_unresolved
+        ):
             save_class = "ambiguous"
             intent_class = "ambiguous"
             mutation_intent = "no_op"
@@ -1844,6 +1923,14 @@ class PKMAgentLabService:
             intent_class = "task_or_reminder"
             mutation_intent = "no_op"
             confidence = 0.92
+        elif is_pkm_governance_note:
+            # Product-governance statements are durable owner preferences about
+            # PKM behavior. They are never investment information, even when
+            # they mention finance, scopes, or consent.
+            save_class = "durable"
+            intent_class = "note"
+            mutation_intent = "extend"
+            confidence = 0.8
         elif finance_route == "sanctioned_financial_memory":
             save_class = "durable"
             intent_class = "financial_event"
@@ -1895,6 +1982,7 @@ class PKMAgentLabService:
                     "i love",
                     "i prefer",
                     "i still prefer",
+                    "i still lean",
                     "my favorite",
                 )
             )
@@ -2108,6 +2196,7 @@ class PKMAgentLabService:
                 "correction",
                 "deletion",
                 "task_or_reminder",
+                "note",
             }:
                 frame["save_class"] = fallback["save_class"]
                 frame["intent_class"] = fallback["intent_class"]
@@ -2851,11 +2940,15 @@ class PKMAgentLabService:
         if current_path:
             is_array = isinstance(value, list)
             is_object = isinstance(value, dict)
+            path_type = "array" if is_array else "object" if is_object else "leaf"
             paths[current_path] = {
                 "json_path": current_path,
                 "parent_path": ".".join(path[:-1]) if len(path) > 1 else None,
-                "path_type": "array" if is_array else "object" if is_object else "leaf",
-                "exposure_eligibility": True,
+                "path_type": path_type,
+                "exposure_eligibility": path_type == "leaf"
+                and not any(
+                    part in _BLOCKED_EXTERNAL_PATH_PARTS for part in current_path.split(".")
+                ),
                 "consent_label": cls._titleize_path(current_path),
                 "sensitivity_label": cls._infer_sensitivity(current_path),
                 "segment_id": path[0] if path else "root",
@@ -2915,7 +3008,9 @@ class PKMAgentLabService:
         cls._walk_payload(candidate_payload, [], path_map)
         json_paths = sorted(path_map.keys())
         top_level_scope_paths = sorted({path.split(".", 1)[0] for path in json_paths if path})
-        externalizable_paths = list(json_paths)
+        externalizable_paths = [
+            path for path in json_paths if path_map[path].get("path_type") == "leaf"
+        ]
         sensitivity_labels = {
             path: label
             for path, label in (
@@ -2947,7 +3042,7 @@ class PKMAgentLabService:
             "sensitivity_labels": sensitivity_labels,
             "confidence": cls._clamp_confidence(intent_frame.get("confidence"), default=0.55),
             "source_agent": "pkm_structure_agent",
-            "contract_version": 1,
+            "contract_version": DYNAMIC_DOMAIN_CONTRACT_VERSION,
         }
 
     @classmethod
@@ -2981,7 +3076,7 @@ class PKMAgentLabService:
         intent_frame: dict[str, Any],
         write_mode: str,
     ) -> str | None:
-        if write_mode in {"confirm_first", "do_not_save"}:
+        if write_mode == "do_not_save":
             return None
 
         normalized_requested = cls._normalize_path(requested_path)
@@ -3141,6 +3236,13 @@ class PKMAgentLabService:
             or recommended_domain
             or _DEFAULT_CONFIRMATION_DOMAINS[0]
         )
+        try:
+            target_domain = validate_dynamic_top_level_domain(target_domain)
+        except ValueError:
+            validation_hints.append("invalid_or_reserved_custom_domain_rejected")
+            target_domain = validate_dynamic_top_level_domain(
+                recommended_domain or _DEFAULT_CONFIRMATION_DOMAINS[0]
+            )
         keyword_ranked_domains = cls._keyword_ranked_domains(
             message=message,
             current_domains=current_domains,
@@ -3187,8 +3289,7 @@ class PKMAgentLabService:
 
         if target_domain not in registry_keys and target_domain not in current_domains:
             validation_hints.append("new_domain_requires_extra_confidence")
-            if intent_frame.get("requires_confirmation"):
-                target_domain = recommended_domain
+            validation_hints.append("custom_domain_pending_owner_confirmation")
 
         if (
             intent_frame.get("intent_class") != "financial_event"
@@ -3278,9 +3379,12 @@ class PKMAgentLabService:
             or "pkm_structure_agent"
         )
         try:
-            decision["contract_version"] = int(raw_decision.get("contract_version") or 1)
+            decision["contract_version"] = max(
+                int(raw_decision.get("contract_version") or 1),
+                DYNAMIC_DOMAIN_CONTRACT_VERSION,
+            )
         except Exception:
-            decision["contract_version"] = 1
+            decision["contract_version"] = DYNAMIC_DOMAIN_CONTRACT_VERSION
 
         raw_requested_scope = str(raw_structure.get("target_entity_scope") or "").strip()
         requested_scope = raw_requested_scope
@@ -3355,6 +3459,17 @@ class PKMAgentLabService:
         if mutation_intent == "no_op" and write_mode == "can_save":
             write_mode = "do_not_save"
 
+        # PKM v5 has no semantic auto-save lane. Every durable create/update/
+        # move/merge/delete is shown to the owner as a review card first.
+        if write_mode != "do_not_save":
+            write_mode = "confirm_first"
+            intent_frame["requires_confirmation"] = True
+            intent_frame["confirmation_reason"] = (
+                str(intent_frame.get("confirmation_reason") or "").strip()
+                or "Review the domain, scope, and sharing impact before this PKM change is saved."
+            )
+            validation_hints.append("pkm_v5_owner_confirmation_required")
+
         parsed_validation_hints = raw_structure.get("validation_hints")
         if isinstance(parsed_validation_hints, list):
             for hint in parsed_validation_hints:
@@ -3372,10 +3487,10 @@ class PKMAgentLabService:
             intent_frame=intent_frame,
             write_mode=write_mode,
         )
-        if write_mode == "can_save" and primary_json_path is None:
+        if write_mode != "do_not_save" and primary_json_path is None:
             validation_hints.append("primary_path_missing")
         if (
-            write_mode == "can_save"
+            write_mode != "do_not_save"
             and primary_json_path is not None
             and primary_json_path in decision["top_level_scope_paths"]
             and (raw_requested_scope or requested_scope)
@@ -3452,7 +3567,11 @@ class PKMAgentLabService:
         top_level_scope_paths = sorted(
             {path["json_path"].split(".", 1)[0] for path in paths if path["json_path"]}
         )
-        externalizable_paths = [path["json_path"] for path in paths if path["exposure_eligibility"]]
+        externalizable_paths = [
+            path["json_path"]
+            for path in paths
+            if path["exposure_eligibility"] and path.get("path_type") == "leaf"
+        ]
         segment_ids = sorted({path.get("segment_id") or "root" for path in paths}) or ["root"]
         scope_registry = []
         for scope_path in top_level_scope_paths:
@@ -3966,6 +4085,9 @@ class PKMAgentLabService:
             f"Natural language message: {message}\n"
             "Rules:\n"
             "- candidate_payload must align with target_domain and the intent frame.\n"
+            "- You may propose a new safe lowercase snake_case top-level domain when no existing domain is semantically accurate.\n"
+            "- Never propose protocol or internal namespaces such as vault, pkm, attr, cap, agent, runtime_secrets, kyc_connector, or kyc_workflow.\n"
+            "- Every durable write is confirm_first; never rely on can_save for persistence.\n"
             "- Keep payloads shallow, durable, and conservative.\n"
             "- Use stable snake_case keys.\n"
             "- Prefer entity maps with stable ids over anonymous append-only statements.\n"
@@ -3982,7 +4104,7 @@ class PKMAgentLabService:
             "- Never use the domain key general.\n"
             f"{small_model_rules}"
             "Examples:\n"
-            'I gravitate toward Cantonese menus when I go out. -> {"candidate_payload":{"preferences":{"entities":{"mem_food_pref":{"entity_id":"mem_food_pref","kind":"preference","summary":"I gravitate toward Cantonese menus when I go out.","observations":["I gravitate toward Cantonese menus when I go out."],"status":"active"}}}},"structure_decision":{"action":"create_domain","target_domain":"food","json_paths":["preferences","preferences.entities","preferences.entities.mem_food_pref","preferences.entities.mem_food_pref.summary"],"top_level_scope_paths":["preferences"],"externalizable_paths":["preferences","preferences.entities","preferences.entities.mem_food_pref","preferences.entities.mem_food_pref.summary"],"summary_projection":{"intent_class":"preference","top_level_scope":"preferences"},"sensitivity_labels":{},"confidence":0.91,"source_agent":"pkm_structure_agent","contract_version":1},"write_mode":"can_save","primary_json_path":"preferences","target_entity_scope":"preferences","validation_hints":[]}\n'
+            'I gravitate toward Cantonese menus when I go out. -> {"candidate_payload":{"preferences":{"entities":{"mem_food_pref":{"entity_id":"mem_food_pref","kind":"preference","summary":"I gravitate toward Cantonese menus when I go out.","observations":["I gravitate toward Cantonese menus when I go out."],"status":"active"}}}},"structure_decision":{"action":"create_domain","target_domain":"food","json_paths":["preferences","preferences.entities","preferences.entities.mem_food_pref","preferences.entities.mem_food_pref.summary"],"top_level_scope_paths":["preferences"],"externalizable_paths":["preferences.entities.mem_food_pref.summary"],"summary_projection":{"intent_class":"preference","top_level_scope":"preferences"},"sensitivity_labels":{},"confidence":0.91,"source_agent":"pkm_structure_agent","contract_version":3},"write_mode":"confirm_first","primary_json_path":"preferences","target_entity_scope":"preferences","validation_hints":[]}\n'
             'Circle back with my aunt this weekend. -> {"candidate_payload":{"tasks":{"entities":{"mem_social_task":{"entity_id":"mem_social_task","kind":"task_or_reminder","summary":"Circle back with my aunt this weekend.","observations":["Circle back with my aunt this weekend."],"status":"active"}}}},"structure_decision":{"action":"create_domain","target_domain":"social","json_paths":["tasks","tasks.entities","tasks.entities.mem_social_task","tasks.entities.mem_social_task.summary"],"top_level_scope_paths":["tasks"],"externalizable_paths":["tasks","tasks.entities","tasks.entities.mem_social_task","tasks.entities.mem_social_task.summary"],"summary_projection":{"intent_class":"task_or_reminder","top_level_scope":"tasks"},"sensitivity_labels":{},"confidence":0.87,"source_agent":"pkm_structure_agent","contract_version":1},"write_mode":"do_not_save","primary_json_path":"","target_entity_scope":"tasks","validation_hints":[]}\n'
             "Remember that I prefer index funds. -> target_domain must be financial, write_mode can_save or confirm_first, and candidate_payload must use a guarded financial subtree."
         )
@@ -4048,6 +4170,7 @@ class PKMAgentLabService:
         )
         financial_guard_used_fallback = financial_guard_raw is None
         financial_guard = self._sanitize_financial_guard_decision(
+            message=message,
             raw=financial_guard_raw,
             fallback=financial_guard_fallback,
         )

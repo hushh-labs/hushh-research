@@ -56,11 +56,11 @@ class TestVaultOwnerMasterKey:
     def test_vault_owner_grants_pkm_write(self):
         assert scope_matches("vault.owner", "pkm.write")
 
-    def test_vault_owner_grants_agent_kai_execute(self):
-        assert scope_matches("vault.owner", "agent.kai.execute")
+    def test_vault_owner_grants_agent_kai_analyze(self):
+        assert scope_matches("vault.owner", "agent.kai.analyze")
 
-    def test_vault_owner_grants_agent_kyc_writeback(self):
-        assert scope_matches("vault.owner", "agent.kyc.writeback")
+    def test_vault_owner_grants_agent_kyc_redraft(self):
+        assert scope_matches("vault.owner", "agent.kyc.redraft.llm")
 
     def test_vault_owner_grants_any_domain_wildcard(self):
         for domain in ("food", "health", "shopping", "professional", "social"):
@@ -198,9 +198,9 @@ class TestAgentScopeIsolation:
         assert not scope_matches("agent.kai.analyze", "agent.kai.execute")
 
     def test_agent_scope_exact_match_works(self):
-        assert scope_matches("agent.kai.execute", "agent.kai.execute")
+        assert scope_matches("agent.kai.analyze", "agent.kai.analyze")
         assert scope_matches("agent.nav.review", "agent.nav.review")
-        assert scope_matches("agent.kyc.writeback", "agent.kyc.writeback")
+        assert scope_matches("agent.kyc.redraft.llm", "agent.kyc.redraft.llm")
 
 
 # ---------------------------------------------------------------------------

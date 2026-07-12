@@ -21,13 +21,13 @@ The promoted public developer environment is **UAT**.
 
 - app workspace: https://uat.kai.hushh.ai/developers
 - consent API origin: https://api.uat.hushh.ai
-- remote MCP endpoint: `https://api.uat.hushh.ai/mcp/?token=<developer-token>`
+- remote MCP endpoint: `https://api.uat.hushh.ai/mcp/`
 - npm package: `@hushh/mcp`
 - canonical token env var: `HUSHH_DEVELOPER_TOKEN`
 
 Use the trailing-slash form for remote MCP:
 
-- `https://api.uat.hushh.ai/mcp/?token=<developer-token>`
+- `https://api.uat.hushh.ai/mcp/`
 - not `https://api.uat.hushh.ai/mcp?token=<developer-token>`
 
 ### Quick start
@@ -37,7 +37,7 @@ Use the trailing-slash form for remote MCP:
 Use this when the host supports HTTP MCP directly.
 
 ```text
-https://api.uat.hushh.ai/mcp/?token=<developer-token>
+https://api.uat.hushh.ai/mcp/
 ```
 
 ### npm Bridge
@@ -68,13 +68,16 @@ npx -y @hushh/mcp
 
 Use when: your host supports HTTP MCP directly.
 
-Keep local: Keep the developer token machine-local and never commit host config with inline credentials.
+Keep local: Keep the developer token machine-local and send it only in the Authorization header.
 
 ```json
 {
   "mcpServers": {
     "hushh-consent": {
-      "url": "https://api.uat.hushh.ai/mcp/?token=<developer-token>"
+      "url": "https://api.uat.hushh.ai/mcp/",
+      "headers": {
+        "Authorization": "Bearer <developer-token>"
+      }
     }
   }
 }
@@ -84,10 +87,10 @@ Keep local: Keep the developer token machine-local and never commit host config 
 
 Use when: Codex should connect to the hosted UAT MCP endpoint directly.
 
-Keep local: This writes a machine-local Codex config entry that contains the full query-token URL.
+Keep local: Configure the Authorization bearer header in the host secret store; never put the token in the URL.
 
 ```bash
-codex mcp add hushh_consent --url "https://api.uat.hushh.ai/mcp/?token=<developer-token>"
+codex mcp add hushh_consent --url "https://api.uat.hushh.ai/mcp/" --bearer-token-env-var HUSHH_DEVELOPER_TOKEN
 ```
 
 ### Codex npm bridge
@@ -153,13 +156,16 @@ Keep local: Claude Desktop stores this config locally. Do not commit the token v
 
 Use when: your editor host understands mcpServers JSON and can call remote MCP directly.
 
-Keep local: The URL contains the token today, so keep the config file local.
+Keep local: Keep the bearer token in the host secret store; query-string authentication is rejected.
 
 ```json
 {
   "mcpServers": {
     "hushh-consent-remote": {
-      "url": "https://api.uat.hushh.ai/mcp/?token=<developer-token>"
+      "url": "https://api.uat.hushh.ai/mcp/",
+      "headers": {
+        "Authorization": "Bearer <developer-token>"
+      }
     }
   }
 }
@@ -169,10 +175,10 @@ Keep local: The URL contains the token today, so keep the config file local.
 
 Use when: your host only asks for the MCP endpoint URL.
 
-Keep local: Use the exact slash-safe mount shape.
+Keep local: Use the exact slash-safe mount shape and configure Authorization: Bearer <developer-token> separately.
 
 ```text
-https://api.uat.hushh.ai/mcp/?token=<developer-token>
+https://api.uat.hushh.ai/mcp/
 ```
 
 ### Public tools

@@ -54,10 +54,15 @@ function routeToPageFile(route) {
 }
 
 function routeToVoiceContractFile(route) {
-  const candidate =
-    route === "/" ? "app/page.voice-action-contract.json" : `app${route}/page.voice-action-contract.json`;
-  const absolute = path.join(appRoot, candidate);
-  return fs.existsSync(absolute) ? candidate : null;
+  const base = route === "/" ? "app" : `app${route}`;
+  const candidates = [
+    `${base}/page.voice-action-contract.json`,
+    `${base}/page-client.voice-action-contract.json`,
+  ].filter((candidate) => fs.existsSync(path.join(appRoot, candidate)));
+  if (candidates.length > 1) {
+    throw new Error(`Ambiguous voice action contracts for ${route}: ${candidates.join(", ")}`);
+  }
+  return candidates[0] || null;
 }
 
 function apiTemplateFromRouteFile(filePath) {

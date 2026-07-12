@@ -115,6 +115,15 @@ export function AgentPkmReviewPanel({
                 {cleanText(card.confirmation_reason, 160)}
               </p>
             ) : null}
+            {card.sharing_impact?.active_recipient_count ? (
+              <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-xs leading-5 text-foreground">
+                {cleanText(card.sharing_impact.summary, 220)}
+              </p>
+            ) : (
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                No active recipients will receive this change.
+              </p>
+            )}
           </div>
         ))}
         {cards.length > 3 ? (

@@ -32,7 +32,14 @@ def active_fixture_vault_owner_grants(monkeypatch):
     """Route-matrix tokens are issued locally; model their DB grant as active."""
     from hushh_mcp.services.consent_db import ConsentDBService
 
-    async def _active(self, user_id: str, scope: str, agent_id: str | None = None) -> bool:
+    async def _active(
+        self,
+        user_id: str,
+        scope: str,
+        agent_id: str | None = None,
+        *,
+        token_id: str | None = None,
+    ) -> bool:
         return True
 
     monkeypatch.setattr(ConsentDBService, "is_token_active", _active)

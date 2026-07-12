@@ -6,11 +6,22 @@ import binascii
 import inspect
 import json
 import logging
+import os
 import time
 import uuid
 from typing import Any, AsyncGenerator, Literal, Optional, TypedDict, cast
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from pydantic import BaseModel, ConfigDict, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -22,8 +33,20 @@ from api.developer_auth import (
 )
 from api.middleware import require_firebase_auth
 from api.utils.firebase_admin import get_firebase_auth_app
+from hushh_mcp.consent.export_envelope import (
+    connector_key_fingerprint,
+    digest_bytes,
+    scope_handle_for_machine_scope,
+)
 from hushh_mcp.consent.scope_helpers import get_scope_description, normalize_scope
 from hushh_mcp.consent.token import validate_token_with_db
+from hushh_mcp.constants import (
+    EXTERNAL_REQUESTABLE_RESERVED_SCOPE_VALUES,
+    INTERNAL_ONLY_SCOPE_VALUES,
+    RETIRED_SCOPE_VALUES,
+    SCOPE_POLICY_VERSION,
+    ConsentScope,
+)
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.consent_request_links import build_consent_request_url
 from hushh_mcp.services.developer_registry_service import (
@@ -41,14 +64,19 @@ router = APIRouter()
 developer_api_router = APIRouter(prefix="/api/v1", tags=["Developer API"])
 portal_router = APIRouter(prefix="/api/developer", tags=["Developer Portal"])
 
-_STATIC_REQUESTABLE_SCOPES: frozenset[str] = frozenset(
-    {"agent.one.orchestrate", "pkm.read", "pkm.write"}
-)
+_STATIC_REQUESTABLE_SCOPES: frozenset[str] = EXTERNAL_REQUESTABLE_RESERVED_SCOPE_VALUES
 _MIN_PUBLIC_EXPIRY_HOURS = 24
 _MAX_PUBLIC_EXPIRY_HOURS = 24 * 90
 _MIN_PUBLIC_APPROVAL_TIMEOUT_MINUTES = 5
 _MAX_PUBLIC_APPROVAL_TIMEOUT_MINUTES = 24 * 60
 _CONNECTOR_WRAPPING_ALG = "X25519-AES256-GCM"
+_CONSENT_EXPORT_MAX_RAW_BYTES = max(
+    1,
+    min(
+        int(os.getenv("HUSHH_CONSENT_EXPORT_MAX_RAW_BYTES", str(16 * 1024 * 1024))),
+        64 * 1024 * 1024,
+    ),
+)
 _CONSENT_REQUEST_STATUS_MAP = {
     "REQUESTED": "pending",
     "CONSENT_GRANTED": "granted",
@@ -68,13 +96,13 @@ class DeveloperScopeDescriptor(BaseModel):
 
 
 class DeveloperScopeCatalogResponse(BaseModel):
-    version: str = "v1"
+    version: str = f"v{SCOPE_POLICY_VERSION}"
     scopes_are_dynamic: bool = True
     discovery_required: bool = True
     scopes: list[DeveloperScopeDescriptor]
     discovery_endpoint: str = "/api/v1/user-scopes/{user_id}"
     request_endpoint: str = "/api/v1/request-consent"
-    default_available_export_endpoint: str = "/api/v1/default-available-export"
+    public_profile_export_endpoint: str = "/api/v1/public-profile-export"
     tool_catalog_endpoint: str = "/api/v1/tool-catalog"
     mcp_tools: list[str] = Field(default_factory=list)
     mcp_resources: list[str] = Field(
@@ -86,7 +114,7 @@ class DeveloperScopeCatalogResponse(BaseModel):
     recommended_flow: list[str] = Field(
         default_factory=lambda: [
             "discover_user_domains",
-            "read_default_available_projection_when_ready",
+            "read_public_profile_projection_when_available",
             "request_consent",
             "check_consent_status",
             "get_encrypted_scoped_export",
@@ -96,9 +124,10 @@ class DeveloperScopeCatalogResponse(BaseModel):
         default_factory=lambda: [
             "Do not hardcode domain keys. Discover available scopes per user at runtime.",
             "Dynamic attr scopes are derived from PKM discovery metadata and the scope registry.",
-            "Scopes marked default_available are safe projections published by the user; read them through /api/v1/default-available-export instead of creating a consent request.",
+            "Public-profile publishing is a separate owner-controlled projection and is not an encrypted attr.* consent grant.",
             "Use get_encrypted_scoped_export for all consented reads; Hussh does not return plaintext user data to developer callers.",
-            "Large export ciphertext should be fetched as raw bytes via POST /api/v1/scoped-export/download (same auth) instead of routing base64 through an LLM context.",
+            "Use Authorization: Bearer for developer authentication; query-string tokens are rejected.",
+            "Large export ciphertext is fetched through an authenticated MCP resource outside model context.",
         ]
     )
 
@@ -200,9 +229,10 @@ class DeveloperConsentRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=1000)
     expiry_hours: int = 24
     approval_timeout_minutes: int = 24 * 60
-    connector_public_key: str = Field(min_length=16)
-    connector_key_id: str = Field(min_length=1, max_length=128)
-    connector_wrapping_alg: str = Field(min_length=1, max_length=128)
+    connector_public_key: str | None = Field(default=None, min_length=16)
+    connector_key_id: str | None = Field(default=None, min_length=1, max_length=128)
+    connector_wrapping_alg: str | None = Field(default=None, min_length=1, max_length=128)
+    refresh_policy: Literal["snapshot", "continuous_until_expiry"] = "snapshot"
     offer: DeveloperConsentOffer | None = None
 
 
@@ -214,11 +244,11 @@ class DeveloperScopedExportRequest(BaseModel):
     expected_scope: str | None = Field(default=None, max_length=200)
 
 
-class DeveloperDefaultAvailableExportRequest(BaseModel):
+class DeveloperPublicProfileExportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     user_id: str = Field(..., min_length=1, max_length=128)
-    scope: str = Field(..., min_length=1, max_length=200)
+    public_profile_handle: str = Field(..., min_length=1, max_length=64)
 
 
 class DeveloperScopedExportResponse(BaseModel):
@@ -236,13 +266,16 @@ class DeveloperScopedExportResponse(BaseModel):
     iv: str | None = Field(default=None, max_length=512)
     tag: str | None = Field(default=None, max_length=512)
     wrapped_key_bundle: dict | None = None
+    export_envelope: dict | None = None
+    resource_link: dict | None = None
+    maximum_raw_bytes: int | None = None
     message: str = Field(..., min_length=1, max_length=2000)
 
 
-class DeveloperDefaultAvailableExportResponse(BaseModel):
+class DeveloperPublicProfileExportResponse(BaseModel):
     status: str = Field(..., max_length=64)
     user_id: str = Field(..., max_length=128)
-    scope: str = Field(..., max_length=200)
+    public_profile_handle: str = Field(..., max_length=64)
     domain: str | None = Field(default=None, max_length=200)
     top_level_scope_path: str | None = Field(default=None, max_length=512)
     projection_payload: dict = Field(default_factory=dict)
@@ -275,6 +308,7 @@ class DeveloperPortalAppResponse(BaseModel):
     brand_image_url: str | None = Field(default=None, max_length=2048)
     status: str = Field(..., max_length=64)
     allowed_tool_groups: list[str]
+    allowed_capabilities: list[str]
     created_at: int
     updated_at: int
 
@@ -291,7 +325,7 @@ class DeveloperPortalAccessResponse(BaseModel):
     developer_token_env_var: str = "HUSHH_DEVELOPER_TOKEN"  # noqa: S105
     notes: list[str] = Field(
         default_factory=lambda: [
-            "Use ?token=<developer-token> for /api/v1 and append ?token=<developer-token> to remote MCP URLs.",
+            "Use Authorization: Bearer <developer-token> for /api/v1 and hosted MCP.",
             "User consent is still approved inside Kai one scope at a time.",
             "Dynamic scopes must be discovered per user before requesting consent.",
         ]
@@ -317,32 +351,15 @@ class OwnerProfile(TypedDict):
 def _scope_catalog() -> list[DeveloperScopeDescriptor]:
     return [
         DeveloperScopeDescriptor(
-            name="pkm.read",
-            description="Read the full user personal knowledge model (all discovered domains).",
+            name="cap.one.invoke",
+            description=(
+                "Create or resume a task through One. This grants no user-data read "
+                "or mutation authority."
+            ),
         ),
         DeveloperScopeDescriptor(
-            name="pkm.write",
-            description="Write to the user personal knowledge model in governed flows.",
-        ),
-        DeveloperScopeDescriptor(
-            name="agent.one.orchestrate",
-            description="Coordinate a user request through Agent One and its specialist handoff layer.",
-        ),
-        DeveloperScopeDescriptor(
-            name="attr.{domain}.*",
-            description="Read one discovered domain branch.",
-            dynamic=True,
-            requires_discovery=True,
-        ),
-        DeveloperScopeDescriptor(
-            name="attr.{domain}.{subintent}.*",
-            description="Read one discovered nested branch when metadata exposes subintents.",
-            dynamic=True,
-            requires_discovery=True,
-        ),
-        DeveloperScopeDescriptor(
-            name="attr.{domain}.{path}",
-            description="Read one specific discovered path.",
+            name="attr.{domain_slug}.{scope_slug}.*",
+            description="Read one exact semantic branch returned by per-user scope discovery.",
             dynamic=True,
             requires_discovery=True,
         ),
@@ -350,9 +367,7 @@ def _scope_catalog() -> list[DeveloperScopeDescriptor]:
 
 
 def _is_supported_scope(scope: str) -> bool:
-    if scope in _STATIC_REQUESTABLE_SCOPES:
-        return True
-    return scope.startswith("attr.")
+    return bool(ConsentScope.is_external_requestable_scope(scope))
 
 
 def _validate_public_expiry_hours(expiry_hours: int) -> int:
@@ -400,6 +415,19 @@ def _validate_connector_wrapping_alg(connector_wrapping_alg: str) -> str:
             "message": f"connector_wrapping_alg must be {_CONNECTOR_WRAPPING_ALG}",
         },
     )
+
+
+def _validate_connector_public_key(connector_public_key: str) -> str:
+    try:
+        return str(connector_key_fingerprint(connector_public_key))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error_code": "INVALID_CONNECTOR_PUBLIC_KEY",
+                "message": "connector_public_key must be one base64-encoded 32-byte X25519 key.",
+            },
+        ) from exc
 
 
 def _request_url_from_metadata(
@@ -739,7 +767,6 @@ def _compact_scope_entries(
     *,
     available_domains: list[str],
     scope_entries: list[dict],
-    scopes: list[str],
 ) -> tuple[list[str], list[str], list[dict]]:
     compact_entries: list[dict] = []
     seen_scopes: set[str] = set()
@@ -763,6 +790,8 @@ def _compact_scope_entries(
             continue
         if not wildcard:
             continue
+        if not ConsentScope.is_external_requestable_scope(scope):
+            continue
         if entry.get("consumer_visible") is False or entry.get("internal_only") is True:
             continue
         if str(entry.get("visibility_posture") or "consent_required").strip().lower() == "private":
@@ -775,13 +804,7 @@ def _compact_scope_entries(
 
     compact_scopes = sorted(
         {
-            "pkm.read",
-            *(
-                str(entry.get("scope") or "").strip()
-                for entry in compact_entries
-                if str(entry.get("scope") or "").strip()
-            ),
-            *(str(scope).strip() for scope in scopes if str(scope).strip() == "pkm.read"),
+            *(str(entry.get("scope") or "").strip() for entry in compact_entries),
         }
     )
     compact_domains = sorted(discovered_domains)
@@ -796,13 +819,6 @@ def _scope_entry_for_scope(scope_entries: list[dict], scope: str) -> dict[str, A
         if str(entry.get("scope") or "").strip() == normalized_scope:
             return entry
     return None
-
-
-def _is_default_available_scope_entry(entry: dict[str, Any] | None) -> bool:
-    if not entry:
-        return False
-    posture = str(entry.get("visibility_posture") or "consent_required").strip().lower()
-    return posture == "default_available" and entry.get("default_projection_ready") is True
 
 
 async def _get_user_scope_snapshot(
@@ -825,15 +841,32 @@ async def _get_user_scope_snapshot(
     scope_signature = inspect.signature(get_available_scopes)
     scope_kwargs: dict[str, Any] = {}
     if "include_internal" in scope_signature.parameters:
-        scope_kwargs["include_internal"] = detail == "verbose"
+        scope_kwargs["include_internal"] = False
     if "include_exact_paths" in scope_signature.parameters:
-        scope_kwargs["include_exact_paths"] = detail == "verbose"
+        scope_kwargs["include_exact_paths"] = False
     scopes = sorted(await get_available_scopes(user_id, **scope_kwargs))
     scope_entries_getter = getattr(pkm_service.scope_generator, "get_available_scope_entries", None)
     if callable(scope_entries_getter):
-        scope_entries = await scope_entries_getter(user_id)
+        scope_entries = [
+            entry
+            for entry in await scope_entries_getter(user_id)
+            if isinstance(entry, dict)
+            and ConsentScope.is_external_requestable_scope(str(entry.get("scope") or ""))
+            and entry.get("consumer_visible") is not False
+            and entry.get("internal_only") is not True
+            and str(entry.get("visibility_posture") or "consent_required").strip().lower()
+            != "private"
+        ]
     else:
         scope_entries = [{"scope": scope} for scope in scopes if scope.startswith("attr.")]
+
+    scopes = sorted(
+        {
+            str(entry.get("scope") or "").strip()
+            for entry in scope_entries
+            if str(entry.get("scope") or "").strip()
+        }
+    )
 
     if detail == "verbose":
         discovered_domains = {
@@ -849,7 +882,6 @@ async def _get_user_scope_snapshot(
     return _compact_scope_entries(
         available_domains=available_domains,
         scope_entries=scope_entries,
-        scopes=scopes,
     )
 
 
@@ -862,7 +894,7 @@ def _developer_root_payload() -> dict[str, object]:
             "tool_catalog": "/api/v1/tool-catalog",
             "user_scopes": "/api/v1/user-scopes/{user_id}",
             "request_consent": "/api/v1/request-consent",
-            "default_available_export": "/api/v1/default-available-export",
+            "public_profile_export": "/api/v1/public-profile-export",
             "consent_status": "/api/v1/consent-status",
             "scoped_export": "/api/v1/scoped-export",
             "scoped_export_download": "/api/v1/scoped-export/download",
@@ -873,7 +905,7 @@ def _developer_root_payload() -> dict[str, object]:
         ],
         "recommended_mcp_flow": [
             "discover_user_domains",
-            "read_default_available_projection_when_ready",
+            "read_public_profile_projection_when_available",
             "request_consent",
             "check_consent_status",
             "get_encrypted_scoped_export",
@@ -910,6 +942,9 @@ def _serialize_app(app: dict | None) -> DeveloperPortalAppResponse | None:
     if not app:
         return None
     allowed_groups = normalize_tool_groups(app.get("allowed_tool_groups"))
+    allowed_capabilities = DeveloperRegistryService._parse_allowed_capabilities(
+        app.get("allowed_capabilities")
+    )
     return DeveloperPortalAppResponse(
         app_id=str(app["app_id"]),
         agent_id=str(app["agent_id"]),
@@ -921,6 +956,7 @@ def _serialize_app(app: dict | None) -> DeveloperPortalAppResponse | None:
         brand_image_url=str(app["brand_image_url"]) if app.get("brand_image_url") else None,
         status=str(app["status"]),
         allowed_tool_groups=list(allowed_groups),
+        allowed_capabilities=list(allowed_capabilities),
         created_at=int(app["created_at"]),
         updated_at=int(app["updated_at"]),
     )
@@ -1246,6 +1282,35 @@ async def request_consent(
     )
 
     normalized_scope = normalize_scope(payload.scope)
+    if normalized_scope in RETIRED_SCOPE_VALUES:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail={
+                "error_code": "SCOPE_RETIRED",
+                "message": "This scope is retired and cannot authorize a new request.",
+                "replacement": "cap.one.invoke"
+                if normalized_scope == "agent.one.orchestrate"
+                else None,
+            },
+        )
+    if normalized_scope in INTERNAL_ONLY_SCOPE_VALUES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error_code": "INTERNAL_SCOPE_NOT_REQUESTABLE",
+                "message": "Internal PKM and vault authorities cannot be requested externally.",
+            },
+        )
+    if normalized_scope in EXTERNAL_REQUESTABLE_RESERVED_SCOPE_VALUES and normalized_scope not in (
+        getattr(principal, "allowed_capabilities", ()) or ()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": "APP_CAPABILITY_NOT_ALLOWED",
+                "message": "This developer app is not permitted to request that capability.",
+            },
+        )
     if not _is_supported_scope(normalized_scope):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1260,7 +1325,38 @@ async def request_consent(
     approval_timeout_minutes = _validate_public_approval_timeout_minutes(
         payload.approval_timeout_minutes
     )
-    connector_wrapping_alg = _validate_connector_wrapping_alg(payload.connector_wrapping_alg)
+    is_information_scope = normalized_scope.startswith("attr.")
+    connector_wrapping_alg: str | None = None
+    recipient_key_fingerprint: str | None = None
+    if is_information_scope:
+        if not all(
+            (
+                payload.connector_public_key,
+                payload.connector_key_id,
+                payload.connector_wrapping_alg,
+            )
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error_code": "CONNECTOR_KEY_REQUIRED",
+                    "message": "Encrypted attr.* grants require connector key binding.",
+                },
+            )
+        connector_wrapping_alg = _validate_connector_wrapping_alg(
+            str(payload.connector_wrapping_alg)
+        )
+        recipient_key_fingerprint = _validate_connector_public_key(
+            str(payload.connector_public_key)
+        )
+    elif payload.refresh_policy != "snapshot":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error_code": "REFRESH_POLICY_NOT_APPLICABLE",
+                "message": "Continuous refresh applies only to encrypted attr.* grants.",
+            },
+        )
 
     # Keep default developer discovery compact, but validate requestable scopes
     # against the full resolver output so explicitly requested leaf paths found via
@@ -1279,36 +1375,35 @@ async def request_consent(
                 "available_domains": available_domains,
             },
         )
-
     discovered_entry = _scope_entry_for_scope(scope_entries, normalized_scope)
-    if normalized_scope.startswith("attr.") and _is_default_available_scope_entry(discovered_entry):
-        return {
-            "status": "already_available",
-            "message": (
-                "This scope is available by default as a safe user-published projection. "
-                "Read it through /api/v1/default-available-export; no consent request was created."
-            ),
-            "scope": normalized_scope,
-            "requested_scope": normalized_scope,
-            "granted_scope": None,
-            "coverage_kind": "default_available_projection",
-            "covered_by_existing_grant": False,
-            "default_projection_ready": True,
-            "default_projection_updated_at": discovered_entry.get("default_projection_updated_at")
-            if discovered_entry
-            else None,
-            "agent_id": principal.agent_id,
-            "app_id": principal.app_id,
-            "app_display_name": principal.display_name,
-        }
+    scope_handle = str(
+        (discovered_entry or {}).get("registry_handle") or ""
+    ).strip() or scope_handle_for_machine_scope(payload.user_id, normalized_scope)
 
     service = ConsentDBService()
-    active, export_metadata, _invalidated_legacy = await _resolve_strict_covering_active_token(
-        service=service,
-        user_id=payload.user_id,
-        agent_id=principal.agent_id,
-        requested_scope=normalized_scope,
-    )
+    if is_information_scope:
+        active, export_metadata, _invalidated_legacy = await _resolve_strict_covering_active_token(
+            service=service,
+            user_id=payload.user_id,
+            agent_id=principal.agent_id,
+            requested_scope=normalized_scope,
+        )
+    else:
+        active = await service.find_covering_active_token(
+            payload.user_id,
+            agent_id=principal.agent_id,
+            requested_scope=normalized_scope,
+        )
+        export_metadata = None
+    if active and is_information_scope:
+        export_fingerprint = str(
+            (export_metadata or {}).get("recipient_key_fingerprint") or ""
+        ).strip()
+        export_policy = str((export_metadata or {}).get("refresh_policy") or "snapshot").strip()
+        if export_fingerprint and export_fingerprint != recipient_key_fingerprint:
+            active = None
+        elif export_policy != payload.refresh_policy:
+            active = None
     if active:
         active_metadata = _metadata_object_map(active.get("metadata"))
         granted_scope = str(active.get("scope") or "") or None
@@ -1336,6 +1431,7 @@ async def request_consent(
             **coverage,
             **export_fields,
             "expiry_hours": _optional_int(active_metadata.get("expiry_hours")),
+            "refresh_policy": (export_metadata or {}).get("refresh_policy") or "snapshot",
             "request_url": _request_url_from_metadata(active.get("request_id"), active_metadata),
             "requester_label": _optional_str(active_metadata.get("requester_label")),
             "requester_image_url": _optional_str(active_metadata.get("requester_image_url")),
@@ -1368,6 +1464,7 @@ async def request_consent(
             "approval_timeout_at": pending.get("approvalTimeoutAt"),
             "approval_timeout_minutes": pending.get("approvalTimeoutMinutes"),
             "expiry_hours": pending.get("expiryHours"),
+            "refresh_policy": pending_metadata.get("refresh_policy") or "snapshot",
             "agent_id": principal.agent_id,
             "app_id": principal.app_id,
             "app_display_name": principal.display_name,
@@ -1422,8 +1519,8 @@ async def request_consent(
     metadata = DeveloperRegistryService.build_consent_metadata(
         principal,
         reason=payload.reason,
-        connector_public_key=payload.connector_public_key,
-        connector_key_id=payload.connector_key_id,
+        connector_public_key=payload.connector_public_key if is_information_scope else None,
+        connector_key_id=payload.connector_key_id if is_information_scope else None,
         connector_wrapping_alg=connector_wrapping_alg,
     )
     request_url = build_consent_request_url(request_id=request_id)
@@ -1434,6 +1531,10 @@ async def request_consent(
             "approval_timeout_minutes": approval_timeout_minutes,
             "approval_timeout_at": poll_timeout_at,
             "request_url": request_url,
+            "refresh_policy": payload.refresh_policy,
+            "scope_handle": scope_handle,
+            "scope_contract_version": 2,
+            "recipient_key_fingerprint": recipient_key_fingerprint,
             **scope_upgrade_fields,
             **offer_meta,
         }
@@ -1469,6 +1570,7 @@ async def request_consent(
         "approval_timeout_at": poll_timeout_at,
         "approval_timeout_minutes": approval_timeout_minutes,
         "expiry_hours": expiry_hours,
+        "refresh_policy": payload.refresh_policy,
         "agent_id": principal.agent_id,
         "app_id": principal.app_id,
         "app_display_name": principal.display_name,
@@ -1485,118 +1587,63 @@ async def request_consent(
 
 
 @developer_api_router.post(
-    "/default-available-export",
-    response_model=DeveloperDefaultAvailableExportResponse,
+    "/public-profile-export",
+    response_model=DeveloperPublicProfileExportResponse,
 )
-async def get_default_available_export(
-    payload: DeveloperDefaultAvailableExportRequest,
+async def get_public_profile_export(
+    payload: DeveloperPublicProfileExportRequest,
     request: Request,
-    token: Optional[str] = Query(None, max_length=2048),
     authorization: Optional[str] = Header(None),
 ):
     principal = _resolve_principal(
         request=request,
-        token=token,
+        token=None,
         authorization=authorization,
     )
-    normalized_scope = normalize_scope(payload.scope)
-    if not normalized_scope.startswith("attr."):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error_code": "INVALID_DEFAULT_AVAILABLE_SCOPE",
-                "message": "Default-available exports are only available for discovered attr scopes.",
-            },
-        )
-
-    available_domains, discovered_scopes, scope_entries = await _get_user_scope_snapshot(
-        payload.user_id,
-        detail="verbose",
-    )
-    if normalized_scope not in set(discovered_scopes):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error_code": "SCOPE_NOT_DISCOVERED_FOR_USER",
-                "message": "Requested scope is not available for this user.",
-                "available_domains": available_domains,
-            },
-        )
-
-    discovered_entry = _scope_entry_for_scope(scope_entries, normalized_scope)
-    if not _is_default_available_scope_entry(discovered_entry):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error_code": "DEFAULT_AVAILABLE_PROJECTION_NOT_READY",
-                "message": "This scope is not currently available by default.",
-                "visibility_posture": (
-                    str(discovered_entry.get("visibility_posture") or "consent_required")
-                    if discovered_entry
-                    else "unknown"
-                ),
-                "default_projection_ready": bool(
-                    discovered_entry and discovered_entry.get("default_projection_ready") is True
-                ),
-            },
-        )
-    if discovered_entry is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error_code": "SCOPE_NOT_DISCOVERED_FOR_USER",
-                "message": "Requested scope is not available for this user.",
-            },
-        )
-
-    projection = await get_pkm_service().get_default_available_projection(
+    projection = await get_pkm_service().get_public_profile_projection(
         user_id=payload.user_id,
-        scope=normalized_scope,
+        public_profile_handle=payload.public_profile_handle,
     )
     if not projection or not projection.get("projection_payload"):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={
-                "error_code": "DEFAULT_AVAILABLE_PROJECTION_NOT_FOUND",
-                "message": "The projection metadata is ready, but no active projection payload was found.",
+                "error_code": "PUBLIC_PROFILE_NOT_FOUND",
+                "message": "No active owner-published public profile was found.",
             },
         )
 
     await ConsentDBService().insert_internal_event(
         user_id=payload.user_id,
         agent_id=principal.agent_id,
-        scope=normalized_scope,
-        action="DEFAULT_AVAILABLE_READ",
-        token_id=f"default_available_{uuid.uuid4().hex[:24]}",
-        scope_description=get_scope_description(normalized_scope),
+        scope=f"public_profile:{payload.public_profile_handle}",
+        action="PUBLIC_PROFILE_READ",
+        token_id=f"public_profile_{uuid.uuid4().hex[:24]}",
+        scope_description="Owner-published public profile projection",
         metadata={
             "app_id": principal.app_id,
             "app_display_name": principal.display_name,
             "projection_hash": projection.get("projection_hash"),
             "projection_version": projection.get("projection_version"),
             "top_level_scope_path": projection.get("top_level_scope_path"),
-            "visibility_posture": "default_available",
+            "public_profile_handle": payload.public_profile_handle,
+            "publication_contract": projection.get("publication_provenance"),
         },
     )
 
-    return DeveloperDefaultAvailableExportResponse(
+    return DeveloperPublicProfileExportResponse(
         status="success",
         user_id=payload.user_id,
-        scope=normalized_scope,
-        domain=str(projection.get("domain") or discovered_entry.get("domain") or "") or None,
-        top_level_scope_path=str(
-            projection.get("top_level_scope_path")
-            or discovered_entry.get("top_level_scope_path")
-            or ""
-        )
-        or None,
+        public_profile_handle=payload.public_profile_handle,
+        domain=str(projection.get("domain") or "") or None,
+        top_level_scope_path=str(projection.get("top_level_scope_path") or "") or None,
         projection_payload=dict(projection.get("projection_payload") or {}),
         projection_hash=str(projection.get("projection_hash") or "") or None,
         projection_version=_optional_int(projection.get("projection_version")),
         projection_updated_at=_optional_str(projection.get("updated_at")),
         app_id=principal.app_id,
         app_display_name=principal.display_name,
-        message="Default-available projection ready.",
+        message="Owner-published public profile projection ready.",
     )
 
 
@@ -1661,6 +1708,44 @@ async def _load_scoped_export_or_raise(
                 "message": "No active encrypted export is available for this consent token.",
             },
         )
+    refresh_status = str(export_data.get("refresh_status") or "current")
+    if refresh_status != "current":
+        error_code = {
+            "refresh_pending": "EXPORT_REFRESH_PENDING",
+            "refresh_failed": "EXPORT_REFRESH_FAILED",
+            "scope_retired": "SCOPE_RETIRED",
+            "key_rebind_required": "CONNECTOR_KEY_REBIND_REQUIRED",
+        }.get(refresh_status, "EXPORT_NOT_CURRENT")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error_code": error_code,
+                "message": "The current encrypted export is not available for retrieval.",
+            },
+        )
+    if (
+        export_data.get("is_strict_zero_knowledge")
+        and int(export_data.get("envelope_version") or 1) != 2
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error_code": "EXPORT_ENVELOPE_UPGRADE_REQUIRED",
+                "message": "This snapshot predates envelope v2 and must be approved again.",
+            },
+        )
+    if (
+        export_data.get("is_strict_zero_knowledge")
+        and int(export_data.get("envelope_version") or 1) == 2
+        and str(export_data.get("app_id") or "") != principal.app_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": "CONSENT_EXPORT_APP_MISMATCH",
+                "message": "This encrypted export belongs to a different developer app.",
+            },
+        )
     return principal, token_obj, export_data
 
 
@@ -1703,6 +1788,14 @@ async def get_scoped_export(
         )
 
     granted_scope = str(export_data.get("scope") or token_obj.scope_str or token_obj.scope.value)
+    export_id = str(export_data.get("export_id") or "")
+    export_revision = int(export_data.get("export_revision") or 1)
+    resource_origin = str(os.getenv("CONSENT_API_PUBLIC_ORIGIN") or "").strip().rstrip("/") or str(
+        request.base_url
+    ).rstrip("/")
+    resource_uri = (
+        f"{resource_origin}/api/v1/scoped-export/resources/{export_id}/revisions/{export_revision}"
+    )
     return DeveloperScopedExportResponse(
         status="success",
         user_id=payload.user_id,
@@ -1716,10 +1809,26 @@ async def get_scoped_export(
         export_revision=export_data.get("export_revision"),
         export_generated_at=_optional_str(export_data.get("export_generated_at")),
         export_refresh_status=export_data.get("refresh_status"),
-        encrypted_data=export_data.get("encrypted_data"),
+        encrypted_data=None,
         iv=export_data.get("iv"),
         tag=export_data.get("tag"),
         wrapped_key_bundle=export_data.get("wrapped_key_bundle"),
+        export_envelope={
+            "version": export_data.get("envelope_version"),
+            "export_id": export_id,
+            "aad": export_data.get("envelope_aad"),
+            "aad_sha256": export_data.get("envelope_aad_sha256"),
+            "ciphertext_sha256": export_data.get("ciphertext_sha256"),
+            "ciphertext_bytes": export_data.get("ciphertext_bytes"),
+        },
+        resource_link={
+            "uri": resource_uri,
+            "name": f"Hussh encrypted export revision {export_revision}",
+            "mime_type": "application/octet-stream",
+            "size": export_data.get("ciphertext_bytes"),
+            "auth": "developer_bearer",
+        },
+        maximum_raw_bytes=_CONSENT_EXPORT_MAX_RAW_BYTES,
         message=(
             "Encrypted scoped export ready."
             if not expected_scope or expected_scope == granted_scope
@@ -1728,73 +1837,94 @@ async def get_scoped_export(
     )
 
 
-@developer_api_router.post("/scoped-export/download")
-async def download_scoped_export(
-    payload: DeveloperScopedExportRequest,
+def _parse_single_byte_range(range_header: str | None, total_bytes: int) -> tuple[int, int] | None:
+    if not range_header:
+        return None
+    value = range_header.strip()
+    if not value.startswith("bytes=") or "," in value:
+        raise ValueError("invalid_range")
+    start_raw, separator, end_raw = value.removeprefix("bytes=").partition("-")
+    if not separator:
+        raise ValueError("invalid_range")
+    if not start_raw:
+        suffix_length = int(end_raw)
+        if suffix_length <= 0:
+            raise ValueError("invalid_range")
+        start = max(0, total_bytes - suffix_length)
+        return start, total_bytes - 1
+    start = int(start_raw)
+    end = int(end_raw) if end_raw else total_bytes - 1
+    if start < 0 or start >= total_bytes or end < start:
+        raise ValueError("range_not_satisfiable")
+    return start, min(end, total_bytes - 1)
+
+
+@developer_api_router.get("/scoped-export/resources/{export_id}/revisions/{revision}")
+async def get_scoped_export_resource(
     request: Request,
-    token: Optional[str] = Query(None, max_length=2048),
+    export_id: str = Path(min_length=32, max_length=64),
+    revision: int = Path(ge=1, le=10_000_000),
     authorization: Optional[str] = Header(None),
+    range_header: Optional[str] = Header(None, alias="Range"),
 ):
-    """Serve the encrypted export ciphertext as raw bytes.
+    """Stream immutable ciphertext bytes outside model context with range support."""
 
-    Same trust boundary as /scoped-export (developer principal + consent token
-    + user/app binding), but returns the base64-decoded ciphertext as an
-    application/octet-stream body so connectors can fetch it directly in a
-    script instead of routing a large base64 blob through an LLM context.
-    IV, tag, and revision ride response headers; the wrapped key bundle stays
-    JSON-only via /scoped-export. POST keeps the consent token out of URLs.
-
-    Scale seam: exports are capped at 10MB base64 today, far below the 32MB
-    Cloud Run response limit. If exports ever outgrow that, replace this body
-    with a short-lived signed storage URL without changing the request shape.
-    """
-    expected_scope = normalize_scope(payload.expected_scope) if payload.expected_scope else None
-    _, token_obj, export_data = await _load_scoped_export_or_raise(
-        request=request,
-        token=token,
-        authorization=authorization,
-        user_id=payload.user_id,
-        consent_token=payload.consent_token,
-        expected_scope=expected_scope,
-    )
-
-    if not export_data.get("is_strict_zero_knowledge"):
+    principal = _resolve_principal(request=request, token=None, authorization=authorization)
+    export_data = await ConsentDBService().get_consent_export_by_id(export_id)
+    if not export_data:
+        raise HTTPException(status_code=404, detail={"error_code": "SCOPED_EXPORT_NOT_FOUND"})
+    if str(export_data.get("app_id") or "") != principal.app_id:
         raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail={
-                "error_code": "LEGACY_EXPORT_INVALIDATED",
-                "message": (
-                    "This consent grant used a deprecated non-zero-knowledge export format. "
-                    "Request consent again to receive a wrapped-key-only export."
-                ),
-            },
+            status_code=403,
+            detail={"error_code": "CROSS_TENANT_DENIED", "message": "Resource access denied."},
         )
-
-    encrypted_b64 = str(export_data.get("encrypted_data") or "")
+    consent_token = str(export_data.get("consent_token") or "")
+    valid, _reason, token_obj = await validate_token_with_db(consent_token)
+    if not valid or token_obj is None or str(token_obj.agent_id) != principal.agent_id:
+        raise HTTPException(status_code=401, detail={"error_code": "INVALID_CONSENT_TOKEN"})
+    if int(export_data.get("export_revision") or 0) != revision:
+        raise HTTPException(status_code=404, detail={"error_code": "EXPORT_REVISION_NOT_FOUND"})
+    if str(export_data.get("refresh_status") or "") != "current":
+        raise HTTPException(status_code=409, detail={"error_code": "EXPORT_REFRESH_PENDING"})
+    if int(export_data.get("envelope_version") or 1) != 2:
+        raise HTTPException(
+            status_code=409,
+            detail={"error_code": "EXPORT_ENVELOPE_UPGRADE_REQUIRED"},
+        )
     try:
-        ciphertext = base64.b64decode(encrypted_b64, validate=True)
-    except (binascii.Error, ValueError):
+        ciphertext = base64.b64decode(str(export_data.get("encrypted_data") or ""), validate=True)
+    except (binascii.Error, ValueError) as exc:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error_code": "SCOPED_EXPORT_CORRUPT",
-                "message": "Stored export payload is not valid base64.",
-            },
-        )
+            status_code=500,
+            detail={"error_code": "SCOPED_EXPORT_CORRUPT"},
+        ) from exc
+    expected_size = int(export_data.get("ciphertext_bytes") or 0)
+    if expected_size != len(ciphertext) or digest_bytes(ciphertext) != str(
+        export_data.get("ciphertext_sha256") or ""
+    ):
+        raise HTTPException(status_code=500, detail={"error_code": "SCOPED_EXPORT_CORRUPT"})
 
-    granted_scope = str(export_data.get("scope") or token_obj.scope_str or token_obj.scope.value)
     headers = {
-        "X-Export-IV": str(export_data.get("iv") or ""),
-        "X-Export-Tag": str(export_data.get("tag") or ""),
-        "X-Export-Scope": granted_scope,
-        "Cache-Control": "no-store",
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "private, no-store",
+        "ETag": f'"{str(export_data.get("ciphertext_sha256") or "")}"',
+        "X-Export-Revision": str(revision),
+        "X-Content-Type-Options": "nosniff",
     }
-    export_revision = export_data.get("export_revision")
-    if export_revision is not None:
-        headers["X-Export-Revision"] = str(export_revision)
-
+    try:
+        selected = _parse_single_byte_range(range_header, len(ciphertext))
+    except (TypeError, ValueError):
+        return Response(
+            status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+            headers={**headers, "Content-Range": f"bytes */{len(ciphertext)}"},
+        )
+    if selected is None:
+        return Response(content=ciphertext, media_type="application/octet-stream", headers=headers)
+    start, end = selected
+    headers["Content-Range"] = f"bytes {start}-{end}/{len(ciphertext)}"
     return Response(
-        content=ciphertext,
+        content=ciphertext[start : end + 1],
+        status_code=status.HTTP_206_PARTIAL_CONTENT,
         media_type="application/octet-stream",
         headers=headers,
     )

@@ -113,6 +113,30 @@ async def run_app_action(
             "use_tool": delegate_tool,
         }
 
+    # Screen-reachability guard (defense in depth): if the action declares the
+    # screens it lives on and the user is NOT on one of them, refuse rather than
+    # park a directive for a control that isn't on screen. This is what stops
+    # One from, e.g., trying to run phone verification while the user is on the
+    # setup hub. Actions with no declared screens are screen-agnostic (global
+    # navigation) and always allowed; if we don't know the current screen we
+    # cannot judge reachability, so we allow.
+    current_screen = str(tool_context.state.get(_STATE_SCREEN) or "").strip()
+    action_screens = {
+        str(s).strip() for s in ((entry.get("scope") or {}).get("screens") or []) if str(s).strip()
+    }
+    if current_screen and action_screens and current_screen not in action_screens:
+        label = str(entry.get("label") or clean_id)
+        where = sorted(action_screens)[0]
+        return {
+            "status": "wrong_screen",
+            "message": (
+                f"{label} isn't available on the current screen; it lives on "
+                f"the {where} screen. Open that screen first (open_screen or the "
+                "matching route action) before running it."
+            ),
+            "reachable_screens": sorted(action_screens),
+        }
+
     policy = str((entry.get("risk") or {}).get("execution_policy") or "allow_direct")
     label = str(entry.get("label") or clean_id)
     if policy == "manual_only":

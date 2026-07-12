@@ -17,7 +17,10 @@ dependencies = [
     # ADK 2.x: real Runner/run_live/Task API runtime for One's orchestration.
     # Deliberately WITHOUT the gcp extra: that keeps google-cloud-aiplatform
     # (which pins google-genai<2) out of the graph so genai 2.x can resolve.
-    "google-adk==2.4.0",
+    # Official ADK A2A adapter support. The ADK 2.4 contract currently pins
+    # a2a-sdk <0.4; A2A SDK 1.x is intentionally not selected until ADK
+    # publishes a compatible release.
+    "google-adk[a2a]==2.4.0",
     "google-api-core==2.29.0",
     # Explicit floor: ADK 2.x requires google-genai>=2.9,<3. All first-party
     # call sites use GenerateContent/Live/types surfaces that are unchanged

@@ -33,6 +33,7 @@ import {
 import {
   applyManifestExposureChange,
   applySlicePosture,
+  publishPublicProfileForPermission,
 } from "@/lib/personal-knowledge-model/slice-publishing";
 import {
   categoryFromSensitivity,
@@ -72,7 +73,6 @@ const MOOD_OPTIONS: { value: PricingMood; label: string }[] = [
 const POSTURE_OPTIONS: { value: PkmVisibilityPosture; label: string }[] = [
   { value: "private", label: "Private" },
   { value: "consent_required", label: "Ask first" },
-  { value: "default_available", label: "Available" },
 ];
 
 // Structural (system / non-personal) scope keys that can NEVER be published as
@@ -492,6 +492,7 @@ export default function OneMarketplacePage() {
   // Owner is about to publish this section to the marketplace and must explicitly
   // consent first (consent-first). Null when no confirmation is pending.
   const [confirmPublish, setConfirmPublish] = useState<Section | null>(null);
+  const [publishedProfiles, setPublishedProfiles] = useState<Record<string, string>>({});
   // The buyer's own requests + delivered slices (migrations 075/079). Approvals
   // now happen entirely in the Consent Guardian; this "Received data" tab lets the
   // buyer view what sellers delivered, decrypting each envelope on-device.
@@ -640,6 +641,36 @@ export default function OneMarketplacePage() {
     };
   }, [user?.uid, isVaultUnlocked, token, refreshToken]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.uid || !token || records.length === 0) {
+      setPublishedProfiles({});
+      return;
+    }
+    void Promise.all(
+      records.map(async (record) => ({
+        domain: record.summary.key,
+        rows: await PersonalKnowledgeModelService.listPublicProfileProjections({
+          userId: user.uid,
+          domain: record.summary.key,
+          vaultOwnerToken: token,
+        }).catch(() => []),
+      })),
+    ).then((results) => {
+      if (cancelled) return;
+      const next: Record<string, string> = {};
+      for (const result of results) {
+        for (const row of result.rows) {
+          next[`${result.domain}:${row.topLevelScopePath}`] = row.publicProfileHandle;
+        }
+      }
+      setPublishedProfiles(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [records, token, user?.uid, refreshToken]);
+
   interface Section {
     key: string;
     domainKey: string;
@@ -688,29 +719,11 @@ export default function OneMarketplacePage() {
     );
   }, []);
 
-  // The actual posture write. Publishing (`default_available`) only reaches here
-  // after the owner has explicitly confirmed in the consent modal.
+  // Encrypted PKM posture is independent from public-profile publishing.
   const runPosture = useCallback(
     async (section: Section, nextPosture: PkmVisibilityPosture) => {
       if (!user?.uid || !vaultOwnerToken) {
         toast.error("Unlock your vault to change sharing.");
-        return;
-      }
-      if (nextPosture === "default_available" && !vaultKey) {
-        toast.error("Unlock your vault to publish a slice.");
-        return;
-      }
-      if (
-        nextPosture === "default_available" &&
-        isStructurallyBlockedForPublish(section.permission.topLevelScopePath)
-      ) {
-        // Structural (system) keys can never publish, even with owner consent —
-        // the backend hard-blocks them too. Restricted-tier personal data is
-        // allowed through: the owner's explicit consent (owner_consent_override)
-        // lets the backend publish it, so we do not block it here.
-        toast.error(
-          "This section is system data (not your personal data) and can't be published to the marketplace."
-        );
         return;
       }
       const previousManifest = section.manifest;
@@ -736,20 +749,9 @@ export default function OneMarketplacePage() {
           },
           nextPosture,
           previousManifest,
-          vaultKey: vaultKey ?? undefined,
           vaultOwnerToken,
-          source: "marketplace_owner",
-          // Publishing Available from the marketplace goes through the explicit
-          // owner consent modal, so forward that consent as the override. The
-          // backend still hard-blocks structural (non-personal) scope keys.
-          ownerConsentOverride: true,
         });
 
-        // Authoritative re-fetch: the consent guardrail decides the final posture
-        // server-side and can downgrade `default_available` (e.g. a scope the
-        // backend still tags restricted). Trust what the server actually persisted
-        // rather than our optimistic guess, so the UI never shows a fake success
-        // that then "reverts" on the next load.
         const fresh = token
           ? await PersonalKnowledgeModelService.getDomainManifest(
               user.uid,
@@ -761,30 +763,11 @@ export default function OneMarketplacePage() {
         const authoritative = fresh ?? manifest;
         replaceManifest(section.domainKey, authoritative);
 
-        const persistedPosture =
-          buildPkmDomainPermissionPresentation({
-            domain: section.summary,
-            manifest: authoritative,
-            activeGrants: [],
-            upgradeState: null,
-          }).find((p) => p.topLevelScopePath === section.permission.topLevelScopePath)
-            ?.visibilityPosture ?? nextPosture;
-
-        if (nextPosture === "default_available" && persistedPosture !== "default_available") {
-          // Owner consented, but the guardrail still refused to expose this section.
-          // Be honest about it instead of implying the publish stuck.
-          toast.error(
-            "This section is protected — the consent guardrail keeps it consent-gated, so it can't be published to the marketplace."
-          );
-        } else {
-          toast.success(
-            nextPosture === "private"
-              ? "This section is private."
-              : nextPosture === "default_available"
-                ? "Published — available to buyers with a price."
-                : "One will ask before sharing this section."
-          );
-        }
+        toast.success(
+          nextPosture === "private"
+            ? "This section is private."
+            : "One will ask before sharing this section."
+        );
       } catch (err) {
         if (err instanceof PkmScopeExposureError && err.status === 409 && user?.uid && token) {
           // Client manifest was stale (a prior change bumped the version). Re-sync
@@ -809,24 +792,85 @@ export default function OneMarketplacePage() {
         });
       }
     },
-    [user?.uid, vaultKey, vaultOwnerToken, token, replaceManifest]
+    [user?.uid, vaultOwnerToken, token, replaceManifest]
   );
 
-  // Publishing to the marketplace is consent-first: route "Available" through an
-  // explicit confirmation. Making a section private or consent-gated needs no
-  // extra prompt (it only ever tightens sharing).
-  const onTogglePosture = useCallback(
-    (section: Section, nextPosture: PkmVisibilityPosture) => {
-      if (nextPosture === "default_available") {
-        if (isStructurallyBlockedForPublish(section.permission.topLevelScopePath)) {
-          toast.error(
-            "This section is system data (not your personal data) and can't be published to the marketplace."
-          );
-          return;
-        }
-        setConfirmPublish(section);
+  const runPublish = useCallback(
+    async (section: Section) => {
+      if (!user?.uid || !vaultOwnerToken || !vaultKey) {
+        toast.error("Unlock your vault to publish a public profile.");
         return;
       }
+      if (isStructurallyBlockedForPublish(section.permission.topLevelScopePath)) {
+        toast.error("This system section cannot be published.");
+        return;
+      }
+      setPending((current) => ({ ...current, [section.key]: true }));
+      try {
+        const handle = await publishPublicProfileForPermission({
+          userId: user.uid,
+          domain: section.domainKey,
+          domainTitle: section.domainTitle,
+          permission: {
+            scopeHandle: section.permission.scopeHandle,
+            label: section.permission.label,
+            description: section.permission.description,
+            topLevelScopePath: section.permission.topLevelScopePath,
+          },
+          vaultKey,
+          vaultOwnerToken,
+          manifestVersion: section.manifest.manifest_version,
+          source: "marketplace_owner",
+        });
+        if (!handle.publicProfileHandle) throw new Error("No public profile handle was returned.");
+        setPublishedProfiles((current) => ({ ...current, [section.key]: handle.publicProfileHandle! }));
+        toast.success("Published as a safe public profile summary.");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Couldn't publish this profile.");
+      } finally {
+        setPending((current) => {
+          const next = { ...current };
+          delete next[section.key];
+          return next;
+        });
+      }
+    },
+    [user?.uid, vaultKey, vaultOwnerToken],
+  );
+
+  const runUnpublish = useCallback(
+    async (section: Section) => {
+      const handle = publishedProfiles[section.key];
+      if (!user?.uid || !vaultOwnerToken || !handle) return;
+      setPending((current) => ({ ...current, [section.key]: true }));
+      try {
+        await PersonalKnowledgeModelService.unpublishPublicProfileProjection({
+          userId: user.uid,
+          domain: section.domainKey,
+          publicProfileHandle: handle,
+          vaultOwnerToken,
+        });
+        setPublishedProfiles((current) => {
+          const next = { ...current };
+          delete next[section.key];
+          return next;
+        });
+        toast.success("Public profile summary unpublished.");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Couldn't unpublish this profile.");
+      } finally {
+        setPending((current) => {
+          const next = { ...current };
+          delete next[section.key];
+          return next;
+        });
+      }
+    },
+    [publishedProfiles, user?.uid, vaultOwnerToken],
+  );
+
+  const onTogglePosture = useCallback(
+    (section: Section, nextPosture: PkmVisibilityPosture) => {
       void runPosture(section, nextPosture);
     },
     [runPosture]
@@ -839,12 +883,12 @@ export default function OneMarketplacePage() {
   const publishedSliceKeys = useMemo(() => {
     const keys = new Set<string>();
     for (const s of sections) {
-      if (s.permission.visibilityPosture !== "default_available") continue;
+      if (!publishedProfiles[s.key]) continue;
       if (s.permission.scopeHandle) keys.add(`h:${s.permission.scopeHandle}`);
       keys.add(`l:${s.domainKey}:${s.permission.label}`);
     }
     return keys;
-  }, [sections]);
+  }, [sections, publishedProfiles]);
 
   // Publish a slice the agent suggested in a chat publish-card. Match by scope
   // handle first, then fall back to domain + label.
@@ -855,10 +899,10 @@ export default function OneMarketplacePage() {
           (slice.scopeHandle && s.permission.scopeHandle === slice.scopeHandle) ||
           (s.domainKey === slice.domain && s.permission.label === slice.label)
       );
-      if (section) onTogglePosture(section, "default_available");
+      if (section) setConfirmPublish(section);
       else toast.error("Couldn't find that section to publish.");
     },
-    [sections, onTogglePosture]
+    [sections]
   );
 
   // File a REAL cross-account access request against the listing's true owner
@@ -925,7 +969,7 @@ export default function OneMarketplacePage() {
     <PkmSettingsShell
       eyebrow="One / Marketplace"
       title="Information Marketplace"
-      description="Your data, your business. Choose what each section shares — Private, Ask first, or Available — and see what it's worth. Nothing is ever shared without your approval."
+      description="Choose private sharing separately from owner-published public profile summaries. Nothing private is shared without your approval."
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <SettingsSegmentedTabs
@@ -962,9 +1006,8 @@ export default function OneMarketplacePage() {
       />
 
       <div className="mb-5 rounded-2xl border border-amber-200/60 bg-amber-50/40 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/10 dark:text-amber-300">
-        Consent-first · a section is shared only after you set it to Available and approve a specific
-        buyer. Prices are a research-anchored suggestion computed live — you set the final price. No
-        money moves here.
+        Consent-first · private sections always require approval. Publishing creates only a safe
+        public summary; buyer delivery still needs your approval. Prices are suggestions only.
       </div>
 
       {/* Personal Information Agent — the marketplace chatbot. Ask what you've
@@ -1007,7 +1050,7 @@ export default function OneMarketplacePage() {
                 </div>
               ) : (
                 sections.map((section) => {
-                  const isAvailable = section.permission.visibilityPosture === "default_available";
+                  const isAvailable = Boolean(publishedProfiles[section.key]);
                   const busy = pending[section.key] === true;
                   const structurallyBlocked = isStructurallyBlockedForPublish(
                     section.permission.topLevelScopePath
@@ -1058,8 +1101,33 @@ export default function OneMarketplacePage() {
                         <div className="mt-2 text-[12px] text-muted-foreground">
                           This is system data (not your personal data), so it can’t be published to the
                           marketplace. Your own sections — including restricted ones — can be set to
-                          “Available” with your explicit consent.
+                          “Publish” with your explicit consent.
                         </div>
+                      ) : null}
+
+                      {!structurallyBlocked && !isAvailable ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="none"
+                          effect="fade"
+                          className="mt-3"
+                          onClick={() => setConfirmPublish(section)}
+                        >
+                          Publish safe summary
+                        </Button>
+                      ) : null}
+                      {isAvailable ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="none"
+                          effect="fade"
+                          className="mt-3"
+                          onClick={() => void runUnpublish(section)}
+                        >
+                          Unpublish summary
+                        </Button>
                       ) : null}
 
                       <div className="mt-4 border-t pt-4">
@@ -1079,8 +1147,7 @@ export default function OneMarketplacePage() {
                           </>
                         ) : (
                           <div className="text-sm text-muted-foreground">
-                            Set to <span className="font-medium text-foreground">Available</span> to
-                            publish a safe summary and see its suggested price.
+                            Publish a safe summary to list it and see its suggested price.
                           </div>
                         )}
                       </div>
@@ -1106,9 +1173,8 @@ export default function OneMarketplacePage() {
               ) : listings.length === 0 ? (
                 <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
                   <Store className="mx-auto mb-2 h-6 w-6 opacity-60" aria-hidden />
-                  Nothing on the market yet. When other people set a section to{" "}
-                  <span className="font-medium text-foreground">Available</span>, their anonymized slice
-                  lists here to request.
+                  Nothing on the market yet. When people publish a safe profile summary, it appears
+                  here for requests.
                 </div>
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -1343,7 +1409,7 @@ export default function OneMarketplacePage() {
                 onClick={() => {
                   const section = confirmPublish;
                   setConfirmPublish(null);
-                  void runPosture(section, "default_available");
+                  void runPublish(section);
                 }}
               >
                 I consent — publish

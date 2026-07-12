@@ -94,8 +94,10 @@ class _CapturingClient:
     async def __aexit__(self, *exc):
         return False
 
-    async def post(self, url, params=None, json=None, timeout=None):  # noqa: A002
-        _CapturingClient.captured = {"url": url, "json": json}
+    async def post(  # noqa: A002
+        self, url, params=None, headers=None, json=None, timeout=None
+    ):
+        _CapturingClient.captured = {"url": url, "headers": headers, "json": json}
         # Echo a pending reply that includes the offer the API would surface.
         offer = (json or {}).get("offer")
         surfaced = None
@@ -132,7 +134,11 @@ def _patched_consent_env(monkeypatch):
     monkeypatch.setattr(ct, "resolve_scope_api", lambda s: "attr.financial.*")
     monkeypatch.setattr(ct, "DEVELOPER_API_ENABLED", True)
     monkeypatch.setattr(ct, "PRODUCTION_MODE", True)
-    monkeypatch.setattr(ct, "get_developer_request_query", lambda: {"token": "hdk_demo"})
+    monkeypatch.setattr(
+        ct,
+        "get_developer_api_headers",
+        lambda: {"Authorization": "Bearer hdk_demo"},
+    )
     monkeypatch.setattr(ct.httpx, "AsyncClient", _CapturingClient)
     _CapturingClient.captured = {}
     return ct

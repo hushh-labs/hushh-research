@@ -11,7 +11,6 @@ export const ROUTES = {
   GETTING_STARTED: "/getting-started",
   LOGOUT: "/logout",
   PHONE_MANDATE: "/register-phone",
-  LABS_PROFILE_APPEARANCE: "/labs/profile-appearance",
   PROFILE: "/profile",
   PROFILE_ACCOUNT: "/profile/account",
   PROFILE_ACCOUNT_PHONE: "/profile/account/phone",

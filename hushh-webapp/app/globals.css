@@ -1040,6 +1040,730 @@ html.native-ios {
   }
 }
 
+/* iOS Siri-style edge glow: soft colored light pools anchored to the screen
+   edges that gently WAVE (drift + breathe) in place - the colors do NOT spin
+   around the perimeter. Each pool is a blurred radial blob hugging one edge;
+   staggered slow drift/scale animations make the whole rim shimmer like Siri's
+   glow. A mask keeps the light on the edges only, feathering into the center. */
+.one-siri-edge-pool {
+  position: absolute;
+  border-radius: 50%;
+  will-change: transform, opacity;
+  filter: blur(var(--one-siri-pool-blur, 44px));
+  mix-blend-mode: screen;
+}
+
+/* Horizontal drift for the top/bottom edges (waves left<->right). */
+@keyframes one-siri-drift-x {
+  0% {
+    transform: translate3d(-6%, 0, 0) scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: translate3d(6%, 0, 0) scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(-6%, 0, 0) scale(1);
+    opacity: 0.85;
+  }
+}
+
+/* Vertical drift for the left/right edges (waves up<->down). */
+@keyframes one-siri-drift-y {
+  0% {
+    transform: translate3d(0, -6%, 0) scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: translate3d(0, 6%, 0) scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(0, -6%, 0) scale(1);
+    opacity: 0.85;
+  }
+}
+
+/* Gentle breathe for the corner accents. */
+@keyframes one-siri-breathe {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .one-siri-edge-pool {
+    animation: none !important;
+  }
+}
+
+/* Memory constellation (welcome hero): source nodes fade + scale in on mount,
+   staggered per node via --one-node-delay; the active source gently pulses; the
+   connector lines draw inward once. */
+.one-constellation-node {
+  opacity: 0;
+  transform: scale(0.6);
+  animation: one-node-enter 520ms var(--motion-ease-emphasized) var(--one-node-delay, 0ms) forwards;
+}
+
+.one-constellation-node--active .one-constellation-node-ring {
+  animation: one-node-pulse 2600ms var(--motion-ease-standard) infinite;
+}
+
+.one-constellation-line {
+  transform-origin: left center;
+  transform: scaleX(0);
+  opacity: 0;
+  animation: one-line-draw 620ms var(--motion-ease-decelerate) var(--one-node-delay, 0ms) forwards;
+}
+
+@keyframes one-node-enter {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes one-node-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+
+@keyframes one-line-draw {
+  0% {
+    transform: scaleX(0);
+    opacity: 0;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .one-constellation-node,
+  .one-constellation-line {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .one-constellation-node--active .one-constellation-node-ring {
+    animation: none;
+  }
+}
+
+/* Ambient card deck (welcome hero): cards "deal in" from a stack on load, then
+   settle to a gentle continuous float/parallax. Each card gets its own resting
+   transform via CSS vars (--deck-x/--deck-y/--deck-rot) and its own float delay.
+   The cinematic entrance runs once; the float loops forever after. */
+.one-deck-card {
+  opacity: 0;
+  transform: translate3d(0, 40px, 0) rotate(0deg) scale(0.9);
+  animation:
+    one-deck-deal 900ms var(--motion-ease-emphasized) var(--deck-delay, 0ms) forwards,
+    one-deck-float 7s ease-in-out var(--deck-float-delay, 1200ms) infinite;
+}
+
+@keyframes one-deck-deal {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 44px, 0) rotate(0deg) scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(var(--deck-x, 0), var(--deck-y, 0), 0)
+      rotate(var(--deck-rot, 0deg)) scale(1);
+  }
+}
+
+@keyframes one-deck-float {
+  0%,
+  100% {
+    transform: translate3d(var(--deck-x, 0), var(--deck-y, 0), 0)
+      rotate(var(--deck-rot, 0deg)) scale(1);
+  }
+  50% {
+    transform: translate3d(var(--deck-x, 0), calc(var(--deck-y, 0px) - 10px), 0)
+      rotate(calc(var(--deck-rot, 0deg) + 0.6deg)) scale(1);
+  }
+}
+
+/* Headline words rise in, staggered, for the cinematic type moment. */
+.one-hero-word {
+  display: inline-block;
+  opacity: 0;
+  transform: translate3d(0, 0.5em, 0);
+  animation: one-word-rise 620ms var(--motion-ease-emphasized) var(--word-delay, 0ms) forwards;
+}
+
+@keyframes one-word-rise {
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .one-deck-card,
+  .one-hero-word {
+    animation: none;
+    opacity: 1;
+    transform: translate3d(var(--deck-x, 0), var(--deck-y, 0), 0) rotate(var(--deck-rot, 0deg));
+  }
+}
+
+/* ── Aurora / vibe background ── Large blurred colour blobs that slowly drift
+   and breathe, so the whole screen feels alive (Apple-Intelligence energy)
+   without ever distracting. Each blob gets its own path + speed. */
+.one-aurora-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(70px);
+  will-change: transform, opacity;
+  mix-blend-mode: normal;
+}
+.one-aurora-blob--a {
+  animation: one-aurora-a 18s ease-in-out infinite;
+}
+.one-aurora-blob--b {
+  animation: one-aurora-b 22s ease-in-out infinite;
+}
+.one-aurora-blob--c {
+  animation: one-aurora-c 26s ease-in-out infinite;
+}
+.one-aurora-blob--d {
+  animation: one-aurora-d 30s ease-in-out infinite;
+}
+
+@keyframes one-aurora-a {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(8%, 10%, 0) scale(1.15); }
+}
+@keyframes one-aurora-b {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.1); }
+  50% { transform: translate3d(-10%, 6%, 0) scale(0.95); }
+}
+@keyframes one-aurora-c {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(6%, -12%, 0) scale(1.2); }
+}
+@keyframes one-aurora-d {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.05); }
+  50% { transform: translate3d(-8%, -8%, 0) scale(0.9); }
+}
+
+/* Slow-drifting fine grain/particles layer (a whisper of texture + life). */
+.one-particle {
+  position: absolute;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0;
+  animation: one-particle-drift var(--p-dur, 9s) ease-in-out var(--p-delay, 0ms) infinite;
+}
+@keyframes one-particle-drift {
+  0% { opacity: 0; transform: translate3d(0, 8px, 0); }
+  30% { opacity: var(--p-opacity, 0.5); }
+  70% { opacity: var(--p-opacity, 0.5); }
+  100% { opacity: 0; transform: translate3d(0, -18px, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .one-aurora-blob,
+  .one-particle {
+    animation: none;
+  }
+  .one-particle { opacity: 0.25; }
+}
+
+/* Agent bar edge glow: a STILL soft gold gradient rim (no idle spin). It only
+   comes alive (a gentle breathing brighten) while a live voice conversation is
+   active, so motion always MEANS something. */
+.one-bar-aurora {
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+  background: radial-gradient(
+    120% 160% at 50% 120%,
+    rgba(212, 175, 106, 0.5),
+    rgba(212, 175, 106, 0.12) 55%,
+    transparent 72%
+  );
+  filter: blur(12px);
+  opacity: 0.5;
+}
+.one-bar-aurora--active {
+  background: linear-gradient(
+    120deg,
+    rgba(212, 175, 106, 0.7),
+    rgba(129, 140, 248, 0.55),
+    rgba(236, 72, 153, 0.5),
+    rgba(212, 175, 106, 0.7)
+  );
+  animation: one-bar-breathe 3.4s ease-in-out infinite;
+}
+@keyframes one-bar-breathe {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.9; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .one-bar-aurora--active { animation: none; }
+}
+
+/* ── Cinematic launch sequence (welcome hero) ── */
+/* The quiet-mark IGNITES: a light bloom scales up behind it while the mark
+   fades/scales into focus, then a soft ring pulses out once. */
+.one-ignite-mark {
+  opacity: 0;
+  transform: scale(0.7);
+  animation: one-ignite 1100ms var(--motion-ease-emphasized) 120ms forwards;
+}
+.one-ignite-bloom {
+  opacity: 0;
+  transform: scale(0.4);
+  animation: one-ignite-bloom 1600ms var(--motion-ease-decelerate) 120ms forwards;
+}
+.one-ignite-ring {
+  opacity: 0;
+  transform: scale(0.6);
+  animation: one-ignite-ring 1800ms var(--motion-ease-decelerate) 560ms forwards;
+}
+@keyframes one-ignite {
+  0% { opacity: 0; transform: scale(0.7); filter: brightness(2.2); }
+  55% { opacity: 1; transform: scale(1.08); filter: brightness(1.4); }
+  100% { opacity: 1; transform: scale(1); filter: brightness(1); }
+}
+@keyframes one-ignite-bloom {
+  0% { opacity: 0; transform: scale(0.4); }
+  40% { opacity: 0.9; transform: scale(1.05); }
+  100% { opacity: 0.5; transform: scale(1); }
+}
+@keyframes one-ignite-ring {
+  0% { opacity: 0.7; transform: scale(0.6); }
+  100% { opacity: 0; transform: scale(1.9); }
+}
+
+/* Headline + proof rise in AFTER the ignite (staggered). */
+.one-seq-rise {
+  opacity: 0;
+  transform: translate3d(0, 16px, 0);
+  animation: one-seq-rise 700ms var(--motion-ease-emphasized) var(--seq-delay, 900ms) forwards;
+}
+@keyframes one-seq-rise {
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   CINEMATIC PRE-AUTH SYSTEM (Linear/Vercel-grade)
+   Deep quiet canvas, one breathing glow, film grain, refined type with
+   springy assembled reveals, a magnetic CTA, and a gold foil brand word.
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Google Stitch Gold-Mesh Pulsar ──
+   A slow, organic fluid sweep that morphs behind the glass panel.
+   Keeps the background alive with molten fluid aesthetics. */
+@keyframes gold-mesh-pulse {
+  0% {
+    transform: scale(1) translate(0px, 0px) rotate(0deg);
+    filter: blur(80px) opacity(0.5);
+  }
+  33% {
+    transform: scale(1.18) translate(25px, -35px) rotate(120deg);
+    filter: blur(95px) opacity(0.65);
+  }
+  66% {
+    transform: scale(0.85) translate(-35px, 25px) rotate(240deg);
+    filter: blur(75px) opacity(0.45);
+  }
+  100% {
+    transform: scale(1) translate(0px, 0px) rotate(360deg);
+    filter: blur(80px) opacity(0.5);
+  }
+}
+
+.glow-mesh-active {
+  animation: gold-mesh-pulse 12s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+}
+
+/* ── Interactive Web-Tap Ripple ──
+   On-click ripple that fans outwards as an organic halo. */
+@keyframes canvas-ripple-burst {
+  0% {
+    transform: scale(0);
+    opacity: 0.65;
+    filter: blur(2px);
+  }
+  100% {
+    transform: scale(4);
+    opacity: 0;
+    filter: blur(14px);
+  }
+}
+
+.canvas-ripple {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(244, 215, 154, 0.22) 0%, rgba(184, 137, 77, 0.05) 50%, transparent 100%);
+  animation: canvas-ripple-burst 900ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  z-index: 10;
+}
+
+/* ── Molten-gold foil text ── clipped liquid-metal sheen, slowly panned.
+   NOTE: display:inline-block + generous line-height + real padding so
+   background-clip:text never crops glyphs at tight tracking; the negative
+   right margin compensates the extra advance the padding adds so the word
+   still centers optically.
+   Light-mode gradient stays MID-TONE ONLY: on the near-white pearl hero any
+   near-white highlight stop makes the panning sheen vanish entirely, so the
+   brightest stop is capped at a readable gold. */
+.one-molten {
+  display: inline-block;
+  line-height: 1.24;
+  padding: 0.1em 0.08em;
+  margin: -0.06em -0.04em;
+  background-image: linear-gradient(
+    98deg,
+    #6d431a 0%, #96622a 12%, #c08b3e 26%, #dcae59 40%,
+    #eccb7f 50%, #dcae59 60%, #c08b3e 74%, #96622a 88%, #6d431a 100%
+  );
+  background-size: 300% 100%;
+  background-position: 0% 50%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: one-molten-pan 6.5s var(--motion-ease-standard) infinite;
+  will-change: background-position;
+}
+.dark .one-molten {
+  background-image: linear-gradient(
+    98deg,
+    #8a5a24 0%, #c08b3e 12%, #e6bd6a 26%, #f7e0a6 40%,
+    #fff8ea 50%, #f7e0a6 60%, #e6bd6a 74%, #c08b3e 88%, #8a5a24 100%
+  );
+}
+@keyframes one-molten-pan {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* ── The hero glow ── one large soft orb that slowly breathes + drifts. */
+.one-hero-glow {
+  filter: blur(8px);
+  opacity: 0.9;
+  animation: one-glow-breathe 11s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+.one-hero-glow--alt {
+  opacity: 0.7;
+  animation: one-glow-breathe-alt 15s ease-in-out infinite;
+}
+@keyframes one-glow-breathe {
+  0%   { transform: translate(-50%, 0) scale(1);     opacity: 0.82; }
+  50%  { transform: translate(-50%, 2%) scale(1.08); opacity: 1; }
+  100% { transform: translate(-50%, 0) scale(1);     opacity: 0.82; }
+}
+@keyframes one-glow-breathe-alt {
+  0%   { transform: scale(1);    opacity: 0.55; }
+  50%  { transform: scale(1.12); opacity: 0.8; }
+  100% { transform: scale(1);    opacity: 0.55; }
+}
+
+/* ── Drifting motes ── barely-there floating specks. */
+.one-mote {
+  position: absolute;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: var(--m-opacity, 0.25);
+  filter: blur(0.3px);
+  box-shadow: 0 0 6px currentColor;
+  animation: one-mote-drift var(--m-dur, 12s) ease-in-out var(--m-delay, 0ms) infinite;
+}
+@keyframes one-mote-drift {
+  0%   { transform: translate3d(0, 0, 0);        opacity: 0; }
+  15%  { opacity: var(--m-opacity, 0.25); }
+  50%  { transform: translate3d(6px, -14px, 0); }
+  85%  { opacity: var(--m-opacity, 0.25); }
+  100% { transform: translate3d(-4px, -26px, 0); opacity: 0; }
+}
+
+/* ── Film grain ── fine static tooth so the canvas never looks flat CSS. */
+.one-grain {
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: radial-gradient(rgba(0, 0, 0, 0.9) 0.5px, transparent 0.6px);
+  background-size: 3px 3px;
+}
+.dark .one-grain {
+  opacity: 0.08;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.9) 0.5px, transparent 0.6px);
+}
+
+/* ── Assembled reveal ── each line rises + un-blurs with a soft spring. Uses
+   --seq-delay for staggering. This is the Emil-Kowalski-style entrance. */
+.one-reveal {
+  opacity: 0;
+  transform: translate3d(0, 14px, 0);
+  filter: blur(6px);
+  animation: one-reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) var(--seq-delay, 0ms) forwards;
+  will-change: opacity, transform, filter;
+}
+@keyframes one-reveal {
+  to { opacity: 1; transform: translate3d(0, 0, 0); filter: blur(0); }
+}
+
+/* ── Capability line ── a lit dot + label + descriptor; hover draws a gold
+   underline and warms the dot. A hairline separates rows (Linear list feel). */
+.one-cap-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 12px 2px;
+}
+.one-cap-row + .one-cap-row {
+  border-top: 1px solid rgba(184, 137, 77, 0.14);
+}
+.dark .one-cap-row + .one-cap-row {
+  border-top-color: rgba(231, 192, 120, 0.12);
+}
+.one-cap-dot {
+  position: relative;
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff4d6, #d4a574 45%, #a9702f 100%);
+  box-shadow: 0 0 0 4px rgba(184, 137, 77, 0.1), 0 0 10px 0 rgba(212, 165, 116, 0.7);
+  transition: box-shadow 320ms var(--motion-ease-decelerate);
+}
+.dark .one-cap-dot {
+  background: radial-gradient(circle at 35% 30%, #fff6e2, #e6bd6a 45%, #96612a 100%);
+  box-shadow: 0 0 0 4px rgba(231, 192, 120, 0.12), 0 0 12px 0 rgba(231, 192, 120, 0.6);
+}
+.one-cap-row:hover .one-cap-dot {
+  box-shadow: 0 0 0 5px rgba(184, 137, 77, 0.16), 0 0 16px 2px rgba(212, 165, 116, 0.9);
+}
+.one-cap-underline {
+  background-image: linear-gradient(90deg, rgba(184, 137, 77, 0.6), rgba(212, 165, 116, 0));
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 0% 1.5px;
+  transition: background-size 420ms var(--motion-ease-decelerate);
+  padding-bottom: 2px;
+}
+.one-cap-row:hover .one-cap-underline {
+  background-size: 100% 1.5px;
+}
+.dark .one-cap-underline {
+  background-image: linear-gradient(90deg, rgba(231, 192, 120, 0.65), rgba(231, 192, 120, 0));
+}
+
+/* ── Hand-drawn capability glyphs ── self-draw on mount + living details. ── */
+/* Strokes trace themselves in via dash offset, then settle. Each glyph carries
+   its own tiny living detail (glint / pulse / bead / ping). */
+.one-glyph-draw path,
+.one-glyph-draw ellipse,
+.one-glyph-draw circle {
+  stroke-dasharray: 220;
+  stroke-dashoffset: 220;
+  animation: one-glyph-trace 1.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: var(--glyph-delay, 0ms);
+}
+/* Slight, organic settle wobble on the whole glyph after it draws (imperfect,
+   alive). */
+.one-glyph-tile svg {
+  animation: one-glyph-settle 7s ease-in-out infinite;
+  animation-delay: var(--glyph-delay, 0ms);
+  transform-origin: 50% 55%;
+}
+@keyframes one-glyph-trace {
+  to { stroke-dashoffset: 0; }
+}
+@keyframes one-glyph-settle {
+  0%, 100% { transform: rotate(-0.6deg) translateY(0); }
+  50%      { transform: rotate(0.8deg) translateY(-0.6px); }
+}
+/* coin glint */
+.one-glyph-glint {
+  transform-origin: center;
+  animation: one-glint 3.6s ease-in-out infinite;
+  animation-delay: calc(var(--glyph-delay, 0ms) + 900ms);
+}
+@keyframes one-glint {
+  0%, 70%, 100% { opacity: 0.2; transform: scale(0.7); }
+  82%           { opacity: 1;   transform: scale(1.25); }
+}
+/* memory pulse */
+.one-glyph-pulse {
+  transform-origin: center;
+  animation: one-glyph-pulse 3.2s ease-in-out infinite;
+  animation-delay: calc(var(--glyph-delay, 0ms) + 800ms);
+}
+@keyframes one-glyph-pulse {
+  0%, 100% { opacity: 0.7; transform: scale(0.9); }
+  50%      { opacity: 1;   transform: scale(1.15); }
+}
+/* place ping */
+.one-glyph-ping {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: one-glyph-ping 2.8s ease-out infinite;
+  animation-delay: calc(var(--glyph-delay, 0ms) + 900ms);
+}
+@keyframes one-glyph-ping {
+  0%   { opacity: 0.9; transform: scale(0.4); }
+  70%  { opacity: 0;   transform: scale(1.9); }
+  100% { opacity: 0;   transform: scale(1.9); }
+}
+
+/* ── Gold-glass capability tile ── holds a glyph + label + note. Soft elevated
+   glass with a hairline gold ring, a corner sheen, and a hover lift. */
+.one-glyph-tile {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--app-card-radius-standard, 22px);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 249, 238, 0.45) 100%);
+  border: 1px solid rgba(184, 137, 77, 0.2);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 14px 30px -18px rgba(58, 38, 12, 0.32);
+  transition:
+    transform var(--motion-duration-m, 240ms) var(--motion-ease-decelerate),
+    box-shadow var(--motion-duration-m, 240ms) var(--motion-ease-decelerate),
+    border-color var(--motion-duration-m, 240ms) var(--motion-ease-decelerate);
+}
+.one-glyph-tile::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 90% at 100% 0%, rgba(244, 215, 154, 0.4) 0%, rgba(244, 215, 154, 0) 55%);
+  pointer-events: none;
+}
+.one-glyph-tile:hover {
+  transform: translateY(-3px);
+  border-color: rgba(184, 137, 77, 0.42);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7) inset,
+    0 22px 40px -18px rgba(58, 38, 12, 0.44);
+}
+.dark .one-glyph-tile {
+  background:
+    linear-gradient(180deg, rgba(38, 31, 21, 0.66) 0%, rgba(22, 17, 11, 0.55) 100%);
+  border-color: rgba(231, 192, 120, 0.18);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.05) inset,
+    0 16px 32px -18px rgba(0, 0, 0, 0.7);
+}
+.dark .one-glyph-tile::before {
+  background: radial-gradient(120% 90% at 100% 0%, rgba(231, 192, 120, 0.22) 0%, rgba(231, 192, 120, 0) 55%);
+}
+.dark .one-glyph-tile:hover {
+  border-color: rgba(231, 192, 120, 0.36);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.07) inset,
+    0 22px 44px -18px rgba(0, 0, 0, 0.82);
+}
+/* The glyph well: a soft inset gold halo behind each drawing. */
+.one-glyph-well {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background: radial-gradient(closest-side, rgba(244, 215, 154, 0.3), rgba(244, 215, 154, 0) 75%);
+}
+.dark .one-glyph-well {
+  background: radial-gradient(closest-side, rgba(231, 192, 120, 0.2), rgba(231, 192, 120, 0) 75%);
+}
+
+/* ── Magnetic CTA sheen ── a gold light sweeps across the button on hover. */
+.one-cta {
+  position: relative;
+  overflow: hidden;
+}
+.one-cta::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 20%,
+    rgba(255, 240, 210, 0.28) 48%,
+    rgba(255, 240, 210, 0) 62%
+  );
+  transform: translateX(-120%);
+  transition: transform 720ms var(--motion-ease-standard);
+  pointer-events: none;
+}
+.one-cta:hover::after {
+  transform: translateX(120%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .one-molten { animation: none; background-position: 32% 50%; }
+  .one-hero-glow, .one-hero-glow--alt, .one-mote { animation: none; }
+  .one-reveal { animation: none; opacity: 1; transform: none; filter: none; }
+  .one-cap-underline, .one-cap-dot { transition: none; }
+  .one-cta::after { display: none; }
+  .one-glyph-draw path,
+  .one-glyph-draw ellipse,
+  .one-glyph-draw circle {
+    stroke-dashoffset: 0;
+    animation: none;
+  }
+  .one-glyph-tile svg,
+  .one-glyph-glint,
+  .one-glyph-pulse,
+  .one-glyph-ping { animation: none; }
+  .one-glyph-tile { transition: none; }
+}
+
+/* Proof tile cross-fade (the cycling states). */
+.one-proof-state {
+  animation: one-proof-fade 560ms var(--motion-ease-standard);
+}
+@keyframes one-proof-fade {
+  0% { opacity: 0; transform: translate3d(0, 8px, 0) scale(0.98); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .one-ignite-mark, .one-ignite-bloom, .one-ignite-ring, .one-seq-rise, .one-proof-state {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* Hussh Brand Text */
 .text-hushh-brand {
   background: linear-gradient(135deg, #b8894d 0%, #d4a574 100%);
@@ -1183,28 +1907,6 @@ html.native-ios {
   }
 }
 
-/* Hero card specific glass effect - automatically switches between light/dark modes */
-.hero-card-glass {
-  background-color: var(--activeGlassColor) !important;
-}
-
-.glass-interactive {
-  background-color: var(--activeGlassColor) !important;
-  backdrop-filter: blur(12px) saturate(180%);
-  -webkit-backdrop-filter: blur(12px) saturate(180%);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.glass-interactive:hover {
-  background-color: var(--glass1) !important;
-  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
-}
-
-.dark .glass-interactive:hover {
-  background-color: var(--glass2) !important;
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
-}
-
 /* Shared critical palette (use for delete/revoke/expire sections; avoids destructive variants).
  * NOTE: the --critical-* tokens are full oklch() colors, so they must be used
  * directly. Wrapping them in hsl() produces an invalid value that the browser
@@ -1280,6 +1982,19 @@ html.native-ios {
     line-height: var(--foundation-title1-line) !important;
     font-weight: var(--foundation-title1-weight) !important;
     letter-spacing: var(--foundation-title1-tracking);
+  }
+
+  /* Onboarding hero "One": the single sanctioned display-scale exception to
+     the foundation h1 lock above. Same layer + higher specificity + important
+     so it deterministically wins over the base h1 rule (which also beats
+     Tailwind arbitrary utilities and inline styles). Generous line-height:
+     the word is painted by .one-molten's background-clip:text, which crops
+     glyphs when the line box is tight at -3.5px tracking. */
+  h1.one-hero-title {
+    font-size: clamp(64px, 20vw, 88px) !important;
+    line-height: 1.1 !important;
+    font-weight: 700 !important;
+    letter-spacing: -3.5px;
   }
 
   h2 {
@@ -1438,13 +2153,6 @@ html.native-ios {
     overflow-x: hidden;
   }
 }
-/* GPU optimization class - promotes element to its own compositor layer */
-.glass-performant {
-  transform: translate3d(0, 0, 0);
-  will-change: transform;
-  isolation: isolate;
-}
-
 /* Lighter blur variant for performance-critical areas */
 .backdrop-blur-optimized {
   -webkit-backdrop-filter: blur(6px);

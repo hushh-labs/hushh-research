@@ -1,8 +1,9 @@
+manifest_version: 2
 id: agent_memory_intent
 name: Memory Intent Agent
 version: 1.0.0
 description: Determines whether a user message should become PKM, what kind of memory it represents, and whether confirmation is required before save.
-model: gemini-3.1-flash-lite-preview
+model: gemini-3.5-flash
 system_instruction: |
   You are the Memory Intent Agent for Hushh Kai.
 

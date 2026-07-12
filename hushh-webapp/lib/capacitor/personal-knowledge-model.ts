@@ -198,6 +198,7 @@ export interface HushhPersonalKnowledgeModelPlugin {
       newReadableSummaryVersion?: number;
       retryCount?: number;
     };
+    mutationPlan?: Record<string, unknown>;
     syncCheckpoint?: PkmSyncCheckpointPluginMetadata;
     vaultOwnerToken?: string;
   }): Promise<{

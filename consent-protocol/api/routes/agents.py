@@ -81,7 +81,7 @@ async def kai_chat(request: ChatRequest):
     logger.info("agents.kai_chat user=%s msg=%.50r", request.userId, request.message)
 
     try:
-        result = get_kai_agent().handle_message(
+        result = await get_kai_agent().handle_message(
             message=request.message,
             user_id=request.userId,
             # session_state=request.sessionState # Kai likely manages state in context/memory

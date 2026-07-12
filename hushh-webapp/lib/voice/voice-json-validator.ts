@@ -261,21 +261,19 @@ export function validateVoiceToolCall(input: unknown): VoiceToolCall | null {
 
   if (toolName === "capture_pkm_memory") {
     const keys = Object.keys(args);
-    if (!keys.every((key) => key === "message" || key === "mode" || key === "direct_save")) {
+    if (!keys.every((key) => key === "message" || key === "mode")) {
       return null;
     }
     if (args.message !== undefined && typeof args.message !== "string") return null;
-    if (args.mode !== undefined && args.mode !== "preview" && args.mode !== "direct_save") {
+    if (args.mode !== undefined && args.mode !== "preview") {
       return null;
     }
-    if (args.direct_save !== undefined && typeof args.direct_save !== "boolean") return null;
     const message = typeof args.message === "string" ? args.message.trim() : undefined;
     return {
       tool_name: "capture_pkm_memory",
       args: {
         message: message || undefined,
         mode: args.mode,
-        direct_save: args.direct_save,
       },
     };
   }

@@ -861,6 +861,10 @@ function ConsentEntryDetail({
     typeof entry?.metadata?.expiry_hours === "string"
       ? entry.metadata.expiry_hours
       : null;
+  const refreshPolicy =
+    entry?.metadata?.refresh_policy === "continuous_until_expiry"
+      ? "continuous_until_expiry"
+      : "snapshot";
   const defaultDuration = String(Number(requestedDurationHours) || 24);
   const [selectedDuration, setSelectedDuration] = useState(defaultDuration);
   useEffect(() => {
@@ -1016,6 +1020,24 @@ function ConsentEntryDetail({
               }
               stackTrailingOnMobile
             />
+            {entry.scope?.startsWith("attr.") ? (
+              <SettingsRow
+                title="Sharing updates"
+                description={
+                  refreshPolicy === "continuous_until_expiry"
+                    ? "Keep this exact scope current until expiry. Confirmed PKM changes create a fresh encrypted revision for the same approved connector key."
+                    : "Share only this approved encrypted snapshot. Later PKM changes are not sent automatically."
+                }
+                trailing={
+                  <span className="text-sm font-medium text-foreground">
+                    {refreshPolicy === "continuous_until_expiry"
+                      ? "Continuous until expiry"
+                      : "Snapshot"}
+                  </span>
+                }
+                stackTrailingOnMobile
+              />
+            ) : null}
           </>
         ) : (
           <SettingsRow

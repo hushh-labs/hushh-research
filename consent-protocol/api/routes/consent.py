@@ -11,6 +11,7 @@ This ensures consistent consent-first architecture throughout the system.
 """
 
 import logging
+import os
 import re
 import time
 from datetime import datetime, timezone
@@ -23,6 +24,14 @@ from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.consent.consent_schemas import ConsentExpiredError
+from hushh_mcp.consent.export_envelope import (
+    ConsentExportEnvelopeSubmissionV2,
+    connector_key_fingerprint,
+    enforce_raw_byte_limit,
+    normalize_refresh_policy,
+    scope_handle_for_machine_scope,
+    validate_export_envelope_submission,
+)
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
 from hushh_mcp.consent.token import issue_token, revoke_token, validate_token_with_db
@@ -89,6 +98,13 @@ _CONSENT_STORAGE_ERROR_PATTERNS = (
     "timeout",
 )
 _CONNECTOR_WRAPPING_ALG = "X25519-AES256-GCM"
+_CONSENT_EXPORT_MAX_RAW_BYTES = max(
+    1,
+    min(
+        int(os.getenv("HUSHH_CONSENT_EXPORT_MAX_RAW_BYTES", str(16 * 1024 * 1024))),
+        64 * 1024 * 1024,
+    ),
+)
 
 
 async def _owned_consent_identifiers(user_id: str) -> list[str]:
@@ -317,8 +333,9 @@ class RelationshipDisconnectRequest(BaseModel):
 
 class RefreshExportUploadRequest(BaseModel):
     userId: str = Field(min_length=1, max_length=128)
-    consentToken: str = Field(min_length=1, max_length=2048)
-    encryptedData: str = Field(min_length=1, max_length=10_000_000)
+    jobClaimId: str = Field(min_length=32, max_length=64)
+    expectedPriorRevision: int = Field(ge=1, le=10_000_000)
+    encryptedData: str = Field(min_length=1, max_length=100_000_000)
     encryptedIv: str = Field(min_length=1, max_length=256)
     encryptedTag: str = Field(min_length=1, max_length=256)
     wrappedExportKey: str = Field(min_length=1, max_length=8192)
@@ -329,11 +346,12 @@ class RefreshExportUploadRequest(BaseModel):
     connectorKeyId: str | None = Field(default=None, max_length=128)
     sourceContentRevision: int | None = Field(default=None, ge=1)
     sourceManifestRevision: int | None = Field(default=None, ge=1)
+    exportEnvelope: ConsentExportEnvelopeSubmissionV2
 
 
 class RefreshExportFailureRequest(BaseModel):
     userId: str = Field(min_length=1, max_length=128)
-    consentToken: str = Field(min_length=1, max_length=2048)
+    jobClaimId: str = Field(min_length=32, max_length=64)
     lastError: str | None = Field(default=None, max_length=2000)
 
 
@@ -512,7 +530,7 @@ class ConsentApprovalPayload(BaseModel):
         ),
     )
 
-    encryptedData: str | None = Field(default=None, max_length=10_000_000)
+    encryptedData: str | None = Field(default=None, max_length=100_000_000)
     encryptedIv: str | None = Field(default=None, max_length=512)
     encryptedTag: str | None = Field(default=None, max_length=512)
     wrappedExportKey: str | None = Field(default=None, max_length=10_000_000)
@@ -525,6 +543,7 @@ class ConsentApprovalPayload(BaseModel):
     durationHours: int | None = Field(default=None, ge=1, le=8760)
     sourceContentRevision: int | None = Field(default=None, ge=0)
     sourceManifestRevision: int | None = Field(default=None, ge=0)
+    exportEnvelope: ConsentExportEnvelopeSubmissionV2 | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -591,6 +610,7 @@ async def approve_consent(
     requested_duration_hours = _body.durationHours
     source_content_revision = _body.sourceContentRevision
     source_manifest_revision = _body.sourceManifestRevision
+    export_envelope = _body.exportEnvelope
 
     # Verify user is approving their own consent
     if token_data["user_id"] != userId:
@@ -638,6 +658,7 @@ async def approve_consent(
             )
         )
     )
+    is_developer_information_request = is_developer_request and requested_scope.startswith("attr.")
     expiry_hours = _resolve_approval_expiry_hours(
         metadata=metadata if isinstance(metadata, dict) else None,
         requested_duration_hours=requested_duration_hours,
@@ -655,7 +676,7 @@ async def approve_consent(
         requested_scope=requested_scope,
         **_identifier_filter_kwargs(userId, owned_identifiers),
     )
-    if existing_token and is_developer_request:
+    if existing_token and is_developer_information_request:
         existing_export = await service.get_consent_export_metadata(
             str(existing_token.get("token_id") or "")
         )
@@ -780,25 +801,93 @@ async def approve_consent(
             wrapping_alg=wrappingAlg,
             connector_key_id=connectorKeyId,
         )
-    elif is_developer_request and encryptedData:
+    elif is_developer_information_request and encryptedData:
         raise HTTPException(
             status_code=400,
             detail="Developer consent approvals must include a connector-backed wrapped export key bundle.",
         )
 
-    if is_developer_request and not encryptedData:
+    if is_developer_information_request and not encryptedData:
         raise HTTPException(
             status_code=400,
             detail="Developer consent approvals must include an encrypted export payload.",
         )
 
     encrypted_export_payload = None
-    if is_developer_request:
+    if is_developer_information_request:
         encrypted_export_payload = _require_encrypted_export_payload(
             encrypted_data=encryptedData,
             encrypted_iv=encryptedIv,
             encrypted_tag=encryptedTag,
         )
+
+    exact_expires_at_ms: int | None = None
+    if is_developer_information_request:
+        if export_envelope is None:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error_code": "EXPORT_ENVELOPE_V2_REQUIRED",
+                    "message": "Encrypted attr.* approvals require ConsentExportEnvelopeV2.",
+                },
+            )
+        metadata_map = metadata if isinstance(metadata, dict) else {}
+        expected_app_id = str(metadata_map.get("developer_app_id") or "").strip()
+        expected_scope_handle = str(metadata_map.get("scope_handle") or "").strip() or (
+            scope_handle_for_machine_scope(userId, requested_scope)
+        )
+        try:
+            expected_fingerprint = connector_key_fingerprint(str(connector_public_key or ""))
+            if str(metadata_map.get("recipient_key_fingerprint") or "").strip() not in {
+                "",
+                expected_fingerprint,
+            }:
+                raise ValueError("pending_request_recipient_fingerprint_mismatch")
+            validate_export_envelope_submission(
+                envelope=export_envelope,
+                encrypted_data=str(encryptedData or ""),
+                expected_app_id=expected_app_id,
+                expected_grant_id=requestId,
+                expected_revision=1,
+                expected_scope=requested_scope,
+                expected_scope_handle=expected_scope_handle,
+                expected_recipient_fingerprint=expected_fingerprint,
+            )
+            enforce_raw_byte_limit(
+                export_envelope.ciphertext_bytes,
+                _CONSENT_EXPORT_MAX_RAW_BYTES,
+            )
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            if str(exc) == "PAYLOAD_TOO_LARGE":
+                raise HTTPException(
+                    status_code=413,
+                    detail={
+                        "error_code": "PAYLOAD_TOO_LARGE",
+                        "message": "Encrypted export exceeds the server-advertised raw-byte maximum.",
+                        "maximum_raw_bytes": _CONSENT_EXPORT_MAX_RAW_BYTES,
+                    },
+                ) from exc
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error_code": "INVALID_EXPORT_AAD",
+                    "message": "The encrypted export envelope does not match this consent grant.",
+                },
+            ) from exc
+
+        now_ms = int(time.time() * 1000)
+        exact_expires_at_ms = export_envelope.aad.expires_at_ms
+        expected_expires_at_ms = now_ms + (expiry_hours * 60 * 60 * 1000)
+        if abs(exact_expires_at_ms - expected_expires_at_ms) > 5 * 60 * 1000:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error_code": "INVALID_EXPORT_EXPIRY",
+                    "message": "The export expiry does not match the duration shown for approval.",
+                },
+            )
 
     # All validation passed - now safe to issue the token.  Scope is passed as
     # the original string (not the enum) so that 'attr.financial.*' is preserved
@@ -810,6 +899,7 @@ async def approve_consent(
         agent_id=pending_request["developer"],
         scope=requested_scope,
         expires_in_ms=expiry_hours * 60 * 60 * 1000,
+        expires_at_ms=exact_expires_at_ms,
     )
 
     if encryptedData and wrapped_key_bundle:
@@ -836,6 +926,27 @@ async def approve_consent(
             if isinstance(source_manifest_revision, int)
             else None,
             refresh_status="current",
+            refresh_policy=normalize_refresh_policy(
+                (metadata if isinstance(metadata, dict) else {}).get("refresh_policy")
+            ),
+            export_id=export_envelope.export_id if export_envelope else None,
+            envelope_version=2 if export_envelope else 1,
+            grant_id=requestId if export_envelope else None,
+            app_id=(
+                str((metadata if isinstance(metadata, dict) else {}).get("developer_app_id") or "")
+                or None
+            ),
+            scope_handle=export_envelope.aad.scope_handle if export_envelope else None,
+            recipient_key_fingerprint=(
+                export_envelope.aad.recipient_key_fingerprint if export_envelope else None
+            ),
+            payload_algorithm=(
+                export_envelope.aad.payload_algorithm if export_envelope else "AES-256-GCM"
+            ),
+            envelope_aad=export_envelope.aad.model_dump(mode="json") if export_envelope else None,
+            envelope_aad_sha256=export_envelope.aad_sha256 if export_envelope else None,
+            ciphertext_sha256=export_envelope.ciphertext_sha256 if export_envelope else None,
+            ciphertext_bytes=export_envelope.ciphertext_bytes if export_envelope else None,
         )
         if not stored:
             raise HTTPException(status_code=500, detail="Failed to store encrypted consent export")
@@ -853,6 +964,29 @@ async def approve_consent(
             "export_revision": 1,
             "export_generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "refresh_status": "current",
+            "refresh_policy": normalize_refresh_policy(
+                (metadata if isinstance(metadata, dict) else {}).get("refresh_policy")
+            ),
+            "export_id": export_envelope.export_id if export_envelope else None,
+            "envelope_version": 2 if export_envelope else 1,
+            "grant_id": requestId if export_envelope else None,
+            "app_id": (
+                str((metadata if isinstance(metadata, dict) else {}).get("developer_app_id") or "")
+                or None
+            ),
+            "scope_handle": export_envelope.aad.scope_handle if export_envelope else None,
+            "recipient_key_fingerprint": (
+                export_envelope.aad.recipient_key_fingerprint if export_envelope else None
+            ),
+            "payload_algorithm": (
+                export_envelope.aad.payload_algorithm if export_envelope else "AES-256-GCM"
+            ),
+            "envelope_aad": export_envelope.aad.model_dump(mode="json")
+            if export_envelope
+            else None,
+            "envelope_aad_sha256": export_envelope.aad_sha256 if export_envelope else None,
+            "ciphertext_sha256": export_envelope.ciphertext_sha256 if export_envelope else None,
+            "ciphertext_bytes": export_envelope.ciphertext_bytes if export_envelope else None,
             "is_strict_zero_knowledge": True,
             "created_at": int(time.time() * 1000),
         }
@@ -1399,7 +1533,6 @@ async def revoke_consent(
 @router.get("/data")
 async def get_consent_export_data(
     request: Request,
-    consent_token: str | None = Query(default=None, max_length=500),
 ):
     """
     Retrieve encrypted export data for a consent token (Zero-Knowledge).
@@ -1416,7 +1549,7 @@ async def get_consent_export_data(
         if authorization.lower().startswith("bearer ")
         else ""
     )
-    consent_token = bearer_token or _clean_text(consent_token)
+    consent_token = bearer_token
     if not consent_token:
         raise HTTPException(
             status_code=401,
@@ -1424,9 +1557,7 @@ async def get_consent_export_data(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    logger.info(
-        "consent.export_requested token_transport=%s", "bearer" if bearer_token else "query"
-    )
+    logger.info("consent.export_requested token_transport=bearer")
 
     # Validate the consent token — DB-backed revocation check.
     valid, reason, token_obj = await validate_token_with_db(consent_token)
@@ -1438,41 +1569,13 @@ async def get_consent_export_data(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Try in-memory cache first (fast path); skip entries whose token has expired.
-    now_ms = int(time.time() * 1000)
-    if consent_token in _consent_exports:
-        export_data = _consent_exports[consent_token]
-        entry_age_ms = now_ms - int(export_data.get("created_at") or 0)
-        if entry_age_ms >= _CONSENT_EXPORT_TTL_MS:
-            # Token has certainly expired — drop the stale cache entry and fall
-            # through to the DB path (which will return 404 for expired tokens).
-            del _consent_exports[consent_token]
-            logger.debug("consent_exports.lazy_evict token expired from cache")
-        elif not export_data.get("wrapped_key_bundle"):
-            raise HTTPException(
-                status_code=410,
-                detail="Legacy plaintext export format is no longer supported. Request consent again.",
-            )
-        else:
-            logger.info("consent.export_served_from_cache scope=%s", export_data.get("scope"))
-            return {
-                "status": "success",
-                "encrypted_data": export_data["encrypted_data"],
-                "iv": export_data["iv"],
-                "tag": export_data["tag"],
-                "wrapped_key_bundle": export_data.get("wrapped_key_bundle"),
-                "scope": export_data["scope"],
-                "export_revision": export_data.get("export_revision", 1),
-                "export_generated_at": export_data.get("export_generated_at"),
-                "export_refresh_status": export_data.get("refresh_status", "current"),
-            }
-
-    # Fall back to database (cross-instance consistency)
+    # Database is the only freshness and authorization source. Process-local
+    # cache entries cannot suppress pending/failed refresh state across workers.
     service = ConsentDBService()
     export_data = await service.get_consent_export(consent_token)
 
     if not export_data:
-        logger.warning("⚠️ No export data found for token (checked cache and DB)")
+        logger.warning("No active export data found for token")
         raise HTTPException(status_code=404, detail="No export data for this token")
     if not export_data.get("is_strict_zero_knowledge"):
         raise HTTPException(
@@ -1480,9 +1583,21 @@ async def get_consent_export_data(
             detail="Legacy plaintext export format is no longer supported. Request consent again.",
         )
 
-    # Cache for future requests; sweep stale entries first.
-    _evict_stale_consent_exports()
-    _consent_exports[consent_token] = export_data
+    refresh_status = str(export_data.get("refresh_status") or "current")
+    if refresh_status != "current":
+        error_code = {
+            "refresh_pending": "EXPORT_REFRESH_PENDING",
+            "refresh_failed": "EXPORT_REFRESH_FAILED",
+            "scope_retired": "SCOPE_RETIRED",
+            "key_rebind_required": "CONNECTOR_KEY_REBIND_REQUIRED",
+        }.get(refresh_status, "EXPORT_NOT_CURRENT")
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error_code": error_code,
+                "message": "The current encrypted export is not available for retrieval.",
+            },
+        )
 
     logger.info("consent.export_served_from_db")
 
@@ -1496,6 +1611,14 @@ async def get_consent_export_data(
         "export_revision": export_data.get("export_revision"),
         "export_generated_at": export_data.get("export_generated_at"),
         "export_refresh_status": export_data.get("refresh_status"),
+        "export_envelope": {
+            "version": export_data.get("envelope_version"),
+            "export_id": export_data.get("export_id"),
+            "aad": export_data.get("envelope_aad"),
+            "aad_sha256": export_data.get("envelope_aad_sha256"),
+            "ciphertext_sha256": export_data.get("ciphertext_sha256"),
+            "ciphertext_bytes": export_data.get("ciphertext_bytes"),
+        },
     }
 
 
@@ -1508,7 +1631,17 @@ async def list_export_refresh_jobs(
         raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
 
     service = ConsentDBService()
-    jobs = await service.list_consent_export_refresh_jobs(userId)
+    try:
+        jobs = await service.claim_consent_export_refresh_jobs(userId)
+    except Exception as exc:
+        logger.warning("consent.export_refresh.claim_failed: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error_code": "EXPORT_REFRESH_CLAIM_UNAVAILABLE",
+                "message": "Refresh work could not be claimed safely. Try again after unlock.",
+            },
+        ) from exc
     active_tokens = await service.get_active_tokens(userId)
     active_by_token = {
         str(token.get("token_id") or "").strip(): token
@@ -1528,9 +1661,14 @@ async def list_export_refresh_jobs(
         connector_public_key = str(metadata.get("connector_public_key") or "").strip()
         if not connector_public_key:
             continue
+        if (
+            export_metadata.get("refresh_policy") != "continuous_until_expiry"
+            or int(export_metadata.get("envelope_version") or 1) != 2
+        ):
+            continue
         payload.append(
             {
-                "consentToken": consent_token,
+                "jobClaimId": str(job.get("claim_id") or ""),
                 "grantedScope": active.get("scope") or job.get("granted_scope"),
                 "connectorPublicKey": connector_public_key,
                 "connectorKeyId": metadata.get("connector_key_id")
@@ -1546,6 +1684,13 @@ async def list_export_refresh_jobs(
                 "lastError": job.get("last_error"),
                 "exportRevision": export_metadata.get("export_revision"),
                 "exportRefreshStatus": export_metadata.get("refresh_status"),
+                "exportId": export_metadata.get("export_id"),
+                "grantId": export_metadata.get("grant_id"),
+                "appId": export_metadata.get("app_id"),
+                "scopeHandle": export_metadata.get("scope_handle"),
+                "recipientKeyFingerprint": export_metadata.get("recipient_key_fingerprint"),
+                "expiresAtMs": active.get("expires_at"),
+                "refreshPolicy": export_metadata.get("refresh_policy"),
             }
         )
 
@@ -1560,7 +1705,21 @@ async def upload_refreshed_export(
     if token_data["user_id"] != request.userId:
         raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
 
-    valid, reason, token_obj = await validate_token_with_db(request.consentToken)
+    service = ConsentDBService()
+    job = await service.get_claimed_consent_export_refresh_job(
+        user_id=request.userId,
+        claim_id=request.jobClaimId,
+    )
+    if not job:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error_code": "EXPORT_REFRESH_CLAIM_INVALID",
+                "message": "The refresh lease expired or belongs to another session.",
+            },
+        )
+    consent_token = str(job.get("consent_token") or "").strip()
+    valid, reason, token_obj = await validate_token_with_db(consent_token)
     if not valid or token_obj is None:
         logger.warning("consent.export_refresh.token_invalid reason=%s", reason)
         raise HTTPException(
@@ -1571,8 +1730,25 @@ async def upload_refreshed_export(
     if str(token_obj.user_id) != request.userId:
         raise HTTPException(status_code=403, detail="Consent token user mismatch")
 
-    service = ConsentDBService()
-    existing_export = await service.get_consent_export(request.consentToken)
+    existing_export = await service.get_consent_export(consent_token)
+    if not existing_export:
+        raise HTTPException(status_code=404, detail="Consent export no longer exists")
+    if existing_export.get("refresh_policy") != "continuous_until_expiry":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error_code": "SNAPSHOT_EXPORT_IMMUTABLE",
+                "message": "Snapshot grants cannot be refreshed.",
+            },
+        )
+    if existing_export.get("refresh_status") != "refresh_pending":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error_code": "EXPORT_REFRESH_NOT_PENDING",
+                "message": "This export is not awaiting a new revision.",
+            },
+        )
     granted_scope = (
         (
             str(existing_export.get("scope") or "").strip()
@@ -1582,9 +1758,19 @@ async def upload_refreshed_export(
         or token_obj.scope_str
         or token_obj.scope.value
     )
-    export_revision = (
-        int(existing_export.get("export_revision") or 1) if isinstance(existing_export, dict) else 1
-    ) + 1
+    prior_revision = int(existing_export.get("export_revision") or 1)
+    if (
+        request.expectedPriorRevision != prior_revision
+        or int(job.get("expected_export_revision") or 0) != prior_revision
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error_code": "EXPORT_REVISION_CONFLICT",
+                "message": "The export advanced while this refresh was being prepared.",
+            },
+        )
+    export_revision = prior_revision + 1
     existing_metadata = {
         "connector_key_id": existing_export.get("connector_key_id") if existing_export else None,
         "connector_wrapping_alg": existing_export.get("connector_wrapping_alg")
@@ -1600,41 +1786,74 @@ async def upload_refreshed_export(
         wrapping_alg=request.wrappingAlg,
         connector_key_id=request.connectorKeyId,
     )
-    stored = await service.store_consent_export(
-        consent_token=request.consentToken,
+    try:
+        validate_export_envelope_submission(
+            envelope=request.exportEnvelope,
+            encrypted_data=request.encryptedData,
+            expected_app_id=str(existing_export.get("app_id") or ""),
+            expected_grant_id=str(existing_export.get("grant_id") or ""),
+            expected_revision=export_revision,
+            expected_scope=granted_scope,
+            expected_scope_handle=str(existing_export.get("scope_handle") or ""),
+            expected_recipient_fingerprint=str(
+                existing_export.get("recipient_key_fingerprint") or ""
+            ),
+            expected_expires_at_ms=token_obj.expires_at,
+            expected_export_id=str(existing_export.get("export_id") or ""),
+        )
+        enforce_raw_byte_limit(
+            request.exportEnvelope.ciphertext_bytes,
+            _CONSENT_EXPORT_MAX_RAW_BYTES,
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        if str(exc) == "PAYLOAD_TOO_LARGE":
+            raise HTTPException(
+                status_code=413,
+                detail={
+                    "error_code": "PAYLOAD_TOO_LARGE",
+                    "message": "Encrypted export exceeds the server-advertised raw-byte maximum.",
+                    "maximum_raw_bytes": _CONSENT_EXPORT_MAX_RAW_BYTES,
+                },
+            ) from exc
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "INVALID_EXPORT_AAD",
+                "message": "The refreshed export envelope does not match the active grant.",
+            },
+        ) from exc
+
+    stored = await service.complete_claimed_consent_export_refresh(
         user_id=request.userId,
+        claim_id=request.jobClaimId,
+        expected_export_revision=prior_revision,
         encrypted_data=request.encryptedData,
         iv=request.encryptedIv,
         tag=request.encryptedTag,
-        export_key=None,
         wrapped_key_bundle=wrapped_key_bundle,
-        scope=granted_scope,
-        expires_at_ms=token_obj.expires_at,
-        export_revision=export_revision,
+        connector_key_id=wrapped_key_bundle.get("connector_key_id"),
+        connector_wrapping_alg=str(wrapped_key_bundle.get("wrapping_alg") or ""),
+        envelope_aad=request.exportEnvelope.aad.model_dump(mode="json"),
+        envelope_aad_sha256=request.exportEnvelope.aad_sha256,
+        ciphertext_sha256=request.exportEnvelope.ciphertext_sha256,
+        ciphertext_bytes=request.exportEnvelope.ciphertext_bytes,
         source_content_revision=request.sourceContentRevision,
         source_manifest_revision=request.sourceManifestRevision,
-        refresh_status="current",
     )
     if not stored:
-        raise HTTPException(status_code=500, detail="Failed to store refreshed encrypted export")
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error_code": "EXPORT_REFRESH_CONFLICT",
+                "message": "The refresh lease or expected revision changed before commit.",
+            },
+        )
 
-    _evict_stale_consent_exports()
-    _consent_exports[request.consentToken] = {
-        "encrypted_data": request.encryptedData,
-        "iv": request.encryptedIv,
-        "tag": request.encryptedTag,
-        "wrapped_key_bundle": wrapped_key_bundle,
-        "scope": granted_scope,
-        "export_revision": export_revision,
-        "export_generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "refresh_status": "current",
-        "is_strict_zero_knowledge": True,
-        "created_at": int(time.time() * 1000),
-    }
-    await service.complete_consent_export_refresh_job(request.consentToken)
+    _consent_exports.pop(consent_token, None)
     return {
         "success": True,
-        "consentToken": request.consentToken,
         "exportRevision": export_revision,
     }
 
@@ -1649,12 +1868,19 @@ async def fail_export_refresh(
 
     service = ConsentDBService()
     updated = await service.fail_consent_export_refresh_job(
-        request.consentToken,
+        user_id=request.userId,
+        claim_id=request.jobClaimId,
         last_error=request.lastError,
     )
     if not updated:
-        raise HTTPException(status_code=500, detail="Failed to mark export refresh as failed")
-    return {"success": True, "consentToken": request.consentToken}
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error_code": "EXPORT_REFRESH_CLAIM_INVALID",
+                "message": "The refresh lease expired or belongs to another user.",
+            },
+        )
+    return {"success": True}
 
 
 # Expose _consent_exports for other modules that need it

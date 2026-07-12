@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-06-17",
-  "total_routes": 81,
+  "total_routes": 80,
   "native_required_routes": 78,
-  "excluded_routes": 3,
+  "excluded_routes": 2,
   "routes": [
     {
       "route": "/",
@@ -1010,10 +1010,6 @@
     },
     {
       "route": "/developers",
-      "classification": "excluded-web-only"
-    },
-    {
-      "route": "/labs/profile-appearance",
       "classification": "excluded-web-only"
     },
     {

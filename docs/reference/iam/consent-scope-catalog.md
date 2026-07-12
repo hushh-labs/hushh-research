@@ -28,6 +28,9 @@ Define canonical scope families and template policy for Investor + RIA consent r
    `attr.location.*` PKM scopes. `attr.location.*` remains for durable
    user-approved preferences or PKM facts, not live coordinates.
 5. No broad cross-domain wildcard scopes are allowed by default.
+6. Public profiles are owner-published resources addressed by an opaque
+   `public_profile_handle`; they are not `attr.*` scopes and never authorize
+   private PKM access.
 
 ## Display Metadata Contract
 
@@ -49,7 +52,7 @@ Expected display metadata fields:
 
 | Template ID | Actor Direction | Scope Set | Default Duration |
 | --- | --- | --- | --- |
-| `ria_financial_summary_v1` | RIA -> Investor | `attr.financial.*`, `pkm.read` | `7d` |
+| `ria_financial_summary_v1` | RIA -> Investor | `attr.financial.*` | `7d` |
 | `ria_risk_profile_v1` | RIA -> Investor | `attr.financial.risk.*`, `attr.professional.*` | `7d` |
 | `investor_advisor_disclosure_v1` | Investor -> RIA | `attr.ria.disclosures.*`, `attr.ria.strategy.*` | `7d` |
 
@@ -140,13 +143,13 @@ replace specialist scopes or PKM/data scopes.
 
 | Scope | Intended Use |
 | --- | --- |
-| `agent.one.orchestrate` | Invoke Agent One as the coordinator for intent routing and specialist handoff framing |
+| `cap.one.invoke` | Create or resume an Agent One task; grants no private-data read or mutation authority |
 | `agent.kai.analyze` | Invoke Kai for finance, portfolio, market, and RIA/investor analysis |
 | `agent.nav.review` | Invoke Nav for privacy, consent, vault, deletion, and scope-review guidance |
 | `agent.kyc.process` | Invoke KYC for identity workflow state and approval-gated KYC processing |
 
 Specialist execution remains scoped at the specialist boundary. A caller using
-Agent One over external A2A presents `agent.one.orchestrate`; any delegated
+The contained external invocation preview presents `cap.one.invoke`; any delegated
 specialist entrypoint validates its own required scope before doing specialist
 work. First-party in-app compatibility paths may still carry `vault.owner`
 through the token hierarchy; do not use that pattern for external, vendor,

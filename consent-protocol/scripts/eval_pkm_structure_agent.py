@@ -34,7 +34,7 @@ from hushh_mcp.services.pkm_agent_lab_service import get_pkm_agent_lab_service  
 
 DEFAULT_ENV_FILE = CONSENT_PROTOCOL_ROOT / ".env"
 DEFAULT_REPORT_PATH = CONSENT_PROTOCOL_ROOT / "artifacts" / "pkm_structure_agent_eval_latest.json"
-DEFAULT_PRIMARY_MODEL = "gemini-3.1-flash-lite-preview"
+DEFAULT_PRIMARY_MODEL = "gemini-3.5-flash"
 DEFAULT_SECONDARY_MODEL = ""
 DEFAULT_REFERENCE_MODEL = ""
 DEFAULT_SHADOW_USERS = [
@@ -3463,7 +3463,7 @@ def _manual_kpi_summary(
             "recommended_fast_path_model": synthetic_reports[0]["model_override"]
             if synthetic_reports
             else "",
-            "selection_rule": "single-model minimal-thinking run on gemini-3.1-flash-lite-preview",
+            "selection_rule": "single-model minimal-thinking run on gemini-3.5-flash",
         },
     }
 

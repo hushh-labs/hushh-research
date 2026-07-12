@@ -47,7 +47,8 @@ export async function generateExportKey(): Promise<string> {
  */
 export async function encryptForExport(
   plaintext: string,
-  exportKeyHex: string
+  exportKeyHex: string,
+  options?: { additionalData?: string }
 ): Promise<{
   ciphertext: string;
   iv: string;
@@ -70,7 +71,13 @@ export async function encryptForExport(
   // Encrypt
   const encoder = new TextEncoder();
   const encrypted = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
+    {
+      name: "AES-GCM",
+      iv,
+      ...(options?.additionalData
+        ? { additionalData: new TextEncoder().encode(options.additionalData) }
+        : {}),
+    },
     key,
     encoder.encode(plaintext)
   );
@@ -93,7 +100,8 @@ export async function decryptExport(
   ciphertext: string,
   iv: string,
   tag: string,
-  exportKeyHex: string
+  exportKeyHex: string,
+  options?: { additionalData?: string }
 ): Promise<string> {
   const keyBytes = hexToBytes(exportKeyHex);
 
@@ -118,7 +126,13 @@ export async function decryptExport(
 
   // Decrypt
   const decrypted = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: toArrayBuffer(ivBytes) },
+    {
+      name: "AES-GCM",
+      iv: toArrayBuffer(ivBytes),
+      ...(options?.additionalData
+        ? { additionalData: new TextEncoder().encode(options.additionalData) }
+        : {}),
+    },
     key,
     toArrayBuffer(combined)
   );
@@ -166,13 +180,20 @@ export async function wrapExportKeyForConnector(params: {
   exportKeyHex: string;
   connectorPublicKey: string;
   connectorKeyId?: string;
+  additionalData?: string;
 }): Promise<WrappedExportKeyBundle> {
   const { wrappingKey, senderPublicKey } = await deriveWrappingKey({
     connectorPublicKey: params.connectorPublicKey,
   });
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const wrapped = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
+    {
+      name: "AES-GCM",
+      iv,
+      ...(params.additionalData
+        ? { additionalData: new TextEncoder().encode(params.additionalData) }
+        : {}),
+    },
     wrappingKey,
     toArrayBuffer(hexToBytes(params.exportKeyHex))
   );
