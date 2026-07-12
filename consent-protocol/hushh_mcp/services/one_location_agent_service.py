@@ -279,6 +279,21 @@ def _identity_display_label(row: dict[str, Any] | None, fallback: str = "A trust
     return " - ".join(item for item in (display_name, masked_phone) if item) or fallback
 
 
+def _identity_notification_label(
+    row: dict[str, Any] | None,
+    fallback: str = "A trusted person",
+) -> str:
+    """Return a lock-screen-safe identity label without phone-derived data."""
+    if not row:
+        return fallback
+    return str(row.get("display_name") or "").strip() or fallback
+
+
+def _notification_safe_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Exclude contact fields from notification transport metadata."""
+    return {key: value for key, value in data.items() if "phone" not in str(key).strip().lower()}
+
+
 def _fingerprint_public_key(public_key_jwk: dict[str, Any]) -> str:
     encoded = json.dumps(public_key_jwk, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -522,7 +537,8 @@ class OneLocationAgentService:
         data: dict[str, str | None],
     ) -> None:
         """Best-effort metadata-only FCM delivery for location workflow state."""
-        if not user_id or _contains_plaintext_location_key(data):
+        safe_data = _notification_safe_data(data)
+        if not user_id or _contains_plaintext_location_key(safe_data):
             return
         try:
             rows = (
@@ -548,7 +564,7 @@ class OneLocationAgentService:
                 "deep_link": "/one/location",
                 "notification_tag": notification_tag,
                 "notification_category": "ONE_LOCATION",
-                **{key: str(value) for key, value in data.items() if str(value or "").strip()},
+                **{key: str(value) for key, value in safe_data.items() if str(value or "").strip()},
             }
             if _contains_plaintext_location_key(message_data):
                 logger.warning(
@@ -2057,7 +2073,7 @@ class OneLocationAgentService:
             expires_at = _parse_datetime(row.get("expires_at"), field_name="expires_at")
             if expires_at <= retention_cutoff:
                 continue
-            owner_label = _identity_display_label(self._identity_row(owner_user_id))
+            owner_label = _identity_notification_label(self._identity_row(owner_user_id))
             self._insert_event(
                 owner_user_id=owner_user_id,
                 actor_user_id=None,
@@ -2686,7 +2702,7 @@ class OneLocationAgentService:
             require_phone_verified=require_recipient_phone_verified,
         )
         owner_identity = self._identity_row(owner_user_id)
-        owner_label = _identity_display_label(owner_identity)
+        owner_label = _identity_notification_label(owner_identity)
         key_id = str(recipient.get("key_id") or "")
         expires_at = _utcnow() + timedelta(hours=duration)
         capability = self._mint_grant_capability_token(
@@ -2801,9 +2817,6 @@ class OneLocationAgentService:
                     "grant_id": grant["id"],
                     "owner_user_id": owner_user_id,
                     "owner_display_label": owner_label,
-                    "owner_masked_phone": _mask_phone(owner_identity.get("phone_number"))
-                    if owner_identity
-                    else None,
                     "duration_hours": str(duration),
                     "expires_at": grant.get("expiresAt"),
                     "share_kind": share_kind,
@@ -3326,7 +3339,6 @@ class OneLocationAgentService:
                 "invite_id": invite["id"],
                 "request_id": request["id"] if request else None,
                 "visitor_display_label": display_name[:80],
-                "visitor_masked_phone": _mask_phone(phone_digits),
                 "matched_user_id": matched_user_id,
                 "status": status_value,
             },
@@ -3574,8 +3586,8 @@ class OneLocationAgentService:
             event_type="location_one_network_joined",
             metadata={"invite_id": invite_id, "connection_id": connection["id"]},
         )
-        claimant_label = _identity_display_label(claimant_identity, fallback="Someone")
-        owner_label = _identity_display_label(owner_identity)
+        claimant_label = _identity_notification_label(claimant_identity, fallback="Someone")
+        owner_label = _identity_notification_label(owner_identity)
         self._send_metadata_notification(
             user_id=owner_user_id,
             notification_type="location_one_network_joined",
@@ -3879,9 +3891,9 @@ class OneLocationAgentService:
             metadata={"reason": "owner_revoke" if actor_is_owner else "recipient_revoke"},
         )
         owner_identity = self._identity_row(str(row.get("owner_user_id") or owner_user_id))
-        owner_label = _identity_display_label(owner_identity)
+        owner_label = _identity_notification_label(owner_identity)
         recipient_identity = self._identity_row(recipient_user_id or "")
-        recipient_label = _identity_display_label(recipient_identity)
+        recipient_label = _identity_notification_label(recipient_identity)
         notification_user_id = (
             recipient_user_id if actor_is_owner else str(row.get("owner_user_id") or "")
         )
@@ -3902,9 +3914,6 @@ class OneLocationAgentService:
                 "grant_id": grant_id,
                 "owner_user_id": str(row.get("owner_user_id") or owner_user_id),
                 "owner_display_label": owner_label,
-                "owner_masked_phone": _mask_phone(owner_identity.get("phone_number"))
-                if owner_identity
-                else None,
                 "recipient_user_id": recipient_user_id,
                 "recipient_display_label": recipient_label,
             },
@@ -3997,7 +4006,7 @@ class OneLocationAgentService:
             metadata={"referred": bool(referred_by_user_id)},
         )
         requester_identity = self._identity_row(requester_user_id)
-        requester_label = _identity_display_label(requester_identity, fallback="Someone")
+        requester_label = _identity_notification_label(requester_identity, fallback="Someone")
         if notify_owner:
             self._send_metadata_notification(
                 user_id=owner_user_id,
@@ -4010,9 +4019,6 @@ class OneLocationAgentService:
                     "request_id": request["id"],
                     "requester_user_id": requester_user_id,
                     "requester_display_label": requester_label,
-                    "requester_masked_phone": _mask_phone(requester_identity.get("phone_number"))
-                    if requester_identity
-                    else None,
                     "referred_by_user_id": referred_by_user_id,
                 },
             )
@@ -4072,7 +4078,7 @@ class OneLocationAgentService:
             metadata={"duration_hours": normalize_duration_hours(duration_hours)},
         )
         owner_identity = self._identity_row(owner_user_id)
-        owner_label = _identity_display_label(owner_identity)
+        owner_label = _identity_notification_label(owner_identity)
         self._send_metadata_notification(
             user_id=requester_user_id,
             notification_type="location_access_approved",
@@ -4090,9 +4096,6 @@ class OneLocationAgentService:
                 "grant_id": grant["id"],
                 "owner_user_id": owner_user_id,
                 "owner_display_label": owner_label,
-                "owner_masked_phone": _mask_phone(owner_identity.get("phone_number"))
-                if owner_identity
-                else None,
             },
         )
         return {"request": self._request_payload(resolved), "grant": grant}
@@ -4124,7 +4127,7 @@ class OneLocationAgentService:
             metadata={},
         )
         owner_identity = self._identity_row(owner_user_id)
-        owner_label = _identity_display_label(owner_identity)
+        owner_label = _identity_notification_label(owner_identity)
         self._send_metadata_notification(
             user_id=str(row.get("requester_user_id") or ""),
             notification_type="location_access_denied",
@@ -4136,9 +4139,6 @@ class OneLocationAgentService:
                 "request_id": request_id,
                 "owner_user_id": owner_user_id,
                 "owner_display_label": owner_label,
-                "owner_masked_phone": _mask_phone(owner_identity.get("phone_number"))
-                if owner_identity
-                else None,
             },
         )
         return self._request_payload(row) or {}
@@ -4208,9 +4208,9 @@ class OneLocationAgentService:
             event_type="location_referral_invite",
             metadata={"creates_access": False},
         )
-        owner_label = _identity_display_label(self._identity_row(owner_user_id))
+        owner_label = _identity_notification_label(self._identity_row(owner_user_id))
         referring_identity = self._identity_row(referring_user_id)
-        referring_label = _identity_display_label(referring_identity)
+        referring_label = _identity_notification_label(referring_identity)
         if referral_payload:
             self._send_metadata_notification(
                 user_id=referred_user_id,
@@ -4231,9 +4231,6 @@ class OneLocationAgentService:
                     "owner_display_label": owner_label,
                     "referring_user_id": referring_user_id,
                     "referring_display_label": referring_label,
-                    "referring_masked_phone": _mask_phone(referring_identity.get("phone_number"))
-                    if referring_identity
-                    else None,
                 },
             )
         return {"referral": referral_payload, "request": request}
