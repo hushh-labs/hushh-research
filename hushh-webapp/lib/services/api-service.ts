@@ -324,7 +324,8 @@ async function classifyVaultOwnerAuthFailure(
       return {
         shouldLockVault:
           normalized.includes("token has been revoked") ||
-          normalized.includes("invalid token"),
+          normalized.includes("invalid token") ||
+          normalized.includes("token validation failed"),
         reason,
       };
     }
@@ -334,7 +335,8 @@ async function classifyVaultOwnerAuthFailure(
     return {
       shouldLockVault:
         normalized.includes("token has been revoked") ||
-        normalized.includes("invalid token"),
+        normalized.includes("invalid token") ||
+        normalized.includes("token validation failed"),
       reason: raw || null,
     };
   } catch {
@@ -419,6 +421,22 @@ async function apiFetch(
         detail: { reason, path },
       })
     );
+  };
+
+  const handleVaultOwnerAuthFailure = async (response: Response) => {
+    if (
+      (response.status !== 401 && response.status !== 403) ||
+      !getAuthorizationBearer().startsWith("HCT:")
+    ) {
+      return;
+    }
+
+    const failure = await classifyVaultOwnerAuthFailure(response.clone());
+    if (failure.shouldLockVault) {
+      dispatchVaultLockRequested(
+        failure.reason || "Vault access token is no longer valid"
+      );
+    }
   };
 
   const retryWithFreshFirebaseToken = async (): Promise<Response | null> => {
@@ -567,6 +585,7 @@ async function apiFetch(
 
       const nativeResponse = await CapacitorHttp.request(request);
       const response = toResponse(nativeResponse);
+      await handleVaultOwnerAuthFailure(response);
       recordApiRequestMetric(response.status);
       return response;
     }
@@ -576,14 +595,7 @@ async function apiFetch(
       credentials: "include",
       headers: mergedHeaders,
     });
-    if ((response.status === 401 || response.status === 403) && getAuthorizationBearer().startsWith("HCT:")) {
-      const failure = await classifyVaultOwnerAuthFailure(response.clone());
-      if (failure.shouldLockVault) {
-        dispatchVaultLockRequested(
-          failure.reason || "Vault access token is no longer valid"
-        );
-      }
-    }
+    await handleVaultOwnerAuthFailure(response);
     if (response.status === 401 && !(await responseLooksLikeAuthServiceUnavailable(response))) {
       const retryResponse = await retryWithFreshFirebaseToken();
       if (retryResponse) {

@@ -160,16 +160,10 @@ export function VaultProvider({ children }: VaultProviderProps) {
     }
   }, [user, vaultKey, lockVault]);
 
-  // App-resume expiry guard (iOS/Android + web).
-  // The VAULT_OWNER token is memory-only with a fixed TTL and is never
-  // auto-refreshed. When the OS backgrounds the app (e.g. the user locks their
-  // phone) and later foregrounds it, the token can already be past its expiry.
-  // Any request made with that stale token fails backend validation and the
-  // location screen surfaced a dead-end "Token validation failed." banner that
-  // only a full app restart cleared. Instead, fail CLOSED: if the token is
-  // expired on resume, lock the vault so the standard VaultLockGuard re-unlock
-  // sheet (Face ID / passphrase) appears — a one-tap recovery, no restart, no
-  // scary error, and no weakening of the memory-only security model.
+  // App-resume expiry guard (iOS/Android + web). Proactively lock when the
+  // memory-only VAULT_OWNER token has reached its known expiry. Other backend
+  // validation failures are handled by ApiService's shared web/native response
+  // path, which requests the same fail-closed re-unlock flow.
   useEffect(() => {
     let removeListener: (() => void) | null = null;
     let cancelled = false;

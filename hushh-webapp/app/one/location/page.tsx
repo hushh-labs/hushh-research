@@ -652,6 +652,12 @@ function isTransientOneApiError(error: unknown): boolean {
   return status === 502 || status === 503 || status === 504;
 }
 
+function isVaultOwnerAuthError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const status = (error as { status?: unknown }).status;
+  return status === 401;
+}
+
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
@@ -2275,31 +2281,15 @@ function OneLocationAgentPageContent() {
 
       } catch (error) {
         suppressAutoRecipientSelectionRef.current = false;
-        // A stale/expired VAULT_OWNER token (e.g. the app was backgrounded while
-        // the phone was locked, then resumed) makes the backend reject the load
-        // with "Token validation failed". Rather than dead-ending on a scary
-        // banner that only an app restart clears, fail closed to the standard
-        // re-unlock sheet: dispatch the vault-lock event the VaultProvider
-        // listens for, so Face ID / passphrase re-unlock appears and a fresh
-        // token is issued. Everything else still surfaces the normal message.
-        const message = oneLocationErrorMessage(
-          error,
-          "Could not load location sharing.",
-        );
-        if (
-          typeof window !== "undefined" &&
-          /token validation failed|vault_owner|unauthor/i.test(message)
-        ) {
-          window.dispatchEvent(
-            new CustomEvent("vault-lock-requested", {
-              detail: { reason: "one_location_token_invalid" },
-            }),
+        // ApiService handles rejected VAULT_OWNER tokens for web and native by
+        // locking the vault. Do not briefly render the backend auth message
+        // while VaultLockGuard switches to the standard re-unlock flow.
+        if (!isVaultOwnerAuthError(error)) {
+          setLoadError(
+            oneLocationErrorMessage(error, "Could not load location sharing."),
           );
-        } else {
-          setLoadError(message);
         }
       } finally {
-
         refreshInFlightRef.current = null;
         setBusy(null);
       }

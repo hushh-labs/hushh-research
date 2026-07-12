@@ -197,6 +197,26 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(mocks.resetSessionUnlocked).not.toHaveBeenCalled();
   });
 
+  it("relocks and clears credentials when API validation requests a vault lock", async () => {
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("vault-lock-requested", {
+          detail: { reason: "Token validation failed." },
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("vault-status").textContent).toBe("locked");
+    });
+    expect(screen.getByTestId("vault-token").textContent).toBe("none");
+    expect(screen.getByTestId("vault-key").textContent).toBe("none");
+    expect(mocks.resetSessionUnlocked).toHaveBeenCalled();
+  });
+
   it("relocks only when the native app becomes active and removes its listener", async () => {
     mocks.nativePlatform = true;
     const view = renderVault();
