@@ -129,6 +129,8 @@ COMMAND_PATTERNS = [
     r"^cd consent-protocol && python3 ",
     r"^cd consent-protocol && pytest ",
     r"^cd consent-protocol && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest ",
+    r"^cd consent-protocol && uv run (python|pytest) ",
+    r"^cd hushh-webapp && npx vitest run ",
     r"^cd packages/hushh-mcp && npm run ",
     r"^python3 \.codex/",
     r"^python3 -m py_compile ",
