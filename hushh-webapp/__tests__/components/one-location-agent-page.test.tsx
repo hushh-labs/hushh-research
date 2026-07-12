@@ -576,6 +576,28 @@ describe("OneLocationAgentPage", () => {
     expect(mockSyncCurrentUser).toHaveBeenCalledWith({ uid: "user_a" });
   });
 
+  it("requests vault re-unlock instead of showing a stale-token error", async () => {
+    const lockReasons: string[] = [];
+    const handleLockRequest = (event: Event) => {
+      lockReasons.push(
+        (event as CustomEvent<{ reason?: string }>).detail?.reason ?? "",
+      );
+    };
+    window.addEventListener("vault-lock-requested", handleLockRequest);
+    mockGetState.mockRejectedValue(new Error("Token validation failed."));
+
+    try {
+      render(<OneLocationAgentPage />);
+
+      await waitFor(() => {
+        expect(lockReasons).toContain("one_location_token_invalid");
+      });
+      expect(screen.queryByText(/Token validation failed/i)).toBeNull();
+    } finally {
+      window.removeEventListener("vault-lock-requested", handleLockRequest);
+    }
+  });
+
   it("scrolls Active shares only when more than three shares are present", async () => {
     const baseGrant = locationState().ownerGrants[0]!;
     mockGetState.mockResolvedValueOnce({

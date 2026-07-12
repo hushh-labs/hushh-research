@@ -178,7 +178,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       const expiresAt = tokenExpiresAtRef.current;
       // Only act when a token exists AND is actually past expiry. A missing
       // token means the vault is already locked (guard handles it).
-      if (expiresAt !== null && Date.now() > expiresAt) {
+      if (expiresAt !== null && Date.now() >= expiresAt) {
         console.warn(
           "🔒 [VaultProvider] VAULT_OWNER token expired while backgrounded — locking to prompt re-unlock.",
         );
@@ -467,7 +467,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
 
   const getVaultOwnerToken = useCallback(() => {
     // Check expiry
-    if (tokenExpiresAt && Date.now() > tokenExpiresAt) {
+    if (tokenExpiresAt && Date.now() >= tokenExpiresAt) {
       console.warn("⚠️ VAULT_OWNER token expired");
       return null;
     }
