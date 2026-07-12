@@ -10,22 +10,20 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Car, Check, Clock, MapPin, RefreshCw, Search } from "lucide-react";
+import { Car, Check, MapPin, RefreshCw, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { OneLocationService } from "@/lib/one-location/service";
-import type { DriveDestination } from "@/lib/one-location/types";
+import type { DriveDestination, RouteEta } from "@/lib/one-location/types";
 
 import { TaskFlowHeader } from "./primitives";
 import { CARD_SURFACE, MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
+import { DriveRouteMap } from "./drive-route-map";
 import type { LocationHubViewModel } from "./location-redesign-hub";
 
-const DRIVE_DURATIONS: { value: string; label: string }[] = [
-  { value: "1", label: "1 hour" },
-  { value: "2", label: "2 hours" },
-  { value: "4", label: "4 hours" },
-];
+// Drive-to shares default to a 2-hour window (no per-flow duration picker).
+const DRIVE_DURATION_HOURS = "2";
 
 function initialsOf(label: string): string {
   const words = label.trim().split(/\s+/).filter(Boolean);
@@ -61,7 +59,7 @@ export function DriveToFlow({
   const [searching, setSearching] = useState(false);
   const [destination, setDestination] = useState<DriveDestination | null>(null);
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
-  const [durationValue, setDurationValue] = useState("2");
+  const [eta, setEta] = useState<RouteEta | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
 
   // No default selection: the user explicitly chooses who to share with.
@@ -120,6 +118,35 @@ export function DriveToFlow({
     setQuery(recent.label);
     setSuggestions([]);
   };
+
+  // Fetch a live ETA whenever both origin and destination are known.
+  useEffect(() => {
+    const token = vm.vaultOwnerToken;
+    const origin = vm.myLocationPoint;
+    if (!token || !origin || !destination) {
+      setEta(null);
+      return;
+    }
+    let cancelled = false;
+    const handle = setTimeout(async () => {
+      try {
+        const result = await OneLocationService.routeEta({
+          vaultOwnerToken: token,
+          originLat: origin.latitude,
+          originLng: origin.longitude,
+          destLat: destination.latitude,
+          destLng: destination.longitude,
+        });
+        if (!cancelled) setEta(result);
+      } catch {
+        if (!cancelled) setEta(null);
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [vm.vaultOwnerToken, vm.myLocationPoint, destination]);
 
   const toggle = (id: string) =>
     setCheckedIds((current) =>
@@ -224,17 +251,39 @@ export function DriveToFlow({
         ) : null}
 
         {searching ? <p className={cn(MUTED_TEXT, "mt-2")}>Searching…</p> : null}
-
-        {destination ? (
-          <div className={cn(SUBCARD_SURFACE, "mt-3 flex items-center gap-2 p-3")}>
-            <Car className="h-4 w-4 shrink-0 text-emerald-600" />
-            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-              {destination.label}
-            </span>
-            <Check className="h-4 w-4 shrink-0 text-emerald-600" />
-          </div>
-        ) : null}
       </section>
+
+      {/* ROUTE PREVIEW (once destination + origin are known) */}
+      {destination && point ? (
+        <section className={cn(CARD_SURFACE, "overflow-hidden p-0")}>
+          <DriveRouteMap
+            origin={{ lat: point.latitude, lng: point.longitude }}
+            destination={destination}
+            eta={eta}
+            className="h-[160px] w-full"
+          />
+          <div className="px-4">
+            <div className="flex items-center gap-3 border-b border-black/5 py-3">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#007aff]" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-muted-foreground">Starting from</p>
+                <p className="truncate text-[15px] font-semibold text-foreground">
+                  Live location
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 py-3">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#1d1d1f]" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-muted-foreground">Heading to</p>
+                <p className="truncate text-[15px] font-semibold text-foreground">
+                  {destination.label}
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       {/* YOUR LOCATION */}
       <section className={cn(CARD_SURFACE, "p-4")}>
@@ -328,39 +377,11 @@ export function DriveToFlow({
         </div>
       </section>
 
-      {/* DURATION */}
-      <section className={cn(CARD_SURFACE, "p-4")}>
-        <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          <Clock className="h-3.5 w-3.5" />
-          Share for
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {DRIVE_DURATIONS.map((option) => {
-            const active = option.value === durationValue;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setDurationValue(option.value)}
-                className={cn(
-                  "h-9 rounded-full border px-4 text-sm font-medium transition-colors",
-                  active
-                    ? "border-[#007aff] bg-[#007aff] text-white"
-                    : "border-border/70 bg-background text-foreground hover:border-[#007aff]/40",
-                )}
-              >
-                {option.label}
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
       {/* ACTION BAR */}
       <div className="space-y-2 pt-1">
         <Button
           onClick={() =>
-            destination && vm.onDriveTo(destination, checkedIds, durationValue)
+            destination && vm.onDriveTo(destination, checkedIds, DRIVE_DURATION_HOURS)
           }
           disabled={!canStart}
           isLoading={busy}
