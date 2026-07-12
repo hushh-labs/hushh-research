@@ -133,6 +133,53 @@ def test_build_push_message_for_web_keeps_webpush_notification():
     assert message.webpush.fcm_options.link == "https://uat.kai.hushh.ai/consents?tab=pending"
 
 
+def test_location_notification_name_only_body_reaches_every_platform() -> None:
+    body = "hushh Social shared location access with you."
+    android_target = "android-device-id"
+    web_target = "web-device-id"
+    ios_target = "ios-device-id"
+
+    android = build_push_message(
+        _MessagingStub,
+        token=android_target,
+        platform="android",
+        data={"type": "location_share_created"},
+        title="Location shared",
+        body=body,
+        request_url="/one/location",
+        notification_tag="one-location-share:test",
+        show_alert=True,
+    )
+    web = build_push_message(
+        _MessagingStub,
+        token=web_target,
+        platform="web",
+        data={"type": "location_share_created"},
+        title="Location shared",
+        body=body,
+        request_url="/one/location",
+        notification_tag="one-location-share:test",
+        show_alert=True,
+    )
+    ios = build_push_message(
+        _MessagingStub,
+        token=ios_target,
+        platform="ios",
+        data={"type": "location_share_created"},
+        title="Location shared",
+        body=body,
+        request_url="/one/location",
+        notification_tag="one-location-share:test",
+        show_alert=True,
+    )
+
+    assert android.notification.body == body
+    assert web.notification.body == body
+    assert web.webpush.notification.body == body
+    assert ios.notification.body == body
+    assert ios.apns.payload.aps.alert.body == body
+
+
 def test_build_push_message_without_alert_is_data_only():
     delivery_target = "web-device-id"
     message = build_push_message(

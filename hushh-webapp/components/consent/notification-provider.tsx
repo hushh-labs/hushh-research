@@ -77,6 +77,8 @@ import {
   markOneLocationGrantOpened,
   oneLocationSectionForWorkflowNotificationType,
   playOneLocationNotificationSound,
+  privacySafeOneLocationNotificationBody,
+  privacySafeOneLocationNotificationLabel,
   recordOneLocationShareNotification,
   recordOneLocationWorkflowNotification,
   type OneLocationWorkflowNotificationType,
@@ -383,45 +385,39 @@ function isOneLocationWorkflowNotificationType(
 }
 
 function oneLocationOwnerLabel(data: Record<string, string>): string {
-  return (
+  return privacySafeOneLocationNotificationLabel(
     String(data.owner_display_label || "").trim() ||
-    String(data.owner_label || "").trim() ||
-    String(data.owner_user_id || "").trim() ||
-    "A trusted person"
+    String(data.owner_label || "").trim(),
   );
 }
 
 function oneLocationRequesterLabel(data: Record<string, string>): string {
-  return (
+  return privacySafeOneLocationNotificationLabel(
     String(data.requester_display_label || "").trim() ||
-    String(data.requester_label || "").trim() ||
-    String(data.requester_user_id || "").trim() ||
-    "Someone"
+    String(data.requester_label || "").trim(),
+    "Someone",
   );
 }
 
 function oneLocationReferringLabel(data: Record<string, string>): string {
-  return (
-    String(data.referring_display_label || "").trim() ||
-    String(data.referring_user_id || "").trim() ||
-    "A trusted person"
+  return privacySafeOneLocationNotificationLabel(
+    String(data.referring_display_label || "").trim(),
   );
 }
 
 function oneLocationVisitorLabel(data: Record<string, string>): string {
-  return (
+  return privacySafeOneLocationNotificationLabel(
     String(data.visitor_display_label || "").trim() ||
-    String(data.visitor_label || "").trim() ||
-    "Someone"
+    String(data.visitor_label || "").trim(),
+    "Someone",
   );
 }
 
 function oneLocationNetworkLabel(data: Record<string, string>): string {
-  return (
+  return privacySafeOneLocationNotificationLabel(
     String(data.network_display_label || "").trim() ||
     String(data.invitee_display_label || "").trim() ||
-    String(data.inviter_display_label || "").trim() ||
-    "A trusted person"
+    String(data.inviter_display_label || "").trim(),
   );
 }
 
@@ -697,8 +693,10 @@ export function ConsentNotificationProvider({
       });
       const title =
         String(data.notification_title || "").trim() || generatedCopy.title;
-      const description =
-        String(data.notification_body || "").trim() || generatedCopy.description;
+      const description = privacySafeOneLocationNotificationBody(
+        data.notification_body,
+        generatedCopy.description,
+      );
       playOneLocationNotificationSound();
 
       toast(
@@ -776,9 +774,10 @@ export function ConsentNotificationProvider({
       const copy = {
         title:
           String(data.notification_title || "").trim() || generatedCopy.title,
-        description:
-          String(data.notification_body || "").trim() ||
+        description: privacySafeOneLocationNotificationBody(
+          data.notification_body,
           generatedCopy.description,
+        ),
       };
       const routeHref = oneLocationPayloadRoute(
         data,

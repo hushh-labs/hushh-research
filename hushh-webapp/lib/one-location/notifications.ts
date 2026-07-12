@@ -410,9 +410,34 @@ export function oneLocationSectionForWorkflowNotificationType(
   }
 }
 
+const MASKED_PHONE_ONLY_PATTERN = /^\*{3,}\d{1,4}$/;
+const MASKED_PHONE_SUFFIX_PATTERN = /\s+-\s+\*{3,}\d{1,4}\s*$/;
+const MASKED_PHONE_BODY_PATTERN = /\s+-\s+\*{3,}\d{1,4}(?=\s|[.,!?]|$)/g;
+
+export function privacySafeOneLocationNotificationLabel(
+  value?: string | null,
+  fallback = "A trusted person",
+): string {
+  const normalized = String(value || "").trim();
+  if (!normalized || MASKED_PHONE_ONLY_PATTERN.test(normalized)) return fallback;
+  return normalized.replace(MASKED_PHONE_SUFFIX_PATTERN, "").trim() || fallback;
+}
+
+export function privacySafeOneLocationNotificationBody(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  const normalized = String(value || "").trim();
+  if (!normalized) return fallback;
+  if (MASKED_PHONE_ONLY_PATTERN.test(normalized.split(/\s+/, 1)[0] || "")) {
+    return fallback;
+  }
+  return normalized.replace(MASKED_PHONE_BODY_PATTERN, "").trim() || fallback;
+}
+
 export function locationShareNotificationDescription(ownerLabel?: string | null): string {
-  const label = String(ownerLabel || "").trim() || "A trusted person";
-  return `${label} shared location access with you. Open this notification to view it.`;
+  const label = privacySafeOneLocationNotificationLabel(ownerLabel);
+  return `${label} shared location access with you.`;
 }
 
 /** The share intents a recipient notification can represent. */
@@ -453,7 +478,7 @@ export function locationShareNotificationCopy(params: {
   shareKind?: string | null;
   shareMessage?: string | null;
 }): { title: string; description: string } {
-  const label = String(params.ownerLabel || "").trim() || "A trusted person";
+  const label = privacySafeOneLocationNotificationLabel(params.ownerLabel);
   const message = String(params.shareMessage || "").trim();
   const kind = normalizeOneLocationShareKind(params.shareKind);
   if (kind === "sos") {
@@ -492,11 +517,14 @@ export function locationWorkflowNotificationCopy(params: {
   networkLabel?: string | null;
 }): { title: string; description: string } {
   const copy = WORKFLOW_COPY[params.type];
-  const ownerLabel = String(params.ownerLabel || "").trim() || "A trusted person";
-  const requesterLabel = String(params.requesterLabel || "").trim() || "Someone";
-  const referringLabel = String(params.referringLabel || "").trim() || "A trusted person";
-  const visitorLabel = String(params.visitorLabel || "").trim() || "Someone";
-  const networkLabel = String(params.networkLabel || "").trim() || "A trusted person";
+  const ownerLabel = privacySafeOneLocationNotificationLabel(params.ownerLabel);
+  const requesterLabel = privacySafeOneLocationNotificationLabel(
+    params.requesterLabel,
+    "Someone",
+  );
+  const referringLabel = privacySafeOneLocationNotificationLabel(params.referringLabel);
+  const visitorLabel = privacySafeOneLocationNotificationLabel(params.visitorLabel, "Someone");
+  const networkLabel = privacySafeOneLocationNotificationLabel(params.networkLabel);
 
   switch (params.type) {
     case "location_share_created":

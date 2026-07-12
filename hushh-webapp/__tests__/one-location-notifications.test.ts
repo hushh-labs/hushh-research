@@ -40,6 +40,8 @@ import {
   oneLocationSectionForWorkflowNotificationType,
   recordOneLocationShareNotification,
   recordOneLocationWorkflowNotification,
+  privacySafeOneLocationNotificationBody,
+  privacySafeOneLocationNotificationLabel,
   resolveOneLocationNotificationHref,
 } from "@/lib/one-location/notifications";
 
@@ -54,6 +56,39 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+});
+
+describe("One-Location notification privacy", () => {
+  it("uses the exact name-only copy for a plain location share", () => {
+    expect(locationShareNotificationCopy({ ownerLabel: "hushh Social" })).toEqual({
+      title: "Location shared",
+      description: "hushh Social shared location access with you.",
+    });
+  });
+
+  it("removes legacy masked-phone suffixes from labels and bodies", () => {
+    expect(
+      privacySafeOneLocationNotificationLabel("hushh Social - ********8014"),
+    ).toBe("hushh Social");
+    expect(
+      privacySafeOneLocationNotificationBody(
+        "hushh Social - ********8014 shared location access with you.",
+        "A trusted person shared location access with you.",
+      ),
+    ).toBe("hushh Social shared location access with you.");
+  });
+
+  it("uses a generic fallback when a legacy label is only a masked phone", () => {
+    expect(privacySafeOneLocationNotificationLabel("********8014")).toBe(
+      "A trusted person",
+    );
+    expect(
+      privacySafeOneLocationNotificationBody(
+        "********8014 shared location access with you.",
+        "A trusted person shared location access with you.",
+      ),
+    ).toBe("A trusted person shared location access with you.");
+  });
 });
 
 describe("One-Location persistent notification de-dup", () => {
