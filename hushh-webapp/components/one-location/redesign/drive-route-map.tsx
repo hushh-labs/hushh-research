@@ -72,13 +72,19 @@ export function DriveRouteMap({
   useEffect(() => {
     if (status !== "ready" || !containerRef.current) return;
 
+    // Reuse the existing map across origin/destination changes (live location
+    // moves often). Only build a new one if none exists or the previous map is
+    // bound to a stale container node (e.g. after a ready→error→ready cycle
+    // remounted the div).
+    const existing = mapRef.current;
     const map =
-      mapRef.current ??
-      new google.maps.Map(containerRef.current, {
-        disableDefaultUI: true,
-        clickableIcons: false,
-        gestureHandling: "greedy",
-      });
+      existing && existing.getDiv() === containerRef.current
+        ? existing
+        : new google.maps.Map(containerRef.current, {
+            disableDefaultUI: true,
+            clickableIcons: false,
+            gestureHandling: "greedy",
+          });
     mapRef.current = map;
 
     // Clear any overlays from a previous origin/destination.
@@ -153,7 +159,6 @@ export function DriveRouteMap({
         routeRef.current.setMap(null);
         routeRef.current = null;
       }
-      mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, origin.lat, origin.lng, dest.lat, dest.lng]);
