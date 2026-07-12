@@ -1,7 +1,9 @@
 "use client";
 
 import type { ComponentType, CSSProperties, SVGProps } from "react";
+import Link from "next/link";
 import { Button } from "@/lib/morphy-ux/button";
+import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 
 /* ────────────────────────────────────────────────────────────
@@ -187,6 +189,37 @@ export function IntroStep({
               Get Started
             </Button>
           </div>
+
+          {/* Public content surfaces — Research & Papers, protocol blog, dev docs */}
+          <nav
+            aria-label="Explore Hushh"
+            className="mt-5 flex items-center justify-center gap-4 text-[12.5px] font-medium text-black/40 dark:text-white/45"
+          >
+            <Link
+              href={ROUTES.RESEARCH}
+              className="transition-colors hover:text-[#9C7434] dark:hover:text-[#D4AF6A]"
+            >
+              Research &amp; Papers
+            </Link>
+            <span aria-hidden className="text-black/20 dark:text-white/20">
+              ·
+            </span>
+            <Link
+              href={ROUTES.BLOG}
+              className="transition-colors hover:text-[#9C7434] dark:hover:text-[#D4AF6A]"
+            >
+              Blog
+            </Link>
+            <span aria-hidden className="text-black/20 dark:text-white/20">
+              ·
+            </span>
+            <Link
+              href={ROUTES.DEVELOPERS}
+              className="transition-colors hover:text-[#9C7434] dark:hover:text-[#D4AF6A]"
+            >
+              Developers
+            </Link>
+          </nav>
         </div>
       </div>
     </main>
