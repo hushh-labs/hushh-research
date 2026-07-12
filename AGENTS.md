@@ -117,6 +117,18 @@ Default response shape for repo-backed Q&A:
 
 For non-trivial planning, questions must be research-backed instead of bare choices. Before asking, state the `Current truth`, `Recommended path`, `Risk if accepted blindly`, and the exact `Decision needed`; put the recommended option first. Do not ask the user to discover facts Codex can verify from repo, GitHub, CI, docs, runtime logs, or generated contracts.
 
+### Natural Planning Questions
+
+Every agent—parent or child—must ask natural, research-backed questions while
+planning whenever an unresolved product choice would change user experience,
+authority, consent, security, architecture, rollout, or recovery behavior.
+Questions should sound like collaborative engineering conversation, not a form:
+state the evidence and recommendation first, then ask the smallest real
+decision. During execution, inspect and act autonomously from repository truth;
+ask only when a user-owned decision or new authority is genuinely required.
+Never manufacture checkpoints or ask the user to rediscover facts the repo can
+prove.
+
 Do not write as if the project is blank. Hussh already has many shipped contracts. Codex must actively find and reuse them.
 
 ## Project-Wide Routing Gate

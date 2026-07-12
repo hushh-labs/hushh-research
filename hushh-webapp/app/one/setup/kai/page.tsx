@@ -12,6 +12,7 @@ import { KaiPreferencesWizard } from "@/components/kai/onboarding/KaiPreferences
 import { KaiInviteHandshake } from "@/components/kai/onboarding/kai-invite-handshake";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { CapabilityTourService } from "@/lib/services/capability-tour-service";
 import {
   KaiProfileService,
   computeRiskScore,
@@ -44,7 +45,6 @@ import {
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
 import { trackEvent } from "@/lib/observability/client";
-import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
 import { Card } from "@/lib/morphy-ux/card";
 import { Button } from "@/lib/morphy-ux/button";
 import { AlertTriangle } from "lucide-react";
@@ -58,12 +58,6 @@ type WizardAnswers = {
   drawdown_response: DrawdownResponse | null;
   volatility_preference: VolatilityPreference | null;
 };
-
-function buildRouteWithFrom(pathname: string, from: string): string {
-  const params = new URLSearchParams();
-  params.set("from", from);
-  return `${pathname}?${params.toString()}`;
-}
 
 function profileToAnswers(profile: KaiProfileV2 | null): WizardAnswers {
   return {
@@ -226,15 +220,13 @@ function KaiOnboardingPageContent() {
         setProfile(nextProfile);
         const completion = resolveKaiOnboardingCompletion(nextProfile);
         if (completion.completed) {
-          void PreVaultUserStateService.syncKaiSetupState({
-            userId: user.uid,
-            completed: true,
-            skipped: completion.skippedPreferences,
-            completedAt: completion.completedAt,
-          }).catch((syncError) => {
-            console.warn("[OneOnboardingPage] Failed vault->remote onboarding bridge:", syncError);
-          });
-          setOnboardingRequiredCookie(false);
+          // Finance preferences are a capability result, never the root setup
+          // decision. Returning to the hub leaves its explicit Finish/Skip as
+          // the sole authority for resolving onboarding.
+          const rootState = await PreVaultUserStateService.bootstrapState(user.uid).catch(
+            () => null,
+          );
+          setOnboardingRequiredCookie(!PreVaultUserStateService.isSetupResolved(rootState));
           setOnboardingFlowActiveCookie(false);
           // Onboarding is complete. A user who intentionally re-enters to edit
           // their preferences (finance tile / edit=1) stays on the questionnaire,
@@ -309,72 +301,28 @@ function KaiOnboardingPageContent() {
 
     try {
       setSaving(true);
-      const riskScore = computeRiskScore(wizardAnswers as PreVaultOnboardingAnswers);
-
-      if (source === "vault") {
-        if (!vaultKey || !vaultOwnerToken) {
-          toast.error("Unlock your vault to continue.");
-          return;
+      // Preferences were persisted by the preceding wizard stage. Finishing
+      // Finance marks this capability only; root setup remains hub-owned so a
+      // person can continue through the rest of One's onboarding deliberately.
+      await CapabilityTourService.markExplored(user.uid, "finance");
+      const explored = await CapabilityTourService.loadExploredIds(user.uid);
+      await PreVaultUserStateService.syncSetupCapabilities(user.uid, explored).catch(
+        (syncError) => {
+          console.warn("[OneOnboardingPage] Failed finance capability sync:", syncError);
         }
-        const nextProfile = await KaiProfileService.setOnboardingCompleted({
-          userId: user.uid,
-          vaultKey,
-          vaultOwnerToken,
-          skippedPreferences: false,
-        });
-        // Await the server pre-vault sync BEFORE navigating (same rationale
-        // as the skip path) so the One gate is authoritative server-side the
-        // instant the user leaves onboarding. Error-swallowed to stay
-        // fail-open; vault profile remains the unlocked-path source.
-        await PreVaultUserStateService.syncKaiSetupState({
-          userId: user.uid,
-          completed: true,
-          skipped: false,
-          completedAt: nextProfile.setup.completed_at,
-        }).catch((syncError) => {
-          console.warn(
-            "[OneOnboardingPage] Failed vault->remote onboarding bridge after completion:",
-            syncError
-          );
-        });
-        setProfile(nextProfile);
-      } else {
-        const completedAt = Date.now();
-        await PreVaultUserStateService.updatePreVaultState(user.uid, {
-          setupCompleted: true,
-          setupSkipped: false,
-          setupCompletedAt: completedAt,
-        });
-        await PreVaultOnboardingService.markCompleted(user.uid, {
-          skipped: false,
-          answers: wizardAnswers,
-          risk_score: riskScore,
-          risk_profile: persona,
-        }).catch(() => null);
-        setPreVaultState((current) => {
-          if (!current) return current;
-          return {
-            ...current,
-            completed: true,
-            skipped: false,
-          };
-        });
-      }
-
-      toast.success("Preferences saved. Next step: connect your portfolio or Plaid.");
-      setOnboardingRequiredCookie(false);
-      setOnboardingFlowActiveCookie(true);
-      trackEvent("onboarding_completed", {
-        action: "complete",
+      );
+      await PreVaultUserStateService.syncOnboardingJourney({
+        userId: user.uid,
+        phase: "setup_hub",
+      }).catch(() => undefined);
+      toast.success("Finance preferences saved. Back to your setup checklist.");
+      setOnboardingRequiredCookie(true);
+      setOnboardingFlowActiveCookie(false);
+      trackEvent("onboarding_step_completed", {
+        action: "preferences",
         result: "success",
       });
-      trackGrowthFunnelStepCompleted({
-        journey: "investor",
-        step: "onboarding_completed",
-        dedupeKey: "growth:investor:onboarding_completed:complete",
-        dedupeWindowMs: 5_000,
-      });
-      router.replace(buildRouteWithFrom(ROUTES.KAI_IMPORT, onboardingSelfHref));
+      router.replace(buildOneSetupRoute({ from: onboardingFromHref }));
     } catch (error) {
       console.error("[OneOnboardingPage] Failed to finalize onboarding:", error);
       trackEvent("onboarding_completed", {
@@ -399,7 +347,7 @@ function KaiOnboardingPageContent() {
       return { status: "blocked", summary: "Answer all three questions first." };
     }
     await handleLaunchDashboard();
-    return { status: "succeeded", summary: "Kai setup complete. Opening portfolio import." };
+    return { status: "succeeded", summary: "Finance preferences saved. Returning to setup." };
   });
 
   // Publish the screen id the generated action contract expects
@@ -441,8 +389,8 @@ function KaiOnboardingPageContent() {
                   {
                     id: "launch_dashboard",
                     actionId: "kai.setup.launch_dashboard",
-                    label: "Launch dashboard",
-                    purpose: "Confirm the persona and open portfolio import.",
+                    label: "Finish Finance Setup",
+                    purpose: "Save finance preferences and return to setup.",
                   },
                 ],
         }

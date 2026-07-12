@@ -1,0 +1,66 @@
+manifest_version: 2
+id: agent_onboarding
+name: Onboarding Specialist
+version: 1.0.0
+description: Deterministic setup-goal specialist beneath One; it never accesses private content or executes actions.
+status: active
+owner: backend
+parent: agent_one
+model: gemini-3.5-flash
+credential_policy:
+  default: hushh_managed_vertex
+  allowed:
+    - hushh_managed_vertex
+system_instruction: |
+  You are the deterministic onboarding specialist beneath One. Resolve only
+  redacted journey state into the next allowed setup goal. Never speak to the
+  person directly, call a connector, request credentials, or widen authority.
+runtime:
+  kind: deterministic
+  factory: hushh_mcp.agents.onboarding.agent.build_onboarding_specialist
+  adk_mode: single_turn
+  transport:
+    - in_process
+    - voice
+    - chat
+authorities:
+  invocation:
+    - one.internal
+  data: []
+  actions: []
+inputs:
+  - name: journey_context
+    type: object
+    description: Bounded redacted onboarding state.
+outputs:
+  - name: onboarding_goal
+    type: object
+    description: Next route, permitted actions, settlement, and recovery.
+failure_states:
+  - invalid_context
+  - route_unavailable
+  - awaiting_auth_callback
+  - awaiting_phone_verification
+  - action_unavailable
+pkm:
+  behavior: none
+surfaces:
+  chat: true
+  voice: true
+  web: true
+privacy:
+  context_allowlist:
+    - phase
+    - active_capability
+    - root_resolved
+    - return_route
+    - available_action_ids
+  plaintext_telemetry: false
+telemetry_namespace: agent.onboarding
+performance:
+  latency_p95_ms: 50
+  max_output_tokens: 256
+rollout:
+  kill_switch: HUSHH_ONBOARDING_GOALS_DISABLED
+  strategy: internal
+  rollback: Disable onboarding goals and retain the existing setup actions.

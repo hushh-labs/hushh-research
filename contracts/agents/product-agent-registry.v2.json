@@ -93,7 +93,7 @@
         ],
         "default": "hushh_managed_vertex"
       },
-      "description": "Two-way connection graph specialist under One \u2014 send, list, find, accept, reject, and remove connections, with confirm-before-write on every mutation.",
+      "description": "Two-way connection graph specialist under Nav's Consent Center \u2014 send, list, find, accept, reject, and remove connections, with confirm-before-write on every mutation.",
       "evaluations": [],
       "failure_states": [
         "auth_required",
@@ -112,7 +112,7 @@
       "optional_scopes": [],
       "outputs": [],
       "owner": "backend",
-      "parent": "agent_one",
+      "parent": "agent_nav",
       "performance": {
         "latency_p95_ms": 30000,
         "max_output_tokens": 4096
@@ -154,7 +154,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "ed468040fd5937fd23c5d22ebb07ecdbc5e37fdef58b9180893b9a2931fe5b11",
+      "system_instruction_sha256": "7e5f77945063e4257ad87b2e05597e37c45d742b754e2511e78514cbdc07c15b",
       "telemetry_namespace": "agent.connections",
       "tools": [],
       "ui_type": "chat",
@@ -1243,7 +1243,7 @@
         ],
         "default": "hushh_managed_vertex"
       },
-      "description": "Privacy and consent guardian for scope review, vault friction, deletion, and revocation.",
+      "description": "Consent Center parent agent for scope review, vault friction, deletion, revocation, and its Connections subagent.",
       "evaluations": [],
       "failure_states": [],
       "icon": null,
@@ -1253,7 +1253,7 @@
       "manifest_path": "consent-protocol/hushh_mcp/agents/nav/agent.yaml",
       "manifest_version": 2,
       "model": "gemini-3-flash-preview",
-      "name": "Agent Nav",
+      "name": "Consent Center Agent",
       "native_requirements": [],
       "optional_scopes": [],
       "outputs": [],
@@ -1300,11 +1300,114 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "ff2ace6f7c798e777969f6c6a6e44e6dac552b29621f176f6477c8fa9420ee63",
+      "system_instruction_sha256": "a7ff773a2f7866182fcafc8d6845f5c45bba7ebacf2d370d5837d0fa96e6d7be",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",
       "version": "0.1.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
+        "data": [],
+        "invocation": [
+          "one.internal"
+        ]
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Deterministic setup-goal specialist beneath One; it never accesses private content or executes actions.",
+      "evaluations": [],
+      "failure_states": [
+        "invalid_context",
+        "route_unavailable",
+        "awaiting_auth_callback",
+        "awaiting_phone_verification",
+        "action_unavailable"
+      ],
+      "icon": null,
+      "id": "agent_onboarding",
+      "inputs": [
+        {
+          "description": "Bounded redacted onboarding state.",
+          "name": "journey_context",
+          "type": "object"
+        }
+      ],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/onboarding/agent.yaml",
+      "manifest_version": 2,
+      "model": "gemini-3.5-flash",
+      "name": "Onboarding Specialist",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [
+        {
+          "description": "Next route, permitted actions, settlement, and recovery.",
+          "name": "onboarding_goal",
+          "type": "object"
+        }
+      ],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 50,
+        "max_output_tokens": 256
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [
+          "phase",
+          "active_capability",
+          "root_resolved",
+          "return_route",
+          "available_action_ids"
+        ],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [],
+      "rollout": {
+        "kill_switch": "HUSHH_ONBOARDING_GOALS_DISABLED",
+        "rollback": "Disable onboarding goals and retain the existing setup actions.",
+        "strategy": "internal"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": "hushh_mcp.agents.onboarding.agent.build_onboarding_specialist",
+        "kind": "deterministic",
+        "transport": [
+          "in_process",
+          "voice",
+          "chat"
+        ]
+      },
+      "side_effects": [],
+      "status": "active",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": true,
+        "web": true
+      },
+      "system_instruction_sha256": "356b5c399d0a116dd57f684725f77279d139ed965d3811934f31d3d8f29bcf81",
+      "telemetry_namespace": "agent.onboarding",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "1.0.0"
     },
     {
       "action_ids": [],

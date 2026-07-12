@@ -1159,8 +1159,11 @@
         "shared_loader": true,
         "back_button_pattern": "route-local-check-required"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/login/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "auth.sign_in_apple",
+        "auth.sign_in_google"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null

@@ -309,7 +309,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
               throw err;
             }
             console.error("[Consent] PKM export build failed:", err);
-            throw new Error("Could not load your data; try again.");
+            throw new Error("Could not load your saved details; try again.");
           }
         }
 

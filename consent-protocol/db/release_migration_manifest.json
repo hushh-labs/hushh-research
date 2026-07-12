@@ -69,7 +69,8 @@
     "088_consent_export_envelope_v2.sql",
     "089_atomic_pkm_mutation_v2.sql",
     "090_public_profile_projection_foundation.sql",
-    "091_public_profile_projection_cutover.sql"
+    "091_public_profile_projection_cutover.sql",
+    "092_one_onboarding_journey_v1.sql"
   ],
   "groups": {
     "iam": [
@@ -107,7 +108,8 @@
       "071_enterprise_crm_registry.sql",
       "072_crm_registry_mulesoft_pbkdf2_cbc.sql",
       "073_crm_registry_mulesoft_simplify.sql",
-      "087_scope_policy_v2.sql"
+      "087_scope_policy_v2.sql",
+      "092_one_onboarding_journey_v1.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

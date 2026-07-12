@@ -57,12 +57,13 @@ This page is current-state implementation truth. It does not rename runtime iden
 | Layer | Runtime id | Current role | Authority |
 | --- | --- | --- | --- |
 | Head agent | `agent_one` | Relationship layer, intent framing, specialist routing | `cap.one.invoke` for external task invocation only |
+| Onboarding resolver | `agent_onboarding` | Deterministic redacted next-goal resolution beneath One; never a second conversational router | No tools, scopes, vault access, or standing authority |
 | Legacy alias | `agent_orchestrator` | Compatibility package and manifest alias for One | Must resolve to One semantics |
 | Finance specialist | `agent_kai` | Finance, portfolio, markets; RIA (advisor workspace) and Investor (personal investing) are its subagents | `agent.kai.analyze` plus finance PKM gates |
-| Privacy specialist | `agent_nav` | Consent, scope review, vault friction, deletion, revocation | `agent.nav.review` |
+| Consent Center parent | `agent_nav` | Consent, scope review, vault friction, deletion, revocation; parent of Connections | `agent.nav.review` |
 | Identity specialist | `agent_kyc` | KYC workflow state, approved disclosure formatter, structured PKM writeback | `agent.kyc.process` and approved optional scopes |
 | Location specialist | `agent_location` | Trusted-people live location workflow | Exact location capability and data authority per flow |
-| Connections specialist | `agent_connections` | Trusted-connection graph questions and relationship write proposals | Exact specialist and `attr.*` authority per hop |
+| Connections subagent | `agent_connections` | Nav's trusted-connection graph specialist for relationship write proposals | Exact specialist and `attr.*` authority per hop |
 | Connected systems | `agent_connected_systems` | CRM and connected-system workflow planning | Exact specialist and `attr.*` authority per hop |
 | Email specialist | `agent_email` | Inbox and Gmail task planning behind One | Exact specialist and `attr.*` authority per hop |
 | Gmail specialist | `agent_gmail` | Synced purchase receipts and receipt-sync health (read-only) | Exact specialist and `attr.*` authority per hop |
@@ -97,7 +98,7 @@ and the legacy Kai compatibility server are not advertised as official v1.
 
 ### In-process dispatch registry
 
-The in-process `dispatch` table currently registers `agent_connected_systems`, `agent_connections`, `agent_email`, `agent_gmail`, `agent_location`, `agent_nav`, and `agent_personal_information`.
+The in-process `dispatch` table currently wires `agent_location`, `agent_nav`, and `agent_personal_information`. Email, Gmail, Connections, and Connected Systems adapters remain authority-ingress-only; Nav owns the Connections delegation boundary.
 
 Kai has a dedicated A2A server in `adk_bridge/kai_agent.py`. KYC is manifest/service-backed through One Email KYC and approved disclosure formatting; it is scope-gated but not an in-process dispatch handler today.
 

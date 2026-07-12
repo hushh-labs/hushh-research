@@ -29,6 +29,10 @@ import { useVault } from "@/lib/vault/vault-context";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
+import {
+  PreVaultUserStateService,
+  type PreVaultUserState,
+} from "@/lib/services/pre-vault-user-state-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
@@ -111,6 +115,18 @@ function computeHasPortfolioData(uid: string | null | undefined): boolean {
     (Array.isArray(nestedPortfolio?.holdings) && nestedPortfolio.holdings) ||
     [];
   return holdings.length > 0;
+}
+
+function resolveOnboardingPhase(params: {
+  path: string;
+  signedIn: boolean;
+  setupResolved: boolean;
+}): OneVoiceContextSnapshot["onboarding"]["phase"] {
+  if (!params.signedIn) return "anonymous_auth";
+  if (params.path === ROUTES.PHONE_MANDATE) return "phone_required";
+  if (params.path === ROUTES.ONE_SETUP) return "setup_hub";
+  if (params.path.startsWith(`${ROUTES.ONE_SETUP}/`)) return "capability_setup";
+  return params.setupResolved ? "root_completion" : "setup_hub";
 }
 
 export function AgentRuntimeStateProvider({ children }: { children: ReactNode }) {
@@ -206,8 +222,35 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
   const isHomeRoute = path === ROUTES.HOME;
   const onboardingActive = useMemo(() => {
     const chrome = getKaiChromeState(path);
-    return chrome.useOnboardingChrome || isHomeRoute;
+    return (
+      chrome.useOnboardingChrome ||
+      isHomeRoute ||
+      path === ROUTES.GETTING_STARTED ||
+      path === ROUTES.LOGIN ||
+      path === ROUTES.PHONE_MANDATE ||
+      path === ROUTES.ONE_SETUP ||
+      path.startsWith(`${ROUTES.ONE_SETUP}/`)
+    );
   }, [path, isHomeRoute]);
+
+  const [preVaultState, setPreVaultState] = useState<PreVaultUserState | null>(null);
+  useEffect(() => {
+    if (!uid) {
+      setPreVaultState(null);
+      return;
+    }
+    let active = true;
+    void PreVaultUserStateService.bootstrapState(uid)
+      .then((state) => {
+        if (active) setPreVaultState(state);
+      })
+      .catch(() => {
+        if (active) setPreVaultState(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [uid]);
 
   // hasPortfolioData mirrors the cache-subscribed computation that previously
   // lived only inside the chat workspace, so the shared state stays in sync as
@@ -331,6 +374,27 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
         appRuntimeState,
         state: oneVoiceState,
         lastTransition: lastVoiceTransition,
+        onboarding: {
+          phase: (path === ROUTES.GETTING_STARTED || path === ROUTES.LOGIN || path === ROUTES.PHONE_MANDATE || path.startsWith(ROUTES.ONE_SETUP))
+            ? resolveOnboardingPhase({
+                path,
+                signedIn,
+                setupResolved: PreVaultUserStateService.isSetupResolved(preVaultState),
+              })
+            : preVaultState?.onboardingPhase || resolveOnboardingPhase({
+            path,
+            signedIn,
+            setupResolved: PreVaultUserStateService.isSetupResolved(preVaultState),
+          }),
+          activeCapability: path.startsWith(`${ROUTES.ONE_SETUP}/`)
+            ? path.slice(`${ROUTES.ONE_SETUP}/`.length).split("/")[0] || null
+            : preVaultState?.onboardingActiveCapability ?? null,
+          rootResolved: PreVaultUserStateService.isSetupResolved(preVaultState),
+          returnRoute: ROUTES.ONE_SETUP,
+          phoneVerified: preVaultState?.phoneVerified ?? null,
+          callbackState: preVaultState?.onboardingCallbackState || "none",
+          setupCapabilityIds: preVaultState?.setupCapabilityIds || [],
+        },
       });
       return {
         appRuntimeState,
@@ -353,6 +417,9 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       lastVoiceTransition,
       oneVoiceState,
       routeInfo.screen,
+      path,
+      preVaultState,
+      signedIn,
     ]
   );
 

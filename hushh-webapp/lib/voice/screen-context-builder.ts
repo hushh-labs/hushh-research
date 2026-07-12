@@ -202,6 +202,21 @@ export type OneVoiceContextSnapshot = {
     primary_nav: string;
     available: string[];
   };
+  onboarding: {
+    phase:
+      | "anonymous_auth"
+      | "phone_required"
+      | "setup_hub"
+      | "capability_setup"
+      | "external_connector"
+      | "root_completion";
+    active_capability?: string | null;
+    root_resolved: boolean;
+    return_route: string;
+    phone_verified?: boolean | null;
+    callback_state: "none" | "pending" | "succeeded" | "cancelled" | "failed";
+    setup_capability_ids: string[];
+  };
   voice: {
     state: OneVoiceUiState;
     transition_seq: number;
@@ -626,6 +641,15 @@ export function buildOneVoiceContextSnapshot(args: {
   structuredContext?: StructuredScreenContext;
   state?: OneVoiceUiState;
   lastTransition?: OneVoiceTransition | null;
+  onboarding?: {
+    phase: OneVoiceContextSnapshot["onboarding"]["phase"];
+    activeCapability?: string | null;
+    rootResolved?: boolean;
+    returnRoute?: string | null;
+    phoneVerified?: boolean | null;
+    callbackState?: OneVoiceContextSnapshot["onboarding"]["callback_state"];
+    setupCapabilityIds?: readonly string[];
+  };
 }): OneVoiceContextSnapshot {
   const structured =
     args.structuredContext ||
@@ -674,6 +698,15 @@ export function buildOneVoiceContextSnapshot(args: {
     structured.persona.available,
   ]);
   const voiceRevision = transitionSeq;
+  const onboarding = {
+    phase: args.onboarding?.phase ?? "anonymous_auth",
+    active_capability: args.onboarding?.activeCapability ?? null,
+    root_resolved: args.onboarding?.rootResolved === true,
+    return_route: sanitizeRouteFamily(args.onboarding?.returnRoute || "/one/setup"),
+    phone_verified: args.onboarding?.phoneVerified ?? null,
+    callback_state: args.onboarding?.callbackState ?? "none",
+    setup_capability_ids: uniqueStrings([...(args.onboarding?.setupCapabilityIds || [])]),
+  };
 
   return {
     schema_version: "one_voice_context.v1",
@@ -683,6 +716,7 @@ export function buildOneVoiceContextSnapshot(args: {
       cacheRevision,
       personaRevision,
       voiceRevision,
+      onboarding,
     ])}`,
     revisions: {
       route: routeRevision,
@@ -717,6 +751,7 @@ export function buildOneVoiceContextSnapshot(args: {
       primary_nav: structured.persona.primary_nav,
       available: structured.persona.available,
     },
+    onboarding,
     voice: {
       state: args.state ?? "idle",
       transition_seq: transitionSeq,

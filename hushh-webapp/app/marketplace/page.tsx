@@ -1378,7 +1378,7 @@ export default function MarketplacePage() {
               </h3>
               <p className="max-w-xl text-sm leading-6 text-muted-foreground">
                 {investorDeckComplete
-                  ? `You handled every eligible investor in this deck. ${investorSavedLeadCount} saved lead${investorSavedLeadCount === 1 ? "" : "s"} remain in your database-backed shortlist.`
+                  ? `You handled every eligible investor in this deck. ${investorSavedLeadCount} saved lead${investorSavedLeadCount === 1 ? "" : "s"} remain in your shortlist.`
                   : `You've browsed through all available ${directoryKind === "rias" ? "advisors" : "investors"} in this session. New profiles appear as more people join the marketplace.`}
               </p>
               {directoryKind === "investors" && investorDeckMeta ? (

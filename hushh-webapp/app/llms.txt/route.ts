@@ -13,7 +13,7 @@ const BODY = `# Hussh
 
 > Hussh is the platform and trust infrastructure for consent-first personal AI agents.
 > Scoped access, bring-your-own-key (BYOK), a zero-knowledge vault, and encrypted
-> personal knowledge memory (PKM) keep user data private and user-controlled.
+> personal knowledge memory (PKM) keeps personal information private and user-controlled.
 
 ## Agent ontology
 

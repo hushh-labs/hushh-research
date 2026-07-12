@@ -77,7 +77,7 @@ const POSTURE_OPTIONS: { value: PkmVisibilityPosture; label: string }[] = [
 
 // Structural (system / non-personal) scope keys that can NEVER be published as
 // `default_available`, even with explicit owner consent — the backend
-// hard-blocks these too. These are not the owner's personal data.
+// hard-blocks these too. These are not the owner's personal information.
 const DEFAULT_AVAILABLE_BLOCKED_KEYS = new Set([
   "hash",
   "metadata",
@@ -631,7 +631,7 @@ export default function OneMarketplacePage() {
           return next;
         });
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load your data");
+        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load your saved details");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -1026,7 +1026,7 @@ export default function OneMarketplacePage() {
       {!isVaultUnlocked ? (
         <div className="flex items-center gap-2 rounded-2xl border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
           <Lock className="h-4 w-4" aria-hidden />
-          Unlock your vault to manage and price your data sections.
+          Unlock your vault to manage and price your saved sections.
         </div>
       ) : error ? (
         <div className="rounded-2xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
@@ -1034,7 +1034,7 @@ export default function OneMarketplacePage() {
         </div>
       ) : loading ? (
         <div className="rounded-2xl border p-6 text-center text-sm text-muted-foreground">
-          Loading your data sections…
+          Loading your saved sections…
         </div>
       ) : (
         <>
@@ -1099,7 +1099,7 @@ export default function OneMarketplacePage() {
                       </div>
                       {structurallyBlocked ? (
                         <div className="mt-2 text-[12px] text-muted-foreground">
-                          This is system data (not your personal data), so it can’t be published to the
+                          This is system information, not your personal information, so it can’t be published to the
                           marketplace. Your own sections — including restricted ones — can be set to
                           “Publish” with your explicit consent.
                         </div>

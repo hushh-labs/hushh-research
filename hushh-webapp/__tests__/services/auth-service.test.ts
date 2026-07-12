@@ -10,6 +10,8 @@ const {
   mockLinkWithCredential,
   mockSignInWithCredential,
   mockFirebaseSignOut,
+  mockSignInWithRedirect,
+  mockOAuthAddScope,
   mockSetPersistence,
   mockGetAuth,
   mockGetApps,
@@ -58,6 +60,8 @@ const {
   mockLinkWithCredential: vi.fn(),
   mockSignInWithCredential: vi.fn(),
   mockFirebaseSignOut: vi.fn(),
+  mockSignInWithRedirect: vi.fn(),
+  mockOAuthAddScope: vi.fn(),
   mockSetPersistence: vi.fn(),
   mockGetAuth: vi.fn(),
   mockGetApps: vi.fn(),
@@ -94,7 +98,9 @@ vi.mock("firebase/auth", () => ({
   },
   getAuth: mockGetAuth,
   inMemoryPersistence: "in-memory-persistence",
-  OAuthProvider: vi.fn(),
+  OAuthProvider: function OAuthProvider() {
+    return { addScope: mockOAuthAddScope };
+  },
   PhoneAuthProvider: Object.assign(mockPhoneAuthProvider, {
     credential: vi.fn(),
   }),
@@ -103,6 +109,7 @@ vi.mock("firebase/auth", () => ({
   signInWithCredential: mockSignInWithCredential,
   signInWithCustomToken: vi.fn(),
   signInWithPopup: vi.fn(),
+  signInWithRedirect: mockSignInWithRedirect,
   signOut: mockFirebaseSignOut,
   onAuthStateChanged: vi.fn(),
   updatePhoneNumber: mockUpdatePhoneNumber,
@@ -127,6 +134,7 @@ import {
   setPersistence,
   signInWithCredential,
   signOut as firebaseSignOut,
+  signInWithRedirect,
   updatePhoneNumber,
 } from "firebase/auth";
 import { HushhAuth } from "@/lib/capacitor";
@@ -171,6 +179,7 @@ describe("AuthService.restoreNativeSession", () => {
     vi.mocked(setPersistence).mockResolvedValue(undefined);
     vi.mocked(signInWithCredential).mockReset();
     vi.mocked(firebaseSignOut).mockResolvedValue(undefined);
+    vi.mocked(signInWithRedirect).mockResolvedValue(undefined);
     vi.mocked(onAuthStateChanged).mockImplementation(((_auth, next) => {
       next(null);
       return vi.fn();
@@ -569,5 +578,19 @@ describe("AuthService.restoreNativeSession", () => {
     expect(AuthService.isUatPhoneTestVerificationId("uat-test-phone:abc123")).toBe(true);
     expect(AuthService.isUatPhoneTestVerificationId("local-dev-phone:%2B16505550101")).toBe(false);
     expect(AuthService.isLocalDevPhoneVerificationId("uat-test-phone:abc123")).toBe(false);
+  });
+});
+
+describe("AuthService voice redirect OAuth", () => {
+  beforeEach(() => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    window.sessionStorage.clear();
+  });
+
+  it("records an Apple attempt before starting redirect OAuth", async () => {
+    await AuthService.startAppleSignInForVoice();
+
+    expect(signInWithRedirect).toHaveBeenCalledTimes(1);
+    expect(AuthService.getVoiceRedirectAttempt()).toMatchObject({ provider: "apple" });
   });
 });

@@ -2,6 +2,7 @@
 
 import { ApiService } from "@/lib/services/api-service";
 import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
+import type { OneVoiceActionSettlement } from "@/lib/voice/one-voice-transport";
 import type {
   OneVoiceTransportHandlers,
   OneVoiceTransportStartOptions,
@@ -658,6 +659,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       cache_freshness: context.cache.freshness,
       vault_ready: context.cache.vault_ready,
       portfolio_ready: context.cache.portfolio_ready,
+      onboarding: context.onboarding,
     });
   }
 
@@ -671,8 +673,20 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     const trimmed = consentToken?.trim() || null;
     if (trimmed === this.consentToken) return false;
     this.consentToken = trimmed;
-    if (!trimmed) return false;
     return this.sendAppContext({});
+  }
+
+  reportActionSettlement(settlement: OneVoiceActionSettlement): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.setupComplete) {
+      return false;
+    }
+    this.ws.send(
+      JSON.stringify({
+        type: "action_settled",
+        actionSettlement: settlement,
+      })
+    );
+    return true;
   }
 
   /**
@@ -693,7 +707,9 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
         type: "app_context",
         appContext: {
           ...appContext,
-          ...(this.consentToken ? { consent_token: this.consentToken } : {}),
+          // Explicit null clears authority server-side when the vault locks or
+          // consent is revoked during an already-open voice session.
+          consent_token: this.consentToken,
           ...(timezone ? { timezone } : {}),
         },
       })

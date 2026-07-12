@@ -114,6 +114,11 @@ export function OneOnboardingCapabilityClient({
       // never-opened tile, and record the explore signal for explore-only
       // capabilities.
       OneSetupGateService.markSeen(userId);
+      await PreVaultUserStateService.syncOnboardingJourney({
+        userId,
+        phase: "capability_setup",
+        activeCapability: capabilityId,
+      }).catch(() => undefined);
 
       if (capability?.isExploreOnly === true) {
         await CapabilityTourService.markExplored(userId, capabilityId).catch(

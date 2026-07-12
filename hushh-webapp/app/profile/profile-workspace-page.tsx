@@ -1907,13 +1907,13 @@ function ProfilePageContent() {
     : "This permanently deletes your One account.";
   const deleteDialogTitle = "Delete your One account?";
   const deleteDialogDescription =
-    "This action cannot be undone. This permanently deletes your One account, your encrypted vault and personal data, every connected service, and your cloud-linked identity.";
+    "This action cannot be undone. This permanently deletes your One account, your encrypted vault and saved details, every connected service, and your cloud-linked identity.";
 
   const resetRowDescription =
-    "Clear your data and start onboarding fresh. Keeps your account and sign-in.";
+    "Clear your saved details and start onboarding fresh. Keeps your account and sign-in.";
   const resetDialogTitle = "Reset your One account?";
   const resetDialogDescription =
-    "This clears all your personal data: connected services, finance and Gmail, your knowledge base, consents, and saved preferences. It keeps your account, your sign-in, and your vault. You will start onboarding again.";
+    "This clears all your saved details: connected services, finance and Gmail, your knowledge base, consents, and saved preferences. It keeps your account, your sign-in, and your vault. You will start onboarding again.";
 
   const handleVaultUnlockOpenChange = (open: boolean) => {
     setShowVaultUnlock(open);
@@ -1940,7 +1940,7 @@ function ProfilePageContent() {
     vaultUnlockReason === "delete_account"
       ? "Unlock your vault to confirm deletion. This is permanent and removes all encrypted records."
       : vaultUnlockReason === "reset_account"
-        ? "Unlock your vault to confirm reset. This clears your data but keeps your account and vault."
+        ? "Unlock your vault to confirm reset. This clears your saved details but keeps your account and vault."
         : "Unlock your vault to access profile settings.";
 
   const displayedUnlockMethod = effectiveVaultMethod ?? vaultMethod;
@@ -2052,7 +2052,7 @@ function ProfilePageContent() {
         label: "Memory",
         purpose: "opens your saved details and sharing controls.",
         role: "card",
-        voiceAliases: ["personal knowledge model", "my data", "pkm"],
+        voiceAliases: ["personal knowledge model", "my saved details", "pkm"],
       },
       {
         id: "profile_access",
@@ -3454,7 +3454,7 @@ function ProfilePageContent() {
           <SettingsRow
             icon={KeyRound}
             title="Create your vault"
-            description="Set up a passphrase to secure your personal data."
+            description="Set up a passphrase to secure your saved details."
             chevron
             onClick={() => setShowVaultCreation(true)}
           />
@@ -4364,7 +4364,7 @@ function ProfilePageContent() {
           open={showVaultCreation}
           onOpenChange={setShowVaultCreation}
           title="Create your vault"
-          description="Set up a passphrase to secure your personal data."
+          description="Set up a passphrase to secure your saved details."
           onSuccess={() => {
             setShowVaultCreation(false);
             setHasVault(true);
