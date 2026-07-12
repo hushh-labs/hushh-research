@@ -359,7 +359,10 @@
       "page_file": "app/blog/page.tsx",
       "physical_page_exists": true,
       "route_contract": null,
-      "native": null,
+      "native": {
+        "route": "/blog",
+        "classification": "excluded-web-only"
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -378,7 +381,10 @@
       "page_file": "app/blog/[slug]/page.tsx",
       "physical_page_exists": true,
       "route_contract": null,
-      "native": null,
+      "native": {
+        "route": "/blog/[slug]",
+        "classification": "excluded-web-only"
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -3438,7 +3444,10 @@
       "page_file": "app/research/page.tsx",
       "physical_page_exists": true,
       "route_contract": null,
-      "native": null,
+      "native": {
+        "route": "/research",
+        "classification": "excluded-web-only"
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -3457,7 +3466,10 @@
       "page_file": "app/research/protocol/page.tsx",
       "physical_page_exists": true,
       "route_contract": null,
-      "native": null,
+      "native": {
+        "route": "/research/protocol",
+        "classification": "excluded-web-only"
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
