@@ -1153,10 +1153,16 @@ export class RiaService {
       inflightKey: cacheKey || "ria_persona_state",
       resourceLabel: "persona_state",
       loader: async () => {
-        const response = await authFetch("/api/iam/persona", {
-          method: "GET",
-          idToken,
-        });
+        // Forward force to the server so it bypasses its 30s in-process persona
+        // cache (cross-worker safe) — required after a persona mutation like RIA
+        // delete, otherwise a sibling worker can serve a stale 'ria' persona.
+        const response = await authFetch(
+          options?.force ? "/api/iam/persona?force=1" : "/api/iam/persona",
+          {
+            method: "GET",
+            idToken,
+          },
+        );
         return toJsonOrThrow<PersonaState>(response);
       },
     });

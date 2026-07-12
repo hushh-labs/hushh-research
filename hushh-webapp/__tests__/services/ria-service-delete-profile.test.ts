@@ -82,3 +82,48 @@ describe("RiaService.deleteProfile", () => {
     await expect(RiaService.deleteProfile("id-token")).rejects.toBeTruthy();
   });
 });
+
+describe("RiaService.getPersonaState force bypass", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    apiFetchMock.mockReset();
+  });
+
+  it("forwards force to the persona route so the server bypasses its 30s cache", async () => {
+    apiFetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          user_id: "u1",
+          personas: ["investor"],
+          last_active_persona: "investor",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const { RiaService } = await import("@/lib/services/ria-service");
+    await RiaService.getPersonaState("tok", { userId: "u-force", force: true });
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/iam/persona?force=1",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("omits force on a normal read", async () => {
+    apiFetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          user_id: "u2",
+          personas: ["investor"],
+          last_active_persona: "investor",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const { RiaService } = await import("@/lib/services/ria-service");
+    await RiaService.getPersonaState("tok", { userId: "u-normal" });
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/iam/persona",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+});

@@ -29,6 +29,9 @@ import { useAuth } from "@/hooks/use-auth";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { RiaService } from "@/lib/services/ria-service";
+import { RiaOnboardingDraftLocalService } from "@/lib/services/ria-onboarding-draft-local-service";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
@@ -61,14 +64,24 @@ export default function RiaProfilePage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // Setup advisors have no built profile yet — the profile is authored in the
-  // wizard, so send them there. (Established "switch" advisors stay here.)
+  // No RIA profile to show → route to onboarding for a clean new-user experience.
+  // Covers both "setup" (never onboarded) AND the split-brain case where the
+  // persona still reports 'ria' but the profile row is gone (exists:false) — so a
+  // stale/resurrected persona can never render a zombie empty profile. Skipped
+  // while a delete is in flight (that navigates to One home itself).
   useEffect(() => {
-    if (personaLoading || personaRefreshing) return;
-    if (riaCapability === "setup") {
+    if (personaLoading || personaRefreshing || deleting) return;
+    if (riaCapability === "setup" || riaOnboardingStatus?.exists === false) {
       router.replace(ROUTES.RIA_ONBOARDING);
     }
-  }, [personaLoading, personaRefreshing, riaCapability, router]);
+  }, [
+    personaLoading,
+    personaRefreshing,
+    deleting,
+    riaCapability,
+    riaOnboardingStatus,
+    router,
+  ]);
 
   const reviewProps = useMemo(
     () => mapRiaStatusToReviewProps(riaOnboardingStatus),
@@ -191,7 +204,17 @@ export default function RiaProfilePage() {
     try {
       const idToken = await user.getIdToken();
       await RiaService.deleteProfile(idToken);
-      // Drop back to the investor persona (also busts the server persona cache),
+      // Full RIA client-state teardown so nothing stale survives the delete:
+      //  - local onboarding draft (else a re-onboard resumes prefilled with old data)
+      //  - in-memory RIA caches (persona, onboarding status, home, clients, ...)
+      //  - IndexedDB device caches under the `ria:` prefix (survive cold start)
+      await RiaOnboardingDraftLocalService.clear(user.uid).catch(() => {});
+      CacheSyncService.onPersonaStateChanged(user.uid);
+      await DeviceResourceCacheService.invalidateResourcePrefix(
+        user.uid,
+        "ria:",
+      ).catch(() => {});
+      // Drop back to the investor persona (server force-bypasses its 30s cache),
       // re-pull state, then leave the RIA sub-agent for One home.
       await switchPersona("investor").catch(() => null);
       await refresh({ force: true });
