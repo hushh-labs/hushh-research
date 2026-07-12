@@ -121,6 +121,7 @@ export function DriveRouteMap({
     });
     routeRef.current = renderer;
     const service = new google.maps.DirectionsService();
+    let cancelled = false;
     service.route(
       {
         origin,
@@ -128,6 +129,7 @@ export function DriveRouteMap({
         travelMode: google.maps.TravelMode.DRIVING,
       },
       (result, dirStatus) => {
+        if (cancelled) return;
         if (dirStatus === google.maps.DirectionsStatus.OK && result) {
           renderer.setDirections(result);
         } else {
@@ -144,12 +146,14 @@ export function DriveRouteMap({
     );
 
     return () => {
+      cancelled = true;
       markersRef.current.forEach((m) => m.setMap(null));
       markersRef.current = [];
       if (routeRef.current) {
         routeRef.current.setMap(null);
         routeRef.current = null;
       }
+      mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, origin.lat, origin.lng, dest.lat, dest.lng]);

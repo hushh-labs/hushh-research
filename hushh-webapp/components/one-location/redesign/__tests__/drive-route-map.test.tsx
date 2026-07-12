@@ -107,4 +107,55 @@ describe("DriveRouteMap", () => {
     expect(routeMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByTitle("Drive route map preview")).toBeNull();
   });
+
+  it("falls back to a Polyline when the Directions request returns a non-OK status", () => {
+    let capturedRouteCallback: ((result: unknown, status: string) => void) | null = null;
+    const routeMockCapture = vi.fn(function (
+      _req: unknown,
+      cb: (result: unknown, status: string) => void,
+    ) {
+      capturedRouteCallback = cb;
+    });
+    // vitest 4.x: mocks used with `new` must be non-arrow functions.
+    const Map = vi.fn(function () {
+      return { fitBounds: vi.fn() };
+    });
+    const Marker = vi.fn(function () {
+      return { setMap: vi.fn() };
+    });
+    const DirectionsRenderer = vi.fn(function () {
+      return { setMap: vi.fn(), setDirections: vi.fn() };
+    });
+    const DirectionsService = vi.fn(function () {
+      return { route: routeMockCapture };
+    });
+    const Polyline = vi.fn(function () {
+      return { setMap: vi.fn() };
+    });
+    const LatLngBounds = vi.fn(function () {
+      return { extend: vi.fn() };
+    });
+    // @ts-expect-error test global
+    globalThis.google = {
+      maps: {
+        Map,
+        Marker,
+        DirectionsRenderer,
+        DirectionsService,
+        Polyline,
+        LatLngBounds,
+        SymbolPath: { CIRCLE: 0 },
+        TravelMode: { DRIVING: "DRIVING" },
+        DirectionsStatus: { OK: "OK" },
+      },
+    };
+    mockStatus.current = "ready";
+
+    render(<DriveRouteMap origin={origin} destination={destination} eta={null} />);
+
+    expect(capturedRouteCallback).not.toBeNull();
+    capturedRouteCallback!(null, "ZERO_RESULTS");
+
+    expect(Polyline).toHaveBeenCalledTimes(1);
+  });
 });
