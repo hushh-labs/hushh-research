@@ -53,6 +53,7 @@ export const ROUTE_ID_VALUES = [
   "ria_clients",
   "ria_requests",
   "ria_picks",
+  "ria_profile",
   "ria_settings",
   "ria_workspace",
   "kai_home",
@@ -146,6 +147,7 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.RIA_CLIENTS) return "ria_clients";
   if (pathname === ROUTES.RIA_REQUESTS) return "ria_requests";
   if (pathname === ROUTES.RIA_PICKS) return "ria_picks";
+  if (pathname === ROUTES.RIA_PROFILE) return "ria_profile";
   if (pathname === ROUTES.RIA_SETTINGS) return "ria_settings";
   if (
     pathname === ROUTES.RIA_WORKSPACE ||
