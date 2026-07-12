@@ -67,7 +67,6 @@ import {
 import { SharingStatusCard } from "./sharing-status-card";
 import {
   ActiveShareCard,
-  ActivityReceiptCard,
   DeviceReadinessCard,
   RequestCard,
   SharedWithMeCard,
@@ -1392,20 +1391,6 @@ function InboxHub({
                 </div>
               );
             })}
-          </div>
-        </SectionCard>
-      ) : null}
-
-      {vm.activityReceipts.length ? (
-        <SectionCard title="Recent receipts">
-          <div className="space-y-2">
-            {vm.activityReceipts.slice(0, 5).map((receipt) => (
-              <ActivityReceiptCard
-                key={receipt.id}
-                title={receipt.title}
-                detail={receipt.detail}
-              />
-            ))}
           </div>
         </SectionCard>
       ) : null}
