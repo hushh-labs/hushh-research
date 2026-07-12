@@ -1,15 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const capacitorMocks = vi.hoisted(() => ({
+  isNativePlatform: vi.fn(() => false),
+  getPlatform: vi.fn(() => "web"),
+  request: vi.fn(),
+}));
+
 // ---------------------------------------------------------------------------
 // Mocks – declared before any import that touches them
 // ---------------------------------------------------------------------------
 
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
-    isNativePlatform: () => false,
-    getPlatform: () => "web",
+    isNativePlatform: capacitorMocks.isNativePlatform,
+    getPlatform: capacitorMocks.getPlatform,
   },
-  CapacitorHttp: { request: vi.fn() },
+  CapacitorHttp: { request: capacitorMocks.request },
 }));
 
 vi.mock("@/lib/capacitor", () => ({
@@ -84,6 +90,9 @@ describe("ApiService.apiFetch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFetch.mockReset();
+    capacitorMocks.isNativePlatform.mockReturnValue(false);
+    capacitorMocks.getPlatform.mockReturnValue("web");
+    capacitorMocks.request.mockReset();
   });
 
   // 1 – Web platform: calls fetch with relative path (no base URL)
@@ -236,6 +245,68 @@ describe("ApiService.apiFetch", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body).toEqual(payload);
+  });
+
+  it("requests a vault lock when web rejects an HCT token after validation", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({ detail: "Token validation failed." }, 401)
+    );
+    const lockReasons: string[] = [];
+    const handleLock = (event: Event) => {
+      lockReasons.push(
+        String((event as CustomEvent<{ reason?: string }>).detail?.reason || "")
+      );
+    };
+    window.addEventListener("vault-lock-requested", handleLock);
+
+    try {
+      const response = await ApiService.apiFetch("/api/one/location/state", {
+        headers: { Authorization: "Bearer HCT:expired-vault-owner" },
+      });
+
+      expect(response.status).toBe(401);
+      expect(lockReasons).toEqual(["Token validation failed."]);
+      expect(AuthService.getIdToken).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("vault-lock-requested", handleLock);
+    }
+  });
+
+  it("requests the same vault lock when native rejects an HCT token", async () => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue("ios");
+    capacitorMocks.request.mockResolvedValueOnce({
+      status: 401,
+      headers: { "content-type": "application/json" },
+      data: { detail: "Token validation failed." },
+      url: "https://uat.example/api/one/location/state",
+    });
+    const previousBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+    process.env.NEXT_PUBLIC_BACKEND_URL = "https://uat.example";
+    const lockReasons: string[] = [];
+    const handleLock = (event: Event) => {
+      lockReasons.push(
+        String((event as CustomEvent<{ reason?: string }>).detail?.reason || "")
+      );
+    };
+    window.addEventListener("vault-lock-requested", handleLock);
+
+    try {
+      const response = await ApiService.apiFetch("/api/one/location/state", {
+        headers: { Authorization: "Bearer HCT:expired-vault-owner" },
+      });
+
+      expect(response.status).toBe(401);
+      expect(lockReasons).toEqual(["Token validation failed."]);
+      expect(capacitorMocks.request).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("vault-lock-requested", handleLock);
+      if (previousBackendUrl === undefined) {
+        delete process.env.NEXT_PUBLIC_BACKEND_URL;
+      } else {
+        process.env.NEXT_PUBLIC_BACKEND_URL = previousBackendUrl;
+      }
+    }
   });
 
   it("fetches baseline market insights with Firebase auth", async () => {

@@ -576,6 +576,17 @@ describe("OneLocationAgentPage", () => {
     expect(mockSyncCurrentUser).toHaveBeenCalledWith({ uid: "user_a" });
   });
 
+  it("suppresses the stale-token banner while vault re-unlock is requested", async () => {
+    mockGetState.mockRejectedValue(
+      Object.assign(new Error("Token validation failed."), { status: 401 }),
+    );
+
+    render(<OneLocationAgentPage />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    expect(screen.queryByText(/Token validation failed/i)).toBeNull();
+  });
+
   it("scrolls Active shares only when more than three shares are present", async () => {
     const baseGrant = locationState().ownerGrants[0]!;
     mockGetState.mockResolvedValueOnce({

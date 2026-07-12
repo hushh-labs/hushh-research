@@ -652,6 +652,12 @@ function isTransientOneApiError(error: unknown): boolean {
   return status === 502 || status === 503 || status === 504;
 }
 
+function isVaultOwnerAuthError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const status = (error as { status?: unknown }).status;
+  return status === 401;
+}
+
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
@@ -2275,9 +2281,14 @@ function OneLocationAgentPageContent() {
 
       } catch (error) {
         suppressAutoRecipientSelectionRef.current = false;
-        setLoadError(
-          oneLocationErrorMessage(error, "Could not load location sharing."),
-        );
+        // ApiService handles rejected VAULT_OWNER tokens for web and native by
+        // locking the vault. Do not briefly render the backend auth message
+        // while VaultLockGuard switches to the standard re-unlock flow.
+        if (!isVaultOwnerAuthError(error)) {
+          setLoadError(
+            oneLocationErrorMessage(error, "Could not load location sharing."),
+          );
+        }
       } finally {
         refreshInFlightRef.current = null;
         setBusy(null);
