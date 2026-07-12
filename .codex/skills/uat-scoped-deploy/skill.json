@@ -22,7 +22,8 @@
     "deploy/README.md",
     "deploy/frontend.cloudbuild.yaml",
     "deploy/backend.cloudbuild.yaml",
-    ".codex/skills/uat-scoped-deploy/references/deploy-proof.md"
+    ".codex/skills/uat-scoped-deploy/references/deploy-proof.md",
+    ".codex/skills/uat-scoped-deploy/references/anti-rationalization.md"
   ],
   "required_commands": [
     "gh run list --workflow deploy-uat.yml --limit 5 --json databaseId,status,conclusion,headSha,event,url",

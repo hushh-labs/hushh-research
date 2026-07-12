@@ -31,7 +31,8 @@
     "docs/reference/streaming/README.md",
     "docs/project_context_map.md",
     "docs/reference/iam/agent-delegation-boundary.md",
-    "consent-protocol/docs/reference/consent-protocol.md"
+    "consent-protocol/docs/reference/consent-protocol.md",
+    ".codex/skills/security-audit/references/anti-rationalization.md"
   ],
   "required_commands": [
     "./bin/hushh docs verify",

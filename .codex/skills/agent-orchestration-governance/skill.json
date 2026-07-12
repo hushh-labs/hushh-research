@@ -27,7 +27,8 @@
     ".codex/skills/agent-orchestration-governance/references/delegation-contract.md",
     ".codex/skills/codex-skill-authoring/references/skill-contract.md",
     ".codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md",
-    "docs/reference/operations/coding-agent-mcp.md"
+    "docs/reference/operations/coding-agent-mcp.md",
+    ".codex/skills/agent-orchestration-governance/references/anti-rationalization.md"
   ],
   "required_commands": [
     "python3 .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py",
