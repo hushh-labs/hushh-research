@@ -7,6 +7,9 @@ export const ROUTES = {
   HOME: "/",
   ONE_HOME: "/one",
   DEVELOPERS: "/developers",
+  RESEARCH: "/research",
+  RESEARCH_PROTOCOL: "/research/protocol",
+  BLOG: "/blog",
   LOGIN: "/login",
   GETTING_STARTED: "/getting-started",
   LOGOUT: "/logout",
@@ -401,6 +404,10 @@ export function isPublicRoute(pathname: string): boolean {
     pathname === ROUTES.PHONE_MANDATE ||
     pathname === ROUTES.LOGOUT ||
     pathname === ROUTES.PROFILE ||
+    pathname === ROUTES.RESEARCH ||
+    pathname.startsWith(`${ROUTES.RESEARCH}/`) ||
+    pathname === ROUTES.BLOG ||
+    pathname.startsWith(`${ROUTES.BLOG}/`) ||
     pathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
   );
 }
