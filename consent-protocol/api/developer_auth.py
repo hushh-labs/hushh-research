@@ -82,14 +82,13 @@ def _resolve_developer_token(
     authorization: str | None,
 ) -> tuple[str, str]:
     """
-    Resolve the developer token from either an Authorization: Bearer header or
-    a ?token= query parameter, in that order of preference.
+    Resolve the developer token from an Authorization: Bearer header.
 
     Returns a (raw_token, source) tuple where source is "bearer", "query", or
     "" when neither carries a value. Bearer is preferred because tokens passed
     in URLs leak via Referer headers, server access logs, browser history, and
-    proxy/CDN logs (CWE-598). Query support is retained so existing developer
-    API and remote MCP clients keep working.
+    proxy/CDN logs (CWE-598). Query values are detected only so the caller gets
+    a stable rejection; they are never authenticated.
     """
     bearer_token = _resolve_bearer_token(authorization)
     if bearer_token:
@@ -132,20 +131,24 @@ def authenticate_developer_principal(
         raise developer_api_disabled_error()
 
     raw_token, source = _resolve_developer_token(token=token, authorization=authorization)
+    if source == "query":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error_code": "QUERY_TOKEN_AUTH_UNSUPPORTED",
+                "message": "Use Authorization: Bearer; query-string tokens are not accepted.",
+            },
+        )
     if not raw_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
                 "error_code": "DEVELOPER_TOKEN_REQUIRED",
                 "message": (
-                    "Developer token is required. Pass it as 'Authorization: Bearer <token>' "
-                    "(preferred) or '?token=<token>' (legacy)."
+                    "Developer token is required. Pass it as 'Authorization: Bearer <token>'."
                 ),
             },
         )
-
-    if source == "query":
-        _warn_query_token_leak_risk(request=request)
 
     client_ip = request.client.host if request and request.client else None
     user_agent = request.headers.get("user-agent") if request else None
@@ -175,11 +178,16 @@ def try_authenticate_developer_principal(
         return None
 
     raw_token, source = _resolve_developer_token(token=token, authorization=authorization)
+    if source == "query":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error_code": "QUERY_TOKEN_AUTH_UNSUPPORTED",
+                "message": "Use Authorization: Bearer; query-string tokens are not accepted.",
+            },
+        )
     if not raw_token:
         return None
-
-    if source == "query":
-        _warn_query_token_leak_risk(request=request)
 
     client_ip = request.client.host if request and request.client else None
     user_agent = request.headers.get("user-agent") if request else None

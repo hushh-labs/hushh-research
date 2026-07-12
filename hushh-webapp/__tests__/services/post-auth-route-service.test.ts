@@ -36,6 +36,7 @@ vi.mock("@/lib/services/ria-service", () => ({
 }));
 
 import {
+  buildOneSetupRoute,
   buildPhoneMandateRoute,
   buildProfileVaultRoute,
   ROUTES,
@@ -63,6 +64,58 @@ describe("PostAuthRouteService", () => {
     await expect(
       PostAuthRouteService.resolveAfterLogin({ userId: "user_123" })
     ).resolves.toBe(ROUTES.ONE_SETUP);
+  });
+
+  it("preserves a notification deep link while unresolved onboarding is completed", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: true,
+      setupCompleted: false,
+      setupCompletedAt: null,
+    });
+    const notificationRoute =
+      "/one/location?section=shared&grantId=grant-notification-1";
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        redirectPath: notificationRoute,
+      }),
+    ).resolves.toBe(buildOneSetupRoute({ returnTo: notificationRoute }));
+  });
+
+  it("does not nest an existing setup return target after login", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: true,
+      setupCompleted: false,
+      setupCompletedAt: null,
+    });
+    const setupRoute = buildOneSetupRoute({
+      returnTo: "/one/location?section=shared&grantId=grant-notification-1",
+    });
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        redirectPath: setupRoute,
+      }),
+    ).resolves.toBe(setupRoute);
+  });
+
+  it("returns a resolved setup user to the saved notification target", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: true,
+      setupCompleted: true,
+      setupCompletedAt: 1,
+    });
+    const notificationRoute =
+      "/one/location?section=shared&grantId=grant-notification-1";
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        redirectPath: buildOneSetupRoute({ returnTo: notificationRoute }),
+      }),
+    ).resolves.toBe(notificationRoute);
   });
 
   it("keeps vault users on the requested route when onboarding is resolved", async () => {

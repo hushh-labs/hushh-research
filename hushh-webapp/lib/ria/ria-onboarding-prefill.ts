@@ -238,6 +238,34 @@ function inferOptionsFromText(
     .map(({ label }) => label);
 }
 
+// Map free-form provider service/fee strings onto the fixed canonical labels the
+// onboarding UI renders as buttons/pills. A raw off-list value (e.g. "Wealth
+// Management", "Wrap fee") would otherwise satisfy the length>0 gate while no
+// control appears selected and the hidden value could never be cleared — so an
+// unmappable value is dropped rather than passed through.
+function canonicalizeOptions(
+  values: string[],
+  detectors: Array<{ label: string; patterns: RegExp[] }>,
+): string[] {
+  const result: string[] = [];
+  for (const raw of values) {
+    const value = raw.trim();
+    if (!value) continue;
+    const exact = detectors.find(
+      (detector) => detector.label.toLowerCase() === value.toLowerCase(),
+    );
+    const matched =
+      exact ||
+      detectors.find((detector) =>
+        detector.patterns.some((pattern) => pattern.test(value)),
+      );
+    if (matched && !result.includes(matched.label)) {
+      result.push(matched.label);
+    }
+  }
+  return result;
+}
+
 function normalizeCertification(value: unknown): string {
   if (!value) return "";
   if (typeof value === "object" && !Array.isArray(value)) {
@@ -453,8 +481,14 @@ export function buildRiaLicensePrefillPatch(
     ...extractCertifications(result, null),
   ]);
   const evidenceText = collectText(result).join("\n");
-  const providerServices = uniqueStrings(result.services_offered || []);
-  const providerFees = uniqueStrings(result.fee_structure || []);
+  const providerServices = canonicalizeOptions(
+    uniqueStrings(result.services_offered || []),
+    SERVICE_DETECTORS,
+  );
+  const providerFees = canonicalizeOptions(
+    uniqueStrings(result.fee_structure || []),
+    FEE_DETECTORS,
+  );
   const services =
     draft.servicesOffered.length > 0
       ? draft.servicesOffered

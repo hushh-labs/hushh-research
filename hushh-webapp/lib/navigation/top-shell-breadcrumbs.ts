@@ -139,12 +139,21 @@ export function resolveTopShellBreadcrumb(
   }
 
   if (pathname === ROUTES.KAI_HOME) {
+    // Origin-aware: when the user arrives here from account setup (the finance
+    // capability forwards to the Kai wizard, which lands here on completion
+    // carrying `?from=/one/setup`), back must retrace to the setup hub so they
+    // can continue onboarding the other capabilities instead of being dropped
+    // at One home with no path back.
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    const fromSetup = originHref === ROUTES.ONE_SETUP;
     return {
-      backHref: ROUTES.ONE_HOME,
+      backHref: originHref || ROUTES.ONE_HOME,
       width: "content",
       align: "center",
       items: [
-        { label: "One", href: ROUTES.ONE_HOME },
+        fromSetup
+          ? { label: "Set up", href: ROUTES.ONE_SETUP }
+          : { label: "One", href: ROUTES.ONE_HOME },
         { label: "Kai" },
       ],
     };
@@ -152,7 +161,9 @@ export function resolveTopShellBreadcrumb(
 
   // Kai finance subroutes (level 3): back returns to the Kai home (level 2),
   // which in turn returns to /one (level 1). Keeps the One -> agent -> subtab
-  // hierarchy consistent instead of relying on browser history.
+  // hierarchy consistent instead of relying on browser history. The setup
+  // origin is preserved on the Kai-home hop so the retrace can still reach the
+  // setup hub from a subroute opened during onboarding.
   const kaiSubroutes: Array<[string, string]> = [
     [ROUTES.KAI_PORTFOLIO, "Portfolio"],
     [ROUTES.KAI_INVESTMENTS, "Investments"],
@@ -161,8 +172,13 @@ export function resolveTopShellBreadcrumb(
   ];
   for (const [route, label] of kaiSubroutes) {
     if (pathname === route || pathname.startsWith(`${route}/`)) {
+      const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+      const kaiHomeBack =
+        originHref === ROUTES.ONE_SETUP
+          ? `${ROUTES.KAI_HOME}?from=${ROUTES.ONE_SETUP}`
+          : ROUTES.KAI_HOME;
       return {
-        backHref: ROUTES.KAI_HOME,
+        backHref: kaiHomeBack,
         width: "content",
         align: "center",
         items: [
@@ -193,6 +209,7 @@ export function resolveTopShellBreadcrumb(
     [ROUTES.RIA_WORKSPACE, "Workspace"],
     [ROUTES.RIA_REQUESTS, "Requests"],
     [ROUTES.RIA_SETTINGS, "Settings"],
+    [ROUTES.RIA_PROFILE, "Profile"],
   ];
   for (const [route, label] of riaSubroutes) {
     if (pathname === route || pathname.startsWith(`${route}/`)) {

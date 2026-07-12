@@ -3,7 +3,7 @@
 import { ApiService } from "@/lib/services/api-service";
 
 export type ConsentExportRefreshJob = {
-  consentToken: string;
+  jobClaimId: string;
   grantedScope: string;
   connectorPublicKey: string;
   connectorKeyId: string | null;
@@ -16,6 +16,13 @@ export type ConsentExportRefreshJob = {
   lastError: string | null;
   exportRevision: number | null;
   exportRefreshStatus: string | null;
+  exportId: string;
+  grantId: string;
+  appId: string;
+  scopeHandle: string;
+  recipientKeyFingerprint: string;
+  expiresAtMs: number;
+  refreshPolicy: "continuous_until_expiry";
 };
 
 function authHeaders(vaultOwnerToken?: string): HeadersInit {
@@ -24,7 +31,7 @@ function authHeaders(vaultOwnerToken?: string): HeadersInit {
 
 function mapJob(job: Record<string, unknown>): ConsentExportRefreshJob {
   return {
-    consentToken: String(job.consentToken || ""),
+    jobClaimId: String(job.jobClaimId || ""),
     grantedScope: String(job.grantedScope || ""),
     connectorPublicKey: String(job.connectorPublicKey || ""),
     connectorKeyId:
@@ -59,6 +66,13 @@ function mapJob(job: Record<string, unknown>): ConsentExportRefreshJob {
       typeof job.exportRefreshStatus === "string" && job.exportRefreshStatus.trim().length > 0
         ? job.exportRefreshStatus
         : null,
+    exportId: String(job.exportId || ""),
+    grantId: String(job.grantId || ""),
+    appId: String(job.appId || ""),
+    scopeHandle: String(job.scopeHandle || ""),
+    recipientKeyFingerprint: String(job.recipientKeyFingerprint || ""),
+    expiresAtMs: Number(job.expiresAtMs || 0),
+    refreshPolicy: "continuous_until_expiry",
   };
 }
 
@@ -89,7 +103,8 @@ export class ConsentExportRefreshService {
 
   static async uploadRefreshedExport(params: {
     userId: string;
-    consentToken: string;
+    jobClaimId: string;
+    expectedPriorRevision: number;
     encryptedData: string;
     encryptedIv: string;
     encryptedTag: string;
@@ -102,6 +117,7 @@ export class ConsentExportRefreshService {
     sourceContentRevision?: number;
     sourceManifestRevision?: number;
     vaultOwnerToken?: string;
+    exportEnvelope: import("@/lib/consent/export-envelope-v2").ConsentExportEnvelopeSubmissionV2;
   }): Promise<{ success: boolean; exportRevision: number | null }> {
     const response = await ApiService.apiFetch(`${this.API_PREFIX}/upload`, {
       method: "POST",
@@ -111,7 +127,8 @@ export class ConsentExportRefreshService {
       },
       body: JSON.stringify({
         userId: params.userId,
-        consentToken: params.consentToken,
+        jobClaimId: params.jobClaimId,
+        expectedPriorRevision: params.expectedPriorRevision,
         encryptedData: params.encryptedData,
         encryptedIv: params.encryptedIv,
         encryptedTag: params.encryptedTag,
@@ -123,6 +140,7 @@ export class ConsentExportRefreshService {
         connectorKeyId: params.connectorKeyId,
         sourceContentRevision: params.sourceContentRevision,
         sourceManifestRevision: params.sourceManifestRevision,
+        exportEnvelope: params.exportEnvelope,
       }),
     });
     if (!response.ok) {
@@ -141,7 +159,7 @@ export class ConsentExportRefreshService {
 
   static async failJob(params: {
     userId: string;
-    consentToken: string;
+    jobClaimId: string;
     lastError?: string | null;
     vaultOwnerToken?: string;
   }): Promise<void> {
@@ -153,7 +171,7 @@ export class ConsentExportRefreshService {
       },
       body: JSON.stringify({
         userId: params.userId,
-        consentToken: params.consentToken,
+        jobClaimId: params.jobClaimId,
         lastError: params.lastError || null,
       }),
     });

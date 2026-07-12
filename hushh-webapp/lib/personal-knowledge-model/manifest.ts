@@ -56,7 +56,7 @@ export type DomainManifest = {
     sensitivity_tier?: string;
     scope_kind?: string;
     exposure_enabled?: boolean;
-    visibility_posture?: "private" | "consent_required" | "default_available";
+    visibility_posture?: "private" | "consent_required";
     default_projection_ready?: boolean;
     default_projection_updated_at?: string | null;
     summary_projection?: Record<string, unknown> & {
@@ -70,6 +70,7 @@ export type DomainManifest = {
 };
 
 function normalizePathSegment(segment: string): string {
+  if (String(segment).trim().toLowerCase() === "_items") return "_items";
   return String(segment)
     .trim()
     .toLowerCase()
@@ -121,6 +122,30 @@ function inferSensitivityLabel(path: string): string | null {
   return null;
 }
 
+const BLOCKED_EXTERNAL_PATH_PARTS = new Set([
+  "changes",
+  "created_at",
+  "debug",
+  "debug_fields",
+  "entity_id",
+  "hash",
+  "metadata",
+  "parser_metadata",
+  "provenance",
+  "schema_version",
+  "source_agent",
+  "timestamps",
+  "updated_at",
+  "workflow",
+  "workflow_id",
+  "workflow_state",
+]);
+
+function isExternalizablePath(path: string, pathType: PathDescriptor["path_type"]): boolean {
+  if (pathType !== "leaf") return false;
+  return !path.split(".").some((part) => BLOCKED_EXTERNAL_PATH_PARTS.has(part));
+}
+
 function countEntityMaps(value: unknown): number {
   if (!value || typeof value !== "object") return 0;
   if (Array.isArray(value)) {
@@ -153,11 +178,12 @@ function walkValue(
     const isObject =
       !!value && typeof value === "object" && !isArray;
     const sensitivityLabel = inferSensitivityLabel(pathKey);
+    const pathType: PathDescriptor["path_type"] = isArray ? "array" : isObject ? "object" : "leaf";
     descriptors.set(pathKey, {
       json_path: pathKey,
       parent_path: path.length > 1 ? joinPath(path.slice(0, -1)) : null,
-      path_type: isArray ? "array" : isObject ? "object" : "leaf",
-      exposure_eligibility: true,
+      path_type: pathType,
+      exposure_eligibility: isExternalizablePath(pathKey, pathType),
       consent_label: titleizePath(pathKey),
       sensitivity_label: sensitivityLabel,
       segment_id: path[0] || "root",
@@ -204,7 +230,7 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
   );
   const jsonPaths = paths.map((path) => path.json_path);
   const externalizablePaths = paths
-    .filter((path) => path.exposure_eligibility)
+    .filter((path) => path.exposure_eligibility && path.path_type === "leaf")
     .map((path) => path.json_path);
   const topLevelScopePaths = [
     ...new Set(
@@ -330,15 +356,39 @@ function rebuildProjectedValue(segments: string[], value: unknown): unknown {
   };
 }
 
+function mergeProjectedValues(current: unknown, next: unknown): unknown {
+  if (Array.isArray(current) && Array.isArray(next)) {
+    const length = Math.max(current.length, next.length);
+    return Array.from({ length }, (_, index) => {
+      if (current[index] === undefined) return cloneValue(next[index]);
+      if (next[index] === undefined) return cloneValue(current[index]);
+      return mergeProjectedValues(current[index], next[index]);
+    });
+  }
+  if (
+    current &&
+    next &&
+    typeof current === "object" &&
+    typeof next === "object" &&
+    !Array.isArray(current) &&
+    !Array.isArray(next)
+  ) {
+    const merged: Record<string, unknown> = { ...(current as Record<string, unknown>) };
+    for (const [key, value] of Object.entries(next as Record<string, unknown>)) {
+      merged[key] = key in merged ? mergeProjectedValues(merged[key], value) : cloneValue(value);
+    }
+    return merged;
+  }
+  return cloneValue(next);
+}
+
 export function projectDomainDataForScope(params: {
   domain: string;
   scope: string;
   domainData: Record<string, unknown>;
+  approvedPaths?: string[];
 }): Record<string, unknown> {
-  if (
-    params.scope === "pkm.read" ||
-    params.scope === `attr.${params.domain}.*`
-  ) {
+  if (params.scope === "pkm.read") {
     return { [params.domain]: cloneValue(params.domainData) };
   }
 
@@ -354,18 +404,31 @@ export function projectDomainDataForScope(params: {
     .filter(Boolean)
     .join(".");
 
-  if (!normalizedPath) {
-    return { [params.domain]: cloneValue(params.domainData) };
-  }
-
-  const segments = normalizedPath.split(".");
-  const extracted = extractPathValue(params.domainData, segments);
-  if (extracted === undefined) {
+  const approvedPaths = (params.approvedPaths || [])
+    .map((path) =>
+      String(path || "")
+        .split(".")
+        .map((segment) => normalizePathSegment(segment))
+        .filter(Boolean)
+        .join(".")
+    )
+    .filter(Boolean)
+    .filter(
+      (path) => !normalizedPath || path === normalizedPath || path.startsWith(`${normalizedPath}.`)
+    );
+  if (approvedPaths.length === 0) {
     return { [params.domain]: {} };
   }
 
+  let projected: unknown = {};
+  for (const approvedPath of approvedPaths) {
+    const segments = approvedPath.split(".");
+    const extracted = extractPathValue(params.domainData, segments);
+    if (extracted === undefined) continue;
+    projected = mergeProjectedValues(projected, rebuildProjectedValue(segments, extracted));
+  }
   return {
-    [params.domain]: rebuildProjectedValue(segments, extracted) as Record<string, unknown>,
+    [params.domain]: projected as Record<string, unknown>,
   };
 }
 

@@ -18,6 +18,9 @@ vi.mock("@/lib/capacitor", () => ({
     requestLocationPermission: vi.fn(),
   },
 }));
+vi.mock("@/lib/vault/vault-context", () => ({
+  useVault: () => ({ vaultKey: "vault-key-test" }),
+}));
 // Keep the overlay on its desktop (Dialog) branch if it mounts during a test.
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
 

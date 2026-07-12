@@ -149,7 +149,14 @@ class TestRequireCommercialGate:
 
     @pytest.mark.asyncio
     async def test_db_backed_commercial_gate_accepts_commercial_token(self, monkeypatch) -> None:
-        async def _active(self, user_id: str, scope: str, agent_id: str) -> bool:
+        async def _active(
+            self,
+            user_id: str,
+            scope: str,
+            agent_id: str,
+            *,
+            token_id: str | None = None,
+        ) -> bool:
             return True
 
         monkeypatch.setattr(ConsentDBService, "is_token_active", _active)

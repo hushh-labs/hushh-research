@@ -38,12 +38,13 @@ The public promoted environment is **UAT**:
 
 - app workspace: `https://uat.kai.hushh.ai/developers`
 - API origin: `https://api.uat.hushh.ai`
-- MCP endpoint: `https://api.uat.hushh.ai/mcp/?token=<developer-token>`
+- MCP endpoint: `https://api.uat.hushh.ai/mcp/`
 
 Use the trailing-slash endpoint shape:
 
-- `https://api.uat.hushh.ai/mcp/?token=<developer-token>`
-- not `https://api.uat.hushh.ai/mcp?token=<developer-token>`
+- `https://api.uat.hushh.ai/mcp/`
+- authenticate with `Authorization: Bearer <developer-token>`
+- query-string tokens are rejected
 
 ## Public Tool Surface
 
@@ -94,11 +95,10 @@ The local stdio MCP process (spawned by `npx -y @hushh/mcp` or a direct
 software on their own machine, with loopback network access the LLM host's
 own sandbox typically does not have. On this transport only:
 
-- `get_encrypted_scoped_export` decrypts and narrows the export locally by
-  default, returning a small `data` object directly. No ciphertext, wrapped
-  key metadata, or download step ever reaches the LLM host's context. Pass
-  `raw=true` (or `delivery='raw'`) to opt back into the raw ciphertext
-  contract if your connector wants to decrypt client-side itself.
+- `get_encrypted_scoped_export` decrypts and narrows the export locally,
+  returning only a bounded `data` object. Ciphertext, wrapped-key metadata,
+  and resource fetches never enter the LLM host's context. Results that exceed
+  the model-result limit require a narrower semantic scope.
 - `request_consent` no longer requires `connector_public_key`,
   `connector_key_id`, or `connector_wrapping_alg`: the local server generates
   and persists its own X25519 keypair on first use (default
@@ -106,13 +106,13 @@ own sandbox typically does not have. On this transport only:
   `HUSHH_MCP_STATE_DIR`; file permissions `0600`). Explicit args still win if
   you pass your own key.
 - Consent grants created before this key auto-fill self-heal on the next
-  `request_consent` call; an older grant wrapped to a discarded ephemeral key
-  falls back to the raw ciphertext contract with an explanatory
-  `delivery_note` rather than failing.
+  `request_consent` call. A grant bound to a discarded connector key requires
+  a new consent request with a retained key.
 
 The remote/hosted MCP endpoint (`/mcp`, see below) has no local trusted
-process to hold a private key, so it always requires explicit connector
-arguments and always returns raw ciphertext, exactly as before.
+process to hold a private key. It requires explicit connector arguments and
+returns envelope metadata plus an authenticated ciphertext resource link; the
+connector fetches and decrypts the resource outside model context.
 
 ## Partner / CRM Connectors (Salesforce Agentforce, Mulesoft-Fronted Systems)
 
@@ -120,12 +120,10 @@ Hosted CRM platforms (for example Salesforce Agentforce/FSC via a Named
 Credential, or a Mulesoft-fronted integration) connect directly over HTTPS to
 the remote `/mcp` endpoint, without spawning any local process.
 
-- **Auth**: prefer `Authorization: Bearer <developer-token>` over the legacy
-  `?token=<developer-token>` query form shown above. Header-based auth avoids
-  leaking the token via Referer headers, access logs, or CDN/proxy logs, and
-  is directly compatible with Salesforce Named Credentials (no OAuth 2.1
-  authorization-server flow is required or supported today; a static
-  per-integration bearer token is the intended credential model).
+- **Auth**: use `Authorization: Bearer <developer-token>`. Query-string
+  credentials are rejected so tokens cannot leak through Referer headers,
+  access logs, browser history, or CDN/proxy logs. Bearer headers are directly
+  compatible with Salesforce Named Credentials.
 - **Provisioning**: issue a dedicated `partner_crm` developer app + token per
   CRM system with `consent-protocol/scripts/ops/provision_partner_developer_app.py`:
 
@@ -156,9 +154,9 @@ the remote `/mcp` endpoint, without spawning any local process.
   mcp_transport` / `mcp_consent`) exercise it. Do not design an integration
   that depends on cross-request session state surviving between separate
   streamable-HTTP connections.
-- The remote endpoint always returns raw ciphertext (never auto-decrypts);
-  CRM connectors decrypt and narrow client-side with their own registered
-  connector key, per the zero-knowledge contract described above.
+- The remote endpoint returns authenticated resource links, never plaintext or
+  inline megabyte ciphertext. CRM connectors fetch, decrypt, and narrow
+  client-side with their own registered connector key.
 
 ## Contributor-Local Fallback
 
@@ -212,7 +210,7 @@ Repo-local fallback still relies on the normal `consent-protocol` backend/runtim
 - Public onboarding is UAT-first until production developer access is promoted.
 - The npm package is the public install surface; this repo doc should not reintroduce a second public quickstart.
 - Keep credentials machine-local. Do not commit host config files with inline developer tokens.
-- The remote MCP contract accepts `Authorization: Bearer <token>` (preferred) or the legacy `?token=` query form; treat either the header value or the full URL as secret material.
+- The remote MCP contract accepts only `Authorization: Bearer <token>`; never put a developer token in a URL.
 - The published npm tarball should include package-local `LICENSE` and `NOTICE` files for Apache redistribution.
 
 ## Verification

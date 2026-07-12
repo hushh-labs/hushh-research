@@ -11,21 +11,23 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 87,
-    "physical_page_count": 87,
+    "total_screens": 88,
+    "physical_page_count": 88,
     "route_contract_count": 87,
-    "surface_map_count": 87,
+    "surface_map_count": 88,
     "class_counts": {
       "public/static": 3,
-      "realtime/SSE": 1,
-      "redirect/alias": 24,
-      "vault-backed": 36,
+      "realtime/SSE": 2,
       "hidden flow": 7,
+      "redirect/alias": 27,
       "auth/pre-vault": 6,
-      "RIA/provider": 8,
+      "RIA/provider": 9,
+      "vault-backed": 32,
       "PKM-secure": 2
     },
-    "pages_missing_route_contract": [],
+    "pages_missing_route_contract": [
+      "/ria/profile"
+    ],
     "routes_missing_surface_map": []
   },
   "rules": [
@@ -132,6 +134,51 @@
       ]
     },
     {
+      "route": "/connect",
+      "page_file": "app/connect/page.tsx",
+      "route_contract_mode": "hidden",
+      "screen_class": "hidden flow",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fconnect",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
       "route": "/connected-systems",
       "page_file": "app/connected-systems/page.tsx",
       "route_contract_mode": "redirect",
@@ -219,8 +266,8 @@
       "route": "/consents",
       "page_file": "app/consents/page.tsx",
       "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
+      "screen_class": "realtime/SSE",
+      "cache_policy": "memory-only+sse-background",
       "cache_keys": [
         "CONSENT_CENTER_SUMMARY",
         "CONSENT_CENTER_LIST"
@@ -229,20 +276,22 @@
         "consent_list"
       ],
       "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
+      "ttl_class": "CACHE_TTL.SHORT with active stream patching",
       "warm_source": "ConsentCenterService memory cache",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "refresh_trigger": "SSE stream patch plus stale-aware background refresh",
       "mutation_invalidator": "CacheSyncService.onConsentMutated",
       "best_available_ux_path": [
         "fresh memory",
-        "cold loader"
+        "background refresh",
+        "cold loader when missing"
       ],
       "readiness_kpis": [
         "route_readiness_completed",
         "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_refresh_completed",
+        "stream patch latency through route_refresh_completed"
       ],
-      "realtime_policy": "not realtime",
+      "realtime_policy": "cached shell/data renders first; stream patches active view state and cache through service-layer adapters only",
       "reviewer_fixture": "/login?redirect=%2Fconsents",
       "surface_map_present": true,
       "route_contract_present": true,
@@ -251,12 +300,12 @@
         "use_stale_resource": true,
         "device_cache": false,
         "secure_cache": false,
-        "cache_sync": false,
+        "cache_sync": true,
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
         "hushh_loader": false,
-        "sse_or_streaming": false,
+        "sse_or_streaming": true,
         "native_beacon": false
       },
       "findings": []
@@ -929,51 +978,6 @@
         "native_beacon": false
       },
       "findings": []
-    },
-    {
-      "route": "/labs/profile-appearance",
-      "page_file": "app/labs/profile-appearance/page.tsx",
-      "route_contract_mode": "hidden",
-      "screen_class": "hidden flow",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/labs/profile-appearance",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": false,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
     },
     {
       "route": "/login",
@@ -1958,12 +1962,13 @@
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
-        "hushh_loader": false,
+        "hushh_loader": true,
         "sse_or_streaming": false,
         "native_beacon": false
       },
       "findings": [
-        "no local cache primitive detected in page/contract source"
+        "no local cache primitive detected in page/contract source",
+        "loader detected; verify warm cache path avoids blocking loader"
       ]
     },
     {
@@ -2647,26 +2652,23 @@
     {
       "route": "/profile/gmail",
       "page_file": "app/profile/gmail/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
       "cache_keys": [],
       "resource_classes": [
         "unknown"
       ],
       "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
       "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
+        "static render"
       ],
       "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fprofile%2Fgmail",
@@ -2677,7 +2679,7 @@
         "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
-        "cache_sync": true,
+        "cache_sync": false,
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
@@ -2685,33 +2687,28 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/profile/gmail/actions",
       "page_file": "app/profile/gmail/actions/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
       "cache_keys": [],
       "resource_classes": [
         "unknown"
       ],
       "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
       "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
+        "static render"
       ],
       "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fprofile%2Fgmail%2Factions",
@@ -2722,7 +2719,7 @@
         "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
-        "cache_sync": true,
+        "cache_sync": false,
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
@@ -2730,33 +2727,28 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/profile/gmail/connection",
       "page_file": "app/profile/gmail/connection/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
       "cache_keys": [],
       "resource_classes": [
         "unknown"
       ],
       "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
       "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
+        "static render"
       ],
       "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fprofile%2Fgmail%2Fconnection",
@@ -2767,7 +2759,7 @@
         "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
-        "cache_sync": true,
+        "cache_sync": false,
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
@@ -2775,9 +2767,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/profile/gmail/oauth/return",
@@ -3841,6 +3831,54 @@
         "native_beacon": false
       },
       "findings": []
+    },
+    {
+      "route": "/ria/profile",
+      "page_file": "app/ria/profile/page.tsx",
+      "route_contract_mode": "unclassified",
+      "screen_class": "RIA/provider",
+      "cache_policy": "device-resource",
+      "cache_keys": [],
+      "resource_classes": [
+        "ria_workspace",
+        "consent_list"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "RIA service memory/device cache",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "RIA service invalidation plus CacheSyncService consent hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "plain device stale render",
+        "background refresh",
+        "cold loader when missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fria%2Fprofile",
+      "surface_map_present": true,
+      "route_contract_present": false,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
     },
     {
       "route": "/ria/requests",

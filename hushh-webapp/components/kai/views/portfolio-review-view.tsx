@@ -1764,6 +1764,11 @@ export function PortfolioReviewView({
           domain: "financial",
           vaultKey: effectiveVaultKey,
           vaultOwnerToken: vaultOwnerTokenToUse,
+          confirmation: {
+            confirmedByUser: true,
+            surface: "import",
+            source: "kai_portfolio_review_confirm",
+          },
           build: () => ({
             domainData: nextFinancialDomain as unknown as Record<string, unknown>,
             summary: financialSummary,

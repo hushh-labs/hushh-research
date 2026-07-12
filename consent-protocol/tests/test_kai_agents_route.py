@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -44,7 +44,7 @@ def test_kai_chat_does_not_expose_exception_detail_on_error(monkeypatch):
         raise RuntimeError(_LEAKED_ERROR_TEXT)
 
     mock_agent = MagicMock()
-    mock_agent.handle_message.side_effect = _raise
+    mock_agent.handle_message = AsyncMock(side_effect=_raise)
 
     with patch("api.routes.agents.get_kai_agent", return_value=mock_agent):
         client = TestClient(_build_app(), raise_server_exceptions=False)
@@ -66,7 +66,7 @@ def test_kai_chat_returns_generic_detail_on_error(monkeypatch):
         raise ValueError("db column 'user_vault_keys' does not exist")
 
     mock_agent = MagicMock()
-    mock_agent.handle_message.side_effect = _raise
+    mock_agent.handle_message = AsyncMock(side_effect=_raise)
 
     with patch("api.routes.agents.get_kai_agent", return_value=mock_agent):
         client = TestClient(_build_app(), raise_server_exceptions=False)
@@ -80,10 +80,12 @@ def test_kai_chat_returns_200_on_success(monkeypatch):
     """Happy path: a successful agent call returns 200 with the response."""
 
     mock_agent = MagicMock()
-    mock_agent.handle_message.return_value = {
-        "response": "AAPL looks strong.",
-        "is_complete": True,
-    }
+    mock_agent.handle_message = AsyncMock(
+        return_value={
+            "response": "AAPL looks strong.",
+            "is_complete": True,
+        }
+    )
 
     with patch("api.routes.agents.get_kai_agent", return_value=mock_agent):
         client = TestClient(_build_app())

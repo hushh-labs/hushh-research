@@ -4,6 +4,13 @@ from datetime import UTC, datetime
 
 import pytest
 
+from hushh_mcp.services.domain_contracts import (
+    CURRENT_PKM_CONTRACT_VERSION,
+    CURRENT_PKM_MODEL_VERSION,
+    CURRENT_READABLE_PROJECTION_VERSION,
+    CURRENT_READABLE_SUMMARY_VERSION,
+    current_domain_contract_version,
+)
 from hushh_mcp.services.pkm_upgrade_service import PkmUpgradeService
 
 
@@ -57,6 +64,12 @@ class _FakePkmService:
 
         return _Result()
 
+    def insert(self, *_args, **_kwargs):
+        return self
+
+    def upsert(self, *_args, **_kwargs):
+        return self
+
 
 @pytest.mark.asyncio
 async def test_build_status_treats_missing_manifest_as_bootstrap_from_version_zero():
@@ -74,7 +87,9 @@ async def test_build_status_treats_missing_manifest_as_bootstrap_from_version_ze
     assert status["upgradable_domains"][0]["domain"] == "financial"
     assert status["upgradable_domains"][0]["current_domain_contract_version"] == 0
     assert status["upgradable_domains"][0]["current_readable_summary_version"] == 0
-    assert status["upgradable_domains"][0]["target_domain_contract_version"] == 2
+    assert status["upgradable_domains"][0][
+        "target_domain_contract_version"
+    ] == current_domain_contract_version("financial")
 
 
 @pytest.mark.asyncio
@@ -83,10 +98,10 @@ async def test_build_status_prefers_known_summary_versions_when_present():
     service._pkm_service = _FakePkmService(
         domain_summaries={
             "financial": {
-                "domain_contract_version": 2,
-                "readable_summary_version": 2,
-                "pkm_contract_version": "4.1.0",
-                "readable_projection_version": "4.1.0",
+                "domain_contract_version": current_domain_contract_version("financial"),
+                "readable_summary_version": CURRENT_READABLE_SUMMARY_VERSION,
+                "pkm_contract_version": CURRENT_PKM_CONTRACT_VERSION,
+                "readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
             }
         }
     )
@@ -114,10 +129,10 @@ async def test_build_status_prefers_manifest_versions_over_stale_summary_version
             }
         },
         manifest={
-            "domain_contract_version": 2,
-            "readable_summary_version": 2,
-            "pkm_contract_version": "4.1.0",
-            "readable_projection_version": "4.1.0",
+            "domain_contract_version": current_domain_contract_version("financial"),
+            "readable_summary_version": CURRENT_READABLE_SUMMARY_VERSION,
+            "pkm_contract_version": CURRENT_PKM_CONTRACT_VERSION,
+            "readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
             "upgraded_at": "2026-03-29T12:00:00Z",
         },
     )
@@ -132,8 +147,8 @@ async def test_build_status_prefers_manifest_versions_over_stale_summary_version
     assert status["upgrade_status"] == "current"
     assert status["upgradable_domains"] == []
     assert status["stored_model_version"] == 2
-    assert status["effective_model_version"] == 4
-    assert status["model_version"] == 4
+    assert status["effective_model_version"] == CURRENT_PKM_MODEL_VERSION
+    assert status["model_version"] == CURRENT_PKM_MODEL_VERSION
 
 
 @pytest.mark.asyncio
@@ -142,16 +157,16 @@ async def test_build_status_reads_contract_versions_from_manifest_summary_projec
     service._pkm_service = _FakePkmService(
         domain_summaries={
             "financial": {
-                "domain_contract_version": 2,
-                "readable_summary_version": 2,
+                "domain_contract_version": current_domain_contract_version("financial"),
+                "readable_summary_version": CURRENT_READABLE_SUMMARY_VERSION,
             }
         },
         manifest={
-            "domain_contract_version": 2,
-            "readable_summary_version": 2,
+            "domain_contract_version": current_domain_contract_version("financial"),
+            "readable_summary_version": CURRENT_READABLE_SUMMARY_VERSION,
             "summary_projection": {
-                "pkm_contract_version": "4.1.0",
-                "readable_projection_version": "4.1.0",
+                "pkm_contract_version": CURRENT_PKM_CONTRACT_VERSION,
+                "readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
             },
         },
     )
@@ -178,10 +193,10 @@ async def test_start_or_resume_run_silently_reconciles_stale_top_level_index():
             }
         },
         manifest={
-            "domain_contract_version": 2,
-            "readable_summary_version": 2,
-            "pkm_contract_version": "4.1.0",
-            "readable_projection_version": "4.1.0",
+            "domain_contract_version": current_domain_contract_version("financial"),
+            "readable_summary_version": CURRENT_READABLE_SUMMARY_VERSION,
+            "pkm_contract_version": CURRENT_PKM_CONTRACT_VERSION,
+            "readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
             "upgraded_at": last_manifest_upgrade,
         },
         model_version=2,
@@ -199,10 +214,10 @@ async def test_start_or_resume_run_silently_reconciles_stale_top_level_index():
 
     assert status["upgrade_status"] == "current"
     assert status["upgradable_domains"] == []
-    assert status["stored_model_version"] == 4
-    assert status["effective_model_version"] == 4
-    assert status["model_version"] == 4
+    assert status["stored_model_version"] == CURRENT_PKM_MODEL_VERSION
+    assert status["effective_model_version"] == CURRENT_PKM_MODEL_VERSION
+    assert status["model_version"] == CURRENT_PKM_MODEL_VERSION
     assert len(fake_pkm_service.upserted_indexes) == 1
     repaired_index = fake_pkm_service.upserted_indexes[0]
-    assert repaired_index.model_version == 4
+    assert repaired_index.model_version == CURRENT_PKM_MODEL_VERSION
     assert repaired_index.last_upgraded_at == datetime(2026, 3, 29, 12, 0, tzinfo=UTC)

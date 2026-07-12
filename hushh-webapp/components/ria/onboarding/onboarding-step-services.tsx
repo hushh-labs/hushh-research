@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import {
   BarChart3,
   FileText,
@@ -35,23 +36,35 @@ function Divider() {
 function SectionLabel({
   children,
   htmlFor,
+  tag,
 }: {
   children: React.ReactNode;
   htmlFor?: string;
+  tag?: string;
 }) {
+  const inner = (
+    <>
+      {children}
+      {tag ? (
+        <span className="ml-2 text-[11px] font-medium normal-case tracking-normal text-muted-foreground/70">
+          {tag}
+        </span>
+      ) : null}
+    </>
+  );
   if (htmlFor) {
     return (
       <label
         htmlFor={htmlFor}
         className="block text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground"
       >
-        {children}
+        {inner}
       </label>
     );
   }
   return (
     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-      {children}
+      {inner}
     </p>
   );
 }
@@ -114,6 +127,7 @@ export function OnboardingStepServices({
   onFullStreetAddressChange,
   onPinZipChange,
   onDraftBio,
+  validateTick = 0,
 }: {
   servicesOffered: string[];
   feeStructure: string[];
@@ -132,7 +146,31 @@ export function OnboardingStepServices({
   onFullStreetAddressChange: (value: string) => void;
   onPinZipChange: (value: string) => void;
   onDraftBio: () => void;
+  // Incremented by the wizard when the user taps Continue with a required field
+  // (services / fees) still empty. Drives scroll-to-field + inline validation.
+  validateTick?: number;
 }) {
+  const servicesRef = useRef<HTMLDivElement | null>(null);
+  const feeRef = useRef<HTMLDivElement | null>(null);
+  const [attempted, setAttempted] = useState(false);
+
+  const needsService = servicesOffered.length === 0;
+  const needsFee = feeStructure.length === 0;
+
+  useEffect(() => {
+    if (!validateTick) return;
+    setAttempted(true);
+    // Scroll to the first unfilled required field so the reason is on screen.
+    const target = servicesOffered.length === 0 ? servicesRef : feeRef;
+    target.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    // servicesOffered/feeStructure are intentionally omitted: only a fresh tap
+    // (validateTick bump) should re-scroll, not every selection change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [validateTick]);
+
+  const showServiceError = attempted && needsService;
+  const showFeeError = attempted && needsFee;
+
   const mapAddress = [fullStreetAddress, areaLocality, city, pinZip]
     .map((part) => part.trim())
     .filter(Boolean)
@@ -159,8 +197,8 @@ export function OnboardingStepServices({
 
   return (
     <div className="space-y-6">
-      <div className="space-y-3">
-        <SectionLabel>Services</SectionLabel>
+      <div ref={servicesRef} className="space-y-3">
+        <SectionLabel tag="Required">Services</SectionLabel>
         <div
           role="group"
           aria-label="Services offered"
@@ -198,10 +236,18 @@ export function OnboardingStepServices({
             );
           })}
         </div>
+        {showServiceError ? (
+          <p
+            role="alert"
+            className="text-[13px] leading-5 text-amber-600 dark:text-amber-400"
+          >
+            Select at least one service to continue.
+          </p>
+        ) : null}
       </div>
 
-      <div className="space-y-3">
-        <SectionLabel>Fee Structure</SectionLabel>
+      <div ref={feeRef} className="space-y-3">
+        <SectionLabel tag="Required">Fee Structure</SectionLabel>
         <div
           role="group"
           aria-label="Fee structure"
@@ -227,6 +273,14 @@ export function OnboardingStepServices({
             );
           })}
         </div>
+        {showFeeError ? (
+          <p
+            role="alert"
+            className="text-[13px] leading-5 text-amber-600 dark:text-amber-400"
+          >
+            Select at least one fee structure to continue.
+          </p>
+        ) : null}
       </div>
 
       <GroupShell>
@@ -241,7 +295,9 @@ export function OnboardingStepServices({
       </GroupShell>
 
       <div className="space-y-3">
-        <SectionLabel htmlFor="ria-bio">Short Bio</SectionLabel>
+        <SectionLabel htmlFor="ria-bio" tag="Optional">
+          Short Bio
+        </SectionLabel>
         <textarea
           id="ria-bio"
           rows={4}
@@ -261,7 +317,7 @@ export function OnboardingStepServices({
       </div>
 
       <div className="space-y-3">
-        <SectionLabel>Business Location</SectionLabel>
+        <SectionLabel tag="Optional">Business Location</SectionLabel>
         <GroupShell>
           <TextRow
             label="Street"

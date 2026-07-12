@@ -5,7 +5,20 @@ import json
 import pytest
 
 from hushh_mcp.adk_bridge.connected_systems_agent import ConnectedSystemsAgentA2A
-from hushh_mcp.adk_bridge.contract import A2ATask
+from hushh_mcp.adk_bridge.contract import A2AAuthorityContext, A2ATask
+
+
+def _authority() -> A2AAuthorityContext:
+    return A2AAuthorityContext(
+        subject_user_id="user_crm",
+        tenant_id="tenant_crm",
+        task_id="task_crm",
+        caller_kind="first_party",
+        information_grant_refs=("grant_ref",),
+        encrypted_export_refs=("export_ref",),
+        action_capabilities=("connected_system.crm.manage",),
+        confirmation_receipt="confirmation_ref",
+    )
 
 
 def _planned_crm_update(*, slots: dict) -> dict:
@@ -31,6 +44,7 @@ async def test_connected_systems_a2a_proposes_crm_update_inline_directive():
             user_id="user_crm",
             consent_token="",
             conversation_id="thread_crm",
+            authority=_authority(),
             message=(
                 "update the CRM record 003ABCDEF123456 city to New York "
                 "for kushal@example.com phone 415-555-1212"
@@ -61,6 +75,7 @@ async def test_connected_systems_a2a_marks_all_brand_updates():
             user_id="user_crm",
             consent_token="",
             conversation_id="thread_crm",
+            authority=_authority(),
             message=(
                 "update my new city to New York across all brands for "
                 "kushal@example.com phone 415-555-1212"
@@ -91,6 +106,7 @@ async def test_connected_systems_a2a_asks_for_missing_city_before_update():
             user_id="user_crm",
             consent_token="",
             conversation_id="thread_crm",
+            authority=_authority(),
             message="can I update my city in Macy's CRM",
         )
     )
@@ -109,6 +125,7 @@ async def test_connected_systems_a2a_asks_for_missing_city_across_brands():
             user_id="user_crm",
             consent_token="",
             conversation_id="thread_crm",
+            authority=_authority(),
             message="can I update my city across all brands",
             planned_action=_planned_crm_update(slots={"scope": "all_connected_crm_systems"}),
         )
@@ -128,6 +145,7 @@ async def test_connected_systems_a2a_turns_all_brand_city_answer_into_update_dir
             user_id="user_crm",
             consent_token="",
             conversation_id="thread_crm",
+            authority=_authority(),
             message="",
             delegate_result={
                 "kind": "selection",
@@ -164,6 +182,7 @@ async def test_connected_systems_a2a_turns_city_answer_into_update_directive():
             user_id="user_crm",
             consent_token="",
             conversation_id="thread_crm",
+            authority=_authority(),
             message="",
             delegate_result={
                 "kind": "selection",
@@ -198,6 +217,7 @@ async def test_connected_systems_a2a_blocks_crm_delete():
             user_id="user_crm",
             consent_token="",
             conversation_id="thread_crm",
+            authority=_authority(),
             message="delete the CRM contact record",
         )
     )
@@ -217,6 +237,7 @@ async def test_connected_systems_a2a_reports_inline_delegate_result():
             user_id="user_crm",
             consent_token="",
             conversation_id="thread_crm",
+            authority=_authority(),
             message="",
             delegate_result={
                 "kind": "action",

@@ -161,6 +161,7 @@ export class HushhConsentWeb extends WebPlugin {
     sourceContentRevision?: number;
     sourceManifestRevision?: number;
     durationHours?: number;
+    exportEnvelope?: import("@/lib/consent/export-envelope-v2").ConsentExportEnvelopeSubmissionV2;
     vaultOwnerToken?: string;
   }): Promise<{ success: boolean }> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -186,6 +187,7 @@ export class HushhConsentWeb extends WebPlugin {
         sourceContentRevision: options.sourceContentRevision,
         sourceManifestRevision: options.sourceManifestRevision,
         durationHours: options.durationHours,
+        exportEnvelope: options.exportEnvelope,
       }),
     });
 

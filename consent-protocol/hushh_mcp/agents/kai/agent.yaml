@@ -1,3 +1,4 @@
+manifest_version: 2
 id: agent_kai
 name: Kai Financial Agent
 version: 2.0.0
@@ -62,22 +63,22 @@ system_instruction: |
   Professional, data-driven, objective, and concise.
 
 required_scopes:
-  - attr.financial.*
+  - agent.kai.analyze
 
 tools:
   - name: perform_fundamental_analysis
     py_func: hushh_mcp.agents.kai.tools.perform_fundamental_analysis
-    required_scope: attr.financial.*
+    required_scope: agent.kai.analyze
     description: Analyze business fundamentals (SEC filings, Moat, Resilience).
 
   - name: perform_sentiment_analysis
     py_func: hushh_mcp.agents.kai.tools.perform_sentiment_analysis
-    required_scope: attr.financial.*
+    required_scope: agent.kai.analyze
     description: Analyze market sentiment (News, Social, Analyst Ratings).
 
   - name: perform_valuation_analysis
     py_func: hushh_mcp.agents.kai.tools.perform_valuation_analysis
-    required_scope: attr.financial.*
+    required_scope: agent.kai.analyze
     description: quantitative valuation models (DCF, Comps).
 
 inputs:

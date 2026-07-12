@@ -1,8 +1,9 @@
+manifest_version: 2
 id: agent_memory_merge
 name: Memory Merge Agent
 version: 1.0.0
 description: Determines whether a new message creates, extends, corrects, deletes, or skips a durable PKM entity.
-model: gemini-3.1-flash-lite-preview
+model: gemini-3.5-flash
 system_instruction: |
   You are the Memory Merge Agent for Hushh Kai.
 

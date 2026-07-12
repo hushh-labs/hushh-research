@@ -31,13 +31,11 @@ def _warn_pepper_fallback_once(message: str) -> None:
 TOOL_GROUP_CORE_CONSENT = "core_consent"
 TOOL_GROUP_RIA_READ = "ria_read"
 TOOL_GROUP_KAI_VOICE = "kai_voice"
-TOOL_GROUP_INTERNAL_ONLY = "internal_only"
 
 KNOWN_TOOL_GROUPS = (
     TOOL_GROUP_CORE_CONSENT,
     TOOL_GROUP_RIA_READ,
     TOOL_GROUP_KAI_VOICE,
-    TOOL_GROUP_INTERNAL_ONLY,
 )
 
 DEFAULT_PUBLIC_TOOL_GROUPS = (TOOL_GROUP_CORE_CONSENT,)
@@ -72,7 +70,6 @@ TOOL_GROUP_TOOL_NAMES = {
         "kai_resume_active_analysis",
         "kai_cancel_active_analysis",
     ),
-    TOOL_GROUP_INTERNAL_ONLY: ("delegate_to_agent",),
 }
 
 TOOL_CATALOG = (
@@ -215,13 +212,6 @@ TOOL_CATALOG = (
         "compatibility_status": "recommended",
         "description": "Cancel the currently running background analysis.",
     },
-    # ── Internal ───────────────────────────────────────────────────────
-    {
-        "name": "delegate_to_agent",
-        "group": TOOL_GROUP_INTERNAL_ONLY,
-        "compatibility_status": "internal_only",
-        "description": "Internal TrustLink delegation flow.",
-    },
 )
 
 
@@ -231,6 +221,7 @@ class DeveloperPrincipal:
     agent_id: str
     display_name: str
     allowed_tool_groups: tuple[str, ...]
+    allowed_capabilities: tuple[str, ...] = ()
     support_url: str | None = None
     policy_url: str | None = None
     website_url: str | None = None
@@ -408,12 +399,23 @@ class DeveloperRegistryService:
         return normalize_tool_groups(parsed)
 
     @classmethod
+    def _parse_allowed_capabilities(cls, value: Any) -> tuple[str, ...]:
+        from hushh_mcp.constants import EXTERNAL_REQUESTABLE_RESERVED_SCOPE_VALUES
+
+        return tuple(
+            capability
+            for capability in cls._parse_json_array(value)
+            if capability in EXTERNAL_REQUESTABLE_RESERVED_SCOPE_VALUES
+        )
+
+    @classmethod
     def _principal_from_row(cls, row: dict[str, Any]) -> DeveloperPrincipal:
         return DeveloperPrincipal(
             app_id=str(row.get("app_id") or "").strip(),
             agent_id=str(row.get("agent_id") or "").strip(),
             display_name=str(row.get("display_name") or "").strip() or "Kai developer app",
             allowed_tool_groups=cls._parse_allowed_tool_groups(row.get("allowed_tool_groups")),
+            allowed_capabilities=cls._parse_allowed_capabilities(row.get("allowed_capabilities")),
             support_url=cls._sanitize_optional_text(row.get("support_url")),
             policy_url=cls._sanitize_optional_text(row.get("policy_url")),
             website_url=cls._sanitize_optional_text(row.get("website_url")),
@@ -484,6 +486,7 @@ class DeveloperRegistryService:
                 brand_image_url TEXT,
                 status TEXT NOT NULL DEFAULT 'active',
                 allowed_tool_groups JSONB NOT NULL DEFAULT '["core_consent"]'::jsonb,
+                allowed_capabilities JSONB NOT NULL DEFAULT '[]'::jsonb,
                 approved_at BIGINT,
                 approved_by TEXT,
                 notes TEXT,
@@ -502,6 +505,7 @@ class DeveloperRegistryService:
             "ALTER TABLE developer_apps ADD COLUMN IF NOT EXISTS owner_display_name TEXT",
             "ALTER TABLE developer_apps ADD COLUMN IF NOT EXISTS owner_provider_ids JSONB NOT NULL DEFAULT '[]'::jsonb",
             "ALTER TABLE developer_apps ADD COLUMN IF NOT EXISTS brand_image_url TEXT",
+            "ALTER TABLE developer_apps ADD COLUMN IF NOT EXISTS allowed_capabilities JSONB NOT NULL DEFAULT '[]'::jsonb",
             # Partner-class apps (canonical: db/migrations/085_developer_partner_apps.sql).
             "ALTER TABLE developer_apps ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'self_serve'",
             "ALTER TABLE developer_apps ADD COLUMN IF NOT EXISTS crm_id TEXT",
@@ -1165,6 +1169,7 @@ class DeveloperRegistryService:
                    apps.agent_id,
                    apps.display_name,
                    apps.allowed_tool_groups,
+                   apps.allowed_capabilities,
                    apps.support_url,
                    apps.policy_url,
                    apps.website_url,
@@ -1219,6 +1224,7 @@ class DeveloperRegistryService:
             "developer_agent_id": principal.agent_id,
             "developer_app_display_name": principal.display_name,
             "developer_allowed_tool_groups": list(principal.allowed_tool_groups),
+            "developer_allowed_capabilities": list(principal.allowed_capabilities),
             "request_source": "developer_api_v1",
             "requester_actor_type": "developer",
         }

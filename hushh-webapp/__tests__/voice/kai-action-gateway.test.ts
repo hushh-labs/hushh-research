@@ -191,22 +191,20 @@ describe("kai-action-gateway", () => {
         tool_name: "capture_pkm_memory",
         args: {
           mode: "preview",
-          direct_save: false,
           message: "preview this",
         },
       })?.action_id
     ).toBe("profile.pkm.preview_capture");
 
+    const save = getKaiActionById("profile.pkm.save_capture");
+    expect(save?.execution_policy).toBe("manual_only");
+    expect(save?.execution_target.status).toBe("unwired");
     expect(
       getKaiActionByVoiceToolCall({
         tool_name: "capture_pkm_memory",
-        args: {
-          mode: "direct_save",
-          direct_save: true,
-          message: "save this",
-        },
-      })?.action_id
-    ).toBe("profile.pkm.save_capture");
+        args: { mode: "direct_save", message: "save this" },
+      })
+    ).toBeNull();
   });
 
   it("maps the RIA flow with direct navigation and guarded manual actions", () => {

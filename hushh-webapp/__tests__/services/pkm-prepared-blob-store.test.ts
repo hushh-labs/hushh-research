@@ -557,6 +557,7 @@ describe("PersonalKnowledgeModelService runtime secrets", () => {
       userId: "user-1",
       vaultKey: "vault-key-1",
       vaultOwnerToken: "vault-owner-token",
+      confirmation: { confirmedByUser: true, surface: "web", source: "runtime_secret_test" },
       credentialRef: "pkm:runtime_secrets.llm.gemini_api_key",
       secret: ` ${rawKey} `,
     });
@@ -630,6 +631,7 @@ describe("PersonalKnowledgeModelService runtime secrets", () => {
       userId: "user-1",
       vaultKey: "vault-key-1",
       vaultOwnerToken: "vault-owner-token",
+      confirmation: { confirmedByUser: true, surface: "web", source: "runtime_secret_test" },
       credentialRef: "pkm:runtime_secrets.llm.gemini_api_key",
     });
 
@@ -710,6 +712,7 @@ describe("PersonalKnowledgeModelService runtime secrets", () => {
       userId: "user-1",
       vaultKey: "vault-key-1",
       vaultOwnerToken: "vault-owner-token",
+      confirmation: { confirmedByUser: true, surface: "web", source: "runtime_secret_test" },
       credentialRef: "pkm:runtime_secrets.llm.openai_api_key",
       secret: rawKey,
     });

@@ -845,7 +845,7 @@ async def fetch_sec_filings(
     """
     Operon: Fetch SEC filings from EDGAR (free, public API).
 
-    Consent token scope: external.sec.filings
+    Invocation scope: agent.kai.analyze. SEC EDGAR data is public provider data.
 
     This requires EXPLICIT consent for external data access.
     SEC EDGAR is 100% free and requires no API key.
@@ -853,7 +853,7 @@ async def fetch_sec_filings(
     Args:
         ticker: Stock ticker symbol
         user_id: User ID for audit
-        consent_token: Valid consent token with external.sec.filings scope
+        consent_token: Valid Kai analysis invocation token
 
     Returns:
         Dict with SEC filing data:
@@ -871,7 +871,7 @@ async def fetch_sec_filings(
     # Note: agent.kai.analyze scope covers all data fetching needs for Kai
     valid, reason, token = validate_token(
         consent_token,
-        ConsentScope("agent.kai.analyze"),  # Changed from external.sec.filings
+        ConsentScope.AGENT_KAI_ANALYZE,
     )
 
     if not valid:
@@ -1139,7 +1139,7 @@ async def fetch_market_news(
     """
     Operon: Fetch recent news articles.
 
-    Consent token scope: external.news.api
+    Invocation scope: agent.kai.analyze. News is public provider data.
 
     Provider priority:
     - Finnhub (if FINNHUB_API_KEY is configured)
@@ -1168,7 +1168,7 @@ async def fetch_market_news(
         # Validate consent token
         valid, reason, token = validate_token(
             consent_token,
-            ConsentScope("agent.kai.analyze"),  # Changed from external.news.api
+            ConsentScope.AGENT_KAI_ANALYZE,
         )
 
         if not valid:
@@ -1276,7 +1276,7 @@ async def fetch_market_data(
     """
     Operon: Fetch current market data (price, volume, metrics).
 
-    Consent token scope: external.market.data
+    Invocation scope: agent.kai.analyze. Market quotes are public provider data.
 
     Provider priority:
     - Finnhub (if FINNHUB_API_KEY is configured)
@@ -1306,7 +1306,7 @@ async def fetch_market_data(
         # Validate consent token
         valid, reason, token = validate_token(
             consent_token,
-            ConsentScope("agent.kai.analyze"),  # Changed from external.market.data
+            ConsentScope.AGENT_KAI_ANALYZE,
         )
 
         if not valid:
@@ -1474,7 +1474,7 @@ async def fetch_peer_data(
     """
     Operon: Fetch peer company data for comparison.
 
-    Consent token scope: external.market.data
+    Invocation scope: agent.kai.analyze. Market quotes are public provider data.
 
     Args:
         ticker: Stock ticker symbol
@@ -1491,7 +1491,7 @@ async def fetch_peer_data(
     # Validate consent token
     valid, reason, token = validate_token(
         consent_token,
-        ConsentScope("agent.kai.analyze"),  # Changed from external.market.data
+        ConsentScope.AGENT_KAI_ANALYZE,
     )
 
     if not valid:

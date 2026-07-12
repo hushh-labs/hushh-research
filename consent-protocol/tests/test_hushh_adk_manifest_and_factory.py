@@ -21,7 +21,7 @@ from __future__ import annotations
 import os
 import tempfile
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -453,7 +453,8 @@ class TestHushhAgentFromManifest:
 
 
 class TestLlmAgentStubRaises:
-    def test_stub_run_raises_runtime_error_when_adk_absent(self):
+    @pytest.mark.asyncio
+    async def test_stub_run_raises_runtime_error_when_adk_absent(self):
         """
         When google-adk is not installed, the fallback LlmAgent stub must raise
         RuntimeError on .run() so callers get a clear, actionable error rather
@@ -481,7 +482,7 @@ class TestLlmAgentStubRaises:
             pytest.raises(RuntimeError, match="Google ADK is not installed"),
         ):
             mock_validate.return_value = (True, None, mock_token)
-            agent.run(
+            await agent.run_turn(
                 prompt="hello",
                 user_id="user_123",
                 consent_token="valid_token",  # noqa: S106
@@ -489,7 +490,7 @@ class TestLlmAgentStubRaises:
 
 
 # ===========================================================================
-# HushhAgent.run  — consent gate (regression: must still work)
+# HushhAgent.run_turn — consent gate without overriding ADK BaseNode.run
 # ===========================================================================
 
 
@@ -507,52 +508,64 @@ class TestHushhAgentRunConsentGate:
         t.user_id = user_id
         return t
 
-    def test_no_required_scopes_skips_scope_check(self):
+    @pytest.mark.asyncio
+    async def test_no_required_scopes_skips_scope_check(self):
         agent = self._make_agent(required_scopes=[])
         mock_token = self._mock_token()
 
         # super().run() call — just make it return something
         with (
-            patch.object(type(agent).__mro__[1], "run", return_value="ok"),
+            patch.object(agent, "_execute_adk_turn", new=AsyncMock(return_value="ok")),
             patch("hushh_mcp.hushh_adk.core.validate_token") as mock_validate,
         ):
             mock_validate.return_value = (True, None, mock_token)
-            result = agent.run(prompt="hi", user_id="user_123", consent_token="tok")  # noqa: S106
+            result = await agent.run_turn(
+                prompt="hi",
+                user_id="user_123",
+                consent_token="tok",  # noqa: S106
+            )
             # validate_token NOT called (no required_scopes)
             mock_validate.assert_not_called()
             assert result == "ok"
 
-    def test_valid_scope_allows_execution(self):
+    @pytest.mark.asyncio
+    async def test_valid_scope_allows_execution(self):
         agent = self._make_agent(required_scopes=["agent.kai.analyze"])
         mock_token = self._mock_token()
 
         with (
-            patch.object(type(agent).__mro__[1], "run", return_value="response"),
+            patch.object(
+                agent,
+                "_execute_adk_turn",
+                new=AsyncMock(return_value="response"),
+            ),
             patch("hushh_mcp.hushh_adk.core.validate_token") as mock_validate,
         ):
             mock_validate.return_value = (True, None, mock_token)
-            result = agent.run(
+            result = await agent.run_turn(
                 prompt="analyze AAPL",
                 user_id="user_123",
                 consent_token="valid_tok",  # noqa: S106
             )
             assert result == "response"
 
-    def test_invalid_scope_raises_permission_error(self):
+    @pytest.mark.asyncio
+    async def test_invalid_scope_raises_permission_error(self):
         agent = self._make_agent(required_scopes=["agent.kai.analyze"])
 
         with patch("hushh_mcp.hushh_adk.core.validate_token") as mock_validate:
             mock_validate.return_value = (False, "Scope mismatch", None)
             with pytest.raises(PermissionError, match="Agent Access Denied"):
-                agent.run(
+                await agent.run_turn(
                     prompt="analyze AAPL",
                     user_id="user_123",
                     consent_token="bad_tok",  # noqa: S106
                 )
 
-    def test_first_matching_scope_allows_access(self):
+    @pytest.mark.asyncio
+    async def test_first_matching_scope_allows_access(self):
         """Agent with multiple required_scopes should succeed if any one matches."""
-        agent = self._make_agent(required_scopes=["agent.kai.analyze", "agent.kai.chat"])
+        agent = self._make_agent(required_scopes=["agent.kai.analyze", "agent.nav.review"])
         mock_token = self._mock_token()
 
         call_count = [0]
@@ -564,10 +577,10 @@ class TestHushhAgentRunConsentGate:
             return (False, "Mismatch", None)
 
         with (
-            patch.object(type(agent).__mro__[1], "run", return_value="ok"),
+            patch.object(agent, "_execute_adk_turn", new=AsyncMock(return_value="ok")),
             patch("hushh_mcp.hushh_adk.core.validate_token", side_effect=side_effect),
         ):
-            result = agent.run(
+            result = await agent.run_turn(
                 prompt="hi",
                 user_id="user_123",
                 consent_token="tok",  # noqa: S106
@@ -576,7 +589,8 @@ class TestHushhAgentRunConsentGate:
             # Should have stopped at the first matching scope
             assert call_count[0] == 1
 
-    def test_vault_keys_passed_to_context(self):
+    @pytest.mark.asyncio
+    async def test_vault_keys_passed_to_context(self):
         agent = self._make_agent()
         captured_ctx = []
 
@@ -589,10 +603,10 @@ class TestHushhAgentRunConsentGate:
             return original_enter(self)
 
         with (
-            patch.object(type(agent).__mro__[1], "run", return_value=None),
+            patch.object(agent, "_execute_adk_turn", new=AsyncMock(return_value="")),
             patch.object(HushhContext, "__enter__", capturing_enter),
         ):
-            agent.run(
+            await agent.run_turn(
                 prompt="hi",
                 user_id="user_123",
                 consent_token="tok",  # noqa: S106

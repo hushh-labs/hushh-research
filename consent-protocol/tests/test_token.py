@@ -1,5 +1,10 @@
 # tests/test_token.py
 
+import base64
+import time
+
+import pytest
+
 import hushh_mcp.consent.token as token_module
 from hushh_mcp.consent.token import (
     is_token_revoked,
@@ -29,15 +34,44 @@ def test_issue_and_validate_token():
     assert parsed.scope_str == VALID_SCOPE.value
 
 
-def test_issue_and_validate_agent_kai_execute_token():
-    token_obj = issue_token(USER_ID, AGENT_ID, ConsentScope.AGENT_KAI_EXECUTE)
-    valid, reason, parsed = validate_token(token_obj.token, ConsentScope.AGENT_KAI_EXECUTE)
+def test_issue_token_can_bind_an_exact_envelope_expiry():
+    expires_at_ms = int(time.time() * 1000) + 60_000
+    token_obj = issue_token(
+        USER_ID,
+        AGENT_ID,
+        VALID_SCOPE,
+        expires_at_ms=expires_at_ms,
+    )
+
+    assert token_obj.expires_at == expires_at_ms
+
+
+def test_issue_and_validate_agent_kai_analyze_token():
+    token_obj = issue_token(USER_ID, AGENT_ID, ConsentScope.AGENT_KAI_ANALYZE)
+    valid, reason, parsed = validate_token(token_obj.token, ConsentScope.AGENT_KAI_ANALYZE)
 
     assert valid is True
     assert reason is None
     assert parsed is not None
-    assert parsed.scope == ConsentScope.AGENT_KAI_EXECUTE
-    assert parsed.scope_str == ConsentScope.AGENT_KAI_EXECUTE.value
+    assert parsed.scope == ConsentScope.AGENT_KAI_ANALYZE
+    assert parsed.scope_str == ConsentScope.AGENT_KAI_ANALYZE.value
+
+
+def test_retired_scope_cannot_be_issued_or_authorize_historical_token():
+    with pytest.raises(ValueError, match="SCOPE_RETIRED"):
+        issue_token(USER_ID, AGENT_ID, "agent.one.orchestrate")
+
+    issued_at = int(time.time() * 1000)
+    expires_at = issued_at + 60_000
+    raw = f"{USER_ID}|{AGENT_ID}|agent.one.orchestrate|{issued_at}|{expires_at}"
+    signature = token_module._sign(raw)
+    encoded = base64.urlsafe_b64encode(raw.encode()).decode()
+
+    valid, reason, parsed = validate_token(f"HCT:{encoded}.{signature}")
+
+    assert valid is False
+    assert reason == "SCOPE_RETIRED"
+    assert parsed is None
 
 
 def test_dynamic_scope_token_preserves_scope_string():

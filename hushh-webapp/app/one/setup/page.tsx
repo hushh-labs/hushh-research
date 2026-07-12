@@ -15,8 +15,12 @@ export default function OneSetupPage() {
 
   useEffect(() => {
     if (!loading && !user) {
+      const currentPath =
+        typeof window === "undefined"
+          ? ROUTES.ONE_SETUP
+          : window.location.pathname + window.location.search + window.location.hash;
       router.replace(
-        `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.ONE_SETUP)}`,
+        `${ROUTES.LOGIN}?redirect=${encodeURIComponent(currentPath)}`,
       );
     }
   }, [loading, router, user]);

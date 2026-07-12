@@ -83,6 +83,29 @@ class RIAOnboardingSubmitRequest(BaseModel):
     business_longitude: float | None = None
 
 
+class RIAProfileUpdateRequest(BaseModel):
+    """Self-service profile edit. All fields optional; only fields explicitly
+    present in the request body are updated (a sent "", [] or null clears the
+    column). Regulatory/identity fields are intentionally NOT editable here."""
+
+    display_name: str | None = Field(None, max_length=256)
+    bio: str | None = Field(None, max_length=5000)
+    strategy: str | None = Field(None, max_length=5000)
+    services_offered: list[str] | None = Field(None, max_length=50)
+    fee_structure: list[str] | None = Field(None, max_length=50)
+    min_engagement_amount: float | None = None
+    min_engagement_currency: str | None = Field(None, max_length=10)
+    certifications: list[str] | None = Field(None, max_length=50)
+    contact_email: str | None = Field(None, max_length=320)
+    contact_phone: str | None = Field(None, max_length=30)
+    business_city: str | None = Field(None, max_length=128)
+    business_area: str | None = Field(None, max_length=128)
+    business_address: str | None = Field(None, max_length=512)
+    business_pin_zip: str | None = Field(None, max_length=20)
+    business_latitude: float | None = None
+    business_longitude: float | None = None
+
+
 class RIAOnboardingVerifyNameRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=256)
     crd_number: str | None = Field(None, max_length=50)
@@ -334,6 +357,41 @@ async def refresh_profile_license(
                     "route": "/ria/onboarding",
                 },
             )
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/profile/update")
+async def update_profile(
+    payload: RIAProfileUpdateRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Self-service edit of an established advisor's own profile fields. Does not
+    re-run licence verification; returns the refreshed onboarding status."""
+    service = RIAIAMService()
+    try:
+        return await service.update_ria_self_profile(
+            firebase_uid,
+            payload.model_dump(exclude_unset=True),
+        )
+    except IAMSchemaNotReadyError:
+        return _iam_schema_not_ready_response()
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/profile/delete")
+async def delete_profile(firebase_uid: str = Depends(require_firebase_auth)):
+    """Self-service deletion of the caller's RIA sub-agent profile.
+
+    Auto-disconnects active clients (revokes consent), deletes the RIA profile and
+    its data, and drops the 'ria' persona (the investor/One account survives).
+    POST (not DELETE) to match the client authFetch GET/POST contract."""
+    service = RIAIAMService()
+    try:
+        return await service.delete_ria_self_profile(firebase_uid)
+    except IAMSchemaNotReadyError:
+        return _iam_schema_not_ready_response()
+    except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 

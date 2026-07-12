@@ -313,8 +313,8 @@ async def test_plan_voice_response_screen_explain_uses_receipts_surface_metadata
                     "screen": "profile_receipts",
                 },
                 "ui": {
-                    "active_section": "Receipt memory preview",
-                    "available_actions": ["Refresh receipt memory", "Save receipts memory to PKM"],
+                    "active_section": "Shopping summary",
+                    "available_actions": ["Sync Gmail receipts"],
                 },
                 "screen_metadata": {
                     "connector_badge_label": "Connected",
@@ -327,7 +327,7 @@ async def test_plan_voice_response_screen_explain_uses_receipts_surface_metadata
     )
 
     assert response["kind"] == "speak_only"
-    assert "Receipt Memory Preview" in response["message"]
+    assert "Shopping Summary" in response["message"]
     assert "12 stored receipts" in response["message"]
 
 
@@ -831,7 +831,7 @@ async def test_plan_voice_response_explains_control_with_deterministic_knowledge
 
     assert response["kind"] == "speak_only"
     assert response["execution_allowed"] is False
-    assert "writes the current receipts-memory preview" in response["message"].lower()
+    assert "saved automatically" in response["message"].lower()
     assert openai_http_ms == 0
     assert model == "deterministic"
 

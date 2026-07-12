@@ -199,18 +199,12 @@ def test_eviction_helper_exists_in_source():
     )
 
 
-def test_eviction_called_at_least_three_write_sites():
-    """
-    The eviction sweep must be called before each of the three cache-write sites:
-      1. consent grant (approve)
-      2. DB-fallback cache population (export endpoint)
-      3. refresh-upload (export-refresh/complete)
-    """
+def test_only_initial_approval_writes_the_non_authoritative_cache():
+    """Retrieval and refresh must use DB state, never a process-local freshness cache."""
     source = CONSENT_PY.read_text()
     tree = ast.parse(source)
     calls = _find_evict_calls(tree)
 
-    assert len(calls) >= 3, (
-        f"Expected at least 3 _evict_stale_consent_exports() call sites, "
-        f"found {len(calls)} at lines: {calls}"
-    )
+    assert len(calls) == 1, f"Expected one bounded approval-cache write, found: {calls}"
+    assert source.count("_consent_exports[token.token] =") == 1
+    assert "_consent_exports[consent_token] = export_data" not in source

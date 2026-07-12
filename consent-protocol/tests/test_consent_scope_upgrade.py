@@ -1,11 +1,59 @@
 from __future__ import annotations
 
+import base64
+import time
 from types import SimpleNamespace
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes import consent
+from hushh_mcp.consent.export_envelope import (
+    ConsentExportAadV2,
+    ConsentExportEnvelopeSubmissionV2,
+    canonical_aad_bytes,
+    ciphertext_digest_from_base64,
+    connector_key_fingerprint,
+    digest_bytes,
+)
+
+_CONNECTOR_PUBLIC_KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+_SCOPE_HANDLE = "s_scope_demo_123"
+
+
+def _developer_export_payload(*, request_id: str, scope: str) -> dict:
+    encrypted_data = base64.b64encode(b"ciphertext").decode()
+    aad = ConsentExportAadV2(
+        app_id="app_demo_123",
+        grant_id=request_id,
+        export_id="123e4567-e89b-12d3-a456-426614174000",
+        revision=1,
+        machine_scope=scope,
+        scope_handle=_SCOPE_HANDLE,
+        recipient_key_fingerprint=connector_key_fingerprint(_CONNECTOR_PUBLIC_KEY),
+        expires_at_ms=int(time.time() * 1000) + 24 * 60 * 60 * 1000,
+    )
+    ciphertext_sha256, ciphertext_bytes = ciphertext_digest_from_base64(encrypted_data)
+    envelope = ConsentExportEnvelopeSubmissionV2(
+        export_id=aad.export_id,
+        aad=aad,
+        aad_sha256=digest_bytes(canonical_aad_bytes(aad)),
+        ciphertext_sha256=ciphertext_sha256,
+        ciphertext_bytes=ciphertext_bytes,
+    )
+    return {
+        "encryptedData": encrypted_data,
+        "encryptedIv": "iv",
+        "encryptedTag": "tag",
+        "wrappedExportKey": "wrapped_key",
+        "wrappedKeyIv": "wrapped_iv",
+        "wrappedKeyTag": "wrapped_tag",
+        "senderPublicKey": "sender_public",
+        "connectorPublicKey": _CONNECTOR_PUBLIC_KEY,
+        "connectorKeyId": "connector_demo",
+        "wrappingAlg": "X25519-AES256-GCM",
+        "exportEnvelope": envelope.model_dump(mode="json"),
+    }
 
 
 def _build_app() -> FastAPI:
@@ -149,9 +197,12 @@ def test_approve_consent_fails_when_export_persistence_fails(monkeypatch):
                 "metadata": {
                     "request_source": "developer_api_v1",
                     "requester_actor_type": "developer",
-                    "connector_public_key": "connector_public_key_demo",
+                    "connector_public_key": _CONNECTOR_PUBLIC_KEY,
                     "connector_key_id": "connector_demo",
                     "connector_wrapping_alg": "X25519-AES256-GCM",
+                    "developer_app_id": "app_demo_123",
+                    "scope_handle": _SCOPE_HANDLE,
+                    "recipient_key_fingerprint": connector_key_fingerprint(_CONNECTOR_PUBLIC_KEY),
                 },
             }
 
@@ -179,16 +230,10 @@ def test_approve_consent_fails_when_export_persistence_fails(monkeypatch):
         json={
             "userId": "user_123",
             "requestId": "req_export_failure",
-            "encryptedData": "ciphertext",
-            "encryptedIv": "iv",
-            "encryptedTag": "tag",
-            "wrappedExportKey": "wrapped_key",
-            "wrappedKeyIv": "wrapped_iv",
-            "wrappedKeyTag": "wrapped_tag",
-            "senderPublicKey": "sender_public",
-            "connectorPublicKey": "connector_public_key_demo",
-            "connectorKeyId": "connector_demo",
-            "wrappingAlg": "X25519-AES256-GCM",
+            **_developer_export_payload(
+                request_id="req_export_failure",
+                scope="attr.financial.analytics.quality_metrics",
+            ),
         },
     )
 
@@ -210,9 +255,12 @@ def test_approve_consent_does_not_reuse_broken_developer_token(monkeypatch):
                 "metadata": {
                     "request_source": "developer_api_v1",
                     "requester_actor_type": "developer",
-                    "connector_public_key": "connector_public_key_demo",
+                    "connector_public_key": _CONNECTOR_PUBLIC_KEY,
                     "connector_key_id": "connector_demo",
                     "connector_wrapping_alg": "X25519-AES256-GCM",
+                    "developer_app_id": "app_demo_123",
+                    "scope_handle": _SCOPE_HANDLE,
+                    "recipient_key_fingerprint": connector_key_fingerprint(_CONNECTOR_PUBLIC_KEY),
                 },
             }
 
@@ -253,16 +301,10 @@ def test_approve_consent_does_not_reuse_broken_developer_token(monkeypatch):
         json={
             "userId": "user_123",
             "requestId": "req_strict_reissue",
-            "encryptedData": "ciphertext",
-            "encryptedIv": "iv",
-            "encryptedTag": "tag",
-            "wrappedExportKey": "wrapped_key",
-            "wrappedKeyIv": "wrapped_iv",
-            "wrappedKeyTag": "wrapped_tag",
-            "senderPublicKey": "sender_public",
-            "connectorPublicKey": "connector_public_key_demo",
-            "connectorKeyId": "connector_demo",
-            "wrappingAlg": "X25519-AES256-GCM",
+            **_developer_export_payload(
+                request_id="req_strict_reissue",
+                scope="attr.financial.analytics.quality_metrics",
+            ),
         },
     )
 

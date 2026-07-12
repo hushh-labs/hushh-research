@@ -18,6 +18,7 @@
     "hushh-webapp/app/ria/onboarding/page.voice-action-contract.json",
     "hushh-webapp/app/ria/page.voice-action-contract.json",
     "hushh-webapp/app/ria/picks/page.voice-action-contract.json",
+    "hushh-webapp/app/ria/profile/page.voice-action-contract.json",
     "hushh-webapp/app/ria/requests/page.voice-action-contract.json",
     "hushh-webapp/app/ria/settings/page.voice-action-contract.json",
     "hushh-webapp/app/ria/workspace/page.voice-action-contract.json",
@@ -320,6 +321,22 @@
         "docs/reference/kai/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/app/ria/picks/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "ria"
+          ]
+        }
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "ria_profile",
+      "surface_title": "RIA Advisor Profile",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/app/ria/profile/page.voice-action-contract.json",
       "defaults": {
         "reachability": {
           "active_personas": [
@@ -1564,7 +1581,8 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/gmail/page.tsx"
+        "app/one/gmail/page.tsx",
+        "components/gmail/gmail-receipts-page.tsx"
       ],
       "workflow": null,
       "expected_effects": {
@@ -1645,11 +1663,10 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/profile",
-          "/profile/gmail"
+          "/one/gmail"
         ],
         "screens": [
-          "profile_gmail_panel"
+          "gmail"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [],
@@ -1666,8 +1683,8 @@
       "execution_policy": "confirm_required",
       "execution_target": {
         "status": "unwired",
-        "reason": "Only local component handler exists (handleConnectGmail in ProfilePage).",
-        "intended_handler": "router.push"
+        "reason": "Only local component handler exists (handleConnectGmail in GmailReceiptsPage).",
+        "intended_handler": "handleConnectGmail"
       },
       "control_ids": [
         "open_gmail_connector"
@@ -1675,12 +1692,12 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/profile-workspace-page.tsx"
+        "components/gmail/gmail-receipts-page.tsx"
       ],
       "workflow": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /profile"
+          "current route becomes /one/gmail"
         ],
         "backend_effects": [
           {
@@ -1710,8 +1727,8 @@
             "label": "Connect Gmail",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/profile",
-              "screen": "profile_gmail_panel"
+              "route": "/one/gmail",
+              "screen": "gmail"
             }
           }
         ],
@@ -1752,12 +1769,10 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/gmail",
-          "/profile/gmail"
+          "/one/gmail"
         ],
         "screens": [
-          "gmail",
-          "profile_gmail_panel"
+          "gmail"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [],
@@ -1783,8 +1798,7 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/profile-workspace-page.tsx",
-        "app/gmail/page.tsx"
+        "components/gmail/gmail-receipts-page.tsx"
       ],
       "workflow": null,
       "expected_effects": {
@@ -1849,213 +1863,6 @@
       }
     },
     {
-      "action_id": "profile.receipts_memory.preview",
-      "surface_id": "gmail",
-      "label": "Build receipts memory preview",
-      "aliases": [
-        "preview receipts memory",
-        "generate receipts memory preview"
-      ],
-      "search_keywords": [
-        "receipts memory",
-        "preview receipts"
-      ],
-      "meaning": "Builds the receipts-to-PKM preview from stored Gmail receipts.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/gmail"
-        ],
-        "screens": [
-          "gmail"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [],
-      "risk_level": "medium",
-      "execution_policy": "allow_direct",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Implemented only in local receipts-page handlers; no shared voice/action adapter yet.",
-        "intended_handler": "dispatchVoiceToolCall"
-      },
-      "control_ids": [
-        "edit_receipts_summary"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/gmail/page.tsx"
-      ],
-      "workflow": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/gmail"
-        ],
-        "backend_effects": [
-          {
-            "api": "POST /api/kai/gmail/receipts-memory/preview (proxied)",
-            "effect": "Builds or refreshes the receipts memory artifact preview."
-          }
-        ]
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.profile.receipts_memory.preview",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "profile.receipts_memory.preview",
-            "label": "Build receipts memory preview",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/gmail",
-              "screen": "gmail"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "profile.receipts_memory.save",
-      "surface_id": "gmail",
-      "label": "Save receipts memory to PKM",
-      "aliases": [
-        "save receipts memory",
-        "save receipts to memory"
-      ],
-      "search_keywords": [
-        "save receipts memory"
-      ],
-      "meaning": "Persists the current receipts-memory preview into shopping.receipts_memory.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/gmail"
-        ],
-        "screens": [
-          "gmail"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "receipt memory preview must exist before save"
-        ],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "vault_unlocked",
-        "manual_user_execution"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Save to PKM is currently implemented only inside the receipts page.",
-        "intended_handler": "dispatchVoiceToolCall"
-      },
-      "control_ids": [
-        "save_receipts_memory"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/gmail/page.tsx"
-      ],
-      "workflow": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/gmail"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.profile.receipts_memory.save",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "profile.receipts_memory.save",
-            "label": "Save receipts memory to PKM",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/gmail",
-              "screen": "gmail"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
       "action_id": "profile.gmail.disconnect",
       "surface_id": "gmail",
       "label": "Disconnect Gmail",
@@ -2071,10 +1878,10 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/profile/gmail"
+          "/one/gmail"
         ],
         "screens": [
-          "profile_gmail_panel"
+          "gmail"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [],
@@ -2092,19 +1899,21 @@
       "execution_policy": "manual_only",
       "execution_target": {
         "status": "unwired",
-        "reason": "No global action dispatcher for Gmail disconnect yet.",
-        "intended_handler": "dispatchVoiceToolCall"
+        "reason": "Only local component handler exists (handleDisconnectGmail in GmailReceiptsPage).",
+        "intended_handler": "handleDisconnectGmail"
       },
-      "control_ids": [],
+      "control_ids": [
+        "disconnect_gmail"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/profile-workspace-page.tsx"
+        "components/gmail/gmail-receipts-page.tsx"
       ],
       "workflow": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /profile/gmail"
+          "current route becomes /one/gmail"
         ],
         "backend_effects": [
           {
@@ -2134,8 +1943,8 @@
             "label": "Disconnect Gmail",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/profile/gmail",
-              "screen": "profile_gmail_panel"
+              "route": "/one/gmail",
+              "screen": "gmail"
             }
           }
         ],
@@ -4694,7 +4503,8 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/gmail/page.tsx"
+        "app/one/gmail/page.tsx",
+        "components/gmail/gmail-receipts-page.tsx"
       ],
       "workflow": null,
       "expected_effects": {
@@ -5597,8 +5407,7 @@
         "path": "voice_tool",
         "target": "capture_pkm_memory",
         "params": {
-          "mode": "preview",
-          "direct_save": false
+          "mode": "preview"
         }
       },
       "control_ids": [
@@ -5696,18 +5505,14 @@
       },
       "guard_ids": [
         "vault_unlocked",
-        "manual_user_execution"
+        "manual_user_execution",
+        "explicit_user_confirmation"
       ],
       "risk_level": "medium",
       "execution_policy": "manual_only",
       "execution_target": {
-        "status": "wired",
-        "path": "voice_tool",
-        "target": "capture_pkm_memory",
-        "params": {
-          "mode": "direct_save",
-          "direct_save": true
-        }
+        "status": "unwired",
+        "reason": "Voice may prepare the preview only. PKM persistence requires the visible review card and an owner-confirmed PkmMutationPlanV2."
       },
       "control_ids": [
         "save_pkm_capture"
@@ -8430,6 +8235,219 @@
             "settlement_target": {
               "route": "/templates/ria-picks-template.csv",
               "screen": "ria_picks"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.ria_profile",
+      "surface_id": "ria_profile",
+      "label": "Open RIA Profile",
+      "aliases": [
+        "open my ria profile",
+        "view advisor profile",
+        "edit my advisor profile"
+      ],
+      "search_keywords": [
+        "profile",
+        "advisor",
+        "services",
+        "fees",
+        "bio",
+        "business location"
+      ],
+      "meaning": "Opens the advisor's own RIA profile built during onboarding, with view and edit of services, fees, bio, and business location.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/ria/profile"
+        ],
+        "screens": [
+          "ria_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA persona must be provisioned (onboarding complete) before the profile is available."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/profile"
+      },
+      "control_ids": [
+        "ria_profile_route"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/profile/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/profile"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_profile",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_profile",
+            "label": "Open RIA Profile",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/profile",
+              "screen": "ria_profile"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.profile.edit_services",
+      "surface_id": "ria_profile",
+      "label": "Edit RIA services and fees",
+      "aliases": [
+        "edit my services",
+        "update my fees",
+        "change my business location"
+      ],
+      "search_keywords": [
+        "edit",
+        "services",
+        "fees",
+        "bio",
+        "location"
+      ],
+      "meaning": "Opens the profile edit panel to update services, fee structure, minimum engagement, bio, and business location.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/ria/profile"
+        ],
+        "screens": [
+          "ria_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "in_page",
+        "target": "ria_profile_edit_panel"
+      },
+      "control_ids": [
+        "ria_profile_edit_services"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/profile/page.tsx"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/profile"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.profile.edit_services",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.profile.edit_services",
+            "label": "Edit RIA services and fees",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/profile",
+              "screen": "ria_profile"
             }
           }
         ],

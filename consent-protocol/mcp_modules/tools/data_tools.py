@@ -12,7 +12,7 @@ import os
 
 import httpx
 from cryptography.exceptions import InvalidTag
-from mcp.types import TextContent
+from mcp.types import ResourceLink, TextContent
 
 from hushh_mcp.consent.export_projection import (
     decrypt_scoped_export_package,
@@ -20,23 +20,11 @@ from hushh_mcp.consent.export_projection import (
 )
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.services.local_mcp_keypair_service import get_or_create_local_connector_keypair
-from mcp_modules.config import CONSENT_API_PUBLIC_ORIGIN, FASTAPI_URL
-from mcp_modules.developer_context import get_developer_request_query
+from mcp_modules.config import FASTAPI_URL
+from mcp_modules.developer_context import get_developer_api_headers
 from mcp_modules.transport_context import is_local_stdio_transport
 
 logger = logging.getLogger("hushh-mcp-server")
-
-# Exports whose base64 ciphertext fits comfortably in a tool result stay inline
-# so small reads remain a single turn. Anything larger is delivered via the
-# authenticated download endpoint so the ciphertext never transits LLM context
-# (models are slow and lossy at re-emitting large base64 through text tools).
-# Threshold is evidence-driven: a 31.7KB-base64 portfolio export stalled a
-# Claude Desktop connector that tried to re-emit it through text tools, so the
-# inline lane is reserved for genuinely small payloads. This governs the RAW
-# ciphertext contract only (remote/hosted transport, and stdio's raw=true
-# opt-out) - see DECRYPTED_LOCAL_MAX_JSON_CHARS below for the local-decrypt
-# threshold, which is deliberately larger.
-INLINE_EXPORT_MAX_BASE64_CHARS = 16_000
 
 # The local stdio server decrypts+narrows locally before this ever reaches the
 # LLM, so the result is plain decrypted JSON, not base64 ciphertext - roughly
@@ -49,48 +37,9 @@ INLINE_EXPORT_MAX_BASE64_CHARS = 16_000
 # fraction of a full attr.financial.* export (~1.35MB raw ciphertext).
 # Raising this only affects the decrypted_local success path; the raw
 # ciphertext fallback (decrypt failure, remote transport, raw=true) is
-# unaffected and still governed by INLINE_EXPORT_MAX_BASE64_CHARS.
 DECRYPTED_LOCAL_MAX_JSON_CHARS = int(
     os.environ.get("HUSHH_MCP_LOCAL_DECRYPT_MAX_JSON_CHARS", "") or "120000"
 )
-
-
-def _download_instructions(*, user_id: str, consent_token: str) -> dict:
-    """Build connector-facing instructions for fetching ciphertext directly.
-
-    The developer token is intentionally NOT embedded here: the connector
-    already holds it, and echoing it into model context would leak a
-    credential. The curl template references the env var instead.
-    """
-    url = f"{CONSENT_API_PUBLIC_ORIGIN}/api/v1/scoped-export/download"
-    body = json.dumps({"user_id": user_id, "consent_token": consent_token})
-    return {
-        "url": url,
-        "method": "POST",
-        "auth": "Authorization: Bearer <your developer token> (same token this MCP connection uses)",
-        "json_body": {"user_id": user_id, "consent_token": consent_token},
-        "response": (
-            "Raw ciphertext bytes (application/octet-stream). IV and tag ride the "
-            "X-Export-IV / X-Export-Tag response headers (base64)."
-        ),
-        "curl_example": (
-            f'curl -sf -X POST "{url}" '
-            '-H "Authorization: Bearer $HUSHH_DEVELOPER_TOKEN" '
-            "-H 'Content-Type: application/json' "
-            f"-d '{body}' -o export.bin -D headers.txt"
-        ),
-        "important": (
-            "Fetch the ciphertext inside your script or shell. Never echo the "
-            "ciphertext into the model context or retype it through text tools; "
-            "decrypt export.bin locally with the wrapped key bundle."
-        ),
-        "if_unreachable": (
-            "If your script environment cannot reach this URL (sandboxed "
-            "runtimes, egress allowlists, localhost servers), call "
-            "get_encrypted_scoped_export again with delivery='inline' to "
-            "receive the full base64 ciphertext in the tool result instead."
-        ),
-    }
 
 
 async def resolve_user_identifier_to_uid(
@@ -131,19 +80,18 @@ async def _fetch_encrypted_export_package(
     consent_token: str,
     expected_scope: str | None,
 ):
-    token_query = get_developer_request_query()
-    if not token_query:
+    developer_headers = get_developer_api_headers()
+    if not developer_headers:
         return {
             "status": "error",
             "error": "Developer token is not configured",
-            "hint": "Set HUSHH_DEVELOPER_TOKEN for stdio or append ?token=<developer-token> to the remote MCP URL.",
+            "hint": "Set HUSHH_DEVELOPER_TOKEN for stdio or configure the hosted connector bearer token.",
         }
-
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{FASTAPI_URL}/api/v1/scoped-export",
-                params=token_query,
+                headers=developer_headers,
                 json={
                     "user_id": user_id,
                     "consent_token": consent_token,
@@ -166,14 +114,49 @@ async def _fetch_encrypted_export_package(
                 }
             return response.json()
     except Exception as exc:
-        logger.warning("Encrypted scoped export fetch failed: %s", exc)
+        logger.warning("Encrypted scoped export fetch failed: %s", type(exc).__name__)
         return {
             "status": "error",
             "error": "Failed to fetch encrypted scoped export",
         }
 
 
-async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent]:
+async def _fetch_resource_bytes(resource_uri: str) -> tuple[bytes | None, dict | None]:
+    developer_headers = get_developer_api_headers()
+    if not developer_headers:
+        return None, {
+            "status": "error",
+            "error_code": "CONNECTOR_CRYPTO_UNSUPPORTED",
+            "error": "Developer bearer authentication is not configured.",
+        }
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(resource_uri, headers=developer_headers, timeout=30.0)
+        if response.status_code >= 400:
+            try:
+                detail = response.json().get("detail")
+            except Exception:
+                detail = None
+            return None, {
+                "status": "error",
+                "error_code": (detail or {}).get("error_code")
+                if isinstance(detail, dict)
+                else "RESOURCE_FETCH_FAILED",
+                "error": (detail or {}).get("message")
+                if isinstance(detail, dict)
+                else "Encrypted export resource fetch failed.",
+            }
+        return response.content, None
+    except Exception as exc:
+        logger.warning("Encrypted export resource fetch failed: %s", type(exc).__name__)
+        return None, {
+            "status": "error",
+            "error_code": "RESOURCE_FETCH_FAILED",
+            "error": "Encrypted export resource fetch failed.",
+        }
+
+
+async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent | ResourceLink]:
     """
     Get the encrypted wrapped-key export package for any approved consent token.
 
@@ -257,98 +240,64 @@ async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent]:
         "message": export_payload.get("message"),
     }
 
-    # `raw=true` (or delivery='raw') opts out of local auto-decrypt even on
-    # the stdio transport, for connectors that want to decrypt themselves.
-    raw_requested = (
-        bool(args.get("raw")) or str(args.get("delivery") or "").strip().lower() == "raw"
-    )
-
-    fallback_note: str | None = None
-    if is_local_stdio_transport() and not raw_requested:
-        decrypted_response, fallback_note = _try_build_local_decrypted_response(
+    if is_local_stdio_transport():
+        decrypted_response, local_error = await _try_build_local_decrypted_response(
             base_fields,
             export_payload=export_payload,
             expected_scope=str(expected_scope) if expected_scope else None,
         )
         if decrypted_response is not None:
             return [TextContent(type="text", text=json.dumps(decrypted_response))]
-        # Decrypt failed (e.g. an older grant wrapped to a key this install
-        # no longer holds) or the narrowed payload was still too large;
-        # fall through to the raw ciphertext contract below.
+        return [TextContent(type="text", text=json.dumps(local_error or {}))]
 
-    raw_delivery = _build_raw_delivery_fields(
-        export_payload,
-        user_id=user_id,
-        consent_token=str(consent_token),
-        forced_inline=str(args.get("delivery") or "").strip().lower() == "inline",
-    )
-    if fallback_note:
-        raw_delivery["delivery_note"] = fallback_note
-
+    resource = export_payload.get("resource_link")
+    resource_uri = str((resource or {}).get("uri") or "").strip()
+    if not resource_uri:
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "status": "error",
+                        "error_code": "RESOURCE_LINK_MISSING",
+                        "error": "The encrypted export resource link is unavailable.",
+                    }
+                ),
+            )
+        ]
+    metadata = {
+        **base_fields,
+        "delivery": "resource_link",
+        "resource_link": resource,
+        "iv": export_payload.get("iv"),
+        "tag": export_payload.get("tag"),
+        "wrapped_key_bundle": export_payload.get("wrapped_key_bundle"),
+        "export_envelope": export_payload.get("export_envelope"),
+        "privacy_note": (
+            "Fetch ciphertext with developer bearer authentication and decrypt in the connector "
+            "process. Never place ciphertext in model context."
+        ),
+        "zero_knowledge": True,
+    }
     return [
-        TextContent(
-            type="text",
-            text=json.dumps(
-                {
-                    **base_fields,
-                    **raw_delivery,
-                    "iv": export_payload.get("iv"),
-                    "tag": export_payload.get("tag"),
-                    "wrapped_key_bundle": export_payload.get("wrapped_key_bundle"),
-                    "privacy_note": (
-                        "This payload is encrypted. Hussh returns ciphertext plus wrapped key metadata only; "
-                        "the external connector decrypts and narrows it client-side."
-                    ),
-                    "zero_knowledge": True,
-                }
-            ),
-        )
+        TextContent(type="text", text=json.dumps(metadata)),
+        ResourceLink(
+            type="resource_link",
+            name=str((resource or {}).get("name") or "Hussh encrypted scoped export"),
+            uri=resource_uri,
+            description="Bearer-authenticated ciphertext; decrypt outside model context.",
+            mimeType="application/octet-stream",
+            size=(resource or {}).get("size"),
+        ),
     ]
 
 
-def _build_raw_delivery_fields(
-    export_payload: dict,
-    *,
-    user_id: str,
-    consent_token: str,
-    forced_inline: bool,
-) -> dict:
-    """Build the legacy raw-ciphertext delivery contract (inline/download).
-
-    Unchanged behavior: this is the byte-for-byte original contract used by
-    the remote/hosted MCP transport and by any local stdio caller that opts
-    out of auto-decrypt (`raw=true`), or that hits the local-decrypt fallback
-    path (oversized narrowed result, or a decrypt failure on an older grant).
-    """
-    encrypted_data = str(export_payload.get("encrypted_data") or "")
-    inline_ok = forced_inline or len(encrypted_data) <= INLINE_EXPORT_MAX_BASE64_CHARS
-    delivery: dict = {
-        "delivery": "inline" if inline_ok else "download",
-        "encrypted_data": encrypted_data if inline_ok else None,
-        "download": _download_instructions(user_id=user_id, consent_token=consent_token),
-    }
-    if not inline_ok:
-        delivery["delivery_note"] = (
-            f"Ciphertext is {len(encrypted_data)} base64 chars, above the "
-            f"{INLINE_EXPORT_MAX_BASE64_CHARS}-char inline limit. Fetch it with the "
-            "download instructions; do not attempt to reconstruct it from context. "
-            "If your environment cannot reach the download URL, retry this tool "
-            "with delivery='inline'."
-        )
-    elif forced_inline and len(encrypted_data) > INLINE_EXPORT_MAX_BASE64_CHARS:
-        delivery["delivery_note"] = (
-            "Inline delivery was forced for a large export. Write encrypted_data "
-            "to a file in ONE step (do not retype it); then decrypt locally."
-        )
-    return delivery
-
-
-def _try_build_local_decrypted_response(
+async def _try_build_local_decrypted_response(
     base_fields: dict,
     *,
     export_payload: dict,
     expected_scope: str | None,
-) -> tuple[dict | None, str | None]:
+) -> tuple[dict | None, dict | None]:
     """Decrypt and narrow a scoped export using the local persisted keypair.
 
     Returns ``(response, None)`` on success, or ``(None, fallback_note)`` if
@@ -356,21 +305,38 @@ def _try_build_local_decrypted_response(
     failure on an older grant wrapped to a key this install no longer holds,
     or a narrowed result still too large to return safely.
     """
-    encrypted_data = export_payload.get("encrypted_data")
     wrapped_key_bundle = export_payload.get("wrapped_key_bundle")
+    export_envelope = export_payload.get("export_envelope")
+    resource_uri = str((export_payload.get("resource_link") or {}).get("uri") or "").strip()
     iv = export_payload.get("iv")
     tag = export_payload.get("tag")
-    if not (encrypted_data and wrapped_key_bundle and iv and tag):
-        return None, None
+    if not (resource_uri and wrapped_key_bundle and export_envelope and iv and tag):
+        return None, {
+            "status": "error",
+            "error_code": "CONNECTOR_CRYPTO_UNSUPPORTED",
+            "error": "Envelope v2 resource metadata is incomplete.",
+        }
+
+    ciphertext, fetch_error = await _fetch_resource_bytes(resource_uri)
+    if ciphertext is None:
+        return None, fetch_error
 
     try:
         local_keypair = get_or_create_local_connector_keypair()
+        connector_key_id = str((wrapped_key_bundle or {}).get("connector_key_id") or "")
+        if connector_key_id and connector_key_id != local_keypair.key_id:
+            return None, {
+                "status": "error",
+                "error_code": "CONNECTOR_KEY_REBIND_REQUIRED",
+                "error": "This grant is bound to a different connector key.",
+            }
         decrypted_payload = decrypt_scoped_export_package(
             wrapped_key_bundle=wrapped_key_bundle,
             iv_b64=str(iv),
             tag_b64=str(tag),
-            ciphertext=str(encrypted_data),
+            ciphertext=ciphertext,
             connector_private_key=local_keypair.private_key,
+            export_envelope=export_envelope,
         )
         narrowed = narrow_decrypted_export(decrypted_payload, expected_scope)
         # __export_metadata carries internal bookkeeping (e.g. every scope path
@@ -381,11 +347,11 @@ def _try_build_local_decrypted_response(
         narrowed.pop("__export_metadata", None)
     except (InvalidTag, KeyError, ValueError, TypeError) as exc:
         logger.warning("Local auto-decrypt unavailable for this grant: %s", exc)
-        return None, (
-            "Local auto-decrypt unavailable for this grant (older connector key). "
-            "Falling back to raw ciphertext; request a fresh consent grant to get "
-            "automatic decryption next time."
-        )
+        return None, {
+            "status": "error",
+            "error_code": "INVALID_EXPORT_AAD",
+            "error": "Envelope validation or local decryption failed.",
+        }
 
     narrowed_json = json.dumps(narrowed)
     if len(narrowed_json) > DECRYPTED_LOCAL_MAX_JSON_CHARS:
@@ -395,12 +361,13 @@ def _try_build_local_decrypted_response(
             len(narrowed_json),
             DECRYPTED_LOCAL_MAX_JSON_CHARS,
         )
-        return None, (
-            f"Decrypted local result ({len(narrowed_json)} chars) is still too large to return "
-            f"directly (limit {DECRYPTED_LOCAL_MAX_JSON_CHARS} chars). Narrow to a smaller "
-            "sub-scope (e.g. a specific path under this domain) and try again, or fall back to "
-            "raw ciphertext delivery for this export."
-        )
+        return None, {
+            "status": "error",
+            "error_code": "RESULT_REQUIRES_NARROWER_SCOPE",
+            "error": "The decrypted result exceeds the model-result limit.",
+            "maximum_model_result_chars": DECRYPTED_LOCAL_MAX_JSON_CHARS,
+            "suggestion": "Retry with a discovered child scope under the granted domain.",
+        }
 
     return {
         **base_fields,

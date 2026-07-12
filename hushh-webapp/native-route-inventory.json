@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-06-17",
   "total_routes": 80,
-  "native_required_routes": 77,
-  "excluded_routes": 3,
+  "native_required_routes": 78,
+  "excluded_routes": 2,
   "routes": [
     {
       "route": "/",
@@ -854,6 +854,19 @@
       ]
     },
     {
+      "route": "/ria/profile",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fria%2Fprofile",
+      "expectedMarker": "native-route-ria-profile",
+      "expectedRoute": "/ria/profile",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "unavailable-valid"
+      ]
+    },
+    {
       "route": "/ria/picks",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fria%2Fpicks",
@@ -997,10 +1010,6 @@
     },
     {
       "route": "/developers",
-      "classification": "excluded-web-only"
-    },
-    {
-      "route": "/labs/profile-appearance",
       "classification": "excluded-web-only"
     },
     {

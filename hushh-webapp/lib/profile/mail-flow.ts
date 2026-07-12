@@ -548,7 +548,7 @@ export function resolveGmailConnectionPresentation(options: {
 }
 
 export function buildProfileGmailReturnPath(): string {
-  return ROUTES.PROFILE_GMAIL;
+  return ROUTES.GMAIL;
 }
 
 export function stashProfileGmailReturnStatus(

@@ -1,8 +1,9 @@
+manifest_version: 2
 id: agent_memory_segmentation
 name: Memory Segmentation Agent
 version: 1.0.0
 description: Splits one natural-language prompt into up to four PKM memory candidates before downstream intent and structure planning.
-model: gemini-3.1-flash-lite-preview
+model: gemini-3.5-flash
 system_instruction: |
   You are the Memory Segmentation Agent for Hushh Kai.
 

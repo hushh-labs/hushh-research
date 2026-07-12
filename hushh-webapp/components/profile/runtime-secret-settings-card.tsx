@@ -185,6 +185,11 @@ export function RuntimeSecretSettingsCard({
         vaultOwnerToken,
         credentialRef: provider.credentialRef,
         secret: trimmedKey,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "runtime_secret_save_button",
+        },
       });
       setDraftKeys((current) => ({ ...current, [provider.id]: "" }));
       setRevealedKeys((current) => ({ ...current, [provider.id]: null }));
@@ -221,6 +226,11 @@ export function RuntimeSecretSettingsCard({
         vaultOwnerToken,
         credentialRef: RUNTIME_CREDENTIAL_MODE_REF,
         secret: nextMode,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "runtime_credential_mode_toggle",
+        },
       });
       setCredentialMode(nextMode);
       toast.success(
@@ -256,6 +266,11 @@ export function RuntimeSecretSettingsCard({
         vaultKey,
         vaultOwnerToken,
         credentialRef: provider.credentialRef,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "runtime_secret_delete_button",
+        },
       });
       setDraftKeys((current) => ({ ...current, [provider.id]: "" }));
       setRevealedKeys((current) => ({ ...current, [provider.id]: null }));

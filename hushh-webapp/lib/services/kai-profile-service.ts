@@ -643,6 +643,11 @@ export class KaiProfileService {
       domain: FINANCIAL_DOMAIN,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
+      confirmation: {
+        confirmedByUser: true,
+        surface: "web",
+        source: "kai_profile_preference_confirm",
+      },
       build: (context) => ({
         domainData: buildFinancialProfileDomain({
           fullBlob: context.baseFullBlob,
@@ -691,6 +696,11 @@ export class KaiProfileService {
       domain: FINANCIAL_DOMAIN,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
+      confirmation: {
+        confirmedByUser: true,
+        surface: "web",
+        source: "kai_onboarding_completion",
+      },
       build: (context) => ({
         domainData: buildFinancialProfileDomain({
           fullBlob: context.baseFullBlob,
@@ -745,6 +755,11 @@ export class KaiProfileService {
       domain: FINANCIAL_DOMAIN,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
+      confirmation: {
+        confirmedByUser: true,
+        surface: "web",
+        source: "kai_nav_tour_state",
+      },
       build: (context) => ({
         domainData: buildFinancialProfileDomain({
           fullBlob: context.baseFullBlob,
@@ -859,6 +874,11 @@ export class KaiProfileService {
       domain: FINANCIAL_DOMAIN,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
+      confirmation: {
+        confirmedByUser: true,
+        surface: "web",
+        source: "kai_profile_setup_sync",
+      },
       build: (context) => ({
         domainData: buildFinancialProfileDomain({
           fullBlob: context.baseFullBlob,
