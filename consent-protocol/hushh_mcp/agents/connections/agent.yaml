@@ -1,3 +1,4 @@
+manifest_version: 2
 id: agent_connections
 name: Connections Agent
 version: 0.1.0
@@ -12,20 +13,20 @@ system_instruction: |
   the real names you saw in tool results; never invent people.
 required_scopes:
   - agent.one.orchestrate
-tools:
-  - name: list_my_connections
-    description: List the user's active connections (read-only).
-  - name: list_pending_requests
-    description: List pending incoming/outgoing connection requests (read-only).
-  - name: find_people
-    description: Search the user's directory by display name (read-only).
-  - name: request_person_choice
-    description: Ask the user to pick which person when a name is ambiguous.
-  - name: propose_send_request
-    description: Propose sending a connection request; user confirms before it sends.
-  - name: propose_accept_request
-    description: Propose accepting a pending request; user confirms before it accepts.
-  - name: propose_reject_request
-    description: Propose declining a pending request; user confirms before it declines.
-  - name: propose_remove_connection
-    description: Propose removing a connection; user confirms before it removes.
+# NOTE: tool functions (list_my_connections, find_people, propose_* ...) are
+# per-request closures constructed inside
+# hushh_mcp/services/connections_chat_service.py with ingress-validated
+# authority, so they cannot be declared as importable py_func entries here.
+# AgentManifestV2 tools require py_func + required_scope; closure-backed
+# specialists declare none (same contract as agent_email / agent_gmail).
+failure_states:
+  - auth_required
+  - input_required
+  - confirmation_required
+pkm:
+  behavior: read
+surfaces:
+  chat: true
+  web: true
+  not_applicable_reason: Voice, remote A2A, MCP, and native exposure are not currently shipped.
+telemetry_namespace: agent.connections

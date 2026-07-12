@@ -93,6 +93,87 @@
         ],
         "default": "hushh_managed_vertex"
       },
+      "description": "Two-way connection graph specialist under One \u2014 send, list, find, accept, reject, and remove connections, with confirm-before-write on every mutation.",
+      "evaluations": [],
+      "failure_states": [
+        "auth_required",
+        "input_required",
+        "confirmation_required"
+      ],
+      "icon": null,
+      "id": "agent_connections",
+      "inputs": [],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/connections/agent.yaml",
+      "manifest_version": 2,
+      "model": "gemini-3-flash-preview",
+      "name": "Connections Agent",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "read",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [
+        "agent.one.orchestrate"
+      ],
+      "rollout": {
+        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "rollback": "Disable the agent and restore the prior manifest.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Voice, remote A2A, MCP, and native exposure are not currently shipped.",
+        "voice": false,
+        "web": true
+      },
+      "system_instruction_sha256": "ed468040fd5937fd23c5d22ebb07ecdbc5e37fdef58b9180893b9a2931fe5b11",
+      "telemetry_namespace": "agent.connections",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "0.1.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
+        "data": [],
+        "invocation": []
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
       "description": "Approval-draft and client-request workflow specialist under One.",
       "evaluations": [],
       "failure_states": [
@@ -806,7 +887,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/memory_intent/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.1-flash-lite-preview",
+      "model": "gemini-3.5-flash",
       "name": "Memory Intent Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -953,7 +1034,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/memory_merge/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.1-flash-lite-preview",
+      "model": "gemini-3.5-flash",
       "name": "Memory Merge Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -1080,7 +1161,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/memory_segmentation/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.1-flash-lite-preview",
+      "model": "gemini-3.5-flash",
       "name": "Memory Segmentation Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -1485,7 +1566,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/pkm_structure/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.1-flash-lite-preview",
+      "model": "gemini-3.5-flash",
       "name": "PKM Structure Agent",
       "native_requirements": [],
       "optional_scopes": [],

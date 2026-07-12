@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from types import SimpleNamespace
 
 import pytest
@@ -9,6 +10,15 @@ from flask import Flask
 from starlette.testclient import TestClient
 
 from hushh_mcp.adk_bridge import official_a2a
+
+# The official transport is opt-in and depends on the google-adk[a2a] extra;
+# environments without it must still pass the suite (the module itself raises
+# a clean RuntimeError at app-creation time, which is its documented contract).
+_HAS_OFFICIAL_A2A = importlib.util.find_spec("a2a") is not None
+requires_official_a2a = pytest.mark.skipif(
+    not _HAS_OFFICIAL_A2A,
+    reason="google-adk[a2a] extra not installed; official transport unavailable",
+)
 
 
 @pytest.mark.asyncio
@@ -37,6 +47,7 @@ async def test_official_transport_keeps_raw_consent_token_out_of_call_context(mo
     assert "secret-token" not in repr(context.call_context.state)
 
 
+@requires_official_a2a
 def test_official_transport_advertises_the_adk_extension(monkeypatch):
     monkeypatch.setenv("HUSHH_KAI_A2A_PUBLIC_URL", "https://a2a.example.test")
     app = official_a2a.create_kai_official_a2a_app()
@@ -56,6 +67,7 @@ def test_official_transport_advertises_the_adk_extension(monkeypatch):
     ]
 
 
+@requires_official_a2a
 def test_official_transport_returns_clean_auth_error_before_adk_execution():
     app = official_a2a.create_kai_official_a2a_app()
     payload = {
