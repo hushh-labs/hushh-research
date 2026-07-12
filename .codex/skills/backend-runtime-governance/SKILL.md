@@ -48,6 +48,7 @@ Non-owned surfaces:
 2. `docs/reference/architecture/api-contracts.md`
 3. `consent-protocol/docs/README.md`
 4. `.codex/skills/backend-runtime-governance/references/async-runtime-performance.md`
+5. `docs/reference/architecture/schema-migration-discipline.md`
 
 ## Workflow
 
