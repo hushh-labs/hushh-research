@@ -1293,10 +1293,8 @@ function InboxHub({
               <RequestCard
                 key={request.id}
                 name={vm.requesterLabel(request)}
-                promptLine="to see your live location"
+                promptLine="Asks to see your location · 1 hour"
                 reason={request.message ?? undefined}
-                durationLabel="If approved: 1 hour"
-                approveLabel="Share 1 hour"
                 onApprove={() => vm.onApprove(request)}
                 onDecline={() => vm.onDeny(request.id)}
                 approveBusy={vm.busy === "approve"}
@@ -1360,25 +1358,40 @@ function InboxHub({
       {vm.requestedByMe.length ? (
 
         <SectionCard title="Sent by you">
-          <div className="space-y-2.5">
-            {vm.requestedByMe.map((request) => (
-              <div
-                key={request.id}
-                className="flex items-center justify-between gap-3 rounded-[18px] border border-border/60 bg-muted/40 p-3.5"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-foreground">
-                    {vm.requestOwnerLabel(request)}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Status {request.status} · {vm.formatDateTime(request.requestedAt)}
-                  </p>
+          <div>
+            {vm.requestedByMe.map((request, i) => {
+              const active = /active|approved|shared|granted/i.test(
+                request.status,
+              );
+              return (
+                <div
+                  key={request.id}
+                  className={cn(
+                    "flex items-center gap-3 py-3.5",
+                    i > 0 && "border-t border-black/[0.06] dark:border-white/10",
+                  )}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[15px] font-semibold text-[#1c1c2e] dark:text-foreground">
+                      {vm.requestOwnerLabel(request)}
+                    </p>
+                    <p className="text-xs text-black/50 dark:text-muted-foreground">
+                      {vm.formatDateTime(request.requestedAt)}
+                    </p>
+                  </div>
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-full px-3 py-1 text-xs font-semibold",
+                      active
+                        ? "bg-[#e5f4ea] text-[#2ea44f] dark:bg-emerald-400/15 dark:text-emerald-300"
+                        : "bg-[#eef2f8] text-black/60 dark:bg-white/10 dark:text-muted-foreground",
+                    )}
+                  >
+                    {active ? "Active" : "Pending"}
+                  </span>
                 </div>
-                <span className="shrink-0 rounded-full border border-border/70 bg-background px-2.5 py-0.5 text-xs font-semibold capitalize text-muted-foreground">
-                  {request.status}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </SectionCard>
       ) : null}
