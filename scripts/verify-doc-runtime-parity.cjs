@@ -69,7 +69,6 @@ const REQUIRED_CANONICAL_ROUTES = {
   HOME: "/",
   LOGIN: "/login",
   LOGOUT: "/logout",
-  LABS_PROFILE_APPEARANCE: "/labs/profile-appearance",
   PROFILE: "/profile",
   CONSENTS: "/consents",
   MARKETPLACE: "/marketplace",
