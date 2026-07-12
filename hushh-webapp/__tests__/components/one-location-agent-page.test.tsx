@@ -558,7 +558,13 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
     expect(screen.queryByText("Advisor meetup")).toBeNull();
     expect(screen.queryAllByText(/Trusted B/).length).toBeGreaterThan(0);
-    expect(screen.getByRole("heading", { name: "Device readiness" })).toBeTruthy();
+    // Redesign: the "Device readiness" card is surfaced only when location
+    // permission is blocked. When permission is granted (default fixture), the
+    // hero's LIVE/OFF toggle drives self-location capture instead. The default
+    // fixture has active shares, so the toggle reads as live.
+    expect(
+      screen.getByRole("button", { name: /Live location on/i }),
+    ).toBeTruthy();
     expect(screen.queryByText(/8012|9911/)).toBeNull();
     expect(screen.getByRole("button", { name: /Share my location/i })).toBeTruthy();
     expect(mockRegisterKey).toHaveBeenCalledWith({
@@ -614,8 +620,10 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    // Redesign: the hero OFF/LIVE toggle captures your live location for a
+    // self-preview without creating any share/request/public link.
     fireEvent.click(
-      screen.getByRole("button", { name: /Show my location/i }),
+      screen.getByRole("button", { name: /Turn on live location/i }),
     );
 
     await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1));
