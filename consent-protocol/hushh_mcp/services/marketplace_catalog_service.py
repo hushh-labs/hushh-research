@@ -295,6 +295,7 @@ class MarketplaceCatalogService:
         query = (
             self.supabase.table("pkm_default_available_projections")
             .select(_PROJECTION_COLUMNS)
+            .neq("publication_provenance", "")
             .is_("revoked_at", None)
             .neq("user_id", viewer_user_id)
             .order("updated_at", desc=True)
@@ -361,6 +362,7 @@ class MarketplaceCatalogService:
             self.supabase.table("pkm_default_available_projections")
             .select(_PROJECTION_COLUMNS)
             .eq("id", numeric_id)
+            .neq("publication_provenance", "")
             .is_("revoked_at", None)
             .limit(1)
         )

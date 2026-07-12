@@ -7,6 +7,7 @@ It wraps the Google ADK patterns but injects our strict security loop.
 
 import importlib
 import logging
+import uuid
 from typing import Any, Dict, List, Optional
 
 _ADK_AVAILABLE = False
@@ -128,7 +129,7 @@ class HushhAgent(LlmAgent):
             path: Filesystem path to the agent YAML manifest.
 
         Returns:
-            A fully initialised HushhAgent ready to call ``.run()``.
+            A fully initialised HushhAgent ready to call ``.run_turn()``.
 
         Raises:
             FileNotFoundError: if the YAML file does not exist.
@@ -157,7 +158,7 @@ class HushhAgent(LlmAgent):
     # Execution
     # ------------------------------------------------------------------
 
-    def run(
+    async def run_turn(
         self,
         prompt: str,
         user_id: str,
@@ -165,9 +166,11 @@ class HushhAgent(LlmAgent):
         vault_keys: Optional[Dict[str, str]] = None,
     ) -> Any:
         """
-        Secure Execution Entry Point.
+        Secure application-level execution entry point.
 
-        Replaces standard .run() with one that requires Auth.
+        This deliberately does not override ADK's internal ``BaseNode.run``
+        protocol. Application callers go through a Runner while ADK remains
+        free to call its own ``run(ctx, node_input)`` implementation.
         """
         logger.info("🤖 Agent '%s' invoked (user=[redacted])", self.hushh_name)
 
@@ -191,22 +194,53 @@ class HushhAgent(LlmAgent):
             logger.warning(error_msg)
             raise PermissionError(error_msg)
 
-        # 2. Context Injection
-        # We start a context block. All tools called by the LLM within super().run()
-        # will be able to access this context via HushhContext.current()
-
+        # 2. Context injection stays process-local and non-model. Raw credentials
+        # are never stored in ADK session state or event payloads.
         with HushhContext(
             user_id=user_id,
             consent_token=consent_token,
             vault_keys=vault_keys or {},
         ):
             try:
-                # 3. Delegate to ADK LlmAgent with proper parameter passing
-                response = super().run(input=prompt)
-                return response
-            except Exception as e:
-                logger.error(f"💥 Agent Failure: {str(e)}")
-                raise e
+                return await self._execute_adk_turn(prompt=prompt, user_id=user_id)
+            except Exception:
+                logger.exception("Agent turn failed agent=%s", self.hushh_name)
+                raise
+
+    async def _execute_adk_turn(self, *, prompt: str, user_id: str) -> str:
+        if not _ADK_AVAILABLE:
+            raise RuntimeError(LlmAgent._INSTALL_HINT)
+
+        from google.adk.runners import Runner
+        from google.adk.sessions.in_memory_session_service import InMemorySessionService
+        from google.genai import types as genai_types
+
+        app_name = f"hushh_{self.name}"
+        session_id = f"turn_{uuid.uuid4().hex}"
+        session_service = InMemorySessionService()
+        runner = Runner(app_name=app_name, agent=self, session_service=session_service)
+        await session_service.create_session(
+            app_name=app_name,
+            user_id=user_id,
+            session_id=session_id,
+            state={},
+        )
+        content = genai_types.Content(
+            role="user",
+            parts=[genai_types.Part.from_text(text=prompt)],
+        )
+        final_text = ""
+        async for event in runner.run_async(
+            user_id=user_id,
+            session_id=session_id,
+            new_message=content,
+        ):
+            if not event.is_final_response() or not event.content:
+                continue
+            final_text = "".join(
+                part.text for part in (event.content.parts or []) if isinstance(part.text, str)
+            )
+        return final_text
 
 
 # ---------------------------------------------------------------------------

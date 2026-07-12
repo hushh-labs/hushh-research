@@ -20,7 +20,8 @@ import React, {
   type MouseEvent,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { AudioLines, MessageSquare, X } from "lucide-react";
+import { AudioLines, MessageCircle, Moon, Sun, X } from "lucide-react";
+import { useTheme } from "next-themes";
 
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
@@ -33,6 +34,7 @@ import {
   getAgentVoiceStatusLabel,
   useAgentVoiceState,
 } from "@/lib/agent/agent-voice-state";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ROUTES, isOneSetupRoute } from "@/lib/navigation/routes";
@@ -57,12 +59,12 @@ type PrewarmedGeminiRelay = {
 
 // Precaution: if a live voice session sits idle (no user speech, no agent
 // speech, no tool/navigation activity) this long, close it automatically
-// instead of leaving an open mic/session hanging indefinitely. Mirrors the
-// idle-timeout pattern already used for the streamed voice turn watchdog in
-// `agent-chat-workspace.tsx` (`VOICE_AGENT_IDLE_TIMEOUT_MS`), but scoped to
-// the full ambient session rather than a single streamed turn since Gemini
-// Live has no per-turn stream to watch.
-const AGENT_BAR_VOICE_IDLE_TIMEOUT_MS = 90_000;
+// instead of leaving an open mic/session hanging indefinitely. The timer is
+// reset on every bit of session activity (speech, thinking, tool results,
+// navigation), so this is a true "silence" window, not a hard cap. Mirrors the
+// idle-timeout pattern in `agent-chat-workspace.tsx`, scoped to the full
+// ambient session since Gemini Live has no per-turn stream to watch.
+const AGENT_BAR_VOICE_IDLE_TIMEOUT_MS = 10_000;
 
 // Screen-aware hint copy. First matching prefix wins, so order longest/most
 // specific routes before their parents. Falls back to a generic prompt.
@@ -102,6 +104,7 @@ export function AgentBar() {
   // consistently with the chat workspace, instead of recomputing locally.
   const runtime = useAgentRuntimeStateOptional();
   const { user } = useAuth();
+  const { resolvedTheme, setTheme } = useTheme();
   const { vaultOwnerToken } = useVault();
   const { switchPersona } = usePersonaState();
   const busyOperations = useKaiSession((state) => state.busyOperations);
@@ -131,10 +134,10 @@ export function AgentBar() {
   const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Last SCREEN pushed into the live session. Deduping on snapshot_id was a
   // bug: snapshot_id churns with every voice state transition (voiceRevision
-  // = transitionSeq), so each listening/speaking flip re-pushed app_context,
-  // and each push preempted One's active model turn (speech cut mid-sentence,
-  // greetings cancelled). Navigation continuity only needs the screen.
-  const lastPushedScreenRef = useRef<string | null>(null);
+  // Keep action availability and onboarding progress current without pushing
+  // on every voice-state transition. The relay persists same-screen updates
+  // silently; only a changed screen becomes model-visible content.
+  const lastPushedContextRef = useRef<string | null>(null);
   // Tracks whether the active session ended with an error, so the bar can keep
   // showing the error status (instead of snapping shut) until it is dismissed.
   const erroredRef = useRef(false);
@@ -270,6 +273,10 @@ export function AgentBar() {
             ? event.directive.payload.actionId
             : null;
         if (actionId) {
+          const directiveId =
+            typeof event.directive.payload?.directiveId === "string"
+              ? event.directive.payload.directiveId
+              : null;
           const slots =
             event.directive.payload?.slots &&
             typeof event.directive.payload.slots === "object"
@@ -289,21 +296,57 @@ export function AgentBar() {
             return;
           }
           const runtimeState = runtime?.appRuntimeState;
-          if (!runtimeState) return;
-          void executeAgentGatewayAction({
-            actionId,
-            slots,
-            userId: user?.uid ?? "",
-            router,
-            appRuntimeState: runtimeState,
-            surfaceMetadata: getVoiceSurfaceMetadata(),
-            hasPortfolioData:
-              runtimeState.portfolio.has_portfolio_data ||
-              runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
-            busyOperations,
-            setAnalysisParams,
-            switchPersona,
-          });
+          if (!runtimeState) {
+            if (directiveId) {
+              liveClientRef.current?.reportActionSettlement?.({
+                directiveId,
+                actionId,
+                status: "failed",
+                summary: "The app was not ready to run that action.",
+                reason: "missing_runtime_state",
+              });
+            }
+            return;
+          }
+          void (async () => {
+            try {
+              const result = await executeAgentGatewayAction({
+                actionId,
+                slots,
+                userId: user?.uid ?? "",
+                router,
+                appRuntimeState: runtimeState,
+                surfaceMetadata: getVoiceSurfaceMetadata(),
+                hasPortfolioData:
+                  runtimeState.portfolio.has_portfolio_data ||
+                  runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
+                busyOperations,
+                setAnalysisParams,
+                switchPersona,
+              });
+              if (directiveId) {
+                liveClientRef.current?.reportActionSettlement?.({
+                  directiveId,
+                  actionId,
+                  status: result.status,
+                  summary: result.resultSummary,
+                  reason: result.reason,
+                  routeAfter: result.routeAfter,
+                  screenAfter: result.screenAfter,
+                });
+              }
+            } catch {
+              if (directiveId) {
+                liveClientRef.current?.reportActionSettlement?.({
+                  directiveId,
+                  actionId,
+                  status: "failed",
+                  summary: "The app could not complete that action.",
+                  reason: "client_execution_failed",
+                });
+              }
+            }
+          })();
           return;
         }
         // Specialist directive (location share/check-in/SOS, device
@@ -426,7 +469,9 @@ export function AgentBar() {
     });
     liveClientRef.current = client;
     // The client pushes the starting snapshot as app_context on setupComplete.
-    lastPushedScreenRef.current = context?.route.screen ?? null;
+    lastPushedContextRef.current = context
+      ? `${context.revisions.route}:${context.revisions.ui}:${JSON.stringify(context.onboarding)}`
+      : null;
     void client.start({
       context,
       accessTier: runtime?.tier ?? null,
@@ -452,18 +497,16 @@ export function AgentBar() {
   // the relay lets One proactively offer the next step after a screen change.
   useEffect(() => {
     if (!conversationActive) {
-      lastPushedScreenRef.current = null;
+      lastPushedContextRef.current = null;
       return;
     }
     const context = runtime?.oneVoiceContextSnapshot;
     const client = liveClientRef.current;
     if (!context || !client?.updateContext) return;
-    // Only a real screen change warrants a push; anything finer-grained
-    // (voice transitions, cache freshness ticks) preempts One's active
-    // model turn on the Live API and audibly cuts speech.
-    if (lastPushedScreenRef.current === context.route.screen) return;
+    const contextKey = `${context.revisions.route}:${context.revisions.ui}:${JSON.stringify(context.onboarding)}`;
+    if (lastPushedContextRef.current === contextKey) return;
     if (client.updateContext(context)) {
-      lastPushedScreenRef.current = context.route.screen;
+      lastPushedContextRef.current = contextKey;
     }
   }, [conversationActive, runtime?.oneVoiceContextSnapshot]);
 
@@ -579,8 +622,14 @@ export function AgentBar() {
   // home/onboarding surface; fall back to local computation when the provider
   // is unavailable.
   const isHomeRoute = runtime?.isHomeRoute ?? (pathname ?? "") === ROUTES.HOME;
+  // The sign-in screen ("/login") is a signed-out onboarding surface with no
+  // bottom nav (same as "/"), so the bar must anchor above the safe area and
+  // must not ride a scroll-hide translation there.
+  const isLoginRoute = (pathname ?? "").startsWith(ROUTES.LOGIN);
   const useOnboardingChrome =
-    (runtime?.onboardingActive ?? chromeState.useOnboardingChrome) || isHomeRoute;
+    (runtime?.onboardingActive ?? chromeState.useOnboardingChrome) ||
+    isHomeRoute ||
+    isLoginRoute;
 
   // Hide/show in lockstep with the rest of the bottom chrome (nav + search).
   const allowScrollHide = !useOnboardingChrome;
@@ -614,11 +663,14 @@ export function AgentBar() {
   // white circle pops); on every other surface (welcome, profile, kai, …) it is
   // the indigo accent, per design.md §5.5.
   const onDashboard = path === ROUTES.ONE_HOME || path === `${ROUTES.ONE_HOME}/`;
-  // The logged-out welcome ("/") now hosts the dogfooding onboarding voice
-  // greeter instead of unmounting the bar outright: it doubles as the
-  // pre-auth conversation starter and stays route-aware for whatever the
-  // signed-out flow visits next.
-  const onboardingGreeterMode = isHomeRoute && runtime?.tier === "anon_onboarding";
+  // The logged-out welcome ("/") and the sign-in screen ("/login") both host
+  // the dogfooding onboarding voice greeter instead of unmounting the bar
+  // outright: it doubles as the pre-auth conversation starter and stays
+  // route-aware for whatever the signed-out flow visits next. On login the
+  // tier is anon_browsing, so the login route is opted in explicitly.
+  const onboardingGreeterMode =
+    (isHomeRoute && runtime?.tier === "anon_onboarding") ||
+    (isLoginRoute && !user);
 
   // Signed-out dogfooding: greet the person the moment the onboarding welcome
   // ("/") loads, instead of waiting for a tap. This reuses the exact same
@@ -655,10 +707,10 @@ export function AgentBar() {
     // trailingSlash, so the runtime pathname is "/one/setup/".
     isOneSetupRoute(path) ||
     path.startsWith(ROUTES.PHONE_MANDATE) ||
-    path.startsWith(ROUTES.LABS_PROFILE_APPEARANCE) ||
     path === ROUTES.DEVELOPERS ||
     path === ROUTES.AGENT ||
-    path.startsWith(ROUTES.LOGIN) ||
+    // "/login" keeps the bar (signed-out onboarding greeter, parity with "/");
+    // only the logout transition unmounts it.
     path.startsWith(ROUTES.LOGOUT);
 
   if (unmountBar) {
@@ -689,6 +741,152 @@ export function AgentBar() {
             : voiceStatus === "error"
               ? "error"
               : "opening";
+  // Pill contents for the frosted bar, one JSX source across all modes so
+  // the voice/theme controls and test ids never fork.
+  const pillContents = conversationActive ? (
+    // The ENTIRE bar is the tap target to end the conversation: tapping
+    // anywhere stops it. The X icon on the left is a bare marker (no chip
+    // background) showing this is the "tap to end" affordance.
+    <button
+      type="button"
+      data-native-voice-control-id="one_voice_agent_bar_end"
+      data-testid="one-voice-agent-bar-end"
+      onClick={stopConversation}
+      aria-label="End conversation"
+      title="Tap to end conversation"
+      className="relative flex min-w-0 flex-1 items-center gap-3 overflow-hidden rounded-full pl-1 pr-2 text-left"
+    >
+      <span aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
+        <MaterialRipple variant="gradient" effect="fill" />
+      </span>
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-accent-strong">
+        <X className="h-[18px] w-[18px]" />
+      </span>
+      <span
+        className="flex min-w-0 flex-1 items-center gap-3"
+        role="status"
+        aria-live="polite"
+        aria-label={voiceStatusLabel}
+      >
+        <AgentVoiceWaveform
+          level={voiceLevel}
+          status={voiceStatus}
+          barCount={28}
+          className="h-6 flex-1"
+        />
+        <span
+          className={cn(
+            "shrink-0 text-[12px] font-medium",
+            voiceStatus === "error"
+              ? "min-w-0 max-w-[60%] flex-1 truncate text-right text-destructive/80"
+              : "tabular-nums text-foreground/60",
+          )}
+          title={voiceStatus === "error" ? voiceStatusLabel : undefined}
+        >
+          {voiceStatusLabel}
+        </span>
+      </span>
+    </button>
+  ) : onboardingGreeterMode ? (
+    // Signed-out welcome ("/") + sign-in ("/login"): the bar IS the
+    // conversation starter (voice-only pre-auth) with the theme toggle
+    // infused at the right, in the same accent tone as the mic icon.
+    <>
+      <button
+        type="button"
+        data-native-voice-control-id="one_voice_agent_bar_start"
+        data-testid="one-voice-agent-bar-start-icon"
+        onClick={handleVoiceStartClick}
+        aria-label="Start conversation with One"
+        title="Start conversation"
+        className={cn(
+          "relative flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-full pl-2 text-left",
+          "transition-colors duration-200",
+        )}
+      >
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-accent-strong">
+          <AudioLines className="h-[18px] w-[18px]" />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-[#17130C]/80 dark:text-white/85">
+          Talk to One
+        </span>
+        <span aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
+          <MaterialRipple variant="gradient" effect="fill" />
+        </span>
+      </button>
+      {/* Theme toggle, infused right-aligned, accent-toned like the mic. */}
+      <button
+        type="button"
+        onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+        aria-label={resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+        title="Toggle theme"
+        className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-accent-strong transition-colors duration-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
+      >
+        {resolvedTheme === "dark" ? (
+          <Sun className="h-[17px] w-[17px]" />
+        ) : (
+          <Moon className="h-[17px] w-[17px]" />
+        )}
+        <span aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
+          <MaterialRipple variant="gradient" effect="fill" />
+        </span>
+      </button>
+    </>
+  ) : (
+    // Signed-in: same anatomy as the onboarding greeter (voice-first row on
+    // the left, one quiet action chip on the right) so the bar reads as ONE
+    // canonical control across the app. The right slot swaps by lifecycle:
+    // theme toggle during onboarding, agent-chat message icon once onboarded.
+    <>
+      <button
+        type="button"
+        data-native-voice-control-id="one_voice_agent_bar_start"
+        data-testid="one-voice-agent-bar-start-icon"
+        onClick={handleVoiceStartClick}
+        aria-label="Start conversation"
+        title="Start conversation"
+        className={cn(
+          "relative flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-full pl-2 text-left",
+          "transition-colors duration-200",
+        )}
+      >
+        <span
+          className={cn(
+            "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-accent-strong",
+            onDashboard && "text-accent-strong",
+          )}
+        >
+          <AudioLines className="h-[18px] w-[18px]" />
+        </span>
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-[14px] font-medium",
+            "text-muted-foreground",
+          )}
+        >
+          {hint}
+        </span>
+        <span aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
+          <MaterialRipple variant="gradient" effect="fill" />
+        </span>
+      </button>
+      {/* Agent chat, right-aligned chip in the same slot the theme toggle
+          occupies during onboarding. */}
+      <button
+        type="button"
+        data-testid="one-voice-agent-bar-start"
+        onClick={openAgentChat}
+        aria-label={`Open Agent Chat. ${hint}`}
+        title="Open Agent Chat"
+        className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-accent-strong transition-colors duration-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
+      >
+        <MessageCircle className="h-[17px] w-[17px]" />
+        <span aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
+          <MaterialRipple variant="gradient" effect="fill" />
+        </span>
+      </button>
+    </>
+  );
 
   return (
     <div
@@ -729,155 +927,44 @@ export function AgentBar() {
         data-testid="one-voice-agent-bar"
         data-voice-mode={nativeVoiceMode}
         className={cn(
-          "pointer-events-auto flex w-full max-w-[min(calc(100vw-2rem),34rem)] items-center gap-2",
-          "h-11 rounded-full pl-3 pr-1.5",
+          // z-0 (not just `relative`) is required so this pill forms its own
+          // local stacking context: the `.one-bar-aurora -z-10` glow span
+          // below then resolves ONE level behind THIS element, not behind
+          // the whole `z-[118]` fixed wrapper it's nested in. Without z-0 the
+          // active Gemini Live glow renders invisible/clipped behind other
+          // page content instead of hugging the pill.
+          "pointer-events-auto relative z-0 flex w-full items-center gap-2",
+          // Onboarding: sit within the content card width; elsewhere wider.
+          useOnboardingChrome
+            ? "max-w-[min(calc(100vw-3rem),392px)]"
+            : "max-w-[min(calc(100vw-2rem),34rem)]",
+          "h-12 rounded-full pl-3 pr-1.5",
           // Single, consolidated transition covering surface color plus the
           // open/close fade+lift. Smoothly eases the bar in/out with the agent
           // window lifecycle so it never snaps back into place after closing.
           "transition-[opacity,transform,background-color,box-shadow] duration-300 ease-[cubic-bezier(0.16,0.84,0.28,1)] will-change-[opacity,transform]",
-          // Match the bottom nav flat translucent shell surface. Active voice
-          // keeps a neutral surface; only the voice icon/status carries accent.
-          conversationActive
-            ? "bg-black/[0.05] text-[#1d1d1f] ring-1 ring-black/[0.04] dark:bg-white/[0.07] dark:text-[#f5f5f7] dark:ring-white/[0.08]"
-            : "bg-black/[0.05] text-[#1d1d1f] ring-1 ring-black/[0.04] dark:bg-white/[0.07] dark:text-[#f5f5f7] dark:ring-white/[0.08]",
+          // CANONICAL agent surface: the exact material of the opened agent
+          // window (agent-popover-provider shell: white/95 + blur-xl +
+          // shadow-2xl, dark #1c1c1e/95), so bar and window read as one
+          // continuous object. No idle glow.
+          "backdrop-blur-xl",
+          "bg-white/95 text-[#1d1d1f] shadow-2xl",
+          "dark:bg-[#1c1c1e]/95 dark:text-[#f5f5f7]",
           barHidden
             ? "pointer-events-none translate-y-1 scale-[0.98] opacity-0"
             : "translate-y-0 scale-100 opacity-100",
         )}
       >
+        {/* Aurora rim only while a live conversation is active, so motion
+            always means something. No resting glow: at rest the bar is the
+            same quiet material as the agent window. */}
         {conversationActive ? (
-          <>
-            <div
-              className="flex min-w-0 flex-1 items-center gap-3 pl-1"
-              role="status"
-              aria-live="polite"
-              aria-label={voiceStatusLabel}
-            >
-              <AgentVoiceWaveform
-                level={voiceLevel}
-                status={voiceStatus}
-                barCount={28}
-                className="h-6 flex-1"
-              />
-              <span
-                className={cn(
-                  "shrink-0 text-[12px] font-medium",
-                  // The error reason can be a full sentence; let it use the row
-                  // and truncate rather than overflow the pill. Status words stay
-                  // compact with tabular figures.
-                  voiceStatus === "error"
-                    ? "min-w-0 max-w-[60%] flex-1 truncate text-right text-destructive/80"
-                    : "tabular-nums text-foreground/60",
-                )}
-                title={voiceStatus === "error" ? voiceStatusLabel : undefined}
-              >
-                {voiceStatusLabel}
-              </span>
-            </div>
-            <button
-              type="button"
-              data-native-voice-control-id="one_voice_agent_bar_end"
-              data-testid="one-voice-agent-bar-end"
-              onClick={stopConversation}
-              aria-label="End conversation"
-              title="End conversation"
-              className={cn(
-                "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                "bg-black/[0.05] text-accent-strong dark:bg-white/[0.07]",
-                "transition-[background-color,transform] duration-200",
-                "hover:bg-black/[0.08] active:scale-90 dark:hover:bg-white/[0.1]",
-              )}
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </>
-        ) : onboardingGreeterMode ? (
-          // Signed-out welcome ("/"): the bar itself IS the conversation
-          // starter (not a text hint that opens chat). Left = mic icon
-          // marker, whole body is the tap target, right = chat toggle that
-          // stays visually present but disabled - chat needs a signed-in,
-          // vault-capable session, which does not exist pre-auth.
-          <>
-            <button
-              type="button"
-              data-native-voice-control-id="one_voice_agent_bar_start"
-              data-testid="one-voice-agent-bar-start-icon"
-              onClick={handleVoiceStartClick}
-              aria-label="Start conversation with One"
-              title="Start conversation"
-              className={cn(
-                "flex min-w-0 flex-1 items-center gap-2.5 rounded-full pl-1 text-left",
-                "transition-colors duration-200 active:scale-[0.99]",
-              )}
-            >
-              <span
-                className={cn(
-                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                  "bg-black/[0.05] text-accent-strong ring-1 ring-black/[0.04] dark:bg-white/[0.07] dark:ring-white/[0.08]",
-                )}
-              >
-                <AudioLines className="h-[16px] w-[16px]" />
-              </span>
-              <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-muted-foreground">
-                Talk to One
-              </span>
-            </button>
-            <button
-              type="button"
-              disabled
-              aria-disabled="true"
-              aria-label="Chat is available after you sign in"
-              title="Chat is available after you sign in"
-              className={cn(
-                "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
-                "bg-black/[0.05] text-muted-foreground/50 ring-1 ring-black/[0.04] dark:bg-white/[0.07] dark:ring-white/[0.08]",
-                "cursor-not-allowed opacity-60",
-              )}
-            >
-              <MessageSquare className="h-[18px] w-[18px]" />
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              type="button"
-              data-testid="one-voice-agent-bar-start"
-              onClick={openAgentChat}
-              aria-label={`Open Agent Chat. ${hint}`}
-              title="Open Agent Chat"
-              className={cn(
-                "flex min-w-0 flex-1 items-center gap-2.5 rounded-full pl-1 text-left",
-                "transition-colors duration-200 active:scale-[0.99]",
-              )}
-            >
-              <span
-                className={cn(
-                  "min-w-0 flex-1 truncate text-[14px] font-medium",
-                  "text-muted-foreground",
-                )}
-              >
-                {hint}
-              </span>
-            </button>
-            <button
-              type="button"
-              data-native-voice-control-id="one_voice_agent_bar_start"
-              data-testid="one-voice-agent-bar-start-icon"
-              onClick={handleVoiceStartClick}
-              aria-label="Start conversation"
-              title="Start conversation"
-              className={cn(
-                "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
-                "bg-black/[0.05] text-accent-strong ring-1 ring-black/[0.04] dark:bg-white/[0.07] dark:ring-white/[0.08]",
-                onDashboard && "text-accent-strong",
-                "transition-[background-color,transform] duration-200 active:scale-90",
-                "hover:bg-black/[0.08] dark:hover:bg-white/[0.1]",
-              )}
-            >
-              <AudioLines className="h-[18px] w-[18px]" />
-            </button>
-          </>
-        )}
+          <span
+            aria-hidden
+            className="one-bar-aurora one-bar-aurora--active -z-10 transition-opacity duration-500"
+          />
+        ) : null}
+        {pillContents}
       </div>
     </div>
   );

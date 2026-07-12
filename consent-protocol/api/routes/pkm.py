@@ -5,6 +5,7 @@ Personal Knowledge Model API routes.
 Canonical API surface for PKM.
 """
 
+import logging
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, Header, HTTPException, Path, status
@@ -81,8 +82,10 @@ from api.routes.pkm_routes_shared import (
     validate_store_domain as _validate_store_domain,
 )
 from hushh_mcp.pricing import SlicePricingInput, compute_suggested_price
+from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.pkm_agent_lab_service import get_pkm_agent_lab_service
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/pkm", tags=["pkm"])
 
 
@@ -307,6 +310,60 @@ async def preview_pkm_structure(
         current_manifests=request.current_manifests,
         simulated_state=request.simulated_state,
     )
+    pkm_service = get_pkm_service()
+    preview_cards = payload.get("preview_cards") or []
+    total_active_recipients = 0
+    for card in preview_cards:
+        if not isinstance(card, dict) or card.get("write_mode") == "do_not_save":
+            continue
+        raw_structure_decision = card.get("structure_decision")
+        structure_decision: dict = (
+            raw_structure_decision if isinstance(raw_structure_decision, dict) else {}
+        )
+        raw_manifest_draft = card.get("manifest_draft")
+        manifest_draft: dict = raw_manifest_draft if isinstance(raw_manifest_draft, dict) else {}
+        target_domain = str(
+            manifest_draft.get("domain")
+            or structure_decision.get("target_domain")
+            or card.get("target_domain")
+            or ""
+        ).strip()
+        target_scope = str(
+            card.get("target_entity_scope")
+            or card.get("primary_json_path")
+            or next(iter(manifest_draft.get("top_level_scope_paths") or []), "profile")
+        ).strip()
+        target_scope = target_scope.split(".", 1)[0]
+        if not target_domain or not target_scope:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "PKM_MUTATION_TARGET_UNRESOLVED",
+                    "message": "The PKM structure agent did not produce a reviewable target.",
+                },
+            )
+        try:
+            sharing_impact = await pkm_service.get_mutation_sharing_impact(
+                user_id=request.user_id,
+                domain=target_domain,
+                scope_path=target_scope,
+            )
+        except Exception as exc:
+            logger.warning("PKM sharing-impact lookup failed: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "PKM_SHARING_IMPACT_UNAVAILABLE",
+                    "message": "Current recipients could not be verified. Try the preview again.",
+                },
+            ) from exc
+        card["sharing_impact"] = sharing_impact
+        total_active_recipients += int(sharing_impact.get("active_recipient_count") or 0)
+    payload["preview_cards"] = preview_cards
+    payload["preview_summary"] = {
+        **(payload.get("preview_summary") or {}),
+        "active_recipient_count": total_active_recipients,
+    }
     return PKMAgentLabStructureResponse(**payload)
 
 
@@ -340,7 +397,7 @@ async def compute_slice_price(
     _auth: dict = Depends(require_pkm_metadata_access),
 ):
     """
-    Suggested 30-day price for a published default_available slice.
+    Suggested 30-day price for an owner-published public-profile summary.
 
     Display-only (Phase 1): stateless, reads no ciphertext, persists nothing, and
     does not change any consent scope. The owner sets the real price in a later

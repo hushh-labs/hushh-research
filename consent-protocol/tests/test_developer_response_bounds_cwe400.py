@@ -3,7 +3,7 @@
 PR attach point: api/routes/developer.py
 
 Adds max_length bounds to previously unbounded response-model string
-fields (and the /default-available-export token query param). These
+fields. These
 responses echo user identifiers, app metadata, scope paths, and
 encrypted export blobs; without an upper bound a malicious or corrupted
 service layer could inflate payloads and exhaust memory (CWE-400).
@@ -18,10 +18,10 @@ import pytest
 from pydantic import ValidationError
 
 from api.routes.developer import (
-    DeveloperDefaultAvailableExportResponse,
     DeveloperPortalAccessResponse,
     DeveloperPortalAppResponse,
     DeveloperPortalTokenResponse,
+    DeveloperPublicProfileExportResponse,
     DeveloperScopedExportResponse,
 )
 
@@ -37,6 +37,7 @@ def _valid_app() -> DeveloperPortalAppResponse:
         contact_email="dev@example.com",
         status="active",
         allowed_tool_groups=[],
+        allowed_capabilities=[],
         created_at=0,
         updated_at=0,
     )
@@ -86,45 +87,45 @@ class TestDeveloperScopedExportResponseBounds:
             )
 
 
-class TestDeveloperDefaultAvailableExportResponseBounds:
+class TestDeveloperPublicProfileExportResponseBounds:
     def test_valid(self):
-        resp = DeveloperDefaultAvailableExportResponse(
-            status="ok", user_id="u1", scope="attr.x", message="done"
+        resp = DeveloperPublicProfileExportResponse(
+            status="ok", user_id="u1", public_profile_handle="profile_1", message="done"
         )
-        assert resp.scope == "attr.x"
+        assert resp.public_profile_handle == "profile_1"
 
     def test_status_over_max_rejected(self):
         with pytest.raises(ValidationError):
-            DeveloperDefaultAvailableExportResponse(
-                status="A" * 65, user_id="u1", scope="attr.x", message="done"
+            DeveloperPublicProfileExportResponse(
+                status="A" * 65, user_id="u1", public_profile_handle="profile_1", message="done"
             )
 
     def test_user_id_over_max_rejected(self):
         with pytest.raises(ValidationError):
-            DeveloperDefaultAvailableExportResponse(
-                status="ok", user_id="A" * 129, scope="attr.x", message="done"
+            DeveloperPublicProfileExportResponse(
+                status="ok", user_id="A" * 129, public_profile_handle="profile_1", message="done"
             )
 
-    def test_scope_over_max_rejected(self):
+    def test_public_profile_handle_over_max_rejected(self):
         with pytest.raises(ValidationError):
-            DeveloperDefaultAvailableExportResponse(
-                status="ok", user_id="u1", scope="A" * 201, message="done"
+            DeveloperPublicProfileExportResponse(
+                status="ok", user_id="u1", public_profile_handle="A" * 65, message="done"
             )
 
     def test_top_level_scope_path_over_max_rejected(self):
         with pytest.raises(ValidationError):
-            DeveloperDefaultAvailableExportResponse(
+            DeveloperPublicProfileExportResponse(
                 status="ok",
                 user_id="u1",
-                scope="attr.x",
+                public_profile_handle="profile_1",
                 message="done",
                 top_level_scope_path="A" * 513,
             )
 
     def test_message_over_max_rejected(self):
         with pytest.raises(ValidationError):
-            DeveloperDefaultAvailableExportResponse(
-                status="ok", user_id="u1", scope="attr.x", message="A" * 2001
+            DeveloperPublicProfileExportResponse(
+                status="ok", user_id="u1", public_profile_handle="profile_1", message="A" * 2001
             )
 
 

@@ -34,6 +34,7 @@ import { TopAppBar } from "@/components/app-ui/top-app-bar";
 import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider";
 import { AgentRuntimeStateProvider } from "@/lib/agent/agent-runtime-context";
 import { AgentBar } from "@/components/agent/agent-bar";
+import { AgentVoiceEdgeGlow } from "@/components/agent/agent-voice-edge-glow";
 import { Navbar } from "@/components/navbar";
 import { Toaster } from "@/components/ui/sonner";
 import { StatusBarManager } from "@/components/status-bar-manager";
@@ -329,6 +330,14 @@ function AppShellFrame({ children }: ProvidersProps) {
             <NativeTestRouter />
             <NativeTestBootstrap />
             <NativeTestRouteStatus />
+            {/* Voice chrome is hoisted ABOVE the page Suspense boundary so it
+                mounts exactly once and survives client-side route transitions.
+                Inside the boundary it would remount whenever a navigation
+                suspends (fallback tree <-> resolved tree swap), tearing down
+                the live voice session and restarting the conversation on every
+                route switch. Both are fixed overlays, so position is unaffected. */}
+            <AgentVoiceEdgeGlow />
+            <AgentBar />
             <Suspense
               fallback={
                 <>
@@ -368,7 +377,6 @@ function AppShellFrame({ children }: ProvidersProps) {
                         ) : null
                       }
                     </VaultContext.Consumer>
-                    <AgentBar />
                     <PostAuthOnboardingSyncBridge />
                     <Suspense fallback={null}>
                       <KaiCommandBarGlobal />
@@ -447,7 +455,6 @@ function AppShellFrame({ children }: ProvidersProps) {
                         ) : null
                       }
                     </VaultContext.Consumer>
-                    <AgentBar />
                     <PostAuthOnboardingSyncBridge />
                     <Suspense fallback={null}>
                       <KaiCommandBarGlobal />

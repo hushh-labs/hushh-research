@@ -147,7 +147,7 @@
       "exact_tables": [
         "pkm_default_available_projections"
       ],
-      "primary_access_path": "vault-owner profile sharing controls publish safe projections; authenticated developer connectors read ready projections through the default-available export endpoint",
+      "primary_access_path": "vault-owner profile controls publish safe public-profile projections; authenticated developer connectors read them by opaque handle through the public-profile export endpoint",
       "retention_policy": "Retain while the user keeps the section available by default; revoke or replace on posture change, projection refresh, domain deletion, or account deletion.",
       "deletion_behavior": "Soft revoke individual projections by setting revoked_at; hard-delete on account or domain deletion.",
       "trust_boundary": "Consumer-visible safe projection payloads only. Never raw encrypted PKM, pkm.read, workflow artifacts, hashes, provenance as shareable data, or broad blobs.",

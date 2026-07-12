@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { getRedirectResult } from "firebase/auth";
 import { ArrowLeft, Shield } from "lucide-react";
@@ -11,12 +10,15 @@ import { auth } from "@/lib/firebase/config";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { isAndroid } from "@/lib/capacitor/platform";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { AuthLegalDialog } from "@/components/onboarding/AuthLegalDialog";
 import {
   isOnboardingFlowActiveCookieEnabled,
@@ -43,14 +45,17 @@ const AUTH_CANCEL_CODES = new Set([
   "auth/user-cancelled",
 ]);
 
-// 9a provider-button treatments: Apple black, Google white-with-border,
-// Reviewer indigo-tint (design.md §5.9). Passed to AuthProviderButton className.
+// Provider-button treatments MATCH the theme (light surfaces in light mode,
+// dark surfaces in dark mode) so the sheet reads as one coherent material:
+// Apple/Google are white cards with ink text on the light sheet, and deep
+// charcoal cards with light text on the dark sheet. Reviewer stays a quiet
+// outlined tertiary in both themes.
 const APPLE_BTN_CLASS =
-  "!bg-[#0A0908] !text-[#FAF6EE] shadow-[0_8px_20px_rgba(0,0,0,0.16)] hover:!bg-black dark:!bg-[#0A0908] dark:ring-1 dark:ring-white/10";
+  "!bg-white !text-[#17130C] border border-black/10 shadow-sm hover:!bg-black/[0.02] dark:!bg-[#1c1c1e] dark:!text-[#F7F3EA] dark:border-white/12 dark:hover:!bg-[#26262a]";
 const GOOGLE_BTN_CLASS =
-  "!bg-white !text-[#17130C] border border-[rgba(214,175,106,0.55)] shadow-sm hover:!bg-black/[0.02]";
+  "!bg-white !text-[#17130C] border border-black/10 shadow-sm hover:!bg-black/[0.02] dark:!bg-[#1c1c1e] dark:!text-[#F7F3EA] dark:border-white/12 dark:hover:!bg-[#26262a]";
 const REVIEWER_BTN_CLASS =
-  "!bg-[rgba(156,116,52,0.12)] !text-[#9C7434] hover:!bg-[rgba(156,116,52,0.18)] dark:!bg-[rgba(212,175,106,0.16)] dark:!text-[#D4AF6A]";
+  "!bg-transparent !text-[#6b6b70] border border-black/10 shadow-none hover:!bg-black/[0.03] dark:!text-white/60 dark:border-white/15 dark:hover:!bg-white/[0.05]";
 
 function isAuthCancel(error: unknown): boolean {
   const code =
@@ -89,6 +94,7 @@ export function AuthStep({
   const { user, loading: authLoading, setNativeUser } = useAuth();
   const { registerSteps, completeStep, reset } = useStepProgress();
   const lastNavigationKeyRef = useRef<string | null>(null);
+  const redirectResultHandledRef = useRef(false);
   const autoReviewerLoginStartedRef = useRef(false);
   const [nativeReviewerVisible, setNativeReviewerVisible] = useState(
     nativeTestConfig.autoReviewerLogin
@@ -126,6 +132,7 @@ export function AuthStep({
   const [activeLegalDoc, setActiveLegalDoc] = useState<KaiLegalDocumentType | null>(
     null
   );
+
   const localReviewerCredentialsAvailable = useMemo(() => {
     return Boolean(
       resolveLocalReviewerCredentials(
@@ -188,6 +195,19 @@ export function AuthStep({
           resolvedPath === ROUTES.KAI_HOME && isOnboardingFlowActiveCookieEnabled();
         const nextPath = resumeImportFlow ? ROUTES.KAI_IMPORT : resolvedPath;
 
+        // This runs only after Firebase's redirect callback has produced a
+        // user. The provider launch itself remains a `started` settlement;
+        // the durable journey is never advanced merely because a redirect was
+        // opened or a popup was requested.
+        await PreVaultUserStateService.syncOnboardingJourney({
+          userId,
+          phase: nextPath === ROUTES.PHONE_MANDATE ? "phone_required" : "setup_hub",
+          callbackState: "succeeded",
+        }).catch((journeyError) => {
+          // The existing post-auth route remains the rollback path while the
+          // additive journey migration rolls out.
+          console.warn("[AuthStep] Failed to persist onboarding journey:", journeyError);
+        });
         setOnboardingRequiredCookie(nextPath === ROUTES.ONE_SETUP);
         setOnboardingFlowActiveCookie(nextPath === ROUTES.KAI_IMPORT);
         router.push(nextPath);
@@ -240,11 +260,14 @@ export function AuthStep({
     if (authLoading) return;
     completeStep();
 
-    getRedirectResult(auth)
+    if (!redirectResultHandledRef.current) {
+      redirectResultHandledRef.current = true;
+      getRedirectResult(auth)
       .then(async (result) => {
         if (result?.user) {
+          const voiceAttempt = AuthService.clearVoiceRedirectAttempt();
           trackEvent("auth_succeeded", {
-            action: "redirect",
+            action: voiceAttempt?.provider || "redirect",
             result: "success",
           });
           if (growthJourney) {
@@ -267,8 +290,23 @@ export function AuthStep({
         }
       })
       .catch((err) => {
+        const voiceAttempt = AuthService.clearVoiceRedirectAttempt();
         debugError("[AuthStep] Redirect auth error", err);
+        trackEvent("auth_failed", {
+          action: voiceAttempt?.provider || "redirect",
+          result: "error",
+          error_class:
+            err && typeof err === "object" && "code" in err
+              ? String((err as { code?: unknown }).code || "redirect_failed")
+              : "redirect_failed",
+        });
+        if (voiceAttempt && !isAuthCancel(err)) {
+          morphyToast.error(`Could not complete ${voiceAttempt.provider === "apple" ? "Apple" : "Google"} sign-in.`, {
+            description: "Use the provider button to retry, then return to One.",
+          });
+        }
       });
+    }
 
     if (user) {
       if (growthJourney) {
@@ -439,10 +477,6 @@ export function AuthStep({
     user,
   ]);
 
-  if (authLoading || user) {
-    return <HushhLoader label="Checking session..." variant="fullscreen" />;
-  }
-
   const handleGoogleLogin = async () => {
     if (pendingProvider) return;
     setPendingProvider("google");
@@ -565,6 +599,66 @@ export function AuthStep({
     }
   };
 
+  const startVoiceProviderLogin = async (provider: "google" | "apple") => {
+    if (pendingProvider) {
+      return { status: "blocked" as const, summary: "A sign-in window is already open." };
+    }
+    setPendingProvider(provider);
+    trackEvent("auth_started", { action: provider });
+    try {
+      const authResult =
+        provider === "google"
+          ? await AuthService.startGoogleSignInForVoice()
+          : await AuthService.startAppleSignInForVoice();
+
+      // Browser redirect starts navigation and settles through getRedirectResult
+      // on return. Native sign-in completes in-process and can use the same
+      // post-auth route resolution as the visible provider buttons.
+      if (!authResult?.user) {
+        return {
+          status: "started" as const,
+          summary: `Opening ${provider === "google" ? "Google" : "Apple"} sign-in.`,
+        };
+      }
+      setNativeUser(authResult.user);
+      await resolveAndNavigate(
+        authResult.user.uid,
+        authResult.idToken || (await authResult.user.getIdToken()),
+        authResult.user.phoneNumber
+      );
+      return {
+        status: "succeeded" as const,
+        summary: "Sign-in completed. Continuing your setup.",
+      };
+    } catch (error) {
+      trackEvent("auth_failed", {
+        action: provider,
+        result: "error",
+        error_class: "auth_failed",
+      });
+      return {
+        status: "failed" as const,
+        summary:
+          error instanceof Error && error.message
+            ? error.message
+            : `Could not start ${provider === "google" ? "Google" : "Apple"} sign-in.`,
+      };
+    } finally {
+      setPendingProvider(null);
+    }
+  };
+
+  useLocalOnboardingActionHandler("auth.sign_in_google", async () =>
+    startVoiceProviderLogin("google")
+  );
+  useLocalOnboardingActionHandler("auth.sign_in_apple", async () =>
+    startVoiceProviderLogin("apple")
+  );
+
+  if (authLoading || user) {
+    return <HushhLoader label="Checking session..." variant="fullscreen" />;
+  }
+
   const authOptions = isAndroid()
     ? [
         {
@@ -603,9 +697,11 @@ export function AuthStep({
 
   return (
     <main
-      className="relative h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-[#0A0908]"
+      className="relative h-[100dvh] min-h-[100svh] w-full overflow-hidden"
       data-testid="auth-step-primary"
     >
+      {/* Shared immersive gradient backdrop (welcome / login / carousel). */}
+      <OnboardingHeroBackground />
       <NativeTestBeacon
         routeId="/login"
         marker="native-route-login"
@@ -630,58 +726,49 @@ export function AuthStep({
         }
       />
 
-      {/* Immersive hero glows */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[58%]">
-        <span
-          className="absolute -top-24 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full"
-          style={{ background: "rgba(212,175,106,0.26)", filter: "blur(95px)" }}
-        />
-        <span
-          className="absolute -right-16 top-16 h-56 w-56 rounded-full"
-          style={{ background: "rgba(212,175,106,0.14)", filter: "blur(80px)" }}
-        />
-      </div>
-
       <button
         type="button"
         onClick={handleBack}
         aria-label="Go back"
-        className="fixed left-4 top-[calc(max(var(--app-safe-area-top-effective),0.5rem)+0.5rem)] z-50 grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-white/15 active:scale-95"
+        className="fixed left-4 top-[calc(max(var(--app-safe-area-top-effective),0.5rem))] z-50 grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15"
       >
         <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
       </button>
 
       <div className="relative mx-auto flex h-[100dvh] min-h-[100svh] w-full max-w-[440px] flex-col">
-        {/* Dark hero */}
+        {/* Hero */}
         <div className="flex flex-1 flex-col items-center justify-center px-6 pb-6 text-center">
-          <div className="flex h-[84px] w-[84px] items-center justify-center rounded-[22px] border border-[rgba(214,175,106,0.30)] bg-gradient-to-b from-white/[0.16] to-white/[0.06] shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
-            <Image
-              src="/one-quiet-emoji.png"
-              alt="One"
-              width={762}
-              height={766}
-              priority
-              unoptimized
-              draggable={false}
-              className="h-11 w-11 object-contain [filter:drop-shadow(0_4px_10px_rgba(0,0,0,0.35))]"
-            />
+          {/* Quiet mark: the bare 🤫 over a soft accent glow, no medallion
+              chrome (badge circle removed by design). */}
+          <div className="relative flex h-[92px] w-[92px] items-center justify-center" aria-hidden="true">
+            <span className="pointer-events-none absolute h-28 w-28 rounded-full bg-accent/20 blur-2xl" />
+            <span className="relative select-none text-[56px] leading-none drop-shadow-[0_6px_14px_rgba(0,0,0,0.25)]">
+              🤫
+            </span>
           </div>
           <h1
             role="heading"
             aria-level={1}
-            aria-label="Sign in to One"
-            className="mt-6 font-[family-name:var(--font-app-display)] text-[36px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#FAF6EE]"
+            aria-label="Welcome to One"
+            className="mt-6 font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#17130C] dark:text-[#FAF6EE]"
           >
-            Sign in to One<span style={{ color: "#D4AF6A" }}>.</span>
+            Welcome to One<span style={{ color: "#D4AF6A" }}>.</span>
           </h1>
-          <p className="mt-3 max-w-[20rem] text-[16px] leading-[1.4] text-[rgba(250,246,238,0.62)]">
-            Sign in to open your private vault, only you can.
+          <p className="mt-3 max-w-[19rem] text-[16px] leading-[1.45] text-[rgba(23,19,12,0.6)] dark:text-[rgba(250,246,238,0.62)]">
+            Sign in to open your private vault. It unlocks with you, and only you.
           </p>
         </div>
 
-        {/* White action sheet */}
-        <div className="relative rounded-t-[34px] bg-white px-6 pt-7 pb-[calc(76px+var(--app-screen-footer-pad))] shadow-[0_-16px_50px_rgba(0,0,0,0.45)] dark:bg-[#141416]">
-          <div className="mx-auto w-full max-w-[21.5rem] space-y-3">
+        {/* Frosted glass action sheet: translucent + backdrop-blurred so the
+            dark ambient hero shows through behind it, while dark-on-light
+            controls stay legible. Matches the welcome ("/") glass sheet. */}
+        <div className="relative overflow-hidden rounded-t-[36px] border-t border-white/70 bg-white/55 px-6 pt-7 pb-[calc(132px+env(safe-area-inset-bottom,0px)+var(--app-screen-footer-pad))] shadow-[0_-1px_0_rgba(255,255,255,0.6)_inset,0_-24px_60px_-24px_rgba(23,19,12,0.22)] backdrop-blur-md backdrop-saturate-150 supports-[backdrop-filter]:bg-white/40 dark:border-white/10 dark:bg-[#141018]/60 dark:shadow-[0_-1px_0_rgba(255,255,255,0.06)_inset,0_-24px_60px_-24px_rgba(0,0,0,0.6)] dark:supports-[backdrop-filter]:bg-[#141018]/45">
+          {/* Glass highlight sheen along the top edge. */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(255,255,255,0.55)_0%,transparent_100%)] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.06)_0%,transparent_100%)]"
+          />
+          <div className="relative z-[1] mx-auto w-full max-w-[21.5rem] space-y-3">
             {authOptions.map((option) => (
               <AuthProviderButton
                 key={option.id}
@@ -702,13 +789,23 @@ export function AuthStep({
               />
             ) : null}
 
-            <p className="type-footnote mx-auto max-w-[18.75rem] pt-1 text-center text-[#86868b] dark:text-white/45">
+            {/* Consent-first reassurance chip. */}
+            <div className="mx-auto mt-1 flex w-fit items-center gap-1.5 rounded-full bg-[rgba(156,116,52,0.10)] px-3 py-1.5 dark:bg-white/[0.06]">
+              <Icon icon={Shield} size="sm" className="text-[#9C7434] dark:text-[#D4AF6A]" />
+              <span className="type-footnote text-[#8a6a2f] dark:text-[#D4AF6A]">
+                Consent-first. Nothing moves without your yes.
+              </span>
+            </div>
+
+            <p className="type-footnote mx-auto max-w-[18.75rem] text-center text-[#86868b] dark:text-white/45">
               A verified phone number is required before you continue.
             </p>
 
           </div>
         </div>
-        <footer className="absolute inset-x-6 bottom-[calc(20px+var(--app-screen-footer-pad))] flex-none">
+        {/* Lifted to clear the persistent agent bar (pinned above the safe
+            area, ~44px tall + gap) so the legal footnote never tucks under it. */}
+        <footer className="absolute inset-x-6 bottom-[calc(20px+56px+env(safe-area-inset-bottom,0px)+var(--app-screen-footer-pad))] flex-none">
           <p className="type-footnote mx-auto max-w-[19.5rem] text-center text-[#86868b] dark:text-white/45">
             By continuing, you agree to One&apos;s{" "}
             <button

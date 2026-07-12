@@ -109,7 +109,7 @@ export function locationConsentSummary(metadata: MetadataLike): string {
   if (durationLabel) {
     return `${who} wants to see your location for ${durationLabel}.`;
   }
-  return `${who} wants to see your location through One Location.`;
+  return `${who} wants to see your location through Onepoint.`;
 }
 
 /**

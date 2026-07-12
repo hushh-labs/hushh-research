@@ -1,6 +1,6 @@
 {
   "name": "@hushh/mcp",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Launch-friendly npm wrapper for the Hussh Consent MCP server",
   "license": "Apache-2.0",
   "repository": {
@@ -27,6 +27,8 @@
   "scripts": {
     "docs:render": "node ./scripts/render-readme.mjs",
     "docs:check": "node ./scripts/render-readme.mjs --check",
+    "test": "vitest run bin-config.test.ts",
+    "verify:package": "npm run docs:check && npm test && npm pack --dry-run",
     "prepack": "node ./scripts/stage-runtime.mjs",
     "print-config": "node ./bin/hushh-mcp.js --print-config",
     "print-codex-toml": "node ./bin/hushh-mcp.js --print-codex-toml",
@@ -37,5 +39,8 @@
   },
   "engines": {
     "node": ">=18.18"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.5"
   }
 }

@@ -20,7 +20,7 @@ export function TypingIndicator() {
     <span
       data-testid="location-chat-typing"
       className="inline-flex items-center gap-1"
-      aria-label="One Location is typing"
+      aria-label="Onepoint is typing"
     >
       {[0, 1, 2].map((i) => (
         <span

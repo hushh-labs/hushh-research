@@ -572,6 +572,7 @@ class PersonalKnowledgeModelPlugin : Plugin() {
             put("encrypted_blob", blob)
             put("summary", summary)
             call.getObject("structureDecision")?.let { put("structure_decision", it) }
+            call.getObject("mutationPlan")?.let { put("mutation_plan", it) }
             call.getObject("manifest")?.let { put("manifest", it) }
             call.getInt("expectedDataVersion")?.let { put("expected_data_version", it) }
             call.getObject("upgradeContext")?.let { upgradeContext ->

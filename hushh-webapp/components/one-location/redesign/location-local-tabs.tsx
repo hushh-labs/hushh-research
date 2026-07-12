@@ -11,6 +11,7 @@
  */
 
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
+import { cn } from "@/lib/utils";
 
 export type LocationHubTab = "now" | "people" | "links" | "inbox";
 
@@ -48,7 +49,18 @@ export function LocationLocalTabs({
       value={value}
       onValueChange={(next) => onChange(next as LocationHubTab)}
       options={options}
-      className={className}
+      className={cn(
+        // Onepoint: Apple-blue active pill (light-blue fill + blue text),
+        // scoped to the location tabs by overriding the shared segmented-tab
+        // CSS vars here — the app-wide primitive stays untouched.
+        "[--app-segmented-active-surface:#e6f0ff] [--app-segmented-active-foreground:#007aff] [--app-segmented-active-border:transparent]",
+        // Squarish shape per the design (container 16px, tab pills 12px) instead
+        // of the primitive's full-round. Literal px values because this app's
+        // --radius scale is large (rounded-xl ≈ 24px here). tailwind-merge lets
+        // rounded-[16px] override the primitive's rounded-full on the container.
+        "rounded-[16px] [&_button]:rounded-[12px]",
+        className,
+      )}
     />
   );
 }

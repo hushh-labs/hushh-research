@@ -440,6 +440,7 @@ export class HushhPersonalKnowledgeModelWeb
       newReadableSummaryVersion?: number;
       retryCount?: number;
     };
+    mutationPlan?: Record<string, unknown>;
     vaultOwnerToken?: string;
   }): Promise<{
     success: boolean;
@@ -466,6 +467,7 @@ export class HushhPersonalKnowledgeModelWeb
         },
         summary: options.summary,
         structure_decision: options.structureDecision,
+        mutation_plan: options.mutationPlan,
         manifest: options.manifest,
         write_projections: (options.writeProjections || []).map((projection) => ({
           projection_type: projection.projectionType,

@@ -64,15 +64,17 @@ class TestAgentTreeShape:
             "ask_email_agent",
             "ask_gmail_agent",
             "ask_location_agent",
-            "ask_connections_agent",
             "ask_marketplace_agent",
             "ask_connected_systems_agent",
             "ask_consent_agent",
         } <= tool_names
+        assert "ask_connections_agent" not in tool_names
 
     def test_identity_instruction_answers_name_question(self):
         assert "I'm One" in ONE_IDENTITY_INSTRUCTION
         assert "Never call yourself Kai" in ONE_IDENTITY_INSTRUCTION
+        assert "Conversation comes before workflow" in ONE_IDENTITY_INSTRUCTION
+        assert "so what?" in ONE_IDENTITY_INSTRUCTION
 
     def test_runner_is_singleton(self):
         assert get_one_runner() is get_one_runner()
@@ -85,7 +87,7 @@ def _tool_context(state: dict) -> SimpleNamespace:
 class TestSpecialistTurn:
     @pytest.mark.asyncio
     async def test_fails_closed_without_auth_state(self):
-        result = await _specialist_turn("agent_email", "what needs a reply", _tool_context({}))
+        result = await _specialist_turn("agent_location", "what needs a reply", _tool_context({}))
         assert result["status"] == "needs_auth"
 
     @pytest.mark.asyncio
@@ -112,7 +114,7 @@ class TestSpecialistTurn:
         ) as mock_dispatch:
             state = {STATE_USER_ID: "u1", STATE_CONSENT_TOKEN: "tok"}
             result = await _specialist_turn(
-                "agent_email", "what needs a reply", _tool_context(state)
+                "agent_location", "what needs a reply", _tool_context(state)
             )
         assert result["status"] == "ok"
         assert result["text"] == "Two threads need replies."
@@ -121,6 +123,41 @@ class TestSpecialistTurn:
         assert task.consent_token == "tok"
         # Conversation continuity is written back for the next turn.
         assert state["hussh:conversation_id"] == "conv_1"
+
+    @pytest.mark.asyncio
+    async def test_route_admission_allows_only_the_declared_specialist(self):
+        turn = SpecialistTurnResult(
+            conversation_id="conv_route",
+            text="Location is ready.",
+            directive=None,
+            is_complete=True,
+            state_changed=False,
+            model="test",
+        )
+        state = {
+            STATE_USER_ID: "u1",
+            STATE_CONSENT_TOKEN: "tok",
+            "hussh:voice_context": {"route_family": "/one/location"},
+        }
+        with patch("hushh_mcp.one_adk.agent_tree.dispatch", new=AsyncMock(return_value=turn)):
+            result = await _specialist_turn(
+                "agent_location", "share location", _tool_context(state)
+            )
+        assert result["status"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_route_admission_blocks_specialist_outside_declared_workspace(self):
+        state = {
+            STATE_USER_ID: "u1",
+            STATE_CONSENT_TOKEN: "tok",
+            "hussh:voice_context": {"route_family": "/profile"},
+        }
+        with patch("hushh_mcp.one_adk.agent_tree.dispatch", new=AsyncMock()) as dispatch:
+            result = await _specialist_turn(
+                "agent_location", "share location", _tool_context(state)
+            )
+        assert result["status"] == "route_not_admitted"
+        dispatch.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_directive_is_forwarded(self):
@@ -154,7 +191,7 @@ class TestSpecialistTurn:
             new=AsyncMock(side_effect=RuntimeError("boom")),
         ):
             result = await _specialist_turn(
-                "agent_email",
+                "agent_location",
                 "hello",
                 _tool_context({STATE_USER_ID: "u1", STATE_CONSENT_TOKEN: "tok"}),
             )
@@ -236,6 +273,17 @@ class TestRunAppAction:
         result = await run_app_action("analysis.start", {}, _tool_context(state))
         assert result["status"] == "input_needed"
         assert result["missing_slot"] == "symbol"
+        assert _STATE_PENDING_DIRECTIVE not in state
+
+    @pytest.mark.asyncio
+    async def test_live_context_refuses_action_not_declared_available(self):
+        state = {
+            "hussh:voice_context": {
+                "available_action_ids": ["route.profile"],
+            }
+        }
+        result = await run_app_action("analysis.start", {"symbol": "NVDA"}, _tool_context(state))
+        assert result["status"] == "action_unavailable"
         assert _STATE_PENDING_DIRECTIVE not in state
 
     @pytest.mark.asyncio

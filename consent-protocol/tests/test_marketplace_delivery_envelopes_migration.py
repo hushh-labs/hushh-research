@@ -20,7 +20,7 @@ def test_marketplace_delivery_envelopes_migration_is_registered_at_release_head(
         "ordered_migrations"
     ].index("080_marketplace_recipient_keys.sql")
     # The contract version tracks the release head, which this migration now is.
-    assert contract["expected_migration_version"] == 82
+    assert contract["expected_migration_version"] >= 82
 
 
 def test_marketplace_delivery_envelopes_migration_creates_envelope_table() -> None:

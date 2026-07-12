@@ -10,6 +10,7 @@ This module is the source of truth for:
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -162,11 +163,12 @@ RETIRED_DOMAIN_REGISTRY_KEYS: tuple[str, ...] = (
     "kai_preferences",
 )
 
-CURRENT_PKM_MODEL_VERSION = 4
-CURRENT_PKM_CONTRACT_VERSION = "4.1.0"
-CURRENT_READABLE_PROJECTION_VERSION = "4.1.0"
-CURRENT_READABLE_SUMMARY_VERSION = 2
-GENERIC_DOMAIN_CONTRACT_VERSION = 2
+CURRENT_PKM_MODEL_VERSION = 5
+CURRENT_PKM_CONTRACT_VERSION = "5.0.0"
+CURRENT_READABLE_PROJECTION_VERSION = "5.0.0"
+CURRENT_READABLE_SUMMARY_VERSION = 5
+GENERIC_DOMAIN_CONTRACT_VERSION = 3
+DYNAMIC_DOMAIN_CONTRACT_VERSION = 3
 FINANCIAL_DOMAIN_SCHEMA_VERSION = 3
 FINANCIAL_DOMAIN_CONTRACT_VERSION = GENERIC_DOMAIN_CONTRACT_VERSION
 FINANCIAL_INTENT_MAP: tuple[str, ...] = (
@@ -235,6 +237,82 @@ CANONICAL_REGISTRY_KEYS = tuple(sorted({*CANONICAL_DOMAIN_KEYS, *CANONICAL_SUBIN
 
 def normalize_domain_key(domain: str) -> str:
     return str(domain or "").strip().lower()
+
+
+DOMAIN_SLUG_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
+
+# These names are protocol/runtime namespaces, not user information domains.
+# Existing first-party storage domains are handled separately by their owning
+# services and must never be proposed by the semantic structure agent.
+RESERVED_DYNAMIC_DOMAIN_SLUGS = frozenset(
+    {
+        "agent",
+        "agents",
+        "attr",
+        "cap",
+        "consent",
+        "internal",
+        "mcp",
+        "pkm",
+        "scope",
+        "scopes",
+        "system",
+        "vault",
+    }
+)
+INTERNAL_ONLY_DOMAIN_SLUGS = frozenset(
+    {
+        "kyc_connector",
+        "kyc_workflow",
+        "runtime_secrets",
+    }
+)
+
+
+def normalize_dynamic_domain_slug(domain: str) -> str:
+    """Return the deterministic user-domain slug for a proposed label.
+
+    This is intentionally narrower than arbitrary JSON/path normalization:
+    top-level domains are ASCII identifiers and cannot contain dots because
+    dots delimit scope paths in ``attr.<domain>.<scope>.*``.
+    """
+
+    normalized = normalize_domain_key(domain)
+    normalized = re.sub(r"[\s-]+", "_", normalized)
+    normalized = re.sub(r"[^a-z0-9_]", "_", normalized)
+    normalized = re.sub(r"_+", "_", normalized).strip("_")
+    return normalized
+
+
+def validate_dynamic_top_level_domain(
+    domain: str,
+    *,
+    allow_internal: bool = False,
+) -> str:
+    """Validate a canonical or arbitrary custom top-level PKM domain.
+
+    Returns the normalized slug or raises ``ValueError`` with a stable reason.
+    Legacy aliases are resolved first so old stored data can still be upgraded,
+    while new user-authored domains cannot occupy a reserved namespace.
+    """
+
+    alias_domain, alias_subpath = resolve_domain_alias(domain)
+    candidate = alias_domain if alias_subpath else normalize_dynamic_domain_slug(alias_domain)
+    if not candidate or len(candidate) > 64 or not DOMAIN_SLUG_PATTERN.fullmatch(candidate):
+        raise ValueError("invalid_domain_slug")
+    if candidate in RESERVED_DYNAMIC_DOMAIN_SLUGS:
+        raise ValueError("reserved_domain_slug")
+    if not allow_internal and candidate in INTERNAL_ONLY_DOMAIN_SLUGS:
+        raise ValueError("internal_domain_slug")
+    return candidate
+
+
+def is_valid_dynamic_top_level_domain(domain: str, *, allow_internal: bool = False) -> bool:
+    try:
+        validate_dynamic_top_level_domain(domain, allow_internal=allow_internal)
+    except ValueError:
+        return False
+    return True
 
 
 def resolve_domain_alias(domain_key: str) -> tuple[str, str | None]:

@@ -1,0 +1,1652 @@
+{
+  "schema_version": "one.route_orchestration_index.v1",
+  "purpose": "Generated, redacted route discovery and One delegation-admission index.",
+  "sources": [
+    "hushh-webapp/frontend-native-surface-map.generated.json",
+    "contracts/kai/kai-action-gateway.vnext.json"
+  ],
+  "routes": [
+    {
+      "route_pattern": "/",
+      "page_file": "app/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.root",
+      "context_policy": "suppress",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-home"
+    },
+    {
+      "route_pattern": "/agent",
+      "page_file": "app/agent/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.agent",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-agent"
+    },
+    {
+      "route_pattern": "/connect",
+      "page_file": "app/connect/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.connect",
+      "context_policy": "suppress",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-connect"
+    },
+    {
+      "route_pattern": "/connected-systems",
+      "page_file": "app/connected-systems/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.connected.systems",
+      "context_policy": "publish",
+      "voice_contract_file": null,
+      "action_ids": [
+        "connected_systems.chat.turn"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "one_action_gate",
+        "allowed_delegate_agent_ids": [
+          "agent_connected_systems"
+        ]
+      },
+      "trust_boundary": "vault",
+      "native_surface_id": "native-route-connected-systems"
+    },
+    {
+      "route_pattern": "/connected-systems/[systemId]",
+      "page_file": "app/connected-systems/[systemId]/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.connected.systems.systemId.",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/consents",
+      "page_file": "app/consents/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.consents",
+      "context_policy": "publish",
+      "voice_contract_file": null,
+      "action_ids": [
+        "connections.chat.turn",
+        "consent.chat.turn",
+        "route.consents",
+        "route.ria_requests_compat"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "one_action_gate",
+        "allowed_delegate_agent_ids": [
+          "agent_connections",
+          "agent_nav"
+        ]
+      },
+      "trust_boundary": "consent",
+      "native_surface_id": "native-route-consents"
+    },
+    {
+      "route_pattern": "/developers",
+      "page_file": "app/developers/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.developers",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/getting-started",
+      "page_file": "app/getting-started/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.getting.started",
+      "context_policy": "suppress",
+      "voice_contract_file": "app/getting-started/page.voice-action-contract.json",
+      "action_ids": [
+        "onboarding.continue",
+        "route.getting_started"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-getting-started"
+    },
+    {
+      "route_pattern": "/gmail",
+      "page_file": "app/gmail/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.gmail",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-gmail"
+    },
+    {
+      "route_pattern": "/kai",
+      "page_file": "app/kai/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.kai",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-home"
+    },
+    {
+      "route_pattern": "/kai/alpaca/oauth/return",
+      "page_file": "app/kai/alpaca/oauth/return/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.kai.alpaca.oauth.return",
+      "context_policy": "suppress",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-alpaca-return"
+    },
+    {
+      "route_pattern": "/kai/analysis",
+      "page_file": "app/kai/analysis/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.kai.analysis",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-analysis"
+    },
+    {
+      "route_pattern": "/kai/dashboard",
+      "page_file": "app/kai/dashboard/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.kai.dashboard",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-portfolio"
+    },
+    {
+      "route_pattern": "/kai/dashboard/analysis",
+      "page_file": "app/kai/dashboard/analysis/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.kai.dashboard.analysis",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-analysis"
+    },
+    {
+      "route_pattern": "/kai/funding-trade",
+      "page_file": "app/kai/funding-trade/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.kai.funding.trade",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-funding-trade"
+    },
+    {
+      "route_pattern": "/kai/import",
+      "page_file": "app/kai/import/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.kai.import",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-import"
+    },
+    {
+      "route_pattern": "/kai/investments",
+      "page_file": "app/kai/investments/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.kai.investments",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-investments"
+    },
+    {
+      "route_pattern": "/kai/onboarding",
+      "page_file": "app/kai/onboarding/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.kai.onboarding",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-one-setup-kai"
+    },
+    {
+      "route_pattern": "/kai/optimize",
+      "page_file": "app/kai/optimize/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.kai.optimize",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-optimize"
+    },
+    {
+      "route_pattern": "/kai/plaid/oauth/return",
+      "page_file": "app/kai/plaid/oauth/return/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.kai.plaid.oauth.return",
+      "context_policy": "suppress",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-plaid-return"
+    },
+    {
+      "route_pattern": "/kai/portfolio",
+      "page_file": "app/kai/portfolio/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.kai.portfolio",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-portfolio"
+    },
+    {
+      "route_pattern": "/login",
+      "page_file": "app/login/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.login",
+      "context_policy": "suppress",
+      "voice_contract_file": "app/login/page.voice-action-contract.json",
+      "action_ids": [
+        "auth.sign_in_apple",
+        "auth.sign_in_google",
+        "auth.sign_in_open"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-login"
+    },
+    {
+      "route_pattern": "/logout",
+      "page_file": "app/logout/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.logout",
+      "context_policy": "suppress",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-home"
+    },
+    {
+      "route_pattern": "/marketplace",
+      "page_file": "app/marketplace/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.marketplace",
+      "context_policy": "publish",
+      "voice_contract_file": null,
+      "action_ids": [
+        "route.marketplace_browse_from_ria_profile",
+        "route.ria_marketplace_connect"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-marketplace"
+    },
+    {
+      "route_pattern": "/marketplace/connections",
+      "page_file": "app/marketplace/connections/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.marketplace.connections",
+      "context_policy": "publish",
+      "voice_contract_file": null,
+      "action_ids": [
+        "connections.chat.turn"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "one_action_gate",
+        "allowed_delegate_agent_ids": [
+          "agent_connections"
+        ]
+      },
+      "trust_boundary": "vault",
+      "native_surface_id": "native-route-consents"
+    },
+    {
+      "route_pattern": "/marketplace/connections/portfolio",
+      "page_file": "app/marketplace/connections/portfolio/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.marketplace.connections.portfolio",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-ria-clients"
+    },
+    {
+      "route_pattern": "/marketplace/ria",
+      "page_file": "app/marketplace/ria/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.marketplace.ria",
+      "context_policy": "publish",
+      "voice_contract_file": "app/marketplace/ria/page-client.voice-action-contract.json",
+      "action_ids": [
+        "marketplace.ria.manage_profile",
+        "route.marketplace_browse_from_ria_profile",
+        "route.marketplace_ria_profile"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-marketplace-ria"
+    },
+    {
+      "route_pattern": "/one",
+      "page_file": "app/one/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.home",
+      "context_policy": "publish",
+      "voice_contract_file": "app/one/page.voice-action-contract.json",
+      "action_ids": [
+        "connected_systems.chat.turn",
+        "connections.chat.turn",
+        "consent.chat.turn",
+        "email.chat.turn",
+        "gmail.chat.turn",
+        "location.chat.turn",
+        "marketplace.information.chat.turn",
+        "marketplace.information.requests.turn",
+        "route.one_agents"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "one_action_gate",
+        "allowed_delegate_agent_ids": [
+          "agent_connected_systems",
+          "agent_connections",
+          "agent_email",
+          "agent_gmail",
+          "agent_location",
+          "agent_nav",
+          "agent_personal_information"
+        ]
+      },
+      "trust_boundary": "consent",
+      "native_surface_id": "native-route-one-home"
+    },
+    {
+      "route_pattern": "/one/connected-systems",
+      "page_file": "app/one/connected-systems/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.connected.systems",
+      "context_policy": "publish",
+      "voice_contract_file": null,
+      "action_ids": [
+        "route.profile_connected_systems"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-connected-systems"
+    },
+    {
+      "route_pattern": "/one/connected-systems/[systemId]",
+      "page_file": "app/one/connected-systems/[systemId]/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.one.connected.systems.systemId.",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/one/gmail",
+      "page_file": "app/one/gmail/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.gmail",
+      "context_policy": "publish",
+      "voice_contract_file": "app/one/gmail/page.voice-action-contract.json",
+      "action_ids": [
+        "email.chat.turn",
+        "gmail.chat.turn",
+        "route.profile_gmail_panel",
+        "route.profile_receipts"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "one_action_gate",
+        "allowed_delegate_agent_ids": [
+          "agent_email",
+          "agent_gmail"
+        ]
+      },
+      "trust_boundary": "vault",
+      "native_surface_id": "native-route-gmail"
+    },
+    {
+      "route_pattern": "/one/kai",
+      "page_file": "app/one/kai/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.kai",
+      "context_policy": "publish",
+      "voice_contract_file": null,
+      "action_ids": [
+        "route.back",
+        "route.kai_home"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-home"
+    },
+    {
+      "route_pattern": "/one/kai/alpaca/oauth/return",
+      "page_file": "app/one/kai/alpaca/oauth/return/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.one.kai.alpaca.oauth.return",
+      "context_policy": "suppress",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-alpaca-return"
+    },
+    {
+      "route_pattern": "/one/kai/analysis",
+      "page_file": "app/one/kai/analysis/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.kai.analysis",
+      "context_policy": "publish",
+      "voice_contract_file": "app/one/kai/analysis/page.voice-action-contract.json",
+      "action_ids": [
+        "analysis.cancel_active",
+        "analysis.resume_active",
+        "analysis.start",
+        "route.analysis_history",
+        "route.back",
+        "route.kai_analysis"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "vault",
+      "native_surface_id": "native-route-kai-analysis"
+    },
+    {
+      "route_pattern": "/one/kai/funding-trade",
+      "page_file": "app/one/kai/funding-trade/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.one.kai.funding.trade",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-funding-trade"
+    },
+    {
+      "route_pattern": "/one/kai/import",
+      "page_file": "app/one/kai/import/page.tsx",
+      "route_mode": "flow",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.kai.import",
+      "context_policy": "publish",
+      "voice_contract_file": null,
+      "action_ids": [
+        "route.kai_import"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-import"
+    },
+    {
+      "route_pattern": "/one/kai/investments",
+      "page_file": "app/one/kai/investments/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.kai.investments",
+      "context_policy": "publish",
+      "voice_contract_file": null,
+      "action_ids": [
+        "route.kai_investments"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-kai-investments"
+    },
+    {
+      "route_pattern": "/one/kai/onboarding",
+      "page_file": "app/one/kai/onboarding/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.one.kai.onboarding",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-one-setup-kai"
+    },
+    {
+      "route_pattern": "/one/kai/optimize",
+      "page_file": "app/one/kai/optimize/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.kai.optimize",
+      "context_policy": "publish",
+      "voice_contract_file": null,
+      "action_ids": [
+        "route.kai_optimize"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-optimize"
+    },
+    {
+      "route_pattern": "/one/kai/plaid/oauth/return",
+      "page_file": "app/one/kai/plaid/oauth/return/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.one.kai.plaid.oauth.return",
+      "context_policy": "suppress",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-plaid-return"
+    },
+    {
+      "route_pattern": "/one/kai/portfolio",
+      "page_file": "app/one/kai/portfolio/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.kai.portfolio",
+      "context_policy": "publish",
+      "voice_contract_file": null,
+      "action_ids": [
+        "route.kai_dashboard"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-portfolio"
+    },
+    {
+      "route_pattern": "/one/kyc",
+      "page_file": "app/one/kyc/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.kyc",
+      "context_policy": "publish",
+      "voice_contract_file": "app/one/kyc/page.voice-action-contract.json",
+      "action_ids": [
+        "route.one_kyc"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "one_action_gate",
+        "allowed_delegate_agent_ids": [
+          "agent_kyc"
+        ]
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-one-kyc"
+    },
+    {
+      "route_pattern": "/one/location",
+      "page_file": "app/one/location/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.home",
+      "context_policy": "publish",
+      "voice_contract_file": null,
+      "action_ids": [
+        "location.chat.turn",
+        "route.one_location"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "one_action_gate",
+        "allowed_delegate_agent_ids": [
+          "agent_location"
+        ]
+      },
+      "trust_boundary": "consent",
+      "native_surface_id": "native-route-one-location"
+    },
+    {
+      "route_pattern": "/one/location/invite/[token]",
+      "page_file": "app/one/location/invite/[token]/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.one.location.invite.token.",
+      "context_policy": "suppress",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/one/location/request/[token]",
+      "page_file": "app/one/location/request/[token]/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.one.location.request.token.",
+      "context_policy": "suppress",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/one/marketplace",
+      "page_file": "app/one/marketplace/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.marketplace",
+      "context_policy": "publish",
+      "voice_contract_file": "app/one/marketplace/page.voice-action-contract.json",
+      "action_ids": [
+        "marketplace.information.chat.turn",
+        "marketplace.information.requests.turn",
+        "route.one_marketplace"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "one_action_gate",
+        "allowed_delegate_agent_ids": [
+          "agent_personal_information"
+        ]
+      },
+      "trust_boundary": "vault",
+      "native_surface_id": "native-route-one-marketplace"
+    },
+    {
+      "route_pattern": "/one/pkm",
+      "page_file": "app/one/pkm/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.home",
+      "context_policy": "publish",
+      "voice_contract_file": null,
+      "action_ids": [
+        "route.one_pkm",
+        "route.profile_pkm_agent_lab"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "one_action_gate",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "consent",
+      "native_surface_id": "native-route-pkm"
+    },
+    {
+      "route_pattern": "/one/setup",
+      "page_file": "app/one/setup/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.setup",
+      "context_policy": "publish",
+      "voice_contract_file": null,
+      "action_ids": [
+        "setup.hub_master_ack",
+        "setup.open_connected_systems",
+        "setup.open_consent",
+        "setup.open_email",
+        "setup.open_finance",
+        "setup.open_gmail",
+        "setup.open_location",
+        "setup.open_personal_data",
+        "vault.setup_open"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-one-setup"
+    },
+    {
+      "route_pattern": "/one/setup/[capability]",
+      "page_file": "app/one/setup/[capability]/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.one.setup.capability.",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/one/setup/kai",
+      "page_file": "app/one/setup/kai/page.tsx",
+      "route_mode": "flow",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.setup.kai",
+      "context_policy": "publish",
+      "voice_contract_file": "app/one/setup/kai/page.voice-action-contract.json",
+      "action_ids": [
+        "kai.setup.answer_drawdown",
+        "kai.setup.answer_horizon",
+        "kai.setup.answer_volatility",
+        "kai.setup.launch_dashboard"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-one-setup-kai"
+    },
+    {
+      "route_pattern": "/pkm",
+      "page_file": "app/pkm/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.pkm",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-pkm"
+    },
+    {
+      "route_pattern": "/portfolio/shared",
+      "page_file": "app/portfolio/shared/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.portfolio.shared",
+      "context_policy": "suppress",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-portfolio-shared"
+    },
+    {
+      "route_pattern": "/profile",
+      "page_file": "app/profile/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.profile",
+      "context_policy": "publish",
+      "voice_contract_file": "app/profile/page.voice-action-contract.json",
+      "action_ids": [
+        "route.back",
+        "route.profile",
+        "route.ria_settings_compat"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/profile/access",
+      "page_file": "app/profile/access/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.access",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/profile/access/connection",
+      "page_file": "app/profile/access/connection/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.access.connection",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/profile/account",
+      "page_file": "app/profile/account/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.account",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/profile/account/phone",
+      "page_file": "app/profile/account/phone/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.account.phone",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/profile/connected-systems",
+      "page_file": "app/profile/connected-systems/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.connected.systems",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/profile/gmail",
+      "page_file": "app/profile/gmail/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.gmail",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/profile/gmail/actions",
+      "page_file": "app/profile/gmail/actions/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.gmail.actions",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/profile/gmail/connection",
+      "page_file": "app/profile/gmail/connection/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.gmail.connection",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/profile/gmail/oauth/return",
+      "page_file": "app/profile/gmail/oauth/return/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.profile.gmail.oauth.return",
+      "context_policy": "suppress",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile-gmail-return"
+    },
+    {
+      "route_pattern": "/profile/my-data",
+      "page_file": "app/profile/my-data/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.my.data",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/profile/my-data/domain",
+      "page_file": "app/profile/my-data/domain/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.my.data.domain",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/profile/pkm",
+      "page_file": "app/profile/pkm/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.pkm",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-pkm"
+    },
+    {
+      "route_pattern": "/profile/pkm-agent-lab",
+      "page_file": "app/profile/pkm-agent-lab/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.profile.pkm.agent.lab",
+      "context_policy": "publish",
+      "voice_contract_file": "app/profile/pkm-agent-lab/page-client.voice-action-contract.json",
+      "action_ids": [
+        "profile.pkm.preview_capture"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "vault",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/profile/preferences",
+      "page_file": "app/profile/preferences/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.preferences",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/profile/preferences/device",
+      "page_file": "app/profile/preferences/device/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.preferences.device",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/profile/preferences/kai",
+      "page_file": "app/profile/preferences/kai/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.preferences.kai",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/profile/receipts",
+      "page_file": "app/profile/receipts/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.receipts",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-gmail"
+    },
+    {
+      "route_pattern": "/profile/security",
+      "page_file": "app/profile/security/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.profile.security",
+      "context_policy": "publish",
+      "voice_contract_file": null,
+      "action_ids": [
+        "route.profile_security_panel"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/profile/security/session",
+      "page_file": "app/profile/security/session/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.security.session",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/profile/security/vault",
+      "page_file": "app/profile/security/vault/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.security.vault",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/profile/support",
+      "page_file": "app/profile/support/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.profile.support",
+      "context_policy": "publish",
+      "voice_contract_file": null,
+      "action_ids": [
+        "route.profile_support_panel"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/profile/support/compose",
+      "page_file": "app/profile/support/compose/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.support.compose",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/profile/support/routing",
+      "page_file": "app/profile/support/routing/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.profile.support.routing",
+      "context_policy": "minimal",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/register-phone",
+      "page_file": "app/register-phone/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.register.phone",
+      "context_policy": "suppress",
+      "voice_contract_file": "app/register-phone/page.voice-action-contract.json",
+      "action_ids": [
+        "phone_mandate.submit_number"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-kai-home"
+    },
+    {
+      "route_pattern": "/ria",
+      "page_file": "app/ria/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.ria",
+      "context_policy": "publish",
+      "voice_contract_file": "app/ria/page.voice-action-contract.json",
+      "action_ids": [
+        "route.ria_home"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-ria-home"
+    },
+    {
+      "route_pattern": "/ria/clients",
+      "page_file": "app/ria/clients/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.ria.clients",
+      "context_policy": "publish",
+      "voice_contract_file": "app/ria/clients/page.voice-action-contract.json",
+      "action_ids": [
+        "route.ria_clients"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-ria-clients"
+    },
+    {
+      "route_pattern": "/ria/clients/[userId]",
+      "page_file": "app/ria/clients/[userId]/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.ria.clients.userId.",
+      "context_policy": "publish",
+      "voice_contract_file": null,
+      "action_ids": [
+        "ria.client_workspace.open_overview_tab",
+        "route.ria_client_workspace"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/ria/clients/[userId]/accounts/[accountId]",
+      "page_file": "app/ria/clients/[userId]/accounts/[accountId]/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.ria.clients.userId.accounts.accountId.",
+      "context_policy": "publish",
+      "voice_contract_file": null,
+      "action_ids": [
+        "ria.client_account.open_workspace_fallback"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/ria/clients/[userId]/requests/[requestId]",
+      "page_file": "app/ria/clients/[userId]/requests/[requestId]/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.ria.clients.userId.requests.requestId.",
+      "context_policy": "publish",
+      "voice_contract_file": null,
+      "action_ids": [
+        "ria.client_request.open_access_fallback"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/ria/onboarding",
+      "page_file": "app/ria/onboarding/page.tsx",
+      "route_mode": "flow",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.ria.onboarding",
+      "context_policy": "publish",
+      "voice_contract_file": "app/ria/onboarding/page.voice-action-contract.json",
+      "action_ids": [
+        "route.ria_onboarding"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-ria-onboarding"
+    },
+    {
+      "route_pattern": "/ria/picks",
+      "page_file": "app/ria/picks/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.ria.picks",
+      "context_policy": "publish",
+      "voice_contract_file": "app/ria/picks/page.voice-action-contract.json",
+      "action_ids": [
+        "route.ria_picks"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-ria-picks"
+    },
+    {
+      "route_pattern": "/ria/profile",
+      "page_file": "app/ria/profile/page.tsx",
+      "route_mode": "unclassified",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.ria.profile",
+      "context_policy": "publish",
+      "voice_contract_file": "app/ria/profile/page.voice-action-contract.json",
+      "action_ids": [
+        "ria.profile.edit_services",
+        "route.ria_profile"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-ria-profile"
+    },
+    {
+      "route_pattern": "/ria/requests",
+      "page_file": "app/ria/requests/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.ria.requests",
+      "context_policy": "publish",
+      "voice_contract_file": "app/ria/requests/page.voice-action-contract.json",
+      "action_ids": [
+        "route.ria_requests_compat"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "consent",
+      "native_surface_id": "native-route-consents"
+    },
+    {
+      "route_pattern": "/ria/settings",
+      "page_file": "app/ria/settings/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.ria.settings",
+      "context_policy": "publish",
+      "voice_contract_file": "app/ria/settings/page.voice-action-contract.json",
+      "action_ids": [
+        "marketplace.ria.manage_profile",
+        "route.ria_settings_compat"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/ria/workspace",
+      "page_file": "app/ria/workspace/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.ria.workspace",
+      "context_policy": "publish",
+      "voice_contract_file": "app/ria/workspace/page.voice-action-contract.json",
+      "action_ids": [
+        "route.ria_workspace_compat"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-ria-clients"
+    }
+  ]
+}

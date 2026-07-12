@@ -763,51 +763,9 @@ function OneKycWorkspace() {
             }),
           })),
         );
-        const exportedScopes = new Set(
-          exportPayloads
-            .map((item) => item.scope)
-            .filter((scope): scope is string => Boolean(scope)),
-        );
-        const selectedScopes = new Set(
-          selectedScopesForWorkflow(selected, selectedScopesByWorkflow),
-        );
-        const defaultAvailablePayloads = await Promise.all(
-          scopeCandidates(selected)
-            .filter(
-              (candidate) =>
-                selectedScopes.has(candidate.scope) &&
-                !exportedScopes.has(candidate.scope) &&
-                candidate.visibility_posture === "default_available" &&
-                candidate.default_projection_ready === true,
-            )
-            .map(async (candidate) => {
-              const parsed = parseAttrScope(candidate.scope);
-              const domain = candidate.domain || parsed?.domain;
-              if (!domain) {
-                throw new Error("One could not resolve the selected data section.");
-              }
-              const topLevelScopePath =
-                candidate.path || parsed?.topLevelScopePath || undefined;
-              const payload = await PersonalKnowledgeModelService.loadDomainData({
-                userId,
-                domain,
-                vaultKey,
-                vaultOwnerToken,
-                segmentIds: topLevelScopePath ? [topLevelScopePath] : undefined,
-              });
-              if (!payload) {
-                throw new Error("One could not load the selected saved data.");
-              }
-              return {
-                scope: candidate.scope,
-                payload,
-              };
-            }),
-        );
-        const draftPayloads: Array<{ scope?: string | null; payload: Record<string, unknown> }> = [
-          ...exportPayloads,
-          ...defaultAvailablePayloads,
-        ];
+        // Private KYC draft context is exclusively sourced from exact approved
+        // encrypted exports. Public-profile resources never authorize PKM reads.
+        const draftPayloads: Array<{ scope?: string | null; payload: Record<string, unknown> }> = exportPayloads;
         const draft = await OneKycClientZkService.buildDraft({
           workflow: selected,
           exportPayloads: draftPayloads,
@@ -1534,7 +1492,7 @@ function OneKycWorkspace() {
         <PageHeader
           eyebrow="One"
           title="Email"
-          description="Review emails that ask for your data, choose what to share, and send replies only after you approve."
+          description="Review emails that ask for your personal information, choose what to share, and send replies only after you approve."
           icon={ShieldCheck}
           accent="neutral"
           actions={

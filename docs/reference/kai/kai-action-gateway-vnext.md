@@ -51,7 +51,9 @@ The action system is split into four deliberate layers.
 
 Each voice-capable or search-capable Kai surface owns a colocated `.voice-action-contract.json` file next to the feature surface.
 
-Current generated coverage includes 24 source contracts, 24 surfaces, and 95 actions. Source contracts:
+Current generated coverage includes 30 source contracts, 30 surfaces, and 114 actions. Source contracts:
+
+- [page.voice-action-contract.json](../../../hushh-webapp/app/login/page.voice-action-contract.json) — Login-local Google and Apple redirect actions. Generic sign-in remains a provider-choice interaction.
 
 - [page.voice-action-contract.json](../../../hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/one/page.voice-action-contract.json)
@@ -88,6 +90,12 @@ The generator in [generate-kai-action-gateway.mjs](../../../hushh-webapp/scripts
 
 The gateway is the shared semantic authority.
 The manifest is a generated compatibility artifact for consumers that still read the neutral manifest shape.
+
+The companion [route orchestration index](../../../contracts/kai/one-route-orchestration-index.v1.json)
+joins this gateway to every physical app route. Interactive contracts can add a
+bounded `orchestration` block (`instruction_id`, context policy, trust boundary,
+and delegation policy); its output is discovery/admission metadata only and
+does not grant consent or alter TrustLink signatures.
 
 ### 3. Runtime adapter layer
 

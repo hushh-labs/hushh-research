@@ -72,6 +72,9 @@ These are the durable architecture principles for every Hussh product agent (One
 3. Founder Wiki freshness contract. The Founder Wiki (authenticated MCP at `https://mcp.hushh.ai/mcp`) is a north-star evidence lane, and it can lag the repo. Agents doing product or docs work must (a) refresh the wiki MCP tool before reading, (b) treat stale wiki articles as `current_state_vs_north_star_drift`, and (c) use the wiki WRITE operations to upgrade stale articles as part of shipping the change that made them stale. Keeping the wiki current is part of the definition of done, not a follow-up.
 4. Scale-plane doctrine: Postgres now, Redis later. Cross-instance shared state (rate limits, one-time nonces, revocation fan-out, durable agent sessions) is Postgres-backed today because Postgres is the platform's only shared tier. Every such mechanism must be written behind a seam that can swap to Redis/Memorystore Pub/Sub later without contract changes, and each new mechanism notes its Redis upgrade path in code comments or the owning doc.
 5. No second decision-maker. Each interaction surface has exactly one routing authority (the generated action manifest for voice/chat; the owning workflow for engineering lanes). New intelligence slots below One as a specialist; it never becomes a parallel top-level router.
+6. Product agents and engineering agents are separate namespaces. `.codex/agents` contains read-only engineering evidence lanes; `consent-protocol/hushh_mcp/agents` contains runtime product agents. Never make one impersonate or generate the other.
+7. `AgentManifestV2` YAML is the sole authored product-agent source. Generated registries, cards, action identifiers, surface metadata, and hierarchy projections must be reproducible from it; parallel Python manifests and prompt copies are prohibited.
+8. Use ADK `chat`, `task`, and `single_turn` modes inside one runtime, official A2A Tasks across process or deployment boundaries, and MCP for consented tools and encrypted resources. Invocation authority, data authority, and action authority remain separate at every hop.
 
 ## Project-Wide Premise Verification Gate
 
@@ -113,6 +116,18 @@ Default response shape for repo-backed Q&A:
 5. `Smallest acceptable next PR`
 
 For non-trivial planning, questions must be research-backed instead of bare choices. Before asking, state the `Current truth`, `Recommended path`, `Risk if accepted blindly`, and the exact `Decision needed`; put the recommended option first. Do not ask the user to discover facts Codex can verify from repo, GitHub, CI, docs, runtime logs, or generated contracts.
+
+### Natural Planning Questions
+
+Every agent—parent or child—must ask natural, research-backed questions while
+planning whenever an unresolved product choice would change user experience,
+authority, consent, security, architecture, rollout, or recovery behavior.
+Questions should sound like collaborative engineering conversation, not a form:
+state the evidence and recommendation first, then ask the smallest real
+decision. During execution, inspect and act autonomously from repository truth;
+ask only when a user-owned decision or new authority is genuinely required.
+Never manufacture checkpoints or ask the user to rediscover facts the repo can
+prove.
 
 Do not write as if the project is blank. Hussh already has many shipped contracts. Codex must actively find and reuse them.
 

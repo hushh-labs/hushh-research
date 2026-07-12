@@ -27,6 +27,19 @@ export type PreVaultUserState = {
   setupCapabilityIds: string[];
   setupCapabilitiesUpdatedAt: number | null;
   setupStateUpdatedAt: number | null;
+  onboardingJourneyVersion: number | null;
+  onboardingPhase:
+    | "anonymous_auth"
+    | "phone_required"
+    | "setup_hub"
+    | "capability_setup"
+    | "external_connector"
+    | "root_completion"
+    | null;
+  onboardingActiveCapability: string | null;
+  onboardingResumeRoute: "/one/setup" | null;
+  onboardingCallbackState: "none" | "pending" | "succeeded" | "cancelled" | "failed" | null;
+  onboardingJourneyUpdatedAt: number | null;
   // Verified-phone claim folded in from the backend bootstrap call. null means
   // "unknown" (older backend, or shadow lookup failed) so callers fall back to
   // their own identity read rather than treating it as unverified.
@@ -42,6 +55,11 @@ type PreVaultStateUpdatePayload = {
   navSetupCompletedAt?: number | null;
   navSetupSkippedAt?: number | null;
   setupCapabilityIds?: string[];
+  onboardingJourneyVersion?: 1;
+  onboardingPhase?: PreVaultUserState["onboardingPhase"];
+  onboardingActiveCapability?: string | null;
+  onboardingResumeRoute?: "/one/setup";
+  onboardingCallbackState?: PreVaultUserState["onboardingCallbackState"];
 };
 
 const bootstrapInflight = new Map<string, Promise<PreVaultUserState>>();
@@ -50,6 +68,10 @@ function toMillis(value: unknown): number | null {
   if (value === null || value === undefined) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeOnboardingJourneyVersion(value: unknown): 1 | null {
+  return Number(value) === 1 ? 1 : null;
 }
 
 function toStringArray(value: unknown): string[] {
@@ -92,8 +114,34 @@ function normalizeResponse(userId: string, payload: BootstrapStateResponse): Pre
     setupCapabilityIds: toStringArray(payload.setupCapabilityIds),
     setupCapabilitiesUpdatedAt: toMillis(payload.setupCapabilitiesUpdatedAt),
     setupStateUpdatedAt: toMillis(payload.setupStateUpdatedAt),
+    onboardingJourneyVersion: normalizeOnboardingJourneyVersion(payload.onboardingJourneyVersion),
+    onboardingPhase: normalizeOnboardingPhase(payload.onboardingPhase),
+    onboardingActiveCapability: normalizeOptionalString(payload.onboardingActiveCapability),
+    onboardingResumeRoute: payload.onboardingResumeRoute === "/one/setup" ? "/one/setup" : null,
+    onboardingCallbackState: normalizeCallbackState(payload.onboardingCallbackState),
+    onboardingJourneyUpdatedAt: toMillis(payload.onboardingJourneyUpdatedAt),
     phoneVerified: toNullableBool(payload.phoneVerified),
   };
+}
+
+function normalizeOptionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeOnboardingPhase(
+  value: unknown
+): PreVaultUserState["onboardingPhase"] {
+  return ["anonymous_auth", "phone_required", "setup_hub", "capability_setup", "external_connector", "root_completion"].includes(String(value))
+    ? (value as NonNullable<PreVaultUserState["onboardingPhase"]>)
+    : null;
+}
+
+function normalizeCallbackState(
+  value: unknown
+): PreVaultUserState["onboardingCallbackState"] {
+  return ["none", "pending", "succeeded", "cancelled", "failed"].includes(String(value))
+    ? (value as NonNullable<PreVaultUserState["onboardingCallbackState"]>)
+    : null;
 }
 
 function resolvePreVaultPath(path: "bootstrap-state" | "pre-vault-state"): string {
@@ -204,6 +252,22 @@ export class PreVaultUserStateService {
   ): Promise<PreVaultUserState> {
     return this.updatePreVaultState(userId, {
       setupCapabilityIds: toStringArray([...setupCapabilityIds]),
+    });
+  }
+
+  /** Persist the minimal resumable goal; never a transcript or private content. */
+  static async syncOnboardingJourney(params: {
+    userId: string;
+    phase: NonNullable<PreVaultUserState["onboardingPhase"]>;
+    activeCapability?: string | null;
+    callbackState?: NonNullable<PreVaultUserState["onboardingCallbackState"]>;
+  }): Promise<PreVaultUserState> {
+    return this.updatePreVaultState(params.userId, {
+      onboardingJourneyVersion: 1,
+      onboardingPhase: params.phase,
+      onboardingActiveCapability: params.activeCapability ?? null,
+      onboardingResumeRoute: "/one/setup",
+      onboardingCallbackState: params.callbackState ?? "none",
     });
   }
 

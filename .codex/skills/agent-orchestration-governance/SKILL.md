@@ -54,6 +54,7 @@ Non-owned surfaces:
 3. `.codex/skills/codex-skill-authoring/references/skill-contract.md`
 4. `.codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`
 5. `docs/reference/operations/coding-agent-mcp.md`
+6. `.codex/skills/agent-orchestration-governance/references/anti-rationalization.md`
 
 ## Workflow
 

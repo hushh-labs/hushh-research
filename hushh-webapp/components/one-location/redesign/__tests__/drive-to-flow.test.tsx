@@ -63,7 +63,8 @@ describe("DriveToFlow", () => {
     const suggestion = await screen.findByText("Starbucks, Market St");
     fireEvent.click(suggestion);
 
-    // Recipient is pre-selected; start the share.
+    // Sharing requires an explicit recipient selection.
+    fireEvent.click(await screen.findByRole("button", { name: /Carol/i }));
     const startBtn = await screen.findByRole("button", { name: /start sharing route/i });
     await waitFor(() => expect(startBtn).not.toBeDisabled());
     fireEvent.click(startBtn);

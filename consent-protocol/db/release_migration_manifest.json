@@ -65,7 +65,13 @@
     "084_relay_ticket_nonces.sql",
     "085_developer_partner_apps.sql",
     "086_connections.sql",
-    "087_consent_audit_request_id_text.sql"
+    "087_scope_policy_v2.sql",
+    "088_consent_export_envelope_v2.sql",
+    "089_atomic_pkm_mutation_v2.sql",
+    "090_public_profile_projection_foundation.sql",
+    "091_public_profile_projection_cutover.sql",
+    "092_one_onboarding_journey_v1.sql",
+    "093_consent_audit_request_id_text.sql"
   ],
   "groups": {
     "iam": [
@@ -103,7 +109,9 @@
       "071_enterprise_crm_registry.sql",
       "072_crm_registry_mulesoft_pbkdf2_cbc.sql",
       "073_crm_registry_mulesoft_simplify.sql",
-      "087_consent_audit_request_id_text.sql"
+      "087_scope_policy_v2.sql",
+      "092_one_onboarding_journey_v1.sql",
+      "093_consent_audit_request_id_text.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -116,11 +124,19 @@
       "048_merge_pkm_domain_summary_rpc.sql",
       "062_consent_exports_export_key_guard.sql",
       "063_pkm_default_available_visibility.sql",
-      "074_pkm_scope_registry_owner_consent_override.sql"
+      "074_pkm_scope_registry_owner_consent_override.sql",
+      "088_consent_export_envelope_v2.sql",
+      "089_atomic_pkm_mutation_v2.sql",
+      "090_public_profile_projection_foundation.sql",
+      "091_public_profile_projection_cutover.sql"
     ],
     "developer": [
       "070_developer_registry.sql",
-      "085_developer_partner_apps.sql"
+      "085_developer_partner_apps.sql",
+      "087_scope_policy_v2.sql",
+      "088_consent_export_envelope_v2.sql",
+      "090_public_profile_projection_foundation.sql",
+      "091_public_profile_projection_cutover.sql"
     ]
   }
 }

@@ -13,7 +13,12 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from hushh_mcp.adk_bridge.contract import A2ADirective, A2ATask, SpecialistTurnResult
+from hushh_mcp.adk_bridge.contract import (
+    A2AAuthorityRequired,
+    A2ADirective,
+    A2ATask,
+    SpecialistTurnResult,
+)
 from hushh_mcp.adk_bridge.delegation import validate_a2a_consent_token_with_db
 from hushh_mcp.consent.scope_helpers import get_scope_display_metadata
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
@@ -55,6 +60,33 @@ class NavAgent:
             )
 
         message = (task.message or "").strip()
+        if _is_connections_query(message):
+            # Connections is Nav's child. It independently requires exact
+            # attenuated authority; Nav never manufactures it from a broad
+            # consent-review grant.
+            from hushh_mcp.adk_bridge.connections_agent import get_connections_a2a
+
+            try:
+                return await get_connections_a2a().handle(task)
+            except A2AAuthorityRequired:
+                return SpecialistTurnResult(
+                    conversation_id=task.conversation_id or "",
+                    text=(
+                        "Connections needs an exact, approved relationship authority "
+                        "before it can view or change trusted people. Open the Consent "
+                        "Center to approve that request, then try again."
+                    ),
+                    directive=A2ADirective(
+                        kind="prompt",
+                        payload={
+                            "kind": "connection_authority_required",
+                            "agentId": "agent_connections",
+                        },
+                    ),
+                    is_complete=True,
+                    model=DELEGATED_MODEL,
+                    state_changed=False,
+                )
         timezone = _safe_timezone(task.timezone)
         answer_text, directive = await self._answer(
             message, user_id=task.user_id, timezone=timezone
@@ -234,6 +266,24 @@ def _is_previous_consent_query(message: str) -> bool:
         any(word in text for word in consent_words)
         and any(word in text for word in previous_words)
         and any(word in text for word in list_words)
+    )
+
+
+def _is_connections_query(message: str) -> bool:
+    text = message.lower()
+    return any(
+        word in text
+        for word in (
+            "connection",
+            "connections",
+            "connect",
+            "trusted people",
+            "trusted person",
+            "invite",
+            "accept",
+            "reject",
+            "remove",
+        )
     )
 
 

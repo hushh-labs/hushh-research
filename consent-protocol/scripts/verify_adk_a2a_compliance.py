@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Static compliance checks for ADK and Google A2A contracts."""
+"""Static checks for ADK integration and the official A2A v1 release gate.
+
+Passing this verifier means the current preview surface is honestly contained. It
+does not mean the runtime is conformant with A2A v1.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +13,10 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+
+PINNED_ADK_VERSION = "2.4.0"
+ADK_A2A_SDK_RANGE = ">=0.3.4,<0.4"
+REQUIRED_A2A_V1_SDK_VERSION = "1.1.0"
 
 
 def _check_patterns(path: Path, patterns: list[str]) -> dict[str, Any]:
@@ -39,10 +47,19 @@ def main() -> int:
         _check_patterns(
             ROOT / "hushh_mcp/adk_bridge/delegation.py",
             [
-                r"\"agent_one\":\s*ConsentScope\.AGENT_ONE_ORCHESTRATE",
+                r"\"agent_one\":\s*ConsentScope\.CAP_ONE_INVOKE",
                 r"\"agent_kai\":\s*ConsentScope\.AGENT_KAI_ANALYZE",
                 r"\"agent_nav\":\s*ConsentScope\.AGENT_NAV_REVIEW",
                 r"\"agent_kyc\":\s*ConsentScope\.AGENT_KYC_PROCESS",
+            ],
+        ),
+        _check_patterns(
+            ROOT / "api/routes/one/a2a.py",
+            [
+                r'"officialA2A": False',
+                r'"contract": "hussh\.one\.invocation-preview\.v1"',
+                r'"requiredScopes": required_scopes',
+                r"expected_scope=ConsentScope\.CAP_ONE_INVOKE",
             ],
         ),
         _check_patterns(
@@ -110,8 +127,18 @@ def main() -> int:
     ]
 
     ok = all(item["ok"] for item in checks)
+    official_v1 = {
+        "ready": False,
+        "release_blocker": "ADK_A2A_SDK_VERSION_INCOMPATIBLE",
+        "pinned_google_adk": PINNED_ADK_VERSION,
+        "adk_supported_a2a_sdk": ADK_A2A_SDK_RANGE,
+        "required_a2a_v1_sdk": REQUIRED_A2A_V1_SDK_VERSION,
+        "preview_endpoint_is_official_a2a": False,
+    }
     report = {
         "ok": ok,
+        "meaning": "preview_containment_and_adk_contracts_only",
+        "official_a2a_v1": official_v1,
         "checks": checks,
     }
     print(json.dumps(report, indent=2))

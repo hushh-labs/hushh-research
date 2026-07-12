@@ -27,7 +27,6 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
-import { ThemeToggleLean } from "@/components/theme-toggle";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { useUnseenLocationShareCount } from "@/lib/one-location/use-unseen-location-share-count";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
@@ -263,8 +262,11 @@ export const Navbar = () => {
     agentWindowOpen ||
     portfolioImportSurfaceActive ||
     pathname?.startsWith(ROUTES.PHONE_MANDATE) ||
-    pathname?.startsWith(ROUTES.LABS_PROFILE_APPEARANCE) ||
-    pathname === ROUTES.DEVELOPERS;
+    pathname === ROUTES.DEVELOPERS ||
+    pathname === ROUTES.RESEARCH ||
+    Boolean(pathname?.startsWith(`${ROUTES.RESEARCH}/`)) ||
+    pathname === ROUTES.BLOG ||
+    Boolean(pathname?.startsWith(`${ROUTES.BLOG}/`));
 
   const navOptions = useMemo<SegmentedPillOption[]>(() => {
     const keys = resolveBottomNavOptionKeys(
@@ -364,18 +366,10 @@ export const Navbar = () => {
   }
 
   if (!isAuthenticated) {
-    return (
-      <nav
-        className="fixed right-0 top-0 z-50 flex justify-end px-4 pointer-events-none"
-        style={{
-          top: "calc(max(var(--app-safe-area-top-effective), 0.5rem))",
-        }}
-      >
-        <div ref={pillRef} className="pointer-events-auto">
-          <ThemeToggleLean size="expanded" />
-        </div>
-      </nav>
-    );
+    // On the signed-out onboarding flow the theme control is infused INSIDE the
+    // agent bar (see agent-bar.tsx), so no separate top/bottom toggle renders
+    // here. Keeping the hero completely clean.
+    return null;
   }
 
   if (navOptions.length === 0) {

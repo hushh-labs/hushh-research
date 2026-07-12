@@ -1,3 +1,4 @@
+manifest_version: 2
 id: agent_financial_guard
 name: Financial Guard Agent
 version: 1.0.0

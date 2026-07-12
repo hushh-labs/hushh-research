@@ -494,7 +494,7 @@ export function getLocalMarketPreviewPayload(): KaiHomeInsightsV2 {
     news_tape: [
       {
         symbol: "YHOO",
-        title: "IBM Thinks Your Data Is Too Stubborn to Move (and AI Can Fix That)",
+        title: "IBM Thinks Your Information Is Too Stubborn to Move (and AI Can Fix That)",
         url: `${ROUTES.KAI_ANALYSIS}?symbol=IBM`,
         published_at: now,
         source_name: "Yahoo Finance",

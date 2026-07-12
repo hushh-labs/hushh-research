@@ -103,6 +103,37 @@ describe("One Voice realtime transports", () => {
     );
   });
 
+  it("returns a correlated browser action settlement to the ADK relay", () => {
+    const transport = new GeminiLiveTransport();
+    const send = vi.fn();
+    const testTransport = transport as unknown as {
+      ws: { readyState: number; send: (message: string) => void };
+      setupComplete: boolean;
+    };
+    testTransport.ws = { readyState: WebSocket.OPEN, send };
+    testTransport.setupComplete = true;
+
+    expect(
+      transport.reportActionSettlement({
+        directiveId: "directive-1",
+        actionId: "analysis.start",
+        status: "blocked",
+        summary: "Portfolio access is locked.",
+        reason: "vault_locked",
+      })
+    ).toBe(true);
+    expect(JSON.parse(send.mock.calls[0][0])).toEqual({
+      type: "action_settled",
+      actionSettlement: {
+        directiveId: "directive-1",
+        actionId: "analysis.start",
+        status: "blocked",
+        summary: "Portfolio access is locked.",
+        reason: "vault_locked",
+      },
+    });
+  });
+
   it("keeps OpenAI Realtime behind the same interface until enabled", async () => {
     const onEvent = vi.fn();
     const transport = new OpenAIRealtimeTransport({ onEvent });

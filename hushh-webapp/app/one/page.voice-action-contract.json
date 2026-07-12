@@ -2,6 +2,12 @@
   "schema_version": "kai.local_action_contract.v1",
   "surface_id": "one_agents",
   "surface_title": "Agents",
+  "orchestration": {
+    "instruction_id": "route.one.home",
+    "context_policy": "publish",
+    "trust_boundary": "consent",
+    "delegation_policy": "one_action_gate"
+  },
   "docs_references": [
     "docs/reference/kai/kai-action-gateway-vnext.md",
     "docs/reference/one/one-voice-runtime-architecture.md"

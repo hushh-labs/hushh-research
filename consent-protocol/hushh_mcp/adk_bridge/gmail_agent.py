@@ -14,7 +14,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from hushh_mcp.adk_bridge.contract import A2ATask, SpecialistTurnResult
+from hushh_mcp.adk_bridge.contract import (
+    A2ATask,
+    SpecialistTurnResult,
+    require_attenuated_authority,
+)
 
 # The label surfaced to the client for delegated turns (SSE start/complete "model").
 DELEGATED_MODEL = "one+gmail"
@@ -30,6 +34,7 @@ class GmailAgentA2A:
             self._service = GmailChatService()
 
     async def handle(self, task: A2ATask) -> SpecialistTurnResult:
+        require_attenuated_authority(task, information=True)
         out: dict = await self._service.handle_turn(
             user_id=task.user_id,
             message=task.message,

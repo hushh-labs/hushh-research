@@ -2,7 +2,7 @@ import pytest
 
 from hushh_mcp.adk_bridge.contract import A2ATask
 from hushh_mcp.adk_bridge.dispatch import dispatch, is_wired_specialist
-from hushh_mcp.adk_bridge.nav_agent import NavAgent
+from hushh_mcp.adk_bridge.nav_agent import NavAgent, _is_connections_query
 from hushh_mcp.consent.token import issue_token
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.consent_center_service import ConsentCenterService
@@ -18,7 +18,7 @@ def _db_token_active(monkeypatch):
     Revocation-path behavior is covered by the token-validation suites.
     """
 
-    async def _active(self, user_id, scope, agent_id=None):  # noqa: ANN001
+    async def _active(self, user_id, scope, agent_id=None, *, token_id=None):  # noqa: ANN001
         return True
 
     monkeypatch.setattr(ConsentDBService, "is_token_active", _active)
@@ -319,3 +319,8 @@ async def test_nav_is_registered_without_replacing_location():
 
     assert result.model == "one+nav"
     assert "Explain this scope." in result.text
+
+
+def test_connections_queries_are_owned_by_navs_child() -> None:
+    assert _is_connections_query("List my trusted connections") is True
+    assert _is_connections_query("Show my active consent grants") is False

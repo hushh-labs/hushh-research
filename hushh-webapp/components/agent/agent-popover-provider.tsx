@@ -264,7 +264,6 @@ function AgentPopoverSurface({
   const isAgentSuppressedRoute =
     isLegacyAgentRoute ||
     isPhoneMandateRoute ||
-    path.startsWith(ROUTES.LABS_PROFILE_APPEARANCE) ||
     path === ROUTES.DEVELOPERS ||
     path === ROUTES.HOME ||
     path.startsWith(ROUTES.LOGIN) ||

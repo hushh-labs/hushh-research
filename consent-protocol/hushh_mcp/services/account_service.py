@@ -675,6 +675,12 @@ class AccountService:
                             setup_completed_at = NULL,
                             nav_setup_completed_at = NULL,
                             nav_setup_skipped_at = NULL,
+                            onboarding_journey_version = NULL,
+                            onboarding_phase = NULL,
+                            onboarding_active_capability = NULL,
+                            onboarding_resume_route = NULL,
+                            onboarding_callback_state = NULL,
+                            onboarding_journey_updated_at = NULL,
                             setup_state_updated_at = :now_ms,
                             updated_at = :now_ms
                         WHERE user_id = :user_id

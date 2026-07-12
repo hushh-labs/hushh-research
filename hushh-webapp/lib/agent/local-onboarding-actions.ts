@@ -20,7 +20,7 @@
 import { useEffect, useRef } from "react";
 
 export type LocalOnboardingActionResult = {
-  status: "succeeded" | "blocked" | "failed";
+  status: "started" | "succeeded" | "blocked" | "failed";
   summary: string;
   data?: Record<string, unknown>;
 };
@@ -53,6 +53,26 @@ export function resolveLocalOnboardingHandler(
   actionId: string
 ): LocalOnboardingActionHandler | null {
   return handlers.get(actionId) ?? null;
+}
+
+/**
+ * A Live directive can arrive in the small window between route paint and a
+ * component's effect registration. Wait briefly for that route-local handler
+ * instead of falsely reporting that a visible control is unavailable.
+ */
+export async function waitForLocalOnboardingHandler(
+  actionId: string,
+  timeoutMs = 750
+): Promise<LocalOnboardingActionHandler | null> {
+  const immediate = resolveLocalOnboardingHandler(actionId);
+  if (immediate) return immediate;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 16));
+    const handler = resolveLocalOnboardingHandler(actionId);
+    if (handler) return handler;
+  }
+  return null;
 }
 
 /**

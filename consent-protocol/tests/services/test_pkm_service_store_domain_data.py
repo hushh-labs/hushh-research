@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -8,6 +9,32 @@ from hushh_mcp.services.personal_knowledge_model_service import (
     PersonalKnowledgeModelIndex,
     PersonalKnowledgeModelService,
 )
+
+
+def _confirmed_create_plan(*, user_id: str, domain: str, scope: str = "portfolio") -> dict:
+    return {
+        "version": 2,
+        "plan_id": "pkm_plan_confirmed_001",
+        "operation": "create",
+        "target_scope_handle": "pending_scope_001",
+        "proposed_domain": domain,
+        "proposed_scope": scope,
+        "friendly_domain_name": domain.replace("_", " ").title(),
+        "friendly_scope_name": scope.replace("_", " ").title(),
+        "confidence": 1.0,
+        "explanation": "The owner reviewed and confirmed this encrypted PKM write.",
+        "confirmation_receipt": {
+            "version": 2,
+            "receipt_id": "pkm_receipt_confirmed_001",
+            "plan_id": "pkm_plan_confirmed_001",
+            "confirmed_by_user_id": user_id,
+            "confirmed_at": datetime.now(UTC).isoformat(),
+            "surface": "web",
+            "displayed_domain": domain,
+            "displayed_scope": scope,
+            "sharing_impact_acknowledged": False,
+        },
+    }
 
 
 class _StubDomainRegistry:
@@ -79,6 +106,10 @@ class _StubSupabase:
 
     def rpc(self, function_name: str, params=None):
         self.rpc_calls.append({"function_name": function_name, "params": params or {}})
+        if function_name == "commit_pkm_domain_mutation_v2":
+            return _StubSupabaseTable(
+                rows=[{"success": True, "conflict": False, "data_version": 1}]
+            )
         return _StubSupabaseTable(rows=[{}])
 
 
@@ -89,20 +120,12 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
     service._supabase = _StubSupabase()
 
     monkeypatch.setattr(service, "get_encrypted_data", AsyncMock(return_value=None))
-    monkeypatch.setattr(service, "update_domain_summary", AsyncMock(return_value=True))
     monkeypatch.setattr(service, "get_domain_manifest", AsyncMock(return_value=None))
-    queue_refreshes = AsyncMock()
     monkeypatch.setattr(
-        service, "_queue_consent_export_refreshes_for_domain_write", queue_refreshes
+        service,
+        "_continuous_refresh_tokens_for_domain_write",
+        AsyncMock(return_value=["HCT:test-continuous"]),
     )
-
-    recorded_events = []
-
-    async def _record_event(**kwargs):
-        recorded_events.append(kwargs)
-        return True
-
-    monkeypatch.setattr(service, "record_mutation_event", _record_event)
 
     result = await service.store_domain_data(
         user_id="user-1",
@@ -126,15 +149,27 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
             "paths": [
                 {"json_path": "portfolio", "path_type": "object"},
                 {"json_path": "portfolio.holdings", "path_type": "array"},
+                {
+                    "json_path": "portfolio.holdings._items.ticker",
+                    "path_type": "leaf",
+                },
                 {"json_path": "profile.risk_score", "path_type": "leaf"},
             ],
             "top_level_scope_paths": ["portfolio", "profile"],
-            "externalizable_paths": ["portfolio", "profile.risk_score"],
+            "externalizable_paths": [
+                "portfolio.holdings._items.ticker",
+                "profile.risk_score",
+            ],
         },
         structure_decision={
             "action": "create_domain",
             "target_domain": "financial",
-            "json_paths": ["portfolio", "portfolio.holdings", "profile.risk_score"],
+            "json_paths": [
+                "portfolio",
+                "portfolio.holdings",
+                "portfolio.holdings._items.ticker",
+                "profile.risk_score",
+            ],
         },
         write_projections=[
             {
@@ -154,65 +189,41 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
                 },
             }
         ],
+        mutation_plan=_confirmed_create_plan(user_id="user-1", domain="financial"),
         return_result=True,
     )
 
     assert result["success"] is True
-    blob_upsert = service._supabase.tables["pkm_blobs"].last_upsert_data
-    assert blob_upsert["on_conflict"] == "user_id,domain,segment_id"
-    assert {row["segment_id"] for row in blob_upsert["data"]} == {"root"}
-    assert blob_upsert["data"][0]["domain"] == "financial"
-    assert blob_upsert["data"][0]["content_revision"] == 1
-
-    manifest_upsert = service._supabase.tables["pkm_manifests"].last_upsert_data
-    assert manifest_upsert["on_conflict"] == "user_id,domain"
-    assert manifest_upsert["data"]["path_count"] == 3
-    assert manifest_upsert["data"]["externalizable_path_count"] == 3
-
-    path_upsert = service._supabase.tables["pkm_manifest_paths"].last_upsert_data
-    assert path_upsert["on_conflict"] == "user_id,domain,json_path"
-    assert len(path_upsert["data"]) == 3
-
-    scope_upsert = service._supabase.tables["pkm_scope_registry"].last_upsert_data
-    assert scope_upsert["on_conflict"] == "user_id,domain,scope_handle"
-    assert len(scope_upsert["data"]) == 2
-
-    update_summary = service.update_domain_summary
-    update_summary.assert_awaited_once()
-    raw_summary_payload = (
-        update_summary.await_args.kwargs.get("summary")
-        if update_summary.await_args.kwargs
-        else update_summary.await_args.args[2]
-    )
-    summary_payload = service._normalize_domain_summary("financial", raw_summary_payload)
+    assert len(service._supabase.rpc_calls) == 1
+    rpc_call = service._supabase.rpc_calls[0]
+    assert rpc_call["function_name"] == "commit_pkm_domain_mutation_v2"
+    params = rpc_call["params"]
+    assert params["p_expected_content_revision"] == 0
+    assert params["p_next_content_revision"] == 1
+    assert {row["segment_id"] for row in params["p_segment_rows"]} == {"root"}
+    assert params["p_manifest_row"]["path_count"] == 4
+    assert params["p_manifest_row"]["externalizable_path_count"] == 2
+    assert len(params["p_path_rows"]) == 4
+    assert len(params["p_scope_rows"]) == 2
+    assert params["p_refresh_tokens"] == ["HCT:test-continuous"]
+    summary_payload = params["p_summary_patch"]
     assert summary_payload["storage_mode"] == "per_domain_blob"
     assert summary_payload["manifest_version"] == 1
     # risk_profile is now allowed through the financial domain enrichment keys
-    assert "risk_profile" in summary_payload or "risk_profile" not in raw_summary_payload
+    assert summary_payload["risk_profile"] == "aggressive"
     assert summary_payload["readable_summary"] == "Kai saved a readable financial update."
     assert summary_payload["readable_highlights"] == [
         "Updated sections: Portfolio",
         "Captured from: latest note",
     ]
 
-    assert [event["operation_type"] for event in recorded_events] == [
+    assert [event["operation_type"] for event in params["p_event_rows"]] == [
         "structure_create",
         "content_write",
         "decision_projection",
     ]
-    assert recorded_events[0]["metadata"]["readable"]["readable_summary"] == (
-        "Kai saved a readable financial update."
-    )
-    assert recorded_events[1]["metadata"]["readable"]["readable_event_summary"] == (
-        "Updated Financial."
-    )
-    assert recorded_events[2]["metadata"]["projection_mode"] == "replace_all"
-    assert recorded_events[2]["metadata"]["decisions"][0]["ticker"] == "AAPL"
-    queue_refreshes.assert_awaited_once()
-
-    migration_upsert = service._supabase.tables["pkm_migration_state"].last_upsert_data
-    assert migration_upsert["on_conflict"] == "user_id"
-    assert migration_upsert["data"]["status"] == "completed"
+    assert params["p_event_rows"][2]["metadata"]["projection_mode"] == "replace_all"
+    assert params["p_event_rows"][2]["metadata"]["decisions"][0]["ticker"] == "AAPL"
 
 
 @pytest.mark.asyncio
@@ -263,6 +274,7 @@ async def test_store_domain_data_uses_legacy_blob_version_for_initial_domain_con
         },
         summary={"holdings_count": 1},
         expected_data_version=3,
+        mutation_plan=_confirmed_create_plan(user_id="user-2", domain="financial"),
         return_result=True,
     )
 
@@ -342,7 +354,12 @@ async def test_queue_refresh_jobs_targets_matching_strict_grants(monkeypatch):
         async def get_consent_export_metadata(self, token_id: str):
             if token_id == "token_legacy":  # noqa: S105 - test fixture token id
                 return {"is_strict_zero_knowledge": False}
-            return {"is_strict_zero_knowledge": True}
+            return {
+                "is_strict_zero_knowledge": True,
+                "refresh_policy": "continuous_until_expiry",
+                "envelope_version": 2,
+                "scope_handle": "s_financial_demo",
+            }
 
         async def queue_consent_export_refresh_job(self, **kwargs):
             queued.append(kwargs)
@@ -374,6 +391,73 @@ async def test_queue_refresh_jobs_targets_matching_strict_grants(monkeypatch):
         ]
         for entry in queued
     )
+
+
+@pytest.mark.asyncio
+async def test_mutation_sharing_impact_reports_only_matching_active_recipients(monkeypatch):
+    service = PersonalKnowledgeModelService()
+
+    class _FakeConsentDBService:
+        async def get_active_tokens(self, user_id: str):
+            assert user_id == "user-4"
+            return [
+                {
+                    "scope": "attr.financial.*",
+                    "token_id": "token_financial",
+                    "request_id": "grant_financial",
+                    "agent_id": "developer_hushh",
+                    "metadata": {"developer_app_display_name": "Hushh Technologies"},
+                },
+                {
+                    "scope": "attr.financial.portfolio.*",
+                    "token_id": "token_portfolio",
+                    "request_id": "grant_portfolio",
+                    "agent_id": "developer_hushh",
+                    "metadata": {"developer_app_display_name": "Hushh Technologies"},
+                },
+                {
+                    "scope": "attr.health.profile.*",
+                    "token_id": "token_health",
+                    "request_id": "grant_health",
+                    "agent_id": "developer_health",
+                },
+                {
+                    "scope": "cap.one.invoke",
+                    "token_id": "token_invoke",
+                    "request_id": "grant_invoke",
+                    "agent_id": "developer_hushh",
+                },
+            ]
+
+        async def get_consent_export_metadata(self, token_id: str):
+            revisions = {
+                "token_financial": 3,
+                "token_portfolio": 8,
+            }
+            revision = revisions.get(token_id)
+            return {"export_revision": revision} if revision is not None else None
+
+    monkeypatch.setattr(consent_db_module, "ConsentDBService", lambda: _FakeConsentDBService())
+
+    impact = await service.get_mutation_sharing_impact(
+        user_id="user-4",
+        domain="financial",
+        scope_path="portfolio",
+    )
+
+    assert impact == {
+        "active_recipient_count": 1,
+        "recipient_labels": ["Hushh Technologies"],
+        "enters_next_export_revision": True,
+        "summary": (
+            "This change will enter the next encrypted export revision for Hushh Technologies."
+        ),
+        "affected_grant_ids": ["grant_financial", "grant_portfolio"],
+        "affected_export_ids": [
+            "grant_financial:revision:3",
+            "grant_portfolio:revision:8",
+        ],
+    }
 
 
 @pytest.mark.asyncio

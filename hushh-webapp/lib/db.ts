@@ -1,7 +1,7 @@
 /**
  * Database Utility Library
  *
- * Handles storage of encrypted user data via the PKM backend.
+ * Handles storage of encrypted user information via the PKM backend.
  *
  * Architecture note:
  * - storeUserData() proxies to POST /api/pkm/store-domain on the backend.
@@ -30,7 +30,7 @@ type StoreUserDataOptions = {
 };
 
 /**
- * Persist an encrypted user data field to the PKM backend.
+ * Persist an encrypted user-information field to the PKM backend.
  *
  * The `value`, `iv`, and `tag` parameters are the AES-GCM ciphertext
  * components produced by the client-side vault encryption layer. The

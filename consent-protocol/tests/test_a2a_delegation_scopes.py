@@ -15,15 +15,11 @@ from hushh_mcp.constants import ConsentScope
 
 def test_specialist_a2a_scope_map_uses_least_privilege_scopes() -> None:
     assert SPECIALIST_A2A_SCOPE_MAP == {
-        "agent_one": ConsentScope.AGENT_ONE_ORCHESTRATE,
-        "agent_connected_systems": ConsentScope.AGENT_ONE_ORCHESTRATE,
+        "agent_one": ConsentScope.CAP_ONE_INVOKE,
         "agent_kai": ConsentScope.AGENT_KAI_ANALYZE,
         "agent_nav": ConsentScope.AGENT_NAV_REVIEW,
         "agent_kyc": ConsentScope.AGENT_KYC_PROCESS,
-        "agent_connections": ConsentScope.AGENT_ONE_ORCHESTRATE,
-        "agent_location": ConsentScope.AGENT_ONE_ORCHESTRATE,
-        "agent_personal_information": ConsentScope.AGENT_ONE_ORCHESTRATE,
-        "agent_email": ConsentScope.AGENT_ONE_ORCHESTRATE,
+        "agent_personal_information": ConsentScope.CAP_PKM_MARKETPLACE_VIEW,
     }
     assert ConsentScope.VAULT_OWNER not in SPECIALIST_A2A_SCOPE_MAP.values()
 
@@ -61,9 +57,11 @@ def test_validate_a2a_consent_token_rejects_wrong_specialist_scope() -> None:
     assert validation.required_scope == ConsentScope.AGENT_KYC_PROCESS
 
 
-def test_agent_email_scope_is_orchestrate() -> None:
-    assert get_a2a_required_scope("agent_email") == ConsentScope.AGENT_ONE_ORCHESTRATE
+def test_agent_email_requires_dynamic_authority_contract() -> None:
+    with pytest.raises(ValueError, match="Unknown A2A specialist"):
+        get_a2a_required_scope("agent_email")
 
 
-def test_agent_connections_scope_is_orchestrate() -> None:
-    assert get_a2a_required_scope("agent_connections") == ConsentScope.AGENT_ONE_ORCHESTRATE
+def test_agent_connections_requires_dynamic_authority_contract() -> None:
+    with pytest.raises(ValueError, match="Unknown A2A specialist"):
+        get_a2a_required_scope("agent_connections")

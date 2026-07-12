@@ -100,8 +100,7 @@ export type VoiceCapturePkmMemoryCall = {
   tool_name: "capture_pkm_memory";
   args: {
     message?: string;
-    mode?: "preview" | "direct_save";
-    direct_save?: boolean;
+    mode?: "preview";
   };
 };
 

@@ -225,7 +225,7 @@ export function PkmDataManagerPanel({
         <SurfaceCardHeader>
           <SurfaceCardTitle className="flex items-center gap-2">
             <Database className="h-4 w-4" />
-            Set up personal data
+            Set up saved details
           </SurfaceCardTitle>
           <SurfaceCardDescription>
             Create your vault first so One can save your details and sharing controls here.
@@ -242,7 +242,7 @@ export function PkmDataManagerPanel({
     return (
       <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
         <RefreshCw className="h-4 w-4 animate-spin" />
-        Loading your personal data...
+        Loading your saved details...
       </SurfaceInset>
     );
   }
@@ -301,7 +301,7 @@ export function PkmDataManagerPanel({
         <SurfaceInset className="p-4 text-sm text-muted-foreground">
           <div className="space-y-1">
             <p className="font-medium text-foreground">
-              {metadataError ? "Personal data unavailable" : "Checking your saved details"}
+              {metadataError ? "Saved details unavailable" : "Checking your saved details"}
             </p>
             <p>
               {metadataError
@@ -547,7 +547,6 @@ export function PkmDomainDetailPanel({
               const postureOptions: Array<{ value: PkmVisibilityPosture; label: string }> = [
                 { value: "private", label: "Private" },
                 { value: "consent_required", label: "Ask first" },
-                { value: "default_available", label: "Available by default" },
               ];
               return (
                 <div
@@ -740,7 +739,7 @@ export function PkmAccessManagerPanel({
         <SurfaceInset className="p-4 text-sm text-muted-foreground">
           <div className="space-y-1">
             <p className="font-medium text-foreground">No active access right now</p>
-            <p>Your personal data is not currently shared with connected apps or advisors.</p>
+            <p>Your saved details are not currently shared with connected apps or advisors.</p>
           </div>
         </SurfaceInset>
       ) : (

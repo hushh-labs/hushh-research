@@ -88,6 +88,7 @@ EXPECTED_WORKFLOW_IDS = [
     "future-roadmap-plan",
     "kai-voice-governance",
     "mcp-surface-change",
+    "product-agent-development",
     "oss-license-governance",
     "contributor-onboarding",
     "subtree-upstream-governance",
@@ -1132,6 +1133,34 @@ def validate_truth_first_contract(errors: list[str]) -> None:
             )
 
 
+def collect_anti_rationalization_advisories(skill_manifests) -> list[str]:
+    """Advisory-only: high-risk lanes should carry references/anti-rationalization.md.
+
+    Non-blocking by design (metadata-level drift stays advisory per the
+    codex-skill-authoring contract). High-risk = any risk tag in
+    HIGH_RISK_TAGS on the skill manifest.
+    """
+    high_risk_tags = {
+        "trust-boundary-regression",
+        "merge-readiness-false-positive",
+        "north-star-drift",
+        "malicious-degradation-risk",
+    }
+    advisories: list[str] = []
+    for skill_id, manifest in skill_manifests.items():
+        tags = set(manifest.get("risk_tags", []))
+        if not (tags & high_risk_tags):
+            continue
+        table = REPO_ROOT / ".codex/skills" / skill_id / "references/anti-rationalization.md"
+        if not table.exists():
+            advisories.append(
+                f"{skill_id}: high-risk tags {sorted(tags & high_risk_tags)} but no "
+                f"references/anti-rationalization.md (see codex-skill-authoring "
+                f"references/anti-rationalization-guide.md)"
+            )
+    return advisories
+
+
 def main() -> int:
     skills, errors = collect_skill_bodies()
     skill_manifests = validate_skill_manifests(skills, errors)
@@ -1151,6 +1180,9 @@ def main() -> int:
         f"Validated {len(skills)} skills, {len(skill_manifests)} skill manifests, "
         f"{len(EXPECTED_WORKFLOW_IDS)} workflow packs, and {len(MEANINGFUL_SURFACES)} meaningful repo surfaces"
     )
+    advisories = collect_anti_rationalization_advisories(skill_manifests)
+    for item in advisories:
+        print(f"- ADVISORY: {item}")
     return 0
 
 

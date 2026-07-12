@@ -527,6 +527,19 @@ function normalizeSurface(contractPath, raw) {
   }
   const docsReferences = uniqueStrings(raw.docs_references);
   const defaults = isPlainObject(raw.defaults) ? raw.defaults : {};
+  const orchestrationRaw = isPlainObject(raw.orchestration) ? raw.orchestration : {};
+  const contextPolicy = cleanString(orchestrationRaw.context_policy);
+  const trustBoundary = cleanString(orchestrationRaw.trust_boundary);
+  const delegationPolicy = cleanString(orchestrationRaw.delegation_policy);
+  if (contextPolicy && !["publish", "minimal", "suppress"].includes(contextPolicy)) {
+    throw new Error(`${toRelativeRepoPath(contractPath)}: invalid orchestration.context_policy`);
+  }
+  if (trustBoundary && !["none", "auth", "vault", "consent", "external_callback"].includes(trustBoundary)) {
+    throw new Error(`${toRelativeRepoPath(contractPath)}: invalid orchestration.trust_boundary`);
+  }
+  if (delegationPolicy && !["one_action_gate", "no_delegation"].includes(delegationPolicy)) {
+    throw new Error(`${toRelativeRepoPath(contractPath)}: invalid orchestration.delegation_policy`);
+  }
   const surface = {
     schema_version: cleanString(raw.schema_version) || "kai.local_action_contract.v1",
     surface_id: surfaceId,
@@ -534,6 +547,12 @@ function normalizeSurface(contractPath, raw) {
     docs_references: docsReferences,
     contract_file: toRelativeRepoPath(contractPath),
     defaults,
+    orchestration: {
+      instruction_id: cleanString(orchestrationRaw.instruction_id),
+      context_policy: contextPolicy,
+      trust_boundary: trustBoundary,
+      delegation_policy: delegationPolicy,
+    },
   };
   const actions = ensureArray(raw.actions).map((action) => normalizeAction(surface, action));
   if (actions.length === 0) {

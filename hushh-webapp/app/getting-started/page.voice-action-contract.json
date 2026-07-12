@@ -122,7 +122,6 @@
         ],
         "screens": [
           "getting_started",
-          "login",
           "one_agents"
         ],
         "hidden_navigable": true,

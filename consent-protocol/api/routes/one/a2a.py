@@ -1,28 +1,28 @@
-"""Agent One A2A endpoint.
+"""Contained Agent One invocation-preview endpoint.
 
-This route exposes Agent One over the existing Hussh A2A consent boundary.
-It does not mint tokens and does not expose internal routing authority; the
-caller must present a consent token scoped to ``agent.one.orchestrate``.
+This is not an official A2A v1 Tasks surface. It remains temporarily available
+for bounded UAT caller migration and exposes invocation only. Official v1 is a
+release blocker until the selected ADK and official A2A SDK are compatible.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.developer_auth import authenticate_developer_principal
 from api.utils.firebase_admin import get_firebase_auth_app
-from hushh_mcp.agents.one.manifest import get_manifest
 from hushh_mcp.agents.orchestrator.agent import get_orchestrator
 from hushh_mcp.consent.scope_helpers import get_scope_description
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.consent_request_links import build_consent_request_url
@@ -30,8 +30,11 @@ from hushh_mcp.services.user_identifier_service import resolve_lookup_identifier
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/one/a2a", tags=["Agent One A2A"])
-well_known_router = APIRouter(tags=["Agent One A2A"])
+router = APIRouter(prefix="/api/one/a2a", tags=["Agent One Invocation Preview"])
+well_known_router = APIRouter(tags=["Agent One Invocation Preview"])
+ONE_MANIFEST_PATH = (
+    Path(__file__).resolve().parents[3] / "hushh_mcp" / "agents" / "one" / "agent.yaml"
+)
 
 
 class AgentOneA2AMessageRequest(BaseModel):
@@ -72,29 +75,22 @@ def _absolute_url(request: Request, path: str) -> str:
 
 
 def _agent_card(request: Request) -> dict[str, Any]:
-    manifest = get_manifest()
-    required_scopes = [
-        str(scope.value if hasattr(scope, "value") else scope)
-        for scope in manifest["required_scopes"]
-    ]
+    manifest = ManifestLoader.load(str(ONE_MANIFEST_PATH))
+    required_scopes = list(manifest.required_scopes)
     return {
-        "name": manifest["name"],
-        "version": manifest["version"],
+        "name": manifest.name,
+        "version": manifest.version,
         "description": (
             "User-consent coordination agent for Hussh-held personal data, "
             "identity/account-opening workflows, advisor onboarding context, "
             "and privacy or vault coordination."
         ),
-        "supportedInterfaces": [
-            {
-                "url": _absolute_url(request, "/api/one/a2a/message"),
-                "protocolBinding": "HTTP+JSON",
-                "protocolVersion": "1.0.0",
-            }
-        ],
-        "protocolVersion": "1.0.0",
-        "url": _absolute_url(request, "/api/one/a2a/message"),
-        "preferredTransport": "HTTP+JSON",
+        "contract": "hussh.one.invocation-preview.v1",
+        "officialA2A": False,
+        "endpoint": _absolute_url(request, "/api/one/a2a/message"),
+        "releaseBlocker": (
+            "Official A2A v1 Tasks require a compatible ADK + a2a-sdk 1.x dependency set."
+        ),
         "provider": {
             "organization": "Hussh",
             "url": "https://hushh.ai",
@@ -118,7 +114,7 @@ def _agent_card(request: Request) -> dict[str, Any]:
                 "in": "header",
                 "name": "X-Consent-Token",
                 "description": (
-                    "User-approved consent token scoped to agent.one.orchestrate. "
+                    "User-approved invocation token scoped to cap.one.invoke. "
                     "Required when executing an approved user request."
                 ),
             },
@@ -241,14 +237,18 @@ def _agent_card(request: Request) -> dict[str, Any]:
             },
         ],
         # Compatibility fields for existing Hussh callers. Do not include internal routing names.
-        "agentId": manifest["agent_id"],
-        "legacyIds": list(manifest.get("legacy_ids") or []),
+        "agentId": manifest.id,
+        "legacyIds": list(manifest.legacy_ids),
         "requiredScopes": required_scopes,
         "optionalScopes": [
             str(scope.value if hasattr(scope, "value") else scope)
-            for scope in manifest.get("optional_scopes", [])
+            for scope in manifest.optional_scopes
         ],
-        "compliance": dict(manifest.get("compliance") or {}),
+        "compliance": {
+            "consentRequired": True,
+            "invocationOnly": True,
+            "officialA2A": False,
+        },
         "endpoints": {
             "message": "/api/one/a2a/message",
             "card": "/api/one/a2a/card",
@@ -257,13 +257,25 @@ def _agent_card(request: Request) -> dict[str, Any]:
             "transport": "https",
             "developerAuth": "Authorization: Bearer <developer-token>",
             "consentHeader": "X-Consent-Token",
-            "requiredScope": "agent.one.orchestrate",
+            "requiredScope": "cap.one.invoke",
         },
     }
 
 
 def _required_scope() -> str:
-    return "agent.one.orchestrate"
+    return "cap.one.invoke"
+
+
+def _require_one_app_capability(principal: Any) -> None:
+    if _required_scope() in (getattr(principal, "allowed_capabilities", ()) or ()):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail={
+            "error_code": "APP_CAPABILITY_NOT_ALLOWED",
+            "message": "This developer app is not permitted to invoke One.",
+        },
+    )
 
 
 def _consent_reason(body: AgentOneA2AMessageRequest) -> str:
@@ -290,7 +302,7 @@ def _a2a_requester_metadata(
     poll_timeout_at: int,
 ) -> dict[str, Any]:
     return {
-        "request_source": "agent_one_a2a_consent_v1",
+        "request_source": "one_invocation_preview_v1",
         "requester_actor_type": "a2a_agent",
         "developer_app_id": principal.app_id,
         "developer_agent_id": principal.agent_id,
@@ -331,7 +343,12 @@ def _public_delegation(delegation: Any) -> dict[str, Any] | None:
         return None
     return {
         "delegated": True,
-        "status": "routed_internally",
+        "status": "auth_required",
+        "errorCode": "EXACT_AUTHORITY_REQUIRED",
+        "message": (
+            "One may identify the next consent step, but cap.one.invoke does not "
+            "authorize specialist data access or actions."
+        ),
     }
 
 
@@ -393,6 +410,7 @@ async def _create_or_report_consent_request(
         authorization=authorization,
         request=request,
     )
+    _require_one_app_capability(principal)
     user_id = await _resolve_consent_user_id(body)
     scope = _required_scope()
     service = ConsentDBService()
@@ -498,38 +516,32 @@ async def agent_one_a2a_card(request: Request) -> dict[str, Any]:
     return _agent_card(request)
 
 
-@well_known_router.get("/.well-known/agent-card.json")
-async def agent_one_well_known_agent_card(request: Request) -> dict[str, Any]:
-    """Return the public A2A Agent Card at the standard well-known URI."""
-    return _agent_card(request)
-
-
 @router.post("/message", response_model=AgentOneA2AMessageResponse)
 async def agent_one_a2a_message(
     request: Request,
     body: AgentOneA2AMessageRequest,
     x_consent_token: str | None = Header(default=None, alias="X-Consent-Token"),
     authorization: str | None = Header(default=None),
-    token: str | None = Query(default=None, max_length=256),
 ) -> AgentOneA2AMessageResponse:
-    """Route a caller request through Agent One after A2A scope validation."""
+    """Invoke contained One behavior after exact invocation-scope validation."""
     consent_token = (x_consent_token or "").strip()
     if not consent_token:
         return await _create_or_report_consent_request(
             body=body,
             request=request,
             authorization=authorization,
-            developer_token=token,
+            developer_token=None,
         )
 
     principal = authenticate_developer_principal(
-        token=token,
+        token=None,
         authorization=authorization,
         request=request,
     )
+    _require_one_app_capability(principal)
     valid, _reason, token_obj = await validate_token_with_db(
         consent_token,
-        expected_scope=ConsentScope.AGENT_ONE_ORCHESTRATE,
+        expected_scope=ConsentScope.CAP_ONE_INVOKE,
     )
     if not valid or token_obj is None:
         logger.warning("agent_one_a2a.request_rejected_invalid_token")
@@ -546,27 +558,6 @@ async def agent_one_a2a_message(
             logger.warning("agent_one_a2a.request_rejected_user_mismatch")
             raise HTTPException(status_code=403, detail="Token user does not match request user")
 
-    if _adk_runtime_enabled():
-        try:
-            response_text = await _run_adk_turn(
-                user_id=user_id,
-                consent_token=consent_token,
-                message=body.message,
-                timezone=None,
-            )
-        except Exception:
-            logger.exception("agent_one_a2a.adk_runtime_failed")
-            raise HTTPException(status_code=500, detail="Agent One could not process the request")
-        return AgentOneA2AMessageResponse(
-            agentId="agent_one",
-            conversationId=body.conversation_id,
-            userId=user_id,
-            response=response_text,
-            delegation=None,
-            consent=None,
-            isComplete=True,
-        )
-
     try:
         result = get_orchestrator().handle_message(
             message=body.message,
@@ -578,76 +569,13 @@ async def agent_one_a2a_message(
         logger.exception("agent_one_a2a.orchestrator_failed")
         raise HTTPException(status_code=500, detail="Agent One could not process the request")
 
+    public_delegation = _public_delegation(result.get("delegation"))
     return AgentOneA2AMessageResponse(
         agentId="agent_one",
         conversationId=body.conversation_id,
         userId=user_id,
         response=str(result.get("response") or ""),
-        delegation=_public_delegation(result.get("delegation")),
+        delegation=public_delegation,
         consent=None,
-        isComplete=True,
+        isComplete=public_delegation is None,
     )
-
-
-def _adk_runtime_enabled() -> bool:
-    """Route external A2A turns through the ADK One head (default ON).
-
-    Set AGENT_ONE_A2A_RUNTIME=legacy to fall back to the keyword-classifier
-    orchestrator. The ADK path uses the SAME agent tree as voice (text head),
-    honoring the no-second-decision-maker doctrine at the external boundary.
-    """
-    return (os.getenv("AGENT_ONE_A2A_RUNTIME") or "adk").strip().lower() != "legacy"
-
-
-async def _run_adk_turn(
-    *,
-    user_id: str,
-    consent_token: str,
-    message: str,
-    timezone: str | None,
-) -> str:
-    """Run one text turn on One's ADK head with consent in session state.
-
-    The consent token rides ONLY in session state (STATE_CONSENT_TOKEN), the
-    same channel the voice relay uses; specialist tools read it and fail
-    closed without it. It never enters the model prompt.
-    """
-    from google.genai import types as genai_types
-
-    from hushh_mcp.one_adk.agent_tree import (
-        ONE_APP_NAME,
-        STATE_CONSENT_TOKEN,
-        STATE_TIMEZONE,
-        STATE_USER_ID,
-        get_one_text_runner,
-    )
-
-    runner = get_one_text_runner()
-    session_id = f"a2a_{uuid.uuid4().hex}"
-    await runner.session_service.create_session(
-        app_name=ONE_APP_NAME,
-        user_id=user_id,
-        session_id=session_id,
-        state={
-            STATE_USER_ID: user_id,
-            STATE_CONSENT_TOKEN: consent_token,
-            STATE_TIMEZONE: timezone or "",
-        },
-    )
-
-    content = genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=message)])
-    final_text = ""
-    async for event in runner.run_async(
-        user_id=user_id, session_id=session_id, new_message=content
-    ):
-        if event.content and event.content.parts:
-            texts = [part.text for part in event.content.parts if isinstance(part.text, str)]
-            if texts and event.is_final_response():
-                final_text = "".join(texts)
-    try:
-        await runner.session_service.delete_session(
-            app_name=ONE_APP_NAME, user_id=user_id, session_id=session_id
-        )
-    except Exception:  # noqa: BLE001 - ephemeral cleanup best-effort
-        logger.debug("agent_one_a2a.session_cleanup_skipped")
-    return final_text or "One could not produce a response for this request."

@@ -1,0 +1,70 @@
+{
+  "id": "product-agent-development",
+  "title": "Product Agent Development",
+  "goal": "Build or change a Hussh runtime product agent through the strict AgentManifestV2 source, generated contracts, authority separation, surface declarations, evaluation, telemetry, and rollback gates.",
+  "owner_skill": "backend",
+  "default_spoke": "backend-agents-operons",
+  "task_type": "product-agent-development",
+  "affected_surfaces": [
+    "consent-protocol/hushh_mcp/agents",
+    "consent-protocol/hushh_mcp/hushh_adk",
+    "consent-protocol/hushh_mcp/one_adk",
+    "consent-protocol/hushh_mcp/adk_bridge",
+    "contracts/agents",
+    "consent-protocol/docs/reference/agent-development.md"
+  ],
+  "required_reads": [
+    "consent-protocol/docs/reference/agent-development.md",
+    "docs/reference/one/one-agent-hierarchy.md",
+    "AGENTS.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task product-agent-development",
+    "cd consent-protocol && uv run python scripts/generate_product_agent_registry.py --check",
+    "cd consent-protocol && uv run pytest tests/test_product_agent_registry_v2.py tests/test_agent_manifests.py -q",
+    "cd consent-protocol && python3 scripts/verify_agent_hierarchy_contract.py"
+  ],
+  "verification_bundle": {
+    "id": "product-agent-development",
+    "commands": [
+      "cd consent-protocol && uv run python scripts/generate_product_agent_registry.py --check",
+      "cd consent-protocol && uv run pytest tests/test_product_agent_registry_v2.py tests/test_agent_manifests.py -q",
+      "cd consent-protocol && python3 scripts/verify_agent_hierarchy_contract.py",
+      "./bin/hushh docs verify"
+    ],
+    "tests": [
+      "cd consent-protocol && uv run pytest tests/test_product_agent_registry_v2.py tests/test_agent_manifests.py -q",
+      "cd consent-protocol && python3 scripts/verify_agent_hierarchy_contract.py"
+    ]
+  },
+  "deliverables": [
+    "strict AgentManifestV2 YAML",
+    "current generated product-agent registry",
+    "authority and surface decision",
+    "evaluation telemetry rollout and rollback declarations"
+  ],
+  "impact_fields": [
+    "Agent ids and hierarchy",
+    "Invocation data and action authorities",
+    "Chat voice A2A MCP and native surfaces",
+    "PKM effects and confirmations",
+    "Evaluations telemetry kill switch and rollback",
+    "Generated artifacts and verification"
+  ],
+  "handoff_chain": [
+    "backend",
+    "backend-agents-operons",
+    "security-audit",
+    "kai-voice-governance",
+    "mobile-native",
+    "quality-contracts",
+    "docs-governance"
+  ],
+  "common_failures": [
+    "adding a parallel Python manifest or prompt copy",
+    "using invocation capability as data or mutation authority",
+    "leaving a surface applicability decision implicit",
+    "shipping without generated-artifact freshness evaluation telemetry kill-switch or rollback proof",
+    "creating a second top-level router or using MCP as One's internal specialist router"
+  ]
+}

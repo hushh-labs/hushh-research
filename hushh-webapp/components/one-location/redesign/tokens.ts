@@ -30,9 +30,8 @@ export const SCREEN_TITLE =
 /** Muted secondary copy. */
 export const MUTED_TEXT = "text-sm leading-snug text-muted-foreground";
 
-/** Foundation gold deep — primary accent (replaces the old Apple system blue).
- *  Matches --foundation-gold-deep / text-accent-strong used app-wide. */
-export const ACCENT_BLUE = "#b8894d";
+// Primary accent — iOS system blue (Apple Blue v2 design).
+export const ACCENT_BLUE = "#007aff";
 
 /** Status pill palettes. */
 export const PILL_READY =

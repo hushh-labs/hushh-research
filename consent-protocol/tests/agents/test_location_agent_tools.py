@@ -16,7 +16,7 @@ from hushh_mcp.hushh_adk.manifest import ManifestLoader
 def test_location_agent_yaml_declares_callable_tools() -> None:
     manifest = ManifestLoader.load(str(Path("hushh_mcp/agents/location/agent.yaml").resolve()))
     declared = {tool.name: tool for tool in manifest.tools}
-    runtime = {getattr(tool, "_name", ""): tool for tool in tools.LOCATION_AGENT_TOOLS}
+    runtime = {getattr(tool, "_name", ""): tool for tool in tools.V2_LOCATION_TOOLS}
 
     assert set(declared) == set(runtime)
     for name, tool in runtime.items():

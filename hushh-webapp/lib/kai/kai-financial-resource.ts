@@ -293,6 +293,11 @@ async function loadNetworkResource(
         domain: "financial",
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "kai_financial_resource_user_action",
+        },
         build: () => ({
           domainData: projectedFinancial,
           summary: buildFinancialDomainSummary(projectedFinancial),

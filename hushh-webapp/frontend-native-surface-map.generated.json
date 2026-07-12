@@ -355,6 +355,50 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/blog",
+      "page_file": "app/blog/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": null,
+      "native": {
+        "route": "/blog",
+        "classification": "excluded-web-only"
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/blog/[slug]",
+      "page_file": "app/blog/[slug]/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": null,
+      "native": {
+        "route": "/blog/[slug]",
+        "classification": "excluded-web-only"
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/connect",
       "page_file": "app/connect/page.tsx",
       "physical_page_exists": true,
@@ -573,7 +617,7 @@
         "page_header": false,
         "settings_ui": false,
         "shared_loader": true,
-        "back_button_pattern": "route-local-check-required"
+        "back_button_pattern": "shared-shell"
       },
       "voice_action_contract_file": "app/getting-started/page.voice-action-contract.json",
       "voice_action_contract_ids": [
@@ -1093,33 +1137,6 @@
       "thread_and_consent_contract": null
     },
     {
-      "route": "/labs/profile-appearance",
-      "page_file": "app/labs/profile-appearance/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "hidden",
-        "exemption_reason": "Labs route is intentionally isolated from the primary app shell.",
-        "shell_verification_file": null,
-        "shell_verification_includes": []
-      },
-      "native": {
-        "route": "/labs/profile-appearance",
-        "classification": "excluded-web-only"
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
       "route": "/login",
       "page_file": "app/login/page.tsx",
       "physical_page_exists": true,
@@ -1146,10 +1163,13 @@
         "page_header": false,
         "settings_ui": false,
         "shared_loader": true,
-        "back_button_pattern": "shared-shell"
+        "back_button_pattern": "route-local-check-required"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/login/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "auth.sign_in_apple",
+        "auth.sign_in_google"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -1340,8 +1360,14 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/marketplace/ria/page-client.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "marketplace.ria.manage_profile",
+        "marketplace.ria.open_public_disclosure",
+        "marketplace.ria.request_advisory",
+        "route.marketplace_browse_from_ria_profile",
+        "route.marketplace_ria_profile"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -2959,8 +2985,11 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/profile/pkm-agent-lab/page-client.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "profile.pkm.preview_capture",
+        "profile.pkm.save_capture"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -3406,6 +3435,50 @@
         "phone_mandate.submit_code",
         "phone_mandate.submit_number"
       ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/research",
+      "page_file": "app/research/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": null,
+      "native": {
+        "route": "/research",
+        "classification": "excluded-web-only"
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/research/protocol",
+      "page_file": "app/research/protocol/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": null,
+      "native": {
+        "route": "/research/protocol",
+        "classification": "excluded-web-only"
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null

@@ -170,15 +170,19 @@ async def test_empty_message_short_circuits_without_model_call():
 
 
 class _FakePkm:
-    def __init__(self, *, available_domains, manifests) -> None:
+    def __init__(self, *, available_domains, manifests, public_profiles=None) -> None:
         self._index = SimpleNamespace(available_domains=available_domains)
         self._manifests = manifests
+        self._public_profiles = public_profiles or {}
 
     async def get_index_v2(self, user_id):
         return self._index
 
     async def get_domain_manifest(self, user_id, domain):
         return self._manifests.get(domain)
+
+    async def list_public_profile_projections(self, *, user_id, domain):
+        return self._public_profiles.get(domain, [])
 
 
 def _scope(label, posture, *, tier="confidential", segments=("a",)):
@@ -193,17 +197,26 @@ def _scope(label, posture, *, tier="confidential", segments=("a",)):
     }
 
 
-async def test_list_published_slices_returns_only_available():
+async def test_list_published_slices_returns_only_owner_public_profiles():
     pkm = _FakePkm(
         available_domains=["personal_data"],
         manifests={
             "personal_data": {
                 "scope_registry": [
-                    _scope("Insurance", "default_available"),
+                    _scope("Insurance", "consent_required"),
                     _scope("SSN", "private"),
                     _scope("Email", "consent_required"),
                 ]
             }
+        },
+        public_profiles={
+            "personal_data": [
+                {
+                    "public_profile_handle": "profile_insurance",
+                    "scope_handle": "h_Insurance",
+                    "top_level_scope_path": "insurance",
+                }
+            ]
         },
     )
     svc = MarketplaceInformationService(pkm_service=pkm)
@@ -221,11 +234,18 @@ async def test_earnings_summary_is_potential_only_never_accrued():
         manifests={
             "personal_data": {
                 "scope_registry": [
-                    _scope(
-                        "Insurance", "default_available", tier="restricted", segments=("a", "b")
-                    ),
+                    _scope("Insurance", "consent_required", tier="restricted", segments=("a", "b")),
                 ]
             }
+        },
+        public_profiles={
+            "personal_data": [
+                {
+                    "public_profile_handle": "profile_insurance",
+                    "scope_handle": "h_Insurance",
+                    "top_level_scope_path": "insurance",
+                }
+            ]
         },
     )
     svc = MarketplaceInformationService(pkm_service=pkm)

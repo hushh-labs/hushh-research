@@ -642,6 +642,7 @@ class HushhConsentPlugin : Plugin() {
         val sourceContentRevision = call.getInt("sourceContentRevision")
         val sourceManifestRevision = call.getInt("sourceManifestRevision")
         val durationHours = call.getInt("durationHours")
+        val exportEnvelope = call.getObject("exportEnvelope")
         val userId = call.getString("userId") // Optional, but good context
 
         val vaultOwnerToken = call.getString("vaultOwnerToken") ?: run {
@@ -670,6 +671,7 @@ class HushhConsentPlugin : Plugin() {
                     if (sourceContentRevision != null) put("sourceContentRevision", sourceContentRevision)
                     if (sourceManifestRevision != null) put("sourceManifestRevision", sourceManifestRevision)
                     if (durationHours != null) put("durationHours", durationHours)
+                    if (exportEnvelope != null) put("exportEnvelope", exportEnvelope)
                 }
                 
                 val requestBody = jsonBody.toString().toRequestBody("application/json".toMediaType())

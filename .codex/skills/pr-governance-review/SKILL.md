@@ -1,6 +1,6 @@
 ---
 name: pr-governance-review
-description: Use when reviewing an incoming pull request for north-star alignment, trust-boundary regressions, malicious or low-signal degradation, stale-vs-current CI interpretation, and true merge readiness beyond a green gate.
+description: Use when reviewing an incoming pull request for north-star alignment, trust-boundary regressions, malicious or low-signal degradation, stale-vs-current CI interpretation, and true merge readiness beyond a green gate. Also owns PR train planning, merge queue cohorts, maintainer patch-then-merge, contributor harvest decisions, and backlog review waves.
 ---
 
 # PR Governance Review Skill
@@ -72,7 +72,7 @@ direct-to-main PRs; the train carries everything non-maintainer.
 3. Run the PR checklist or hybrid live report and treat `contract_set`, `duplicate_group`, `public_comment_policy`, `lane`, and `live_report_action` as decision records.
 4. Use the async PR governance subagent train method as the default for more than one PR: first lock the operator-approved surface scope, identify only trains inside that scope or its hard dependencies, run scoped non-touching trains in parallel through subagent evidence lanes, sequence touching PRs oldest-first inside each train, queue independent green PRs together, run disjoint patch trains, and run decision waves asynchronously. Unrelated green-clean PRs stay in `out_of_scope_candidates` until a separate operator checkpoint approves a broader sweep.
 5. Exclude PRs with failing/missing/stale required checks or failing auxiliary checks from executable trains unless the task is CI repair.
-6. Apply blocker gates before merge: north-star drift, duplicate architecture, trust-boundary regression, caller/proxy/backend mismatch, unreachable helpers, stacked diff, proof gaps, and local dirty-file overlap.
+6. Check `references/anti-rationalization.md` at intake; then apply blocker gates before merge: north-star drift, duplicate architecture, trust-boundary regression, caller/proxy/backend mismatch, unreachable helpers, stacked diff, proof gaps, and local dirty-file overlap.
 7. Prefer direct contributor PR merge, then `maintainer_patch_then_merge`, then maintainer harvest. Harvest is allowed only when the source PR should not be the merge vehicle and the plan names accepted value, canonical attach point, write set, dropped/deferred pieces, proof, source PR close-or-hold state, and co-author attribution when code/tests are materially reused.
 8. Use `comment-and-report-contract.md` for every GitHub write; edit existing maintainer records first and post one post-merge closeout after smoke.
 9. Keep branch switching, commits, GitHub writes, approvals, merges, deploys, report refreshes, and final decisions in the parent session.

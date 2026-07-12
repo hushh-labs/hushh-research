@@ -46,7 +46,7 @@ export function LocationChatOverlay(props: {
     <KaiControlSurface
       open={open}
       onOpenChange={onOpenChange}
-      eyebrow="One Location"
+      eyebrow="Onepoint"
       title="Location assistant"
       description="Ask who can see you, or make changes by typing."
       footer={

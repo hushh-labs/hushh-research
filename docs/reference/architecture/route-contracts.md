@@ -27,6 +27,14 @@ Hussh uses a code-owned route contract plus docs/runtime checks to keep the decl
 - Capacitor TypeScript, iOS, and Android plugin surfaces
 - mobile parity guidance for the visible page tree
 
+For One Voice onboarding, middleware remains route protection and static
+redirect infrastructure only. It cannot be the mutable journey planner because
+it cannot reliably observe Firebase callback settlement or browser-local UI
+state. The browser publishes the canonical redacted route state derived by
+`deriveVoiceRouteScreen`; the generated action gateway and `/api/one/[...path]`
+BFF validate and execute the permitted action. See
+[One Voice Onboarding Journey](../one/one-voice-onboarding-journey.md).
+
 ## Files
 
 - Canonical app route source: `hushh-webapp/lib/navigation/routes.ts`
@@ -46,7 +54,6 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/login`
 - `/register-phone`
 - `/logout`
-- `/labs/profile-appearance`
 - `/agent`
 - `/profile`
 - `/profile/account`

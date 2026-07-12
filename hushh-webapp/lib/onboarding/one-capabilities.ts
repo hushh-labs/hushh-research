@@ -76,7 +76,7 @@ export interface OneCapability {
   isExploreOnly?: boolean;
   /**
    * True when this capability's real workspace reads or writes vault-backed
-   * personal data and therefore needs an UNLOCKED vault to be usable. The setup
+   * personal information and therefore needs an UNLOCKED vault to be usable. The setup
    * STEP itself collects nothing and renders pre-vault; this flag only lets the
    * step set honest "you'll unlock your vault next" expectations and lets the
    * destination's own guard own the actual unlock prompt. Consent is
@@ -130,9 +130,9 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   {
     id: "location",
     agentId: "agent_location",
-    title: "Location",
-    description: "Live sharing, referrals, and local context.",
-    previewLabel: "Live sharing & local context",
+    title: "Onepoint",
+    description: "Live location & Alerts",
+    previewLabel: "Live location & Alerts",
     href: ROUTES.ONE_LOCATION,
     icon: MapPin,
     tone: "location",
@@ -168,7 +168,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     // Preview surface only today; no roster agent behind it.
     agentId: null,
     title: "Information Marketplace",
-    description: "Preview priced slices of your data you could publish.",
+    description: "Preview priced slices of your personal information you could publish.",
     previewLabel: "Priced data slices",
     href: ROUTES.ONE_MARKETPLACE,
     icon: Store,

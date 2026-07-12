@@ -10,7 +10,7 @@ import time
 from typing import Optional, Tuple, Union
 
 from hushh_mcp.config import APP_SIGNING_KEY, DEFAULT_CONSENT_TOKEN_EXPIRY_MS
-from hushh_mcp.constants import CONSENT_TOKEN_PREFIX, ConsentScope
+from hushh_mcp.constants import CONSENT_TOKEN_PREFIX, RETIRED_SCOPE_VALUES, ConsentScope
 from hushh_mcp.types import AgentID, HushhConsentToken, UserID
 
 logger = logging.getLogger(__name__)
@@ -113,6 +113,8 @@ def issue_token(
     scope: Union[str, ConsentScope],
     expires_in_ms: int = DEFAULT_CONSENT_TOKEN_EXPIRY_MS,
     commercial: bool = False,
+    *,
+    expires_at_ms: int | None = None,
 ) -> HushhConsentToken:
     """
     Issue a consent token with the given scope.
@@ -128,7 +130,9 @@ def issue_token(
     backward compatibility with previously issued tokens.
     """
     issued_at = int(time.time() * 1000)
-    expires_at = issued_at + expires_in_ms
+    expires_at = int(expires_at_ms) if expires_at_ms is not None else issued_at + expires_in_ms
+    if expires_at_ms is not None and expires_at <= issued_at:
+        raise ValueError("Token expiry must be after issuance")
 
     # Preserve original scope string or convert enum to string.
     #
@@ -140,6 +144,11 @@ def issue_token(
         scope_str = scope.value
     else:
         scope_str = scope
+
+    if scope_str in RETIRED_SCOPE_VALUES:
+        raise ValueError(f"SCOPE_RETIRED: {scope_str}")
+    if not ConsentScope.validate(scope_str):
+        raise ValueError(f"Unknown or invalid active scope: {scope_str!r}")
 
     # Non-commercial tokens use the original 5-field signed payload so
     # previously issued tokens still validate. Commercial tokens append
@@ -177,6 +186,8 @@ def _scope_str_to_enum(scope_str: str) -> ConsentScope:
     Dynamic scopes (attr.*) map to PKM_READ.
     Unknown static scopes are rejected instead of silently escalating to PKM_READ.
     """
+    if scope_str in RETIRED_SCOPE_VALUES:
+        raise ValueError(f"SCOPE_RETIRED: {scope_str}")
     try:
         return ConsentScope(scope_str)
     except ValueError:
@@ -237,10 +248,6 @@ def validate_token(
         else:
             return False, "Malformed token", None
 
-        # Map scope string to enum (for type alignment)
-        # IMPORTANT: Don't fail for dynamic scopes - they're valid!
-        scope_enum = _scope_str_to_enum(scope_str)
-
         if commercial:
             raw = f"{user_id}|{agent_id}|{scope_str}|{issued_at_str}|{expires_at_str}|commercial"
         else:
@@ -256,6 +263,17 @@ def validate_token(
         # the token held to a caller who should only learn it is expired.
         if int(time.time() * 1000) >= int(expires_at_str):
             return False, "Token expired", None
+
+        # Retired authority strings remain readable in immutable audit rows but
+        # can never authorize a live request. Check only after signature and
+        # expiry validation so an untrusted token cannot probe policy details.
+        if scope_str in RETIRED_SCOPE_VALUES:
+            return False, "SCOPE_RETIRED", None
+
+        # Map scope string to enum only after authenticity/policy checks.
+        # Dynamic attr.* scopes use PKM_READ for the legacy typed field while
+        # scope_str remains the actual domain-isolated authority.
+        scope_enum = _scope_str_to_enum(scope_str)
 
         # SCOPE VALIDATION with domain isolation
         if expected_scope:
@@ -369,6 +387,7 @@ async def validate_token_with_db(
                 str(token_obj.user_id),
                 scope_for_lookup,
                 str(token_obj.agent_id),
+                token_id=token_str,
             )
             if not is_active:
                 # Add to in-memory set for future fast checks

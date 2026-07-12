@@ -278,7 +278,7 @@ export function PkmNaturalPanel({
       maxCardsPerDomain: 128,
     });
     return {
-      readable_summary: `${card.domainTitle} memory was ${action} from your data view.`,
+      readable_summary: `${card.domainTitle} memory was ${action} from your saved details view.`,
       readable_highlights: [`${action === "edited" ? "Updated" : "Removed"} ${card.title}`],
       readable_updated_at: now,
       readable_source_label: action === "edited" ? "Edited memory" : "Deleted memory",
@@ -302,6 +302,11 @@ export function PkmNaturalPanel({
         domain: params.card.domain,
         vaultKey,
         vaultOwnerToken,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: `pkm_natural_${params.action}_button`,
+        },
         build: () => ({
           domainData: params.nextDomainData,
           summary: memoryWriteSummary(params.card, params.action, params.nextDomainData),

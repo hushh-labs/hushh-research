@@ -309,7 +309,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
               throw err;
             }
             console.error("[Consent] PKM export build failed:", err);
-            throw new Error("Could not load your data; try again.");
+            throw new Error("Could not load your saved details; try again.");
           }
         }
 
@@ -418,6 +418,12 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         const { generateExportKey, encryptForExport, wrapExportKeyForConnector } = await import(
           "@/lib/vault/export-encrypt"
         );
+        const {
+          buildConsentExportAadV2,
+          buildConsentExportEnvelopeSubmissionV2,
+          canonicalConsentExportAad,
+          canonicalConsentExportJson,
+        } = await import("@/lib/consent/export-envelope-v2");
         const consentMetadata =
           consent.metadata && typeof consent.metadata === "object"
             ? (consent.metadata as Record<string, unknown>)
@@ -448,15 +454,40 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           );
         }
         const exportKey = await generateExportKey();
+        const requestedDurationHours =
+          consent.durationHours ||
+          (typeof consentMetadata.expiry_hours === "number"
+            ? consentMetadata.expiry_hours
+            : Number(consentMetadata.expiry_hours || 24));
+        const exportAad = isDeveloperRequest
+          ? await buildConsentExportAadV2({
+              appId: String(consentMetadata.developer_app_id || ""),
+              grantId: consent.id,
+              machineScope: consent.scope,
+              scopeHandle: String(consentMetadata.scope_handle || ""),
+              connectorPublicKey,
+              expiresAtMs: Date.now() + requestedDurationHours * 60 * 60 * 1000,
+            })
+          : null;
         const encrypted = await encryptForExport(
           JSON.stringify(scopeData),
-          exportKey
+          exportKey,
+          exportAad ? { additionalData: canonicalConsentExportAad(exportAad) } : undefined
         );
+        const exportEnvelope = exportAad
+          ? await buildConsentExportEnvelopeSubmissionV2({
+              aad: exportAad,
+              ciphertextBase64: encrypted.ciphertext,
+            })
+          : undefined;
         const wrappedKeyBundle = connectorPublicKey
           ? await wrapExportKeyForConnector({
               exportKeyHex: exportKey,
               connectorPublicKey,
               connectorKeyId,
+              additionalData: exportEnvelope
+                ? canonicalConsentExportJson(exportEnvelope)
+                : undefined,
             })
           : null;
 
@@ -478,6 +509,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           sourceContentRevision,
           sourceManifestRevision,
           durationHours: consent.durationHours,
+          exportEnvelope,
         });
 
         if (!response.ok) {

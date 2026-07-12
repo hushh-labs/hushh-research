@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-06-17",
-  "total_routes": 81,
+  "total_routes": 84,
   "native_required_routes": 78,
-  "excluded_routes": 3,
+  "excluded_routes": 6,
   "routes": [
     {
       "route": "/",
@@ -1013,7 +1013,19 @@
       "classification": "excluded-web-only"
     },
     {
-      "route": "/labs/profile-appearance",
+      "route": "/blog",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/blog/[slug]",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/research",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/research/protocol",
       "classification": "excluded-web-only"
     },
     {

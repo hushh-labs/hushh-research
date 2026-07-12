@@ -51,6 +51,7 @@ Non-owned surfaces:
 4. `.codex/skills/repo-operations/references/branch-runtime-ops.md`
 5. `.codex/skills/repo-operations/references/maintainer-branch-freshness.md`
 6. `.codex/skills/repo-operations/references/agent-trigger-policy.md`
+7. `.codex/skills/repo-operations/references/anti-rationalization.md`
 
 ## Workflow
 

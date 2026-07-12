@@ -246,7 +246,7 @@ export const FAQ_ITEMS: DeveloperFaqItem[] = [
   {
     question: "Does developer login grant data access?",
     answer:
-      "No. Login enables your developer workspace and app token. User data still requires a separate consent decision inside Kai.",
+      "No. Login enables your developer workspace and app token. Personal information still requires a separate consent decision inside Kai.",
   },
   {
     question: "What is the one scalable read path?",

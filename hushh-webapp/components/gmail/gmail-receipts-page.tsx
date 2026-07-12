@@ -1005,6 +1005,14 @@ export default function ProfileReceiptsPage() {
           domain: "shopping",
           vaultKey,
           vaultOwnerToken,
+          // Required by the write-coordinator's confirmation-gated mutation
+          // contract (branch): explicit user confirmation provenance for
+          // this save action.
+          confirmation: {
+            confirmedByUser: true,
+            surface: "web",
+            source: "gmail_receipt_memory_save_button",
+          },
           build: async (context) => {
             const prepared = buildShoppingReceiptMemoryPreparedDomain({
               currentDomainData: context.currentDomainData,

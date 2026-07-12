@@ -127,6 +127,14 @@ Use durable docs for stable contracts and `docs/future/` for future-state work. 
 
 Private Founder Wiki content may shape internal planning, but shareable artifacts must not quote private wiki body text or cite private wiki pages unless explicitly approved.
 
+## App-Facing Language
+
+Use plain, human language in product copy. Name the thing a person recognizes:
+saved details, personal information, preferences, portfolio, shared access, or
+context. Do not expose storage terminology as the default way the product speaks
+to someone. Internal schemas, API contracts, and encrypted-storage terminology
+remain precise where engineering work requires them.
+
 ## Code Review Posture
 
 A Hussh code review prioritizes:

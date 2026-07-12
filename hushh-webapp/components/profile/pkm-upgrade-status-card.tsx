@@ -59,7 +59,7 @@ export function PkmUpgradeStatusCard({
               <ShieldAlert className="h-4 w-4 text-amber-500" />
             )}
             <p className="text-sm font-semibold text-foreground">
-              Personal data status
+              Saved details status
             </p>
           </div>
           <p className="max-w-2xl text-sm text-muted-foreground">

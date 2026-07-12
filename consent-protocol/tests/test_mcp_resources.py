@@ -100,6 +100,6 @@ def test_handle_list_scopes_fallback_uses_current_pkm_scope_language(monkeypatch
     names = {scope["name"] for scope in body["scopes"]}
     serialized = json.dumps(body)
 
-    assert {"pkm.read", "pkm.write", "attr.{domain}.*"}.issubset(names)
+    assert names == {"cap.one.invoke", "attr.{domain_slug}.{scope_slug}.*"}
     assert "world_model.read" not in serialized
     assert "world_model.write" not in serialized

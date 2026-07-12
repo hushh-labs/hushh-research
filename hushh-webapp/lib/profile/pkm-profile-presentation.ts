@@ -504,7 +504,7 @@ function normalizeVisibilityPosture(params: {
   exposureEnabled?: boolean;
 }): PkmVisibilityPosture {
   const posture = String(params.visibilityPosture || "").trim().toLowerCase();
-  if (posture === "private" || posture === "consent_required" || posture === "default_available") {
+  if (posture === "private" || posture === "consent_required") {
     return posture;
   }
   return params.exposureEnabled === false ? "private" : "consent_required";
@@ -523,17 +523,6 @@ function visibilityPostureCopy(params: {
         params.readerSummary.activeReaderCount > 0
           ? params.readerSummary.counterpartSummary
           : "Hidden from new sharing",
-    };
-  }
-  if (params.posture === "default_available") {
-    return {
-      label: params.defaultProjectionReady ? "Available by default" : "Preview needed",
-      description: params.defaultProjectionReady
-        ? "One can use this saved section without asking again."
-        : "Preview this section once before One can use it by default.",
-      counterpartSummary: params.defaultProjectionReady
-        ? "Ready to use when you ask One"
-        : "Preview required before this is available by default",
     };
   }
   return {

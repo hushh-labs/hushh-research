@@ -369,6 +369,11 @@ export class KaiHistoryService {
         vaultKey,
         vaultOwnerToken,
         domain: FINANCIAL_DOMAIN,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "kai_analysis_completion",
+        },
         build: async ({ currentDomainData, baseFullBlob }) => {
           const fullBlob =
             baseFullBlob && Object.keys(baseFullBlob).length > 0
@@ -512,6 +517,11 @@ export class KaiHistoryService {
         vaultKey,
         vaultOwnerToken,
         domain: FINANCIAL_DOMAIN,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "kai_history_delete_entry_button",
+        },
         build: async ({ currentDomainData, baseFullBlob }) => {
           const fullBlob =
             baseFullBlob && Object.keys(baseFullBlob).length > 0
@@ -618,6 +628,11 @@ export class KaiHistoryService {
         vaultKey,
         vaultOwnerToken,
         domain: FINANCIAL_DOMAIN,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "kai_history_delete_ticker_button",
+        },
         build: async ({ currentDomainData, baseFullBlob }) => {
           const fullBlob =
             baseFullBlob && Object.keys(baseFullBlob).length > 0

@@ -4,6 +4,10 @@ import type {
   DomainManifest,
 } from "@/lib/personal-knowledge-model/manifest";
 import {
+  buildConfirmedPkmMutationPlanV2,
+  type PkmUserConfirmation,
+} from "@/lib/personal-knowledge-model/mutation-plan";
+import {
   CURRENT_READABLE_SUMMARY_VERSION,
   currentDomainContractVersion,
 } from "@/lib/personal-knowledge-model/upgrade-contracts";
@@ -238,6 +242,7 @@ export class PkmWriteCoordinator {
     domain: string;
     vaultKey?: string | null;
     vaultOwnerToken?: string | null;
+    confirmation: PkmUserConfirmation;
     build: (context: BaseContext) => Promise<MergedWritePlan> | MergedWritePlan;
   }): Promise<PkmWriteCoordinatorResult> {
     if (!params.vaultKey || !params.vaultOwnerToken) {
@@ -270,6 +275,15 @@ export class PkmWriteCoordinator {
         upgradeContext,
       });
       const plan = await params.build(context);
+      const mutationPlan = await buildConfirmedPkmMutationPlanV2({
+        userId: params.userId,
+        domain: params.domain,
+        currentManifest: context.currentManifest,
+        targetManifest: plan.manifest,
+        operation: context.currentManifest ? "update" : "create",
+        sourceRevision: context.currentEncryptedDomain?.dataVersion,
+        confirmation: params.confirmation,
+      });
       const syncCheckpoint = buildSyncCheckpoint({
         source: "merged_domain",
         domain: params.domain,
@@ -292,6 +306,7 @@ export class PkmWriteCoordinator {
         expectedDataVersion: context.currentEncryptedDomain?.dataVersion ?? context.expectedDataVersion,
         upgradeContext: context.upgradeContext,
         syncCheckpoint,
+        mutationPlan,
         cacheFullBlob: false,
       });
       const resultCheckpoint = {
@@ -338,6 +353,7 @@ export class PkmWriteCoordinator {
     domain: string;
     vaultKey?: string | null;
     vaultOwnerToken?: string | null;
+    confirmation: PkmUserConfirmation;
     build: (context: BaseContext) => Promise<PreparedWritePlan> | PreparedWritePlan;
   }): Promise<PkmWriteCoordinatorResult> {
     if (!params.vaultKey || !params.vaultOwnerToken) {
@@ -370,6 +386,25 @@ export class PkmWriteCoordinator {
         upgradeContext,
       });
       const plan = await params.build(context);
+      const mergeMode = String(plan.mergeDecision?.merge_mode || "").trim().toLowerCase();
+      const operation = mergeMode === "delete_entity"
+        ? "delete"
+        : mergeMode === "correct_entity"
+          ? "update"
+          : context.currentManifest
+            ? "update"
+            : "create";
+      const mutationPlan = await buildConfirmedPkmMutationPlanV2({
+        userId: params.userId,
+        domain: params.domain,
+        currentManifest: context.currentManifest,
+        targetManifest: plan.manifest,
+        operation,
+        confidence: Number(plan.structureDecision?.confidence ?? 1),
+        explanation: String(plan.structureDecision?.explanation || "").trim() || undefined,
+        sourceRevision: context.currentEncryptedDomain?.dataVersion,
+        confirmation: params.confirmation,
+      });
       const syncCheckpoint = buildSyncCheckpoint({
         source: "prepared_domain",
         domain: params.domain,
@@ -393,6 +428,7 @@ export class PkmWriteCoordinator {
         expectedDataVersion: context.currentEncryptedDomain?.dataVersion ?? context.expectedDataVersion,
         upgradeContext: context.upgradeContext,
         syncCheckpoint,
+        mutationPlan,
         cacheFullBlob: false,
       });
       const resultCheckpoint = {

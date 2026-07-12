@@ -65,8 +65,7 @@ describe("voice-json-validator", () => {
       tool_name: "capture_pkm_memory",
       args: {
         message: "I prefer quiet hotel rooms away from elevators.",
-        mode: "direct_save",
-        direct_save: true,
+        mode: "preview",
       },
     });
 
@@ -74,10 +73,16 @@ describe("voice-json-validator", () => {
       tool_name: "capture_pkm_memory",
       args: {
         message: "I prefer quiet hotel rooms away from elevators.",
-        mode: "direct_save",
-        direct_save: true,
+        mode: "preview",
       },
     });
+
+    expect(
+      validateVoiceToolCall({
+        tool_name: "capture_pkm_memory",
+        args: { message: "remember this", mode: "direct_save", direct_save: true },
+      })
+    ).toBeNull();
   });
 
   it("validates blocked response payload", () => {

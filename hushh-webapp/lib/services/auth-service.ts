@@ -25,6 +25,7 @@ import {
   setPersistence,
   signInWithCredential,
   signInWithCustomToken as firebaseSignInWithCustomToken,
+  signInWithRedirect,
   signInWithPopup,
   signOut as firebaseSignOut,
   updatePhoneNumber,
@@ -54,11 +55,50 @@ const PHONE_CLAIM_APP_NAME = "hushh-phone-claim";
 const LOCAL_DEV_PHONE_VERIFICATION_ID_PREFIX = "local-dev-phone:";
 const LOCAL_DEV_PHONE_VERIFICATION_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 const UAT_PHONE_TEST_VERIFICATION_ID_PREFIX = "uat-test-phone:";
+const VOICE_REDIRECT_ATTEMPT_KEY = "hushh:voice-auth-redirect-attempt";
+const VOICE_REDIRECT_ATTEMPT_TTL_MS = 10 * 60 * 1000;
+
+export type VoiceAuthRedirectAttempt = {
+  provider: "google" | "apple";
+  startedAt: number;
+};
 
 /**
  * Platform-aware authentication service
  */
 export class AuthService {
+  static getVoiceRedirectAttempt(): VoiceAuthRedirectAttempt | null {
+    if (typeof window === "undefined") return null;
+    try {
+      const parsed = JSON.parse(window.sessionStorage.getItem(VOICE_REDIRECT_ATTEMPT_KEY) || "null");
+      if (
+        !parsed ||
+        (parsed.provider !== "google" && parsed.provider !== "apple") ||
+        typeof parsed.startedAt !== "number" ||
+        Date.now() - parsed.startedAt > VOICE_REDIRECT_ATTEMPT_TTL_MS
+      ) {
+        window.sessionStorage.removeItem(VOICE_REDIRECT_ATTEMPT_KEY);
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  static clearVoiceRedirectAttempt(): VoiceAuthRedirectAttempt | null {
+    const attempt = this.getVoiceRedirectAttempt();
+    if (typeof window !== "undefined") window.sessionStorage.removeItem(VOICE_REDIRECT_ATTEMPT_KEY);
+    return attempt;
+  }
+
+  private static markVoiceRedirectAttempt(provider: VoiceAuthRedirectAttempt["provider"]): void {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.setItem(
+      VOICE_REDIRECT_ATTEMPT_KEY,
+      JSON.stringify({ provider, startedAt: Date.now() })
+    );
+  }
   private static debugLog(...args: unknown[]) {
     if (process.env.NODE_ENV !== "production") {
       console.log(...args);
@@ -285,6 +325,25 @@ export class AuthService {
   }
 
   /**
+   * Start Google sign-in from a voice-directed browser action.
+   *
+   * Browser popups require a synchronous trusted click, which a WebSocket
+   * directive is not. Redirect OAuth is reliable for hands-free use and the
+   * existing AuthStep getRedirectResult path settles the authenticated result.
+   * Native retains its platform-owned provider UI and returns the user here.
+   */
+  static async startGoogleSignInForVoice(): Promise<AuthResult | null> {
+    if (Capacitor.isNativePlatform()) {
+      return this.nativeGoogleSignIn();
+    }
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
+    this.markVoiceRedirectAttempt("google");
+    await signInWithRedirect(auth, provider);
+    return null;
+  }
+
+  /**
    * Sign in with Email and Password using appropriate method for platform.
    * On Native: Uses @capacitor-firebase/authentication for Keychain persistence.
    * On Web: Uses Firebase JS SDK directly.
@@ -434,7 +493,7 @@ export class AuthService {
       }
 
       // Construct final User object
-      // If JS SDK failed, we wrap the native user data into a Firebase-like User object
+      // If JS SDK failed, we wrap the native user information into a Firebase-like User object
       const user =
         firebaseUser || this.createUserFromNative(nativeAuthUser, idToken);
 
@@ -470,7 +529,7 @@ export class AuthService {
   }
 
   /**
-   * Create a User-like object from native Firebase user data
+   * Create a User-like object from native Firebase user information
    */
   private static createUserFromNative(
     nativeUser: any,
@@ -590,6 +649,19 @@ export class AuthService {
     }
   }
 
+  /** See startGoogleSignInForVoice for why browser voice uses redirect OAuth. */
+  static async startAppleSignInForVoice(): Promise<AuthResult | null> {
+    if (Capacitor.isNativePlatform()) {
+      return this.nativeAppleSignIn();
+    }
+    const provider = new OAuthProvider("apple.com");
+    provider.addScope("email");
+    provider.addScope("name");
+    this.markVoiceRedirectAttempt("apple");
+    await signInWithRedirect(auth, provider);
+    return null;
+  }
+
   /**
    * Native iOS/Android Apple Sign-In flow using HushhAuth plugin
    * 
@@ -696,7 +768,7 @@ export class AuthService {
   }
 
   /**
-   * Create a User-like object from native Apple Sign-In user data
+   * Create a User-like object from native Apple Sign-In user information
    */
   private static createUserFromNativeApple(nativeUser: any, idToken: string): User {
     return this.createUserFromNative(nativeUser, idToken, "apple.com");
