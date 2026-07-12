@@ -48,6 +48,10 @@ describe("observability route map", () => {
     expect(resolveRouteId("/one/connected-systems/salesforce-fsc-customer0")).toBe(
       "connected_systems"
     );
+    expect(resolveRouteId("/research")).toBe("research");
+    expect(resolveRouteId("/research/protocol")).toBe("research_protocol");
+    expect(resolveRouteId("/blog")).toBe("blog");
+    expect(resolveRouteId("/blog/sample")).toBe("blog_post");
     expect(resolveRouteId("/gmail")).toBe("gmail");
     expect(resolveRouteId("/pkm")).toBe("pkm");
     expect(resolveRouteId("/connected-systems")).toBe("connected_systems");
