@@ -4,6 +4,19 @@
 **Status:** Approved (Phase 1)
 **Source design:** `Location Agent - Apple Blue v2.dc.html` (Downloads/Location agent features (3))
 
+## Visual Map
+
+```
+"One Location"  ──rebrand──►  "Onepoint"        (display copy only)
+warm-gold #d4a574  ──restyle──►  Apple blue #007aff (theme only)
+
+Surfaces restyled (presentation layer, components/one-location/redesign/*):
+  hub (Now | People | Links | Inbox) · Check-In · SOS/Alert · Drive To
+  Pick Me Up · Safe Arrival · live map · sharing links · Inbox · invite · chat
+
+Unchanged: routes, agent IDs, file names, storage keys, business logic.
+```
+
 ## Problem / Context
 
 A new design ("Onepoint / Apple Blue v2") rebrands and restyles the location

@@ -8,6 +8,21 @@
 
 **Tech Stack:** Next.js (App Router), React, TypeScript, Tailwind CSS (arbitrary color values with alpha modifiers), Vitest/Jest + Testing Library.
 
+## Visual Map
+
+```
+app/one/location/page.tsx  (business logic: encryption, consent, service calls)
+        │  builds
+        ▼
+  LocationHubViewModel  ──►  components/one-location/redesign/*  (pure presentation)
+        │                         ├─ location-redesign-hub.tsx   (Now | People | Links | Inbox)
+        │                         ├─ sharing-status-card.tsx     (hero + LIVE/OFF toggle)
+        │                         ├─ sos-panel.tsx               (SOS READY → countdown → ALERT ACTIVE)
+        │                         └─ check-in-flow.tsx           (task flow)
+        ▼
+  Theme swap: warm-gold #d4a574 → Apple blue #007aff  (presentation-only)
+```
+
 ## Global Constraints
 
 - Accent color: `#007aff` (iOS system blue). Dark-mode accent variant: `#4a9eff`. Accent tint surface: `#e7f0fd`.
@@ -109,13 +124,13 @@ git commit -s -m "style(onepoint): replace warm-gold accent with Apple blue"
 ### Task 2: Rebrand user-facing "One Location" → "Onepoint"
 
 **Files:**
-- Modify: `hushh-webapp/components/one-location/redesign/location-redesign-hub.tsx:436`
-- Modify: `hushh-webapp/components/one-location/redesign/location-chat-panel.tsx:59,74`
+- Modify: `hushh-webapp/components/one-location/redesign/location-redesign-hub.tsx`
+- Modify: `hushh-webapp/components/one-location/redesign/location-chat-panel.tsx`
 - Modify: `hushh-webapp/lib/onboarding/one-capabilities.ts` (the `id:"location"` entry, ~line 130–140)
-- Modify: `hushh-webapp/app/one/location/page.tsx:1200,1251,1431,5267`
-- Modify: `hushh-webapp/lib/consent/location-consent.ts:112`
-- Modify: `hushh-webapp/components/consent/consent-center-page.tsx:1040`
-- Modify: `hushh-webapp/app/one/location/invite/[token]/page-client.tsx:279`
+- Modify: `hushh-webapp/app/one/location/page.tsx`
+- Modify: `hushh-webapp/lib/consent/location-consent.ts`
+- Modify: `hushh-webapp/components/consent/consent-center-page.tsx`
+- Modify: `hushh-webapp/app/one/location/invite/[token]/page-client.tsx`
 
 **Interfaces:**
 - Consumes: `ACCENT_BLUE` from Task 1 is unrelated; no cross-task dependency.
