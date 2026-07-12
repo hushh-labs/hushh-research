@@ -482,6 +482,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             setShareStep("person");
             setFlow("share");
           }}
+          onAsk={() => setFlow("ask")}
         />
       ) : tab === "links" ? (
         <LinksHub vm={vm} onCreateTempLink={() => setFlow("temp-link")} />
@@ -787,106 +788,210 @@ function NowHub({
 /* PEOPLE HUB                                                           */
 /* =================================================================== */
 
+const PERSON_TINTS = [
+  "#8b5cf6",
+  "#3b82f6",
+  "#f59e0b",
+  "#14b8a6",
+  "#ec4899",
+] as const;
+
+function personInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0];
+  if (!first) return "?";
+  if (parts.length === 1) return first.slice(0, 2).toUpperCase();
+  const last = parts[parts.length - 1] ?? first;
+  return ((first[0] ?? "") + (last[0] ?? "")).toUpperCase();
+}
+
+/** One person in the People list: avatar (+ live dot) · name · status · action. */
+function PersonRow({
+  name,
+  subtitle,
+  active,
+  tintIndex,
+  first,
+  action,
+}: {
+  name: string;
+  subtitle: string;
+  /** True when there's a live connection (you're sharing or they're sharing). */
+  active: boolean;
+  tintIndex: number;
+  first: boolean;
+  action: ReactNode;
+}) {
+  const tint = PERSON_TINTS[tintIndex % PERSON_TINTS.length] ?? PERSON_TINTS[0];
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3 p-4",
+        !first && "border-t border-black/[0.06] dark:border-white/10",
+      )}
+    >
+      <div className="relative shrink-0">
+        <span
+          className="flex h-12 w-12 items-center justify-center rounded-full text-sm font-semibold text-white"
+          style={{ backgroundColor: tint }}
+        >
+          {personInitials(name)}
+        </span>
+        {active ? (
+          <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-[#34c759] dark:border-[color:var(--app-card-surface-default-solid)]" />
+        ) : null}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[16px] font-bold text-[#1c1c2e] dark:text-foreground">
+          {name}
+        </p>
+        <p className="truncate text-[13px] text-black/50 dark:text-muted-foreground">
+          {subtitle}
+        </p>
+      </div>
+      {action ? <div className="shrink-0">{action}</div> : null}
+    </div>
+  );
+}
+
 function PeopleHub({
   vm,
   onInvite,
   onStartShare,
+  onAsk,
 }: {
   vm: LocationHubViewModel;
   onInvite: () => void;
   onStartShare: () => void;
+  onAsk: () => void;
 }) {
-  const ready = vm.visibleRecipients.filter((r) =>
-    vm.isRecipientShareReady(r),
-  );
-  const hasSearchQuery = vm.recipientSearch.trim().length > 0;
+  const hasAnyConnections = vm.recipients.length > 0;
+  const filtered = vm.visibleRecipients;
+
+  // No trusted connections yet — keep the invite-first empty state. Per design,
+  // do NOT show "Ask someone to share" here: there is no one to ask.
+  if (!hasAnyConnections) {
+    return (
+      <div className="space-y-5">
+        <SectionCard
+          title="Trusted Circle"
+          description="Only your connections can receive private live location."
+        >
+          <div className="grid grid-cols-1 gap-2">
+            <Button
+              onClick={onInvite}
+              className="h-11 rounded-full bg-[#007aff] text-sm font-semibold text-white hover:bg-[#007aff]/90"
+            >
+              <UserPlus className="mr-2 h-4 w-4" />
+              Invite trusted person
+            </Button>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="outline"
+                onClick={vm.onSyncContacts}
+                isLoading={vm.busy === "contactSync"}
+                className="h-10 rounded-full text-sm"
+              >
+                Sync contacts
+              </Button>
+              <Button
+                variant="outline"
+                onClick={vm.onShareToContacts}
+                isLoading={vm.busy === "contactInvite"}
+                className="h-10 rounded-full text-sm"
+              >
+                Share to contacts
+              </Button>
+            </div>
+          </div>
+        </SectionCard>
+
+        <TrustNoteCard
+          title="Private sharing starts after approval"
+          description="They must sign in, verify phone and accept first."
+        />
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-5">
-      <SectionCard
-        title="Trusted Circle"
-        description="Only your connections can receive private live location."
-      >
-        <div className="grid grid-cols-1 gap-2">
-          <Button
-            onClick={onInvite}
-            className="h-11 rounded-full bg-[#007aff] text-sm font-semibold text-white hover:bg-[#007aff]/90"
-          >
-            <UserPlus className="mr-2 h-4 w-4" />
-            Invite trusted person
-          </Button>
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              variant="outline"
-              onClick={vm.onSyncContacts}
-              isLoading={vm.busy === "contactSync"}
-              className="h-10 rounded-full text-sm"
-            >
-              Sync contacts
-            </Button>
-            <Button
-              variant="outline"
-              onClick={vm.onShareToContacts}
-              isLoading={vm.busy === "contactInvite"}
-              className="h-10 rounded-full text-sm"
-            >
-              Share to contacts
-            </Button>
-          </div>
-        </div>
-      </SectionCard>
+    <div className="space-y-4">
+      <PersonSearchInput
+        value={vm.recipientSearch}
+        onChange={vm.setRecipientSearch}
+      />
 
-      <SectionCard title="Ready people">
-        <PersonSearchInput
-          value={vm.recipientSearch}
-          onChange={vm.setRecipientSearch}
-        />
-        {ready.length ? (
-          <div className={cn("mt-3", PEOPLE_LIST_SCROLL_CLASS)}>
-            {ready.map((r) => (
-              <TrustedPersonCard
+      {filtered.length ? (
+        <div className="overflow-hidden rounded-[20px] bg-white shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-[color:var(--app-card-surface-default-solid)]">
+          {filtered.map((r, i) => {
+            const grant = vm.activeOwnerGrants.find(
+              (g) => g.recipientUserId === r.userId,
+            );
+            const sharing = Boolean(grant);
+            const receiving = vm.receivedGrants.some(
+              (g) => g.ownerUserId === r.userId,
+            );
+            const ready = vm.isRecipientShareReady(r);
+            return (
+              <PersonRow
                 key={r.userId}
                 name={vm.recipientLabel(r)}
-                subtitle="Ready for private sharing"
-                tone="ready"
-                statusLabel="Ready"
-                actionLabel="Share"
-                actionAriaLabel={`Share location with ${vm.recipientLabel(r)}`}
-                onAction={() => {
-                  vm.toggleShareRecipient(r.userId, "people_hub");
-                  onStartShare();
-                }}
+                subtitle={vm.recipientSubtitle(r)}
+                active={sharing || receiving}
+                tintIndex={i}
+                first={i === 0}
+                action={
+                  sharing && grant ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => vm.onStopGrant(grant.id)}
+                      isLoading={vm.revokingGrantId === grant.id}
+                      className="h-9 rounded-full border-[#007aff] px-5 text-sm font-semibold text-[#007aff]"
+                    >
+                      Stop
+                    </Button>
+                  ) : ready ? (
+                    <Button
+                      onClick={() => {
+                        vm.toggleShareRecipient(r.userId, "people_hub");
+                        onStartShare();
+                      }}
+                      className="h-9 rounded-full bg-[#007aff] px-5 text-sm font-semibold text-white hover:bg-[#007aff]/90"
+                    >
+                      Share
+                    </Button>
+                  ) : null
+                }
               />
-            ))}
-          </div>
-        ) : (
-          <div className="mt-3">
-            <EmptyState
-              title={hasSearchQuery ? "No matching people" : "Build your trusted circle"}
-              description={
-                hasSearchQuery
-                  ? "Try a different name."
-                  : "Add connections so the people you trust can receive your live location."
-              }
-              action={
-                hasSearchQuery ? undefined : (
-                  <Link
-                    href="/connect"
-                    className="inline-flex h-9 items-center rounded-full bg-[#007aff] px-4 text-sm font-semibold text-white hover:bg-[#007aff]/90"
-                  >
-                    Add connections
-                  </Link>
-                )
-              }
-            />
-          </div>
-        )}
-      </SectionCard>
+            );
+          })}
+        </div>
+      ) : (
+        <EmptyState
+          title="No matching people"
+          description="Try a different name."
+        />
+      )}
 
-      <TrustNoteCard
-        title="Private sharing starts after approval"
-        description="They must sign in, verify phone and accept first."
-      />
+      {/* Ask someone to share — request another person's live location. */}
+      <button
+        type="button"
+        onClick={onAsk}
+        className="flex w-full items-center gap-3.5 rounded-2xl bg-white p-4 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-colors hover:bg-black/[0.02] dark:bg-[color:var(--app-card-surface-default-solid)]"
+      >
+        <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#e7f0fd] dark:bg-sky-400/15">
+          <Navigation className="h-[18px] w-[18px] text-[#007aff]" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[15px] font-semibold text-[#007aff]">
+            Ask someone to share
+          </span>
+          <span className="block text-[13px] text-black/50 dark:text-muted-foreground">
+            Send a request — they approve first.
+          </span>
+        </span>
+        <ChevronRight className="h-4 w-4 shrink-0 text-black/35 dark:text-muted-foreground" />
+      </button>
     </div>
   );
 }
