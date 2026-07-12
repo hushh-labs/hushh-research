@@ -26,12 +26,17 @@ import {
   Calendar,
   Car,
   ChevronRight,
+  Clock,
   Hand,
+  Heart,
   Link as LinkIcon,
   Lock,
   MapPin,
+  MessageCircle,
   Navigation,
+  Phone,
   Plus,
+  RefreshCw,
   Send,
   Shield,
   ShieldCheck,
@@ -443,15 +448,18 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         title="Onepoint"
         subtitle={headerSubtitle}
         trailing={
-          <Button
-            variant="outline"
-            size="sm"
+          <button
+            type="button"
             onClick={vm.onRefresh}
-            isLoading={BUSY(vm, "load")}
-            className="h-9 rounded-full px-3 text-sm"
+            disabled={BUSY(vm, "load")}
+            className="inline-flex items-center gap-[7px] rounded-[14px] border border-[rgba(0,122,255,0.32)] bg-white px-4 py-[11px] text-[15px] font-semibold text-[#007aff] transition-colors hover:bg-[#f5f9ff] disabled:opacity-60"
           >
+            <RefreshCw
+              className={cn("h-[15px] w-[15px]", BUSY(vm, "load") && "animate-spin")}
+              aria-hidden="true"
+            />
             Refresh
-          </Button>
+          </button>
         }
       />
 
@@ -617,7 +625,19 @@ function NowHub({
         }
         point={vm.myLocationPoint}
         onTapShare={onStartShare}
+        live={hasActiveShare || Boolean(vm.myLocationPoint)}
+        onToggle={vm.onShowMyLocation}
+        toggleBusy={vm.busy === "selfLocation"}
       />
+
+      {/* Capture errors surface here now that the OFF/LIVE badge on the hero
+          drives location capture (the Device readiness section is only shown
+          when permissions are blocked). */}
+      {vm.myLocationError && !readinessBlocked ? (
+        <p className="px-1 text-xs font-medium text-red-600 dark:text-red-300">
+          {vm.myLocationError}
+        </p>
+      ) : null}
 
       <div className="grid grid-cols-[1.25fr_1fr] gap-3">
 
@@ -745,9 +765,10 @@ function NowHub({
         )}
       </SectionCard>
 
-      {/* Device readiness — rendered here in normal flow; when blocked it is
-          hoisted to the very top of the page above (so don't duplicate it). */}
-      {readinessBlocked ? null : deviceReadinessCard}
+      {/* Device readiness is only surfaced when permissions are BLOCKED (it is
+          hoisted to the very top of the page above). In the normal flow the
+          OFF/LIVE badge on the hero card now captures your live location, so we
+          no longer show a separate readiness/capture section here. */}
 
       {/* Privacy — opens the full-screen Privacy flow (Apple Blue v2 design). */}
       <button
@@ -1402,6 +1423,115 @@ function InboxHub({
 /* SOS FLOW (Quick Action wrapper around the existing SOS panic panel)  */
 /* =================================================================== */
 
+/** Circle avatar tones for the "Location shared with …" stack. */
+const SOS_AVATAR_TONES = [
+  "bg-amber-500",
+  "bg-blue-600",
+  "bg-rose-500",
+  "bg-teal-500",
+  "bg-violet-500",
+];
+
+function sosInitials(label: string): string {
+  const words = label.trim().split(/\s+/).filter(Boolean);
+  if (words.length >= 2) {
+    return `${words[0]![0] ?? ""}${words[1]![0] ?? ""}`.toUpperCase();
+  }
+  return (words[0]?.slice(0, 1) || "?").toUpperCase();
+}
+
+/** Small square shortcut card (Call / Message / Share live location). */
+function SosQuickCard({
+  icon: Icon,
+  title,
+  subtitle,
+  onClick,
+}: {
+  icon: typeof Phone;
+  title: string;
+  subtitle: string;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex min-w-0 flex-col gap-3 rounded-[16px] bg-white p-3 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] dark:bg-white/[0.05]"
+    >
+      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#fdeeec] dark:bg-[#e0342c]/15">
+        <Icon className="h-[17px] w-[17px] text-[#e0342c]" strokeWidth={1.8} />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[14px] font-bold text-foreground">
+          {title}
+        </span>
+        <span className="mt-2 flex items-end justify-between gap-2.5">
+          <span className="min-w-0 truncate text-[12px] text-black/45 dark:text-white/45">
+            {subtitle}
+          </span>
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#eef2f8] dark:bg-white/10">
+            <ChevronRight className="h-3 w-3 text-black/40 dark:text-white/40" />
+          </span>
+        </span>
+      </span>
+    </button>
+  );
+}
+
+/** Row inside the "Reach out for help" list. */
+function SosHelpRow({
+  icon: Icon,
+  badge,
+  title,
+  subtitle,
+  actionLabel,
+  actionIcon: ActionIcon,
+  isLast,
+  onClick,
+}: {
+  icon?: typeof Phone;
+  badge?: string;
+  title: string;
+  subtitle: string;
+  actionLabel: string;
+  actionIcon?: typeof Phone;
+  isLast?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3 py-3",
+        !isLast && "border-b border-black/[0.05] dark:border-white/[0.06]",
+      )}
+    >
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#fdeeec] dark:bg-[#e0342c]/15">
+        {badge ? (
+          <span className="text-[13px] font-bold text-[#e0342c]">{badge}</span>
+        ) : Icon ? (
+          <Icon className="h-[18px] w-[18px] text-[#e0342c]" strokeWidth={1.5} />
+        ) : null}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="text-[15px] font-bold text-foreground">{title}</div>
+        <div className="mt-px truncate text-[13px] text-black/45 dark:text-white/45">
+          {subtitle}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex shrink-0 items-center gap-1.5 rounded-full bg-[#fdeeec] px-[15px] py-[9px] text-[14px] font-semibold text-[#d92c24] dark:bg-[#e0342c]/15 dark:text-[#ff6f66]"
+      >
+        {ActionIcon ? (
+          <ActionIcon className="h-3.5 w-3.5" strokeWidth={2} />
+        ) : null}
+        {actionLabel}
+      </button>
+    </div>
+  );
+}
+
 function SosFlow({
   vm,
   onClose,
@@ -1409,14 +1539,26 @@ function SosFlow({
   vm: LocationHubViewModel;
   onClose: () => void;
 }) {
+  const recipients = vm.sosRecipients;
+  const sharedCount = recipients.length;
+
   return (
-    <div className="space-y-5">
-      {/* Minimal back-nav header only. The SosPanel below renders the single
-          "SOS" header, so we intentionally do NOT repeat an "SOS" title here
-          (that produced the duplicate-header the screenshot flagged). */}
-      <TaskFlowHeader eyebrow="Location" title="Emergency" onBack={onClose} />
+    <div className="space-y-3.5">
+      {/* Back + title (design: circular back button, then "Safety"). */}
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Back"
+        className="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-black/[0.05] text-foreground dark:bg-white/10"
+      >
+        <ChevronRight className="h-[18px] w-[18px] rotate-180" />
+      </button>
+      <h1 className="text-[33px] font-bold tracking-[-0.6px] text-foreground">
+        Safety
+      </h1>
+
       <SosPanel
-        recipients={vm.sosRecipients}
+        recipients={recipients}
         active={vm.sosActive}
         busy={vm.sosBusy}
         startedAtLabel={vm.sosStartedAtLabel}
@@ -1425,18 +1567,104 @@ function SosFlow({
         recipientLabel={vm.recipientLabel}
         isRecipientShareReady={vm.isRecipientShareReady}
       />
-      <TrustNoteCard
-        title="Only your trusted contacts are alerted"
-        description="The same people who receive your SOS also appear in Check-In. Nothing is shared publicly."
-      />
-      {/* Inline so it renders above the chat panel, not floating over it. */}
-      <Button
-        variant="ghost"
-        onClick={onClose}
-        className="h-11 w-full rounded-2xl text-sm text-muted-foreground"
+
+      {/* Location shared with N people */}
+      {sharedCount > 0 ? (
+        <div className="rounded-[18px] bg-white p-[18px] shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-white/[0.05]">
+          <div className="text-[16px] font-bold text-foreground">
+            Location shared with {sharedCount}{" "}
+            {sharedCount === 1 ? "person" : "people"}
+          </div>
+          <div className="mt-3.5 flex items-center justify-between gap-3">
+            <div className="flex -space-x-1">
+              {recipients.slice(0, 4).map((r, index) => (
+                <span
+                  key={r.userId}
+                  className={cn(
+                    "flex h-[52px] w-[52px] items-center justify-center rounded-full text-sm font-semibold text-white ring-[2.5px] ring-white dark:ring-[#1c1c1e]",
+                    SOS_AVATAR_TONES[index % SOS_AVATAR_TONES.length],
+                  )}
+                  aria-hidden
+                >
+                  {sosInitials(vm.recipientLabel(r))}
+                </span>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="shrink-0 whitespace-nowrap rounded-[14px] border-[1.5px] border-[#007aff] px-[18px] py-[11px] text-[14px] font-semibold text-[#007aff] dark:border-[#4a9eff] dark:text-[#4a9eff]"
+            >
+              View all
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Quick shortcuts */}
+      <div className="grid grid-cols-3 gap-2.5">
+        <SosQuickCard icon={Phone} title="Call" subtitle="Call for help" />
+        <SosQuickCard
+          icon={MessageCircle}
+          title="Message"
+          subtitle="Message contacts"
+        />
+        <SosQuickCard
+          icon={MapPin}
+          title="Share live location"
+          subtitle="With your circle"
+        />
+      </div>
+
+      {/* Reach out for help */}
+      <div className="rounded-[18px] bg-white px-4 py-[18px] shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-white/[0.05]">
+        <div className="text-[16px] font-bold text-foreground">
+          Reach out for help
+        </div>
+        <div className="mt-3 rounded-[14px] bg-[#f5f6f8] px-3 dark:bg-white/[0.04]">
+          <SosHelpRow
+            icon={Shield}
+            title="Emergency Contact"
+            subtitle="Contact your emergency contact"
+            actionLabel="Call"
+            actionIcon={Phone}
+          />
+          <SosHelpRow
+            badge="911"
+            title="Local Emergency"
+            subtitle="Call local emergency services"
+            actionLabel="Call"
+            actionIcon={Phone}
+          />
+          <SosHelpRow
+            icon={Heart}
+            title="Crisis Support"
+            subtitle="Connect with 24/7 support"
+            actionLabel="Chat"
+            actionIcon={MessageCircle}
+          />
+          <SosHelpRow
+            icon={Clock}
+            title="Safety Check"
+            subtitle="Set a timer and get a check-in"
+            actionLabel="Start"
+            isLast
+          />
+        </div>
+      </div>
+
+      {/* Privacy */}
+      <button
+        type="button"
+        className="flex w-full items-center gap-3 rounded-[16px] bg-white px-4 py-3.5 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] dark:bg-white/[0.05]"
       >
-        Back to Onepoint
-      </Button>
+        <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#eef3fb] dark:bg-[#007aff]/15">
+          <Lock className="h-[18px] w-[18px] text-[#007aff] dark:text-[#4a9eff]" strokeWidth={1.6} />
+        </span>
+        <span className="flex-1 text-[15px] font-medium text-foreground">
+          Privacy
+        </span>
+        <ChevronRight className="h-4 w-4 text-black/35 dark:text-white/35" />
+      </button>
     </div>
   );
 }

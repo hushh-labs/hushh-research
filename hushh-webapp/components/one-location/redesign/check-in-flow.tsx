@@ -6,6 +6,11 @@
  * "Let trusted people know you're here." A focused, full-screen task flow that
  * reuses the existing encrypted location-share pipeline via `vm.onCheckIn`.
  *
+ * Visual spec: Apple Blue v2 design (Location Agent - Apple Blue v2.dc.html,
+ * `data-screen-label="Check in"`). Literal design values (12px cards, gray
+ * segmented duration control, blue pill CTA) are used deliberately, with dark
+ * variants layered on so the screen stays legible in dark mode.
+ *
  * PRESENTATION + LOCAL SELECTION STATE ONLY.
  * - The list of people ("Who should know?") is the SAME trusted contacts used by
  *   SOS (`vm.sosRecipients`), so a user's emergency circle is exactly who they
@@ -16,15 +21,11 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, MapPin, RefreshCw, ShieldCheck } from "lucide-react";
+import { Check, CheckCircle2, RefreshCw, Search, Shield } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 
-import { TaskFlowHeader } from "./primitives";
-import { PersonSearchInput } from "./selectors";
-import { CARD_SURFACE, MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import type { LocationHubViewModel } from "./location-redesign-hub";
 
 /** Check-in durations. "until_stop" maps to the maximum supported window. */
@@ -39,13 +40,14 @@ const UNTIL_STOP_VALUE = "24";
 const DEFAULT_CHECK_IN_MESSAGE = "I've checked in here, let's catch up";
 const CHECK_IN_MESSAGE_MAX_LENGTH = 120;
 
+/** White surface card — design radius 12px, with a dark-mode variant. */
+const CARD =
+  "rounded-[12px] border border-black/[0.06] bg-white dark:border-white/[0.08] dark:bg-white/[0.05]";
+
 // Contact list cap: trusted circles can be long, so show ~4 rows then scroll.
-// max-h fits four ~64px rows (avatar h-10 + p-3) plus the 10px space-y gaps,
-// with a sliver of the fifth peeking to signal there's more. A thin,
-// touch-friendly scrollbar keeps it unobtrusive on mobile. Mirrors the
-// People-tab pattern (PEOPLE_LIST_SCROLL_CLASS) for visual consistency.
+// A thin, touch-friendly scrollbar keeps it unobtrusive on mobile.
 const CONTACT_LIST_SCROLL_CLASS =
-  "max-h-[300px] space-y-2.5 overflow-y-auto overscroll-contain pr-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/15 dark:[&::-webkit-scrollbar-thumb]:bg-white/20";
+  "max-h-[280px] overflow-y-auto overscroll-contain [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/15 dark:[&::-webkit-scrollbar-thumb]:bg-white/20";
 
 function initialsOf(label: string): string {
   const words = label.trim().split(/\s+/).filter(Boolean);
@@ -75,19 +77,28 @@ function accuracyLine(point: PlainLocationPoint | null): string | null {
   return `Accurate to about ${Math.round(accuracyM)} meters`;
 }
 
+/** Uppercase section label (YOUR LOCATION / WHO SHOULD KNOW? / …). */
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="mb-2 mt-5 px-1 text-[13px] font-semibold text-black/45 dark:text-white/45">
+      {children}
+    </p>
+  );
+}
+
 function ContactRow({
   index,
   checked,
   ready,
   label,
-  subtitle,
+  isLast,
   onToggle,
 }: {
   index: number;
   checked: boolean;
   ready: boolean;
   label: string;
-  subtitle: string;
+  isLast: boolean;
   onToggle: () => void;
 }) {
   return (
@@ -97,17 +108,14 @@ function ContactRow({
       disabled={!ready}
       aria-pressed={checked}
       className={cn(
-        SUBCARD_SURFACE,
-        "flex w-full items-center gap-3 p-3 text-left transition-all duration-150",
-        ready
-          ? "hover:border-[#007aff]/40 active:scale-[0.99]"
-          : "cursor-not-allowed opacity-60",
-        checked && "border-[#007aff]/60 ring-1 ring-[#007aff]/30",
+        "flex w-full items-center gap-[13px] py-3 text-left transition-opacity",
+        !isLast && "border-b border-black/[0.06] dark:border-white/[0.08]",
+        ready ? "cursor-pointer" : "cursor-not-allowed opacity-50",
       )}
     >
       <span
         className={cn(
-          "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold",
+          "flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full text-sm font-semibold",
           avatarTone(index),
         )}
         aria-hidden
@@ -115,22 +123,24 @@ function ContactRow({
         {initialsOf(label)}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold text-foreground">
+        <span className="block truncate text-[16px] font-semibold text-foreground">
           {label}
         </span>
-        <span className={cn(MUTED_TEXT, "block truncate")}>
-          {ready ? subtitle : "Not ready to receive location"}
-        </span>
+        {!ready ? (
+          <span className="block truncate text-[12px] text-black/45 dark:text-white/45">
+            Not ready to receive location
+          </span>
+        ) : null}
       </span>
       <span
         className={cn(
-          "flex h-6 w-6 shrink-0 items-center justify-center rounded-[7px] border-2 transition-colors",
+          "flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors",
           checked
-            ? "border-[#007aff] bg-[#007aff] text-white"
-            : "border-border bg-background",
+            ? "bg-[#007aff] text-white"
+            : "border-[1.5px] border-black/25 dark:border-white/25",
         )}
       >
-        {checked ? <Check className="h-4 w-4" strokeWidth={3} /> : null}
+        {checked ? <Check className="h-3.5 w-3.5" strokeWidth={2.5} /> : null}
       </span>
     </button>
   );
@@ -194,178 +204,148 @@ export function CheckInFlow({
   const point = vm.myLocationPoint;
   const accuracy = accuracyLine(point);
 
+  const durationOptions = [
+    ...CHECK_IN_DURATIONS.map((option) => ({
+      key: option.value,
+      label: option.label,
+      grow: 1,
+      active: !untilStop && option.value === durationValue,
+      onClick: () => {
+        setUntilStop(false);
+        setDurationValue(option.value);
+      },
+    })),
+    {
+      key: "until_stop",
+      label: "Until I stop",
+      grow: 1.2,
+      active: untilStop,
+      onClick: () => setUntilStop(true),
+    },
+  ];
+
+  const canSubmit = Boolean(point) && selectedReadyCount > 0;
+
   return (
-    <div className="space-y-5">
-      <TaskFlowHeader
-        eyebrow="Check-In"
-        title="Let trusted people know you're here"
-        onBack={onClose}
-      />
+    <div>
+      {/* Header — title + Cancel link (no back arrow; Cancel dismisses). */}
+      <div className="flex items-start justify-between gap-3">
+        <h1 className="max-w-[250px] text-[23px] font-bold leading-[1.2] tracking-[-0.4px] text-foreground">
+          Let trusted people know you&apos;re here
+        </h1>
+        <button
+          type="button"
+          onClick={onClose}
+          className="shrink-0 pt-1 text-[15px] text-[#007aff] dark:text-[#4a9eff]"
+        >
+          Cancel
+        </button>
+      </div>
 
       {/* YOUR LOCATION */}
-      <section className={cn(CARD_SURFACE, "p-4")}>
-        <div className="flex items-start gap-3">
-          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#007aff]/12 text-[#007aff]">
-            <MapPin className="h-5 w-5" />
-          </span>
+      <SectionLabel>YOUR LOCATION</SectionLabel>
+      <section className={cn(CARD, "overflow-hidden")}>
+        <div className="flex items-center gap-3 px-4 py-[13px]">
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Your location
+            <p className="text-[16px] font-semibold text-foreground">
+              {point ? "Live location ready" : "Location not captured yet"}
             </p>
-            {point ? (
-              <>
-                <p className="mt-0.5 text-[15px] font-semibold text-foreground">
-                  Live location ready
-                </p>
-                <p className={cn(MUTED_TEXT, "mt-0.5")}>
-                  {accuracy ?? "Location captured"} ·{" "}
-                  {vm.formatDateTime(point.capturedAt)}
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="mt-0.5 text-[15px] font-semibold text-foreground">
-                  Location not captured yet
-                </p>
-                <p className={cn(MUTED_TEXT, "mt-0.5")}>
-                  Capture your current location to check in.
-                </p>
-              </>
-            )}
+            <p className="mt-0.5 text-[13px] text-black/45 dark:text-white/45">
+              {point
+                ? `${accuracy ?? "Location captured"} · ${vm.formatDateTime(point.capturedAt)}`
+                : "Capture your current location to check in."}
+            </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
+          <button
+            type="button"
             onClick={vm.onShowMyLocation}
-            isLoading={vm.busy === "selfLocation"}
-            className="h-9 shrink-0 rounded-full px-3 text-xs"
+            disabled={vm.busy === "selfLocation"}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-black/[0.14] px-[13px] py-[7px] text-[13px] font-semibold text-[#007aff] disabled:opacity-60 dark:border-white/20 dark:text-[#4a9eff]"
           >
-            <RefreshCw className="mr-1 h-3.5 w-3.5" />
+            <RefreshCw
+              className={cn(
+                "h-3 w-3",
+                vm.busy === "selfLocation" && "animate-spin",
+              )}
+            />
             {point ? "Refresh" : "Capture"}
-          </Button>
+          </button>
         </div>
         {vm.myLocationError ? (
-          <p className="mt-2 text-xs font-medium text-red-600 dark:text-red-300">
+          <p className="px-4 pb-3 text-xs font-medium text-red-600 dark:text-red-300">
             {vm.myLocationError}
           </p>
         ) : null}
         {point ? (
-          <div className="mt-3">{vm.renderMapPreview(point, false)}</div>
+          <div className="px-3 pb-3">{vm.renderMapPreview(point, false)}</div>
         ) : null}
       </section>
 
       {/* WHO SHOULD KNOW? */}
-      <section className={cn(CARD_SURFACE, "p-4")}>
-        <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Who should know?
-        </p>
-        <PersonSearchInput
+      <SectionLabel>WHO SHOULD KNOW?</SectionLabel>
+      <div className={cn(CARD, "mb-2 flex items-center gap-2 px-[14px] py-[11px]")}>
+        <Search className="h-3.5 w-3.5 shrink-0 text-black/35 dark:text-white/40" />
+        <input
+          type="text"
           value={search}
-          onChange={setSearch}
-          placeholder="Search contacts..."
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search contacts…"
+          className="min-w-0 flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-black/35 dark:placeholder:text-white/40"
         />
-        <div
-          className={cn(
-            "mt-3",
-            filtered.length ? CONTACT_LIST_SCROLL_CLASS : "space-y-2.5",
-          )}
-        >
-          {filtered.length ? (
-            filtered.map((recipient, index) => (
+      </div>
+      {filtered.length ? (
+        <div className={cn(CARD, "px-4")}>
+          <div className={CONTACT_LIST_SCROLL_CLASS}>
+            {filtered.map((recipient, index) => (
               <ContactRow
                 key={recipient.userId}
                 index={index}
                 checked={checkedIds.includes(recipient.userId)}
                 ready={vm.isRecipientShareReady(recipient)}
                 label={vm.recipientLabel(recipient)}
-                subtitle={vm.recipientSubtitle(recipient)}
+                isLast={index === filtered.length - 1}
                 onToggle={() => toggle(recipient.userId)}
               />
-            ))
-          ) : (
-            <div
-              className={cn(
-                SUBCARD_SURFACE,
-                "p-5 text-center text-sm text-muted-foreground",
-              )}
-            >
-              {contacts.length === 0
-                ? "No trusted contacts yet. Add people to your Circle first."
-                : "No matching contacts."}
-            </div>
-          )}
+            ))}
+          </div>
         </div>
-      </section>
+      ) : (
+        <div className={cn(CARD, "p-5 text-center text-sm text-muted-foreground")}>
+          {contacts.length === 0
+            ? "No trusted contacts yet. Add people to your Circle first."
+            : "No matching contacts."}
+        </div>
+      )}
 
-      {/* DURATION */}
-      <section
-        className={cn(
-          "rounded-[var(--app-card-radius-standard)] border border-sky-500/20 bg-sky-500/[0.06] p-4 dark:bg-sky-400/[0.08]",
-        )}
-      >
-        <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">
-          Duration
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {CHECK_IN_DURATIONS.map((option) => {
-            const active = !untilStop && option.value === durationValue;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => {
-                  setUntilStop(false);
-                  setDurationValue(option.value);
-                }}
-                className={cn(
-                  "h-9 rounded-full border px-4 text-sm font-medium transition-colors",
-                  active
-                    ? "border-[#007aff] bg-[#007aff] text-white"
-                    : "border-border/70 bg-background text-foreground hover:border-[#007aff]/40",
-                )}
-              >
-                {option.label}
-              </button>
-            );
-          })}
-        </div>
-        <button
-          type="button"
-          onClick={() => setUntilStop((value) => !value)}
-          className={cn(
-            "mt-3 flex w-full items-center gap-2 rounded-[12px] border px-3 py-2.5 text-left text-sm font-medium transition-colors",
-            untilStop
-              ? "border-[#007aff]/50 bg-[#007aff]/10 text-foreground"
-              : "border-border/70 bg-background text-foreground hover:border-[#007aff]/40",
-          )}
-        >
-          <span
+      {/* DURATION — gray segmented control incl. "Until I stop". */}
+      <SectionLabel>DURATION</SectionLabel>
+      <div className="flex rounded-[9px] bg-[#ededf2] p-0.5 dark:bg-white/[0.08]">
+        {durationOptions.map((option) => (
+          <button
+            key={option.key}
+            type="button"
+            onClick={option.onClick}
+            style={{ flexGrow: option.grow, flexBasis: 0 }}
             className={cn(
-              "flex h-5 w-5 items-center justify-center rounded-full border-2",
-              untilStop ? "border-[#007aff] bg-[#007aff]" : "border-border",
+              "whitespace-nowrap rounded-[7px] py-[9px] text-center text-[13px] transition-colors",
+              option.active
+                ? "bg-white font-bold text-foreground shadow-sm dark:bg-white/[0.16]"
+                : "font-normal text-foreground/80",
             )}
           >
-            {untilStop ? <span className="h-2 w-2 rounded-full bg-white" /> : null}
-          </span>
-          Until I say stop
-        </button>
-        <p className="mt-3 flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-          <ShieldCheck className="h-3.5 w-3.5" />
-          Sharing stops automatically · no manual revoke needed
-        </p>
-      </section>
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <p className="mt-2 flex items-center gap-1.5 px-1 text-[12px] text-black/45 dark:text-white/45">
+        <Shield className="h-3 w-3 shrink-0" strokeWidth={1.5} />
+        Sharing stops automatically — no manual revoke needed.
+      </p>
 
       {/* MESSAGE — sent with the check-in and shown in the recipient's
           notification (e.g. "Alex: I've checked in here, let's catch up"). */}
-      <section className={cn(CARD_SURFACE, "p-4")}>
-        <div className="mb-2 flex items-center justify-between">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Message
-          </p>
-          <span className="text-[11px] font-medium text-muted-foreground">
-            {message.length}/{CHECK_IN_MESSAGE_MAX_LENGTH}
-          </span>
-        </div>
+      <SectionLabel>MESSAGE</SectionLabel>
+      <div className={cn(CARD, "px-4 py-[14px]")}>
         <textarea
           value={message}
           onChange={(event) =>
@@ -373,46 +353,46 @@ export function CheckInFlow({
           }
           rows={2}
           placeholder={DEFAULT_CHECK_IN_MESSAGE}
-          className="w-full rounded-[14px] border border-border/70 bg-background p-3 text-sm text-foreground outline-none transition-shadow focus:ring-2 focus:ring-[#007aff]/25"
+          className="w-full resize-none bg-transparent text-[15px] leading-[1.4] text-foreground outline-none placeholder:text-black/35 dark:placeholder:text-white/40"
         />
-        <p className={cn(MUTED_TEXT, "mt-2")}>
-          They&apos;ll see this with your name in the notification, so they know
-          who checked in and why.
+        <p className="mt-2 text-right text-[12px] text-black/30 dark:text-white/30">
+          {message.length}/{CHECK_IN_MESSAGE_MAX_LENGTH}
         </p>
-      </section>
-
-      {/* Action bar — inline so it renders above the chat panel, not floating
-          over it. Buttons stack directly under the flow content. */}
-      <div className="space-y-2 pt-1">
-        <Button
-          onClick={() =>
-            vm.onCheckIn(
-              checkedIds,
-              effectiveDuration,
-              message.trim() || DEFAULT_CHECK_IN_MESSAGE,
-            )
-          }
-          disabled={!point || selectedReadyCount === 0}
-          isLoading={busy}
-          className="h-12 w-full rounded-2xl bg-emerald-600 text-base font-semibold text-white hover:bg-emerald-600/90 disabled:opacity-50"
-        >
-          <Check className="mr-1.5 h-5 w-5" strokeWidth={3} />
-          {point
-            ? selectedReadyCount > 0
-              ? `Check in with ${selectedReadyCount} ${
-                  selectedReadyCount === 1 ? "person" : "people"
-                }`
-              : "Select who should know"
-            : "Capture your location first"}
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={onClose}
-          className="h-10 w-full rounded-2xl text-sm text-muted-foreground"
-        >
-          Cancel
-        </Button>
       </div>
+      <p className="mb-[18px] mt-2 px-1 text-[12px] leading-[1.45] text-black/45 dark:text-white/45">
+        They&apos;ll see this with your name in the notification, so they know
+        who checked in and why.
+      </p>
+
+      {/* Primary CTA — full blue pill (design). */}
+      <button
+        type="button"
+        onClick={() =>
+          vm.onCheckIn(
+            checkedIds,
+            effectiveDuration,
+            message.trim() || DEFAULT_CHECK_IN_MESSAGE,
+          )
+        }
+        disabled={!canSubmit || busy}
+        className={cn(
+          "flex w-full items-center justify-center gap-2 rounded-full bg-[#007aff] py-4 text-[17px] font-medium text-white transition-opacity",
+          (!canSubmit || busy) && "opacity-50",
+        )}
+      >
+        {busy ? (
+          <RefreshCw className="h-[18px] w-[18px] animate-spin" />
+        ) : (
+          <CheckCircle2 className="h-[18px] w-[18px]" strokeWidth={1.8} />
+        )}
+        {point
+          ? selectedReadyCount > 0
+            ? `Check in with ${selectedReadyCount} ${
+                selectedReadyCount === 1 ? "person" : "people"
+              }`
+            : "Select who should know"
+          : "Capture your location first"}
+      </button>
     </div>
   );
 }

@@ -11,7 +11,7 @@
  * readiness section.
  */
 
-import { Clock, Lock, Navigation } from "lucide-react";
+import { Clock, Loader2, Lock, Navigation } from "lucide-react";
 
 import { LiveMap } from "@/components/one-location/live-map";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
@@ -85,6 +85,9 @@ export function SharingStatusCard({
   people,
   point,
   onTapShare,
+  live,
+  onToggle,
+  toggleBusy,
 }: {
   isSharing: boolean;
   title: string;
@@ -95,8 +98,18 @@ export function SharingStatusCard({
   /** Your live location — renders the real map behind the overlay. */
   point?: PlainLocationPoint | null;
   onTapShare: () => void;
+  /**
+   * Whether the LIVE/OFF badge shows as live. Defaults to `isSharing` when not
+   * provided. Distinct from `isSharing` so a captured self-location (shown on
+   * the map, not yet shared) can also read as LIVE.
+   */
+  live?: boolean;
+  /** Tapping the LIVE/OFF badge captures / refreshes your live location. */
+  onToggle?: () => void;
+  toggleBusy?: boolean;
 }) {
   const markers = people.slice(0, MARKER_SLOTS.length);
+  const showLive = live ?? isSharing;
 
   return (
     <div className="relative overflow-hidden rounded-[20px] bg-white shadow-[0_4px_16px_rgba(0,0,0,0.06)] dark:bg-white">
@@ -136,18 +149,29 @@ export function SharingStatusCard({
 
         {/* Text overlay. */}
         <div className="absolute left-5 right-5 top-5">
-          <div className="inline-flex items-center gap-[7px] rounded-full bg-white px-3 py-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.08)]">
-            <span
-              className="h-[9px] w-[9px] rounded-full"
-              style={{ backgroundColor: isSharing ? "#34c759" : "#9ca3af" }}
-            />
+          <button
+            type="button"
+            onClick={onToggle}
+            disabled={toggleBusy || !onToggle}
+            aria-pressed={showLive}
+            aria-label={showLive ? "Live location on" : "Turn on live location"}
+            className="inline-flex items-center gap-[7px] rounded-full bg-white px-3 py-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.08)] transition active:scale-95 disabled:opacity-70 enabled:cursor-pointer"
+          >
+            {toggleBusy ? (
+              <Loader2 className="h-[11px] w-[11px] animate-spin text-[#6b7280]" />
+            ) : (
+              <span
+                className="h-[9px] w-[9px] rounded-full"
+                style={{ backgroundColor: showLive ? "#34c759" : "#9ca3af" }}
+              />
+            )}
             <span
               className="text-xs font-bold tracking-[0.5px]"
-              style={{ color: isSharing ? "#12a150" : "#6b7280" }}
+              style={{ color: showLive ? "#12a150" : "#6b7280" }}
             >
-              {isSharing ? "LIVE" : "OFF"}
+              {showLive ? "LIVE" : "OFF"}
             </span>
-          </div>
+          </button>
 
           <h2 className="mt-3.5 text-[25px] font-bold leading-none tracking-[-0.4px] text-[#1c1c2e]">
             {title}
