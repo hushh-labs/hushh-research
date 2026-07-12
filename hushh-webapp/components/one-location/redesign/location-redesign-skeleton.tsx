@@ -50,7 +50,7 @@ function SectionCardSkeleton({
 
 export function LocationRedesignSkeleton() {
   return (
-    <div className="space-y-5" aria-busy="true" aria-label="Loading One Location" role="status">
+    <div className="space-y-5" aria-busy="true" aria-label="Loading Onepoint" role="status">
       {/* Header: title + subtitle + refresh */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-2">

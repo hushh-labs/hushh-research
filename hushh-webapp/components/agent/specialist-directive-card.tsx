@@ -151,7 +151,7 @@ export type SpecialistConsentRequiredCardProps = {
 
 function agentDisplayName(agentId: string): string {
   if (agentId === "agent_nav") return "Nav";
-  if (agentId === "agent_location") return "Location";
+  if (agentId === "agent_location") return "Onepoint";
   if (agentId === "agent_kai") return "Kai";
   if (agentId === "agent_kyc") return "KYC";
   return agentId.replace(/^agent_/, "").replace(/_/g, " ") || "This agent";
@@ -159,7 +159,7 @@ function agentDisplayName(agentId: string): string {
 
 function scopeDisplayName(scope: string): string {
   if (scope === "agent.nav.review") return "review your consent and privacy access";
-  if (scope === "agent.location.manage") return "manage One Location requests";
+  if (scope === "agent.location.manage") return "manage Onepoint requests";
   if (scope === "agent.one.orchestrate") return "coordinate specialist agents";
   return scope || "the required permission";
 }

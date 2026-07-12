@@ -130,9 +130,9 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   {
     id: "location",
     agentId: "agent_location",
-    title: "Location",
-    description: "Live sharing, referrals, and local context.",
-    previewLabel: "Live sharing & local context",
+    title: "Onepoint",
+    description: "Live location & Alerts",
+    previewLabel: "Live location & Alerts",
     href: ROUTES.ONE_LOCATION,
     icon: MapPin,
     tone: "location",
