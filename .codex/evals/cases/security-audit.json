@@ -1,0 +1,29 @@
+{
+  "skill_name": "security-audit",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "audit the trust boundaries around vault and PKM before we ship",
+        "top_k": 3
+      },
+      {
+        "prompt": "is this consent verification flow safe, run a security review",
+        "top_k": 3
+      },
+      {
+        "prompt": "something touches IAM and streaming safety and I am not sure which specialist owns it",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "change the consent scope model for marketplace actors",
+        "owner": "iam-consent-governance"
+      },
+      {
+        "prompt": "review this pull request for merge readiness",
+        "owner": "pr-governance-review"
+      }
+    ]
+  }
+}

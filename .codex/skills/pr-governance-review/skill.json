@@ -3,7 +3,7 @@
   "role": "owner",
   "owner_family": "pr-governance-review",
   "primary_scope": "pr-governance-review-intake",
-  "description": "Use when reviewing an incoming pull request for north-star alignment, trust-boundary regressions, malicious or low-signal degradation, stale-vs-current CI interpretation, and true merge readiness beyond a green gate.",
+  "description": "Use when reviewing an incoming pull request for north-star alignment, trust-boundary regressions, malicious or low-signal degradation, stale-vs-current CI interpretation, and true merge readiness beyond a green gate. Also owns PR train planning, merge queue cohorts, maintainer patch-then-merge, contributor harvest decisions, and backlog review waves.",
   "owned_paths": [
     ".codex/skills/pr-governance-review"
   ],

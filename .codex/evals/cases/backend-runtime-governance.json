@@ -1,0 +1,29 @@
+{
+  "skill_name": "backend-runtime-governance",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "where should this new backend route live, which service owns it",
+        "top_k": 3
+      },
+      {
+        "prompt": "the runtime ownership between these two backend services is blurry, fix the boundary",
+        "top_k": 3
+      },
+      {
+        "prompt": "align the backend docs and tests with the new service boundaries",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "restructure the frontend route contracts",
+        "owner": "frontend-architecture"
+      },
+      {
+        "prompt": "review the pull request touching backend and frontend for merge",
+        "owner": "pr-governance-review"
+      }
+    ]
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "skill_name": "frontend-architecture",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "restructure the webapp route contracts and package conventions",
+        "top_k": 3
+      },
+      {
+        "prompt": "who owns frontend verification for this new page structure",
+        "top_k": 3
+      },
+      {
+        "prompt": "the frontend folder structure is drifting, bring it back to convention",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "move this backend route to the right service boundary",
+        "owner": "backend-runtime-governance"
+      },
+      {
+        "prompt": "decide the cross-surface test placement policy",
+        "owner": "quality-contracts"
+      }
+    ]
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "skill_name": "iam-consent-governance",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "change the consent scopes for the new marketplace access contract",
+        "top_k": 3
+      },
+      {
+        "prompt": "update the actor model and verification policy for delegated agents",
+        "top_k": 3
+      },
+      {
+        "prompt": "tighten IAM boundaries for the new agent delegation flow",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "broad security audit of the whole streaming surface",
+        "owner": "security-audit"
+      },
+      {
+        "prompt": "deploy the backend to UAT with provenance evidence",
+        "owner": "uat-scoped-deploy"
+      }
+    ]
+  }
+}
