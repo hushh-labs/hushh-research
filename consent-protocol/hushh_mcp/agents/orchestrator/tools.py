@@ -1,7 +1,7 @@
 """
 Orchestrator Tools
 
-Delegation functions for One, the top personal agent.
+Delegation functions for One, the top private agent.
 These tools are used by the LLM to route requests to specialized agents.
 """
 

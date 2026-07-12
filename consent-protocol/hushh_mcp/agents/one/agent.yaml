@@ -4,7 +4,7 @@ legacy_ids:
   - agent_orchestrator
 name: Agent One
 version: 0.1.0
-description: Top personal agent that frames user intent and delegates specialist work.
+description: Top private agent that frames user intent and delegates specialist work.
 status: active
 owner: backend
 parent: null
@@ -19,7 +19,7 @@ credential_policy:
     - hushh_managed_vertex
     - byok
 system_instruction: |
-  You are One, the top personal agent in Hussh. Hold the relationship layer,
+  You are One, the top private agent in Hussh. Hold the relationship layer,
   clarify intent, and delegate finance work to Kai, privacy work to Nav, and
   identity/KYC workflow work to KYC. For trusted-people live location, summon
   the Location Agent and require consent, scoped duration, recipient encryption,

@@ -59,9 +59,21 @@ const VOICE_REDIRECT_ATTEMPT_KEY = "hushh:voice-auth-redirect-attempt";
 const VOICE_REDIRECT_ATTEMPT_TTL_MS = 10 * 60 * 1000;
 
 export type VoiceAuthRedirectAttempt = {
+  version: 1;
   provider: "google" | "apple";
+  actionId: "auth.sign_in_google" | "auth.sign_in_apple";
+  directiveId: string | null;
+  returnTo: string;
+  resumeTarget: string;
   startedAt: number;
 };
+
+export type VoiceAuthRedirectIntent = Omit<
+  VoiceAuthRedirectAttempt,
+  "startedAt" | "version"
+>;
+
+type AuthProviderName = VoiceAuthRedirectAttempt["provider"];
 
 /**
  * Platform-aware authentication service
@@ -73,7 +85,12 @@ export class AuthService {
       const parsed = JSON.parse(window.sessionStorage.getItem(VOICE_REDIRECT_ATTEMPT_KEY) || "null");
       if (
         !parsed ||
+        parsed.version !== 1 ||
         (parsed.provider !== "google" && parsed.provider !== "apple") ||
+        (parsed.actionId !== "auth.sign_in_google" && parsed.actionId !== "auth.sign_in_apple") ||
+        (parsed.directiveId !== null && typeof parsed.directiveId !== "string") ||
+        typeof parsed.returnTo !== "string" ||
+        typeof parsed.resumeTarget !== "string" ||
         typeof parsed.startedAt !== "number" ||
         Date.now() - parsed.startedAt > VOICE_REDIRECT_ATTEMPT_TTL_MS
       ) {
@@ -92,12 +109,35 @@ export class AuthService {
     return attempt;
   }
 
-  private static markVoiceRedirectAttempt(provider: VoiceAuthRedirectAttempt["provider"]): void {
+  private static markVoiceRedirectAttempt(intent: VoiceAuthRedirectIntent): void {
     if (typeof window === "undefined") return;
     window.sessionStorage.setItem(
       VOICE_REDIRECT_ATTEMPT_KEY,
-      JSON.stringify({ provider, startedAt: Date.now() })
+      JSON.stringify({
+        version: 1,
+        ...intent,
+        returnTo: this.normalizeInternalVoicePath(intent.returnTo, "/login"),
+        resumeTarget: this.normalizeInternalVoicePath(intent.resumeTarget, "/one/setup"),
+        startedAt: Date.now(),
+      })
     );
+  }
+
+  private static normalizeInternalVoicePath(value: string, fallback: string): string {
+    const trimmed = value.trim();
+    return trimmed.startsWith("/") && !trimmed.startsWith("//") ? trimmed : fallback;
+  }
+
+  private static createWebProvider(provider: AuthProviderName) {
+    if (provider === "google") {
+      const googleProvider = new GoogleAuthProvider();
+      googleProvider.setCustomParameters({ prompt: "select_account" });
+      return googleProvider;
+    }
+    const appleProvider = new OAuthProvider("apple.com");
+    appleProvider.addScope("email");
+    appleProvider.addScope("name");
+    return appleProvider;
   }
   private static debugLog(...args: unknown[]) {
     if (process.env.NODE_ENV !== "production") {
@@ -332,15 +372,14 @@ export class AuthService {
    * existing AuthStep getRedirectResult path settles the authenticated result.
    * Native retains its platform-owned provider UI and returns the user here.
    */
-  static async startGoogleSignInForVoice(): Promise<AuthResult | null> {
-    if (Capacitor.isNativePlatform()) {
-      return this.nativeGoogleSignIn();
-    }
-    const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: "select_account" });
-    this.markVoiceRedirectAttempt("google");
-    await signInWithRedirect(auth, provider);
-    return null;
+  static async startGoogleSignInForVoice(
+    intent: Omit<VoiceAuthRedirectIntent, "provider" | "actionId">
+  ): Promise<AuthResult | null> {
+    return this.startProviderSignInForVoice({
+      ...intent,
+      provider: "google",
+      actionId: "auth.sign_in_google",
+    });
   }
 
   /**
@@ -604,8 +643,7 @@ export class AuthService {
     );
 
     try {
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: "select_account" });
+      const provider = this.createWebProvider("google");
 
       const result = await signInWithPopup(auth, provider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
@@ -650,15 +688,26 @@ export class AuthService {
   }
 
   /** See startGoogleSignInForVoice for why browser voice uses redirect OAuth. */
-  static async startAppleSignInForVoice(): Promise<AuthResult | null> {
+  static async startAppleSignInForVoice(
+    intent: Omit<VoiceAuthRedirectIntent, "provider" | "actionId">
+  ): Promise<AuthResult | null> {
+    return this.startProviderSignInForVoice({
+      ...intent,
+      provider: "apple",
+      actionId: "auth.sign_in_apple",
+    });
+  }
+
+  private static async startProviderSignInForVoice(
+    intent: VoiceAuthRedirectIntent
+  ): Promise<AuthResult | null> {
     if (Capacitor.isNativePlatform()) {
-      return this.nativeAppleSignIn();
+      return intent.provider === "google"
+        ? this.nativeGoogleSignIn()
+        : this.nativeAppleSignIn();
     }
-    const provider = new OAuthProvider("apple.com");
-    provider.addScope("email");
-    provider.addScope("name");
-    this.markVoiceRedirectAttempt("apple");
-    await signInWithRedirect(auth, provider);
+    this.markVoiceRedirectAttempt(intent);
+    await signInWithRedirect(auth, this.createWebProvider(intent.provider));
     return null;
   }
 
@@ -783,9 +832,7 @@ export class AuthService {
     this.debugLog("🌐 [AuthService] Starting web Apple Sign-In (Firebase popup)");
 
     try {
-      const provider = new OAuthProvider("apple.com");
-      provider.addScope("email");
-      provider.addScope("name");
+      const provider = this.createWebProvider("apple");
 
       const result = await signInWithPopup(auth, provider);
       const idToken = await result.user.getIdToken();

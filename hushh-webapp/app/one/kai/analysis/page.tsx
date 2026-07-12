@@ -105,7 +105,7 @@ function HistoryDebateReplay({ entry }: { entry: AnalysisHistoryEntry }) {
       <RoundTabsCard
         roundNumber={1}
         title="Initial Deep Analysis"
-        description="Agents analyzed raw data independently."
+        description="Agents analyzed source information independently."
         isCollapsed={collapsedRounds[1] ?? true}
         onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 1: !prev[1] }))}
         agentStates={entry.debate_transcript.round1 as Record<string, AgentState>}

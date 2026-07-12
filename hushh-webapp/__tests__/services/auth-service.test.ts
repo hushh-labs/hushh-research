@@ -588,9 +588,35 @@ describe("AuthService voice redirect OAuth", () => {
   });
 
   it("records an Apple attempt before starting redirect OAuth", async () => {
-    await AuthService.startAppleSignInForVoice();
+    await AuthService.startAppleSignInForVoice({
+      directiveId: "directive-123",
+      returnTo: "/login?redirect=%2Fone%2Fsetup",
+      resumeTarget: "/one/setup",
+    });
 
     expect(signInWithRedirect).toHaveBeenCalledTimes(1);
-    expect(AuthService.getVoiceRedirectAttempt()).toMatchObject({ provider: "apple" });
+    expect(AuthService.getVoiceRedirectAttempt()).toMatchObject({
+      version: 1,
+      provider: "apple",
+      actionId: "auth.sign_in_apple",
+      directiveId: "directive-123",
+      returnTo: "/login?redirect=%2Fone%2Fsetup",
+      resumeTarget: "/one/setup",
+    });
+    expect(mockOAuthAddScope).toHaveBeenCalledWith("email");
+    expect(mockOAuthAddScope).toHaveBeenCalledWith("name");
+  });
+
+  it("keeps redirect resumption on an internal route", async () => {
+    await AuthService.startAppleSignInForVoice({
+      directiveId: null,
+      returnTo: "https://outside.example/login",
+      resumeTarget: "//outside.example/continue",
+    });
+
+    expect(AuthService.getVoiceRedirectAttempt()).toMatchObject({
+      returnTo: "/login",
+      resumeTarget: "/one/setup",
+    });
   });
 });

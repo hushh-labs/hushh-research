@@ -18,8 +18,8 @@ import { cn } from "@/lib/utils";
 
 export function ResearchLanding() {
   const latestPosts = BLOG_POSTS.slice(0, 3);
-  const specColor = SUMMER_PALETTE[0]!; // sky
-  const blogColor = SUMMER_PALETTE[3]!; // fuchsia
+  const specColor = SUMMER_PALETTE[0]!;
+  const blogColor = SUMMER_PALETTE[1]!;
 
   return (
     <AppPageShell width="reading" className="py-6 sm:py-10">
@@ -29,11 +29,11 @@ export function ResearchLanding() {
         </div>
         <div className="relative overflow-hidden rounded-[var(--app-card-radius-feature)] border border-border/60 px-5 py-7 sm:px-8 sm:py-10">
           <div className={SUMMER_HERO_WASH} />
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-sky-700 dark:text-sky-300">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#9B651E] dark:text-[#E2B35C]">
             <Sparkles className="h-4 w-4" />
             Research &amp; Papers
           </div>
-          <h1 className="mt-3 max-w-2xl bg-gradient-to-r from-sky-600 via-fuchsia-600 to-orange-500 bg-clip-text text-[30px] font-semibold leading-[1.08] tracking-tight text-transparent sm:text-[40px] dark:from-sky-300 dark:via-fuchsia-300 dark:to-amber-300">
+          <h1 className="mt-3 max-w-2xl bg-gradient-to-r from-[#6B4518] via-[#B88635] to-[#D4A54F] bg-clip-text text-[30px] font-semibold leading-[1.08] tracking-tight text-transparent sm:text-[40px] dark:from-[#F4E9D4] dark:via-[#E2B35C] dark:to-[#C9973D]">
             Open protocols, given to the commons.
           </h1>
           <p className="mt-3 max-w-xl text-[15px] leading-7 text-foreground/80">
@@ -59,7 +59,7 @@ export function ResearchLanding() {
             colorName={blogColor.name}
             icon={<BookOpen className="h-5 w-5" />}
             title="Blog"
-            body="Why consent-first data sharing matters, what it unlocks, and how to adopt PCHP — written working backwards from the human."
+            body="Why consent-first information sharing matters, what it unlocks, and how to adopt PCHP — written working backwards from the human."
             cta="Read the blog"
           />
         </section>

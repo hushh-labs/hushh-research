@@ -99,7 +99,7 @@ describe("PkmDomainDetailPanel", () => {
     expect(screen.getByText("19 saved details")).toBeTruthy();
     expect(screen.getByText("Organized into Portfolio, Analytics, and Documents")).toBeTruthy();
     expect(screen.getByText("Sharing controls")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "View Portfolio data" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "View Portfolio information" })).toBeTruthy();
     expect(screen.queryByText("What's saved here")).toBeNull();
     expect(screen.queryByText("Current access")).toBeNull();
   });

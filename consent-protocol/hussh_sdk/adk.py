@@ -19,7 +19,7 @@ def create_personal_agent(
     extra_tools: Sequence[Callable[..., Any]] | None = None,
     **kwargs: Any,
 ) -> Any:
-    """Create a Google ADK personal agent with Hussh consent tools installed."""
+    """Create a Google ADK private agent with Hussh consent tools installed."""
     if hussh_agent is None:
         from hussh_sdk.factory import create_agent
 
@@ -64,7 +64,7 @@ def _hussh_adk_tools(agent: HusshAgent) -> list[Callable[..., Any]]:
         Request user confirmation before taking an action.
 
         Args:
-            action: The action the personal agent wants to take.
+            action: The action the private agent wants to take.
             preview: The human-readable action preview.
             confirm: Whether explicit confirmation is required.
         """

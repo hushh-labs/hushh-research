@@ -10,7 +10,7 @@ import { metadata } from "@/app/layout";
 
 describe("root layout metadata", () => {
   it("keeps the canonical Hussh One title and base URL", () => {
-    expect(metadata.title).toBe("Hussh One | Your Personal Agent");
+    expect(metadata.title).toBe("Hussh One | Your Private Agent");
     expect(metadata.metadataBase?.toString()).toBe("https://hushh.ai/");
   });
 

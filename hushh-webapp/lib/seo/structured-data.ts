@@ -2,7 +2,7 @@
  * Structured data (JSON-LD) for answer-engine optimization (AEO).
  *
  * Builds a schema.org @graph describing the Hussh platform, the website, and
- * the One personal agent application. Aligned to the canonical agent ontology
+ * the One private agent application. Aligned to the canonical agent ontology
  * (Hussh -> One -> {Kai, Nav, KYC}); see docs/vision/agent-ontology.md.
  */
 
@@ -23,7 +23,7 @@ export function buildOrganizationGraph(): Record<string, unknown> {
         url: SITE_URL,
         logo: absoluteUrl("/quiet-emoji-icon.png"),
         description:
-          "Hussh is the platform and trust infrastructure for consent-first personal AI agents: scoped access, BYOK, zero-knowledge vault, and encrypted PKM.",
+          "Hussh is the platform and trust infrastructure for consent-first private AI agents: scoped access, BYOK, zero-knowledge vault, and encrypted PKM.",
         sameAs: ["https://hushh.ai"],
       },
       {
@@ -42,7 +42,7 @@ export function buildOrganizationGraph(): Record<string, unknown> {
         url: SITE_URL,
         publisher: { "@id": ORG_ID },
         description:
-          "One is your top personal agent in Hussh. One holds the relationship and delegates specialist work to Kai (finance), Nav (privacy and consent), and KYC (identity).",
+          "One is your top private agent in Hussh. One holds the relationship and delegates specialist work to Kai (finance), Nav (privacy and consent), and KYC (identity).",
         offers: {
           "@type": "Offer",
           price: "0",

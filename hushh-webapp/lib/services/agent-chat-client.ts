@@ -203,7 +203,7 @@ export async function consumeAgentChatStream(
     try {
       payload = parseJsonPayload(data);
     } catch {
-      streamError = "Agent chat stream returned malformed data. Please retry.";
+      streamError = "Agent chat stream returned malformed information. Please retry.";
       handlers?.onError?.(streamError);
       return;
     }

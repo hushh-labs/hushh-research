@@ -107,7 +107,7 @@ function DomainCard({
       ? `${domain.detailCount} item${domain.detailCount === 1 ? "" : "s"}`
       : domain.sections.length > 0
         ? "Ready"
-        : "No saved data";
+        : "Nothing saved yet";
   const sourceSummary =
     domain.sourceLabels.length > 2
       ? `${domain.sourceLabels.slice(0, 2).join(" · ")} +${domain.sourceLabels.length - 2}`
@@ -214,7 +214,7 @@ export function PkmDataManagerPanel({
   if (!signedIn) {
     return (
       <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
-        Sign in to review and manage your saved data.
+        Sign in to review and manage your saved information.
       </SurfaceInset>
     );
   }
@@ -259,9 +259,9 @@ export function PkmDataManagerPanel({
                   <Badge variant="secondary">{summary.totalAttributes} items</Badge>
                 </>
               ) : loading ? (
-                <Badge variant="outline">Checking data</Badge>
+                <Badge variant="outline">Checking information</Badge>
               ) : metadataError ? (
-                <Badge variant="outline">Data unavailable</Badge>
+                <Badge variant="outline">Information unavailable</Badge>
               ) : null}
               {sharingReady ? (
                 <Badge variant="secondary">{summary.activeGrantCount} active access</Badge>
@@ -476,7 +476,7 @@ export function PkmDomainDetailPanel({
               ? `${domain.detailCount} item${domain.detailCount === 1 ? "" : "s"}`
               : domain.sections.length > 0
                 ? "Ready"
-                : "No saved data"}
+                : "Nothing saved yet"}
           </Badge>
           {domain.sourceLabels.map((label) => (
             <Badge key={label} variant="secondary">
@@ -582,7 +582,7 @@ export function PkmDomainDetailPanel({
                         effect="fade"
                         size="sm"
                         onClick={() => onPreviewPermission(permission)}
-                        aria-label={`View ${permission.label} data`}
+                        aria-label={`View ${permission.label} information`}
                       >
                         <Eye className="h-4 w-4" />
                       </Button>

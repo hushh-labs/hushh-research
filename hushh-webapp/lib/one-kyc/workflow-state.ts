@@ -56,9 +56,9 @@ function friendlyScopeLabel(scope: string): string {
     .map((part) => part.trim())
     .filter(Boolean)
     .filter((part) => part !== "attr" && part !== "*");
-  if (!parts.length) return "Selected data";
+  if (!parts.length) return "Selected information";
   const text = parts.join(" ").replaceAll("_", " ");
-  return `${text.charAt(0).toUpperCase()}${text.slice(1)} data`;
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)} information`;
 }
 
 export function detectedDomains(workflow: OneKycWorkflow): string[] {

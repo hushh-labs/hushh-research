@@ -278,7 +278,7 @@ function SnapshotView({ payload }: { payload: PortfolioSharePayload }) {
             Performance
           </h2>
           {chartData.points.length < 2 ? (
-            <p className="mt-4 text-sm text-slate-400">No performance chart data available.</p>
+            <p className="mt-4 text-sm text-slate-400">No performance chart information available.</p>
           ) : (
             <div className="mt-4 overflow-hidden rounded-2xl border border-slate-800/70 bg-slate-950/70 p-3">
               <svg

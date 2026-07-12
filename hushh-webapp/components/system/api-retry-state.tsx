@@ -13,7 +13,7 @@ type ApiRetryStateProps = {
 };
 
 export function ApiRetryState({
-  title = "Unable to load data",
+  title = "Unable to load information",
   description = "The request took too long or failed. Try again to refresh this section.",
   variant = "full",
   onRetry,

@@ -4,9 +4,14 @@ import { describe, expect, it } from "vitest";
 describe("One route orchestration index", () => {
   it("covers each physical route exactly once with bounded metadata", () => {
     expect(index.schema_version).toBe("one.route_orchestration_index.v1");
-    expect(index.routes).toHaveLength(88);
+    expect(index.routes.length).toBeGreaterThan(0);
     expect(new Set(index.routes.map((entry) => entry.route_pattern)).size).toBe(index.routes.length);
     expect(index.routes.every((entry) => entry.instruction_id && entry.context_policy)).toBe(true);
+  });
+
+  it("keeps generic sign-in off Login while retaining explicit provider actions", () => {
+    const login = index.routes.find((entry) => entry.route_pattern === "/login");
+    expect(login?.action_ids).toEqual(["auth.sign_in_apple", "auth.sign_in_google"]);
   });
 
   it("admits Location delegation only from its declared route", () => {

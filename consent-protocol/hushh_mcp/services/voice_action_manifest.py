@@ -107,6 +107,9 @@ def _normalize_action_entry(raw: Any) -> dict[str, Any] | None:
         "completion_mode": completion_mode or "none",
         "expected_effects": expected_effects,
         "background_behavior": background_behavior,
+        "external_callback": (
+            raw.get("external_callback") if isinstance(raw.get("external_callback"), dict) else None
+        ),
         "goal": raw.get("goal") if isinstance(raw.get("goal"), dict) else {},
     }
 

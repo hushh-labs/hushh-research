@@ -373,7 +373,7 @@ export class UnlockWarmOrchestrator {
       warmPriority === "profile" ||
       warmPriority === "default";
     const statusItems = [
-      shouldWarmFinancial || shouldHydrateFinancialCacheOnly ? "Getting your portfolio data ready" : null,
+      shouldWarmFinancial || shouldHydrateFinancialCacheOnly ? "Getting your portfolio information ready" : null,
       shouldWarmMetadata ? "Refreshing your profile details" : null,
       shouldWarmConsents ? "Refreshing your consent list" : null,
       shouldWarmMarket ? "Updating market snapshots" : null,

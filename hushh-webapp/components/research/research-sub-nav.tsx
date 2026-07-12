@@ -10,19 +10,19 @@ const TABS = [
     id: "overview",
     label: "Research",
     href: ROUTES.RESEARCH,
-    active: "bg-sky-500/[0.12] text-sky-700 dark:text-sky-300",
+    active: "bg-[#B88635]/[0.12] text-[#8A5718] dark:text-[#E2B35C]",
   },
   {
     id: "protocol",
     label: "PCHP Specification",
     href: ROUTES.RESEARCH_PROTOCOL,
-    active: "bg-violet-500/[0.12] text-violet-700 dark:text-violet-300",
+    active: "bg-[#B88635]/[0.12] text-[#8A5718] dark:text-[#E2B35C]",
   },
   {
     id: "blog",
     label: "Blog",
     href: ROUTES.BLOG,
-    active: "bg-fuchsia-500/[0.12] text-fuchsia-700 dark:text-fuchsia-300",
+    active: "bg-[#B88635]/[0.12] text-[#8A5718] dark:text-[#E2B35C]",
   },
 ] as const;
 

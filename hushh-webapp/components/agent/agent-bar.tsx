@@ -37,7 +37,7 @@ import {
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { ROUTES, isOneSetupRoute } from "@/lib/navigation/routes";
+import { ROUTES, isFoundationPublicRoute, isOneSetupRoute } from "@/lib/navigation/routes";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { cn } from "@/lib/utils";
@@ -323,6 +323,7 @@ export function AgentBar() {
                 busyOperations,
                 setAnalysisParams,
                 switchPersona,
+                executionContext: { directiveId },
               });
               if (directiveId) {
                 liveClientRef.current?.reportActionSettlement?.({
@@ -626,10 +627,12 @@ export function AgentBar() {
   // bottom nav (same as "/"), so the bar must anchor above the safe area and
   // must not ride a scroll-hide translation there.
   const isLoginRoute = (pathname ?? "").startsWith(ROUTES.LOGIN);
+  const isFoundationPublic = isFoundationPublicRoute(pathname ?? "");
   const useOnboardingChrome =
     (runtime?.onboardingActive ?? chromeState.useOnboardingChrome) ||
     isHomeRoute ||
-    isLoginRoute;
+    isLoginRoute ||
+    isFoundationPublic;
 
   // Hide/show in lockstep with the rest of the bottom chrome (nav + search).
   const allowScrollHide = !useOnboardingChrome;
@@ -671,6 +674,7 @@ export function AgentBar() {
   const onboardingGreeterMode =
     (isHomeRoute && runtime?.tier === "anon_onboarding") ||
     (isLoginRoute && !user);
+  const ambientVoiceOnly = isFoundationPublic && !isHomeRoute;
 
   // Signed-out dogfooding: greet the person the moment the onboarding welcome
   // ("/") loads, instead of waiting for a tap. This reuses the exact same
@@ -787,7 +791,7 @@ export function AgentBar() {
         </span>
       </span>
     </button>
-  ) : onboardingGreeterMode ? (
+  ) : onboardingGreeterMode || ambientVoiceOnly ? (
     // Signed-out welcome ("/") + sign-in ("/login"): the bar IS the
     // conversation starter (voice-only pre-auth) with the theme toggle
     // infused at the right, in the same accent tone as the mic icon.
@@ -956,12 +960,15 @@ export function AgentBar() {
         )}
       >
         {/* Aurora rim only while a live conversation is active, so motion
-            always means something. No resting glow: at rest the bar is the
-            same quiet material as the agent window. */}
+            always means something. Pre-auth keeps the same Foundation tone as
+            the onboarding surface; no rainbow competes with One. */}
         {conversationActive ? (
           <span
             aria-hidden
-            className="one-bar-aurora one-bar-aurora--active -z-10 transition-opacity duration-500"
+            className={cn(
+              "one-bar-aurora -z-10 transition-opacity duration-500",
+              useOnboardingChrome ? "one-bar-aurora--onboarding" : "one-bar-aurora--active",
+            )}
           />
         ) : null}
         {pillContents}

@@ -143,6 +143,14 @@ export type KaiActionGoal = {
   entrypoint_support: string[];
 };
 
+export type KaiActionExternalCallback = {
+  provider: "google" | "apple";
+  starts: "external_redirect_started";
+  settlement: "firebase_redirect_callback";
+  failure_behavior: "retain_goal_and_retry";
+  return_to: string;
+};
+
 export type KaiActionDefinition = {
   action_id: string;
   surface_id: string;
@@ -168,6 +176,7 @@ export type KaiActionDefinition = {
   state_exposure: string[];
   docs_references: string[];
   workflow: KaiActionWorkflow;
+  external_callback: KaiActionExternalCallback | null;
   goal: KaiActionGoal;
   expected_effects: {
     state_changes: string[];
@@ -475,6 +484,28 @@ function validateGoal(value: unknown, actionId: string): KaiActionGoal {
   };
 }
 
+function validateExternalCallback(value: unknown): KaiActionExternalCallback | null {
+  if (!isPlainObject(value)) return null;
+  if (
+    (value.provider !== "google" && value.provider !== "apple") ||
+    value.starts !== "external_redirect_started" ||
+    value.settlement !== "firebase_redirect_callback" ||
+    value.failure_behavior !== "retain_goal_and_retry"
+  ) {
+    return null;
+  }
+  const returnTo = cleanString(value.return_to);
+  return returnTo
+    ? {
+        provider: value.provider,
+        starts: value.starts,
+        settlement: value.settlement,
+        failure_behavior: value.failure_behavior,
+        return_to: returnTo,
+      }
+    : null;
+}
+
 function validateAction(value: unknown): KaiActionDefinition | null {
   if (!isPlainObject(value)) return null;
   const actionId = cleanString(value.action_id);
@@ -525,6 +556,7 @@ function validateAction(value: unknown): KaiActionDefinition | null {
     state_exposure: isStringArray(value.state_exposure) ? value.state_exposure : [],
     docs_references: isStringArray(value.docs_references) ? value.docs_references : [],
     workflow: validateWorkflow(value.workflow),
+    external_callback: validateExternalCallback(value.external_callback),
     goal: validateGoal(value.goal, actionId),
     expected_effects: {
       state_changes:

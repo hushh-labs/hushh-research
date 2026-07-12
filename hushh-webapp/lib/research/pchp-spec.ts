@@ -37,7 +37,7 @@ export const PCHP_SPEC_SECTIONS: PchpSpecSection[] = [
     label: "Overview",
     eyebrow: "Specification",
     summary:
-      "What PCHP is, who it is for, and the one idea it standardizes: consent on every read of personal data.",
+      "What PCHP is, who it is for, and the one idea it standardizes: consent on every read of personal information.",
     body: `PCHP (Personal Consent Handshake Protocol) is an open standard for sharing personal data between a person, the agents that work for them, and the humans and machines they choose to trust — with **consent and control built into every single transaction**.
 
 Think of PCHP as a **signed receipt and a revocable key attached to every share of your data**. Before anything private moves, a handshake happens: the requester says exactly what they want and why, the owner approves (or declines) with a real credential, a scoped and time-boxed key is issued, the data moves inside a sealed envelope, and every step is written to a log the owner can read. When the owner revokes, the key dies.
@@ -310,7 +310,7 @@ An owner **MAY** delegate a scope to an agent via a signed **TrustLink** (\`from
     label: "Sealed Envelope",
     eyebrow: "Base Protocol",
     summary:
-      "The zero-knowledge delivery envelope: how data moves so only the intended requester can open it.",
+      "The zero-knowledge delivery envelope: how information moves so only the intended requester can open it.",
     body: `PCHP delivers data inside an **ephemeral, sealed envelope** so that the reading party — and only the reading party — can open it, and the host never needs to hold the plaintext.
 
 ## Requirements

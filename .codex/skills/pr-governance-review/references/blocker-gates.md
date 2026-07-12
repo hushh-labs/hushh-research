@@ -72,7 +72,7 @@ Merge only when SQL migration, release manifest, checked-in schema contract, and
 
 ### Founder / Ontology Copy
 
-Preserve Hussh as platform, One as personal agent, Kai as finance specialist, and Nav as privacy/consent guardian. Do not ship future-state claims as current runtime truth.
+Preserve Hussh as platform, One as private agent, Kai as finance specialist, and Nav as privacy/consent guardian. Do not ship future-state claims as current runtime truth.
 
 ## Duplicate Decision Rules
 

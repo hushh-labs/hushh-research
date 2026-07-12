@@ -48,7 +48,7 @@ flowchart TD
 
 ## Purpose
 
-One is the only direct personal-agent head. It owns the relationship layer, the user-facing voice/chat handoff, and the authority to route intent. Specialists sit below One and execute bounded work through A2A, generated action contracts, tools, operons, services, consent tokens, and encrypted data boundaries.
+One is the only direct private-agent head. It owns the relationship layer, the user-facing voice/chat handoff, and the authority to route intent. Specialists sit below One and execute bounded work through A2A, generated action contracts, tools, operons, services, consent tokens, and encrypted information boundaries.
 
 This page is current-state implementation truth. It does not rename runtime identifiers, remove Kai compatibility paths, or claim external-agent zero-knowledge parity where checked-in code still uses first-party compatibility tokens.
 

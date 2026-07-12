@@ -24,7 +24,7 @@ export function MarketplacePublishDirectiveCard(props: {
     <div className="rounded-2xl border border-emerald-300/50 bg-emerald-50/50 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/15">
       <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-emerald-900 dark:text-emerald-200">
         <Store className="h-4 w-4" aria-hidden />
-        {topic ? `Publish your ${topic} data for offers?` : "Publish these for offers?"}
+        {topic ? `Publish your ${topic} information for offers?` : "Publish these for offers?"}
       </div>
       <div className="flex flex-col gap-2">
         {slices.map((slice) => (

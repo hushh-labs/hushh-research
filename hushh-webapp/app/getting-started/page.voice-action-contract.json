@@ -118,7 +118,7 @@
       ],
       "reachability": {
         "routes": [
-          "/login"
+          "/getting-started"
         ],
         "screens": [
           "getting_started",

@@ -69,7 +69,7 @@ function initials(label: string | null | undefined): string {
 }
 
 function globalAccessLabel(scope: string | null | undefined): string | null {
-  if (scope === "pkm.read") return "Can access all of your saved data.";
+  if (scope === "pkm.read") return "Can access all of your saved information.";
   if (scope === "vault.owner") return "Can manage your full vault and everything inside it.";
   return null;
 }
@@ -413,11 +413,11 @@ export function PkmNaturalPanel({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">
-              Data + Access
+              Information + Access
             </p>
             <h2 className="text-sm font-semibold">What Kai knows about you, in plain English</h2>
             <p className="max-w-3xl text-sm text-muted-foreground">
-              This view keeps the saved data readable for a normal app user. It focuses on what Kai
+              This view keeps saved information readable for a normal app user. It focuses on what Kai
               knows, when it was last updated, and which connected apps can currently access it.
             </p>
           </div>

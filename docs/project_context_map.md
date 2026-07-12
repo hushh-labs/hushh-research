@@ -42,7 +42,7 @@ flowchart TB
 
 This repo is the platform.
 
-The current checked-in user-facing intelligence runtime is in transition: One Voice is the direct voice surface, while many action, planner, and generated-gateway identifiers remain Kai-era compatibility surfaces. One is the personal agent and relationship layer, Kai is its finance specialist, and the architecture also includes the trust plane, data plane, developer lane, agent plane, mobile lane, and operational governance surface that keep the platform coherent at scale.
+The current checked-in user-facing intelligence runtime is in transition: One Voice is the direct voice surface, while many action, planner, and generated-gateway identifiers remain Kai-era compatibility surfaces. One is the private agent and relationship layer, Kai is its finance specialist, and the architecture also includes the trust plane, protected-information plane, developer lane, agent plane, mobile lane, and operational governance surface that keep the platform coherent at scale.
 
 Start with:
 

@@ -78,7 +78,7 @@ export interface AccountEmailAliasVerificationConfirmResponse {
 
 export class AccountServiceImpl {
   /**
-   * Delete the user's account and all data.
+   * Delete the user's account and all associated information.
    * Requires VAULT_OWNER token (Unlock to Delete).
    * 
    * SECURITY: Token must be passed explicitly from useVault() hook.

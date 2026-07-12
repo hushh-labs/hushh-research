@@ -192,7 +192,7 @@ function ManifestNode({
 export function PkmJsonTree({
   value,
   rootLabel = "root",
-  emptyLabel = "No data available.",
+  emptyLabel = "Nothing saved yet.",
   className,
 }: {
   value: unknown;

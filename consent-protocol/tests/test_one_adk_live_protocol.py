@@ -22,6 +22,9 @@ def test_live_context_keeps_only_bounded_redacted_ui_fields():
 
     assert context == {
         "route_family": "/one/kai",
+        "route_pattern": "/one/kai",
+        "route_instruction_id": "route.one.kai",
+        "route_context_policy": "publish",
         "persona": "investor",
         "voice_state": "listening",
         "available_action_ids": ["analysis.start"],
@@ -40,6 +43,20 @@ def test_live_context_keeps_only_bounded_redacted_ui_fields():
             "setup_capability_ids": [],
         },
     }
+
+
+def test_live_context_derives_dynamic_route_policy_and_rejects_client_policy_fields():
+    context = _sanitize_live_context(
+        {
+            "route_family": "/one/setup/finance",
+            "route_instruction_id": "client.injected",
+            "route_context_policy": "publish_everything",
+        }
+    )
+
+    assert context["route_pattern"] == "/one/setup/[capability]"
+    assert context["route_instruction_id"] == "route.one.setup.capability."
+    assert context["route_context_policy"] == "minimal"
 
 
 def test_action_settlement_requires_matching_issued_directive_and_can_retry_after_invalid():

@@ -16,7 +16,10 @@ import { isAndroid } from "@/lib/capacitor/platform";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
-import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import {
+  useLocalOnboardingActionHandler,
+  type LocalOnboardingActionContext,
+} from "@/lib/agent/local-onboarding-actions";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { AuthLegalDialog } from "@/components/onboarding/AuthLegalDialog";
@@ -167,8 +170,14 @@ export function AuthStep({
   }, [router]);
 
   const resolveAndNavigate = useCallback(
-    async (userId: string, idToken?: string, phoneNumber?: string | null) => {
-      const navigationKey = `${userId}:${redirectPath || ROUTES.KAI_HOME}`;
+    async (
+      userId: string,
+      idToken?: string,
+      phoneNumber?: string | null,
+      resumeTarget?: string
+    ) => {
+      const targetPath = resumeTarget || redirectPath;
+      const navigationKey = `${userId}:${targetPath || ROUTES.KAI_HOME}`;
       if (lastNavigationKeyRef.current === navigationKey) {
         return;
       }
@@ -185,7 +194,7 @@ export function AuthStep({
           idToken || (user ? await user.getIdToken().catch(() => undefined) : undefined);
         const resolvedPath = await PostAuthRouteService.resolveAfterLogin({
           userId,
-          redirectPath,
+          redirectPath: targetPath,
           idToken: resolvedIdToken,
           phoneNumber,
           enableFirstRunSetupGate: true,
@@ -213,7 +222,7 @@ export function AuthStep({
         router.push(nextPath);
       } catch (error) {
         console.warn("[AuthStep] Failed to resolve post-auth route:", error);
-        const fallbackPath = redirectPath || ROUTES.KAI_HOME;
+        const fallbackPath = targetPath || ROUTES.KAI_HOME;
         const safeFallbackPath =
           fallbackPath === ROUTES.ONE_SETUP || fallbackPath === ROUTES.ONE_SETUP_KAI || fallbackPath === ROUTES.KAI_IMPORT
             ? ROUTES.KAI_HOME
@@ -259,6 +268,7 @@ export function AuthStep({
   useEffect(() => {
     if (authLoading) return;
     completeStep();
+    const voiceRedirectAttempt = AuthService.getVoiceRedirectAttempt();
 
     if (!redirectResultHandledRef.current) {
       redirectResultHandledRef.current = true;
@@ -285,7 +295,28 @@ export function AuthStep({
           void resolveAndNavigate(
             result.user.uid,
             await result.user.getIdToken(),
-            result.user.phoneNumber
+            result.user.phoneNumber,
+            voiceAttempt?.resumeTarget
+          );
+          return;
+        }
+
+        // Some browsers restore Firebase auth state before returning the
+        // redirect result. A voice redirect remains callback-owned, so settle
+        // from that restored user instead of racing the ordinary observer.
+        if (voiceRedirectAttempt && auth.currentUser) {
+          const voiceAttempt = AuthService.clearVoiceRedirectAttempt();
+          const restoredUser = auth.currentUser;
+          trackEvent("auth_succeeded", {
+            action: voiceAttempt?.provider || "redirect",
+            result: "success",
+          });
+          setNativeUser(restoredUser);
+          void resolveAndNavigate(
+            restoredUser.uid,
+            await restoredUser.getIdToken(),
+            restoredUser.phoneNumber,
+            voiceAttempt?.resumeTarget
           );
         }
       })
@@ -308,7 +339,10 @@ export function AuthStep({
       });
     }
 
-    if (user) {
+    // A voice redirect owns post-auth routing until Firebase delivers either
+    // its redirect result or the restored authenticated user above. Without
+    // this guard a fast auth observer can unmount Login before settlement.
+    if (user && !voiceRedirectAttempt) {
       if (growthJourney) {
         trackGrowthFunnelStepCompleted({
           journey: growthJourney,
@@ -599,7 +633,10 @@ export function AuthStep({
     }
   };
 
-  const startVoiceProviderLogin = async (provider: "google" | "apple") => {
+  const startVoiceProviderLogin = async (
+    provider: "google" | "apple",
+    context?: LocalOnboardingActionContext
+  ) => {
     if (pendingProvider) {
       return { status: "blocked" as const, summary: "A sign-in window is already open." };
     }
@@ -608,8 +645,16 @@ export function AuthStep({
     try {
       const authResult =
         provider === "google"
-          ? await AuthService.startGoogleSignInForVoice()
-          : await AuthService.startAppleSignInForVoice();
+          ? await AuthService.startGoogleSignInForVoice({
+              directiveId: context?.directiveId || null,
+              returnTo: `${window.location.pathname}${window.location.search}`,
+              resumeTarget: redirectPath,
+            })
+          : await AuthService.startAppleSignInForVoice({
+              directiveId: context?.directiveId || null,
+              returnTo: `${window.location.pathname}${window.location.search}`,
+              resumeTarget: redirectPath,
+            });
 
       // Browser redirect starts navigation and settles through getRedirectResult
       // on return. Native sign-in completes in-process and can use the same
@@ -648,11 +693,11 @@ export function AuthStep({
     }
   };
 
-  useLocalOnboardingActionHandler("auth.sign_in_google", async () =>
-    startVoiceProviderLogin("google")
+  useLocalOnboardingActionHandler("auth.sign_in_google", async (_slots, context) =>
+    startVoiceProviderLogin("google", context)
   );
-  useLocalOnboardingActionHandler("auth.sign_in_apple", async () =>
-    startVoiceProviderLogin("apple")
+  useLocalOnboardingActionHandler("auth.sign_in_apple", async (_slots, context) =>
+    startVoiceProviderLogin("apple", context)
   );
 
   if (authLoading || user) {

@@ -70,6 +70,7 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_VOICE_CONTEXT,
     get_one_runner,
 )
+from hushh_mcp.services.route_orchestration_index import resolve_route_orchestration_entry
 
 logger = logging.getLogger(__name__)
 
@@ -190,13 +191,29 @@ def _bounded_text_list(value: Any, limit: int) -> list[str]:
 def _sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
     """Keep only bounded, redacted UI state for tool availability decisions."""
     cache_freshness = _bounded_text(payload.get("cache_freshness"), 32)
+    route_family = _bounded_text(payload.get("route_family"))
+    route_entry = resolve_route_orchestration_entry(route_family)
+    submitted_action_ids = _bounded_text_list(
+        payload.get("available_action_ids"), _LIVE_CONTEXT_ARRAY_CAP
+    )
     return {
-        "route_family": _bounded_text(payload.get("route_family")),
+        # The generated index is the server-side source of route policy.  A
+        # client may describe its current UI, but cannot invent a route
+        # instruction or route policy. Action execution remains independently
+        # guarded by the generated action gateway and surface metadata.
+        "route_family": route_family,
+        "route_pattern": route_entry.get("route_pattern")
+        if isinstance(route_entry, dict)
+        else None,
+        "route_instruction_id": route_entry.get("instruction_id")
+        if isinstance(route_entry, dict)
+        else None,
+        "route_context_policy": route_entry.get("context_policy")
+        if isinstance(route_entry, dict)
+        else "suppress",
         "persona": _bounded_text(payload.get("persona")),
         "voice_state": _bounded_text(payload.get("voice_state"), 32),
-        "available_action_ids": _bounded_text_list(
-            payload.get("available_action_ids"), _LIVE_CONTEXT_ARRAY_CAP
-        ),
+        "available_action_ids": submitted_action_ids,
         "visible_modules": _bounded_text_list(payload.get("visible_modules"), _LIVE_MODULE_CAP),
         "cache_freshness": cache_freshness
         if cache_freshness in {"fresh_or_stale_safe", "locked", "missing"}
@@ -333,7 +350,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         if onboarding:
             return (
                 "[Session start - not user speech] This is a NEW visitor who is "
-                "just arriving to get set up. You are One, their personal agent: "
+                "just arriving to get set up. You are One, their private agent: "
                 "the relationship layer where they own their context, grant "
                 "consent, and summon specialists (like Kai for finance) to get "
                 "things done. Greet them warmly in one short sentence, welcome "

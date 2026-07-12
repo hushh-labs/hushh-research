@@ -407,7 +407,7 @@
 <text x="1103.7" y="1992.0" font-size="12" fill="#0a0a0c" text-anchor="middle" font-weight="700" letter-spacing="0" opacity="1.0">1</text>
 <rect x="639.3" y="2002.0" width="129.6" height="17.0" rx="8" fill="rgba(212,165,116,0.12)" stroke="rgba(212,165,116,0.40)" stroke-width="1.0" opacity="1.0"/>
 <text x="704.1" y="2014.0" font-size="10.5" fill="#e8c9a0" text-anchor="middle" font-weight="700" letter-spacing="0.3" opacity="1.0">orchestrator agent</text>
-<text x="639.3" y="2034.0" font-size="12.5" fill="#d6d6df" text-anchor="start" font-weight="500" letter-spacing="0" opacity="1.0">the top personal agent</text>
+<text x="639.3" y="2034.0" font-size="12.5" fill="#d6d6df" text-anchor="start" font-weight="500" letter-spacing="0" opacity="1.0">the top private agent</text>
 <line x1="639.33" y1="2044" x2="1110.67" y2="2044" stroke="#2c2c3a" stroke-width="1"/>
 <text x="639.3" y="2064.0" font-size="10.5" fill="#fbbf24" text-anchor="start" font-weight="800" letter-spacing="0.5" opacity="1.0">WHY</text>
 <text x="685.3" y="2064.0" font-size="11.8" fill="#d6d6df" text-anchor="start" font-weight="400" letter-spacing="0" opacity="1.0">one mind that coordinates</text>

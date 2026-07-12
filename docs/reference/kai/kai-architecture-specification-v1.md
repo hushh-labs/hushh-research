@@ -76,7 +76,7 @@ Use this document when a founder, operator, or contributor needs the repo-backed
 This document uses founder language first while staying current-state correct:
 
 - `Kai` is the current finance assistant runtime and product surface, not the whole Hussh platform identity
-- `One` is approved direction for the top personal-agent layer; it is not yet the default checked-in runtime identity
+- `One` is approved direction for the top private-agent layer; it is not yet the default checked-in runtime identity
 - `Nav` is approved direction for privacy, consent, vault, deletion, and scope-review flows; it is not yet a separate checked-in runtime process
 - `PCHP` is implemented today through the Consent Protocol developer API + MCP consent/export flow that Kai presents for approval
 - `Capability Tokens` are implemented today as `VAULT_OWNER`, consent tokens, scoped tokens, and developer tokens

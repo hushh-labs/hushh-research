@@ -118,7 +118,7 @@ function mergeSegmentIds(...groups: Array<string[] | null | undefined>): string[
 function assertShareablePayload(scope: string, payload: Record<string, unknown>): void {
   if (hasShareableValue(payload)) return;
   throw new ConsentExportNoDataError(
-    `No shareable data was found for ${scope.replace(/^attr\./, "").replace(/\.\*$/, "").replaceAll(".", " ")}.`
+    `No shareable information was found for ${scope.replace(/^attr\./, "").replace(/\.\*$/, "").replaceAll(".", " ")}.`
   );
 }
 
@@ -206,7 +206,7 @@ export async function buildConsentExportForScope(params: {
   }
   if (!encryptedDomainBlob) {
     throw new ConsentExportNoDataError(
-      `No approved PKM data is available for ${parsedScope.domain.replaceAll("_", " ")}.`
+      `No approved PKM information is available for ${parsedScope.domain.replaceAll("_", " ")}.`
     );
   }
 

@@ -141,7 +141,7 @@ function describeGuard(guardId: string): string {
     case "vault_unlocked":
       return "Vault must be unlocked.";
     case "portfolio_required":
-      return "Portfolio data must already exist.";
+      return "Portfolio information must already exist.";
     case "analysis_idle_required":
       return "Analysis must be idle first.";
     case "active_analysis_required":

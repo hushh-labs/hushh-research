@@ -65,7 +65,7 @@ export interface OneCapability {
   tone: OneCapabilityTone;
   group: OneCapabilityGroup;
   /**
-   * True when this capability collects NOTHING from the user — there is no data
+   * True when this capability collects NOTHING from the user — there is no information
    * to enter or connection to authorize, the tab is usable as soon as it opens.
    * Such capabilities are "set up" by taking a one-time look (an Explore tour)
    * rather than by a configuration step. The resolver treats them as
@@ -80,7 +80,7 @@ export interface OneCapability {
    * STEP itself collects nothing and renders pre-vault; this flag only lets the
    * step set honest "you'll unlock your vault next" expectations and lets the
    * destination's own guard own the actual unlock prompt. Consent is
-   * the only capability that does not read vault-backed data here.
+   * the only capability that does not read vault-backed information here.
    */
   requiresVault?: boolean;
 }
@@ -169,7 +169,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     agentId: null,
     title: "Information Marketplace",
     description: "Preview priced slices of your personal information you could publish.",
-    previewLabel: "Priced data slices",
+    previewLabel: "Priced information slices",
     href: ROUTES.ONE_MARKETPLACE,
     icon: Store,
     tone: "pkm",

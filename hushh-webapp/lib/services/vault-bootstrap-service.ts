@@ -222,14 +222,14 @@ export class VaultBootstrapService {
       return {
         supported: false,
         reason:
-          "Passkey/PRF is unavailable on this browser. Use a passphrase to keep data encrypted.",
+          "Passkey/PRF is unavailable on this browser. Use a passphrase to keep your information encrypted.",
       };
     }
 
     return {
       supported: false,
       reason:
-        "Biometric protection is unavailable on this device. Use a passphrase to keep data encrypted.",
+        "Biometric protection is unavailable on this device. Use a passphrase to keep your information encrypted.",
     };
   }
 

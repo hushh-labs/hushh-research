@@ -252,7 +252,7 @@ export default function MarketplaceRiaProfilePageClient() {
               <div className="mt-2 flex items-center gap-2">
                 {firmNames ? <Building2 className="h-4 w-4 text-muted-foreground" /> : null}
                 <p className="text-sm font-medium text-foreground">
-                  {firmNames || "No public firm data"}
+                  {firmNames || "No public firm information"}
                 </p>
               </div>
             </RiaSurface>

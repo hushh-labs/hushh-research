@@ -123,7 +123,7 @@ View metadata:
 flowchart TB
   user["User<br/>subject and authority"]
   kai["Kai<br/>current finance specialist surface"]
-  one["One<br/>approved top personal-agent direction"]
+  one["One<br/>approved top private-agent direction"]
   nav["Nav<br/>privacy and consent guardian"]
   kyc["KYC<br/>identity workflow specialist"]
 
@@ -587,7 +587,7 @@ Boundary rules:
 | Developer API | interface | REST lane for scope discovery, consent, status, and scoped export | `consent-protocol/docs/reference/developer-api.md` |
 | Hussh MCP | interface/container | Hosted remote MCP and npm bridge for consent tool access | `packages/hushh-mcp/README.md` |
 | PKM / Vault | data boundary | Encrypted user memory, manifests, scope registry, discovery-safe index | `consent-protocol/docs/reference/personal-knowledge-model.md` |
-| Agent One | agent | Top personal-agent direction and strict product manifest | `consent-protocol/hushh_mcp/agents/one/agent.yaml` |
+| Agent One | agent | Top private-agent direction and strict product manifest | `consent-protocol/hushh_mcp/agents/one/agent.yaml` |
 | Kai | agent | Finance specialist and current mature runtime surface | `consent-protocol/hushh_mcp/agents/kai/agent.yaml` |
 | Nav | agent | Privacy and consent guardian manifest | `consent-protocol/hushh_mcp/agents/nav/agent.yaml` |
 | KYC | agent | Identity/KYC workflow specialist manifest | `consent-protocol/hushh_mcp/agents/kyc/agent.yaml` |

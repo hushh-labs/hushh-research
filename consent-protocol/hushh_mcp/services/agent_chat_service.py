@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 AGENT_CHAT_MODEL_ENV = "AGENT_GEMINI_MODEL"
 DEFAULT_AGENT_CHAT_MODEL = "gemini-3.5-flash"
 KAI_AGENT_MANIFEST_PATH = Path(__file__).resolve().parents[1] / "agents" / "kai" / "agent.yaml"
-AGENT_SYSTEM_PROMPT = """You are One, the top personal agent inside Hussh.
+AGENT_SYSTEM_PROMPT = """You are One, the top private agent inside Hussh.
 
 You hold the relationship layer with the user, clarify intent, and delegate specialist work (finance to Kai, privacy to Nav, identity/KYC to KYC). Until a specialist surface is engaged, answer directly within the capability boundary below.
 

@@ -246,8 +246,8 @@ describe("agent chat client", () => {
           onError: (message) => errors.push(message),
         },
       })
-    ).rejects.toThrow("Agent chat stream returned malformed data. Please retry.");
-    expect(errors).toEqual(["Agent chat stream returned malformed data. Please retry."]);
+    ).rejects.toThrow("Agent chat stream returned malformed information. Please retry.");
+    expect(errors).toEqual(["Agent chat stream returned malformed information. Please retry."]);
   });
 
   it("formats streamed runtime provider errors", async () => {

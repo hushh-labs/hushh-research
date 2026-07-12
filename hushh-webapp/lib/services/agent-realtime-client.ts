@@ -338,7 +338,7 @@ export class AgentRealtimeClient {
 
     const channelOpen = new Promise<void>((resolve, reject) => {
       const timeout = window.setTimeout(() => {
-        reject(new Error("Realtime data channel did not open."));
+        reject(new Error("Realtime message channel did not open."));
       }, 15_000);
 
       dataChannel.onopen = () => {
@@ -347,7 +347,7 @@ export class AgentRealtimeClient {
       };
       dataChannel.onerror = () => {
         window.clearTimeout(timeout);
-        reject(new Error("Realtime data channel failed."));
+        reject(new Error("Realtime message channel failed."));
       };
       dataChannel.onclose = () => {
         window.clearTimeout(timeout);
@@ -465,7 +465,7 @@ export class AgentRealtimeClient {
 
   private ensureDataChannel(): void {
     if (!this.dataChannel || this.dataChannel.readyState !== "open") {
-      throw new Error("Realtime data channel is not open.");
+      throw new Error("Realtime message channel is not open.");
     }
   }
 

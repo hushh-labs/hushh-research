@@ -159,6 +159,13 @@ Optional but recommended action fields:
 - `expected_effects`
 - `workflow`
 - `goal`
+- `external_callback` for a provider action whose completion occurs after a
+  full-page external redirect. It declares the provider, `external_redirect_started`,
+  `firebase_redirect_callback`, `retain_goal_and_retry`, and the canonical return route.
+
+`external_callback` does not grant provider authority. It tells One that the original
+directive ends at redirect launch and that a later browser callback, never the launch,
+is the authentication success boundary.
 
 ## Goal Metadata
 

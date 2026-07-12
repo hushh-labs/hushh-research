@@ -8,12 +8,12 @@ export const HOME_FAQ: readonly FaqItem[] = [
   {
     question: "What is Hussh?",
     answer:
-      "Hussh is the platform and trust infrastructure for consent-first personal AI agents. It provides scoped access, bring-your-own-key (BYOK), a zero-knowledge vault, and encrypted personal knowledge memory (PKM), so your information stays yours.",
+      "Hussh is the platform and trust infrastructure for consent-first private AI agents. It provides scoped access, bring-your-own-key (BYOK), a zero-knowledge vault, and encrypted personal knowledge memory (PKM), so your information stays yours.",
   },
   {
     question: "What is One?",
     answer:
-      "One is your top personal agent in Hussh. One holds the relationship: it listens after you grant scope, remembers context, decides across domains, and acts inside consent. One delegates specialist work to Kai, Nav, and KYC.",
+      "One is your top private agent in Hussh. One holds the relationship: it listens after you grant scope, remembers context, decides across domains, and acts inside consent. One delegates specialist work to Kai, Nav, and KYC.",
   },
   {
     question: "What are Kai, Nav, and KYC?",
@@ -28,6 +28,6 @@ export const HOME_FAQ: readonly FaqItem[] = [
   {
     question: "Is Hussh available on mobile?",
     answer:
-      "Yes. Hussh One runs on the web and ships native iOS and Android apps, so your personal agent and consent controls travel with you.",
+      "Yes. Hussh One runs on the web and ships native iOS and Android apps, so your private agent and consent controls travel with you.",
   },
 ];
