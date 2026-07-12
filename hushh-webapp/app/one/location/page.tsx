@@ -183,7 +183,6 @@ import {
   CONSENT_STATE_CHANGED_EVENT,
   dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
-import { LocationChatPanel } from "@/components/one-location/redesign/location-chat-panel";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
@@ -5234,16 +5233,6 @@ function OneLocationAgentPageContent() {
           ) : (
             <LocationRedesignHub vm={locationHubVm} />
           )}
-
-
-          <LocationChatPanel
-            vaultOwnerToken={vaultOwnerToken ?? null}
-            userId={auth.userId ?? undefined}
-            onStateChanged={() => {
-              void refresh();
-              dispatchConsentStateChanged({ source: "one_location_chat" });
-            }}
-          />
         </AppPageContentRegion>
       </AppPageShell>
     );

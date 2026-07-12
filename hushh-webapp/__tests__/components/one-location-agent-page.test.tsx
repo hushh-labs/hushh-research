@@ -168,34 +168,6 @@ vi.mock("sonner", () => {
   };
 });
 
-// Capture the props passed to LocationChatPanel so we can assert on userId.
-let lastLocationChatPanelProps: {
-  vaultOwnerToken: string | null;
-  userId?: string;
-  onStateChanged?: () => void;
-} | null = null;
-
-// LocationChatPanel now renders unconditionally (locked stub when vault is locked).
-// Mock it here so its suggestion chips don't collide with the hub's own buttons
-// (e.g. "Ask someone") in tests that query by accessible name.
-vi.mock(
-  "@/components/one-location/redesign/location-chat-panel",
-  () => ({
-    LocationChatPanel: (props: {
-      vaultOwnerToken: string | null;
-      userId?: string;
-      onStateChanged?: () => void;
-    }) => {
-      lastLocationChatPanelProps = props;
-      return props.vaultOwnerToken ? null : (
-        <section data-testid="location-chat-panel">
-          <p>Unlock your vault to use the assistant.</p>
-        </section>
-      );
-    },
-  }),
-);
-
 import OneLocationAgentPage from "@/app/one/location/page";
 
 if (!window.localStorage) {
@@ -570,15 +542,6 @@ describe("OneLocationAgentPage", () => {
     });
   });
 
-  it("passes userId into the location chat panel", async () => {
-    lastLocationChatPanelProps = null;
-    render(<OneLocationAgentPage />);
-    // The panel renders immediately (before the location entry flow), so props
-    // are captured synchronously on first render.
-    await waitFor(() => expect(lastLocationChatPanelProps).not.toBeNull());
-    expect(lastLocationChatPanelProps?.userId).toBe("user_a");
-  });
-
   it("renders the One-owned encrypted location control surface", async () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
@@ -596,7 +559,6 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText("Advisor meetup")).toBeNull();
     expect(screen.queryAllByText(/Trusted B/).length).toBeGreaterThan(0);
     expect(screen.getByRole("heading", { name: "Device readiness" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Quick paths" })).toBeTruthy();
     expect(screen.queryByText(/8012|9911/)).toBeNull();
     expect(screen.getByRole("button", { name: /Share my location/i })).toBeTruthy();
     expect(mockRegisterKey).toHaveBeenCalledWith({
@@ -777,11 +739,9 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
-    await switchLocationTab("People", "Trusted Circle");
-    expect(screen.getAllByText("Trusted Circle").length).toBeGreaterThan(0);
-    expect(screen.getByRole("heading", { name: "Ready people" })).toBeTruthy();
-    expect(screen.getByText("Trusted B")).toBeTruthy();
-    expect(screen.getAllByText("Ready for private sharing").length).toBeGreaterThan(0);
+    // Populated People tab: no "Trusted Circle" heading — search + person cards shown.
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    expect(await screen.findByText("Trusted B")).toBeTruthy();
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
 
     await switchLocationTab("Now", "Active shares");
@@ -846,13 +806,10 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
-    await switchLocationTab("People", "Trusted Circle");
-    expect(screen.getByRole("button", { name: /Invite trusted person/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Sync contacts/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Share to contacts/i })).toBeTruthy();
-    // People tab exposes a search bar to filter ready people, and no longer
-    // renders a separate "Pending invites" list.
-    expect(screen.getByPlaceholderText("Search trusted people")).toBeTruthy();
+    // Populated People tab shows a search bar; invite buttons only appear in the
+    // empty state. Invite button assertions are covered by the empty-state test.
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    expect(await screen.findByPlaceholderText("Search trusted people")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Pending invites" })).toBeNull();
     await switchLocationTab("Links", "Links");
     expect(screen.getByRole("button", { name: /Create public location link/i })).toBeTruthy();
@@ -1439,13 +1396,15 @@ describe("OneLocationAgentPage", () => {
       inviteCandidateCount: 7,
       sourcePlatform: "ios",
     });
-
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await switchLocationTab("People", "Trusted Circle");
-    fireEvent.click(screen.getByRole("button", { name: /Sync Contacts/i }));
+    // The populated People tab exposes a compact "Sync contacts" circle action.
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Sync contacts/i }),
+    );
 
     await waitFor(() =>
       expect(mockSyncOneLocationContactSignals).toHaveBeenCalledWith({
@@ -1472,8 +1431,11 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await switchLocationTab("People", "Trusted Circle");
-    fireEvent.click(screen.getByRole("button", { name: /Share to Contacts/i }));
+    // The populated People tab exposes a compact "Share to contacts" action.
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Share to contacts/i }),
+    );
 
     await waitFor(() => expect(mockCreatePublicInvite).toHaveBeenCalledTimes(1));
     expect(mockCreatePublicInvite).toHaveBeenCalledWith({
@@ -1569,15 +1531,12 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await switchLocationTab("People", "Trusted Circle");
-    expect(screen.getByText("No ready people yet")).toBeTruthy();
-    expect(
-      screen.getByText("Invite someone to your Circle to start private sharing."),
-    ).toBeTruthy();
-    expect(screen.queryByText(/No approvals waiting/)).toBeNull();
-    expect(screen.queryByText(/No trusted matches yet/)).toBeNull();
-    expect(screen.queryByText(/No professional signals yet/)).toBeNull();
-    expect(screen.queryByText(/No ready One users yet/)).toBeNull();
-    expect(screen.queryByText(/No setup blockers/)).toBeNull();
+    // New empty-state: Trusted Circle SectionCard with invite/sync/share buttons
+    // + trust note. "Ask someone to share" is populated-state-only.
+    expect(screen.getByRole("button", { name: /Invite trusted person/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Sync contacts/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Share to contacts/i })).toBeTruthy();
+    expect(screen.queryByText(/Ask someone to share/)).toBeNull();
     await switchLocationTab("Links", "Links");
     expect(
       screen.getByRole("button", { name: /Create public location link/i }),

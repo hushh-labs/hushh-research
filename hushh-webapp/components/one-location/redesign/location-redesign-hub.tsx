@@ -20,7 +20,6 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
 
 
 import {
@@ -28,8 +27,6 @@ import {
   Car,
   ChevronRight,
   Hand,
-  Inbox as InboxIcon,
-  Link as LinkIcon,
   Lock,
   MapPin,
   Navigation,
@@ -61,7 +58,6 @@ import {
 import {
   EmptyState,
   LocationHeader,
-  QuickPathRow,
   SectionCard,
   TaskFlowHeader,
   TrustNoteCard,
@@ -254,7 +250,8 @@ type FlowKind =
   | "drive-to"
   | "pick-me-up"
   | "safe-arrival"
-  | "sos";
+  | "sos"
+  | "privacy";
 
 
 const BUSY = (vm: LocationHubViewModel, key: string) => vm.busy === key;
@@ -408,6 +405,14 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           <SosFlow vm={vm} onClose={closeFlow} />
         ) : flow === "invite" ? (
           <InviteFlow vm={vm} onClose={closeFlow} />
+        ) : flow === "privacy" ? (
+          <PrivacyFlow
+            onClose={closeFlow}
+            onManageSharing={() => {
+              closeFlow();
+              setTab("people");
+            }}
+          />
         ) : (
           <TemporaryLinkFlow
             vm={vm}
@@ -472,6 +477,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           onSafeArrival={() => setFlow("safe-arrival")}
           onSos={() => setFlow("sos")}
           onGoTab={setTab}
+          onOpenPrivacy={() => setFlow("privacy")}
         />
 
       ) : tab === "people" ? (
@@ -531,6 +537,7 @@ function NowHub({
   onSafeArrival,
   onSos,
   onGoTab,
+  onOpenPrivacy,
 }: {
   vm: LocationHubViewModel;
   hasActiveShare: boolean;
@@ -543,6 +550,7 @@ function NowHub({
   onSafeArrival: () => void;
   onSos: () => void;
   onGoTab: (tab: LocationHubTab) => void;
+  onOpenPrivacy: () => void;
 }) {
 
   // When location permission is blocked (denied / restricted / services off),
@@ -741,36 +749,11 @@ function NowHub({
           hoisted to the very top of the page above (so don't duplicate it). */}
       {readinessBlocked ? null : deviceReadinessCard}
 
-      {/* Quick paths */}
-
-      <SectionCard title="Quick paths">
-        <div className="space-y-2.5">
-          <QuickPathRow
-            icon={<UsersRound className="h-4 w-4" />}
-            title="People"
-            description="Trusted Circle and invites"
-            onClick={() => onGoTab("people")}
-          />
-          <QuickPathRow
-            icon={<LinkIcon className="h-4 w-4" />}
-            title="Links"
-            description="Public location sharing"
-            onClick={() => onGoTab("links")}
-          />
-          <QuickPathRow
-            icon={<InboxIcon className="h-4 w-4" />}
-            title="Inbox"
-            description="Requests and shared locations"
-            badge={inboxCount ? `${inboxCount} new` : undefined}
-            onClick={() => onGoTab("inbox")}
-          />
-        </div>
-      </SectionCard>
-
-      {/* Privacy — links to the consent/privacy centre (Apple Blue v2 design). */}
-      <Link
-        href="/consents"
-        className="flex items-center gap-3.5 rounded-2xl bg-white p-4 shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-colors hover:bg-black/[0.02] dark:bg-[color:var(--app-card-surface-default-solid)]"
+      {/* Privacy — opens the full-screen Privacy flow (Apple Blue v2 design). */}
+      <button
+        type="button"
+        onClick={onOpenPrivacy}
+        className="flex w-full items-center gap-3.5 rounded-2xl bg-white p-4 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-colors hover:bg-black/[0.02] dark:bg-[color:var(--app-card-surface-default-solid)]"
       >
         <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#e7f0fd] dark:bg-sky-400/15">
           <Lock className="h-[18px] w-[18px] text-[#007aff]" />
@@ -779,7 +762,134 @@ function NowHub({
           Privacy
         </span>
         <ChevronRight className="h-4 w-4 shrink-0 text-black/35 dark:text-muted-foreground" />
-      </Link>
+      </button>
+    </div>
+  );
+}
+
+/* =================================================================== */
+/* PEOPLE HUB                                                           */
+/* =================================================================== */
+
+/* =================================================================== */
+/* PRIVACY FLOW                                                         */
+/* =================================================================== */
+
+/** iOS-style switch (51×31, 27px knob) matching the Apple Blue v2 design. */
+function LocationToggle({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors duration-200",
+        checked ? "bg-[#34c759]" : "bg-black/15 dark:bg-white/20",
+      )}
+    >
+      <span
+        className={cn(
+          "absolute top-[2px] h-[27px] w-[27px] rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.15)] transition-[left] duration-200",
+          checked ? "left-[22px]" : "left-[2px]",
+        )}
+      />
+    </button>
+  );
+}
+
+function PrivacyFlow({
+  onClose,
+  onManageSharing,
+}: {
+  onClose: () => void;
+  onManageSharing: () => void;
+}) {
+  // Inert local state for now — real auto-share / pause wiring comes later.
+  const [autoShare, setAutoShare] = useState(false);
+  const [paused, setPaused] = useState(false);
+
+  return (
+    <div>
+      <TaskFlowHeader
+        eyebrow="Onepoint"
+        title="Privacy"
+        description="You control who sees your location and when. Change this anytime."
+        onBack={onClose}
+      />
+
+      <p className="mt-6 px-1 text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
+        Location sharing
+      </p>
+      <div className="mt-2.5 rounded-2xl bg-white px-4 shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-[color:var(--app-card-surface-default-solid)]">
+        <div className="flex items-center gap-3.5 border-b border-black/[0.06] py-4 dark:border-white/10">
+          <div className="flex-1">
+            <p className="text-[16px] font-semibold text-[#1c1c2e] dark:text-foreground">
+              Auto-share my location
+            </p>
+            <p className="mt-0.5 text-[13px] leading-[1.45] text-black/50 dark:text-muted-foreground">
+              On — your circle sees you live, no approval needed. Off — every
+              request needs your approval first.
+            </p>
+          </div>
+          <LocationToggle
+            checked={autoShare}
+            onChange={setAutoShare}
+            label="Auto-share my location"
+          />
+        </div>
+        <div className="flex items-center gap-3.5 py-4">
+          <div className="flex-1">
+            <p className="text-[16px] font-semibold text-[#1c1c2e] dark:text-foreground">
+              Pause my location
+            </p>
+            <p className="mt-0.5 text-[13px] leading-[1.45] text-black/50 dark:text-muted-foreground">
+              Go invisible to everyone until you turn this off.
+            </p>
+          </div>
+          <LocationToggle
+            checked={paused}
+            onChange={setPaused}
+            label="Pause my location"
+          />
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-start gap-2.5 px-1">
+        <Shield className="mt-0.5 h-[15px] w-[15px] shrink-0 text-[#007aff]" />
+        <p className="text-[13px] leading-[1.5] text-black/50 dark:text-muted-foreground">
+          Your location is never shared outside your circle. You can revoke
+          access to anyone at any time.
+        </p>
+      </div>
+
+      <p className="mt-7 px-1 text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
+        Who can see you
+      </p>
+      <button
+        type="button"
+        onClick={onManageSharing}
+        className="mt-2.5 flex w-full items-center gap-3 rounded-2xl bg-white p-4 text-left shadow-[0_2px_10px_rgba(0,0,0,0.05)] transition-colors hover:bg-black/[0.02] dark:bg-[color:var(--app-card-surface-default-solid)]"
+      >
+        <div className="min-w-0 flex-1">
+          <p className="text-[16px] font-semibold text-[#1c1c2e] dark:text-foreground">
+            Manage sharing
+          </p>
+          <p className="mt-0.5 text-[13px] text-black/50 dark:text-muted-foreground">
+            See and change who has your live location
+          </p>
+        </div>
+        <ChevronRight className="h-4 w-4 shrink-0 text-black/30 dark:text-muted-foreground" />
+      </button>
     </div>
   );
 }
@@ -865,12 +975,17 @@ function PeopleHub({
   onStartShare: () => void;
   onAsk: () => void;
 }) {
-  const hasAnyConnections = vm.recipients.length > 0;
+  const hasSearch = vm.recipientSearch.trim().length > 0;
   const filtered = vm.visibleRecipients;
+  // Show the people list whenever there's anyone to show — this includes
+  // contact-sync matches (which live in visibleRecipients, not `recipients`) —
+  // or while a search is active. Otherwise fall back to the invite-first empty
+  // state. (Gating on `recipients` alone hid freshly-synced contact matches.)
+  const showPeopleList = filtered.length > 0 || hasSearch;
 
-  // No trusted connections yet — keep the invite-first empty state. Per design,
-  // do NOT show "Ask someone to share" here: there is no one to ask.
-  if (!hasAnyConnections) {
+  // No one to show yet — keep the invite-first empty state. Per design, do NOT
+  // show "Ask someone to share" here: there is no one to ask.
+  if (!showPeopleList) {
     return (
       <div className="space-y-5">
         <SectionCard
@@ -920,6 +1035,37 @@ function PeopleHub({
         value={vm.recipientSearch}
         onChange={vm.setRecipientSearch}
       />
+
+      {/* Compact circle-management actions. Invite adds people; "Sync contacts"
+          tags which existing connections are in your phone contacts. */}
+      <div className="grid grid-cols-1 gap-2">
+        <Button
+          variant="outline"
+          onClick={onInvite}
+          className="h-10 rounded-full border-[#007aff] text-sm font-semibold text-[#007aff]"
+        >
+          <UserPlus className="mr-2 h-4 w-4" />
+          Invite trusted person
+        </Button>
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            variant="outline"
+            onClick={vm.onSyncContacts}
+            isLoading={vm.busy === "contactSync"}
+            className="h-10 rounded-full text-sm"
+          >
+            Sync contacts
+          </Button>
+          <Button
+            variant="outline"
+            onClick={vm.onShareToContacts}
+            isLoading={vm.busy === "contactInvite"}
+            className="h-10 rounded-full text-sm"
+          >
+            Share to contacts
+          </Button>
+        </div>
+      </div>
 
       {filtered.length ? (
         <div className="overflow-hidden rounded-[20px] bg-white shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-[color:var(--app-card-surface-default-solid)]">
