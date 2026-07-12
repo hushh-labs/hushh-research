@@ -5385,6 +5385,154 @@
       ]
     },
     {
+      "id": "route.ria_profile",
+      "label": "Open RIA Profile",
+      "meaning": "Opens the advisor's own RIA profile built during onboarding, with view and edit of services, fees, bio, and business location.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "open my ria profile",
+        "view advisor profile",
+        "edit my advisor profile"
+      ],
+      "scope": {
+        "routes": [
+          "/ria/profile"
+        ],
+        "screens": [
+          "ria_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA persona must be provisioned (onboarding complete) before the profile is available."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/profile"
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_profile",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_profile",
+            "label": "Open RIA Profile",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/profile",
+              "screen": "ria_profile"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/profile/page.tsx"
+      ]
+    },
+    {
+      "id": "ria.profile.edit_services",
+      "label": "Edit RIA services and fees",
+      "meaning": "Opens the profile edit panel to update services, fee structure, minimum engagement, bio, and business location.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "edit my services",
+        "update my fees",
+        "change my business location"
+      ],
+      "scope": {
+        "routes": [
+          "/ria/profile"
+        ],
+        "screens": [
+          "ria_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "in_page",
+        "target": "ria_profile_edit_panel"
+      },
+      "goal": {
+        "goal_id": "goal.ria.profile.edit_services",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.profile.edit_services",
+            "label": "Edit RIA services and fees",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/profile",
+              "screen": "ria_profile"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/profile/page.tsx"
+      ]
+    },
+    {
       "id": "route.ria_requests_compat",
       "label": "Open RIA Requests",
       "meaning": "Routes legacy RIA requests links to the consent center.",

@@ -367,7 +367,7 @@ def _scope_catalog() -> list[DeveloperScopeDescriptor]:
 
 
 def _is_supported_scope(scope: str) -> bool:
-    return ConsentScope.is_external_requestable_scope(scope)
+    return bool(ConsentScope.is_external_requestable_scope(scope))
 
 
 def _validate_public_expiry_hours(expiry_hours: int) -> int:
@@ -419,7 +419,7 @@ def _validate_connector_wrapping_alg(connector_wrapping_alg: str) -> str:
 
 def _validate_connector_public_key(connector_public_key: str) -> str:
     try:
-        return connector_key_fingerprint(connector_public_key)
+        return str(connector_key_fingerprint(connector_public_key))
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

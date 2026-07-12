@@ -18,7 +18,6 @@ import {
   SurfaceInset,
 } from "@/components/app-ui/surfaces";
 import { PkmJsonTree, PkmManifestTree } from "@/components/profile/pkm-tree-view";
-import { SlicePriceBadge } from "@/components/profile/slice-price-badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";

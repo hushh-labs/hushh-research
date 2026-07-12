@@ -316,14 +316,12 @@ async def preview_pkm_structure(
     for card in preview_cards:
         if not isinstance(card, dict) or card.get("write_mode") == "do_not_save":
             continue
-        structure_decision = (
-            card.get("structure_decision")
-            if isinstance(card.get("structure_decision"), dict)
-            else {}
+        raw_structure_decision = card.get("structure_decision")
+        structure_decision: dict = (
+            raw_structure_decision if isinstance(raw_structure_decision, dict) else {}
         )
-        manifest_draft = (
-            card.get("manifest_draft") if isinstance(card.get("manifest_draft"), dict) else {}
-        )
+        raw_manifest_draft = card.get("manifest_draft")
+        manifest_draft: dict = raw_manifest_draft if isinstance(raw_manifest_draft, dict) else {}
         target_domain = str(
             manifest_draft.get("domain")
             or structure_decision.get("target_domain")

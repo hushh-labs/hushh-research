@@ -99,7 +99,7 @@ export async function applySlicePosture(params: {
   previousManifest: DomainManifest;
   vaultOwnerToken: string;
 }): Promise<{ manifest: DomainManifest }> {
-  const { userId, domain, domainTitle, permission, nextPosture, previousManifest } = params;
+  const { userId, domain, permission, nextPosture, previousManifest } = params;
 
   const result = await PersonalKnowledgeModelService.updateScopeExposure({
     userId,
