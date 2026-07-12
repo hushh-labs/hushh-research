@@ -64,7 +64,8 @@
     "083_one_location_recipient_key_encrypted_private.sql",
     "084_relay_ticket_nonces.sql",
     "085_developer_partner_apps.sql",
-    "086_connections.sql"
+    "086_connections.sql",
+    "087_consent_audit_request_id_text.sql"
   ],
   "groups": {
     "iam": [
@@ -101,7 +102,8 @@
       "069_drop_kai_location_plaintext.sql",
       "071_enterprise_crm_registry.sql",
       "072_crm_registry_mulesoft_pbkdf2_cbc.sql",
-      "073_crm_registry_mulesoft_simplify.sql"
+      "073_crm_registry_mulesoft_simplify.sql",
+      "087_consent_audit_request_id_text.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

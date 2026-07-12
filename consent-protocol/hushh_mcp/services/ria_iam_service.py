@@ -2433,10 +2433,15 @@ class RIAIAMService:
             self._invalidate_cached_persona_state(user_id)
             await conn.close()
 
-    async def get_persona_state(self, user_id: str) -> dict[str, Any]:
-        cached = self._read_cached_persona_state(user_id)
-        if cached is not None:
-            return cached
+    async def get_persona_state(self, user_id: str, *, force: bool = False) -> dict[str, Any]:
+        # force=True skips the 30s in-process cache and recomputes from the DB.
+        # Required after a persona mutation (e.g. RIA delete): the client's forced
+        # refresh may be routed to a sibling gunicorn worker whose cache was not
+        # invalidated, so honouring force is the only cross-worker-safe read.
+        if not force:
+            cached = self._read_cached_persona_state(user_id)
+            if cached is not None:
+                return cached
         conn = await self._conn()
         try:
             async with conn.transaction():
@@ -8714,7 +8719,11 @@ class RIAIAMService:
         conn = await self._conn()
         try:
             await self._ensure_iam_schema_ready(conn)
-            await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=True)
+            # READ endpoint: never provision the 'ria' persona here. This runs on a
+            # non-transactional pooled connection, so include_ria_persona=True would
+            # autocommit array_append('ria') before the 404 below and durably
+            # resurrect a deleted advisor's persona. Existing RIAs are unaffected.
+            await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=False)
             ria = await self._get_ria_profile_by_user(conn, user_id)
             handled_keys = await self._marketplace_handled_investor_target_keys(
                 conn,
@@ -9140,7 +9149,10 @@ class RIAIAMService:
         conn = await self._conn()
         try:
             await self._ensure_iam_schema_ready(conn)
-            await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=True)
+            # READ endpoint: never provision the 'ria' persona here (see the deck
+            # endpoint above) — a non-transactional include_ria_persona=True would
+            # durably resurrect a deleted advisor's persona.
+            await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=False)
             ria = await self._get_ria_profile_by_user(conn, user_id)
             rows = await conn.fetch(
                 """

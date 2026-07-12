@@ -135,15 +135,25 @@ export default function RiaHomePage() {
   const { user } = useAuth();
   const {
     riaCapability,
+    riaOnboardingStatus,
     loading: personaLoading,
     refreshing: personaRefreshing,
   } = usePersonaState();
 
   useEffect(() => {
-    if (!personaLoading && !personaRefreshing && riaCapability === "setup") {
+    if (personaLoading || personaRefreshing) return;
+    // "setup" (never onboarded) OR a deleted profile whose persona is still/again
+    // 'ria' (exists:false) → send to onboarding for a clean new-user experience.
+    if (riaCapability === "setup" || riaOnboardingStatus?.exists === false) {
       router.replace(ROUTES.RIA_ONBOARDING);
     }
-  }, [personaLoading, personaRefreshing, riaCapability, router]);
+  }, [
+    personaLoading,
+    personaRefreshing,
+    riaCapability,
+    riaOnboardingStatus,
+    router,
+  ]);
 
   const homeResource = useStaleResource<RiaHomeResponse>({
     cacheKey: user?.uid ? `ria_home_${user.uid}` : "ria_home_guest",

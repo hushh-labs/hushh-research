@@ -12,6 +12,9 @@ const mocks = vi.hoisted(() => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
   riaService: { deleteProfile: vi.fn(), updateProfile: vi.fn() },
   openKaiCommandBar: vi.fn(),
+  draftClear: vi.fn(),
+  onPersonaStateChanged: vi.fn(),
+  invalidateResourcePrefix: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -118,6 +121,25 @@ vi.mock("@/lib/persona/persona-context", () => ({
   usePersonaState: mocks.usePersonaState,
 }));
 vi.mock("@/lib/services/ria-service", () => ({ RiaService: mocks.riaService }));
+vi.mock("@/lib/services/ria-onboarding-draft-local-service", () => ({
+  RiaOnboardingDraftLocalService: {
+    clear: (...a: unknown[]) => {
+      mocks.draftClear(...a);
+      return Promise.resolve();
+    },
+  },
+}));
+vi.mock("@/lib/cache/cache-sync-service", () => ({
+  CacheSyncService: { onPersonaStateChanged: mocks.onPersonaStateChanged },
+}));
+vi.mock("@/lib/services/device-resource-cache-service", () => ({
+  DeviceResourceCacheService: {
+    invalidateResourcePrefix: (...a: unknown[]) => {
+      mocks.invalidateResourcePrefix(...a);
+      return Promise.resolve();
+    },
+  },
+}));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: mocks.toast }));
 vi.mock("@/lib/navigation/routes", () => ({
   ROUTES: { RIA_ONBOARDING: "/ria/onboarding", ONE_HOME: "/one" },
@@ -206,5 +228,27 @@ describe("RiaProfilePage manage actions", () => {
       expect(mocks.routerReplace).toHaveBeenCalledWith("/one");
     });
     expect(mocks.toast.error).not.toHaveBeenCalled();
+    // Full teardown: local draft + in-memory + device caches cleared.
+    expect(mocks.draftClear).toHaveBeenCalledWith("u1");
+    expect(mocks.onPersonaStateChanged).toHaveBeenCalledWith("u1");
+    expect(mocks.invalidateResourcePrefix).toHaveBeenCalledWith("u1", "ria:");
+  });
+
+  it("redirects to onboarding when the profile no longer exists (split-brain guard)", async () => {
+    // Persona still reports 'ria' (stale/resurrected) but the profile row is gone.
+    mocks.usePersonaState.mockReturnValue({
+      riaOnboardingStatus: { exists: false },
+      riaCapability: "switch",
+      loading: false,
+      refreshing: false,
+      refresh: mocks.refresh,
+      switchPersona: mocks.switchPersona,
+    });
+
+    render(<RiaProfilePage />);
+
+    await waitFor(() =>
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/ria/onboarding"),
+    );
   });
 });
