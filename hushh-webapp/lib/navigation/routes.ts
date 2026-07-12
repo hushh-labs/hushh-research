@@ -14,7 +14,6 @@ export const ROUTES = {
   GETTING_STARTED: "/getting-started",
   LOGOUT: "/logout",
   PHONE_MANDATE: "/register-phone",
-  LABS_PROFILE_APPEARANCE: "/labs/profile-appearance",
   PROFILE: "/profile",
   PROFILE_ACCOUNT: "/profile/account",
   PROFILE_ACCOUNT_PHONE: "/profile/account/phone",
@@ -74,6 +73,7 @@ export const ROUTES = {
   RIA_REQUESTS: "/ria/requests",
   RIA_PICKS: "/ria/picks",
   RIA_SETTINGS: "/ria/settings",
+  RIA_PROFILE: "/ria/profile",
   KAI_HOME: "/one/kai",
   KAI_SETUP: "/one/setup/kai",
   KAI_IMPORT: "/one/kai/import",
@@ -213,10 +213,12 @@ export function isCapabilityHandoffTarget(pathname: string): boolean {
 export function buildOneSetupRoute(entries?: {
   feature?: string | null;
   from?: string | null;
+  returnTo?: string | null;
 }) {
   return withQuery(ROUTES.ONE_SETUP, {
     feature: entries?.feature,
     from: normalizeInternalRouteHref(entries?.from),
+    return_to: normalizeInternalRouteHref(entries?.returnTo),
   });
 }
 

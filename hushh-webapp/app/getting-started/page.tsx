@@ -4,12 +4,9 @@ import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
-import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { useAuth } from "@/lib/firebase/auth-context";
-import { PreviewCarouselStep } from "@/components/onboarding/PreviewCarouselStep";
 import { ROUTES } from "@/lib/navigation/routes";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 function GettingStartedContent() {
   const router = useRouter();
@@ -21,60 +18,14 @@ function GettingStartedContent() {
 
   const { user, loading } = useAuth();
 
-  // Publish screen context so the onboarding guide can welcome and orient a
-  // brand-new, signed-out person before they have an account or a vault. The
-  // action ids are generated gateway contracts (onboarding surface), so voice
-  // proposals stay inside the governed action plane from the very first screen.
-  usePublishVoiceSurfaceMetadata({
-    screenId: "getting_started",
-    title: "Welcome to One",
-    purpose:
-      "This is your welcome. Swipe through to see what One can do, then continue when you're ready.",
-    actions: [
-      {
-        id: "onboarding.continue",
-        actionId: "onboarding.continue",
-        label: "Continue",
-        purpose: "Move on to sign in and set up.",
-      },
-      {
-        id: "auth.sign_in_open",
-        actionId: "auth.sign_in_open",
-        label: "Sign in",
-        purpose: "Go to the sign-in screen.",
-      },
-    ],
-  });
-
-  // Authenticated users skip the marketing carousel entirely.
+  // The marketing carousel is disabled for now: signed-out visitors go straight
+  // to sign-in, signed-in users go to their home.
   useEffect(() => {
     if (loading) return;
-    if (user) {
-      router.replace(ROUTES.ONE_HOME);
-    }
-  }, [loading, user, router]);
+    router.replace(user ? ROUTES.ONE_HOME : loginUrl);
+  }, [loading, user, router, loginUrl]);
 
-  if (loading || user) {
-    return <HushhLoader label="Loading..." variant="fullscreen" />;
-  }
-
-  return (
-    <>
-      <NativeTestBeacon
-        routeId={ROUTES.GETTING_STARTED}
-        marker="native-route-getting-started"
-        authState="anonymous"
-        dataState="loaded"
-      />
-      <PreviewCarouselStep
-        onContinue={() => router.push(loginUrl)}
-        // Returning visitors (marketing already seen) get bounced from "/" back
-        // to this carousel, so routing back to "/" is a loop. Send back to the
-        // sign-in screen, the same place Continue/Skip lead, to avoid a dead end.
-        onBack={() => router.push(loginUrl)}
-      />
-    </>
-  );
+  return <HushhLoader label="Loading..." variant="fullscreen" />;
 }
 
 export default function GettingStartedPage() {

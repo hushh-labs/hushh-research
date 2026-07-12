@@ -1,3 +1,4 @@
+manifest_version: 2
 id: agent_nav
 name: Agent Nav
 version: 0.1.0
@@ -9,4 +10,3 @@ system_instruction: |
   finance analysis or general relationship memory.
 required_scopes:
   - agent.nav.review
-

@@ -1,222 +1,139 @@
 "use client";
 
-import type { ComponentType, CSSProperties, SVGProps } from "react";
 import Link from "next/link";
+import { HushhWordmark } from "@/components/app-ui/hushh-wordmark";
+import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
 import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
-import { cn } from "@/lib/utils";
 
 /* ────────────────────────────────────────────────────────────
- * 14a — Immersive welcome (design.md §5.7/5.8/5.10)
- * Dark hero (bare quiet mark + gold-accent wordmark) rising into
- * a white sheet with a timeline feature list + consent note. A single
- * primary CTA — "Get Started" — leads into sign-in / sign-up. Content is
- * OURS; the theme toggle is global chrome. (The agent ask bar is hidden on
- * this logged-out screen — see agent-bar.tsx unmountBar.)
+ * Welcome ("/"). A living, theme-safe canvas (OnboardingHeroBackground:
+ * breathing gold + violet mesh glow, drifting motes, grain) carries the
+ * whole screen. Typography: eyebrow, one molten "One", one honest
+ * declarative sentence, and a quiet tracked-out rhythm line that hints at
+ * One's four motions (Listens / Remembers / Decides / Acts) without ever
+ * labeling them as UI or naming internal specialists. Morphy mechanics
+ * throughout: the CTA is a Morphy Button (gradient ripple, ink surface),
+ * and the staggered one-reveal entrance is back. No WebGL.
  * ──────────────────────────────────────────────────────────── */
 
-// Gold stroke glyphs (currentColor) — the parent sets the accent color.
-function VaultLockIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" {...props}>
-      <rect x="4.5" y="8.5" width="11" height="8" rx="2.2" stroke="currentColor" strokeWidth="1.7" />
-      <path d="M6.8 8.5V6.4a3.2 3.2 0 016.4 0v2.1" stroke="currentColor" strokeWidth="1.7" />
-    </svg>
-  );
-}
-
-function FinanceCapabilityIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" {...props}>
-      <circle cx="10" cy="10" r="7.2" stroke="currentColor" strokeWidth="1.7" />
-      <path
-        d="M12 7.5c-.5-.9-1.2-1.3-2-1.3-1.2 0-2 .7-2 1.7 0 2.3 4.2 1.2 4.2 3.6 0 1.1-.9 1.8-2.2 1.8-.9 0-1.7-.4-2.2-1.3M10 5v1.2M10 13.6v1.2"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function InboxCapabilityIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 20 18" fill="none" aria-hidden="true" {...props}>
-      <rect x="2.5" y="2.5" width="15" height="12" rx="2.4" stroke="currentColor" strokeWidth="1.7" />
-      <path d="M3.5 4L10 9l6.5-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-// Content is OURS; presentation is the 14a timeline.
-const INTRO_FEATURES: Array<{
-  icon: ComponentType<SVGProps<SVGSVGElement>>;
-  title: string;
-  subtitle: string;
-}> = [
-  {
-    icon: VaultLockIcon,
-    title: "Your vault, guarded by consent",
-    // Kept short (parity with the other two subtitles) so it stays on one
-    // line at narrow widths (e.g. iPhone 12 Pro, 390px logical width);
-    // the longer original phrasing wrapped to two lines there.
-    subtitle: "Encrypted, shared only with consent",
-  },
-  {
-    icon: FinanceCapabilityIcon,
-    title: "Finance, made personal",
-    subtitle: "Track and act on your money with Kai",
-  },
-  {
-    icon: InboxCapabilityIcon,
-    title: "Connect Gmail and more",
-    subtitle: "One works across your apps, with consent",
-  },
-];
+// One's four motions, shown as a quiet typographic rhythm — never as chips,
+// never labeled "framework". Matches docs/vision/agent-ontology.md.
+const MOTIONS = ["Listens", "Remembers", "Decides", "Acts"];
 
 export function IntroStep({
   onLogin,
 }: {
-  // Kept optional for the parent's call signature; the 14a welcome no longer
-  // renders a "Get started" CTA, so onNext is intentionally unused here.
-  onNext?: () => void;
   onLogin?: () => void;
 }) {
   return (
-    <main className="relative min-h-[100dvh] w-full overflow-hidden bg-[#0A0908]">
-      {/* Hero glow blobs (decorative) */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[60%]">
-        <span
-          className="absolute -top-24 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full"
-          style={{ background: "rgba(212,175,106,0.26)", filter: "blur(80px)" }}
-        />
-        <span
-          className="absolute -right-16 top-16 h-56 w-56 rounded-full"
-          style={{ background: "rgba(212,175,106,0.14)", filter: "blur(80px)" }}
-        />
-      </div>
+    <main className="relative flex min-h-[100dvh] w-full flex-col overflow-hidden">
+      <OnboardingHeroBackground />
 
-      <div className="relative mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col">
-        {/* ── Dark hero ── */}
-        <div className="flex flex-col items-center px-6 pt-[calc(78px+var(--app-safe-area-top-effective,0px))] pb-9 text-center">
-          <div className="relative flex h-[88px] items-center justify-center" aria-hidden="true">
-            <span
-              className="pointer-events-none absolute h-24 w-24 rounded-full bg-accent/15 blur-2xl"
-            />
-            <span className="relative select-none text-[64px] leading-none drop-shadow-[0_10px_24px_rgba(0,0,0,0.38)]">
-              🤫
-            </span>
-          </div>
+      <div className="relative z-10 mx-auto flex min-h-[100dvh] w-full max-w-[420px] flex-col items-center justify-between px-7 py-8 text-center">
+        {/* ── Top row: wordmark left, quiet-mark right (no box). ── */}
+        <div
+          className="one-reveal flex w-full items-center justify-between pt-[var(--app-safe-area-top-effective,0px)]"
+          style={{ ["--seq-delay" as string]: "80ms" }}
+        >
+          <HushhWordmark className="h-9" />
+          <span className="select-none text-[32px] leading-none">🤫</span>
+        </div>
 
-          <div
-            role="heading"
-            aria-level={1}
-            aria-label="hussh One, a memory that's only yours"
-            className="mt-6 whitespace-nowrap font-[family-name:var(--font-app-display)] text-[40px] font-extrabold leading-none tracking-normal text-[#FAF6EE]"
+        {/* ── Typography-led hero. No cards, no fake metrics. ── */}
+        <div className="flex flex-1 flex-col items-center justify-center">
+          <span
+            className="one-reveal type-caption text-[color:var(--foundation-dim)]"
+            style={{ ["--seq-delay" as string]: "220ms" }}
           >
-            hu<span className="text-accent-strong">ssh</span>{" "}
-            <span className="font-bold">One</span>
-            <span className="text-accent-strong">.</span>
+            Your personal agent
+          </span>
+
+          {/* Sizing lives on h1.one-hero-title in globals.css: the global
+              foundation h1 lock uses !important in @layer base, which beats
+              Tailwind utilities AND inline styles, so the hero needs a
+              same-layer higher-specificity override. */}
+          <h1
+            className="one-hero-title one-reveal mt-4 select-none font-[family-name:var(--font-app-display)]"
+            style={{ ["--seq-delay" as string]: "320ms" }}
+          >
+            <span className="one-molten font-[family-name:var(--font-app-display)]">
+              One
+            </span>
+          </h1>
+
+          {/* Approved durable product line (docs/vision/agent-ontology.md
+              Founder Copy Rules; brand punchline). Not ad-hoc copy. */}
+          <p
+            className="one-reveal mt-6 max-w-[20rem] text-[19px] font-medium leading-[1.4] tracking-[-0.2px] text-[color:var(--foundation-ink)] dark:text-[#F7F3EA]"
+            style={{ ["--seq-delay" as string]: "420ms" }}
+          >
+            Your agents. Yours to own.
+          </p>
+
+          {/* Quiet rhythm line: the four motions, typographic not chip-like. */}
+          <div
+            className="one-reveal mt-5 flex items-center justify-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[color:var(--foundation-dim)]"
+            style={{ ["--seq-delay" as string]: "500ms" }}
+          >
+            {MOTIONS.map((motion, i) => (
+              <span key={motion} className="flex items-center gap-2">
+                {i > 0 && <span aria-hidden className="opacity-40">&middot;</span>}
+                <span>{motion}</span>
+              </span>
+            ))}
           </div>
-          <p className="mt-3 text-[16px] tracking-[-0.2px] text-[rgba(250,246,238,0.62)]">
-            A memory that&apos;s only yours.
+
+          <p
+            className="one-reveal mt-6 max-w-[18rem] text-[13px] leading-[1.5] text-[color:var(--foundation-dim)]"
+            style={{ ["--seq-delay" as string]: "580ms" }}
+          >
+            Everything stays encrypted in your vault. Nothing moves without your consent.
           </p>
         </div>
 
-        {/* ── White sheet ── */}
-        <div className="relative mt-auto flex-1 rounded-t-[34px] bg-white px-6 pt-8 pb-[calc(132px+var(--app-safe-area-bottom-effective,0px))] shadow-[0_-16px_50px_rgba(0,0,0,0.45)] dark:bg-[#141416]">
-          {/* Timeline features */}
-          <div className="relative flex flex-col">
-            {INTRO_FEATURES.map((feature, index) => {
-              const last = index === INTRO_FEATURES.length - 1;
-              return (
-                <div key={feature.title} className="flex gap-4">
-                  <div className="flex flex-col items-center">
-                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[rgba(156,116,52,0.10)] text-[#9C7434] dark:bg-[rgba(212,175,106,0.16)] dark:text-[#D4AF6A]">
-                      <feature.icon className="h-[19px] w-[19px]" />
-                    </span>
-                    {!last ? (
-                      // Restores the original 14a "trail" connector: a soft
-                      // faded gradient line (reworked in the current gold/
-                      // cream theme) PLUS the traveling highlight animation
-                      // it originally had (.intro-feature-connector, ported
-                      // from the once-wired but since-orphaned
-                      // .intro-feature-rail-scan system in globals.css) -
-                      // a bright pulse that scans down the connector once on
-                      // mount, staggered per row via --intro-feature-delay.
-                      <span
-                        aria-hidden
-                        className="intro-feature-connector w-[2px] flex-1 bg-gradient-to-b from-transparent via-[#D4AF6A] to-transparent dark:via-[#D4AF6A]"
-                        style={{ "--intro-feature-delay": `${index * 160}ms` } as CSSProperties}
-                      />
-                    ) : null}
-                  </div>
-                  <div className={cn("min-w-0", last ? "pb-0" : "pb-4")}>
-                    <p className="text-[16.5px] font-bold leading-tight tracking-[-0.4px] text-[#0A0A0A] dark:text-white [overflow-wrap:anywhere]">
-                      {feature.title}
-                    </p>
-                    <p className="mt-1 text-[13.5px] leading-[1.35] text-black/45 dark:text-white/55 [overflow-wrap:anywhere]">
-                      {feature.subtitle}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+        {/* ── CTA: Morphy Button, ink surface, gradient ripple. Sits in the
+              flex column normally (no absolute anchoring needed without the
+              glass root constraint). Bottom padding clears the agent bar. ── */}
+        <div
+          className="one-reveal w-full pb-[calc(102px+var(--app-safe-area-bottom-effective,0px))]"
+          style={{ ["--seq-delay" as string]: "680ms" }}
+        >
+          <Button
+            type="button"
+            variant="none"
+            effect="fill"
+            size="lg"
+            fullWidth
+            showRipple
+            onClick={onLogin}
+            // Theme-matching surface (same contract as the login provider
+            // buttons): light button in light mode, dark button in dark
+            // mode, definition from a hairline border + soft shadow instead
+            // of an inverted slab.
+            className="type-headline h-[56px] rounded-full border border-black/10 bg-white text-[16px] font-semibold text-[#17130C] shadow-[0_12px_30px_-12px_rgba(23,19,12,0.35)] transition-[background,transform] hover:bg-black/[0.03] active:scale-[0.99] dark:border-white/10 dark:bg-[#1c1c1e] dark:text-[#F7F3EA] dark:shadow-[0_12px_30px_-12px_rgba(0,0,0,0.6)] dark:hover:bg-[#26262a]"
+          >
+            <span className="inline-flex items-center gap-2">
+              Claim your One
+              <span aria-hidden>&rarr;</span>
+            </span>
+          </Button>
 
-          {/* Consent note (warm tint) */}
-          <div className="mt-6 rounded-2xl bg-[rgba(156,116,52,0.10)] px-4 py-4 text-center text-[13.5px] leading-[1.5] text-black/55 dark:bg-white/[0.05] dark:text-white/60">
-            One is consent-first. Your knowledge and information are your
-            safewords. Nothing leaves your vault without your approval.
-          </div>
-
-          {/* Primary action — "Get Started" leads into sign-in / sign-up
-              (onLogin → /login → AuthStep, which handles both new + returning).
-              Uses the shared morphy Button (variant="none" effect="fill") so
-              this CTA carries the same Material ripple/state-layer physics as
-              every other primary action in the app, per the frontend design
-              system skill, instead of a hand-rolled <button>. */}
-          <div className="mt-6">
-            <Button
-              type="button"
-              variant="none"
-              effect="fill"
-              fullWidth
-              showRipple
-              onClick={onLogin}
-              className="h-[54px] rounded-full border border-[rgba(214,175,106,0.55)] bg-[#F4EAD6] text-[17px] font-bold tracking-[-0.3px] text-[#17130C] shadow-[0_10px_24px_rgba(0,0,0,0.22)] hover:bg-[#F4EAD6] hover:text-[#17130C] dark:bg-[#F4EAD6] dark:text-[#17130C] dark:hover:bg-[#F4EAD6]"
-            >
-              Get Started
-            </Button>
-          </div>
-
-          {/* Public content surfaces — Research & Papers, protocol blog, dev docs */}
+          {/* Public content surfaces — quiet footer links, foundation tokens */}
           <nav
             aria-label="Explore Hushh"
-            className="mt-5 flex items-center justify-center gap-4 text-[12.5px] font-medium text-black/40 dark:text-white/45"
+            className="one-reveal mt-4 flex items-center justify-center gap-3 text-[12px] font-medium text-[color:var(--foundation-dim)]"
+            style={{ ["--seq-delay" as string]: "760ms" }}
           >
-            <Link
-              href={ROUTES.RESEARCH}
-              className="transition-colors hover:text-[#9C7434] dark:hover:text-[#D4AF6A]"
-            >
+            <Link href={ROUTES.RESEARCH} className="transition-opacity hover:opacity-70">
               Research &amp; Papers
             </Link>
-            <span aria-hidden className="text-black/20 dark:text-white/20">
-              ·
-            </span>
-            <Link
-              href={ROUTES.BLOG}
-              className="transition-colors hover:text-[#9C7434] dark:hover:text-[#D4AF6A]"
-            >
+            <span aria-hidden className="opacity-40">&middot;</span>
+            <Link href={ROUTES.BLOG} className="transition-opacity hover:opacity-70">
               Blog
             </Link>
-            <span aria-hidden className="text-black/20 dark:text-white/20">
-              ·
-            </span>
-            <Link
-              href={ROUTES.DEVELOPERS}
-              className="transition-colors hover:text-[#9C7434] dark:hover:text-[#D4AF6A]"
-            >
+            <span aria-hidden className="opacity-40">&middot;</span>
+            <Link href={ROUTES.DEVELOPERS} className="transition-opacity hover:opacity-70">
               Developers
             </Link>
           </nav>

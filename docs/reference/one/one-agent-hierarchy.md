@@ -56,18 +56,18 @@ This page is current-state implementation truth. It does not rename runtime iden
 
 | Layer | Runtime id | Current role | Authority |
 | --- | --- | --- | --- |
-| Head agent | `agent_one` | Relationship layer, intent framing, specialist routing | `agent.one.orchestrate` |
+| Head agent | `agent_one` | Relationship layer, intent framing, specialist routing | `cap.one.invoke` for external task invocation only |
 | Legacy alias | `agent_orchestrator` | Compatibility package and manifest alias for One | Must resolve to One semantics |
 | Finance specialist | `agent_kai` | Finance, portfolio, markets; RIA (advisor workspace) and Investor (personal investing) are its subagents | `agent.kai.analyze` plus finance PKM gates |
 | Privacy specialist | `agent_nav` | Consent, scope review, vault friction, deletion, revocation | `agent.nav.review` |
 | Identity specialist | `agent_kyc` | KYC workflow state, approved disclosure formatter, structured PKM writeback | `agent.kyc.process` and approved optional scopes |
-| Location specialist | `agent_location` | Trusted-people live location workflow | `agent.one.orchestrate` today, device capability tokens per flow |
-| Connections specialist | `agent_connections` | Trusted-connection graph questions and relationship write proposals | `agent.one.orchestrate` today |
-| Connected systems | `agent_connected_systems` | CRM and connected-system workflow planning | `agent.one.orchestrate` today |
-| Email specialist | `agent_email` | Inbox and Gmail task planning behind One | `agent.one.orchestrate` today |
-| Gmail specialist | `agent_gmail` | Synced purchase receipts and receipt-sync health (read-only) | `agent.one.orchestrate` today |
-| Personal information | `agent_personal_information` | Information marketplace and data-slice workflows | `agent.one.orchestrate` today |
-| World Model agents | `memory_intent`, `memory_segmentation`, `memory_merge`, `pkm_structure`, `summary_reducer` | Semantic memory shaping and summary reduction | Must stay under vault/PKM consent and redaction boundaries |
+| Location specialist | `agent_location` | Trusted-people live location workflow | Exact location capability and data authority per flow |
+| Connections specialist | `agent_connections` | Trusted-connection graph questions and relationship write proposals | Exact specialist and `attr.*` authority per hop |
+| Connected systems | `agent_connected_systems` | CRM and connected-system workflow planning | Exact specialist and `attr.*` authority per hop |
+| Email specialist | `agent_email` | Inbox and Gmail task planning behind One | Exact specialist and `attr.*` authority per hop |
+| Gmail specialist | `agent_gmail` | Synced purchase receipts and receipt-sync health (read-only) | Exact specialist and `attr.*` authority per hop |
+| Personal information | `agent_personal_information` | Information marketplace and data-slice workflows | Exact specialist and `attr.*` authority per hop |
+| World Model agents | `agent_memory_intent`, `agent_memory_segmentation`, `agent_memory_merge`, `agent_pkm_structure`, `agent_summary_reducer` | Semantic memory shaping and summary reduction | Must stay under vault/PKM consent and redaction boundaries |
 
 `agent_one` and `agent_orchestrator` are not two product heads. The orchestrator path is a compatibility implementation namespace for One.
 
@@ -75,22 +75,25 @@ This page is current-state implementation truth. It does not rename runtime iden
 
 The hierarchy has three current wiring modes. Do not collapse them into one claim.
 
+Official A2A v1 Tasks remain a release gate. The contained One invocation preview
+and the legacy Kai compatibility server are not advertised as official v1.
+
 ### Scope-gated A2A specialists
 
 `SPECIALIST_A2A_SCOPE_MAP` defines the least-privilege scope gate for:
 
 | Agent id | Scope |
 | --- | --- |
-| `agent_one` | `agent.one.orchestrate` |
-| `agent_connected_systems` | `agent.one.orchestrate` |
+| `agent_one` | `cap.one.invoke` |
+| `agent_connected_systems` | Exact per-hop authority; no One-wide standing scope |
 | `agent_kai` | `agent.kai.analyze` |
 | `agent_nav` | `agent.nav.review` |
 | `agent_kyc` | `agent.kyc.process` |
-| `agent_connections` | `agent.one.orchestrate` |
-| `agent_location` | `agent.one.orchestrate` |
-| `agent_personal_information` | `agent.one.orchestrate` |
-| `agent_email` | `agent.one.orchestrate` |
-| `agent_gmail` | `agent.one.orchestrate` |
+| `agent_connections` | Exact per-hop authority; no One-wide standing scope |
+| `agent_location` | Exact location capability and grant references |
+| `agent_personal_information` | `cap.pkm.marketplace.view` plus exact per-hop data authority |
+| `agent_email` | Exact per-hop authority; no One-wide standing scope |
+| `agent_gmail` | Exact per-hop authority; no One-wide standing scope |
 
 ### In-process dispatch registry
 
@@ -117,7 +120,7 @@ See [One Voice Runtime Architecture](./one-voice-runtime-architecture.md) for th
 One may delegate; it does not widen authority.
 
 1. External MCP agents use explicit consent plus encrypted scoped exports. Hosted MCP returns ciphertext and wrapped export-key metadata, not plaintext user data.
-2. Agent One external A2A uses `X-Consent-Token` scoped `agent.one.orchestrate`.
+2. The contained external invocation preview uses `X-Consent-Token` scoped `cap.one.invoke`; this is not official A2A v1 and grants no data access.
 3. Specialist A2A uses `SPECIALIST_A2A_SCOPE_MAP` and must validate the least-privilege specialist scope.
 4. TrustLinks are signed delegation proofs. They are not consent tokens, vault keys, or encrypted exports.
 5. First-party compatibility routes may still carry `VAULT_OWNER` to internal specialists, but external, vendor, process, or network specialists should receive attenuated specialist tokens or encrypted scoped exports instead.

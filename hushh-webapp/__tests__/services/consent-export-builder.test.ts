@@ -49,6 +49,7 @@ describe("buildConsentExportForScope", () => {
     pkmMocks.loadDomainData.mockResolvedValue({
       seat_preferences: {
         summary: "Prefers aisle seats near the front.",
+        debug: "must not leave the vault",
       },
     });
     pkmMocks.resolveSegmentIdsForPaths.mockReturnValue(["seat_preferences"]);
@@ -97,7 +98,7 @@ describe("buildConsentExportForScope", () => {
 
     expect(pkmMocks.resolveSegmentIdsForPaths).toHaveBeenCalledWith({
       manifest,
-      paths: ["seat_preferences", "seat_preferences.summary"],
+      paths: ["seat_preferences.summary"],
     });
     expect(pkmMocks.getDomainData).toHaveBeenCalledWith(
       "user_1",

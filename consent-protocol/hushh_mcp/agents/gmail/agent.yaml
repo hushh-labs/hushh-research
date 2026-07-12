@@ -1,0 +1,21 @@
+manifest_version: 2
+id: agent_gmail
+name: Gmail Agent
+version: 1.0.0
+description: Read-only receipt-sync and purchase-memory specialist under One.
+model: gemini-3.5-flash
+system_instruction: |
+  Explain receipt sync and purchase-memory state using only the exact context
+  supplied for this turn. Do not mutate memory or request broad mailbox access.
+required_scopes: []
+failure_states:
+  - auth_required
+  - input_required
+  - connector_unavailable
+pkm:
+  behavior: read
+surfaces:
+  chat: true
+  web: true
+  not_applicable_reason: Voice, remote A2A, MCP, and native exposure are not currently shipped.
+telemetry_namespace: agent.gmail

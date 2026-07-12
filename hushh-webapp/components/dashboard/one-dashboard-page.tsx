@@ -11,11 +11,9 @@ import {
 
 import {
   AppPageContentRegion,
-  AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
-import { Badge } from "@/components/ui/badge";
 import {
   ONE_CAPABILITIES,
   type OneCapabilityTone,
@@ -104,7 +102,11 @@ function buildModes(
     };
   });
   const financeIndex = modes.findIndex((mode) => mode.id === "finance");
-  modes.splice(financeIndex >= 0 ? financeIndex + 1 : modes.length, 0, RIA_AGENT_MODE);
+  modes.splice(
+    financeIndex >= 0 ? financeIndex + 1 : modes.length,
+    0,
+    RIA_AGENT_MODE,
+  );
   return modes;
 }
 
@@ -157,8 +159,8 @@ function AgentTile({ mode }: { mode: OneAgentMode }) {
       title={mode.description}
       className={cn(
         "group flex flex-col items-center gap-2 rounded-[22px] px-1.5 py-2 text-center",
-        "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-        "hover:bg-black/[0.04] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:hover:bg-white/[0.06] motion-reduce:transition-none motion-reduce:active:scale-100",
+        "transition-[background-color] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
+        "hover:bg-black/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:hover:bg-white/[0.06] motion-reduce:transition-none",
       )}
       style={{ width: ONE_AGENT_TILE_WIDTH }}
     >
@@ -192,12 +194,16 @@ function FinishSetupStrip({ percent }: { percent: number }) {
     <Link
       href={ROUTES.ONE_SETUP}
       aria-label="Finish setting up One"
-      className="flex w-full items-center gap-3 overflow-hidden rounded-[22px] border border-border/55 bg-black/[0.035] px-4 py-3 transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:bg-black/[0.055] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:bg-white/[0.06] dark:hover:bg-white/[0.09] motion-reduce:transition-none motion-reduce:active:scale-100"
+      className="flex w-full items-center gap-3 overflow-hidden rounded-[22px] border border-border/55 bg-black/[0.035] px-4 py-3 transition-[background-color] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:bg-black/[0.055] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:bg-white/[0.06] dark:hover:bg-white/[0.09] motion-reduce:transition-none"
     >
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline justify-between gap-2">
-          <span className="text-[14px] font-semibold text-foreground">Finish setup</span>
-          <span className="text-[12px] font-medium text-muted-foreground">{percent}% ready</span>
+          <span className="text-[14px] font-semibold text-foreground">
+            Finish setup
+          </span>
+          <span className="text-[12px] font-medium text-muted-foreground">
+            {percent}% ready
+          </span>
         </span>
         <span className="mt-2 block h-1 w-full overflow-hidden rounded-full bg-foreground/[0.10]">
           <span
@@ -214,22 +220,12 @@ function FinishSetupStrip({ percent }: { percent: number }) {
 }
 
 export function OneDashboardPage({
-  displayName,
   capabilityStatusById = {},
 }: {
   displayName?: string | null;
   capabilityStatusById?: Record<string, CapabilityStatus>;
 }) {
-  const firstName =
-    String(displayName || "")
-      .trim()
-      .split(/\s+/)[0] || "there";
   const modes = buildModes(capabilityStatusById);
-  const consentStatus = capabilityStatusById.consent;
-  const pendingConsents = consentStatus?.pendingCount ?? 0;
-  const consentResolved =
-    consentStatus?.state === "completed" ||
-    consentStatus?.state === "needs-attention";
   const hasSetupRemaining = Object.values(capabilityStatusById).some((status) =>
     isCapabilitySetupActionable(status),
   );
@@ -254,34 +250,6 @@ export function OneDashboardPage({
         dataState: "loaded",
       }}
     >
-      <AppPageHeaderRegion>
-        <header
-          data-slot="page-header"
-          data-page-primary="true"
-          data-testid="page-header"
-          className="space-y-2"
-        >
-          <p className="text-[12px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
-            {`Good to see you, ${firstName}.`}
-          </p>
-          <h1 className="font-[family-name:var(--font-app-display)] text-[34px] font-semibold leading-[1.02] tracking-normal text-foreground sm:text-[40px]">
-            One
-          </h1>
-          <p className="max-w-[34rem] text-[15px] leading-6 text-muted-foreground">
-            Your apps, memory, access, and specialist agents in one place.
-          </p>
-          {pendingConsents > 0 ? (
-            <Badge variant="secondary" className="w-fit whitespace-nowrap">
-              {`${pendingConsents} consent${pendingConsents === 1 ? "" : "s"} pending`}
-            </Badge>
-          ) : consentResolved ? (
-            <Badge variant="secondary" className="w-fit whitespace-nowrap">
-              No pending consents
-            </Badge>
-          ) : null}
-        </header>
-      </AppPageHeaderRegion>
-
       <AppPageContentRegion>
         <div className="space-y-5">
           {hasSetupRemaining ? <FinishSetupStrip percent={percent} /> : null}

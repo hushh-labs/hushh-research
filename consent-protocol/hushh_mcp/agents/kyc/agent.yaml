@@ -1,3 +1,4 @@
+manifest_version: 2
 id: agent_kyc
 name: Agent KYC
 version: 0.1.0
@@ -16,10 +17,11 @@ system_instruction: |
 required_scopes:
   - agent.kyc.process
 optional_scopes:
-  - agent.kyc.draft
-  - agent.kyc.writeback
+  - agent.kyc.redraft.llm
   - pkm.write
 capabilities:
+  drafting_contract_owned_by_adk: true
+  strict_client_zk_draft_rendering: true
   approved_disclosure_formatter:
     contract_id: agent_kyc.approved_disclosure_formatter.v1
     contract_version: 1.0.0

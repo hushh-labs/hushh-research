@@ -1689,6 +1689,11 @@ export function DashboardMasterView({
         domain: "financial",
         vaultKey,
         vaultOwnerToken: vaultOwnerToken || undefined,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "kai_dashboard_portfolio_save",
+        },
         build: (context) => {
           const existingFinancial =
             (context.currentDomainData as Record<string, unknown> | null) ?? {};
@@ -1787,6 +1792,11 @@ export function DashboardMasterView({
           domain: "financial",
           vaultKey,
           vaultOwnerToken,
+          confirmation: {
+            confirmedByUser: true,
+            surface: "web",
+            source: "kai_dashboard_portfolio_item_delete",
+          },
           build: (context) => {
             const nextFinancialDomain = removePlaidSource(
               (context.currentDomainData as Record<string, unknown> | null) ?? {},
@@ -1860,6 +1870,11 @@ export function DashboardMasterView({
         domain: "financial",
         vaultKey,
         vaultOwnerToken,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "kai_dashboard_portfolio_clear",
+        },
         build: (context) => {
           const existingFinancial =
             (context.currentDomainData as Record<string, unknown> | null) ?? {};

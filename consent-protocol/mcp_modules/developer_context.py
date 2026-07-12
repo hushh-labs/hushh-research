@@ -62,15 +62,17 @@ def is_tool_allowed(tool_name: str) -> bool:
     return tool_name in set(get_current_visible_tool_names())
 
 
-def get_developer_request_query() -> dict[str, str]:
-    raw_token = _current_developer_token.get() or _configured_token()
-    if not raw_token:
-        return {}
-    return {"token": raw_token}
-
-
 def get_developer_request_headers() -> dict[str, str]:
+    """Header used by the legacy internal user-lookup surface."""
     raw_token = _current_developer_token.get() or _configured_token()
     if not raw_token:
         return {}
     return {"X-MCP-Developer-Token": raw_token}
+
+
+def get_developer_api_headers() -> dict[str, str]:
+    """Header-only registry authentication for developer API requests."""
+    raw_token = _current_developer_token.get() or _configured_token()
+    if not raw_token:
+        return {}
+    return {"Authorization": f"Bearer {raw_token}"}

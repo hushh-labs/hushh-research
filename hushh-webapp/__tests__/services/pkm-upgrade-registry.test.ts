@@ -34,8 +34,8 @@ describe("runDomainUpgrade", () => {
         },
       },
     });
-    expect(result.newDomainContractVersion).toBe(2);
-    expect(result.pkmContractVersion).toBe("4.1.0");
+    expect(result.newDomainContractVersion).toBe(3);
+    expect(result.pkmContractVersion).toBe("5.0.0");
     expect(result.capabilitiesApplied).toContain("encrypted_payload_structure");
     expect(result.notes[0]).toContain("Personal Knowledge Model contract");
   });
@@ -73,8 +73,8 @@ describe("runDomainUpgrade", () => {
       },
     });
 
-    expect(currentDomainContractVersion("custom_music")).toBe(2);
-    expect(result.newDomainContractVersion).toBe(2);
+    expect(currentDomainContractVersion("custom_music")).toBe(3);
+    expect(result.newDomainContractVersion).toBe(3);
     expect(result.capabilitiesApplied).toEqual(
       expect.arrayContaining([
         "manifest_normalization",

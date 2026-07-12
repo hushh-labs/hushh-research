@@ -4,41 +4,52 @@ on:
   workflow_dispatch:
     inputs:
       dist_tag:
-        description: "npm dist-tag to publish"
+        description: "npm dist-tag to publish (beta only; latest promotion is a separate authenticated dist-tag action)"
         required: true
         default: beta
         type: choice
         options:
           - beta
-          - latest
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: npm-publish
     env:
       PACKAGE_DIR: packages/hushh-mcp
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     steps:
+      - name: Assert main-only release dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "main"
+
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          ref: main
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          # npm trusted publishing requires Node >=22.14 and npm >=11.5.1.
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
 
-      - name: Dry-run tarball
+      - name: Install package dependencies
         working-directory: ${{ env.PACKAGE_DIR }}
-        run: npm pack --dry-run
+        run: npm ci
 
-      - name: Check public docs are in sync
+      - name: Verify release artifact
         working-directory: ${{ env.PACKAGE_DIR }}
-        run: npm run docs:check
+        run: npm run verify:package
+
       - name: Guard against duplicate npm version
         working-directory: ${{ env.PACKAGE_DIR }}
         shell: bash
@@ -53,7 +64,14 @@ jobs:
 
       - name: Publish package
         working-directory: ${{ env.PACKAGE_DIR }}
-        run: npm publish --tag "${{ github.event.inputs.dist_tag }}"
+        # OIDC is selected by npm automatically. Do not add NODE_AUTH_TOKEN.
+        run: npm publish --tag beta --provenance
 
-      - name: Verify npx install surface
-        run: npx -y "@hushh/mcp@${{ github.event.inputs.dist_tag }}" --help
+      - name: Verify exact published package from a clean npm cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACKAGE_NAME="$(node -p "require('./packages/hushh-mcp/package.json').name")"
+          PACKAGE_VERSION="$(node -p "require('./packages/hushh-mcp/package.json').version")"
+          npm cache clean --force
+          npx --yes "${PACKAGE_NAME}@${PACKAGE_VERSION}" --help

@@ -35,15 +35,18 @@ def test_resolve_scope_to_enum_dynamic_scope():
     assert resolve_scope_to_enum("attr.financial.profile.*") == ConsentScope.PKM_READ
 
 
-def test_resolve_scope_to_enum_agent_kai_execute_scope():
-    assert resolve_scope_to_enum("agent.kai.execute") == ConsentScope.AGENT_KAI_EXECUTE
+def test_resolve_scope_to_enum_retired_kai_scope_is_rejected():
+    with pytest.raises(ValueError, match="SCOPE_RETIRED"):
+        resolve_scope_to_enum("agent.kai.execute")
 
 
 def test_resolve_scope_to_enum_one_nav_kyc_agent_scopes():
-    assert resolve_scope_to_enum("agent.one.orchestrate") == ConsentScope.AGENT_ONE_ORCHESTRATE
+    assert resolve_scope_to_enum("cap.one.invoke") == ConsentScope.CAP_ONE_INVOKE
     assert resolve_scope_to_enum("agent.nav.review") == ConsentScope.AGENT_NAV_REVIEW
     assert resolve_scope_to_enum("agent.kyc.process") == ConsentScope.AGENT_KYC_PROCESS
-    assert resolve_scope_to_enum("agent.kyc.writeback") == ConsentScope.AGENT_KYC_WRITEBACK
+    assert resolve_scope_to_enum("agent.kyc.redraft.llm") == ConsentScope.AGENT_KYC_REDRAFT_LLM
+    with pytest.raises(ValueError, match="SCOPE_RETIRED"):
+        resolve_scope_to_enum("agent.one.orchestrate")
 
 
 def test_resolve_scope_to_enum_location_capability_scopes():
@@ -65,6 +68,11 @@ def test_resolve_scope_to_enum_unknown_static_scope_is_rejected():
         resolve_scope_to_enum("custom.temporary")
 
 
-def test_kyc_writeback_is_write_scope():
-    assert is_write_scope("agent.kyc.writeback") is True
+def test_only_internal_pkm_write_is_write_scope():
+    assert is_write_scope("pkm.write") is True
+    assert is_write_scope("agent.kyc.writeback") is False
     assert is_write_scope("agent.kyc.process") is False
+
+
+def test_retired_scope_never_matches_itself():
+    assert not scope_matches("agent.one.orchestrate", "agent.one.orchestrate")

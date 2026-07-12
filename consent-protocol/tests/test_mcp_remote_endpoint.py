@@ -159,15 +159,16 @@ async def test_valid_token_dispatches_to_inner_app(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_legacy_query_token_still_accepted(monkeypatch):
+async def test_query_token_authentication_is_rejected(monkeypatch):
     app, inner = _build_app()
     monkeypatch.setattr(app._registry, "authenticate_token", lambda *a, **k: _fake_principal())
 
     send = _CapturingSend()
     await app(_http_scope(query_string=b"token=good-token"), _noop_receive, send)
 
-    assert send.status == 200
-    assert inner.calls == 1
+    assert send.status == 401
+    assert send.body_json["error_code"] == "DEVELOPER_TOKEN_REQUIRED"
+    assert inner.calls == 0
 
 
 @pytest.mark.asyncio

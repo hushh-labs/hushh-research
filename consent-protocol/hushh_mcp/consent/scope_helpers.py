@@ -7,7 +7,7 @@ Replaces hardcoded SCOPE_TO_ENUM and SCOPE_ENUM_MAP dictionaries.
 """
 
 from hushh_mcp.consent.scope_generator import get_scope_generator
-from hushh_mcp.constants import ConsentScope
+from hushh_mcp.constants import RETIRED_SCOPE_VALUES, ConsentScope
 
 
 def resolve_scope_to_enum(scope: str) -> ConsentScope:
@@ -49,28 +49,23 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
     if scope == "pkm.write":
         return ConsentScope.PKM_WRITE
 
-    # Agent permissions
+    # Agent and capability permissions
     _AGENT_SCOPE_MAP = {
-        "agent.one.orchestrate": ConsentScope.AGENT_ONE_ORCHESTRATE,
+        "cap.one.invoke": ConsentScope.CAP_ONE_INVOKE,
         "agent.kai.analyze": ConsentScope.AGENT_KAI_ANALYZE,
-        "agent.kai.debate": ConsentScope.AGENT_KAI_DEBATE,
-        "agent.kai.infer": ConsentScope.AGENT_KAI_INFER,
-        "agent.kai.chat": ConsentScope.AGENT_KAI_CHAT,
-        "agent.kai.execute": ConsentScope.AGENT_KAI_EXECUTE,
         "agent.nav.review": ConsentScope.AGENT_NAV_REVIEW,
-        "agent.nav.revoke": ConsentScope.AGENT_NAV_REVOKE,
         "agent.kyc.process": ConsentScope.AGENT_KYC_PROCESS,
-        "agent.kyc.draft": ConsentScope.AGENT_KYC_DRAFT,
-        "agent.kyc.writeback": ConsentScope.AGENT_KYC_WRITEBACK,
+        "agent.kyc.redraft.llm": ConsentScope.AGENT_KYC_REDRAFT_LLM,
         "cap.location.live.share": ConsentScope.CAP_LOCATION_LIVE_SHARE,
         "cap.location.live.view": ConsentScope.CAP_LOCATION_LIVE_VIEW,
         "cap.location.live.request": ConsentScope.CAP_LOCATION_LIVE_REQUEST,
         "cap.location.live.revoke": ConsentScope.CAP_LOCATION_LIVE_REVOKE,
         "cap.location.live.refer_request": ConsentScope.CAP_LOCATION_LIVE_REFER_REQUEST,
         "cap.pkm.marketplace.view": ConsentScope.CAP_PKM_MARKETPLACE_VIEW,
-        "cap.pkm.marketplace.publish": ConsentScope.CAP_PKM_MARKETPLACE_PUBLISH,
         "cap.pkm.marketplace.manage": ConsentScope.CAP_PKM_MARKETPLACE_MANAGE,
     }
+    if scope in RETIRED_SCOPE_VALUES:
+        raise ValueError(f"SCOPE_RETIRED: {scope}")
     if scope.startswith("agent."):
         resolved = _AGENT_SCOPE_MAP.get(scope)
         if resolved is None:
@@ -105,6 +100,11 @@ def scope_matches(granted_scope: str, requested_scope: str) -> bool:
     Returns:
         True if granted scope satisfies requested scope
     """
+    # Historical strings are display/audit-only and never authorize access,
+    # even when both sides contain the same retired value.
+    if granted_scope in RETIRED_SCOPE_VALUES or requested_scope in RETIRED_SCOPE_VALUES:
+        return False
+
     # Exact match
     if granted_scope == requested_scope:
         return True
@@ -191,9 +191,9 @@ def get_scope_display_metadata(scope: str) -> dict:
             "icon_name": "pencil",
             "color_hex": "#3B82F6",
         },
-        "agent.one.orchestrate": {
-            "label": "One Orchestration",
-            "description": "Allow One to route a bounded task to the right specialist",
+        "cap.one.invoke": {
+            "label": "Invoke One",
+            "description": "Allow One to create or resume a task without granting data access",
             "icon_name": "route",
             "color_hex": "#3B82F6",
         },
@@ -203,22 +203,10 @@ def get_scope_display_metadata(scope: str) -> dict:
             "icon_name": "brain",
             "color_hex": "#D4AF37",
         },
-        "agent.kai.execute": {
-            "label": "Kai Actions",
-            "description": "Allow Kai agent to execute actions",
-            "icon_name": "zap",
-            "color_hex": "#D4AF37",
-        },
         "agent.nav.review": {
             "label": "Nav Scope Review",
             "description": "Allow Nav to review consent, privacy, vault, and scope decisions",
             "icon_name": "shield-check",
-            "color_hex": "#10B981",
-        },
-        "agent.nav.revoke": {
-            "label": "Nav Revocation",
-            "description": "Allow Nav to help revoke or narrow an existing permission",
-            "icon_name": "shield-x",
             "color_hex": "#10B981",
         },
         "agent.kyc.process": {
@@ -227,16 +215,10 @@ def get_scope_display_metadata(scope: str) -> dict:
             "icon_name": "id-card",
             "color_hex": "#6366F1",
         },
-        "agent.kyc.draft": {
-            "label": "KYC Drafts",
-            "description": "Allow KYC to draft approval-gated workflow replies",
+        "agent.kyc.redraft.llm": {
+            "label": "KYC Redraft",
+            "description": "Allow an explicitly approved LLM-assisted KYC redraft",
             "icon_name": "file-pen",
-            "color_hex": "#6366F1",
-        },
-        "agent.kyc.writeback": {
-            "label": "KYC PKM Writeback",
-            "description": "Allow KYC to save structured workflow facts and artifacts to PKM",
-            "icon_name": "database",
             "color_hex": "#6366F1",
         },
         "cap.location.live.share": {
@@ -297,9 +279,6 @@ def is_write_scope(scope: str) -> bool:
         return True
 
     if scope == "pkm.write":
-        return True
-
-    if scope == "agent.kyc.writeback":
         return True
 
     # For attr.* scopes, write is determined by context, not scope

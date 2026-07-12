@@ -90,7 +90,8 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "app/gmail/page.tsx"
+        "app/one/gmail/page.tsx",
+        "components/gmail/gmail-receipts-page.tsx"
       ],
       "speaker_persona": "one"
     },

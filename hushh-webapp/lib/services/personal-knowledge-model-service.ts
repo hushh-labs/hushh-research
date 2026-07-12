@@ -37,6 +37,11 @@ import {
   CURRENT_READABLE_PROJECTION_VERSION,
   currentDomainContractVersion,
 } from "@/lib/personal-knowledge-model/upgrade-contracts";
+import {
+  buildConfirmedPkmMutationPlanV2,
+  type PkmMutationPlanV2,
+  type PkmUserConfirmation,
+} from "@/lib/personal-knowledge-model/mutation-plan";
 
 // ==================== Types ====================
 
@@ -191,17 +196,14 @@ export interface PkmWriteProjection {
   payload: Record<string, unknown>;
 }
 
-export type PkmVisibilityPosture = "private" | "consent_required" | "default_available";
+/** Encrypted PKM consent posture. Public profile publication is a separate resource. */
+export type PkmVisibilityPosture = "private" | "consent_required";
 
 export interface PkmScopeExposureChange {
   scopeHandle?: string;
   topLevelScopePath?: string;
   exposureEnabled?: boolean;
   visibilityPosture?: PkmVisibilityPosture;
-  // Explicit owner consent to publish their own restricted-tier data as
-  // `default_available` (marketplace override). Only set by the marketplace
-  // publish flow; the backend still hard-blocks structural blocked keys.
-  ownerConsentOverride?: boolean;
 }
 
 export interface PkmScopeExposureResult {
@@ -213,12 +215,22 @@ export interface PkmScopeExposureResult {
   manifest: DomainManifest | null;
 }
 
-export interface PkmDefaultAvailableProjectionResult {
+export interface PkmPublicProfileProjectionResult {
   success: boolean;
   message?: string;
   projectionHash?: string | null;
   projectionUpdatedAt?: string | null;
+  publicProfileHandle?: string | null;
   manifest: DomainManifest | null;
+}
+
+export interface PkmPublicProfileProjectionStatus {
+  publicProfileHandle: string;
+  scopeHandle: string | null;
+  topLevelScopePath: string;
+  projectionHash: string | null;
+  publishedAt: string | null;
+  updatedAt: string | null;
 }
 
 export interface PkmPreparedDomainValidationResult {
@@ -1827,6 +1839,7 @@ export class PersonalKnowledgeModelService {
     domainData?: Record<string, unknown>;
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
+    mutationPlan?: PkmMutationPlanV2;
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
   }): Promise<StoreDomainDataResult> {
@@ -1893,6 +1906,7 @@ export class PersonalKnowledgeModelService {
         writeProjections: params.writeProjections,
         expectedDataVersion: params.expectedDataVersion,
         upgradeContext: params.upgradeContext,
+        mutationPlan: params.mutationPlan,
         syncCheckpoint: params.syncCheckpoint,
         vaultOwnerToken: this.getVaultOwnerToken(params.vaultOwnerToken),
       });
@@ -1947,6 +1961,7 @@ export class PersonalKnowledgeModelService {
         projection_version: projection.projectionVersion || 1,
         payload: projection.payload,
       })),
+      mutation_plan: params.mutationPlan,
     };
     if (Number.isFinite(params.expectedDataVersion)) {
       payload.expected_data_version = Math.max(0, Number(params.expectedDataVersion));
@@ -2348,7 +2363,6 @@ export class PersonalKnowledgeModelService {
                   ? change.visibilityPosture !== "private"
                   : undefined,
             visibility_posture: change.visibilityPosture,
-            owner_consent_override: change.ownerConsentOverride,
           })),
         }),
       }
@@ -2411,10 +2425,9 @@ export class PersonalKnowledgeModelService {
     };
   }
 
-  static async publishDefaultAvailableProjection(params: {
+  static async publishPublicProfileProjection(params: {
     userId: string;
     domain: string;
-    scope: string;
     scopeHandle?: string | null;
     topLevelScopePath: string;
     projectionPayload: Record<string, unknown>;
@@ -2425,9 +2438,9 @@ export class PersonalKnowledgeModelService {
     sourceManifestRevision?: number;
     metadata?: Record<string, unknown>;
     vaultOwnerToken?: string;
-  }): Promise<PkmDefaultAvailableProjectionResult> {
+  }): Promise<PkmPublicProfileProjectionResult> {
     const response = await ApiService.apiFetch(
-      `${this.PKM_API_PREFIX}/domains/${encodeURIComponent(params.domain)}/default-available-projection`,
+      `${this.PKM_API_PREFIX}/domains/${encodeURIComponent(params.domain)}/public-profile-projection`,
       {
         method: "POST",
         headers: {
@@ -2436,7 +2449,6 @@ export class PersonalKnowledgeModelService {
         },
         body: JSON.stringify({
           user_id: params.userId,
-          scope: params.scope,
           scope_handle: params.scopeHandle || undefined,
           top_level_scope_path: params.topLevelScopePath,
           projection_payload: params.projectionPayload,
@@ -2460,7 +2472,7 @@ export class PersonalKnowledgeModelService {
       } catch {
         detail = null;
       }
-      throw new Error(detail || `Failed to publish default-available projection: ${response.status}`);
+      throw new Error(detail || `Failed to publish public profile projection: ${response.status}`);
     }
 
     const payload = (await response.json()) as Record<string, unknown>;
@@ -2481,8 +2493,66 @@ export class PersonalKnowledgeModelService {
         typeof payload.projection_updated_at === "string"
           ? payload.projection_updated_at
           : null,
+      publicProfileHandle:
+        typeof payload.public_profile_handle === "string"
+          ? payload.public_profile_handle
+          : null,
       manifest,
     };
+  }
+
+  static async listPublicProfileProjections(params: {
+    userId: string;
+    domain: string;
+    vaultOwnerToken?: string;
+  }): Promise<PkmPublicProfileProjectionStatus[]> {
+    const query = new URLSearchParams({ user_id: params.userId });
+    const response = await ApiService.apiFetch(
+      `${this.PKM_API_PREFIX}/domains/${encodeURIComponent(params.domain)}/public-profile-projections?${query}`,
+      { headers: this.getAuthHeaders(params.vaultOwnerToken) },
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to load public profile status: ${response.status}`);
+    }
+    const payload = (await response.json()) as Record<string, unknown>;
+    const rows = Array.isArray(payload.projections) ? payload.projections : [];
+    return rows.flatMap((row) => {
+      if (!row || typeof row !== "object") return [];
+      const value = row as Record<string, unknown>;
+      const handle = String(value.public_profile_handle || "").trim();
+      const path = String(value.top_level_scope_path || "").trim();
+      if (!handle || !path) return [];
+      return [{
+        publicProfileHandle: handle,
+        scopeHandle: typeof value.scope_handle === "string" ? value.scope_handle : null,
+        topLevelScopePath: path,
+        projectionHash: typeof value.projection_hash === "string" ? value.projection_hash : null,
+        publishedAt: typeof value.publication_confirmed_at === "string" ? value.publication_confirmed_at : null,
+        updatedAt: typeof value.updated_at === "string" ? value.updated_at : null,
+      }];
+    });
+  }
+
+  static async unpublishPublicProfileProjection(params: {
+    userId: string;
+    domain: string;
+    publicProfileHandle: string;
+    vaultOwnerToken?: string;
+  }): Promise<void> {
+    const response = await ApiService.apiFetch(
+      `${this.PKM_API_PREFIX}/domains/${encodeURIComponent(params.domain)}/public-profile-projection`,
+      {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", ...this.getAuthHeaders(params.vaultOwnerToken) },
+        body: JSON.stringify({
+          user_id: params.userId,
+          public_profile_handle: params.publicProfileHandle,
+        }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to unpublish public profile: ${response.status}`);
+    }
   }
 
   /**
@@ -2668,6 +2738,11 @@ export class PersonalKnowledgeModelService {
           manifest: structureArtifacts.manifest,
           portfolioData,
           domainData,
+          upgradeContext: {
+            runId: "legacy_domain_cutover_v5",
+            newDomainContractVersion: currentDomainContractVersion(domain),
+            newReadableSummaryVersion: CURRENT_READABLE_SUMMARY_VERSION,
+          },
           vaultOwnerToken: params.vaultOwnerToken,
         });
       }
@@ -2821,6 +2896,7 @@ export class PersonalKnowledgeModelService {
     writeProjections?: PkmWriteProjection[];
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
+    mutationPlan?: PkmMutationPlanV2;
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
     cacheFullBlob?: boolean;
@@ -2876,6 +2952,7 @@ export class PersonalKnowledgeModelService {
       domainData: merged.domainData,
       expectedDataVersion: params.expectedDataVersion,
       upgradeContext: params.upgradeContext,
+      mutationPlan: params.mutationPlan,
       syncCheckpoint: params.syncCheckpoint,
       vaultOwnerToken: params.vaultOwnerToken,
     });
@@ -2927,6 +3004,7 @@ export class PersonalKnowledgeModelService {
     writeProjections?: PkmWriteProjection[];
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
+    mutationPlan?: PkmMutationPlanV2;
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
   }): Promise<{
@@ -2964,6 +3042,7 @@ export class PersonalKnowledgeModelService {
     writeProjections?: PkmWriteProjection[];
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
+    mutationPlan?: PkmMutationPlanV2;
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
     cacheFullBlob?: boolean;
@@ -3022,6 +3101,7 @@ export class PersonalKnowledgeModelService {
       domainData: merged.domainData,
       expectedDataVersion: params.expectedDataVersion,
       upgradeContext: params.upgradeContext,
+      mutationPlan: params.mutationPlan,
       syncCheckpoint: params.syncCheckpoint,
       vaultOwnerToken: params.vaultOwnerToken,
     });
@@ -3438,6 +3518,7 @@ export class PersonalKnowledgeModelService {
     vaultOwnerToken: string;
     credentialRef: string;
     secret: string;
+    confirmation: PkmUserConfirmation;
   }): Promise<StoreDomainDataResult> {
     const parsed = this.parsePkmCredentialRef(params.credentialRef);
     const secret = params.secret.trim();
@@ -3465,6 +3546,7 @@ export class PersonalKnowledgeModelService {
       vaultOwnerToken: params.vaultOwnerToken,
       domain: parsed.domain,
       domainData,
+      confirmation: params.confirmation,
     });
   }
 
@@ -3473,6 +3555,7 @@ export class PersonalKnowledgeModelService {
     vaultKey: string;
     vaultOwnerToken: string;
     credentialRef: string;
+    confirmation: PkmUserConfirmation;
   }): Promise<StoreDomainDataResult> {
     const parsed = this.parsePkmCredentialRef(params.credentialRef);
     if (!parsed) {
@@ -3496,6 +3579,7 @@ export class PersonalKnowledgeModelService {
       vaultOwnerToken: params.vaultOwnerToken,
       domain: parsed.domain,
       domainData,
+      confirmation: params.confirmation,
     });
   }
 
@@ -3505,6 +3589,7 @@ export class PersonalKnowledgeModelService {
     vaultOwnerToken: string;
     domain: string;
     domainData: Record<string, unknown>;
+    confirmation: PkmUserConfirmation;
   }): Promise<StoreDomainDataResult> {
     const previousManifest = await this.getDomainManifest(
       params.userId,
@@ -3520,6 +3605,15 @@ export class PersonalKnowledgeModelService {
       domainData: params.domainData,
       previousManifest,
     });
+    const mutationPlan = await buildConfirmedPkmMutationPlanV2({
+      userId: params.userId,
+      domain: params.domain,
+      currentManifest: previousManifest,
+      targetManifest: artifacts.manifest,
+      operation: previousManifest ? "update" : "create",
+      explanation: "The owner confirmed this encrypted runtime credential change.",
+      confirmation: params.confirmation,
+    });
 
     return this.storeDomainData({
       userId: params.userId,
@@ -3528,6 +3622,7 @@ export class PersonalKnowledgeModelService {
       summary: artifacts.summary,
       structureDecision: artifacts.structureDecision,
       manifest: artifacts.manifest,
+      mutationPlan,
       domainData: params.domainData,
       vaultOwnerToken: params.vaultOwnerToken,
     });

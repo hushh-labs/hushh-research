@@ -1,0 +1,22 @@
+manifest_version: 2
+id: agent_email
+name: Email Agent
+version: 1.0.0
+description: Approval-draft and client-request workflow specialist under One.
+model: gemini-3.5-flash
+system_instruction: |
+  Coordinate email workflows from explicit per-turn authority. Drafting and
+  sending are separate actions; never send without the required confirmation.
+required_scopes: []
+failure_states:
+  - auth_required
+  - input_required
+  - confirmation_required
+pkm:
+  behavior: propose_mutation
+  mutation_contract: PkmMutationPlanV2
+surfaces:
+  chat: true
+  web: true
+  not_applicable_reason: Voice, remote A2A, MCP, and native exposure are not currently shipped.
+telemetry_namespace: agent.email

@@ -474,16 +474,66 @@ async def test_submit_ria_onboarding_rejects_entered_crd_mismatch(monkeypatch):
             provider="ria_intelligence_stage1",
         )
 
+    class DummyTx:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class DummyConn:
+        def transaction(self):
+            return DummyTx()
+
+        async def fetchrow(self, _query, *args):
+            _ = args
+            return {
+                "id": "ria-1",
+                "user_id": "user-1",
+                "display_name": "Advisor Alpha",
+                "legal_name": "Advisor Alpha",
+                "finra_crd": "12345",
+                "sec_iard": "801-12345",
+                "verification_status": "submitted",
+            }
+
+        async def execute(self, _query, *args):
+            _ = args
+            return "OK"
+
+        async def close(self):
+            return None
+
+    async def _fake_conn():
+        return DummyConn()
+
+    async def _fake_schema_ready(_conn):
+        return None
+
+    async def _fake_vault_user_row(_conn, _user_id):
+        return None
+
+    async def _fake_runtime_persona(_conn, _user_id, _persona):
+        return None
+
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+    monkeypatch.setattr(service, "_ensure_vault_user_row", _fake_vault_user_row)
+    monkeypatch.setattr(service, "_set_runtime_last_persona", _fake_runtime_persona)
     monkeypatch.setattr(service, "_verify_ria_name_result", _fake_verify_name_result)
 
-    with pytest.raises(RIAIAMPolicyError, match="verified CRD did not match"):
-        await service.submit_ria_onboarding(
-            "user-1",
-            display_name="Advisor Alpha",
-            requested_capabilities=["advisory"],
-            individual_crd="12345",
-            force_live_verification=True,
-        )
+    result = await service.submit_ria_onboarding(
+        "user-1",
+        display_name="Advisor Alpha",
+        requested_capabilities=["advisory"],
+        individual_crd="12345",
+        force_live_verification=True,
+    )
+
+    assert result["verification_status"] == "submitted"
+    assert result["advisory_status"] == "submitted"
+    assert result["professional_access_granted"] is False
+    assert result["individual_crd"] == "12345"
 
 
 @pytest.mark.asyncio

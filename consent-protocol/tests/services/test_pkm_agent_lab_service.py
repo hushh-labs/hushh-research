@@ -156,7 +156,7 @@ async def test_generate_structure_preview_replaces_non_financial_financial_paylo
     assert result["intent_frame"]["intent_class"] == "preference"
     assert result["structure_decision"]["target_domain"] == "food"
     assert result["write_mode"] == "confirm_first"
-    assert result["primary_json_path"] is None
+    assert result["primary_json_path"] == "preferences"
     assert "non_financial_payload_replaced" in result["validation_hints"]
     assert "user_stated_financial_memory" not in str(result["candidate_payload"])
     assert result["merge_decision"]["target_domain"] == "food"
@@ -375,7 +375,8 @@ async def test_generate_structure_preview_normalizes_sanctioned_financial_memory
     assert result["routing_decision"] == "sanctioned_financial_memory"
     assert result["intent_frame"]["intent_class"] == "financial_event"
     assert result["structure_decision"]["target_domain"] == "financial"
-    assert result["write_mode"] == "can_save"
+    assert result["write_mode"] == "confirm_first"
+    assert result["intent_frame"]["requires_confirmation"] is True
     assert result["primary_json_path"] == "events"
     assert "financial_target_normalized" in result["validation_hints"]
     assert "financial_payload_normalized" in result["validation_hints"]
@@ -1042,7 +1043,8 @@ async def test_dynamic_scope_crud_matrix_uses_canonical_targets(
     assert card["target_domain"] == expected_domain
     assert card["intent_class"] == expected_intent
     assert card["merge_mode"] == expected_merge
-    assert card["write_mode"] == expected_write
+    effective_write_mode = "confirm_first" if expected_write == "can_save" else expected_write
+    assert card["write_mode"] == effective_write_mode
     if expected_scope:
         assert card["target_entity_scope"] == expected_scope
         assert card["primary_json_path"] == expected_scope
@@ -1129,7 +1131,7 @@ async def test_obvious_location_correction_recovers_from_model_no_op(monkeypatch
     assert card["merge_mode"] == "correct_entity"
     assert card["target_entity_scope"] == "profile"
     assert card["primary_json_path"] == "profile"
-    assert card["write_mode"] == "can_save"
+    assert card["write_mode"] == "confirm_first"
 
 
 def test_fallback_merge_prefers_canonical_scope_over_changes():
@@ -1208,7 +1210,7 @@ async def test_segmentation_cannot_strip_correction_cue(monkeypatch):
     assert card["intent_class"] == "correction"
     assert card["merge_mode"] == "correct_entity"
     assert card["target_entity_scope"] == "profile"
-    assert card["write_mode"] == "can_save"
+    assert card["write_mode"] == "confirm_first"
 
 
 @pytest.mark.asyncio

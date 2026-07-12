@@ -1,0 +1,32 @@
+manifest_version: 2
+id: agent_connections
+name: Connections Agent
+version: 0.1.0
+description: Two-way connection graph specialist under One — send, list, find, accept, reject, and remove connections, with confirm-before-write on every mutation.
+model: gemini-3-flash-preview
+system_instruction: |
+  You are the user's Connections assistant inside hushh One. You manage the
+  account holder's two-way connection graph. Reads run directly; every graph
+  mutation (send request, accept, reject, remove) is proposed first and executed
+  only after the user confirms. Resolve people via find_people; if a name is
+  ambiguous, use request_person_choice so the user picks — never guess. Reference
+  the real names you saw in tool results; never invent people.
+required_scopes:
+  - agent.one.orchestrate
+# NOTE: tool functions (list_my_connections, find_people, propose_* ...) are
+# per-request closures constructed inside
+# hushh_mcp/services/connections_chat_service.py with ingress-validated
+# authority, so they cannot be declared as importable py_func entries here.
+# AgentManifestV2 tools require py_func + required_scope; closure-backed
+# specialists declare none (same contract as agent_email / agent_gmail).
+failure_states:
+  - auth_required
+  - input_required
+  - confirmation_required
+pkm:
+  behavior: read
+surfaces:
+  chat: true
+  web: true
+  not_applicable_reason: Voice, remote A2A, MCP, and native exposure are not currently shipped.
+telemetry_namespace: agent.connections

@@ -21,6 +21,13 @@ import {
   type AllocationSlice,
 } from "@/lib/services/one-kyc-financial-consolidation";
 import { bytesToBase64 } from "@/lib/vault/base64";
+import {
+  canonicalConsentExportAad,
+  canonicalConsentExportJson,
+  connectorKeyFingerprint,
+  sha256ConsentExportBytes,
+  type ConsentExportEnvelopeSubmissionV2,
+} from "@/lib/consent/export-envelope-v2";
 
 export { APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID };
 
@@ -55,6 +62,7 @@ export type KycScopedExportPackage = {
   export_revision?: number;
   export_generated_at?: string;
   export_refresh_status?: string;
+  export_envelope: ConsentExportEnvelopeSubmissionV2;
 };
 
 export type KycDraftBuildResult = {
@@ -1270,6 +1278,11 @@ export class OneKycClientZkService {
       domain: KYC_CONNECTOR_PKM_DOMAIN,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
+      confirmation: {
+        confirmedByUser: true,
+        surface: "web",
+        source: "kyc_connector_owner_setup",
+      },
       build: () => ({
         domainData: {
           active: params.connector,
@@ -1332,6 +1345,22 @@ export class OneKycClientZkService {
     if (wrapped.connector_key_id && wrapped.connector_key_id !== params.connector.connector_key_id) {
       throw new Error("KYC export was wrapped to a different client connector.");
     }
+    const envelope = params.exportPackage.export_envelope;
+    if (!envelope || envelope.version !== 2) {
+      throw new Error("KYC export requires consent envelope v2.");
+    }
+    if (envelope.aad.recipient_key_fingerprint !== await connectorKeyFingerprint(
+      params.connector.connector_public_key
+    )) {
+      throw new Error("KYC export recipient fingerprint does not match this connector.");
+    }
+    const ciphertextBytes = base64ToBytesCompat(params.exportPackage.encrypted_data);
+    if (
+      ciphertextBytes.byteLength !== envelope.ciphertext_bytes ||
+      (await sha256ConsentExportBytes(ciphertextBytes)) !== envelope.ciphertext_sha256
+    ) {
+      throw new Error("KYC export ciphertext integrity check failed.");
+    }
 
     const x25519 = { name: "X25519" } as unknown as AlgorithmIdentifier;
     let sharedSecret: ArrayBuffer;
@@ -1367,7 +1396,11 @@ export class OneKycClientZkService {
       ["decrypt"]
     );
     const exportKeyBytes = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: toArrayBuffer(base64ToBytesCompat(wrapped.wrapped_key_iv)) },
+      {
+        name: "AES-GCM",
+        iv: toArrayBuffer(base64ToBytesCompat(wrapped.wrapped_key_iv)),
+        additionalData: new TextEncoder().encode(canonicalConsentExportJson(envelope)),
+      },
       wrappingKey,
       toArrayBuffer(
         concatBytes(
@@ -1384,11 +1417,15 @@ export class OneKycClientZkService {
       ["decrypt"]
     );
     const plaintext = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: toArrayBuffer(base64ToBytesCompat(params.exportPackage.iv)) },
+      {
+        name: "AES-GCM",
+        iv: toArrayBuffer(base64ToBytesCompat(params.exportPackage.iv)),
+        additionalData: new TextEncoder().encode(canonicalConsentExportAad(envelope.aad)),
+      },
       exportKey,
       toArrayBuffer(
         concatBytes(
-          base64ToBytesCompat(params.exportPackage.encrypted_data),
+          ciphertextBytes,
           base64ToBytesCompat(params.exportPackage.tag)
         )
       )

@@ -95,20 +95,31 @@ def _build_dynamic_control_entry(label: str) -> VoiceKnowledgeEntry:
         ),
         "add receipts to memory": VoiceKnowledgeEntry(
             key="add_receipts_to_memory",
-            summary="Add receipts to memory builds a compact receipts-memory preview from stored Gmail receipts.",
-            detail="It does not save to PKM yet. It prepares the preview first.",
+            summary=(
+                "Receipt memory is created automatically from stored Gmail receipts after sync."
+            ),
+            detail=(
+                "When your vault is unlocked, the private shopping summary is saved "
+                "automatically to PKM."
+            ),
             aliases=("add receipts to memory", "build receipts memory preview"),
         ),
         "refresh receipt memory": VoiceKnowledgeEntry(
             key="refresh_receipt_memory",
             summary="Refresh receipt memory rebuilds the current receipts-memory preview from stored receipts.",
-            detail="It refreshes merchants, patterns, highlights, and signals before save.",
+            detail=(
+                "It refreshes merchants, patterns, highlights, and signals before the "
+                "summary is saved automatically."
+            ),
             aliases=("refresh receipt memory",),
         ),
         "save receipts memory to pkm": VoiceKnowledgeEntry(
             key="save_receipts_memory_to_pkm",
-            summary="Save receipts memory to PKM writes the current receipts-memory preview into your shopping PKM domain.",
-            detail="It validates the prepared payload and persists the current preview as durable encrypted memory.",
+            summary="Gmail receipt summaries are saved automatically to your shopping PKM domain.",
+            detail=(
+                "There is no separate save action. One validates and stores the encrypted "
+                "summary after sync while your vault is unlocked."
+            ),
             aliases=("save receipts memory to pkm",),
         ),
         "generate pkm preview": VoiceKnowledgeEntry(
@@ -181,10 +192,13 @@ _GLOBAL_CONCEPTS: tuple[VoiceKnowledgeEntry, ...] = (
     ),
     VoiceKnowledgeEntry(
         key="gmail_connector",
-        summary="The Gmail receipts workflow links your inbox, syncs receipt data, and feeds the receipts-to-PKM flow.",
+        summary=(
+            "The Gmail receipts workflow links your inbox, syncs receipt data, and saves "
+            "a private shopping summary to PKM."
+        ),
         detail=(
-            "It manages Gmail connection state, receipt sync, and receipt-memory previews. Raw email bodies are "
-            "not saved into PKM."
+            "It manages Gmail connection state and receipt sync. When the vault is unlocked, it automatically "
+            "saves the compact summary to PKM; raw email bodies are not saved into PKM."
         ),
         aliases=(
             "gmail connector",
@@ -196,8 +210,14 @@ _GLOBAL_CONCEPTS: tuple[VoiceKnowledgeEntry, ...] = (
     ),
     VoiceKnowledgeEntry(
         key="receipt_memory",
-        summary="Receipt memory is a compact shopping-memory snapshot built from stored Gmail receipts.",
-        detail="It summarizes merchants, purchase patterns, recent highlights, and preference signals before save.",
+        summary=(
+            "Receipt memory is a compact shopping-memory snapshot built from stored Gmail "
+            "receipts and saved automatically to PKM."
+        ),
+        detail=(
+            "It summarizes merchants, purchase patterns, recent highlights, and preference "
+            "signals, then saves the private summary automatically when the vault is unlocked."
+        ),
         aliases=("receipt memory", "receipts memory", "receipts memory preview"),
     ),
     VoiceKnowledgeEntry(
@@ -351,11 +371,17 @@ _SURFACE_CONCEPTS: dict[str, VoiceKnowledgeEntry] = {
 
 _SECTION_CONCEPTS: dict[str, dict[str, VoiceKnowledgeEntry]] = {
     "profile_receipts": {
-        "receipt memory preview": VoiceKnowledgeEntry(
+        "shopping summary": VoiceKnowledgeEntry(
             key="receipt_memory_preview_section",
-            summary="Receipt Memory Preview shows the compact shopping memory derived from your stored receipts.",
-            detail="It surfaces merchants, purchase patterns, recent highlights, and preference signals before save.",
-            aliases=("receipt memory preview",),
+            summary=(
+                "Shopping Summary shows the compact private memory derived from your stored "
+                "receipts."
+            ),
+            detail=(
+                "It surfaces merchants, purchase patterns, recent highlights, and preference "
+                "signals and is saved automatically to PKM."
+            ),
+            aliases=("shopping summary", "receipt memory preview"),
         ),
         "latest sync": VoiceKnowledgeEntry(
             key="latest_sync_section",
@@ -564,7 +590,10 @@ def _resolve_section(
         )
     summary = entry.summary
     detail = entry.detail
-    if screen == "profile_receipts" and section_key == "receipt memory preview":
+    if screen == "profile_receipts" and section_key in {
+        "shopping summary",
+        "receipt memory preview",
+    }:
         connector = _coerce_text(
             screen_metadata.get("connector_badge_label") or screen_metadata.get("connector_state")
         )
@@ -573,12 +602,13 @@ def _resolve_section(
         preview_stale = _coerce_bool(screen_metadata.get("preview_stale"), default=False)
         if connector and receipt_count is not None:
             summary = (
-                "Receipt Memory Preview shows the compact shopping memory built from your stored "
+                "Shopping Summary shows the compact private memory built from your stored "
                 f"receipts. Gmail is {connector.lower()} with {receipt_count} stored receipts."
             )
             if preview_available:
                 summary = (
-                    f"{summary} The current preview is {'stale' if preview_stale else 'ready'}."
+                    f"{summary} The current shopping summary is "
+                    f"{'stale' if preview_stale else 'ready'}."
                 )
     elif screen == "profile_gmail_panel" and section_key == "gmail connector":
         inbox = _coerce_text(screen_metadata.get("google_email"))
@@ -640,10 +670,13 @@ def _resolve_surface(
         preview_available = _coerce_bool(screen_metadata.get("preview_available"), default=False)
         preview_stale = _coerce_bool(screen_metadata.get("preview_stale"), default=False)
         if connector and receipt_count is not None:
-            summary = f"Receipt Memory Preview is active. Gmail is {connector.lower()} with {receipt_count} stored receipts."
+            summary = (
+                "Shopping Summary is active. Gmail is "
+                f"{connector.lower()} with {receipt_count} stored receipts."
+            )
             if preview_available:
                 summary = (
-                    f"{summary} The current receipts-memory preview is "
+                    f"{summary} The current shopping summary is "
                     f"{'stale' if preview_stale else 'ready'}."
                 )
     elif screen == "profile_gmail_panel":
@@ -696,16 +729,20 @@ def _resolve_local_concept(
 
 def _resolve_global_concept(transcript: str) -> VoiceKnowledgeResolution | None:
     normalized = _normalize(transcript)
+    matches: list[tuple[int, VoiceKnowledgeEntry]] = []
     for entry in _GLOBAL_CONCEPTS:
         for alias in entry.aliases or (entry.key,):
             if _matches_phrase(normalized, alias):
-                return VoiceKnowledgeResolution(
-                    tier="global_concept",
-                    key=entry.key,
-                    summary=entry.summary,
-                    detail=entry.detail,
-                )
-    return None
+                matches.append((len(_normalize(alias)), entry))
+    if not matches:
+        return None
+    _, entry = max(matches, key=lambda match: match[0])
+    return VoiceKnowledgeResolution(
+        tier="global_concept",
+        key=entry.key,
+        summary=entry.summary,
+        detail=entry.detail,
+    )
 
 
 def resolve_voice_explain_knowledge(
@@ -843,11 +880,11 @@ _COMPAT_GLOBAL_CONCEPTS: dict[str, dict[str, Any]] = {
             "gmail integration",
         ],
         "short": (
-            "Gmail receipts connects your inbox, manages receipt sync, and feeds the governed receipts-to-PKM workflow."
+            "Gmail receipts connects your inbox, manages receipt sync, and automatically saves a private shopping summary to PKM."
         ),
         "detailed": (
-            "Gmail receipts links the selected inbox, manages receipt sync and backfill state, builds a "
-            "receipt-memory preview, and supports saving that governed summary into PKM instead of writing raw emails."
+            "Gmail receipts links the selected inbox, manages receipt sync and backfill state, builds a private "
+            "shopping summary, and saves it automatically to PKM instead of writing raw emails."
         ),
     },
     "portfolio": {
@@ -978,12 +1015,18 @@ _COMPAT_SURFACE_DEFINITIONS: dict[str, dict[str, Any]] = {
     "profile_receipts": {
         "screenId": "profile_receipts",
         "title": "Gmail receipts",
-        "purpose": "This page manages Gmail receipt sync, backfill state, stored receipts, and receipt-memory import into PKM.",
+        "purpose": (
+            "This page manages Gmail receipt sync, stored receipts, and an automatically "
+            "saved private shopping summary."
+        ),
         "sections": [
             {
                 "id": "receipt_memory",
-                "title": "Receipt memory",
-                "purpose": "This section previews and saves the compact receipt snapshot before it reaches PKM.",
+                "title": "Shopping summary",
+                "purpose": (
+                    "This section shows the private receipt summary that is saved "
+                    "automatically to PKM."
+                ),
             },
             {
                 "id": "stored_receipts",
@@ -991,24 +1034,7 @@ _COMPAT_SURFACE_DEFINITIONS: dict[str, dict[str, Any]] = {
                 "purpose": "This section lists normalized stored receipts from Gmail.",
             },
         ],
-        "controls": [
-            {
-                "id": "add_receipts_to_memory",
-                "label": "Add receipts to memory",
-                "purpose": "builds the receipts-memory preview from stored receipts.",
-                "action_id": "profile.receipts_memory.preview",
-                "role": "button",
-                "voice_aliases": ["add receipts to memory", "build receipts memory preview"],
-            },
-            {
-                "id": "save_receipts_memory",
-                "label": "Save receipts memory to PKM",
-                "purpose": "saves the current receipts-memory preview into shopping receipts memory.",
-                "action_id": "profile.receipts_memory.save",
-                "role": "button",
-                "voice_aliases": ["save receipts memory", "save receipts memory to pkm"],
-            },
-        ],
+        "controls": [],
         "concepts": [
             {
                 "id": "pkm",

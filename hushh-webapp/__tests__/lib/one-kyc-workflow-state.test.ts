@@ -136,7 +136,7 @@ describe("one KYC workflow state helpers", () => {
     expect(needsKycWorkflowAccessApproval(granted)).toBe(false);
   });
 
-  it("treats selected default-available projections as access-ready", () => {
+  it("never treats a legacy public projection as private KYC access", () => {
     const ready = workflow({
       status: "needs_scope",
       draft_status: "not_ready",
@@ -156,7 +156,7 @@ describe("one KYC workflow state helpers", () => {
       },
     });
 
-    expect(hasApprovedKycWorkflowAccess(ready)).toBe(true);
-    expect(needsKycWorkflowAccessApproval(ready)).toBe(false);
+    expect(hasApprovedKycWorkflowAccess(ready)).toBe(false);
+    expect(needsKycWorkflowAccessApproval(ready)).toBe(true);
   });
 });

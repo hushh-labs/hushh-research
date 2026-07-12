@@ -66,7 +66,7 @@ export default function ProfileGmailOAuthReturnPageClient({
     const state = liveState || initialState;
     if (!code || !state) {
       setStage("error");
-      setError("Missing OAuth code or state. Start Connect Gmail again from Profile.");
+      setError("Missing OAuth code or state. Start Connect Gmail again from Gmail.");
       return;
     }
 
@@ -164,7 +164,7 @@ export default function ProfileGmailOAuthReturnPageClient({
           <HushhLoader
             label={
               stage === "redirecting"
-                ? "Returning to your profile..."
+                ? "Returning to Gmail..."
                 : "Completing your Gmail connector setup..."
             }
           />
@@ -193,7 +193,7 @@ export default function ProfileGmailOAuthReturnPageClient({
           <p className="mt-2 text-sm text-muted-foreground">{error}</p>
           <div className="mt-4 flex flex-col gap-2">
             <Button onClick={() => router.replace(buildProfileGmailReturnPath())} className="w-full">
-              Back to Profile
+              Back to Gmail
             </Button>
           </div>
         </div>

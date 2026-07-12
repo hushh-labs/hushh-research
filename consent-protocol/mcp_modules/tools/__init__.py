@@ -28,7 +28,6 @@ from .ria_read_tools import (
     handle_list_ria_profiles,
 )
 from .utility_tools import (
-    handle_delegate,
     handle_discover_user_domains,
     handle_list_scopes,
     handle_validate_token,
@@ -44,7 +43,6 @@ __all__ = [
     "handle_get_encrypted_scoped_export",
     # Utility
     "handle_validate_token",
-    "handle_delegate",
     "handle_list_scopes",
     "handle_discover_user_domains",
     # RIA / Marketplace

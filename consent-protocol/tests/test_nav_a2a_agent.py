@@ -18,7 +18,7 @@ def _db_token_active(monkeypatch):
     Revocation-path behavior is covered by the token-validation suites.
     """
 
-    async def _active(self, user_id, scope, agent_id=None):  # noqa: ANN001
+    async def _active(self, user_id, scope, agent_id=None, *, token_id=None):  # noqa: ANN001
         return True
 
     monkeypatch.setattr(ConsentDBService, "is_token_active", _active)

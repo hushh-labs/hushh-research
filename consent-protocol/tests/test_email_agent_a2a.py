@@ -3,7 +3,7 @@ generic SpecialistTurnResult envelope. The email agent emits no client directive
 
 import pytest
 
-from hushh_mcp.adk_bridge.contract import A2ATask
+from hushh_mcp.adk_bridge.contract import A2AAuthorityContext, A2ATask
 from hushh_mcp.adk_bridge.email_agent import EmailAgentA2A
 
 
@@ -21,6 +21,17 @@ class _FakeEmailService:
         }
 
 
+def _authority() -> A2AAuthorityContext:
+    return A2AAuthorityContext(
+        subject_user_id="u",
+        tenant_id="tenant_u",
+        task_id="task_email",
+        caller_kind="first_party",
+        information_grant_refs=("grant_ref",),
+        encrypted_export_refs=("export_ref",),
+    )
+
+
 @pytest.mark.asyncio
 async def test_message_turn_maps_to_specialist_result():
     svc = _FakeEmailService()
@@ -31,6 +42,7 @@ async def test_message_turn_maps_to_specialist_result():
             consent_token="t",  # noqa: S106
             conversation_id=None,
             message="what needs a reply",
+            authority=_authority(),
         )
     )
     assert result.text == "You have 1 thread waiting: Q3 plan from Ravi."
@@ -56,6 +68,7 @@ async def test_read_only_agent_never_emits_directive():
             consent_token="t",  # noqa: S106
             conversation_id="c1",
             message="search my inbox",
+            authority=_authority(),
         )
     )
     assert result.directive is None

@@ -1644,6 +1644,14 @@ def test_four_user_location_workflow_contract() -> None:
     )
     grant_c = approved_c["grant"]
     assert grant_c["recipientUserId"] == user_c
+    grant_c_notifications = [
+        item
+        for item in service.notifications
+        if str((item.get("data") or {}).get("grant_id") or "") == grant_c["id"]
+    ]
+    assert [item["notification_type"] for item in grant_c_notifications] == [
+        "location_access_approved"
+    ]
     service.store_encrypted_envelope(
         owner_user_id=user_a,
         grant_id=grant_c["id"],
@@ -2055,6 +2063,13 @@ def test_invite_to_one_claim_creates_network_connection_without_location_access(
     assert {item["notification_type"] for item in service.notifications} >= {
         "location_one_network_joined"
     }
+    network_notifications = [
+        item
+        for item in service.notifications
+        if item["notification_type"] == "location_one_network_joined"
+    ]
+    assert network_notifications
+    assert all("section=people" in item["request_url"] for item in network_notifications)
     assert any(
         event["event_type"] == "location_one_network_joined" for event in service.events.values()
     )

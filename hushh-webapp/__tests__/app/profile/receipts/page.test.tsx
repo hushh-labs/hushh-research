@@ -11,10 +11,29 @@ const mocks = vi.hoisted(() => {
       success: vi.fn(),
       error: vi.fn(),
       message: vi.fn(),
+      info: vi.fn(),
+      promise: vi.fn((promise: Promise<unknown> | (() => Promise<unknown>)) => ({
+        unwrap: () => (typeof promise === "function" ? promise() : promise),
+      })),
     },
     gmailReceiptsService: {
       listReceipts: vi.fn(),
+      startConnect: vi.fn(),
       syncNow: vi.fn(),
+    },
+    assignWindowLocation: vi.fn(),
+    pkmDomainResourceService: {
+      prepareDomainWriteContext: vi.fn(),
+    },
+    pkmWriteCoordinator: {
+      savePreparedDomain: vi.fn(),
+    },
+    personalKnowledgeModelService: {
+      validatePreparedDomainStore: vi.fn(),
+    },
+    receiptMemoryPkm: {
+      buildShoppingReceiptMemoryPreparedDomain: vi.fn(),
+      hasMatchingReceiptMemoryProvenance: vi.fn(),
     },
     useVault: vi.fn(),
   };
@@ -56,15 +75,18 @@ vi.mock("@/components/app-ui/app-page-shell", () => ({
 
 vi.mock("@/components/app-ui/page-sections", () => ({
   PageHeader: ({
+    eyebrow,
     title,
     description,
     actions,
   }: {
+    eyebrow?: React.ReactNode;
     title?: React.ReactNode;
     description?: React.ReactNode;
     actions?: React.ReactNode;
   }) => (
     <div>
+      <div>{eyebrow}</div>
       <div>{title}</div>
       <div>{description}</div>
       <div>{actions}</div>
@@ -93,6 +115,55 @@ vi.mock("@/components/vault/vault-unlock-dialog", () => ({
   VaultUnlockDialog: () => null,
 }));
 
+vi.mock("@/components/ui/alert-dialog", () => ({
+  AlertDialog: ({
+    children,
+    open,
+  }: {
+    children: React.ReactNode;
+    open?: boolean;
+  }) => (open ? <div>{children}</div> : null),
+  AlertDialogAction: ({
+    children,
+    onClick,
+    disabled,
+  }: {
+    children: React.ReactNode;
+    onClick?: React.MouseEventHandler<HTMLButtonElement>;
+    disabled?: boolean;
+  }) => (
+    <button type="button" onClick={onClick} disabled={disabled}>
+      {children}
+    </button>
+  ),
+  AlertDialogCancel: ({
+    children,
+    disabled,
+  }: {
+    children: React.ReactNode;
+    disabled?: boolean;
+  }) => (
+    <button type="button" disabled={disabled}>
+      {children}
+    </button>
+  ),
+  AlertDialogContent: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  AlertDialogDescription: ({ children }: { children: React.ReactNode }) => (
+    <p>{children}</p>
+  ),
+  AlertDialogFooter: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  AlertDialogHeader: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  AlertDialogTitle: ({ children }: { children: React.ReactNode }) => (
+    <h2>{children}</h2>
+  ),
+}));
+
 vi.mock("@/lib/morphy-ux/button", () => ({
   Button: ({
     children,
@@ -118,15 +189,21 @@ vi.mock("lucide-react", () => ({
   RotateCcw: () => <span />,
   Send: () => <span />,
   Sparkles: () => <span />,
+  Trash2: () => <span />,
 }));
 
 vi.mock("@/lib/navigation/routes", () => ({
   ROUTES: {
     PROFILE: "/profile",
     PROFILE_GMAIL: "/profile/gmail",
-    GMAIL: "/gmail",
+    GMAIL: "/one/gmail",
     PROFILE_RECEIPTS: "/profile/receipts",
+    PROFILE_GMAIL_OAUTH_RETURN: "/profile/gmail/oauth/return",
   },
+}));
+
+vi.mock("@/lib/utils/browser-navigation", () => ({
+  assignWindowLocation: mocks.assignWindowLocation,
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -140,15 +217,11 @@ vi.mock("@/lib/services/vault-service", () => ({
 }));
 
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
-  PkmDomainResourceService: {
-    refreshDomain: vi.fn(),
-  },
+  PkmDomainResourceService: mocks.pkmDomainResourceService,
 }));
 
 vi.mock("@/lib/services/pkm-write-coordinator", () => ({
-  PkmWriteCoordinator: {
-    writePreparedDomain: vi.fn(),
-  },
+  PkmWriteCoordinator: mocks.pkmWriteCoordinator,
 }));
 
 vi.mock("@/lib/services/gmail-receipt-memory-service", () => ({
@@ -265,14 +338,14 @@ vi.mock("@/lib/services/gmail-receipt-memory-service", () => ({
 }));
 
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
-  PersonalKnowledgeModelService: {
-    getPreparedDomain: vi.fn(),
-  },
+  PersonalKnowledgeModelService: mocks.personalKnowledgeModelService,
 }));
 
 vi.mock("@/lib/profile/gmail-receipt-memory-pkm", () => ({
-  buildShoppingReceiptMemoryPreparedDomain: vi.fn(),
-  hasMatchingReceiptMemoryProvenance: vi.fn().mockReturnValue(false),
+  buildShoppingReceiptMemoryPreparedDomain:
+    mocks.receiptMemoryPkm.buildShoppingReceiptMemoryPreparedDomain,
+  hasMatchingReceiptMemoryProvenance:
+    mocks.receiptMemoryPkm.hasMatchingReceiptMemoryProvenance,
 }));
 
 import ProfileReceiptsPage from "@/components/gmail/gmail-receipts-page";
@@ -282,6 +355,7 @@ import {
 } from "@/lib/profile/gmail-receipts-cache";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import { GmailReceiptMemoryService } from "@/lib/services/gmail-receipt-memory-service";
+import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 
 function makeReceipt(id: number, merchant: string) {
   const timestamp = `2026-04-0${id}T00:00:00Z`;
@@ -364,6 +438,8 @@ describe("ProfileReceiptsPage", () => {
     mocks.useAuth.mockReturnValue({
       user: {
         uid: "user-123",
+        email: "akshat@example.com",
+        providerData: [{ providerId: "google.com" }],
         getIdToken: vi.fn().mockResolvedValue("token-abc"),
       },
       loading: false,
@@ -373,6 +449,22 @@ describe("ProfileReceiptsPage", () => {
       vaultOwnerToken: "vault-owner-token-123",
       isVaultUnlocked: true,
     });
+    mocks.pkmDomainResourceService.prepareDomainWriteContext.mockResolvedValue({
+      domainData: {},
+    });
+    mocks.pkmWriteCoordinator.savePreparedDomain.mockResolvedValue({
+      success: true,
+      conflict: false,
+      saveState: "saved",
+    });
+    mocks.personalKnowledgeModelService.validatePreparedDomainStore.mockResolvedValue(
+      {
+        success: true,
+      },
+    );
+    mocks.receiptMemoryPkm.hasMatchingReceiptMemoryProvenance.mockReturnValue(
+      false,
+    );
     gmailView = buildGmailView();
     mocks.useGmailConnectorStatus.mockReturnValue(gmailView);
 
@@ -382,6 +474,13 @@ describe("ProfileReceiptsPage", () => {
       per_page: 20,
       total: 0,
       has_more: false,
+    });
+    vi.mocked(GmailReceiptsService.startConnect).mockResolvedValue({
+      configured: true,
+      authorize_url: "https://accounts.google.com/o/oauth2/v2/auth",
+      state: "state-123",
+      redirect_uri: "http://localhost:3000/profile/gmail/oauth/return",
+      expires_at: "2026-04-01T00:00:00Z",
     });
   });
 
@@ -400,6 +499,80 @@ describe("ProfileReceiptsPage", () => {
     expect(mocks.toast.message).toHaveBeenCalledWith(
       "Syncing your receipts now.",
     );
+  });
+
+  it("removes the redundant Gmail eyebrow", () => {
+    render(<ProfileReceiptsPage />);
+
+    expect(screen.queryByText(/one \/ gmail/i)).toBeNull();
+  });
+
+  it("automatically saves the generated summary to private memory", async () => {
+    vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
+      items: [makeReceipt(1, "Summary Shop")],
+      page: 1,
+      per_page: 20,
+      total: 1,
+      has_more: false,
+    });
+
+    render(<ProfileReceiptsPage />);
+
+    expect(
+      await screen.findByText("Kai sees recent shopping activity."),
+    ).toBeTruthy();
+    await waitFor(() => {
+      expect(
+        mocks.pkmWriteCoordinator.savePreparedDomain,
+      ).toHaveBeenCalledTimes(1);
+    });
+    expect(await screen.findByText("Saved to memory")).toBeTruthy();
+    expect(
+      screen.getByText("Your shopping summary is saved to your private memory."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /save insights/i })).toBeNull();
+  });
+
+  it("shows an existing matching summary as saved without another memory write", async () => {
+    vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
+      items: [makeReceipt(1, "Existing Summary Shop")],
+      page: 1,
+      per_page: 20,
+      total: 1,
+      has_more: false,
+    });
+    mocks.pkmDomainResourceService.prepareDomainWriteContext.mockResolvedValue({
+      domainData: { receipts_memory: { provenance: {} } },
+    });
+    mocks.receiptMemoryPkm.hasMatchingReceiptMemoryProvenance.mockReturnValue(
+      true,
+    );
+
+    render(<ProfileReceiptsPage />);
+
+    expect(await screen.findByText("Saved to memory")).toBeTruthy();
+    expect(mocks.pkmWriteCoordinator.savePreparedDomain).not.toHaveBeenCalled();
+  });
+
+  it("does not claim the summary was saved when automatic persistence fails", async () => {
+    vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
+      items: [makeReceipt(1, "Failed Summary Shop")],
+      page: 1,
+      per_page: 20,
+      total: 1,
+      has_more: false,
+    });
+    mocks.pkmWriteCoordinator.savePreparedDomain.mockResolvedValue({
+      success: false,
+      conflict: false,
+      saveState: "failed",
+      message: "Private memory is temporarily unavailable.",
+    });
+
+    render(<ProfileReceiptsPage />);
+
+    expect(await screen.findByText("Save failed")).toBeTruthy();
+    expect(screen.queryByText("Saved to memory")).toBeNull();
   });
 
   it("holds sealed receipts behind vault unlock when the vault is locked", async () => {
@@ -679,11 +852,14 @@ describe("ProfileReceiptsPage", () => {
 
     expect(await screen.findByText("Stored Shop")).toBeTruthy();
     expect(
-      screen.getByText(/saved receipts are still available here/i),
-    ).toBeTruthy();
-    expect(
       screen.getByRole("heading", { name: /reconnect gmail/i }),
     ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /reconnect gmail/i }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/gmail is currently disconnected/i)).toBeNull();
+    expect(screen.queryByText(/shopping summary/i)).toBeNull();
+    expect(vi.mocked(GmailReceiptMemoryService.preview)).not.toHaveBeenCalled();
   });
 
   it("shows one clear Gmail connect action when Gmail is not connected", async () => {
@@ -724,6 +900,61 @@ describe("ProfileReceiptsPage", () => {
     ).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("button", { name: /connect gmail/i }));
-    expect(mocks.routerPush).toHaveBeenCalledWith("/profile/gmail");
+    await waitFor(() => {
+      expect(GmailReceiptsService.startConnect).toHaveBeenCalledWith({
+        idToken: "token-abc",
+        userId: "user-123",
+        redirectUri: "http://localhost:3000/profile/gmail/oauth/return",
+        loginHint: "akshat@example.com",
+        includeGrantedScopes: true,
+      });
+    });
+    expect(assignWindowLocation).toHaveBeenCalledWith(
+      "https://accounts.google.com/o/oauth2/v2/auth",
+    );
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
+  it("disconnects Gmail from the receipts page without clearing stored receipts", async () => {
+    vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
+      items: [makeReceipt(1, "Stored Shop")],
+      page: 1,
+      per_page: 20,
+      total: 1,
+      has_more: false,
+    });
+    gmailView.disconnectGmail.mockResolvedValue({
+      configured: true,
+      connected: false,
+      status: "disconnected",
+      scope_csv: "gmail.readonly",
+      last_sync_status: "completed",
+      auto_sync_enabled: false,
+      revoked: true,
+      latest_run: null,
+      google_email: "akshat@example.com",
+    });
+
+    render(<ProfileReceiptsPage />);
+
+    expect(await screen.findByText("Stored Shop")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^disconnect$/i }));
+    expect(screen.getByText("Disconnect Gmail?")).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /^disconnect gmail$/i }),
+    );
+
+    await waitFor(() => {
+      expect(gmailView.disconnectGmail).toHaveBeenCalledTimes(1);
+    });
+    expect(mocks.toast.promise).toHaveBeenCalledWith(
+      expect.any(Promise),
+      expect.objectContaining({
+        loading: "Disconnecting Gmail...",
+        success: "Gmail disconnected. Saved receipts stay available here.",
+      }),
+    );
+    expect(screen.getByText("Stored Shop")).toBeTruthy();
   });
 });

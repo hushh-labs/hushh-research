@@ -163,7 +163,7 @@ describe("Navbar bottom navigation", () => {
     ).toEqual(["One", "Connect", "Profile"]);
 
     fireEvent.click(screen.getByRole("radio", { name: "Connect" }));
-    expect(navigationMock.push).toHaveBeenLastCalledWith(ROUTES.MARKETPLACE);
+    expect(navigationMock.push).toHaveBeenLastCalledWith(ROUTES.CONNECT);
 
     fireEvent.click(screen.getByRole("radio", { name: "Profile" }));
     expect(navigationMock.push).toHaveBeenLastCalledWith(ROUTES.PROFILE);

@@ -80,9 +80,8 @@ import {
   addToPKM,
   clearAgentPkmContext,
   formatAgentPkmSaveSummary,
-  getAutoSavePkmCards,
+  getPkmConfirmationCards,
   getIgnoredPkmCards,
-  getReviewRequiredPkmCards,
   loadAgentPkmContext,
   peekAgentPkmContext,
   previewAgentPkmMemory,
@@ -2157,6 +2156,14 @@ export function AgentChatWorkspace({
           vaultKey,
           vaultOwnerToken: token,
           source: "agent_chat_review",
+          confirmation: {
+            confirmedByUser: true,
+            surface: "chat",
+            source: "agent_chat_review_button",
+            sharingImpactAcknowledged: review.cards.some(
+              (card) => (card.sharing_impact?.active_recipient_count || 0) > 0
+            ),
+          },
         });
         appendDebugEvent(review.turnId, "pkm_review_save_result", result);
         if (result.saved > 0) {
@@ -2421,73 +2428,41 @@ export function AgentChatWorkspace({
           currentDomains: turnPkmContext.domains,
           vaultOwnerToken: token,
         });
-        const autoSaveCards = getAutoSavePkmCards(preview.cards);
-        const reviewCards = getReviewRequiredPkmCards(preview.cards);
+        const confirmationCards = getPkmConfirmationCards(preview.cards);
         const ignoredCards = getIgnoredPkmCards(preview.cards);
 
         appendDebugEvent(debugTurnId, "pkm_tool_preview_result", {
           model: preview.model,
           used_fallback: preview.used_fallback,
           total_cards: preview.cards.length,
-          auto_save_count: autoSaveCards.length,
-          review_count: reviewCards.length,
+          confirmation_count: confirmationCards.length,
           ignored_count: ignoredCards.length,
           preview_summary: preview.preview_summary || null,
           cards: preview.cards,
         });
 
-        if (autoSaveCards.length > 0) {
-          appendDebugEvent(debugTurnId, "pkm_tool_save_start", {
-            candidate_count: autoSaveCards.length,
-          });
-          const saveResult = await addToPKM({
-            userId,
-            cards: autoSaveCards,
-            sourceMessage: sourceText,
-            vaultKey,
-            vaultOwnerToken: token,
-            source: "agent_chat_tool",
-          });
-          appendDebugEvent(debugTurnId, "pkm_tool_save_result", saveResult);
-          upsertPkmStatusMessage(
-            formatAgentPkmSaveSummary(saveResult),
-            saveResult.saved > 0 ? "done" : "error"
-          );
-          if (saveResult.saved > 0) {
-            void loadAgentPkmContext({
-              userId,
-              vaultOwnerToken: token,
-              vaultKey,
-              forceRefresh: true,
-            }).catch(() => undefined);
-            toast.success("Saved to PKM.");
-          }
-        }
-
-        if (reviewCards.length > 0 && latestVisibleTurnIdRef.current === debugTurnId) {
+        if (confirmationCards.length > 0 && latestVisibleTurnIdRef.current === debugTurnId) {
           setPkmReviews((current) => [
             ...current.filter((review) => review.turnId !== debugTurnId),
             {
               id: `${debugTurnId}-pkm-review`,
               turnId: debugTurnId,
               sourceMessage: sourceText,
-              cards: reviewCards,
+              cards: confirmationCards,
               saving: false,
             },
           ]);
           appendDebugEvent(debugTurnId, "pkm_tool_review_required", {
-            candidate_count: reviewCards.length,
-            cards: reviewCards,
+            candidate_count: confirmationCards.length,
+            cards: confirmationCards,
           });
-          if (autoSaveCards.length === 0) {
-            upsertPkmStatusMessage(
-              "Agent found PKM memory that needs your review before saving.",
-              "done"
-            );
-          }
+          upsertPkmStatusMessage(
+            "Agent found PKM memory that needs your review before saving.",
+            "done"
+          );
         }
 
-        if (autoSaveCards.length === 0 && reviewCards.length === 0) {
+        if (confirmationCards.length === 0) {
           upsertPkmStatusMessage("I didn't find durable PKM memory to save from that.", "done");
         }
       } catch (error) {
@@ -2590,17 +2565,14 @@ export function AgentChatWorkspace({
         });
         if (signal.aborted) return;
         const cards = preview.cards;
-        const autoSaveCards = getAutoSavePkmCards(cards);
-        const reviewCards = getReviewRequiredPkmCards(cards);
-        const confirmationCards = [...autoSaveCards, ...reviewCards];
+        const confirmationCards = getPkmConfirmationCards(cards);
         const ignoredCards = getIgnoredPkmCards(cards);
 
         appendDebugEvent(debugTurnId, "pkm_memory_preview_result", {
           model: preview.model,
           used_fallback: preview.used_fallback,
           total_cards: cards.length,
-          auto_save_count: autoSaveCards.length,
-          review_count: reviewCards.length,
+          confirmation_count: confirmationCards.length,
           ignored_count: ignoredCards.length,
           preview_summary: preview.preview_summary || null,
           cards,
@@ -2620,7 +2592,6 @@ export function AgentChatWorkspace({
           ]);
           appendDebugEvent(debugTurnId, "pkm_memory_review_required", {
             candidate_count: confirmationCards.length,
-            auto_save_candidates_requiring_confirmation: autoSaveCards.length,
             cards: confirmationCards,
           });
           upsertPkmStatusMessage(

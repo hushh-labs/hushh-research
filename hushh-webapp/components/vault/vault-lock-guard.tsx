@@ -94,7 +94,8 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     if (userId) return;
 
     if (typeof window !== "undefined") {
-      const currentPath = window.location.pathname;
+      const currentPath =
+        window.location.pathname + window.location.search + window.location.hash;
       router.replace(`/login?redirect=${encodeURIComponent(currentPath)}`);
     }
   }, [authLoading, router, userId]);

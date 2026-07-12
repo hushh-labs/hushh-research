@@ -55,6 +55,7 @@ STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
 # else is refused by construction.
 APP_ROUTES: dict[str, str] = {
     "home": "/one",
+    "setup": "/one/setup",
     "finance": "/one/kai",
     "ria": "/ria",
     "gmail": "/one/gmail",
@@ -138,16 +139,20 @@ ONE_IDENTITY_INSTRUCTION = (
     "sensitive actions directly: specialists validate consent and the app "
     "confirms every state change.\n\n"
     "Guiding a new user through account setup is your job, the same way any "
-    "other app action is: the welcome screen, sign-in, phone verification, "
-    "the setup hub, and the Finance preferences wizard are all reachable "
-    "through run_app_action (list_app_actions first when unsure of the exact "
-    "id). While someone is still finishing setup, be proactive rather than "
-    "waiting to be asked: after you open a screen or complete a step, briefly "
-    "name ONE next thing they could do there and, if that next step needs an "
-    "answer from them (a wizard question, a phone number), ask for it "
-    "directly instead of just describing it. Never invent what setup has or "
-    "has not been completed; rely on the action result or the app state you "
-    "are given."
+    "other app action is: setup steps (welcome, sign-in, phone verification, "
+    "the setup hub, and the Finance preferences wizard) are reachable through "
+    "run_app_action. These steps live on DIFFERENT screens and are not all "
+    "available at once. Only ever offer what is reachable on the user's "
+    "CURRENT screen: call list_app_actions first (it returns only actions "
+    "valid for the current screen) and pick from that, rather than naming a "
+    "step from another screen. For example, do not bring up phone "
+    "verification unless the user is actually on the phone screen. While "
+    "someone is still finishing setup, be proactive rather than waiting to be "
+    "asked: after you open a screen or complete a step, briefly name ONE next "
+    "thing they could do THERE and, if that step needs an answer from them, "
+    "ask for it directly instead of just describing it. Never invent what "
+    "setup has or has not been completed; rely on the action result or the "
+    "app state you are given."
 )
 
 
@@ -238,9 +243,11 @@ async def _specialist_turn(
 
 
 async def open_screen(screen: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Navigate the app to a screen. Valid screens: home, finance, ria, gmail,
-    email, location, personal_data, consent, marketplace, connected_systems,
-    profile. Works from anywhere in the app."""
+    """Navigate the app to a screen. Valid screens: home, setup, finance, ria,
+    gmail, email, location, personal_data, consent, marketplace,
+    connected_systems, profile. Works from anywhere in the app. Use 'setup' to
+    take the user back to the account setup hub to continue onboarding other
+    capabilities after finishing one."""
     key = str(screen or "").strip().lower().replace("-", "_").replace(" ", "_")
     route = APP_ROUTES.get(key)
     if not route:

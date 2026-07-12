@@ -109,15 +109,15 @@ flowchart TB
   Private queryable manifest paths for first-party runtime and consent expansion.
 - `pkm_scope_registry`
   Public queryable scope handles and coarse exposure metadata. Registry rows carry
-  a protocol-owned `visibility_posture`: `private`, `consent_required`, or
-  `default_available`. No raw internal PKM paths should be exposed outside
+  a protocol-owned `visibility_posture`: `private` or `consent_required`.
+  No raw internal PKM paths should be exposed outside
   first-party authenticated tooling.
 - `pkm_default_available_projections`
-  Standing safe projections for user-selected `default_available` sections. These
-  rows are generated client-side after vault unlock, contain only consumer-visible
-  projection payloads, and are revocable. They never contain raw encrypted PKM
-  blobs, `pkm.read`, hashes/provenance as shareable values, workflow artifacts,
-  or unrestricted domain payloads.
+  Compatibility storage for owner-published public-profile projections. Each
+  active row has explicit publication provenance and an opaque public-profile
+  handle. It is a separate public-resource plane, not a PKM scope or encrypted
+  consent authority; it never contains raw encrypted PKM blobs, `pkm.read`,
+  workflow artifacts, or unrestricted domain payloads.
 - `pkm_events`
   Append-only PKM mutation and replay ledger.
 - `pkm_migration_state`
@@ -160,11 +160,12 @@ local saves fail solely because the cloud projection is temporarily unavailable.
   - `size_bytes`
 - Exact raw JSON paths remain private to first-party authenticated tooling after vault unlock.
 - Public/runtime discovery must use scope handles and coarse metadata, not raw internal PKM paths.
-- Sharing posture is a three-state protocol contract:
+- Sharing posture is a two-state encrypted-consent contract:
   - `private`: not discoverable or exportable to external connectors.
   - `consent_required`: discoverable safe label only; data still requires consent and a strict-ZK encrypted export.
-  - `default_available`: discoverable and readable as a user-published safe projection without creating a consent request.
-- `default_available` is projection-only. It does not downgrade vault encryption, does not expose `pkm.read`, and does not grant access to non-consumer-visible data.
+- Public profile publishing is an independent owner-controlled projection. It
+  does not downgrade vault encryption, expose `pkm.read`, or grant access to
+  non-consumer-visible data.
 
 ## Partner and CRM boundary
 

@@ -79,7 +79,7 @@ The current One-led app-agent hierarchy is mapped in [One Agent Hierarchy](../on
 
 Current implementation facts:
 
-1. Agent One external A2A requires `X-Consent-Token` scoped `agent.one.orchestrate` and checks the token app against the developer principal.
+1. The contained Agent One invocation preview requires `X-Consent-Token` scoped `cap.one.invoke` and checks the token app against the developer principal. This endpoint is not official A2A v1; official Tasks remain release-blocked by the pinned ADK/a2a-sdk incompatibility.
 2. Specialist A2A scopes are centralized in `SPECIALIST_A2A_SCOPE_MAP`.
 3. `VAULT_OWNER` remains a token hierarchy superset and can satisfy specialist scopes in first-party owner routes.
 4. In-app compatibility routes may still pass the vault-owner token into internal specialist work.

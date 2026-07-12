@@ -3,19 +3,51 @@
  * Handles background push and notification click → open consent pending tab
  */
 self.__HUSHH_FCM_DEFAULT_TARGET__ = "/consents?tab=pending";
+const pendingForegroundDeliveryAcks = new Map();
+
+function nextDeliveryId() {
+  if (self.crypto?.randomUUID) return self.crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function waitForForegroundDeliveryAck(deliveryId) {
+  const timeoutMs = self.__HUSHH_FCM_ACK_TIMEOUT_MS__ || 750;
+  return new Promise((resolve) => {
+    const finish = (acknowledged) => {
+      pendingForegroundDeliveryAcks.delete(deliveryId);
+      clearTimeout(timeoutId);
+      resolve(acknowledged);
+    };
+    const timeoutId = setTimeout(() => finish(false), timeoutMs);
+    pendingForegroundDeliveryAcks.set(deliveryId, () => finish(true));
+  });
+}
+
+function isHandledByVisibleApp(data) {
+  const type = String(data?.type || "").trim().toLowerCase();
+  return (
+    type.startsWith("location_") ||
+    type === "consent_request" ||
+    type === "consent_opened" ||
+    type === "consent_resolved"
+  );
+}
 
 async function broadcastToClients(payload) {
   const clientList = await self.clients.matchAll({
     type: "window",
     includeUncontrolled: true,
   });
+  let visibleClientCount = 0;
   clientList.forEach((client) => {
+    if (client.visibilityState === "visible") visibleClientCount += 1;
     try {
       client.postMessage(payload);
     } catch (_) {
       // Ignore diagnostic message delivery failures.
     }
   });
+  return visibleClientCount;
 }
 
 async function focusOrOpenClient(url) {
@@ -64,21 +96,36 @@ self.addEventListener("push", function (event) {
       data.notification?.requireInteraction ?? true;
     const notificationOptions = {
       body,
-      data: { url },
+      data: { ...(data.data || {}), url },
       tag,
       requireInteraction,
     };
     event.waitUntil(
       (async () => {
-        await broadcastToClients({
+        const handledByVisibleApp = isHandledByVisibleApp(data.data);
+        const deliveryId = handledByVisibleApp ? nextDeliveryId() : "";
+        const deliveryAck = deliveryId
+          ? waitForForegroundDeliveryAck(deliveryId)
+          : Promise.resolve(false);
+        const visibleClientCount = await broadcastToClients({
           type: "hushh:fcm_push_received",
+          delivery_id: deliveryId,
           title,
           body,
           url,
           tag,
           requireInteraction,
+          data: data.data || {},
         });
-        await self.registration.showNotification(title, notificationOptions);
+        const acknowledged =
+          visibleClientCount > 0 && handledByVisibleApp
+            ? await deliveryAck
+            : false;
+        // Suppress the browser notification only after the visible app bridge
+        // confirms receipt. Otherwise the system tray remains the reliable fallback.
+        if (!acknowledged) {
+          await self.registration.showNotification(title, notificationOptions);
+        }
       })()
     );
   } catch (_) {
@@ -91,9 +138,10 @@ self.addEventListener("push", function (event) {
           tag: "consent-request",
           requireInteraction: true,
         };
-        await broadcastToClients({
+        const visibleClientCount = await broadcastToClients({
           type: "hushh:fcm_push_received",
           ...fallback,
+          data: {},
         });
         await self.registration.showNotification(fallback.title, {
           body: fallback.body,
@@ -124,6 +172,11 @@ self.addEventListener("notificationclick", function (event) {
 
 self.addEventListener("message", function (event) {
   const data = event.data || {};
+  if (data.type === "hushh:fcm_push_ack") {
+    const acknowledge = pendingForegroundDeliveryAcks.get(data.delivery_id);
+    if (acknowledge) acknowledge();
+    return;
+  }
   if (data.type !== "hushh:test_notification_click") {
     return;
   }

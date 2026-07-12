@@ -30,7 +30,7 @@ import time
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import TextContent
+from mcp.types import ResourceLink, TextContent
 
 from mcp_modules import resources as mcp_resources
 
@@ -44,7 +44,6 @@ from mcp_modules.log_redaction import install_sensitive_log_filter, redact_mcp_a
 from mcp_modules.tools import (
     get_tool_definitions,
     handle_check_consent_status,
-    handle_delegate,
     handle_discover_user_domains,
     handle_get_encrypted_scoped_export,
     handle_get_ria_client_access_summary,
@@ -88,7 +87,30 @@ logger = logging.getLogger("hushh-mcp-server")
 # SERVER INITIALIZATION
 # ============================================================================
 
-server = Server("hushh-consent")
+_CONNECTOR_INITIALIZATION_INSTRUCTIONS = json.dumps(
+    {
+        "consent_flow": [
+            "discover_user_domains",
+            "request_consent",
+            "check_consent_status",
+            "get_encrypted_scoped_export",
+            "fetch ResourceLink outside model context",
+            "validate envelope v2 and decrypt in connector process",
+        ],
+        "connector_capabilities": SERVER_INFO["connector_capabilities"],
+        "crypto_mode": {
+            "stdio": "local",
+            "hosted_streamable_http": "host",
+            "unsupported_behavior": "Return CONNECTOR_CRYPTO_UNSUPPORTED; never request plaintext fallback.",
+        },
+    },
+    separators=(",", ":"),
+)
+server = Server(
+    "hushh-consent",
+    version=SERVER_INFO["version"],
+    instructions=_CONNECTOR_INITIALIZATION_INSTRUCTIONS,
+)
 
 HANDLERS = {
     # ── Consent / Privacy tools ───────────────────────────────────────────────
@@ -96,7 +118,6 @@ HANDLERS = {
     "request_consent": handle_request_consent,
     "validate_token": handle_validate_token,
     "get_encrypted_scoped_export": handle_get_encrypted_scoped_export,
-    "delegate_to_agent": handle_delegate,
     "list_scopes": handle_list_scopes,
     "discover_user_domains": handle_discover_user_domains,
     "check_consent_status": handle_check_consent_status,
@@ -139,7 +160,7 @@ async def list_tools():
 
 
 @server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+async def call_tool(name: str, arguments: dict) -> list[TextContent | ResourceLink]:
     """
     Route tool calls to appropriate handlers.
 
@@ -243,7 +264,13 @@ async def main():
     logger.info("=" * 60)
 
     async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+        await server.run(
+            read_stream,
+            write_stream,
+            server.create_initialization_options(
+                experimental_capabilities={"hushh.connector": SERVER_INFO["connector_capabilities"]}
+            ),
+        )
 
 
 if __name__ == "__main__":

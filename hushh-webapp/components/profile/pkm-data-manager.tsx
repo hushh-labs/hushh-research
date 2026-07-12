@@ -547,7 +547,6 @@ export function PkmDomainDetailPanel({
               const postureOptions: Array<{ value: PkmVisibilityPosture; label: string }> = [
                 { value: "private", label: "Private" },
                 { value: "consent_required", label: "Ask first" },
-                { value: "default_available", label: "Available by default" },
               ];
               return (
                 <div

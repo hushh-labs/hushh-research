@@ -24,13 +24,13 @@ import {
   type MarketplaceEncryptedEnvelope,
 } from "@/lib/one-marketplace/encryption";
 import { OneMarketplaceService } from "@/lib/one-marketplace/service";
-import { defaultAvailableScopeForPermission } from "@/lib/personal-knowledge-model/slice-publishing";
+import { consentScopeForPermission } from "@/lib/personal-knowledge-model/slice-publishing";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 
 /**
  * Resolve the canonical export scope for a requested slice. A published slice's
  * scope is `attr.<domain>.<topLevelScopePath>.*` (see
- * `defaultAvailableScopeForPermission`). The request row carries `domain` +
+ * `consentScopeForPermission`). The request row carries `domain` +
  * `scope_handle` but not the top-level path, so the seller resolves it from
  * their own DomainManifest scope_registry. Falls back to the domain-wide
  * `attr.<domain>` scope when the handle can't be resolved.
@@ -63,7 +63,7 @@ export async function resolveExportScope(params: {
       entry?.summary_projection?.top_level_scope_path || "",
     ).trim();
     if (topLevelScopePath) {
-      return defaultAvailableScopeForPermission(domain, topLevelScopePath);
+      return consentScopeForPermission(domain, topLevelScopePath);
     }
   } catch (error) {
     console.warn("[MarketplaceSeal] scope resolution failed:", error);

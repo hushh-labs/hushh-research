@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { type LucideIcon } from "lucide-react";
 
 import {
@@ -16,7 +16,7 @@ import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
-import { ROUTES } from "@/lib/navigation/routes";
+import { normalizeInternalRouteHref, ROUTES } from "@/lib/navigation/routes";
 import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
 import {
   CAPABILITY_SETUP_COPY,
@@ -54,6 +54,7 @@ import { cn } from "@/lib/utils";
  */
 export function OneSetupHub() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const { byId, isLoading } = useCapabilitySetupStates({
@@ -61,6 +62,11 @@ export function OneSetupHub() {
     enrichOauth: true,
   });
   const [dismissing, setDismissing] = useState(false);
+  const returnTo = useMemo(
+    () => normalizeInternalRouteHref(searchParams.get("return_to")),
+    [searchParams],
+  );
+  const completionTarget = returnTo || ROUTES.ONE_HOME;
 
   const items = useMemo(() => buildSetupItems(byId), [byId]);
 
@@ -116,7 +122,7 @@ export function OneSetupHub() {
   const handleMasterAck = async () => {
     if (dismissing) return;
     if (!user?.uid) {
-      router.push(ROUTES.ONE_HOME);
+      router.push(completionTarget);
       return;
     }
     setDismissing(true);
@@ -132,7 +138,7 @@ export function OneSetupHub() {
       console.warn("[OneSetupHub] Failed to resolve master setup gate:", error);
     } finally {
       setDismissing(false);
-      router.push(ROUTES.ONE_HOME);
+      router.push(completionTarget);
     }
   };
 

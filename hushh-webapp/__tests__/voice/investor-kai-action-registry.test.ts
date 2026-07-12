@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   INVESTOR_KAI_ACTION_REGISTRY,
+  getInvestorKaiActionById,
   getInvestorKaiActionByKaiCommand,
   getInvestorKaiActionByVoiceToolCall,
   listInvestorKaiActionsForSurface,
@@ -64,16 +65,19 @@ describe("investor-kai-action-registry", () => {
     expect(voiceAction?.id).toBe("analysis.resume_active");
     expect(voiceAction?.wiring.status).toBe("wired");
 
-    const pkmCaptureAction = getInvestorKaiActionByVoiceToolCall({
+    const pkmPreviewAction = getInvestorKaiActionByVoiceToolCall({
       tool_name: "capture_pkm_memory",
       args: {
         message: "I prefer quiet hotel rooms away from elevators.",
-        mode: "direct_save",
-        direct_save: true,
+        mode: "preview",
       },
     });
-    expect(pkmCaptureAction?.id).toBe("profile.pkm.save_capture");
-    expect(pkmCaptureAction?.wiring.status).toBe("wired");
+    expect(pkmPreviewAction?.id).toBe("profile.pkm.preview_capture");
+    expect(pkmPreviewAction?.wiring.status).toBe("wired");
+
+    const pkmSaveAction = getInvestorKaiActionById("profile.pkm.save_capture");
+    expect(pkmSaveAction?.risk.executionPolicy).toBe("manual_only");
+    expect(pkmSaveAction?.wiring.status).toBe("unwired");
   });
 
   it("marks legacy/dead actions explicitly", () => {
@@ -127,13 +131,10 @@ describe("investor-kai-action-registry", () => {
 
     expect(
       INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "profile.receipts_memory.preview")
-        ?.expectedEffects.backendEffects
-    ).toEqual([
-      {
-        api: "POST /api/kai/gmail/receipts-memory/preview (proxied)",
-        effect: "Builds or refreshes the receipts memory artifact preview.",
-      },
-    ]);
+    ).toBeUndefined();
+    expect(
+      INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "profile.receipts_memory.save")
+    ).toBeUndefined();
 
     expect(
       INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "profile.gmail.disconnect")
@@ -158,9 +159,9 @@ describe("investor-kai-action-registry", () => {
 
   it("lists surface-specific actions for Gmail and PKM routes", () => {
     const gmailActions = listInvestorKaiActionsForSurface({
-      screen: "profile_gmail_panel",
-      href: "/profile/gmail",
-      pathname: "/profile/gmail",
+      screen: "gmail",
+      href: "/one/gmail",
+      pathname: "/one/gmail",
     }).map((action) => action.id);
 
     expect(gmailActions).toEqual(

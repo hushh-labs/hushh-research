@@ -302,6 +302,11 @@ export function PkmNaturalPanel({
         domain: params.card.domain,
         vaultKey,
         vaultOwnerToken,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: `pkm_natural_${params.action}_button`,
+        },
         build: () => ({
           domainData: params.nextDomainData,
           summary: memoryWriteSummary(params.card, params.action, params.nextDomainData),

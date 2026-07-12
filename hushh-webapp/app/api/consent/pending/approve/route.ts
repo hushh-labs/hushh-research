@@ -51,6 +51,7 @@ export async function POST(request: NextRequest) {
       sourceContentRevision,
       sourceManifestRevision,
       durationHours,
+      exportEnvelope,
     } = body;
 
     if (!userId || !requestId) {
@@ -101,6 +102,7 @@ export async function POST(request: NextRequest) {
         sourceContentRevision,
         sourceManifestRevision,
         durationHours,
+        exportEnvelope,
       }),
     });
 

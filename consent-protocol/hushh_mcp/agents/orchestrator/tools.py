@@ -142,6 +142,22 @@ _SPECIALIST_ROUTES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
             "trusted connections",
             "who do i trust",
             "people i trust",
+            # broader conversational cues — all require a connection/request
+            # qualifier so bare "accept"/"remove"/"connect" alone can't match
+            "connect me with",
+            "connect with",
+            "add a connection",
+            "my connections",
+            "who are my connections",
+            "list my connections",
+            "remove connection",
+            "remove from my connections",
+            "connection request",
+            "connection requests",
+            "accept request",
+            "reject request",
+            "decline request",
+            "pending connection",
         ),
     ),
     (
@@ -212,7 +228,7 @@ def delegate_to_kyc_agent() -> Dict[str, Any]:
     return _create_delegation_response("kyc_identity_workflow", "agent_kyc", ctx)
 
 
-@hushh_tool(scope="agent.one.orchestrate", name="delegate_to_connections_agent")
+@hushh_tool(scope="cap.one.invoke", name="delegate_to_connections_agent")
 def delegate_to_connections_agent() -> Dict[str, Any]:
     """Delegate current conversation to the trusted-connections specialist."""
     ctx = HushhContext.current()

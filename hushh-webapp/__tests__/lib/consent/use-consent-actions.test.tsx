@@ -100,7 +100,7 @@ describe("useConsentActions async action locks", () => {
     await waitFor(() =>
       expect(result.current.isRequestBusy("req-approve")).toBe(true),
     );
-    expect(mocks.approvePendingConsent).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mocks.approvePendingConsent).toHaveBeenCalledTimes(1));
 
     await act(async () => {
       pending.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }));
