@@ -417,9 +417,9 @@ async function openAskFlow() {
 }
 
 async function openTemporaryLinkFlow() {
-  await switchLocationTab("Links", "Links");
+  fireEvent.click(screen.getByRole("button", { name: "Links" }));
   fireEvent.click(
-    screen.getByRole("button", { name: /Create public location link/i }),
+    await screen.findByRole("button", { name: /Create a new link/i }),
   );
   expect(
     await screen.findByRole("heading", { name: "Share outside your Circle" }),
@@ -811,10 +811,14 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     expect(await screen.findByPlaceholderText("Search trusted people")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Pending invites" })).toBeNull();
-    await switchLocationTab("Links", "Links");
-    expect(screen.getByRole("button", { name: /Create public location link/i })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Active public location link" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Invite link" })).toBeTruthy();
+    // Links tab: "Active links" list + a single "Create a new link" CTA. The
+    // mock has no active links, so the empty state shows.
+    fireEvent.click(screen.getByRole("button", { name: "Links" }));
+    expect(
+      await screen.findByRole("button", { name: /Create a new link/i }),
+    ).toBeTruthy();
+    expect(screen.getByText("Active links")).toBeTruthy();
+    expect(screen.getByText("No active links")).toBeTruthy();
     expect(screen.queryByText("Public link responses")).toBeNull();
     expect(screen.queryByText(/Share a public location link/i)).toBeNull();
     expect(screen.queryByText(/whatsapp/i)).toBeNull();
@@ -1537,9 +1541,9 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByRole("button", { name: /Sync contacts/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Share to contacts/i })).toBeTruthy();
     expect(screen.queryByText(/Ask someone to share/)).toBeNull();
-    await switchLocationTab("Links", "Links");
+    fireEvent.click(screen.getByRole("button", { name: "Links" }));
     expect(
-      screen.getByRole("button", { name: /Create public location link/i }),
+      await screen.findByRole("button", { name: /Create a new link/i }),
     ).toBeTruthy();
   });
 

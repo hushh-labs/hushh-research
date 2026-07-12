@@ -27,6 +27,7 @@ import {
   Car,
   ChevronRight,
   Hand,
+  Link as LinkIcon,
   Lock,
   MapPin,
   Navigation,
@@ -1146,6 +1147,56 @@ function PeopleHub({
 /* LINKS HUB                                                            */
 /* =================================================================== */
 
+/** One active-link row: tinted icon tile · title · subtitle · Copy (design). */
+function ActiveLinkRow({
+  icon,
+  tileClass,
+  title,
+  subtitle,
+  onCopy,
+  first,
+}: {
+  icon: ReactNode;
+  tileClass: string;
+  title: string;
+  subtitle: string;
+  onCopy: () => void;
+  first: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3.5 py-4",
+        !first && "border-t border-black/[0.06] dark:border-white/10",
+      )}
+    >
+      <span
+        className={cn(
+          "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
+          tileClass,
+        )}
+      >
+        {icon}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[16px] font-bold text-[#1c1c2e] dark:text-foreground">
+          {title}
+        </p>
+        <p className="mt-0.5 truncate text-[13px] text-black/50 dark:text-muted-foreground">
+          {subtitle}
+        </p>
+      </div>
+      <Button
+        variant="outline"
+        onClick={onCopy}
+        className="h-9 shrink-0 rounded-full border-[#007aff] px-4 text-sm font-semibold text-[#007aff]"
+      >
+        Copy
+      </Button>
+    </div>
+  );
+}
+
 function LinksHub({
   vm,
   onCreateTempLink,
@@ -1155,67 +1206,59 @@ function LinksHub({
 }) {
   const temp = vm.latestActivePublicInvite;
   const invite = vm.latestActiveCircleInvite;
+  const hasLinks = Boolean(temp) || Boolean(invite);
 
   return (
-    <div className="space-y-5">
-      <SectionCard
-        title="Links"
-        description="Use links only when someone is not in your trusted Circle."
+    <div className="space-y-4">
+      <p className="px-1 text-[12px] font-bold uppercase tracking-[0.4px] text-black/40 dark:text-muted-foreground">
+        Active links
+      </p>
+
+      {hasLinks ? (
+        <div className="rounded-[20px] bg-white px-4 shadow-[0_4px_16px_rgba(0,0,0,0.06)] dark:bg-[color:var(--app-card-surface-default-solid)]">
+          {temp ? (
+            <ActiveLinkRow
+              first
+              tileClass="bg-[#efe9fb] dark:bg-violet-400/15"
+              icon={<LinkIcon className="h-5 w-5 text-[#7c5cff]" />}
+              title="Live location link"
+              subtitle={`${vm.expiresCountdownLabel(temp.expiresAt)} · anyone with the link`}
+              onCopy={vm.onCopyPublicInvite}
+            />
+          ) : null}
+          {invite ? (
+            <ActiveLinkRow
+              first={!temp}
+              tileClass="bg-[#e5f4ea] dark:bg-emerald-400/15"
+              icon={<ShieldCheck className="h-5 w-5 text-[#2ea44f]" />}
+              title="Invite link"
+              subtitle={`${vm.expiresCountdownLabel(invite.expiresAt)} · one person`}
+              onCopy={vm.onCopyCircleInvite}
+            />
+          ) : null}
+        </div>
+      ) : (
+        <EmptyState
+          title="No active links"
+          description="Create one below to share with someone outside your Circle."
+        />
+      )}
+
+      <Button
+        onClick={onCreateTempLink}
+        className="h-12 w-full rounded-full bg-[#007aff] text-[15px] font-semibold text-white hover:bg-[#007aff]/90"
       >
-        <Button
-          onClick={onCreateTempLink}
-          className="h-11 w-full rounded-full bg-[#007aff] text-sm font-semibold text-white hover:bg-[#007aff]/90"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          Create public location link
-        </Button>
-        <p className="mt-2 text-xs text-muted-foreground">
-          Anyone with the link can view until expiry.
+        <Plus className="mr-2 h-4 w-4" />
+        Create a new link
+      </Button>
+
+      <div className="flex items-start gap-2 px-1">
+        <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-black/40 dark:text-muted-foreground" />
+        <p className="text-[12px] leading-[1.45] text-black/50 dark:text-muted-foreground">
+          Links stop working automatically when they expire. You can revoke any
+          link anytime.
         </p>
-      </SectionCard>
-
-      <SectionCard title="Active public location link">
-        {temp ? (
-          <TemporaryLinkCard
-            title="Public location link active"
-            statusLine="Anyone with this link can view you"
-            expiryLabel={vm.expiresCountdownLabel(temp.expiresAt)}
-            onCopy={vm.onCopyPublicInvite}
-            onShare={vm.onSharePublicInvite}
-            onRevoke={() => vm.onRevokePublicInvite(temp)}
-            revokeBusy={vm.busy === "publicRevoke"}
-          />
-        ) : (
-          <EmptyState
-            title="No active public location link"
-            description="Create one above when you need to share outside your Circle."
-          />
-        )}
-      </SectionCard>
-
-      <SectionCard title="Invite link">
-        {invite ? (
-          <TemporaryLinkCard
-            title="Circle invite link"
-            statusLine="Invite pending approval"
-            expiryLabel={vm.expiresCountdownLabel(invite.expiresAt)}
-            onCopy={vm.onCopyCircleInvite}
-            onShare={vm.onShareCircleInvite}
-            onRevoke={() => vm.onRevokeCircleInvite(invite)}
-            revokeBusy={vm.busy === "circleRevoke"}
-          />
-        ) : (
-          <EmptyState
-            title="No active invite link"
-            description="Invite someone to your Circle from the People tab."
-          />
-        )}
-      </SectionCard>
-
-      <TrustNoteCard
-        title="Safe by default"
-        description="Links auto-expire and can be revoked anytime."
-      />
+      </div>
     </div>
   );
 }
