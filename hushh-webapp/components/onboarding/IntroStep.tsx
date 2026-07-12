@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { HushhWordmark } from "@/components/app-ui/hushh-wordmark";
 import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
 import { Button } from "@/lib/morphy-ux/button";
+import { ROUTES } from "@/lib/navigation/routes";
 
 /* ────────────────────────────────────────────────────────────
  * Welcome ("/"). A living, theme-safe canvas (OnboardingHeroBackground:
@@ -116,6 +118,25 @@ export function IntroStep({
               <span aria-hidden>&rarr;</span>
             </span>
           </Button>
+
+          {/* Public content surfaces — quiet footer links, foundation tokens */}
+          <nav
+            aria-label="Explore Hushh"
+            className="one-reveal mt-4 flex items-center justify-center gap-3 text-[12px] font-medium text-[color:var(--foundation-dim)]"
+            style={{ ["--seq-delay" as string]: "760ms" }}
+          >
+            <Link href={ROUTES.RESEARCH} className="transition-opacity hover:opacity-70">
+              Research &amp; Papers
+            </Link>
+            <span aria-hidden className="opacity-40">&middot;</span>
+            <Link href={ROUTES.BLOG} className="transition-opacity hover:opacity-70">
+              Blog
+            </Link>
+            <span aria-hidden className="opacity-40">&middot;</span>
+            <Link href={ROUTES.DEVELOPERS} className="transition-opacity hover:opacity-70">
+              Developers
+            </Link>
+          </nav>
         </div>
       </div>
     </main>

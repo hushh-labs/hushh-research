@@ -262,7 +262,11 @@ export const Navbar = () => {
     agentWindowOpen ||
     portfolioImportSurfaceActive ||
     pathname?.startsWith(ROUTES.PHONE_MANDATE) ||
-    pathname === ROUTES.DEVELOPERS;
+    pathname === ROUTES.DEVELOPERS ||
+    pathname === ROUTES.RESEARCH ||
+    Boolean(pathname?.startsWith(`${ROUTES.RESEARCH}/`)) ||
+    pathname === ROUTES.BLOG ||
+    Boolean(pathname?.startsWith(`${ROUTES.BLOG}/`));
 
   const navOptions = useMemo<SegmentedPillOption[]>(() => {
     const keys = resolveBottomNavOptionKeys(

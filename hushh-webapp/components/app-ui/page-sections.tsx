@@ -14,6 +14,7 @@ type SectionAccent =
   | "consent"
   | "marketplace"
   | "developers"
+  | "research"
   | "success"
   | "warning"
   | "critical"
@@ -59,6 +60,11 @@ const ACCENT_STYLES: Record<SectionAccent, {
     eyebrow: "text-rose-700 dark:text-rose-300",
     icon: "border border-rose-500/12 bg-rose-500/[0.06] text-rose-700 shadow-[var(--shadow-xs)] dark:border-rose-400/16 dark:bg-rose-400/[0.08] dark:text-rose-200",
     divider: "bg-rose-300/50 dark:bg-rose-400/30",
+  },
+  research: {
+    eyebrow: "text-sky-700 dark:text-sky-300",
+    icon: "border border-sky-500/12 bg-sky-500/[0.06] text-sky-700 shadow-[var(--shadow-xs)] dark:border-sky-400/16 dark:bg-sky-400/[0.08] dark:text-sky-200",
+    divider: "bg-sky-300/50 dark:bg-sky-400/30",
   },
   success: {
     eyebrow: "text-emerald-700 dark:text-emerald-300",
