@@ -2859,8 +2859,7 @@
   },
   {
     "route": "/ria/profile",
-    "mode": "flow",
-    "exemptionReason": "RIA profile uses its existing focused settings surface outside the standard app-page shell.",
+    "mode": "standard",
     "voicePlaybook": {
       "playbookId": "route.ria.profile",
       "purpose": "Help the person understand and use the profile screen through its generated controls.",

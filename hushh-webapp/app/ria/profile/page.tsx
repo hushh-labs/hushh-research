@@ -244,6 +244,7 @@ export default function RiaProfilePage() {
   return (
     <RiaPageShell
       width="reading"
+      className="pb-[calc(var(--app-bottom-fixed-ui,88px)+var(--kai-command-fixed-ui,82px)+9rem)] sm:pb-[calc(var(--app-bottom-fixed-ui,88px)+var(--kai-command-fixed-ui,82px)+10rem)]"
       eyebrow="Advisor"
       title="Your RIA profile"
       description="The profile you built during onboarding. Edit the details investors see."

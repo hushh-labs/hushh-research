@@ -126,6 +126,7 @@ export function OnboardingStepServices({
   onFullStreetAddressChange,
   onPinZipChange,
   onDraftBio,
+  staticMapPreviewSrc,
   validateTick = 0,
 }: {
   servicesOffered: string[];
@@ -145,6 +146,7 @@ export function OnboardingStepServices({
   onFullStreetAddressChange: (value: string) => void;
   onPinZipChange: (value: string) => void;
   onDraftBio: () => void;
+  staticMapPreviewSrc?: string;
   // Incremented by the wizard when the user taps Continue with a required field
   // (services / fees) still empty. Drives scroll-to-field + inline validation.
   validateTick?: number;
@@ -152,9 +154,11 @@ export function OnboardingStepServices({
   const servicesRef = useRef<HTMLDivElement | null>(null);
   const feeRef = useRef<HTMLDivElement | null>(null);
   const [attempted, setAttempted] = useState(false);
+  const [bioEditing, setBioEditing] = useState(false);
 
   const needsService = servicesOffered.length === 0;
   const needsFee = feeStructure.length === 0;
+  const hasBio = bio.trim().length > 0;
 
   useEffect(() => {
     if (!validateTick) return;
@@ -311,14 +315,31 @@ export function OnboardingStepServices({
         <RiaAiActionPill onClick={onDraftBio}>
           Ask Kai to draft a bio
         </RiaAiActionPill>
-        <textarea
-          id="ria-bio"
-          rows={4}
-          value={bio}
-          onChange={(event) => onBioChange(event.target.value)}
-          placeholder="Briefly describe your approach..."
-          className="w-full resize-none rounded-[18px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)] px-[18px] py-4 text-[15px] leading-[1.5] text-[color:var(--ria-ink)] outline-none transition-colors placeholder:text-[color:var(--ria-faint)] focus:border-[color:var(--ria-gold)]"
-        />
+        {hasBio && !bioEditing ? (
+          <button
+            type="button"
+            aria-label="Edit short bio"
+            onClick={() => setBioEditing(true)}
+            className="block w-full rounded-[18px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)] px-[18px] py-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ria-gold)] focus-visible:ring-offset-2"
+          >
+            <span className="block text-[15px] leading-[1.5] text-[color:var(--ria-ink)]">
+              {bio}
+            </span>
+          </button>
+        ) : (
+          <textarea
+            id="ria-bio"
+            rows={4}
+            value={bio}
+            onFocus={() => setBioEditing(true)}
+            onBlur={() => {
+              if (bio.trim()) setBioEditing(false);
+            }}
+            onChange={(event) => onBioChange(event.target.value)}
+            placeholder="Briefly describe your approach..."
+            className="min-h-[122px] w-full resize-none rounded-[18px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)] px-[18px] py-4 text-[15px] leading-[1.5] text-[color:var(--ria-ink)] outline-none transition-colors placeholder:text-[color:var(--ria-faint)] focus:border-[color:var(--ria-gold)]"
+          />
+        )}
       </div>
 
       <div className="space-y-3">
@@ -362,17 +383,25 @@ export function OnboardingStepServices({
           />
         </GroupShell>
 
-        <div className="relative h-28 overflow-hidden rounded-[16px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)]">
-          {mapPreviewSrc ? (
+        <div className="relative overflow-hidden rounded-[16px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)]">
+          {staticMapPreviewSrc ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={staticMapPreviewSrc}
+              alt="Business location map"
+              className="block h-[132px] w-full select-none object-cover object-center"
+              draggable={false}
+            />
+          ) : mapPreviewSrc ? (
             <iframe
               title="Business location map preview"
               src={mapPreviewSrc}
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
-              className="h-full w-full border-0"
+              className="h-[132px] w-full border-0"
             />
           ) : (
-            <div className="flex h-full items-center justify-center gap-2 text-[14px] text-[color:var(--ria-muted)]">
+            <div className="flex h-[132px] items-center justify-center gap-2 text-[14px] text-[color:var(--ria-muted)]">
               <MapPin className="h-4 w-4" />
               <span>Map preview</span>
             </div>

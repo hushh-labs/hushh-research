@@ -3306,7 +3306,7 @@ html.dark .morphy-app-bg {
    RIA surface-scope effect in app/providers.tsx). Because Tailwind v4's
    `@theme inline` aliases color utilities to these runtime vars with NO hsl()
    wrapper, redefining the underlying vars in this descendant scope re-themes
-   every bg-*/text-*/border-* utility AND every token-driven component
+   every bg-, text-, border- utility AND every token-driven component
    (SurfaceCard / RiaSurface / RiaStatusPanel / PageHeader / segmented tabs …)
    to the warm greige + navy ink + gold palette — ONLY inside the RIA sub-agent.
    One and investor personas are byte-identical (attribute unset -> defaults).
@@ -3505,19 +3505,33 @@ body[data-persona-surface="ria"] .ria-secondary:active {
    canvas shows through (kills the cool frosted band). */
 body[data-persona-surface="ria"] {
   --top-bar-h: 56px;
+  --ria-onboarding-cta-bottom-clearance: calc(
+    var(--bottom-chrome-stack-height, var(--app-screen-footer-pad)) + 112px
+  );
 }
 body[data-persona-surface="ria"] .bar-glass-top {
   --app-bar-glass-bg-light: transparent !important;
   --app-bar-glass-bg-dark: transparent !important;
   --app-bar-shadow: none !important;
 }
+body[data-persona-surface="ria"] .bar-glass-bottom {
+  --app-bar-glass-bg-light: rgba(252, 250, 246, 0.9) !important;
+  --app-bar-glass-bg-dark: rgba(28, 26, 23, 0.82) !important;
+  --app-bar-glass-blur: 24px !important;
+  --app-bar-mask-overscan: 48px !important;
+  --app-bar-bottom-fade-strong: rgba(252, 250, 246, 0.98);
+  --app-bar-bottom-fade-medium: rgba(252, 250, 246, 0.92);
+  --app-bar-bottom-fade-soft: rgba(252, 250, 246, 0.72);
+  --app-bar-bottom-fade-trace: rgba(252, 250, 246, 0.3);
+}
 
-/* Bottom nav: transparent floating track + gold active pill (#F6EAD5). */
+/* Bottom nav: warm frosted track + gold active pill (#F6EAD5). */
 body[data-persona-surface="ria"] .kai-bottom-nav-pill {
-  background: transparent !important;
+  background: rgba(252, 250, 246, 0.72) !important;
   border-color: transparent !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
+  box-shadow: 0 18px 42px rgba(62, 48, 30, 0.08) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(145%) !important;
+  backdrop-filter: blur(24px) saturate(145%) !important;
 }
 body[data-persona-surface="ria"] .kai-bottom-nav-pill [data-segment-indicator] {
   background: var(--ria-nav-active) !important;

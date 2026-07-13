@@ -241,8 +241,7 @@ export function buildRiaOnboardingSteps(
       id: "license_details",
       eyebrow: "Verification",
       title: "Verify your details",
-      description:
-        "Review the information prepopulated from the regulator database and correct anything that looks off.",
+      description: "Prefilled — fix what's off.",
     },
     {
       id: "services",
@@ -254,8 +253,7 @@ export function buildRiaOnboardingSteps(
       id: "review",
       eyebrow: "Review",
       title: "Everything correct?",
-      description:
-        "Confirm your details are accurate. Once submitted your profile will go live as pending verification.",
+      description: "Confirm your details before going live.",
     },
   ];
 }

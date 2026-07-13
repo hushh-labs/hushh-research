@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ArrowRight, Loader2, User } from "lucide-react";
+import { ArrowRight, ChevronLeft, Loader2, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { RiaProgress } from "@/components/ria/ui/ria-primitives";
 
@@ -13,10 +13,10 @@ export function OnboardingShell({
   description,
   canContinue,
   saving,
-  isLastStep,
-  advisoryAccessReady,
+  isFirstStep,
   allowInvalidPress = false,
   heroImage,
+  onBack,
   onContinue,
   children,
 }: {
@@ -57,15 +57,31 @@ export function OnboardingShell({
   const isHero = heroImage?.variant === "hero";
   const isAccent = heroImage?.variant === "accent";
   return (
-    <div className="flex w-full flex-col px-4 pb-3 pt-2 sm:px-5 sm:pb-4 sm:pt-3">
-      <div className="mx-auto flex w-full max-w-[43rem] flex-col">
+    <div className="mx-auto flex w-full max-w-[393px] flex-col px-6 pb-0 pt-1">
+      <div className="flex w-full flex-col">
         {/* Progress + step counter share one row (design has no back arrow —
             back/forward is by swipe within the pinned chrome). */}
         <div className="flex items-center gap-[14px] pt-1">
+          {!isFirstStep && onBack ? (
+            <button
+              type="button"
+              aria-label="Go back to previous onboarding step"
+              onClick={onBack}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-transform active:scale-95"
+              style={{
+                background: "var(--card)",
+                borderColor: "var(--ria-divider-outer)",
+                boxShadow: "0 4px 14px rgba(62,48,30,0.05)",
+                color: "var(--ria-muted)",
+              }}
+            >
+              <ChevronLeft className="h-4 w-4" strokeWidth={2.2} />
+            </button>
+          ) : null}
           <RiaProgress
             total={totalSteps}
             currentIndex={currentStepIndex}
-            className="flex-1"
+            className="min-w-0 flex-1"
           />
           <span
             aria-label={`Step ${currentStepIndex + 1} of ${totalSteps}`}
@@ -85,18 +101,28 @@ export function OnboardingShell({
         </span>
 
         {isHero ? (
-          <div className="-mx-4 mt-1.5 flex h-[240px] items-end justify-center sm:-mx-5 sm:h-[298px]">
+          <div
+            className="-mx-6 mt-1.5 flex items-end justify-center"
+            style={{ height: "min(298px, 34dvh)" }}
+          >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={heroImage!.src}
               alt={heroImage!.alt ?? ""}
-              className="h-full w-auto max-w-none select-none object-contain"
+              className="w-auto max-w-none select-none object-contain"
+              style={{ height: "min(302px, 34.5dvh)" }}
               draggable={false}
             />
           </div>
         ) : null}
 
-        <div className={cn("mt-6 space-y-2 sm:mt-7", isAccent && "relative min-h-[196px]")}>
+        <div
+          className={cn(
+            "space-y-2",
+            isHero ? "mt-0" : "mt-[30px]",
+            isAccent && "relative min-h-[196px]",
+          )}
+        >
           {isAccent ? (
             <div
               className="pointer-events-none absolute h-[214px] select-none"
@@ -164,9 +190,9 @@ export function OnboardingShell({
           </p>
         </div>
 
-        <div className="mt-6 sm:mt-7">{children}</div>
+        <div className={cn(isHero ? "mt-[22px]" : "mt-[18px]")}>{children}</div>
 
-        <div className="pb-[calc(var(--bottom-chrome-stack-height,var(--app-screen-footer-pad))+0.75rem)] pt-7 sm:pt-8">
+        <div className="pb-[var(--ria-onboarding-cta-bottom-clearance)] pt-7">
           <button
             type="button"
             disabled={continueDisabled}
@@ -178,11 +204,6 @@ export function OnboardingShell({
           >
             {saving ? (
               <Loader2 className="h-5 w-5 animate-spin" />
-            ) : isLastStep && advisoryAccessReady ? (
-              <>
-                Continue to Dashboard
-                <ArrowRight className="h-4 w-4" />
-              </>
             ) : (
               <>
                 Continue

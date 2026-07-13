@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
@@ -1042,7 +1049,16 @@ export default function RiaOnboardingPage() {
         errorCode={error ? "ria_onboarding" : null}
         errorMessage={error}
       />
-      <FullscreenFlowShell width="reading" className="px-0">
+      <FullscreenFlowShell
+        width="reading"
+        className="px-0"
+        style={
+          {
+            "--app-fullscreen-flow-content-offset":
+              "var(--top-shell-reserved-height)",
+          } as CSSProperties
+        }
+      >
         <OnboardingShell
           currentStepIndex={currentStepIndex}
           totalSteps={steps.length}

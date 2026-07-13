@@ -43,7 +43,7 @@ export function OnboardingStepWelcome({
             type="button"
             aria-pressed={selected}
             onClick={() => onSelect(option.value)}
-            className="relative flex items-center gap-[14px] rounded-[22px] p-4 text-left transition-transform active:scale-[0.995]"
+            className="relative flex min-h-[98px] items-center gap-[14px] rounded-[22px] p-4 text-left transition-transform active:scale-[0.995]"
             style={
               selected
                 ? {

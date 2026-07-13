@@ -7,6 +7,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
+import styles from "./OnboardingHeroBackground.module.css";
 
 // A few deterministic motes so SSR/CSR match. Sparse, slow, barely-there.
 const MOTES = Array.from({ length: 5 }, (_, i) => {
@@ -27,19 +28,19 @@ export function OnboardingHeroBackground() {
   return (
     <div
       aria-hidden
-      className="pointer-events-none absolute inset-0 overflow-hidden"
+      className={styles.root}
     >
       {/* Base wash. One neutral Foundation surface keeps attention on One,
           rather than introducing coloured edge bands around the composition. */}
-      <div className="absolute inset-0 bg-[#FCF9F2] dark:bg-[#100D0A]" />
+      <div className={styles.base} />
 
       {/* Drifting motes are the only movement: they preserve calm and avoid
           colour shifts behind the brand, content, and navigation. */}
-      <div className="absolute inset-0 text-[#B8894D] dark:text-[#E7C078]">
+      <div className={styles.moteLayer}>
         {MOTES.map((p, i) => (
           <span
             key={i}
-            className="one-mote"
+            className={styles.mote}
             style={
               {
                 left: p.left,
@@ -56,7 +57,7 @@ export function OnboardingHeroBackground() {
       </div>
 
       {/* Fine film grain across the whole canvas so it never looks flat. */}
-      <div className="one-grain absolute inset-0" />
+      <div className={styles.grain} />
     </div>
   );
 }

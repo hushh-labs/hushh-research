@@ -352,7 +352,12 @@ export const Navbar = () => {
     // `agentWindowOpen` is included so the pill is re-measured when the navbar
     // remounts after the agent window closes (otherwise --app-bottom-fixed-ui
     // stays stale and the agent bar overlaps the nav).
-  }, [agentWindowOpen, isAuthenticated, navOptions.length, useOnboardingChrome]);
+  }, [
+    agentWindowOpen,
+    isAuthenticated,
+    navOptions.length,
+    useOnboardingChrome,
+  ]);
 
   const bottomNavMaxWidth =
     navOptions.length > 0 ? resolveBottomNavMaxWidth(navOptions.length) : "0px";
@@ -503,7 +508,7 @@ export const Navbar = () => {
             "pointer-events-auto relative z-20 inline-flex h-[52px] w-[52px] shrink-0 self-center items-center justify-center overflow-hidden rounded-full",
             "kai-bottom-search-action",
             // RIA: soft greige search circle (#F5F2EC) per the mockup.
-            isRiaChrome && "bg-[color:var(--ria-selected-tint)]",
+            isRiaChrome && "h-[54px] w-[54px] bg-[color:var(--ria-selected-tint)]",
             "transition-[color,transform,background-color] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)]",
             // Hover styles behind (hover:hover) so iOS taps never latch a
             // sticky hover background on the first touch.
