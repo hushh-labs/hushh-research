@@ -4343,9 +4343,11 @@ export function OneLocationAgentPageContent({
   // requester can watch the helper approaching their pickup point in real time.
   const handleImOnMyWay = useCallback(
     async (grant: OneLocationGrant) => {
-      const helperUserId = String(grant.ownerUserId || "").trim();
+      // grant.ownerUserId is the REQUESTER (who asked for the pickup); we (the
+      // helper) share our live drive to their pickup point.
+      const requesterUserId = String(grant.ownerUserId || "").trim();
       const point = decryptedPoints[grant.id];
-      if (!helperUserId || !point) {
+      if (!requesterUserId || !point) {
         toast.error("Can't start yet — open their pickup first.");
         return;
       }
@@ -4354,7 +4356,7 @@ export function OneLocationAgentPageContent({
         latitude: point.latitude,
         longitude: point.longitude,
       };
-      await handleDriveTo(destination, [helperUserId], "4", "pickup_enroute");
+      await handleDriveTo(destination, [requesterUserId], "4", "pickup_enroute");
     },
     [decryptedPoints, handleDriveTo],
   );
