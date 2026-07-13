@@ -57,6 +57,7 @@ import {
   type MarketplaceRia,
   type RiaClientAccess,
 } from "@/lib/services/ria-service";
+import { RIA_COPY } from "@/lib/ria/ria-screen-copy";
 import { cn } from "@/lib/utils";
 
 type DiscoveryView = "swipe" | "list";
@@ -104,10 +105,12 @@ function ProfileAvatar({
   kind,
   label,
   className,
+  riaSurface = false,
 }: {
   kind: "ria" | "investor";
   label: string;
   className?: string;
+  riaSurface?: boolean;
 }) {
   const Icon = kind === "ria" ? Building2 : UserRound;
   const initials = label
@@ -121,14 +124,25 @@ function ProfileAvatar({
     <div
       className={cn(
         "flex h-14 w-14 items-center justify-center rounded-[20px] border shadow-[0_20px_50px_-34px_rgba(15,23,42,0.28)]",
-        kind === "ria"
+        riaSurface
+          ? "border-[color:var(--foundation-accent-border)] bg-[radial-gradient(circle_at_top,rgba(201,139,46,0.16),transparent_58%),linear-gradient(180deg,rgba(255,253,249,0.98),rgba(248,241,229,0.88))]"
+          : kind === "ria"
           ? "border-accent-border bg-[radial-gradient(circle_at_top,rgba(212,165,116,0.18),transparent_58%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.92))]"
           : "border-emerald-500/15 bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.16),transparent_58%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.92))]",
         className
       )}
     >
       <div className="flex flex-col items-center justify-center gap-1">
-        <Icon className={cn("h-4 w-4", kind === "ria" ? "text-accent-strong" : "text-emerald-700")} />
+        <Icon
+          className={cn(
+            "h-4 w-4",
+            riaSurface
+              ? "text-[color:var(--ria-gold)]"
+              : kind === "ria"
+                ? "text-accent-strong"
+                : "text-emerald-700"
+          )}
+        />
         <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground/72">
           {initials || (kind === "ria" ? "RIA" : "INV")}
         </span>
@@ -183,6 +197,7 @@ export default function MarketplacePage() {
   const kaiTestUserId = getKaiTestUserId();
   const currentPersona =
     personaState?.active_persona || personaState?.last_active_persona || "investor";
+  const isRiaConnectSurface = currentPersona === "ria";
   const directoryKind = currentPersona === "ria" ? "investors" : "rias";
   const searchPlaceholder = "Search people by name, advisor, or investor";
 
@@ -669,13 +684,11 @@ export default function MarketplacePage() {
         kind: "ria" as const,
         title: ria.display_name,
         headline: ria.headline || "Advisor profile available",
-        summary:
-          ria.strategy_summary ||
-          "Explore public fit cues first, then open the profile sheet before you connect.",
+        summary: ria.strategy_summary || RIA_COPY.connect.summaryFallback,
         metaLine:
           Array.isArray(ria.firms) && ria.firms.length > 0
             ? ria.firms.map((firm) => firm.legal_name).join(" • ")
-            : "Public advisory profile",
+            : RIA_COPY.connect.publicProfile,
         canConnect,
         isTestProfile: false,
         verificationStatus: ria.verification_status,
@@ -1089,17 +1102,21 @@ export default function MarketplacePage() {
     >
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow="SEBI-registered network"
-          title="Connect"
-          description="Find a registered advisor. Connect with consent."
+          eyebrow={RIA_COPY.connect.eyebrow}
+          title={RIA_COPY.connect.title}
+          description={RIA_COPY.connect.description}
           icon={Compass}
-          accent="marketplace"
+          accent={isRiaConnectSurface ? "ria" : "marketplace"}
           actions={
             <Button
               variant="none"
               effect="fade"
               size="sm"
-              className="rounded-full bg-card px-3 shadow-[var(--app-card-shadow-standard)]"
+              className={cn(
+                "rounded-full bg-card px-3 shadow-[var(--app-card-shadow-standard)]",
+                isRiaConnectSurface &&
+                  "border border-[color:var(--ria-divider-outer)] text-[color:var(--ria-ink)]"
+              )}
               onClick={() => router.push(connectionsRoute)}
             >
               Connections
@@ -1116,7 +1133,10 @@ export default function MarketplacePage() {
                 type="button"
                 className={cn(
                   "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95",
-                  searchOpen && "bg-primary/10 text-primary"
+                  searchOpen &&
+                    (isRiaConnectSurface
+                      ? "bg-[color:var(--ria-nav-active)] text-[color:var(--ria-gold-deep)]"
+                      : "bg-primary/10 text-primary")
                 )}
                 aria-label="Toggle search"
                 onClick={() => setSearchOpen((current) => !current)}
@@ -1148,7 +1168,10 @@ export default function MarketplacePage() {
                 type="button"
                 className={cn(
                   "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95",
-                  view === "swipe" && "bg-primary/10 text-primary"
+                  view === "swipe" &&
+                    (isRiaConnectSurface
+                      ? "bg-[color:var(--ria-nav-active)] text-[color:var(--ria-gold-deep)]"
+                      : "bg-primary/10 text-primary")
                 )}
                 aria-label="Swipe view"
                 onClick={() => setView("swipe")}
@@ -1159,7 +1182,10 @@ export default function MarketplacePage() {
                 type="button"
                 className={cn(
                   "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95",
-                  view === "list" && "bg-primary/10 text-primary"
+                  view === "list" &&
+                    (isRiaConnectSurface
+                      ? "bg-[color:var(--ria-nav-active)] text-[color:var(--ria-gold-deep)]"
+                      : "bg-primary/10 text-primary")
                 )}
                 aria-label="List view"
                 onClick={() => setView("list")}
@@ -1227,6 +1253,7 @@ export default function MarketplacePage() {
                     kind={match.kind}
                     label={match.display_name}
                     className="h-11 w-11 rounded-2xl"
+                    riaSurface={isRiaConnectSurface}
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block line-clamp-1 text-sm font-medium text-foreground">
@@ -1278,7 +1305,12 @@ export default function MarketplacePage() {
                 >
                   <div className="space-y-5">
                     <div className="flex items-center gap-4">
-                      <ProfileAvatar kind={swipeCard.kind} label={swipeCard.title} className="h-20 w-20 shrink-0 rounded-[24px]" />
+                      <ProfileAvatar
+                        kind={swipeCard.kind}
+                        label={swipeCard.title}
+                        className="h-20 w-20 shrink-0 rounded-[24px]"
+                        riaSurface={isRiaConnectSurface}
+                      />
                       <div className="min-w-0 space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <h3 className="text-[22px] font-semibold leading-tight tracking-normal text-foreground sm:text-[24px]">
@@ -1377,12 +1409,12 @@ export default function MarketplacePage() {
           ) : (
             <div className="flex flex-col items-center justify-center gap-4 px-6 py-14 text-center">
               <h3 className="text-[18px] font-semibold leading-tight tracking-normal text-foreground">
-                {investorDeckComplete ? "Deck complete" : "That&apos;s everyone for now"}
+                {investorDeckComplete ? "Deck complete" : RIA_COPY.connect.deckComplete.title}
               </h3>
               <p className="max-w-xl text-sm leading-6 text-muted-foreground">
                 {investorDeckComplete
-                  ? `You handled every eligible investor in this deck. ${investorSavedLeadCount} saved lead${investorSavedLeadCount === 1 ? "" : "s"} remain in your shortlist.`
-                  : `You've browsed through all available ${directoryKind === "rias" ? "advisors" : "investors"} in this session. New profiles appear as more people join the marketplace.`}
+                  ? `Deck cleared. ${investorSavedLeadCount} saved lead${investorSavedLeadCount === 1 ? "" : "s"} in your shortlist.`
+                  : RIA_COPY.connect.deckComplete.description}
               </p>
               {directoryKind === "investors" && investorDeckMeta ? (
                 <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
@@ -1417,7 +1449,11 @@ export default function MarketplacePage() {
                 className="flex h-full min-h-[286px] flex-col gap-4 rounded-[28px] p-4 sm:p-5"
               >
                 <div className="flex items-start gap-4">
-                  <ProfileAvatar kind={item.kind} label={item.title} />
+                  <ProfileAvatar
+                    kind={item.kind}
+                    label={item.title}
+                    riaSurface={isRiaConnectSurface}
+                  />
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-[15.5px] font-medium leading-[1.24] tracking-normal text-foreground sm:text-[16px]">
@@ -1516,10 +1552,8 @@ export default function MarketplacePage() {
         }
         description={
           selectedProfile?.kind === "ria"
-            ? selectedAdvisor?.headline ||
-              "Review this advisor profile before you decide whether to connect."
-            : selectedInvestor?.headline ||
-              "Review this investor profile before you decide whether to connect."
+            ? selectedAdvisor?.headline || RIA_COPY.connect.detail.description
+            : selectedInvestor?.headline || RIA_COPY.connect.detail.description
         }
       >
         <div className="space-y-4">
@@ -1535,7 +1569,12 @@ export default function MarketplacePage() {
           {selectedProfile?.kind === "ria" && selectedAdvisor ? (
             <>
               <div className="flex items-start gap-4">
-                <ProfileAvatar kind="ria" label={selectedAdvisor.display_name} className="h-16 w-16" />
+                <ProfileAvatar
+                  kind="ria"
+                  label={selectedAdvisor.display_name}
+                  className="h-16 w-16"
+                  riaSurface={isRiaConnectSurface}
+                />
                 <div className="space-y-2">
                   {selectedInjectedRia ? (
                     <span className="inline-flex rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-700">
@@ -1556,7 +1595,7 @@ export default function MarketplacePage() {
                   {selectedAdvisor.strategy_summary ||
                     selectedAdvisor.strategy ||
                     selectedAdvisor.bio ||
-                    "No public strategy summary is available yet."}
+                    RIA_COPY.connect.detail.strategyEmpty}
                 </p>
               </RiaSurface>
 
@@ -1599,7 +1638,12 @@ export default function MarketplacePage() {
           {selectedProfile?.kind === "investor" && selectedInvestor ? (
             <>
               <div className="flex items-start gap-4">
-                <ProfileAvatar kind="investor" label={selectedInvestor.display_name} className="h-16 w-16" />
+                <ProfileAvatar
+                  kind="investor"
+                  label={selectedInvestor.display_name}
+                  className="h-16 w-16"
+                  riaSurface={isRiaConnectSurface}
+                />
                 <div className="space-y-2">
                   {selectedInvestorIsTest ? (
                     <span className="inline-flex rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-700">

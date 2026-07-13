@@ -18,6 +18,7 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
 import { ROUTES } from "@/lib/navigation/routes";
 import { InlineLoadingState } from "@/components/app-ui/inline-loading-state";
 import { RIA_TONE_BADGE, RIA_TONE_SURFACE } from "@/lib/ria/ria-tone";
+import { RIA_COPY } from "@/lib/ria/ria-screen-copy";
 import { cn } from "@/lib/utils";
 
 type HeroTone = "neutral" | "warning" | "success" | "critical";
@@ -25,36 +26,17 @@ type HeroTone = "neutral" | "warning" | "success" | "critical";
 const EMPTY_QUEUE_ITEMS: RiaHomeResponse["needs_attention"] = [];
 
 function verificationState(status?: string | null) {
+  const copy = RIA_COPY.home.verification;
   switch (status) {
     case "active":
     case "verified":
-      return {
-        label: "Ready",
-        title: "Your advisor workspace is ready.",
-        description: "Relationships, picks, and investor requests can move without extra setup.",
-        tone: "success" as HeroTone,
-      };
+      return { ...copy.active, tone: "success" as HeroTone };
     case "submitted":
-      return {
-        label: "In review",
-        title: "Verification is still moving.",
-        description: "The workflow stays readable while trust checks finish in the background.",
-        tone: "warning" as HeroTone,
-      };
+      return { ...copy.submitted, tone: "warning" as HeroTone };
     case "rejected":
-      return {
-        label: "Needs update",
-        title: "A few trust details need another pass.",
-        description: "Refresh the profile so investor access and advisor sharing can continue cleanly.",
-        tone: "critical" as HeroTone,
-      };
+      return { ...copy.rejected, tone: "critical" as HeroTone };
     default:
-      return {
-        label: "Draft",
-        title: "Finish the advisor setup once.",
-        description: "After that, the rest of the RIA workflow stays in the background.",
-        tone: "neutral" as HeroTone,
-      };
+      return { ...copy.draft, tone: "neutral" as HeroTone };
   }
 }
 
@@ -264,9 +246,9 @@ export default function RiaHomePage() {
   return (
     <RiaPageShell
       width="expanded"
-      eyebrow="RIA Home"
-      title="Trusted advisor ops"
-      description="See readiness, what needs attention, and where to go next without scanning a settings wall."
+      eyebrow={RIA_COPY.home.eyebrow}
+      title={RIA_COPY.home.title}
+      description={RIA_COPY.home.description}
       icon={BriefcaseBusiness}
       nativeTest={{
         routeId: "/ria",
@@ -305,30 +287,30 @@ export default function RiaHomePage() {
 
             <div className="grid gap-px overflow-hidden rounded-[22px] bg-border/60 sm:grid-cols-2 md:grid-cols-3 [&>*:last-child:nth-child(2n+1)]:sm:col-span-2 [&>*:last-child:nth-child(2n+1)]:md:col-span-1">
               <SummaryCell
-                label="Relationships"
+                label={RIA_COPY.home.summary.relationships.label}
                 value={String(activeClients)}
                 helper={
                   activeClients > 0
-                    ? "Investor connections with an active relationship."
-                    : "No client relationships are active yet."
+                    ? RIA_COPY.home.summary.relationships.has
+                    : RIA_COPY.home.summary.relationships.empty
                 }
               />
               <SummaryCell
-                label="Priority queue"
+                label={RIA_COPY.home.summary.priority.label}
                 value={String(needsAttention)}
                 helper={
                   needsAttention > 0
-                    ? "Only the next real decisions stay visible here."
-                    : "Home stays quiet until something truly needs action."
+                    ? RIA_COPY.home.summary.priority.has
+                    : RIA_COPY.home.summary.priority.empty
                 }
               />
               <SummaryCell
-                label="Open invites"
+                label={RIA_COPY.home.summary.invites.label}
                 value={String(inviteCount)}
                 helper={
                   inviteCount > 0
-                    ? "Private links still waiting for investor response."
-                    : "No invites are currently hanging in flight."
+                    ? RIA_COPY.home.summary.invites.has
+                    : RIA_COPY.home.summary.invites.empty
                 }
               />
             </div>
@@ -338,8 +320,8 @@ export default function RiaHomePage() {
     >
       {iamUnavailable ? (
         <RiaCompatibilityState
-          title="RIA home is waiting on the IAM rollout"
-          description="This environment still needs the IAM schema before advisor readiness and relationship data can load cleanly."
+          title={RIA_COPY.home.iam.title}
+          description={RIA_COPY.home.iam.description}
         />
       ) : null}
 
@@ -349,11 +331,10 @@ export default function RiaHomePage() {
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1">
                 <p className="text-sm font-semibold tracking-tight text-foreground">
-                  Priority queue
+                  {RIA_COPY.home.queue.heading}
                 </p>
                 <p className="text-sm leading-6 text-muted-foreground">
-                  Relationships, approvals, and invites only appear here when they still need a
-                  real move from you.
+                  {RIA_COPY.home.queue.description}
                 </p>
               </div>
               <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/55 bg-background/70 text-muted-foreground">
@@ -363,13 +344,12 @@ export default function RiaHomePage() {
 
             <div className="overflow-hidden rounded-[20px] border border-border/60 bg-background/70">
               {homeResource.loading && !homeResource.data ? (
-                <InlineLoadingState label="Pulling readiness, relationships, and picks state." />
+                <InlineLoadingState label={RIA_COPY.home.queue.loading} />
               ) : null}
 
               {!homeResource.loading && queueItems.length === 0 ? (
                 <div className="px-4 py-5 text-sm text-muted-foreground">
-                  Nothing urgent right now. When a relationship, consent request, or invite needs
-                  the next move, it will land here.
+                  {RIA_COPY.home.queue.empty}
                 </div>
               ) : null}
 
@@ -392,7 +372,7 @@ export default function RiaHomePage() {
                       </Badge>
                     </div>
                     <p className="text-sm leading-6 text-muted-foreground">
-                      {item.subtitle || item.next_action || "Review the next step."}
+                      {item.subtitle || item.next_action || RIA_COPY.home.queue.itemFallback}
                     </p>
                   </div>
                   <Link

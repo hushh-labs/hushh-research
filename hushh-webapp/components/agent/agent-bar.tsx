@@ -46,6 +46,7 @@ import {
   ROUTES,
   isFoundationPublicRoute,
   isOneSetupRoute,
+  isRiaRoute,
 } from "@/lib/navigation/routes";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { usePersonaState } from "@/lib/persona/persona-context";
@@ -199,7 +200,7 @@ export function AgentBar() {
   const { user } = useAuth();
   const { resolvedTheme, setTheme } = useTheme();
   const { vaultOwnerToken } = useVault();
-  const { switchPersona, activePersona } = usePersonaState();
+  const { switchPersona } = usePersonaState();
   const busyOperations = useKaiSession((state) => state.busyOperations);
   const setAnalysisParams = useKaiSession((state) => state.setAnalysisParams);
   const appendMirrorEvent = useOneConversationSession(
@@ -927,7 +928,9 @@ export function AgentBar() {
   const { progress: hideBottomChromeProgress } =
     useKaiBottomChromeVisibility(allowScrollHide);
   // RIA sub-agent = Apple-style ALWAYS-PINNED ask-bar (matches the pinned nav).
-  const isRiaChrome = activePersona === "ria";
+  // This is route-scoped, not persona-scoped: /one must keep the build-48
+  // shared ask bar even if the last active persona is RIA.
+  const isRiaChrome = isRiaRoute(pathname ?? "");
 
   const hint = useMemo(() => resolveAgentBarHint(pathname), [pathname]);
 

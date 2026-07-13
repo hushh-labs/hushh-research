@@ -31,6 +31,8 @@ describe("Navbar bottom chrome contract", () => {
     expect(agentBar).toContain('data-native-voice-control-id="one_voice_agent_bar_start"');
     expect(agentBar).toContain('onClick={handleVoiceStartClick}');
     expect(agentBar).toContain('aria-label="Start conversation"');
+    expect(agentBar).toContain('const isRiaChrome = isRiaRoute(pathname ?? "")');
+    expect(agentBar).not.toContain('const isRiaChrome = activePersona === "ria"');
     expect(agentBar).not.toContain('aria-label="Talk to your agent"');
     expect(agentBar).not.toContain("<Mic");
   });
