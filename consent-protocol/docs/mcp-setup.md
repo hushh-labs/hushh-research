@@ -36,7 +36,7 @@ Hussh MCP supports three runtime shapes:
 
 The public promoted environment is **UAT**:
 
-- app workspace: `https://uat.kai.hushh.ai/developers`
+- app workspace: `https://uat.one.hushh.ai/developers`
 - API origin: `https://api.uat.hushh.ai`
 - MCP endpoint: `https://api.uat.hushh.ai/mcp/`
 

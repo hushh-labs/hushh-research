@@ -23,7 +23,7 @@ describe("VaultMethodPromptLocalService", () => {
     await VaultMethodPromptLocalService.dismiss(
       "uid-1",
       "generated_default_native_passkey_prf",
-      "kai.hushh.ai"
+      "one.hushh.ai"
     );
 
     expect(setMock).toHaveBeenCalledWith(

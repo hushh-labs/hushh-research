@@ -19,16 +19,16 @@ describe("developer runtime resolution", () => {
     delete process.env.NEXT_PUBLIC_DEVELOPER_MCP_URL;
   });
 
-  it("renders UAT public snippets from uat.kai.hushh.ai even when backend env points at Cloud Run", async () => {
+  it("renders UAT public snippets from uat.one.hushh.ai even when backend env points at Cloud Run", async () => {
     process.env.NEXT_PUBLIC_BACKEND_URL =
       "https://consent-protocol-uat-a1b2c3-uc.a.run.app";
 
     const { resolveDeveloperRuntime } = await loadRuntime();
-    const runtime = resolveDeveloperRuntime("https://uat.kai.hushh.ai");
+    const runtime = resolveDeveloperRuntime("https://uat.one.hushh.ai");
 
     expect(runtime.environment).toBe("uat");
     expect(runtime.environmentLabel).toBe("UAT");
-    expect(runtime.appUrl).toBe("https://uat.kai.hushh.ai");
+    expect(runtime.appUrl).toBe("https://uat.one.hushh.ai");
     expect(runtime.apiOrigin).toBe("https://api.uat.hushh.ai");
     expect(runtime.apiBaseUrl).toBe("https://api.uat.hushh.ai/api/v1");
     expect(runtime.mcpUrl).toBe("https://api.uat.hushh.ai/mcp/");
@@ -53,7 +53,7 @@ describe("developer runtime resolution", () => {
     process.env.NEXT_PUBLIC_DEVELOPER_API_URL = "https://developer-api.example.com";
 
     const { resolveDeveloperRuntime } = await loadRuntime();
-    const runtime = resolveDeveloperRuntime("https://kai.hushh.ai");
+    const runtime = resolveDeveloperRuntime("https://one.hushh.ai");
 
     expect(runtime.environment).toBe("production");
     expect(runtime.apiOrigin).toBe("https://developer-api.example.com");
@@ -64,7 +64,7 @@ describe("developer runtime resolution", () => {
     process.env.NEXT_PUBLIC_DEVELOPER_MCP_URL = "https://mcp.example.com/custom-mount";
 
     const { resolveDeveloperRuntime } = await loadRuntime();
-    const runtime = resolveDeveloperRuntime("https://uat.kai.hushh.ai");
+    const runtime = resolveDeveloperRuntime("https://uat.one.hushh.ai");
 
     expect(runtime.mcpUrl).toBe("https://mcp.example.com/custom-mount/");
     expect(runtime.remoteMcpUrlTemplate).toBe(

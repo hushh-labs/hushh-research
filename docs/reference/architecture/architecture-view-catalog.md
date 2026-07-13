@@ -454,7 +454,7 @@ flowchart TB
     uatRegion["Region<br/>us-central1"]
     uatFrontend["Cloud Run service<br/>hushh-webapp"]
     uatBackend["Cloud Run service<br/>consent-protocol"]
-    uatApp["App origin<br/>https://uat.kai.hushh.ai"]
+    uatApp["App origin<br/>https://uat.one.hushh.ai"]
     uatApi["API origin<br/>https://api.uat.hushh.ai"]
     uatMcp["Remote MCP<br/>/mcp/ trailing-slash endpoint"]
     uatDb["UAT Cloud SQL / Postgres path<br/>hushh-uat-pg via governed workflow"]
@@ -465,7 +465,7 @@ flowchart TB
     prodRegion["Region<br/>us-central1"]
     prodFrontend["Cloud Run service<br/>hushh-webapp"]
     prodBackend["Cloud Run service<br/>consent-protocol"]
-    prodApp["App origin<br/>https://kai.hushh.ai"]
+    prodApp["App origin<br/>https://one.hushh.ai"]
     prodBackup["Production logical backup posture<br/>Cloud Run Job + storage bucket"]
     prodDb["Production Supabase/Postgres path<br/>runtime DB_* contract"]
   end

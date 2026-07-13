@@ -35,7 +35,7 @@ describe("passkey RP resolution", () => {
       hostname: "localhost",
     });
 
-    expect(rpId).toBe("kai.hushh.ai");
+    expect(rpId).toBe("one.hushh.ai");
   });
 
   it("uses runtime hostname on web and normalizes 127.0.0.1", () => {
@@ -51,13 +51,13 @@ describe("passkey RP resolution", () => {
   });
 
   it("uses the explicit shared RP on UAT web when configured", () => {
-    process.env.NEXT_PUBLIC_PASSKEY_RP_ID = "kai.hushh.ai";
+    process.env.NEXT_PUBLIC_PASSKEY_RP_ID = "one.hushh.ai";
 
     const rpId = resolvePasskeyRpId({
       isNative: false,
-      hostname: "uat.kai.hushh.ai",
+      hostname: "uat.one.hushh.ai",
     });
 
-    expect(rpId).toBe("kai.hushh.ai");
+    expect(rpId).toBe("one.hushh.ai");
   });
 });

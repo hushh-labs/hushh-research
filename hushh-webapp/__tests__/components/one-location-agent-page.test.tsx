@@ -973,7 +973,7 @@ describe("OneLocationAgentPage", () => {
 
   it("tracks public location link creation without analytics identity payloads", async () => {
     const longPublicUrl =
-      "https://uat.kai.hushh.ai/one/location/request/aQluqHFAdgETh91oLTmG6o7v8A6TAB7PmZjrOJwPcIA";
+      "https://uat.one.hushh.ai/one/location/request/aQluqHFAdgETh91oLTmG6o7v8A6TAB7PmZjrOJwPcIA";
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],

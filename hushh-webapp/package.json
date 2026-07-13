@@ -34,7 +34,7 @@
     "verify:capacitor:reports": "node ./scripts/native/verify-native-parity-reports.mjs",
     "verify:capacitor:audit": "node ./scripts/native/verify-capacitor-audit.mjs",
     "verify:routes": "node ./scripts/testing/verify-signed-in-routes.mjs",
-    "verify:routes:uat": "HUSHH_APP_ORIGIN=https://uat.kai.hushh.ai HUSHH_VIEWPORT_FILTER=phone node ./scripts/testing/verify-signed-in-routes.mjs",
+    "verify:routes:uat": "HUSHH_APP_ORIGIN=https://uat.one.hushh.ai HUSHH_VIEWPORT_FILTER=phone node ./scripts/testing/verify-signed-in-routes.mjs",
     "e2e:kai-import:uat": "node ./scripts/testing/run-kai-import-e2e.mjs",
     "ios:ui:test": "node ./scripts/native/ios-ui-interaction-audit.mjs",
     "android:ui:test": "node ./scripts/native/android-ui-interaction-audit.mjs",

@@ -78,7 +78,7 @@ describe("DeveloperDocsHub", () => {
   });
 
   it("renders Remote MCP as the primary UAT onboarding path without Cloud Run snippet leakage", async () => {
-    render(<DeveloperDocsHub initialOrigin="https://uat.kai.hushh.ai" />);
+    render(<DeveloperDocsHub initialOrigin="https://uat.one.hushh.ai" />);
 
     await waitFor(() => {
       expect(screen.getByText("API root ready")).toBeTruthy();

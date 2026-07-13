@@ -5,7 +5,7 @@
   "tokenEnvVar": "HUSHH_DEVELOPER_TOKEN",
   "promotedEnvironment": {
     "label": "UAT",
-    "appUrl": "https://uat.kai.hushh.ai",
+    "appUrl": "https://uat.one.hushh.ai",
     "apiOrigin": "https://api.uat.hushh.ai",
     "mcpUrl": "https://api.uat.hushh.ai/mcp",
     "remoteUrlTemplate": "https://api.uat.hushh.ai/mcp/"

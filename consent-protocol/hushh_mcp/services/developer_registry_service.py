@@ -353,7 +353,7 @@ class DeveloperRegistryService:
         if email:
             return email.lower()
         fallback_uid = cls._slugify(owner_firebase_uid, fallback="developer")
-        return f"{fallback_uid}@users.kai.hushh.ai"
+        return f"{fallback_uid}@users.one.hushh.ai"
 
     @classmethod
     def _default_display_name(cls, owner_display_name: str | None, owner_email: str | None) -> str:

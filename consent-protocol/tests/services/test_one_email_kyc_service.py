@@ -777,7 +777,7 @@ async def test_duplicate_message_repairs_legacy_consent_url():
         "metadata": {
             "source": "one_email_kyc_v1",
             "consent_request_url": (
-                "https://uat.kai.hushh.ai/profile?tab=privacy&sheet=consents"
+                "https://uat.one.hushh.ai/profile?tab=privacy&sheet=consents"
                 f"&consentView=pending&requestId={request_id}"
             ),
         },

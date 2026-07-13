@@ -24,8 +24,8 @@ It does not enable live trading.
 Register the full callback path in Plaid Dashboard:
 
 - `http://localhost:3000/kai/plaid/oauth/return`
-- `https://uat.kai.hushh.ai/kai/plaid/oauth/return`
-- `https://kai.hushh.ai/kai/plaid/oauth/return`
+- `https://uat.one.hushh.ai/kai/plaid/oauth/return`
+- `https://one.hushh.ai/kai/plaid/oauth/return`
 
 Plaid requires the full absolute URI, not just the domain.
 
@@ -50,8 +50,8 @@ Set these in the backend runtime profile:
 Webhook values to use:
 
 - local active stack: `https://<your-current-tunnel>/api/kai/plaid/webhook`
-- UAT: `https://uat.kai.hushh.ai/api/kai/plaid/webhook`
-- production: `https://kai.hushh.ai/api/kai/plaid/webhook`
+- UAT: `https://uat.one.hushh.ai/api/kai/plaid/webhook`
+- production: `https://one.hushh.ai/api/kai/plaid/webhook`
 
 `PLAID_WEBHOOK_URL` is the exact value that must be added to the backend env. It is not relative, and it is not allowlisted in the Plaid dashboard.
 
@@ -71,13 +71,13 @@ Example webhook target:
 
 Use:
 
-- UAT: `https://uat.kai.hushh.ai`
-- Prod-like: `https://kai.hushh.ai`
+- UAT: `https://uat.one.hushh.ai`
+- Prod-like: `https://one.hushh.ai`
 
 Hosted webhook targets:
 
-- `https://uat.kai.hushh.ai/api/kai/plaid/webhook`
-- `https://kai.hushh.ai/api/kai/plaid/webhook`
+- `https://uat.one.hushh.ai/api/kai/plaid/webhook`
+- `https://one.hushh.ai/api/kai/plaid/webhook`
 
 Backend must use the matching `APP_FRONTEND_ORIGIN` for each profile so the callback origin validation succeeds.
 
@@ -86,7 +86,7 @@ Backend must use the matching `APP_FRONTEND_ORIGIN` for each profile so the call
 1. Apply `consent-protocol/db/migrations/023_kai_plaid_portfolio.sql`.
 2. Set `PLAID_WEBHOOK_URL` for the active backend:
    - localhost/local: your current tunnel URL ending in `/api/kai/plaid/webhook`
-   - UAT: `https://uat.kai.hushh.ai/api/kai/plaid/webhook`
+   - UAT: `https://uat.one.hushh.ai/api/kai/plaid/webhook`
 3. Set a stable `PLAID_ACCESS_TOKEN_KEY`.
 4. Restart the backend so the new Plaid env values load.
 5. Start the frontend on the matching origin.
