@@ -228,7 +228,7 @@ describe("One-Location native notification routing", () => {
     expect(
       resolveOneLocationNotificationHref({
         request_url:
-          "https://uat.kai.hushh.ai/one/location?requestId=req_1&section=approvals",
+          "https://uat.one.hushh.ai/one/location?requestId=req_1&section=approvals",
       }),
     ).toBe("/one/location?requestId=req_1&section=approvals");
   });

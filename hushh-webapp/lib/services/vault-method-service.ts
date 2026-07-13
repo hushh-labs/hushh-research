@@ -37,7 +37,7 @@ function normalizeVaultMethodError(error: unknown): Error {
     lowered.includes("rp id is not allowed")
   ) {
     return new Error(
-      "This passkey was enrolled under an older domain. Use passphrase once, then enroll passkey again for kai.hushh.ai.",
+      "This passkey was enrolled under an older domain. Use passphrase once, then enroll passkey again for one.hushh.ai.",
     );
   }
 

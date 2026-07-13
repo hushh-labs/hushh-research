@@ -27,24 +27,24 @@ def _clear_plaid_env(monkeypatch) -> None:
 
 def test_from_env_ignores_placeholder_webhook_and_derives_from_https_frontend(monkeypatch):
     _clear_plaid_env(monkeypatch)
-    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://kai.hushh.ai")
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://one.hushh.ai")
     monkeypatch.setenv("PLAID_WEBHOOK_URL", "https://<your-tunnel>/api/kai/plaid/webhook")
 
     config = PlaidRuntimeConfig.from_env()
 
-    assert config.webhook_url == "https://kai.hushh.ai/api/kai/plaid/webhook"
+    assert config.webhook_url == "https://one.hushh.ai/api/kai/plaid/webhook"
 
 
 def test_from_env_preserves_valid_webhook_without_query_or_fragment(monkeypatch):
     _clear_plaid_env(monkeypatch)
     monkeypatch.setenv(
         "PLAID_WEBHOOK_URL",
-        "https://uat.kai.hushh.ai/api/kai/plaid/webhook?foo=1#fragment",
+        "https://uat.one.hushh.ai/api/kai/plaid/webhook?foo=1#fragment",
     )
 
     config = PlaidRuntimeConfig.from_env()
 
-    assert config.webhook_url == "https://uat.kai.hushh.ai/api/kai/plaid/webhook"
+    assert config.webhook_url == "https://uat.one.hushh.ai/api/kai/plaid/webhook"
 
 
 def test_from_env_invalid_webhook_without_frontend_falls_back_to_none(monkeypatch):
@@ -77,9 +77,9 @@ def test_from_env_http_frontend_does_not_derive_redirect_uri(monkeypatch):
 
 def test_from_env_https_frontend_derives_redirect_uri(monkeypatch):
     _clear_plaid_env(monkeypatch)
-    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://kai.hushh.ai")
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://one.hushh.ai")
     monkeypatch.setenv("PLAID_REDIRECT_PATH", "/kai/plaid/oauth/return")
 
     config = PlaidRuntimeConfig.from_env()
 
-    assert config.redirect_uri == "https://kai.hushh.ai/kai/plaid/oauth/return"
+    assert config.redirect_uri == "https://one.hushh.ai/kai/plaid/oauth/return"

@@ -19,7 +19,7 @@ This package bootstraps the same Python runtime that lives in this repo.
 
 The promoted public developer environment is **UAT**.
 
-- app workspace: https://uat.kai.hushh.ai/developers
+- app workspace: https://uat.one.hushh.ai/developers
 - consent API origin: https://api.uat.hushh.ai
 - remote MCP endpoint: `https://api.uat.hushh.ai/mcp/`
 - npm package: `@hushh/mcp`

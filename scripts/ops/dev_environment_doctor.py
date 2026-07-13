@@ -53,7 +53,7 @@ FANOUT_SUBSCRIPTION = "one-email-kyc-dev-push"
 FANOUT_TOPIC_PROJECT = "hushh-pda"
 FANOUT_TOPIC = "one-email-kyc-uat"
 
-DEV_DOMAIN = "dev.kai.hushh.ai"
+DEV_DOMAIN = "dev.one.hushh.ai"
 BACKEND_SERVICE = "consent-protocol"
 FRONTEND_SERVICE = "hushh-webapp"
 DEV_SQL_INSTANCE = "hushh-dev-pg"

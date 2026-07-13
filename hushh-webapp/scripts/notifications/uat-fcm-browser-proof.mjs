@@ -62,7 +62,7 @@ async function waitForContextNavigation(context, expectedUrl, timeoutMs = 30000)
 }
 
 async function main() {
-  const origin = (process.env.HUSHH_UAT_ORIGIN || "https://uat.kai.hushh.ai").replace(/\/$/, "");
+  const origin = (process.env.HUSHH_UAT_ORIGIN || "https://uat.one.hushh.ai").replace(/\/$/, "");
   const backendUrl = (process.env.HUSHH_UAT_BACKEND_URL || "https://api.uat.hushh.ai").replace(
     /\/$/,
     ""

@@ -364,7 +364,7 @@ describe("PostAuthRouteService", () => {
         redirectPath: inviteRedirect,
         phoneNumber: null,
         phoneVerified: false,
-        hostname: "uat.kai.hushh.ai",
+        hostname: "uat.one.hushh.ai",
       })
     ).resolves.toBe(buildPhoneMandateRoute(inviteRedirect));
   });
@@ -405,7 +405,7 @@ describe("PostAuthRouteService", () => {
         redirectPath: inviteRedirect,
         phoneNumber: null,
         phoneVerified: false,
-        hostname: "uat.kai.hushh.ai",
+        hostname: "uat.one.hushh.ai",
       })
     ).resolves.toBe(buildPhoneMandateRoute(inviteRedirect));
   });

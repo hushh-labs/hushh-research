@@ -36,13 +36,13 @@ function resolveEnvironment(origin: string | null): DeveloperEnvironment {
 
   const hostname = new URL(origin).hostname.toLowerCase();
   if (
-    hostname === "uat.kai.hushh.ai" ||
-    hostname === "api.uat.kai.hushh.ai" ||
+    hostname === "uat.one.hushh.ai" ||
+    hostname === "api.uat.one.hushh.ai" ||
     hostname === "api.uat.hushh.ai"
   ) {
     return "uat";
   }
-  if (hostname === "kai.hushh.ai" || hostname === "api.kai.hushh.ai") {
+  if (hostname === "one.hushh.ai" || hostname === "api.one.hushh.ai") {
     return "production";
   }
   if (hostname === "localhost" || hostname === "127.0.0.1") {
@@ -67,7 +67,7 @@ function defaultRuntimeForEnvironment(
 
   if (environment === "uat") {
     return {
-      appUrl: "https://uat.kai.hushh.ai",
+      appUrl: "https://uat.one.hushh.ai",
       apiOrigin: "https://api.uat.hushh.ai",
       mcpUrl: "https://api.uat.hushh.ai/mcp/",
       npmPackage: "@hushh/mcp",
@@ -75,9 +75,9 @@ function defaultRuntimeForEnvironment(
   }
 
   return {
-    appUrl: "https://kai.hushh.ai",
-    apiOrigin: "https://api.kai.hushh.ai",
-    mcpUrl: "https://api.kai.hushh.ai/mcp/",
+    appUrl: "https://one.hushh.ai",
+    apiOrigin: "https://api.one.hushh.ai",
+    mcpUrl: "https://api.one.hushh.ai/mcp/",
     npmPackage: "@hushh/mcp",
   };
 }

@@ -213,7 +213,7 @@ Existing Plaid investment-sync variables remain valid for read-only holdings/tra
 Webhook maintenance:
 
 - If `PLAID_WEBHOOK_URL` changes after users have already linked institutions, existing Items will need a one-time `/item/webhook/update` maintenance pass from an operator.
-- UAT value: `https://uat.kai.hushh.ai/api/kai/plaid/webhook`
+- UAT value: `https://uat.one.hushh.ai/api/kai/plaid/webhook`
 - Localhost value: `https://<your-current-tunnel>/api/kai/plaid/webhook`
 
 ## Profile Support Messaging
