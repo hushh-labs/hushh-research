@@ -21,7 +21,7 @@ describe("SettingsRow", () => {
             Manage
           </button>
         }
-      />
+      />,
     );
 
     // Clicking the primary area fires the row onClick
@@ -47,7 +47,7 @@ describe("SettingsRow", () => {
         description="Warm secure data on unlock"
         onClick={handleOpen}
         trailing={<input type="checkbox" aria-label="Enable sync switch" />}
-      />
+      />,
     );
 
     // Row is clickable
@@ -63,24 +63,33 @@ describe("SettingsRow", () => {
       <SettingsRow
         title="Current status"
         description="Nothing to do right now"
-      />
+      />,
     );
 
-    expect(screen.queryByRole("button", { name: /current status/i })).toBeNull();
-    expect(screen.getByText("Current status").textContent).toBe("Current status");
+    expect(
+      screen.queryByRole("button", { name: /current status/i }),
+    ).toBeNull();
+    expect(screen.getByText("Current status").textContent).toBe(
+      "Current status",
+    );
   });
 
   it("supports asChild rows without losing row content", () => {
     render(
-      <SettingsRow asChild title="Open profile" description="Go to privacy workspace">
+      <SettingsRow
+        asChild
+        title="Open profile"
+        description="Go to privacy workspace"
+      >
         <a href="/profile" data-testid="profile-link" />
-      </SettingsRow>
+      </SettingsRow>,
     );
 
     const link = screen.getByTestId("profile-link");
     expect(link.tagName).toBe("A");
     expect(link.textContent).toContain("Open profile");
     expect(link.textContent).toContain("Go to privacy workspace");
+    expect(link.querySelector(".morphy-ripple-host")).not.toBeNull();
   });
 });
 
@@ -95,7 +104,7 @@ describe("SettingsSegmentedTabs", () => {
           { value: "kai", label: "Kai list" },
           { value: "my", label: "My list" },
         ]}
-      />
+      />,
     );
 
     const active = screen.getByRole("button", { name: "My list" });
@@ -112,7 +121,7 @@ describe("SettingsSegmentedTabs", () => {
     fireEvent.click(inactive);
     expect(handleValueChange).toHaveBeenCalledWith("kai");
   });
-    it("preserves inactive segmented tab accessibility state", () => {
+  it("preserves inactive segmented tab accessibility state", () => {
     render(
       <SettingsSegmentedTabs
         value="kai"
@@ -121,7 +130,7 @@ describe("SettingsSegmentedTabs", () => {
           { value: "kai", label: "Kai list" },
           { value: "my", label: "My list" },
         ]}
-      />
+      />,
     );
 
     const inactive = screen.getByRole("button", { name: "My list" });
@@ -155,7 +164,7 @@ describe("SettingsDetailPanel", () => {
         description="Settings dialog"
       >
         <div>Content</div>
-      </SettingsDetailPanel>
+      </SettingsDetailPanel>,
     );
 
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeTruthy();
@@ -186,11 +195,11 @@ describe("SettingsDetailPanel", () => {
         description="Settings dialog"
       >
         <div>Content</div>
-      </SettingsDetailPanel>
+      </SettingsDetailPanel>,
     );
 
     fireEvent.click(
-      screen.getByRole("button", { name: /close detail panel/i })
+      screen.getByRole("button", { name: /close detail panel/i }),
     );
 
     expect(handleOpenChange).toHaveBeenCalledWith(false);

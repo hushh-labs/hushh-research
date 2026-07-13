@@ -1,5 +1,5 @@
-import { HushhLoader } from "@/components/app-ui/hushh-loader";
+import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
 
 export default function Loading() {
-  return <HushhLoader variant="fullscreen" label="Loading..." />;
+  return <RouteLoadingState surface="ambient" label="Loading page…" />;
 }

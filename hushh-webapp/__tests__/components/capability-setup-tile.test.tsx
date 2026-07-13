@@ -41,6 +41,7 @@ describe("CapabilitySetupTile", () => {
       "data-voice-control-id",
       "one_setup_tile_gmail",
     );
+    expect(row.querySelector(".morphy-ripple-host")).not.toBeNull();
     fireEvent.click(row);
 
     expect(mocks.push).toHaveBeenCalledWith("/one/setup/gmail", {

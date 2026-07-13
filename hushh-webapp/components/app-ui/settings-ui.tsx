@@ -42,7 +42,8 @@ function isKnownInteractiveComponent(type: unknown): boolean {
   }
   const typedComponent = type as { displayName?: string; name?: string };
   const displayName =
-    typeof typedComponent.displayName === "string" && typedComponent.displayName.trim()
+    typeof typedComponent.displayName === "string" &&
+    typedComponent.displayName.trim()
       ? typedComponent.displayName
       : typeof typedComponent.name === "string"
         ? typedComponent.name
@@ -71,7 +72,10 @@ function containsInteractiveNode(node: ReactNode): boolean {
       return false;
     }
 
-    if (typeof child.type === "string" && INTERACTIVE_HTML_TAGS.has(child.type)) {
+    if (
+      typeof child.type === "string" &&
+      INTERACTIVE_HTML_TAGS.has(child.type)
+    ) {
       return true;
     }
 
@@ -116,13 +120,13 @@ export function SettingsGroup({
       className={cn(
         "relative isolate [--settings-group-radius:30px] overflow-hidden rounded-[calc(var(--app-card-radius-feature)+6px)]",
         "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)]",
-        !embedded && "sm:rounded-[var(--app-card-radius-feature)]"
+        !embedded && "sm:rounded-[var(--app-card-radius-feature)]",
       )}
     >
       <div
         className={cn(
           "relative isolate",
-          separatorInset ? "group/settings-list" : "divide-y divide-border/60"
+          separatorInset ? "group/settings-list" : "divide-y divide-border/60",
         )}
         data-inset-separators={separatorInset ? "true" : undefined}
       >
@@ -132,7 +136,13 @@ export function SettingsGroup({
   );
 
   return (
-    <section className={cn("w-full space-y-[var(--settings-group-stack-gap)]", className)} data-testid={testId}>
+    <section
+      className={cn(
+        "w-full space-y-[var(--settings-group-stack-gap)]",
+        className,
+      )}
+      data-testid={testId}
+    >
       {eyebrow || title || description ? (
         <div className="space-y-[var(--settings-heading-stack-gap)] px-0.5 sm:px-1">
           {eyebrow || title ? (
@@ -202,11 +212,18 @@ export function SettingsRow({
   testId?: string;
 }) {
   const resolvedAsChild = asChild && isValidElement(children);
-  const isInteractive = !disabled && (typeof onClick === "function" || resolvedAsChild);
+  const isInteractive =
+    !disabled && (typeof onClick === "function" || resolvedAsChild);
   const shouldStackTrailing = stackTrailingOnMobile && Boolean(trailing);
   const hasInteractiveTrailing = containsInteractiveNode(trailing);
-  const splitPrimaryAction = Boolean(!asChild && onClick && hasInteractiveTrailing);
-  const Comp = resolvedAsChild ? Slot.Root : onClick && !splitPrimaryAction ? "button" : "div";
+  const splitPrimaryAction = Boolean(
+    !asChild && onClick && hasInteractiveTrailing,
+  );
+  const Comp = resolvedAsChild
+    ? Slot.Root
+    : onClick && !splitPrimaryAction
+      ? "button"
+      : "div";
   const rowRadiusClassName =
     "[--settings-row-top-radius:0px] [--settings-row-bottom-radius:0px] first:[--settings-row-top-radius:calc(var(--settings-group-radius)-1px)] last:[--settings-row-bottom-radius:calc(var(--settings-group-radius)-1px)] [border-top-left-radius:var(--settings-row-top-radius)] [border-top-right-radius:var(--settings-row-top-radius)] [border-bottom-left-radius:var(--settings-row-bottom-radius)] [border-bottom-right-radius:var(--settings-row-bottom-radius)]";
   const rowShellClassName = cn(
@@ -216,13 +233,13 @@ export function SettingsRow({
     "group-data-[inset-separators=true]/settings-list:after:pointer-events-none group-data-[inset-separators=true]/settings-list:after:absolute group-data-[inset-separators=true]/settings-list:after:bottom-0 group-data-[inset-separators=true]/settings-list:after:right-0 group-data-[inset-separators=true]/settings-list:after:left-[3.75rem] group-data-[inset-separators=true]/settings-list:after:h-px group-data-[inset-separators=true]/settings-list:after:bg-[color:var(--foundation-hairline)] group-data-[inset-separators=true]/settings-list:after:content-[''] sm:group-data-[inset-separators=true]/settings-list:after:left-[4.25rem] last:after:hidden",
     rowRadiusClassName,
     disabled && "cursor-not-allowed opacity-60",
-    className
+    className,
   );
   const mainContent = (
     <div
       className={cn(
         "relative z-0 flex min-w-0 gap-[var(--settings-row-gap)]",
-        shouldStackTrailing ? "items-start sm:items-center" : "items-center"
+        shouldStackTrailing ? "items-start sm:items-center" : "items-center",
       )}
     >
       {leading ? (
@@ -232,7 +249,7 @@ export function SettingsRow({
           data-slot="settings-row-icon"
           className={cn(
             "inline-flex h-8 w-8 shrink-0 items-center justify-center self-center rounded-2xl bg-muted/65 text-muted-foreground sm:h-10 sm:w-10",
-            tone === "destructive" && "bg-destructive/10 text-destructive"
+            tone === "destructive" && "bg-destructive/10 text-destructive",
           )}
         >
           <Icon icon={icon} size="md" />
@@ -243,7 +260,7 @@ export function SettingsRow({
           data-slot="settings-row-title"
           className={cn(
             "text-[14px] font-medium tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[15px]",
-            tone === "destructive" && "text-destructive"
+            tone === "destructive" && "text-destructive",
           )}
         >
           {title}
@@ -259,25 +276,26 @@ export function SettingsRow({
       </div>
     </div>
   );
-  const trailingContent = trailing || chevron ? (
+  const trailingContent =
+    trailing || chevron ? (
       <div
         className={cn(
           "relative z-0 flex max-w-full shrink-0 items-center justify-end self-center gap-2.5 pr-0.5 sm:pr-1",
           shouldStackTrailing &&
-            "w-full min-w-0 justify-between pl-[var(--settings-row-stack-indent,2.65rem)] pt-1 sm:w-auto sm:justify-end sm:pl-0 sm:pt-0"
+            "w-full min-w-0 justify-between pl-[var(--settings-row-stack-indent,2.65rem)] pt-1 sm:w-auto sm:justify-end sm:pl-0 sm:pt-0",
         )}
-    >
-      {trailing}
-      {chevron ? (
-        <ChevronRight
-          className={cn(
-            "h-4 w-4 shrink-0 text-muted-foreground/90 transition-transform",
-            isInteractive && "group-hover:translate-x-0.5"
-          )}
-        />
-      ) : null}
-    </div>
-  ) : null;
+      >
+        {trailing}
+        {chevron ? (
+          <ChevronRight
+            className={cn(
+              "h-4 w-4 shrink-0 text-muted-foreground/90 transition-transform",
+              isInteractive && "group-hover:translate-x-0.5",
+            )}
+          />
+        ) : null}
+      </div>
+    ) : null;
 
   const sharedClassName = cn(
     "relative isolate grid w-full appearance-none overflow-hidden border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 [-webkit-tap-highlight-color:transparent]",
@@ -285,21 +303,36 @@ export function SettingsRow({
       ? "grid-cols-1 gap-y-[var(--settings-row-stack-gap)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-[var(--settings-row-gap)] sm:gap-y-0"
       : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-[var(--settings-row-gap)]",
     isInteractive &&
-      "transition-[border-color,box-shadow] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0"
+      "transition-[border-color,box-shadow] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0",
   );
   const primaryActionClassName = cn(
-    "relative isolate min-w-0 overflow-hidden rounded-[inherit] border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 transition-[border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+    "relative isolate min-w-0 overflow-hidden rounded-[inherit] border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 transition-[border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
   );
   const voiceProps = {
     "data-voice-control-id": voiceControlId || undefined,
     "data-voice-action-id": voiceActionId || undefined,
-    "data-voice-label": voiceLabel || (typeof title === "string" ? title : undefined),
-    "data-voice-purpose": voicePurpose || (typeof description === "string" ? description : undefined),
+    "data-voice-label":
+      voiceLabel || (typeof title === "string" ? title : undefined),
+    "data-voice-purpose":
+      voicePurpose ||
+      (typeof description === "string" ? description : undefined),
   };
-  const asChildContent =
-    resolvedAsChild
-      ? cloneElement(children as ReactElement, undefined, mainContent, trailingContent)
-      : children;
+  const asChildContent = resolvedAsChild
+    ? cloneElement(
+        children as ReactElement,
+        undefined,
+        mainContent,
+        trailingContent,
+        isInteractive ? (
+          <MaterialRipple
+            variant="none"
+            effect="fade"
+            disabled={disabled}
+            className="z-10"
+          />
+        ) : null,
+      )
+    : children;
 
   if (splitPrimaryAction) {
     return (
@@ -309,7 +342,7 @@ export function SettingsRow({
             "relative z-10 grid w-full px-[var(--settings-row-px)] py-[var(--settings-row-py)]",
             shouldStackTrailing
               ? "grid-cols-1 gap-y-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-3"
-              : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3"
+              : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3",
           )}
         >
           <button
@@ -340,17 +373,10 @@ export function SettingsRow({
   if (resolvedAsChild) {
     return (
       <div className={rowShellClassName} data-testid={testId} data-tone={tone}>
-        {isInteractive ? (
-          <span
-            aria-hidden
-            className={cn(
-              "pointer-events-none absolute inset-0 z-[1] bg-transparent transition-[background-color]",
-              "group-hover/settings-row:bg-foreground/[0.04] group-active/settings-row:bg-foreground/[0.065]"
-            )}
-          />
-        ) : null}
         <Comp
-          {...(!resolvedAsChild ? { "aria-disabled": disabled || undefined } : {})}
+          {...(!resolvedAsChild
+            ? { "aria-disabled": disabled || undefined }
+            : {})}
           className={sharedClassName}
           {...voiceProps}
         >
@@ -367,7 +393,7 @@ export function SettingsRow({
           aria-hidden
           className={cn(
             "pointer-events-none absolute inset-0 z-[1] bg-transparent transition-[background-color]",
-            "group-hover/settings-row:bg-foreground/[0.04] group-active/settings-row:bg-foreground/[0.065]"
+            "group-hover/settings-row:bg-foreground/[0.04] group-active/settings-row:bg-foreground/[0.065]",
           )}
         />
       ) : null}
@@ -422,7 +448,7 @@ export function SettingsDetailPanel({
         "group absolute right-3 top-3 z-20 isolate inline-flex h-9 w-9 items-center justify-center overflow-hidden rounded-full",
         "border border-transparent bg-[color:var(--app-card-surface-compact)] text-muted-foreground opacity-75",
         "transition-[opacity,transform,color] duration-200 hover:text-foreground hover:opacity-100 active:scale-[0.97]",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
       )}
     >
       <Icon icon={X} size="xs" />
@@ -447,7 +473,7 @@ export function SettingsDetailPanel({
             <DrawerDescription
               className={cn(
                 "text-sm leading-5 sm:leading-6",
-                !description && "sr-only"
+                !description && "sr-only",
               )}
             >
               {description ?? "Settings"}
@@ -470,7 +496,7 @@ export function SettingsDetailPanel({
         style={desktopMaxWidth ? { maxWidth: desktopMaxWidth } : undefined}
         className={cn(
           "w-[calc(100%-1.5rem)] overflow-hidden p-0",
-          desktopMaxWidthClassName || "sm:!max-w-[720px]"
+          desktopMaxWidthClassName || "sm:!max-w-[720px]",
         )}
         onOpenAutoFocus={(e) => {
           e.preventDefault();

@@ -219,6 +219,17 @@ Rules:
 7. Do not ship raw clickable pills or text links for primary app actions when a shared button or row primitive already exists.
 8. Browse-heavy managers should prefer compact row/tape treatments over card-per-item layouts when the user is scanning lists, holdings, picks, requests, or rosters.
 
+## Route Loading Contract
+
+1. Cold App Router segment fallbacks use `RouteLoadingState` from
+   `components/app-ui`, choosing `app`, `onboarding`, or `ambient` shell
+   geometry. Do not use a route-local blank or centered-text fallback.
+2. `HushhLoader` remains for transition-only and action-local status; feature
+   skeletons remain appropriate when they preserve a known route's geometry.
+3. A safe warm or stale cache render remains visible during refresh. A fallback
+   must never replace it with a page-wide loader, and it must never expose
+   protected or vault-backed content before the existing guards settle.
+
 ## Control Surface Contract
 
 The agent bar, bottom nav, and top-app-bar action buttons define the gold-standard flat-control aesthetic. All standalone buttons, pill triggers, and icon controls should match it.

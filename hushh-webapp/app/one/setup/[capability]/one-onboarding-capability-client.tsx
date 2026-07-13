@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { HushhLoader } from "@/components/app-ui/hushh-loader";
+import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
 import { OnboardingCapabilityStep } from "@/components/onboarding/setup/onboarding-capability-step";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -194,7 +194,7 @@ export function OneOnboardingCapabilityClient({
   });
 
   if (!capability) {
-    return <HushhLoader label="Opening…" />;
+    return <RouteLoadingState label="Preparing setup…" />;
   }
 
   const handleBack = () => {
