@@ -36,6 +36,7 @@ from db.db_client import get_db
 from hushh_mcp.runtime_settings import (
     APP_SIGNING_KEY_ENV,
     GMAIL_OAUTH_TOKEN_KEY_ENV,
+    get_app_runtime_settings,
     get_core_security_settings,
     get_optional_gmail_oauth_token_key,
 )
@@ -326,7 +327,7 @@ class GmailReceiptsService:
         deployed environment owns that boundary through APP_FRONTEND_ORIGIN.
         """
 
-        origin = _clean_text(os.getenv("APP_FRONTEND_ORIGIN"))
+        origin = get_app_runtime_settings().app_frontend_origin
         parsed = urlsplit(origin)
         if (
             parsed.scheme not in {"http", "https"}
