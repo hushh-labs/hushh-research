@@ -47,18 +47,20 @@ Non-owned surfaces:
 2. `deploy/README.md`
 3. `deploy/frontend.cloudbuild.yaml`
 4. `deploy/backend.cloudbuild.yaml`
-5. `.codex/skills/uat-scoped-deploy/references/deploy-proof.md`
-6. `.codex/skills/uat-scoped-deploy/references/anti-rationalization.md`
+5. `docs/reference/operations/branch-governance.md`
+6. `.codex/skills/uat-scoped-deploy/references/deploy-proof.md`
+7. `.codex/skills/uat-scoped-deploy/references/anti-rationalization.md`
 
 ## Workflow
 
 1. Classify the intended scope from changed paths and user request: `frontend`, `backend`, or `all`.
 2. Use `scope=frontend` for UI/auth-route-only changes and `scope=backend` for protocol/API-only changes.
-3. Trigger UAT from a green `main` SHA; keep merge, post-merge smoke, and UAT deploy as separate evidence.
-4. Watch the GitHub run until terminal success or a concrete blocker; confirm skipped lanes from run steps.
-5. Before Cloud Run `describe`, run the evidence helper to discover the actual project/region tuple.
-6. Capture touched-service revision, image, labels, timeout, traffic, env contracts, request IDs, and logs.
-7. Report run URL, scope, skipped lanes, timings, revisions, and remaining risk; never call queued work done.
+3. Use the merge queue for the ordinary PR path. For an explicitly authorized admin landing, use the documented direct-main admin preflight, require all PR checks to be green, then merge the exact reviewed head with `gh pr merge --admin --merge --match-head-commit <sha>`; `--admin` bypasses the queue and is never a substitute for verification.
+4. Wait for `Main Post-Merge Smoke` to succeed for the landed `main` SHA, then trigger UAT with that exact SHA. Keep merge, smoke, and UAT deploy as separate evidence.
+5. Watch the GitHub run until terminal success or a concrete blocker; confirm skipped lanes from run steps.
+6. Before Cloud Run `describe`, run the evidence helper to discover the actual project/region tuple.
+7. Capture touched-service revision, image, labels, timeout, traffic, env contracts, request IDs, and logs.
+8. Report run URL, scope, skipped lanes, timings, revisions, and remaining risk; never call queued work done.
 
 ## Handoff Rules
 

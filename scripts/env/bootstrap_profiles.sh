@@ -850,6 +850,7 @@ hydrate_backend_cloud_reference() {
   set_mapped_secret_key_or_cached "$file" "$profile" "$project" "APP_SIGNING_KEY" "true" "$cache_file" APP_SIGNING_KEY SECRET_KEY
   set_mapped_secret_key_or_cached "$file" "$profile" "$project" "VAULT_DATA_KEY" "true" "$cache_file" VAULT_DATA_KEY VAULT_ENCRYPTION_KEY
   set_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_API_KEY" "true" "$cache_file"
+  set_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_MAPS_API_KEY" "false" "$cache_file"
   set_mapped_secret_key_or_cached "$file" "$profile" "$project" "FIREBASE_ADMIN_CREDENTIALS_JSON" "true" "$cache_file" FIREBASE_ADMIN_CREDENTIALS_JSON FIREBASE_SERVICE_ACCOUNT_JSON
   set_secret_key_or_cached "$file" "$profile" "$project" "DB_USER" "true" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "DB_PASSWORD" "true" "$cache_file"
@@ -894,6 +895,7 @@ hydrate_backend_local_uatdb() {
   hydrate_backend_cloud_reference "$file" "$profile" "$project" "development"
   upsert_env_value "$file" "APP_FRONTEND_ORIGIN" "http://localhost:3000"
   upsert_env_value "$file" "CORS_ALLOWED_ORIGINS" "http://localhost:3000"
+  upsert_env_value "$file" "GMAIL_OAUTH_REDIRECT_URI" "http://localhost:3000/profile/gmail/oauth/return"
   upsert_env_value "$file" "APP_RUNTIME_PROFILE" "local"
   upsert_env_value "$file" "ENVIRONMENT" "development"
   upsert_env_value "$file" "PORT" "8000"

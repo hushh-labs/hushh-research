@@ -925,7 +925,6 @@ describe("ProfileReceiptsPage", () => {
       expect(GmailReceiptsService.startConnect).toHaveBeenCalledWith({
         idToken: "token-abc",
         userId: "user-123",
-        redirectUri: "http://localhost:3000/profile/gmail/oauth/return",
         loginHint: "akshat@example.com",
         includeGrantedScopes: true,
       });

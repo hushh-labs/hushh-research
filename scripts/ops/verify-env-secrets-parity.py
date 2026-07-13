@@ -9,6 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlsplit, urlunsplit
 
 BACKEND_REQUIRED = (
     "APP_SIGNING_KEY",
@@ -66,6 +67,8 @@ BACKEND_REVIEWER_SMOKE_REQUIRED = (
     "REVIEWER_UID",
     "REVIEWER_VAULT_PASSPHRASE",
 )
+
+GMAIL_OAUTH_RETURN_PATH = "/profile/gmail/oauth/return"
 
 FRONTEND_REQUIRED = (
     "BACKEND_URL",
@@ -178,6 +181,145 @@ def _has_secret(project: str, name: str) -> bool:
     ]
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
     return result.returncode == 0 and bool(result.stdout.strip())
+
+
+def _read_secret_value(project: str, name: str) -> str | None:
+    """Read a deploy-time value only for an in-memory boolean contract check.
+
+    This helper deliberately never renders the returned value. Reports contain
+    only status and the public callback path, never a secret payload.
+    """
+
+    result = subprocess.run(
+        [
+            "gcloud",
+            "secrets",
+            "versions",
+            "access",
+            "latest",
+            "--secret",
+            name,
+            "--project",
+            project,
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.rstrip("\r\n")
+
+
+def _expected_gmail_redirect_uri(app_frontend_origin: str | None) -> str | None:
+    parsed = urlsplit((app_frontend_origin or "").strip())
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+    ):
+        return None
+    origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+    return f"{origin}{GMAIL_OAUTH_RETURN_PATH}"
+
+
+def _gmail_redirect_contract(project: str) -> dict[str, str]:
+    configured = _read_secret_value(project, "GMAIL_OAUTH_REDIRECT_URI")
+    frontend_origin = _read_secret_value(project, "APP_FRONTEND_ORIGIN")
+    expected = _expected_gmail_redirect_uri(frontend_origin)
+    if configured is None or frontend_origin is None:
+        status = "unavailable"
+    elif expected is None:
+        status = "invalid_frontend_origin"
+    elif configured == expected:
+        status = "valid"
+    else:
+        status = "mismatch"
+    return {
+        "status": status,
+        "expected_from": f"APP_FRONTEND_ORIGIN + {GMAIL_OAUTH_RETURN_PATH}",
+    }
+
+
+def _domain_runtime_contract(project: str) -> dict[str, str]:
+    """Validate domain-derived backend config without rendering secret values.
+
+    Presence and Cloud Run mount checks cannot prove that the JSON runtime
+    config was rebuilt after an origin migration. This compares only canonical
+    public URL/host relationships in-memory and returns status labels.
+    """
+
+    frontend_origin = _read_secret_value(project, "APP_FRONTEND_ORIGIN")
+    runtime_raw = _read_secret_value(project, "BACKEND_RUNTIME_CONFIG_JSON")
+    expected_gmail_redirect = _expected_gmail_redirect_uri(frontend_origin)
+    if not frontend_origin or not runtime_raw or not expected_gmail_redirect:
+        return {
+            "status": "unavailable",
+            "cors": "unavailable",
+            "passkeys": "unavailable",
+            "plaid_webhook": "unavailable",
+        }
+
+    try:
+        runtime = json.loads(runtime_raw)
+    except json.JSONDecodeError:
+        runtime = None
+    if not isinstance(runtime, dict):
+        return {
+            "status": "invalid_runtime_config",
+            "cors": "invalid_runtime_config",
+            "passkeys": "invalid_runtime_config",
+            "plaid_webhook": "invalid_runtime_config",
+        }
+
+    origin = urlsplit(frontend_origin)
+    host = (origin.hostname or "").lower()
+    if not host:
+        return {
+            "status": "invalid_frontend_origin",
+            "cors": "invalid_frontend_origin",
+            "passkeys": "invalid_frontend_origin",
+            "plaid_webhook": "invalid_frontend_origin",
+        }
+
+    cors_values = {
+        item.strip().rstrip("/")
+        for item in str(runtime.get("cors_allowed_origins") or "").split(",")
+        if item.strip()
+    }
+    expected_origin = frontend_origin.rstrip("/")
+    cors_status = "valid" if expected_origin in cors_values else "mismatch"
+
+    passkey_hosts = {
+        item.strip().lower()
+        for item in str(runtime.get("passkey_allowed_rp_ids") or "").split(",")
+        if item.strip()
+    }
+    passkey_status = "valid" if host in passkey_hosts else "mismatch"
+
+    plaid_url = urlsplit(str(runtime.get("plaid_webhook_url") or "").strip())
+    plaid_status = (
+        "valid"
+        if (
+            plaid_url.scheme == origin.scheme
+            and plaid_url.netloc == origin.netloc
+            and plaid_url.path == "/api/kai/plaid/webhook"
+            and not plaid_url.query
+            and not plaid_url.fragment
+        )
+        else "mismatch"
+    )
+    statuses = (cors_status, passkey_status, plaid_status)
+    return {
+        "status": "valid" if all(status == "valid" for status in statuses) else "mismatch",
+        "cors": cors_status,
+        "passkeys": passkey_status,
+        "plaid_webhook": plaid_status,
+    }
 
 
 def _format_names(names: Iterable[str]) -> str:
@@ -500,6 +642,8 @@ def main() -> int:
             "backend_voice": [],
             "backend_reviewer_smoke": [],
         },
+        "gmail_redirect_contract": {"status": "not_checked"},
+        "domain_runtime_contract": {"status": "not_checked"},
     }
 
     print(f"Project: {args.project}")
@@ -544,6 +688,19 @@ def main() -> int:
     if missing:
         report["classifications"].append("secret_missing")
         print(f"Missing secrets ({len(missing)}): {_format_names(missing)}")
+
+    if args.require_gmail:
+        gmail_redirect_contract = _gmail_redirect_contract(args.project)
+        report["gmail_redirect_contract"] = gmail_redirect_contract
+        print(f"Gmail OAuth redirect contract: {gmail_redirect_contract['status']}")
+        if gmail_redirect_contract["status"] != "valid":
+            report["classifications"].append("gmail_oauth_redirect_contract_failed")
+
+    domain_runtime_contract = _domain_runtime_contract(args.project)
+    report["domain_runtime_contract"] = domain_runtime_contract
+    print(f"Domain runtime contract: {domain_runtime_contract['status']}")
+    if domain_runtime_contract["status"] != "valid":
+        report["classifications"].append("domain_runtime_contract_failed")
 
     if args.assert_runtime_env_contract:
         frontend_json = _describe_run_service(args.project, args.region, args.frontend_service)

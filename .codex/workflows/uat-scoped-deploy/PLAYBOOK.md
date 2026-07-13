@@ -10,7 +10,7 @@ Run the smallest safe UAT deploy scope and prove the result with GitHub Actions,
 
 1. Start with `repo-operations`; use `uat-scoped-deploy` after the task is narrowed to UAT deploy scope.
 2. Classify the smallest safe scope: `frontend`, `backend`, or `all`.
-3. Trigger `deploy-uat.yml` from a green `main` SHA with the explicit scope and SHA.
+3. Use the merge queue for ordinary PRs. For an explicitly authorized admin landing, run the direct-main preflight and merge only the green reviewed head with `gh pr merge --admin --merge --match-head-commit <sha>`; then wait for `Main Post-Merge Smoke` and trigger `deploy-uat.yml` from that exact green `main` SHA with the explicit scope.
 4. Watch the run to terminal state and record skipped deploy lanes from the job steps.
 5. Discover Cloud Run service regions with the helper before any `gcloud run services describe`.
 6. Capture revision, image, timeout, traffic, labels, and key env contracts for touched services.

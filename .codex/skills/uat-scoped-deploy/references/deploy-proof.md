@@ -12,7 +12,14 @@ If a previous run accidentally used `scope=all`, name that as evidence drift and
 
 ## Deploy Command
 
-Use a green `main` SHA:
+For the ordinary PR path, first use the merge queue. For an explicitly authorized
+admin landing, run the documented direct-main preflight, require every PR check to
+be green, and merge the exact reviewed head with `gh pr merge --admin --merge
+--match-head-commit <sha>`. GitHub CLI defines `--admin` as a merge-queue bypass;
+it is an explicit release authority, never a substitute for the preflight, checks,
+post-merge smoke, or exact-SHA UAT provenance.
+
+Use the resulting green `main` SHA:
 
 ```bash
 gh workflow run deploy-uat.yml --ref main -f scope=<frontend|backend|all> -f sha=<main-sha>

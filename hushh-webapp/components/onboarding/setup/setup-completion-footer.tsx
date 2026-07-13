@@ -2,9 +2,9 @@
 
 import { Loader2 } from "lucide-react";
 
-import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { Button } from "@/lib/morphy-ux/button";
 import type { ColorVariant, ComponentEffect } from "@/lib/morphy-ux/types";
+import { cn } from "@/lib/utils";
 
 type SetupCompletionFooterProps = {
   label: string;
@@ -43,34 +43,47 @@ export function SetupCompletionFooter({
   variant = "blue-gradient",
   effect = "fill",
 }: SetupCompletionFooterProps) {
+  // A pending setup is deliberately secondary, but it must retain the same
+  // Foundation accent and tactile feedback as the Agent Bar. Keeping callers
+  // on the existing `none` + `fade` contract avoids creating a second setup
+  // action vocabulary while preventing the light-theme gray container look.
+  const isQuietSetupAction = variant === "none" && effect === "fade";
+  const visualVariant = isQuietSetupAction ? "blue" : variant;
+
   return (
-    <SurfaceInset className="sticky bottom-[calc(var(--app-bottom-inset)+var(--onboarding-agent-bar-clearance,3.75rem)+0.75rem)] z-20 space-y-2 border-0 bg-[color:var(--app-card-surface-compact)] p-3 shadow-[var(--app-card-shadow-standard)] sm:p-4">
-      {supportingText ? (
-        <p className="text-center text-xs text-muted-foreground">
-          {supportingText}
-        </p>
-      ) : null}
-      <div className="mx-auto w-full sm:max-w-[22rem]">
-        <Button
-          type="button"
-          onClick={onComplete}
-          disabled={disabled}
-          loading={busy}
-          variant={variant}
-          effect={effect}
-          size="lg"
-          fullWidth
-          className="h-12 text-base"
-          data-testid={testId}
-          data-voice-control-id={controlId}
-          data-voice-action-id={actionId}
-          data-voice-label={label}
-          data-voice-purpose={purpose}
-        >
-          {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          {label}
-        </Button>
+    <div className="mt-10 pb-[calc(var(--app-bottom-inset)+var(--onboarding-agent-bar-clearance,3.75rem)+1.5rem)] sm:mt-12">
+      <div className="sticky bottom-[calc(var(--app-bottom-inset)+var(--onboarding-agent-bar-clearance,3.75rem)+0.75rem)] z-20 space-y-2 bg-transparent py-2">
+        {supportingText ? (
+          <p className="text-center text-xs text-muted-foreground">
+            {supportingText}
+          </p>
+        ) : null}
+        <div className="mx-auto w-full sm:max-w-[22rem]">
+          <Button
+            type="button"
+            onClick={onComplete}
+            disabled={disabled}
+            loading={busy}
+            variant={visualVariant}
+            effect={effect}
+            size="lg"
+            fullWidth
+            className={cn(
+              "h-12 text-base",
+              isQuietSetupAction &&
+                "!border-0 !bg-transparent text-accent-strong hover:!bg-accent-surface dark:hover:!bg-accent-surface/70",
+            )}
+            data-testid={testId}
+            data-voice-control-id={controlId}
+            data-voice-action-id={actionId}
+            data-voice-label={label}
+            data-voice-purpose={purpose}
+          >
+            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {label}
+          </Button>
+        </div>
       </div>
-    </SurfaceInset>
+    </div>
   );
 }

@@ -5,7 +5,7 @@ anyio==4.13.0
 bandit==1.9.4
 colorama==0.4.6 ; sys_platform == 'win32'
 coverage==7.13.5
-idna==3.11
+idna==3.18
 iniconfig==2.3.0
 librt==0.9.0 ; platform_python_implementation != 'PyPy'
 markdown-it-py==4.0.0

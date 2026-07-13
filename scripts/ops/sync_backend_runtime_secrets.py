@@ -9,9 +9,11 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UPSERT_SECRET_SCRIPT = REPO_ROOT / "scripts" / "ops" / "upsert_gcp_secret.py"
+GMAIL_OAUTH_RETURN_PATH = "/profile/gmail/oauth/return"
 
 LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
     "APP_SIGNING_KEY": ("APP_SIGNING_KEY", "SECRET_KEY"),
@@ -122,6 +124,22 @@ def _drop_empty(value: dict[str, Any]) -> dict[str, Any]:
     return {key: item for key, item in value.items() if item not in ("", None, [], {})}
 
 
+def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
+    parsed = urlsplit(app_frontend_origin.strip())
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+    ):
+        raise ValueError("--app-frontend-origin must be a canonical HTTP(S) origin")
+    origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+    return f"{origin}{GMAIL_OAUTH_RETURN_PATH}"
+
+
 def _read_voice_config(project: str) -> dict[str, Any]:
     existing_raw = _resolve_secret(project, LEGACY_SECRET_FALLBACKS["VOICE_RUNTIME_CONFIG_JSON"])
     if not existing_raw:
@@ -218,6 +236,13 @@ def main() -> int:
 
     _upsert_secret(args.project, "APP_FRONTEND_ORIGIN", args.app_frontend_origin.strip())
     sync_summary.append("APP_FRONTEND_ORIGIN")
+
+    _upsert_secret(
+        args.project,
+        "GMAIL_OAUTH_REDIRECT_URI",
+        _gmail_oauth_redirect_uri(args.app_frontend_origin),
+    )
+    sync_summary.append("GMAIL_OAUTH_REDIRECT_URI")
 
     backend_runtime_config = _build_backend_runtime_config(args)
     _upsert_secret(

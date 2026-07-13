@@ -186,7 +186,7 @@ function PhoneMandatePageContent() {
   }
 
   const shell = (
-    <main className="relative h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-[#0A0908] [--phone-mandate-safe-pb:calc(34px+var(--app-safe-area-bottom-effective,0px))] [--phone-mandate-safe-pt:calc(18px+var(--app-safe-area-top-effective,0px))]">
+    <main className="relative h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-[#0A0908] [--phone-mandate-agent-bar-clearance:calc(3rem+0.75rem)] [--phone-mandate-safe-pb:calc(34px+var(--app-safe-area-bottom-effective,0px)+var(--phone-mandate-agent-bar-clearance))] [--phone-mandate-safe-pt:calc(18px+var(--app-safe-area-top-effective,0px))]">
       <NativeRouteMarker
         routeId={ROUTES.PHONE_MANDATE}
         marker="native-route-register-phone"
@@ -259,7 +259,10 @@ function PhoneMandatePageContent() {
           </p>
         </div>
 
-        {/* White form sheet. max-h + overflow-y-auto is a safety net: with
+        {/* White form sheet. Its bottom padding reserves both the native safe
+            area and the persistent Voice Bar, so OTP controls and trust copy
+            remain reachable without hiding the voice journey. max-h +
+            overflow-y-auto is a safety net: with
             Keyboard.resize:"native" the viewport shrinks above the keyboard, and
             the page root is overflow-hidden, so on a very short screen (iPhone SE)
             a tall step scrolls WITHIN the sheet instead of clipping. At rest the

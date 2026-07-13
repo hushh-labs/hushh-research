@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("/register-phone safe-area shell contract", () => {
-  it("uses centered dynamic viewport height and native safe-area padding variables", () => {
+  it("uses centered dynamic viewport height and reserves safe-area plus Voice Bar clearance", () => {
     const source = readFileSync(
       join(process.cwd(), "app/register-phone/page.tsx"),
       "utf8",
@@ -12,8 +12,10 @@ describe("/register-phone safe-area shell contract", () => {
 
     expect(source).toContain("--phone-mandate-safe-pt");
     expect(source).toContain("--phone-mandate-safe-pb");
+    expect(source).toContain("--phone-mandate-agent-bar-clearance");
     expect(source).toContain("var(--app-safe-area-top-effective");
     expect(source).toContain("var(--app-safe-area-bottom-effective");
+    expect(source).toContain("var(--phone-mandate-agent-bar-clearance)");
     expect(source).toContain("h-[100dvh]");
     expect(source).toContain("min-h-[100svh]");
     expect(source).toContain("justify-center");
