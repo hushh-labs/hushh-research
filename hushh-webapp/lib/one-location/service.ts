@@ -441,6 +441,21 @@ export class OneLocationService {
     return response.place;
   }
 
+  static async reverseGeocode(params: {
+    vaultOwnerToken: string;
+    lat: number;
+    lng: number;
+  }): Promise<{ name: string | null; formattedAddress: string | null }> {
+    const response = await apiJson<{
+      place: { name: string | null; formattedAddress: string | null };
+    }>("/api/one/location/maps/reverse-geocode", {
+      method: "POST",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({ lat: params.lat, lng: params.lng }),
+    });
+    return response.place;
+  }
+
   static async routeEta(params: {
     vaultOwnerToken: string;
     originLat: number;
