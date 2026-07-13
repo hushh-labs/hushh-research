@@ -41,9 +41,12 @@ const ACCENT_STYLES: Record<SectionAccent, {
     divider: "bg-violet-300/50 dark:bg-violet-400/30",
   },
   ria: {
-    eyebrow: "text-emerald-700 dark:text-emerald-300",
-    icon: "border border-emerald-500/12 bg-emerald-500/[0.06] text-emerald-700 shadow-[var(--shadow-xs)] dark:border-emerald-400/16 dark:bg-emerald-400/[0.08] dark:text-emerald-200",
-    divider: "bg-emerald-300/50 dark:bg-emerald-400/30",
+    // RIA sub-agent = Apple-clean gold. Var-driven so it flips to the DS gold
+    // (#C8923A) inside body[data-persona-surface="ria"] and stays the Foundation
+    // gold elsewhere. Mirrors the marketplace accent entry.
+    eyebrow: "text-accent-strong",
+    icon: "border border-accent-border bg-accent-surface text-accent-strong shadow-[var(--shadow-xs)]",
+    divider: "bg-accent/40",
   },
   consent: {
     eyebrow: "text-amber-700 dark:text-amber-300",

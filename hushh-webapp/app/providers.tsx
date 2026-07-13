@@ -54,11 +54,12 @@ import {
   useKaiBottomChromeProgressCssVar,
 } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { ROUTES } from "@/lib/navigation/routes";
+import { ROUTES, isRiaRoute } from "@/lib/navigation/routes";
 import { useAuth } from "@/hooks/use-auth";
 import { PersonaProvider } from "@/lib/persona/persona-context";
 import { resolveSignedInShellContentOffset } from "@/components/app-ui/signed-in-shell-content-offset";
 import { NativeTestRouter } from "@/components/app-ui/native-test-router";
+import { RiaSurfaceScopeSync } from "@/components/ria/ria-surface-scope-sync";
 import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
 import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-status";
 import { VaultMethodPrompt } from "@/components/vault/vault-method-prompt";
@@ -182,7 +183,12 @@ function AppShellFrame({ children }: ProvidersProps) {
   // made pages like /consents appear to reload on scroll. This hook writes
   // `--bottom-chrome-progress` to the document root imperatively and returns
   // nothing, so scrolling no longer re-renders the React tree.
-  useKaiBottomChromeProgressCssVar(showSharedBottomChromeGlass);
+  // RIA sub-agent = Apple-style ALWAYS-PINNED chrome: disable the shared
+  // bottom-glass hide driver on /ria/* so the glass panels stay put (the hook's
+  // disabled branch writes --bottom-chrome-progress:0). Path-based gate — this
+  // shell renders above PersonaProvider, so persona isn't available here.
+  const riaPinnedChrome = isRiaRoute(pathname);
+  useKaiBottomChromeProgressCssVar(showSharedBottomChromeGlass && !riaPinnedChrome);
   const pageRef = useRef<HTMLDivElement | null>(null);
   const isKaiRoute = useMemo(
     () =>
@@ -323,6 +329,7 @@ function AppShellFrame({ children }: ProvidersProps) {
   return (
     <CacheProvider>
       <PersonaProvider>
+        <RiaSurfaceScopeSync />
         <VaultProvider>
           <AgentRuntimeStateProvider>
           <AgentPopoverProvider>

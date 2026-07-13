@@ -228,16 +228,14 @@ export function buildRiaOnboardingSteps(
     {
       id: "welcome",
       eyebrow: "Welcome",
-      title: "How would you like to register?",
-      description:
-        "Choose whether you are onboarding as an individual advisor or registering a firm or practice.",
+      title: "How will you register?",
+      description: "Pick the setup that fits your practice.",
     },
     {
       id: "license_number",
       eyebrow: "Licence",
-      title: "Enter your licence number",
-      description:
-        "Provide your CRD or licence number so Kai can verify your registration with the regulator.",
+      title: "Enter your licence",
+      description: "Kai verifies it with your regulator.",
     },
     {
       id: "license_details",
@@ -250,8 +248,7 @@ export function buildRiaOnboardingSteps(
       id: "services",
       eyebrow: "Services",
       title: "What do you offer?",
-      description:
-        "List the services you provide, how you charge, and where your business is located.",
+      description: "Your services, fees, and location.",
     },
     {
       id: "review",

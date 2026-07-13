@@ -7,10 +7,13 @@ import {
   Landmark,
   MapPin,
   ScrollText,
-  Sparkles,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  RiaAiActionPill,
+  RiaSelectControl,
+} from "@/components/ria/ui/ria-primitives";
 
 const AVAILABLE_SERVICES: { label: string; icon: LucideIcon }[] = [
   { label: "Portfolio Management", icon: BarChart3 },
@@ -23,50 +26,30 @@ const FEE_OPTIONS = ["Fee-only", "AUM %", "Flat", "Hourly"];
 
 function GroupShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="overflow-hidden rounded-[24px] border border-border/60 bg-card/80 shadow-[0_12px_34px_rgba(15,23,42,0.06)] backdrop-blur dark:bg-card/55 dark:shadow-none">
+    <div className="overflow-hidden rounded-[22px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)] shadow-[0_8px_24px_rgba(62,48,30,0.05)]">
       {children}
     </div>
   );
 }
 
-function Divider() {
-  return <div className="ml-4 h-px bg-border/50 sm:ml-5" />;
-}
-
+/** Gold uppercase section label (FEE STRUCTURE / SHORT BIO / BUSINESS LOCATION). */
 function SectionLabel({
   children,
   htmlFor,
-  tag,
 }: {
   children: React.ReactNode;
   htmlFor?: string;
-  tag?: string;
 }) {
-  const inner = (
-    <>
-      {children}
-      {tag ? (
-        <span className="ml-2 text-[11px] font-medium normal-case tracking-normal text-muted-foreground/70">
-          {tag}
-        </span>
-      ) : null}
-    </>
-  );
+  const cls =
+    "text-[12px] font-semibold uppercase tracking-[2px] text-[color:var(--ria-gold)]";
   if (htmlFor) {
     return (
-      <label
-        htmlFor={htmlFor}
-        className="block text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground"
-      >
-        {inner}
+      <label htmlFor={htmlFor} className={cn("block", cls)}>
+        {children}
       </label>
     );
   }
-  return (
-    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-      {inner}
-    </p>
-  );
+  return <p className={cls}>{children}</p>;
 }
 
 function TextRow({
@@ -77,6 +60,7 @@ function TextRow({
   inputMode,
   prefix,
   autoComplete,
+  dense,
 }: {
   label: string;
   value: string;
@@ -85,15 +69,26 @@ function TextRow({
   inputMode?: "numeric" | "text";
   prefix?: string;
   autoComplete?: string;
+  dense?: boolean;
 }) {
   return (
-    <label className="flex min-h-[54px] items-center gap-4 px-4 py-2 sm:px-5">
-      <span className="shrink-0 text-[15px] text-muted-foreground">
+    <label
+      className={cn(
+        "flex items-center gap-4 px-[18px] py-2",
+        dense ? "min-h-[46px]" : "min-h-[56px]"
+      )}
+    >
+      <span
+        className={cn(
+          "shrink-0 text-[color:var(--ria-muted)]",
+          dense ? "text-[14px]" : "text-[16px]"
+        )}
+      >
         {label}
       </span>
       <span className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-1">
         {prefix ? (
-          <span className="text-[15px] text-muted-foreground">{prefix}</span>
+          <span className="text-[color:var(--ria-faint)]">{prefix}</span>
         ) : null}
         <input
           type="text"
@@ -102,7 +97,11 @@ function TextRow({
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder={placeholder}
-          className="min-w-0 flex-1 bg-transparent text-right text-[15px] text-foreground outline-none placeholder:text-muted-foreground/55"
+          className={cn(
+            "min-w-0 flex-1 bg-transparent text-right font-medium text-[color:var(--ria-ink)] outline-none placeholder:text-[color:var(--ria-faint)]",
+            dense ? "text-[14px]" : "text-[16px]",
+            inputMode === "numeric" && "tabular-nums"
+          )}
         />
       </span>
     </label>
@@ -196,15 +195,14 @@ export function OnboardingStepServices({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-[22px]">
       <div ref={servicesRef} className="space-y-3">
-        <SectionLabel tag="Required">Services</SectionLabel>
         <div
           role="group"
           aria-label="Services offered"
-          className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+          className="overflow-hidden rounded-[22px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)] shadow-[0_8px_24px_rgba(62,48,30,0.05)]"
         >
-          {AVAILABLE_SERVICES.map(({ label, icon: Icon }) => {
+          {AVAILABLE_SERVICES.map(({ label, icon: Icon }, i) => {
             const selected = servicesOffered.includes(label);
             return (
               <button
@@ -212,26 +210,27 @@ export function OnboardingStepServices({
                 type="button"
                 aria-pressed={selected}
                 onClick={() => toggleService(label)}
-                className={cn(
-                  "flex min-h-[82px] items-center gap-3 rounded-[22px] border px-4 py-3 text-left transition-colors",
-                  selected
-                    ? "border-primary/55 bg-primary/10 text-primary"
-                    : "border-border/60 bg-card/80 text-foreground hover:bg-muted/45 dark:bg-card/55",
-                )}
+                className="flex min-h-[60px] w-full items-center gap-[14px] px-[18px] py-3 text-left"
+                style={
+                  i > 0
+                    ? { borderTop: "1px solid var(--ria-divider-inner)" }
+                    : undefined
+                }
               >
                 <span
-                  className={cn(
-                    "flex h-10 w-10 shrink-0 items-center justify-center rounded-[13px]",
-                    selected
-                      ? "bg-primary/15"
-                      : "bg-muted/55 text-muted-foreground",
-                  )}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[13px]"
+                  style={{ backgroundColor: "var(--ria-nav-active)" }}
                 >
-                  <Icon className="h-5 w-5" />
+                  <Icon
+                    className="h-[23px] w-[23px]"
+                    strokeWidth={1.8}
+                    style={{ color: "var(--ria-gold)" }}
+                  />
                 </span>
-                <span className="min-w-0 text-[15px] font-semibold leading-5">
+                <span className="min-w-0 flex-1 text-[16px] font-medium leading-5 text-[color:var(--ria-ink)]">
                   {label}
                 </span>
+                <RiaSelectControl checked={selected} variant="radio" />
               </button>
             );
           })}
@@ -247,12 +246,8 @@ export function OnboardingStepServices({
       </div>
 
       <div ref={feeRef} className="space-y-3">
-        <SectionLabel tag="Required">Fee Structure</SectionLabel>
-        <div
-          role="group"
-          aria-label="Fee structure"
-          className="flex flex-wrap gap-2"
-        >
+        <SectionLabel>Fee Structure</SectionLabel>
+        <div role="group" aria-label="Fee structure" className="flex gap-[9px]">
           {FEE_OPTIONS.map((fee) => {
             const selected = feeStructure.includes(fee);
             return (
@@ -261,12 +256,23 @@ export function OnboardingStepServices({
                 type="button"
                 aria-pressed={selected}
                 onClick={() => toggleFee(fee)}
-                className={cn(
-                  "rounded-full border px-4 py-2 text-[15px] font-medium transition-colors",
+                className="flex h-[46px] flex-1 items-center justify-center rounded-[16px] border text-[14px] transition-colors"
+                style={
                   selected
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border/60 bg-card/70 text-foreground hover:bg-muted/45 dark:bg-card/45",
-                )}
+                    ? {
+                        background: "rgba(242,223,192,0.5)",
+                        borderColor: "rgba(201,139,46,0.5)",
+                        borderWidth: "1.5px",
+                        color: "var(--ria-fee-active)",
+                        fontWeight: 600,
+                      }
+                    : {
+                        background: "var(--card)",
+                        borderColor: "var(--ria-divider-outer)",
+                        color: "var(--ria-ink)",
+                        fontWeight: 500,
+                      }
+                }
               >
                 {fee}
               </button>
@@ -283,41 +289,40 @@ export function OnboardingStepServices({
         ) : null}
       </div>
 
-      <GroupShell>
-        <TextRow
-          label="Min. Engagement"
-          value={minEngagementAmount}
-          onChange={onMinEngagementChange}
-          placeholder="250,000"
+      <div className="flex h-[56px] items-center rounded-[16px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)] px-[18px]">
+        <span className="text-[16px] text-[color:var(--ria-muted)]">
+          Min. Engagement
+        </span>
+        <span className="ml-auto pr-2.5 text-[16px] text-[color:var(--ria-faint)]">
+          $
+        </span>
+        <input
+          type="text"
           inputMode="numeric"
-          prefix="$"
+          value={minEngagementAmount}
+          onChange={(event) => onMinEngagementChange(event.target.value)}
+          placeholder="250,000"
+          className="w-24 bg-transparent text-right text-[16px] font-medium tabular-nums text-[color:var(--ria-ink)] outline-none placeholder:text-[color:var(--ria-faint)]"
         />
-      </GroupShell>
+      </div>
 
       <div className="space-y-3">
-        <SectionLabel htmlFor="ria-bio" tag="Optional">
-          Short Bio
-        </SectionLabel>
+        <SectionLabel htmlFor="ria-bio">Short Bio</SectionLabel>
+        <RiaAiActionPill onClick={onDraftBio}>
+          Ask Kai to draft a bio
+        </RiaAiActionPill>
         <textarea
           id="ria-bio"
           rows={4}
           value={bio}
           onChange={(event) => onBioChange(event.target.value)}
           placeholder="Briefly describe your approach..."
-          className="w-full resize-none rounded-[24px] border border-border/60 bg-card/80 px-4 py-3 text-[15px] leading-6 text-foreground shadow-[0_12px_34px_rgba(15,23,42,0.06)] outline-none transition-colors placeholder:text-muted-foreground/55 focus:border-primary/70 dark:bg-card/55 dark:shadow-none"
+          className="w-full resize-none rounded-[18px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)] px-[18px] py-4 text-[15px] leading-[1.5] text-[color:var(--ria-ink)] outline-none transition-colors placeholder:text-[color:var(--ria-faint)] focus:border-[color:var(--ria-gold)]"
         />
-        <button
-          type="button"
-          onClick={onDraftBio}
-          className="inline-flex min-h-9 items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3.5 text-sm font-medium text-primary transition-colors hover:bg-primary/15"
-        >
-          <Sparkles className="h-3.5 w-3.5" />
-          Ask Kai to draft a bio
-        </button>
       </div>
 
       <div className="space-y-3">
-        <SectionLabel tag="Optional">Business Location</SectionLabel>
+        <SectionLabel>Business Location</SectionLabel>
         <GroupShell>
           <TextRow
             label="Street"
@@ -325,24 +330,27 @@ export function OnboardingStepServices({
             onChange={onFullStreetAddressChange}
             placeholder="Building, floor, street"
             autoComplete="street-address"
+            dense
           />
-          <Divider />
+          <div className="h-px bg-[color:var(--ria-divider-inner)]" />
           <TextRow
             label="Area"
             value={areaLocality}
             onChange={onAreaLocalityChange}
             placeholder="Area or state"
             autoComplete="address-level1"
+            dense
           />
-          <Divider />
+          <div className="h-px bg-[color:var(--ria-divider-inner)]" />
           <TextRow
             label="City"
             value={city}
             onChange={onCityChange}
             placeholder="City"
             autoComplete="address-level2"
+            dense
           />
-          <Divider />
+          <div className="h-px bg-[color:var(--ria-divider-inner)]" />
           <TextRow
             label="Pin / ZIP"
             value={pinZip}
@@ -350,10 +358,11 @@ export function OnboardingStepServices({
             placeholder="PIN / ZIP"
             inputMode="numeric"
             autoComplete="postal-code"
+            dense
           />
         </GroupShell>
 
-        <div className="relative h-44 overflow-hidden rounded-[24px] border border-border/60 bg-card/70 dark:bg-card/45">
+        <div className="relative h-28 overflow-hidden rounded-[16px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)]">
           {mapPreviewSrc ? (
             <iframe
               title="Business location map preview"
@@ -363,7 +372,7 @@ export function OnboardingStepServices({
               className="h-full w-full border-0"
             />
           ) : (
-            <div className="flex h-full items-center justify-center gap-2 text-[15px] text-muted-foreground">
+            <div className="flex h-full items-center justify-center gap-2 text-[14px] text-[color:var(--ria-muted)]">
               <MapPin className="h-4 w-4" />
               <span>Map preview</span>
             </div>

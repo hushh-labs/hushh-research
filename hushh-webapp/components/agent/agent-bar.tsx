@@ -103,7 +103,7 @@ export function AgentBar() {
   const runtime = useAgentRuntimeStateOptional();
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
-  const { switchPersona } = usePersonaState();
+  const { switchPersona, activePersona } = usePersonaState();
   const busyOperations = useKaiSession((state) => state.busyOperations);
   const setAnalysisParams = useKaiSession((state) => state.setAnalysisParams);
   const appendMirrorEvent = useOneConversationSession((state) => state.appendMirrorEvent);
@@ -586,6 +586,8 @@ export function AgentBar() {
   const allowScrollHide = !useOnboardingChrome;
   const { progress: hideBottomChromeProgress } =
     useKaiBottomChromeVisibility(allowScrollHide);
+  // RIA sub-agent = Apple-style ALWAYS-PINNED ask-bar (matches the pinned nav).
+  const isRiaChrome = activePersona === "ria";
 
   const hint = useMemo(() => resolveAgentBarHint(pathname), [pathname]);
 
@@ -717,10 +719,13 @@ export function AgentBar() {
           bottom: useOnboardingChrome
             ? "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)"
             : "calc(var(--app-bottom-inset) + 0.5rem)",
-          transform: useOnboardingChrome
-            ? undefined
-            : "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height))), 0)",
-          "--bottom-chrome-progress": String(hideBottomChromeProgress),
+          transform:
+            useOnboardingChrome || isRiaChrome
+              ? undefined
+              : "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height))), 0)",
+          "--bottom-chrome-progress": isRiaChrome
+            ? "0"
+            : String(hideBottomChromeProgress),
         } as CSSProperties
       }
       aria-hidden={barHidden}
@@ -740,6 +745,9 @@ export function AgentBar() {
           conversationActive
             ? "bg-black/[0.05] text-[#1d1d1f] ring-1 ring-black/[0.04] dark:bg-white/[0.07] dark:text-[#f5f5f7] dark:ring-white/[0.08]"
             : "bg-black/[0.05] text-[#1d1d1f] ring-1 ring-black/[0.04] dark:bg-white/[0.07] dark:text-[#f5f5f7] dark:ring-white/[0.08]",
+          // RIA: warm cream ask-bar pill (#F7F3EC) per the (1) design.
+          isRiaChrome &&
+            "!bg-[#f7f3ec] !text-[color:var(--ria-ink)] !ring-1 !ring-[color:var(--ria-divider-outer)]",
           barHidden
             ? "pointer-events-none translate-y-1 scale-[0.98] opacity-0"
             : "translate-y-0 scale-100 opacity-100",

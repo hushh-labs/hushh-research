@@ -503,6 +503,10 @@ export function TopAppBar({ className }: TopAppBarProps) {
     normalizedPathname === ROUTES.ONE_HOME &&
     !topShellBreadcrumb &&
     !showOnboardingActions;
+  // RIA sub-agent header: 🤫 One (left) + center "RIA ⌄" cluster, per the (1)
+  // design. Gated on the active persona (NOT the RIA_HOME path — the contract
+  // test forbids that) and only when there's no back breadcrumb.
+  const isRiaScope = activePersona === "ria" && !topShellBreadcrumb;
   const showKaiTabs = topShellMetrics.hasTabs;
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(
     null,
@@ -587,8 +591,14 @@ export function TopAppBar({ className }: TopAppBarProps) {
 
   // Subscribe to the shared scroll-direction store so top chrome hides opposite
   // the bottom nav while keeping the page layout spacer stable.
-  const { progress: topChromeHideProgress } =
+  const { progress: rawTopChromeHideProgress } =
     useKaiBottomChromeVisibility(!hideChrome);
+  // RIA sub-agent = Apple-style ALWAYS-PINNED chrome: clamp the consumed hide
+  // progress to 0 so the transform stays identity (never translates away on
+  // scroll). Value-only override — we keep the subscription live and never touch
+  // the shared visibility singleton, so One/investor scroll-hide is unchanged.
+  const topChromeHideProgress =
+    activePersona === "ria" ? 0 : rawTopChromeHideProgress;
 
   const topGlassHeight = useMemo(
     () =>
@@ -721,7 +731,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                       <ArrowLeft className="h-5 w-5" />
                     </ShellActionSurface>
                   </div>
-                ) : showOneHomeBrand ? (
+                ) : showOneHomeBrand || isRiaScope ? (
                   <div
                     data-testid="top-app-bar-one-brand"
                     aria-label="🤫 One"
@@ -758,7 +768,27 @@ export function TopAppBar({ className }: TopAppBarProps) {
                   showOnboardingActions ? "justify-start" : "justify-center",
                 )}
               >
-                {showAgentSectionDropdown ? (
+                {isRiaScope ? (
+                  <div
+                    data-testid="top-app-bar-ria-cluster"
+                    aria-label="RIA"
+                    className="pointer-events-none inline-flex items-center gap-[9px]"
+                  >
+                    <span className="flex h-[38px] w-[38px] items-center justify-center rounded-[11px] bg-white shadow-[0_2px_8px_rgba(62,48,30,0.10)]">
+                      <BriefcaseBusiness
+                        className="h-[19px] w-[19px] text-[color:var(--ria-ink)]"
+                        strokeWidth={1.7}
+                      />
+                    </span>
+                    <span className="text-[17px] font-semibold tracking-[-0.2px] text-[color:var(--ria-ink)]">
+                      RIA
+                    </span>
+                    <ChevronDown
+                      className="h-[13px] w-[13px] text-[color:var(--ria-ink)]"
+                      strokeWidth={2.3}
+                    />
+                  </div>
+                ) : showAgentSectionDropdown ? (
                   <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
                     <AgentSectionDropdown pathname={normalizedPathname} />
                   </div>

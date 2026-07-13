@@ -2581,3 +2581,236 @@ html.dark .morphy-app-bg {
     animation: none !important;
   }
 }
+
+/* ============================================================================
+   RIA SUB-AGENT — Apple-clean premium surface scope
+   ----------------------------------------------------------------------------
+   Scoped to /ria/* via body[data-persona-surface="ria"] (written by the
+   RIA surface-scope effect in app/providers.tsx). Because Tailwind v4's
+   `@theme inline` aliases color utilities to these runtime vars with NO hsl()
+   wrapper, redefining the underlying vars in this descendant scope re-themes
+   every bg-*/text-*/border-* utility AND every token-driven component
+   (SurfaceCard / RiaSurface / RiaStatusPanel / PageHeader / segmented tabs …)
+   to the warm greige + navy ink + gold palette — ONLY inside the RIA sub-agent.
+   One and investor personas are byte-identical (attribute unset -> defaults).
+   Light-locked (the mockup is light-only). NEVER repoint these vars at :root.
+   Placed last in source order so the scoped overrides win ties against the
+   shared chrome / .morphy-app-bg / .dark rules above.
+   ============================================================================ */
+body[data-persona-surface="ria"] {
+  /* Canvas + surface (warm cream, per the latest (1) design) */
+  --background: #fcfaf6;
+  --app-bg-start: #fffdf9;
+  --app-bg-mid: #fefcf8;
+  --app-bg-end: #fcfaf6;
+
+  /* Ink / text (neutral charcoal, not navy) */
+  --foreground: #151619;
+  --card-foreground: #151619;
+  --muted-foreground: #6f7075;
+
+  /* Primary / CTA ink (near-black) — matches the design CTA #1C1C1E. */
+  --primary: #1c1c1e;
+  --primary-foreground: #ffffff;
+
+  /* Morphy CTA gradient -> solid DS ink (retints every blue-gradient/gradient
+     morphy Button across RIA — picks, workspace — with no per-site edits). */
+  --morphy-primary-start: #1c1c1e;
+  --morphy-primary-mid: #1c1c1e;
+  --morphy-primary-end: #1c1c1e;
+  --morphy-cta-shadow: rgba(21, 22, 25, 0.16);
+
+  /* Gold accent — design gold #C98B2E; deep gold #B87B23 (edit pills, badges). */
+  --accent: #c98b2e;
+  --foundation-ink: #151619;
+  --foundation-gold-accent: #c98b2e;
+  --foundation-gold-deep: #b87b23;
+  --foundation-gold: #c98b2e;
+  --foundation-accent-surface: #f8f1e5;
+  --foundation-accent-surface-strong: #f6ead5;
+  --foundation-accent-border: rgba(201, 139, 46, 0.35);
+
+  /* Cards (warm off-white + warm hairline + warm shadow) */
+  --card: #fffdf9;
+  --border: #e9e1d6;
+  --input: #e9e1d6;
+  --app-card-surface-default: #fffdf9;
+  --app-card-surface-default-solid: #fffdf9;
+  --app-card-surface-compact: #fffdf9;
+  --app-card-surface-hero: #fffdf9;
+  --app-card-surface-surface: #fffdf9;
+  --app-card-border-standard: #e9e1d6;
+  --app-card-border-strong: #e9e1d6;
+  --app-card-shadow-standard: 0 8px 24px rgba(62, 48, 30, 0.05);
+  --app-card-shadow-feature: 0 12px 32px rgba(62, 48, 30, 0.08);
+
+  /* Segmented tabs -> gold active pill */
+  --app-segmented-active-surface: #f6ead5;
+  --app-segmented-active-foreground: #c98b2e;
+  --app-segmented-active-border: transparent;
+
+  /* --ria-* primitive namespace (consumed by components/ria/ui/*). */
+  --ria-gold: #c98b2e;
+  --ria-gold-deep: #b87b23;
+  --ria-ink: #151619;
+  --ria-muted: #6f7075;
+  --ria-sublabel: #8a8983;
+  --ria-faint: #b0aba1;
+  --ria-alt: #57544e;
+  --ria-canvas: #fcfaf6;
+  --ria-surface: #fcfaf6;
+  --ria-selected-tint: #f8f1e5;
+  --ria-nav-active: #f6ead5;
+  --ria-divider-outer: #e9e1d6;
+  --ria-divider-inner: #efe8dc;
+  --ria-cta-ink: #1c1c1e;
+  --ria-cta-radius: 28px;
+  --ria-cta-height: 56px;
+  --ria-cta-shadow: 0 12px 28px rgba(21, 22, 25, 0.16);
+  --ria-secondary-border: rgba(201, 139, 46, 0.6);
+  --ria-input-radius: 18px;
+  --ria-input-height: 60px;
+  --ria-card-radius: 22px;
+  --ria-chip-radius: 14px;
+  --ria-progress-done: rgba(201, 139, 46, 0.72);
+  --ria-progress-current: #c98b2e;
+  --ria-progress-todo: #e9e1d6;
+  --ria-select-fill: #c98b2e;
+  --ria-select-border: #cfc9be;
+  --ria-success: #2e9b73;
+  --ria-success-text: #2e9b73;
+  --ria-success-bg: rgba(46, 155, 115, 0.09);
+  --ria-success-border: rgba(46, 155, 115, 0.26);
+  /* Warm literals used by a few component spots (bio note, fee-active label). */
+  --ria-amber-note: #9a6b23;
+  --ria-fee-active: #8b5d19;
+}
+
+/* Warm cream canvas + top-right glow (beats .morphy-app-bg's forced flat bg). */
+html body[data-persona-surface="ria"] .morphy-app-bg {
+  background-color: #fcfaf6 !important;
+  background-image:
+    radial-gradient(
+      circle at 82% 12%,
+      rgba(242, 223, 192, 0.5) 0%,
+      rgba(252, 250, 246, 0) 40%
+    ),
+    linear-gradient(180deg, #fffdf9 0%, #fcfaf6 100%) !important;
+}
+
+/* DS hairline card border (defeats the apple Card's !border-0 on RIA surfaces). */
+body[data-persona-surface="ria"] [data-surface-tone] {
+  border-width: 1px !important;
+  border-style: solid !important;
+  border-color: var(--app-card-border-standard) !important;
+}
+
+/* RIA primitive helper classes (composed by onboarding + surface restyles). */
+body[data-persona-surface="ria"] .ria-eyebrow {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 2.4px;
+  text-transform: uppercase;
+  color: var(--ria-gold);
+}
+body[data-persona-surface="ria"] .ria-sublabel {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--ria-sublabel);
+}
+body[data-persona-surface="ria"] .ria-screen-title {
+  font-family: var(--font-app-display, var(--font-app-heading));
+  font-size: 29px;
+  line-height: 1.1;
+  font-weight: 700;
+  letter-spacing: -0.6px;
+  color: var(--ria-ink);
+}
+/* Welcome screen title is a touch larger/tighter per the design. */
+body[data-persona-surface="ria"] .ria-screen-title--hero {
+  font-size: 31px;
+  letter-spacing: -0.7px;
+}
+body[data-persona-surface="ria"] .ria-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--ria-cta-height);
+  padding: 0 24px;
+  border-radius: var(--ria-cta-radius);
+  background: var(--ria-cta-ink);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: var(--ria-cta-shadow);
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease;
+}
+body[data-persona-surface="ria"] .ria-cta:active {
+  transform: scale(0.985);
+  opacity: 0.92;
+}
+body[data-persona-surface="ria"] .ria-cta:disabled {
+  opacity: 0.5;
+}
+body[data-persona-surface="ria"] .ria-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--ria-cta-height);
+  padding: 0 24px;
+  border-radius: 28px;
+  background: transparent;
+  border: 1.5px solid var(--ria-secondary-border);
+  color: var(--ria-gold);
+  font-weight: 600;
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease;
+}
+body[data-persona-surface="ria"] .ria-secondary:active {
+  transform: scale(0.985);
+  opacity: 0.92;
+}
+
+/* ── RIA chrome exact-match overrides ──────────────────────────────────────
+   The shared chrome (top glass, bottom-nav pill, search circle) is styled by
+   base rules that use !important (globals ~L1488-1792) + inline vars, so the
+   RIA warm tints must be applied here with !important + later source order to
+   win. Scoped to body[data-persona-surface="ria"] so One/investor are intact. */
+
+/* Taller top bar (design header = 56px) + transparent glass so the cream
+   canvas shows through (kills the cool frosted band). */
+body[data-persona-surface="ria"] {
+  --top-bar-h: 56px;
+}
+body[data-persona-surface="ria"] .bar-glass-top {
+  --app-bar-glass-bg-light: transparent !important;
+  --app-bar-glass-bg-dark: transparent !important;
+  --app-bar-shadow: none !important;
+}
+
+/* Bottom nav: transparent floating track + gold active pill (#F6EAD5). */
+body[data-persona-surface="ria"] .kai-bottom-nav-pill {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+body[data-persona-surface="ria"] .kai-bottom-nav-pill [data-segment-indicator] {
+  background: var(--ria-nav-active) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+/* Search circle: warm cream #FBF7F0 + hairline border. */
+body[data-persona-surface="ria"] .kai-bottom-search-action {
+  background: #fbf7f0 !important;
+  border: 1px solid var(--ria-divider-outer) !important;
+  box-shadow: 0 4px 14px rgba(62, 48, 30, 0.06) !important;
+}

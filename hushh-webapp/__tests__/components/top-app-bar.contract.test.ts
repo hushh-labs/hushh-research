@@ -48,6 +48,15 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("router.push(nextRoute);");
   });
 
+  it("renders the RIA header cluster gated on the active persona (not the RIA path)", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+
+    // Display-only "RIA v" cluster shown across the RIA sub-agent.
+    expect(source).toContain('data-testid="top-app-bar-ria-cluster"');
+    // Gated on the persona, never on the forbidden RIA_HOME path check.
+    expect(source).toContain('const isRiaScope = activePersona === "ria"');
+  });
+
   it("uses deterministic breadcrumb parents instead of browser history for top-bar back", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 

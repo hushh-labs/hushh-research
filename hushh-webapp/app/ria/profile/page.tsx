@@ -341,7 +341,7 @@ export default function RiaProfilePage() {
               disabled={saving}
               onClick={handleSaveProfile}
               className={cn(
-                "inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-primary px-6 text-[17px] font-semibold text-primary-foreground transition-opacity dark:shadow-none",
+                "ria-cta w-full text-[17px]",
                 saving && "cursor-not-allowed opacity-40",
               )}
             >
