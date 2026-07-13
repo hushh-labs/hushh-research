@@ -30,6 +30,33 @@ def test_decimal_to_currency_text_formats_positive_values():
     assert _decimal_to_currency_text("12.345") == "12.35"
 
 
+def test_alpaca_connect_redirect_uri_derives_from_app_frontend_origin(monkeypatch):
+    """Domain migrations should only require updating APP_FRONTEND_ORIGIN.
+
+    Regression guard for the kai.hushh.ai -> one.hushh.ai migration: the
+    Alpaca redirect URI must derive from APP_FRONTEND_ORIGIN + a relative
+    path (same as Plaid) whenever no absolute ALPACA_CONNECT_REDIRECT_URI
+    override is explicitly configured.
+    """
+    monkeypatch.delenv("ALPACA_CONNECT_REDIRECT_URI", raising=False)
+    monkeypatch.delenv("ALPACA_OAUTH_REDIRECT_URI", raising=False)
+    monkeypatch.delenv("ALPACA_CONNECT_REDIRECT_PATH", raising=False)
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://one.hushh.ai")
+
+    service = BrokerFundingService()
+    config = service._alpaca_connect_config()
+    assert config["redirect_uri"] == "https://one.hushh.ai/kai/alpaca/oauth/return"
+
+
+def test_alpaca_connect_redirect_uri_explicit_override_wins(monkeypatch):
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://one.hushh.ai")
+    monkeypatch.setenv("ALPACA_CONNECT_REDIRECT_URI", "https://custom.example.com/alpaca/return")
+
+    service = BrokerFundingService()
+    config = service._alpaca_connect_config()
+    assert config["redirect_uri"] == "https://custom.example.com/alpaca/return"
+
+
 def test_decimal_to_currency_text_rejects_invalid_values():
     with pytest.raises(FundingOrchestrationError) as bad_text:
         _decimal_to_currency_text("bad")
