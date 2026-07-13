@@ -97,6 +97,7 @@ import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { DriveToFlow } from "./drive-to-flow";
 import { PickMeUpFlow } from "./pick-me-up-flow";
 import { SafeArrivalFlow } from "./safe-arrival-flow";
+import { deriveEnRouteHelpers } from "./pickup-enroute";
 
 
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
@@ -573,30 +574,13 @@ function NowHub({
   // Condition: a received grant with shareKind === "pickup_enroute" that has a
   // decrypted live point AND for whom the current user has an active outbound
   // "pick_me_up" grant (i.e. the mutual-share pair is complete).
-  const enRouteHelpers = vm.receivedGrants
-    .filter(
-      (g) =>
-        g.shareKind === "pickup_enroute" &&
-        Boolean(vm.decryptedPoints[g.id]),
-    )
-    .flatMap((receivedGrant) => {
-      const outboundGrant = vm.activeOwnerGrants.find(
-        (g) =>
-          g.shareKind === "pick_me_up" &&
-          g.recipientUserId === receivedGrant.ownerUserId,
-      );
-      if (!outboundGrant) return [];
-      const point = vm.decryptedPoints[receivedGrant.id]!;
-      return [
-        {
-          key: receivedGrant.id,
-          helperName: vm.grantOwnerLabel(receivedGrant),
-          point,
-          etaSeconds: point.drive?.etaSeconds ?? null,
-          outboundGrantId: outboundGrant.id,
-        },
-      ];
-    });
+  const enRouteHelpers = deriveEnRouteHelpers({
+    receivedGrants: vm.receivedGrants,
+    // activeOwnerGrants is pre-filtered to status === "active" by the vm.
+    activeOwnerGrants: vm.activeOwnerGrants,
+    decryptedPoints: vm.decryptedPoints,
+    labelFor: vm.grantOwnerLabel,
+  });
   const deviceReadinessCard = (
     <SectionCard title="Device readiness">
       <DeviceReadinessCard

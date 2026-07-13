@@ -1,14 +1,14 @@
 /**
  * Tests for PickupEnRouteCard (cards.tsx) and the en-route helper derivation
- * logic that lives in NowHub (location-redesign-hub.tsx).
+ * logic extracted into pickup-enroute.ts.
  *
- * The derivation is tested via a thin helper function that mirrors the
- * production code exactly, exercising the predicate in isolation — which keeps
- * the test free of heavy component mocking while still asserting real logic.
+ * The derivation tests import the real exported function so they exercise
+ * production logic directly — no mirror copies.
  */
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { PickupEnRouteCard } from "@/components/one-location/redesign/cards";
+import { deriveEnRouteHelpers } from "@/components/one-location/redesign/pickup-enroute";
 import type { OneLocationGrant, PlainLocationPoint } from "@/lib/one-location/types";
 
 /* ------------------------------------------------------------------ */
@@ -48,48 +48,6 @@ function makePoint(etaSeconds?: number | null): PlainLocationPoint {
 }
 
 /* ------------------------------------------------------------------ */
-/* Mirror the production derivation so we can test it in isolation     */
-/* ------------------------------------------------------------------ */
-
-type EnRouteEntry = {
-  key: string;
-  helperName: string;
-  etaSeconds: number | null;
-  outboundGrantId: string;
-};
-
-function deriveEnRouteHelpers(
-  receivedGrants: OneLocationGrant[],
-  activeOwnerGrants: OneLocationGrant[],
-  decryptedPoints: Record<string, PlainLocationPoint>,
-  grantOwnerLabel: (g: OneLocationGrant) => string,
-): EnRouteEntry[] {
-  return receivedGrants
-    .filter(
-      (g) =>
-        g.shareKind === "pickup_enroute" &&
-        Boolean(decryptedPoints[g.id]),
-    )
-    .flatMap((receivedGrant) => {
-      const outboundGrant = activeOwnerGrants.find(
-        (g) =>
-          g.shareKind === "pick_me_up" &&
-          g.recipientUserId === receivedGrant.ownerUserId,
-      );
-      if (!outboundGrant) return [];
-      const point = decryptedPoints[receivedGrant.id]!;
-      return [
-        {
-          key: receivedGrant.id,
-          helperName: grantOwnerLabel(receivedGrant),
-          etaSeconds: point.drive?.etaSeconds ?? null,
-          outboundGrantId: outboundGrant.id,
-        },
-      ];
-    });
-}
-
-/* ------------------------------------------------------------------ */
 /* Tests: derivation                                                    */
 /* ------------------------------------------------------------------ */
 
@@ -106,7 +64,7 @@ describe("deriveEnRouteHelpers", () => {
     };
     const label = (g: OneLocationGrant) => (g.ownerUserId === "helper-1" ? "Ravi" : "?");
 
-    const result = deriveEnRouteHelpers(received, outbound, points, label);
+    const result = deriveEnRouteHelpers({ receivedGrants: received, activeOwnerGrants: outbound, decryptedPoints: points, labelFor: label });
 
     expect(result).toHaveLength(1);
     expect(result[0]!.helperName).toBe("Ravi");
@@ -123,7 +81,7 @@ describe("deriveEnRouteHelpers", () => {
       makeGrant({ id: "o1", shareKind: "pick_me_up", recipientUserId: "helper-1" }),
     ];
     // No decrypted point
-    const result = deriveEnRouteHelpers(received, outbound, {}, () => "Ravi");
+    const result = deriveEnRouteHelpers({ receivedGrants: received, activeOwnerGrants: outbound, decryptedPoints: {}, labelFor: () => "Ravi" });
 
     expect(result).toHaveLength(0);
   });
@@ -138,7 +96,7 @@ describe("deriveEnRouteHelpers", () => {
     ];
     const points: Record<string, PlainLocationPoint> = { r1: makePoint(300) };
 
-    const result = deriveEnRouteHelpers(received, outbound, points, () => "Ravi");
+    const result = deriveEnRouteHelpers({ receivedGrants: received, activeOwnerGrants: outbound, decryptedPoints: points, labelFor: () => "Ravi" });
 
     expect(result).toHaveLength(0);
   });
@@ -152,7 +110,7 @@ describe("deriveEnRouteHelpers", () => {
     ];
     const points: Record<string, PlainLocationPoint> = { r1: makePoint(300) };
 
-    const result = deriveEnRouteHelpers(received, outbound, points, () => "Ravi");
+    const result = deriveEnRouteHelpers({ receivedGrants: received, activeOwnerGrants: outbound, decryptedPoints: points, labelFor: () => "Ravi" });
 
     expect(result).toHaveLength(0);
   });
@@ -174,7 +132,7 @@ describe("deriveEnRouteHelpers", () => {
       },
     };
 
-    const result = deriveEnRouteHelpers(received, outbound, points, () => "Ravi");
+    const result = deriveEnRouteHelpers({ receivedGrants: received, activeOwnerGrants: outbound, decryptedPoints: points, labelFor: () => "Ravi" });
 
     expect(result).toHaveLength(1);
     expect(result[0]!.etaSeconds).toBeNull();
@@ -194,7 +152,7 @@ describe("deriveEnRouteHelpers", () => {
       r2: makePoint(1200),
     };
 
-    const result = deriveEnRouteHelpers(received, outbound, points, (g) => g.ownerUserId);
+    const result = deriveEnRouteHelpers({ receivedGrants: received, activeOwnerGrants: outbound, decryptedPoints: points, labelFor: (g) => g.ownerUserId });
 
     expect(result).toHaveLength(2);
     expect(result.map((e) => e.outboundGrantId).sort()).toEqual(["o1", "o2"]);
