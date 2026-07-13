@@ -2462,12 +2462,12 @@ md-ripple.morphy-md-ripple {
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
-  color: var(--foundation-gold-deep) !important;
+  color: #007aff !important;
   font-weight: 600;
 }
 
 .dark .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
-  color: var(--foundation-gold-deep) !important;
+  color: #4a9eff !important;
 }
 
 .kai-bottom-nav-pill [role="radio"] svg {
@@ -2483,7 +2483,7 @@ md-ripple.morphy-md-ripple {
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] svg {
   opacity: 1;
   stroke-width: 1.95;
-  filter: drop-shadow(0 3px 8px color-mix(in srgb, var(--foundation-gold-deep) 28%, transparent));
+  filter: drop-shadow(0 3px 8px color-mix(in srgb, #007aff 28%, transparent));
   transform: translateY(-0.5px);
 }
 
