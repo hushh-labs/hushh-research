@@ -91,8 +91,16 @@ describe("DriveToFlow", () => {
     const vm = makeVm();
     render(<DriveToFlow vm={vm} onClose={vi.fn()} />);
     expect(
-      screen.getByRole("button", { name: /choose a destination/i }),
+      screen.getByRole("button", { name: /start sharing drive/i }),
     ).toBeDisabled();
+  });
+
+  it("prompts to capture location when there is no live fix", () => {
+    const vm = makeVm({ myLocationPoint: null });
+    render(<DriveToFlow vm={vm} onClose={vi.fn()} />);
+    expect(
+      screen.getByRole("button", { name: /^capture location$/i }),
+    ).toBeInTheDocument();
   });
 
   it("does not render duration chips", () => {
