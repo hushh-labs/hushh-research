@@ -438,7 +438,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   /* ----------------------------------------------------------------- */
   const headerSubtitle =
     tab === "now"
-      ? "Private by default"
+      ? ""
       : tab === "people"
         ? "Circle, contacts and invites"
         : tab === "links"

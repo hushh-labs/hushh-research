@@ -465,10 +465,9 @@ export const Navbar = () => {
             className={cn(
               "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
               // Shared bottom chrome surface: flat translucent track, no
-              // route-local glass or ink override. Active state is Foundation
-              // accent foreground so the nav matches the rest of the app
-              // identity without turning the background yellow.
-              "[&_[aria-checked=true]]:text-accent-strong [&_[aria-checked=true]]:font-semibold",
+              // route-local glass or ink override. Active state uses iOS system
+              // blue (#007aff) so the selected tab reads blue on every screen.
+              "[&_[aria-checked=true]]:text-[#007aff] [&_[aria-checked=true]]:font-semibold",
               "[&_[data-segment-indicator]]:bg-black/[0.06] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-white/[0.1]",
             )}
           />
@@ -489,7 +488,7 @@ export const Navbar = () => {
             "transition-[color,transform,background-color] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)]",
             // Hover styles behind (hover:hover) so iOS taps never latch a
             // sticky hover background on the first touch.
-            "[@media(hover:hover)]:hover:bg-black/[0.08] [@media(hover:hover)]:hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background [@media(hover:hover)]:dark:hover:bg-white/[0.1] active:scale-90 chrome-bottom-foreground",
+            "[@media(hover:hover)]:hover:bg-black/[0.08] [@media(hover:hover)]:hover:text-[#007aff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007aff]/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background [@media(hover:hover)]:dark:hover:bg-white/[0.1] active:scale-90 chrome-bottom-foreground",
           )}
           onClick={() => {
             if (busyOperations["portfolio_save"]) {
