@@ -1889,6 +1889,10 @@ function OneLocationAgentPageContent() {
     lastEtaPoint: PlainLocationPoint | null;
     lastEtaAt: number;
   } | null>(null);
+  const pickupSessionRef = useRef<{
+    grantIds: Set<string>;
+    point: PlainLocationPoint;
+  } | null>(null);
   const [recentDestinations, setRecentDestinations] = useState<DriveDestination[]>([]);
 
 
@@ -2743,6 +2747,17 @@ function OneLocationAgentPageContent() {
     [vaultOwnerToken],
   );
 
+  // Keep an adjusted (fixed) pickup spot fixed: the watch loop must not overwrite
+  // these grants with live GPS as the owner moves.
+  const pickupPointForGrant = useCallback(
+    (grant: OneLocationGrant, livePoint: PlainLocationPoint): PlainLocationPoint => {
+      const session = pickupSessionRef.current;
+      if (session && session.grantIds.has(grant.id)) return session.point;
+      return livePoint;
+    },
+    [],
+  );
+
   const resetShareComposer = useCallback(() => {
     suppressAutoRecipientSelectionRef.current = true;
     setSelectedRecipientId("");
@@ -3243,7 +3258,8 @@ function OneLocationAgentPageContent() {
         for (const grant of activeOwnerGrants) {
           const recipient = recipientForGrant(grant);
           if (!recipient?.keyId || !recipient.publicKeyJwk) continue;
-          const pointForGrant = await drivePointForGrant(grant, point);
+          const driven = await drivePointForGrant(grant, point);
+          const pointForGrant = pickupPointForGrant(grant, driven);
           await publishEnvelopeWithRetry(
             grant,
             recipient,
@@ -3295,6 +3311,7 @@ function OneLocationAgentPageContent() {
     publishEnvelopeWithRetry,
     recipientForGrant,
     drivePointForGrant,
+    pickupPointForGrant,
     vaultOwnerToken,
   ]);
 
@@ -4324,6 +4341,7 @@ function OneLocationAgentPageContent() {
       recipientIds: string[],
       durationHoursValue: string,
       messageValue?: string,
+      pickupPoint?: { latitude: number; longitude: number; label?: string },
     ) => {
       if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) {
         toast.error("Location permission is required to request a pickup.");
@@ -4342,16 +4360,28 @@ function OneLocationAgentPageContent() {
       setBusy("share");
       let successCount = 0;
       try {
-        const readiness = await ensureForegroundLocationReady({
-          capturePoint: true,
-          autoOpenSettings: true,
-        });
-        if (!readiness.ready || !readiness.point) {
-          toast.error("Couldn't get your location — pickup request not sent.");
-          return;
+        let point: PlainLocationPoint;
+        if (pickupPoint) {
+          // Adjusted fixed spot: share exactly this point (kept fixed by the watch loop).
+          point = {
+            latitude: pickupPoint.latitude,
+            longitude: pickupPoint.longitude,
+            capturedAt: new Date().toISOString(),
+            sourcePlatform: "web",
+          };
+        } else {
+          const readiness = await ensureForegroundLocationReady({
+            capturePoint: true,
+            autoOpenSettings: true,
+          });
+          if (!readiness.ready || !readiness.point) {
+            toast.error("Couldn't get your location — pickup request not sent.");
+            return;
+          }
+          point = readiness.point;
         }
-        const point = readiness.point;
         const durationHoursNum = Number(durationHoursValue) || 1;
+        const grantCreatedIds: string[] = [];
         for (const recipient of selected) {
           const grant = await OneLocationService.createGrant({
             vaultOwnerToken,
@@ -4361,7 +4391,14 @@ function OneLocationAgentPageContent() {
             reason: pickupMessage,
           });
           await publishEnvelopeWithRetry(grant, recipient, "manual", point);
+          grantCreatedIds.push(grant.id);
           successCount += 1;
+        }
+        if (pickupPoint) {
+          pickupSessionRef.current = {
+            grantIds: new Set(grantCreatedIds),
+            point,
+          };
         }
         trackEvent("one_location_share_confirmed", {
           route_id: "one_location",
@@ -4926,8 +4963,15 @@ function OneLocationAgentPageContent() {
     recentDestinations,
     onDriveTo: (destination, recipientIds, durationHoursValue) =>
       void handleDriveTo(destination, recipientIds, durationHoursValue),
-    onPickMeUp: (recipientIds, durationHoursValue, messageValue) =>
-      void handlePickMeUp(recipientIds, durationHoursValue, messageValue),
+    onPickMeUp: (recipientIds, durationHoursValue, messageValue, pickupPoint) =>
+      void handlePickMeUp(recipientIds, durationHoursValue, messageValue, pickupPoint),
+    recipientLivePoint: (userId: string) => {
+      const grant = (state?.receivedGrants ?? []).find(
+        (g) => String(g.ownerUserId || "").trim() === userId,
+      );
+      if (!grant) return null;
+      return decryptedPoints[grant.id] ?? null;
+    },
     safeArrivalBusy: busy === "safeArrival",
     onSafeArrival: (destination, recipientIds, durationHoursValue, messageValue) =>
       void handleSafeArrival(

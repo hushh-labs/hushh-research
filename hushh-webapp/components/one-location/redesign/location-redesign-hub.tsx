@@ -209,6 +209,7 @@ export type LocationHubViewModel = {
     recipientIds: string[],
     durationHours: string,
     message?: string,
+    pickupPoint?: { latitude: number; longitude: number; label?: string },
   ) => void;
 
   /* Safe Arrival (quick action) — outbound: share your live journey + ETA to a
@@ -243,6 +244,8 @@ export type LocationHubViewModel = {
   ) => ReactNode;
   mapLocationHref: (point: PlainLocationPoint) => string;
   decryptedPoints: Record<string, PlainLocationPoint>;
+  /** Latest decrypted live point for a contact who is sharing with the user, else null. */
+  recipientLivePoint: (userId: string) => PlainLocationPoint | null;
 };
 
 type FlowKind =
