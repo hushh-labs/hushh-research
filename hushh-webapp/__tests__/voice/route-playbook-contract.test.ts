@@ -19,11 +19,18 @@ describe("One route voice playbooks", () => {
       expect(entry.voicePlaybook.purpose.length).toBeGreaterThan(0);
       expect(entry.voicePlaybook.screen).toBe(deriveVoiceRouteScreen(entry.route).screen);
       expect(entry.voicePlaybook.completionBoundary.length).toBeGreaterThan(0);
+      expect(Array.isArray(entry.interactionLayerPolicy.allowedFamilies)).toBe(true);
       if (entry.voicePlaybook.proactivity === "on_entry") {
         expect(entry.voicePlaybook.entryCue.length).toBeGreaterThan(0);
         expect(entry.voicePlaybook.primaryActionId).toBeTruthy();
       }
     }
+    expect(resolveAppRouteLayout("/login").interactionLayerPolicy.allowedFamilies).toEqual([
+      "legal_document",
+    ]);
+    expect(
+      resolveAppRouteLayout("/register-phone").interactionLayerPolicy.allowedFamilies,
+    ).toEqual(["country_picker"]);
   });
 
   it("prefers exact setup routes before the dynamic capability pattern", () => {

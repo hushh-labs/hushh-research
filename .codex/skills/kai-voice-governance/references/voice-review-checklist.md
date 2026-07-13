@@ -11,6 +11,7 @@ Use this when reviewing One Voice, Kai compatibility runtime, or typed-search ch
 - Do specialist-turn actions use the shared `specialist_chat.turn` runner instead of route-only voice contracts or provider-side tool execution?
 - Are ordinary navigation actions under `route.*`, with `nav.*` reserved for true Nav guardian actions?
 - Are `control_ids` present for UI affordances that should map back to the action?
+- Do browser popup actions declare `trusted_activation_required` and continue through one exact provider-specific trusted tap rather than redirect, synthetic click, or a blank broker window?
 
 ## Workflow And Gating
 
@@ -26,6 +27,10 @@ Use this when reviewing One Voice, Kai compatibility runtime, or typed-search ch
 - Which existing voice runtime surfaces does this PR extend: generated gateway, manifest, realtime client, turn orchestrator, shared dispatcher, console sheet, backend voice intent, or voice tests?
 - Is this a new input adapter over the current runtime, or is it creating a parallel voice system?
 - Does runtime surface metadata describe current state rather than invent capabilities?
+- Are publishers authored as `route`, `chrome`, or `interaction_layer`, with owner-scoped cleanup and no DOM inference?
+- Does a modal/blocking top layer hide underlying actions, and does a nonmodal layer retain only explicitly permitted route actions?
+- Does every dismissible layer expose an exact generated close/cancel action and settle only after committed removal plus focus return?
+- Is Agent continuity explicit (`interactive`, `ambient`, or `suppressed`) for legal, credential, OTP, vault, and destructive layers?
 - Does the generated gateway remain the shared semantic authority?
 - Is transcript fallback still only a compatibility path rather than the primary discoverability mechanism?
 - If the PR uses browser SpeechRecognition or MCP tools, does it still preserve action gateway parity, settlement, gating, and telemetry?
@@ -52,3 +57,4 @@ Use this when reviewing One Voice, Kai compatibility runtime, or typed-search ch
 - targeted voice tests
 - One intelligence eval cases for proposals, chained goals, memory candidates, and sensitive-information rejection
 - backend voice contract test when shared semantics changed
+- browser proof for provider popup close/retry, nested-layer restoration, focus return, and wrong-layer rejection

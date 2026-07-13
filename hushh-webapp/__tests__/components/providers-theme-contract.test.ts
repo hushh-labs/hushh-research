@@ -11,7 +11,7 @@ function read(relativePath: string) {
 
 describe("Providers theme contract", () => {
   it("never forces a theme on any platform (iOS daylight pin removed)", () => {
-    const source = read("app/providers.tsx");
+    const source = read("app/layout.tsx");
 
     // The earlier "daylight" ship pinned iOS to light via forcedTheme +
     // Info.plist UIUserInterfaceStyle=Light. Both pins are removed: the theme

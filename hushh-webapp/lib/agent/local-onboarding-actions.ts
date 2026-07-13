@@ -36,33 +36,77 @@ export type LocalOnboardingActionContext = {
 
 export type LocalOnboardingActionHandler = (
   slots: Record<string, unknown>,
-  context?: LocalOnboardingActionContext
+  context?: LocalOnboardingActionContext,
 ) => LocalOnboardingActionResult | Promise<LocalOnboardingActionResult>;
 
-const handlers = new Map<string, LocalOnboardingActionHandler>();
+type MountedLocalActionHandler = {
+  ownerId: string;
+  sequence: number;
+  handler: LocalOnboardingActionHandler;
+};
+
+const handlers = new Map<string, Map<string, MountedLocalActionHandler>>();
+const legacyOwnerIds = new WeakMap<LocalOnboardingActionHandler, string>();
+let registrationSequence = 0;
+
+function legacyOwnerId(handler: LocalOnboardingActionHandler): string {
+  const existing = legacyOwnerIds.get(handler);
+  if (existing) return existing;
+  const ownerId = `legacy_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  legacyOwnerIds.set(handler, ownerId);
+  return ownerId;
+}
+
+/** Register a mounted handler without allowing an older owner to steal it. */
+export function registerMountedLocalActionHandler(
+  actionId: string,
+  ownerId: string,
+  handler: LocalOnboardingActionHandler,
+) {
+  const owners =
+    handlers.get(actionId) ?? new Map<string, MountedLocalActionHandler>();
+  registrationSequence += 1;
+  owners.set(ownerId, { ownerId, sequence: registrationSequence, handler });
+  handlers.set(actionId, owners);
+}
+
+/** Remove only the registration owned by the caller. */
+export function unregisterMountedLocalActionHandler(
+  actionId: string,
+  ownerId: string,
+) {
+  const owners = handlers.get(actionId);
+  if (!owners) return;
+  owners.delete(ownerId);
+  if (owners.size === 0) handlers.delete(actionId);
+}
 
 /** Register a handler for a governed `action_id`. Last registration wins. */
 export function registerLocalOnboardingHandler(
   actionId: string,
-  handler: LocalOnboardingActionHandler
+  handler: LocalOnboardingActionHandler,
 ) {
-  handlers.set(actionId, handler);
+  registerMountedLocalActionHandler(actionId, legacyOwnerId(handler), handler);
 }
 
 /** Remove a handler only if it is still the one that registered it. */
 export function unregisterLocalOnboardingHandler(
   actionId: string,
-  handler: LocalOnboardingActionHandler
+  handler: LocalOnboardingActionHandler,
 ) {
-  if (handlers.get(actionId) === handler) {
-    handlers.delete(actionId);
-  }
+  unregisterMountedLocalActionHandler(actionId, legacyOwnerId(handler));
 }
 
 export function resolveLocalOnboardingHandler(
-  actionId: string
+  actionId: string,
 ): LocalOnboardingActionHandler | null {
-  return handlers.get(actionId) ?? null;
+  const owners = handlers.get(actionId);
+  if (!owners || owners.size === 0) return null;
+  return (
+    Array.from(owners.values()).sort(
+      (left, right) => right.sequence - left.sequence,
+    )[0]?.handler ?? null
+  );
 }
 
 /**
@@ -72,7 +116,7 @@ export function resolveLocalOnboardingHandler(
  */
 export async function waitForLocalOnboardingHandler(
   actionId: string,
-  timeoutMs = 750
+  timeoutMs = 750,
 ): Promise<LocalOnboardingActionHandler | null> {
   const immediate = resolveLocalOnboardingHandler(actionId);
   if (immediate) return immediate;
@@ -92,8 +136,11 @@ export async function waitForLocalOnboardingHandler(
  */
 export function useLocalOnboardingActionHandler(
   actionId: string,
-  handler: LocalOnboardingActionHandler
+  handler: LocalOnboardingActionHandler,
 ) {
+  const ownerIdRef = useRef(
+    `local_action_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+  );
   const handlerRef = useRef(handler);
   // Refs must not be written during render (react-hooks/refs); keep the ref
   // fresh in an effect instead so the registered handler below never closes
@@ -106,9 +153,10 @@ export function useLocalOnboardingActionHandler(
   useEffect(() => {
     const stableHandler: LocalOnboardingActionHandler = (slots, context) =>
       handlerRef.current(slots, context);
-    registerLocalOnboardingHandler(actionId, stableHandler);
+    const ownerId = ownerIdRef.current;
+    registerMountedLocalActionHandler(actionId, ownerId, stableHandler);
     return () => {
-      unregisterLocalOnboardingHandler(actionId, stableHandler);
+      unregisterMountedLocalActionHandler(actionId, ownerId);
     };
   }, [actionId]);
 }

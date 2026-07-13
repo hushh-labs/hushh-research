@@ -39,8 +39,23 @@ export function validateMorphyAxAssessment(
   if (snapshot.orchestration.pending_settlement) {
     return { status: "rejected", reason: "settlement_pending" };
   }
+  const interactionLayer = snapshot.context.interaction_layer;
+  if (interactionLayer?.agent_continuity === "suppressed") {
+    return { status: "rejected", reason: "agent_suppressed_by_active_layer" };
+  }
+  if (interactionLayer && interactionLayer.lifecycle_state !== "open") {
+    return { status: "rejected", reason: "interaction_layer_not_ready" };
+  }
   if (!snapshot.tools.available_action_ids.includes(actionId)) {
     return { status: "rejected", reason: "action_not_available_on_screen" };
+  }
+  if (
+    interactionLayer &&
+    !interactionLayer.underlying_actions_available &&
+    actionId !== interactionLayer.dismiss_action_id &&
+    !interactionLayer.visible_action_ids.includes(actionId)
+  ) {
+    return { status: "rejected", reason: "action_hidden_by_active_layer" };
   }
   if (assessment.disposition === "confirm_visible_action") {
     return { status: "confirmation_required", action_id: actionId };

@@ -77,11 +77,7 @@ def _parse_cors_allowed_origins() -> list[str]:
     # Access-Control-Allow-Credentials: true, and a reflected "*" origin with
     # credentials would enable cross-origin credential theft. Origins must be
     # explicit. (FedRAMP CM-6 / AC-4.)
-    origins = [
-        item.strip()
-        for item in explicit.split(",")
-        if item.strip() and item.strip() != "*"
-    ]
+    origins = [item.strip() for item in explicit.split(",") if item.strip() and item.strip() != "*"]
 
     frontend_url = _APP_RUNTIME_SETTINGS.app_frontend_origin
     if frontend_url and frontend_url not in origins:

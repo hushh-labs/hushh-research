@@ -6,7 +6,10 @@ import process from "node:process";
 
 const appRoot = process.cwd();
 const repoRoot = path.resolve(appRoot, "..");
-const outputPath = path.join(appRoot, "frontend-native-surface-map.generated.json");
+const outputPath = path.join(
+  appRoot,
+  "frontend-native-surface-map.generated.json",
+);
 
 function read(filePath) {
   return fs.readFileSync(filePath, "utf8");
@@ -19,13 +22,17 @@ function readJson(filePath) {
 function routeValuesFromRoutesTs(source) {
   return [
     ...new Set(
-      [...source.matchAll(/\b[A-Z0-9_]+:\s*"([^"]+)"/g)].map((match) => match[1])
+      [...source.matchAll(/\b[A-Z0-9_]+:\s*"([^"]+)"/g)].map(
+        (match) => match[1],
+      ),
     ),
   ].sort();
 }
 
 function routeValuesFromAppPages() {
-  return walkFiles(path.join(appRoot, "app"), (filePath) => filePath.endsWith("/page.tsx"))
+  return walkFiles(path.join(appRoot, "app"), (filePath) =>
+    filePath.endsWith("/page.tsx"),
+  )
     .map((filePath) => {
       const relative = path.relative(path.join(appRoot, "app"), filePath);
       const route = relative.replace(/(?:^|\/)page\.tsx$/, "");
@@ -63,7 +70,9 @@ function routeToVoiceContractFile(route) {
       : []),
   ].filter((candidate) => fs.existsSync(path.join(appRoot, candidate)));
   if (candidates.length > 1) {
-    throw new Error(`Ambiguous voice action contracts for ${route}: ${candidates.join(", ")}`);
+    throw new Error(
+      `Ambiguous voice action contracts for ${route}: ${candidates.join(", ")}`,
+    );
   }
   return candidates[0] || null;
 }
@@ -111,7 +120,9 @@ function shellForPage(pageFile) {
       source.includes("SettingsRow") ||
       source.includes("SettingsDetailPanel"),
     shared_loader: source.includes("HushhLoader"),
-    back_button_pattern: source.includes("Back") ? "route-local-check-required" : "shared-shell",
+    back_button_pattern: source.includes("Back")
+      ? "route-local-check-required"
+      : "shared-shell",
   };
 }
 
@@ -139,14 +150,16 @@ const routeOverrides = {
         nextjs_api_route: "/api/connected-systems/{path*}",
         nextjs_proxy_file: "app/api/connected-systems/[...path]/route.ts",
         backend_endpoint_family: "/api/connected-systems/*",
-        native_transport: "CapacitorHttp direct backend via ApiService.apiFetch on native",
+        native_transport:
+          "CapacitorHttp direct backend via ApiService.apiFetch on native",
       },
     ],
     native_plugin_dependencies: [],
     thread_and_consent_contract: {
       vault_owner_token_required: true,
       write_actions_require_explicit_intent_approval: true,
-      terminal_payload_storage: "field names, record id, result class, and sanitized summaries only",
+      terminal_payload_storage:
+        "field names, record id, result class, and sanitized summaries only",
       external_plaintext_boundary:
         "Salesforce CRM MCP transport is outside the ZK boundary until private VPC proxy replaces Customer 0 CloudHub endpoint.",
     },
@@ -159,7 +172,8 @@ const routeOverrides = {
         nextjs_api_route: "/api/profile/gmail/{path*}",
         nextjs_proxy_file: "app/api/profile/gmail/[...path]/route.ts",
         backend_endpoint_family: "/profile/gmail/*",
-        native_transport: "CapacitorHttp direct backend via ApiService.apiFetch on native",
+        native_transport:
+          "CapacitorHttp direct backend via ApiService.apiFetch on native",
       },
       {
         service_file: "lib/services/personal-knowledge-model-service.ts",
@@ -167,25 +181,33 @@ const routeOverrides = {
         nextjs_api_route: "/api/pkm/{path*}",
         nextjs_proxy_file: "app/api/pkm/[...path]/route.ts",
         backend_endpoint_family: "/pkm/*",
-        native_transport: "CapacitorHttp direct backend plus client vault/PKM services",
+        native_transport:
+          "CapacitorHttp direct backend plus client vault/PKM services",
       },
     ],
     native_plugin_dependencies: [],
     thread_and_consent_contract: {
       vault_owner_token_required: true,
       gmail_scope_required: "readonly receipt sync only",
-      pkm_payload_storage: "encrypted domain resource only; observability is metadata-only",
+      pkm_payload_storage:
+        "encrypted domain resource only; observability is metadata-only",
     },
   },
   "/pkm": {
     api_dependencies: [
       {
         service_file: "lib/services/personal-knowledge-model-service.ts",
-        service_methods: ["getMetadata", "getDomainData", "getDomainManifest", "storeDomainData"],
+        service_methods: [
+          "getMetadata",
+          "getDomainData",
+          "getDomainManifest",
+          "storeDomainData",
+        ],
         nextjs_api_route: "/api/pkm/{path*}",
         nextjs_proxy_file: "app/api/pkm/[...path]/route.ts",
         backend_endpoint_family: "/pkm/*",
-        native_transport: "CapacitorHttp direct backend plus client vault/PKM services",
+        native_transport:
+          "CapacitorHttp direct backend plus client vault/PKM services",
       },
       {
         service_file: "lib/services/pkm-upgrade-service.ts",
@@ -193,18 +215,21 @@ const routeOverrides = {
         nextjs_api_route: "/api/pkm/{path*}",
         nextjs_proxy_file: "app/api/pkm/[...path]/route.ts",
         backend_endpoint_family: "/pkm/*",
-        native_transport: "CapacitorHttp direct backend plus client vault/PKM services",
+        native_transport:
+          "CapacitorHttp direct backend plus client vault/PKM services",
       },
     ],
     native_plugin_dependencies: [
       {
         js_name: "HushhVault",
-        reason: "PKM payload decryption remains client-held and metadata-only for route observability.",
+        reason:
+          "PKM payload decryption remains client-held and metadata-only for route observability.",
       },
     ],
     thread_and_consent_contract: {
       vault_owner_token_required: true,
-      pkm_payload_storage: "encrypted domain resource only; route/cache events must not include decrypted values",
+      pkm_payload_storage:
+        "encrypted domain resource only; route/cache events must not include decrypted values",
     },
   },
   "/one/kyc": {
@@ -226,15 +251,21 @@ const routeOverrides = {
         nextjs_api_route: "/api/one/{path*}",
         nextjs_proxy_file: "app/api/one/[...path]/route.ts",
         backend_endpoint_family: "/one/kyc/*",
-        native_transport: "CapacitorHttp direct backend via ApiService.apiFetch on native",
+        native_transport:
+          "CapacitorHttp direct backend via ApiService.apiFetch on native",
       },
       {
         service_file: "lib/services/account-service.ts",
-        service_methods: ["listEmailAliases", "startEmailAliasVerification", "confirmEmailAliasVerification"],
+        service_methods: [
+          "listEmailAliases",
+          "startEmailAliasVerification",
+          "confirmEmailAliasVerification",
+        ],
         nextjs_api_route: "/api/account/{path*}",
         nextjs_proxy_file: "app/api/account/[...path]/route.ts",
         backend_endpoint_family: "/account/*",
-        native_transport: "CapacitorHttp direct backend via ApiService.apiFetch on native",
+        native_transport:
+          "CapacitorHttp direct backend via ApiService.apiFetch on native",
       },
       {
         service_file: "lib/services/kyc-pkm-write-service.ts",
@@ -242,24 +273,28 @@ const routeOverrides = {
         nextjs_api_route: "/api/pkm/{path*}",
         nextjs_proxy_file: "app/api/pkm/[...path]/route.ts",
         backend_endpoint_family: "/pkm/*",
-        native_transport: "CapacitorHttp direct backend plus client vault/PKM services",
+        native_transport:
+          "CapacitorHttp direct backend plus client vault/PKM services",
       },
     ],
     native_plugin_dependencies: [
       {
         js_name: "HushhVault",
-        reason: "Vault unlock and client-held KYC connector key material stay outside the Next.js server.",
+        reason:
+          "Vault unlock and client-held KYC connector key material stay outside the Next.js server.",
       },
       {
         js_name: "HushhConsent",
-        reason: "Consent status and export authorization must preserve the native consent boundary.",
+        reason:
+          "Consent status and export authorization must preserve the native consent boundary.",
       },
     ],
     thread_and_consent_contract: {
       original_thread_required: true,
       approved_send_requires_workflow_scopes: true,
       approved_body_transport: "transient send-approved-reply request only",
-      local_plaintext_cleanup: "drop local draft/export payloads after terminal or non-ready workflow states",
+      local_plaintext_cleanup:
+        "drop local draft/export payloads after terminal or non-ready workflow states",
     },
   },
 };
@@ -283,26 +318,58 @@ function validateVoicePlaybook(route, value) {
   if (!["on_entry", "ambient"].includes(value.proactivity)) {
     throw new Error(`Route ${route} has invalid voicePlaybook.proactivity`);
   }
-  if (!["stay", "navigate", "external_callback", "return_to_hub", "resolve_root"].includes(value.returnPolicy)) {
+  if (
+    ![
+      "stay",
+      "navigate",
+      "external_callback",
+      "return_to_hub",
+      "resolve_root",
+    ].includes(value.returnPolicy)
+  ) {
     throw new Error(`Route ${route} has invalid voicePlaybook.returnPolicy`);
   }
-  if (!Array.isArray(value.happyPathActionIds) || !Array.isArray(value.requiredInputs)) {
-    throw new Error(`Route ${route} playbook action/input collections must be arrays`);
+  if (
+    !Array.isArray(value.happyPathActionIds) ||
+    !Array.isArray(value.requiredInputs)
+  ) {
+    throw new Error(
+      `Route ${route} playbook action/input collections must be arrays`,
+    );
   }
-  for (const recovery of ["blocked", "cancelled", "failed", "timeout", "callbackError", "routeMismatch"]) {
-    if (typeof value.recoveries?.[recovery] !== "string" || !value.recoveries[recovery].trim()) {
-      throw new Error(`Route ${route} voicePlaybook.recoveries.${recovery} is required`);
+  for (const recovery of [
+    "blocked",
+    "cancelled",
+    "failed",
+    "timeout",
+    "callbackError",
+    "routeMismatch",
+  ]) {
+    if (
+      typeof value.recoveries?.[recovery] !== "string" ||
+      !value.recoveries[recovery].trim()
+    ) {
+      throw new Error(
+        `Route ${route} voicePlaybook.recoveries.${recovery} is required`,
+      );
     }
   }
-  if (value.proactivity === "on_entry" && !String(value.entryCue || "").trim()) {
+  if (
+    value.proactivity === "on_entry" &&
+    !String(value.entryCue || "").trim()
+  ) {
     throw new Error(`Route ${route} proactive playbook requires an entryCue`);
   }
   return value;
 }
 
 function buildSurfaceMap() {
-  const routeContract = readJson(path.join(appRoot, "lib/navigation/app-route-layout.contract.json"));
-  const contractByRoute = new Map((routeContract || []).map((entry) => [entry.route, entry]));
+  const routeContract = readJson(
+    path.join(appRoot, "lib/navigation/app-route-layout.contract.json"),
+  );
+  const contractByRoute = new Map(
+    (routeContract || []).map((entry) => [entry.route, entry]),
+  );
   if (contractByRoute.size !== (routeContract || []).length) {
     throw new Error("app-route-layout.contract.json contains duplicate routes");
   }
@@ -316,15 +383,19 @@ function buildSurfaceMap() {
   }
   const routes = [
     ...new Set([
-      ...routeValuesFromRoutesTs(read(path.join(appRoot, "lib/navigation/routes.ts"))),
+      ...routeValuesFromRoutesTs(
+        read(path.join(appRoot, "lib/navigation/routes.ts")),
+      ),
       ...routeValuesFromAppPages(),
       ...(routeContract || []).map((entry) => entry.route),
     ]),
   ].sort(routeSort);
   const inventory = readJson(path.join(appRoot, "native-route-inventory.json"));
-  const inventoryByRoute = new Map((inventory.routes || []).map((route) => [route.route, route]));
+  const inventoryByRoute = new Map(
+    (inventory.routes || []).map((route) => [route.route, route]),
+  );
   const apiRoutes = walkFiles(path.join(appRoot, "app/api"), (filePath) =>
-    filePath.endsWith("/route.ts")
+    filePath.endsWith("/route.ts"),
   )
     .map((filePath) => ({
       template: apiTemplateFromRouteFile(filePath),
@@ -352,13 +423,29 @@ function buildSurfaceMap() {
       const voiceContractFile = routeToVoiceContractFile(route);
       const routeContractEntry = contractByRoute.get(route) || null;
       if (!routeContractEntry) {
-        throw new Error(`Route ${route} is missing from app-route-layout.contract.json`);
+        throw new Error(
+          `Route ${route} is missing from app-route-layout.contract.json`,
+        );
       }
       const voicePlaybook = routeContractEntry.voicePlaybook;
       if (!voicePlaybook || typeof voicePlaybook !== "object") {
         throw new Error(`Route ${route} is missing its required voicePlaybook`);
       }
       validateVoicePlaybook(route, voicePlaybook);
+      const interactionLayerPolicy =
+        routeContractEntry.interactionLayerPolicy || {
+          allowedFamilies: [],
+        };
+      if (
+        !Array.isArray(interactionLayerPolicy.allowedFamilies) ||
+        interactionLayerPolicy.allowedFamilies.some(
+          (family) => typeof family !== "string" || !family.trim(),
+        )
+      ) {
+        throw new Error(
+          `Route ${route} has invalid interactionLayerPolicy.allowedFamilies`,
+        );
+      }
       return {
         route,
         page_file: pageFile,
@@ -367,8 +454,13 @@ function buildSurfaceMap() {
           ? {
               mode: routeContractEntry.mode,
               exemption_reason: routeContractEntry.exemptionReason || null,
-              shell_verification_file: routeContractEntry.shellVerification?.file || null,
-              shell_verification_includes: routeContractEntry.shellVerification?.includes || [],
+              shell_verification_file:
+                routeContractEntry.shellVerification?.file || null,
+              shell_verification_includes:
+                routeContractEntry.shellVerification?.includes || [],
+              interaction_layer_policy: {
+                allowed_families: interactionLayerPolicy.allowedFamilies,
+              },
               voice_playbook: {
                 playbook_id: voicePlaybook.playbookId,
                 purpose: voicePlaybook.purpose,
@@ -398,8 +490,10 @@ function buildSurfaceMap() {
         voice_action_contract_file: voiceContractFile,
         voice_action_contract_ids: readVoiceActionIds(voiceContractFile),
         api_dependencies: routeOverrides[route]?.api_dependencies || [],
-        native_plugin_dependencies: routeOverrides[route]?.native_plugin_dependencies || [],
-        thread_and_consent_contract: routeOverrides[route]?.thread_and_consent_contract || null,
+        native_plugin_dependencies:
+          routeOverrides[route]?.native_plugin_dependencies || [],
+        thread_and_consent_contract:
+          routeOverrides[route]?.thread_and_consent_contract || null,
       };
     }),
   };
@@ -416,7 +510,7 @@ if (check) {
   const current = fs.existsSync(outputPath) ? read(outputPath) : "";
   if (current !== next) {
     console.error(
-      `surface-map: ${path.relative(repoRoot, outputPath)} is stale. Run node scripts/architecture/generate-surface-map.mjs from hushh-webapp.`
+      `surface-map: ${path.relative(repoRoot, outputPath)} is stale. Run node scripts/architecture/generate-surface-map.mjs from hushh-webapp.`,
     );
     process.exit(1);
   }

@@ -1,4 +1,7 @@
-import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
+import type {
+  OneVoiceContextSnapshot,
+  OneVoiceInteractionLayerSnapshot,
+} from "@/lib/voice/screen-context-builder";
 
 export type MorphyAxDisposition =
   | "execute_visible_action"
@@ -39,6 +42,7 @@ export type MorphyAxSnapshotV1 = {
     playbook_id: string;
     visible_modules: string[];
     visible_control_ids: string[];
+    interaction_layer: OneVoiceInteractionLayerSnapshot | null;
     onboarding: OneVoiceContextSnapshot["onboarding"];
   };
   tools: {

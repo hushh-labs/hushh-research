@@ -37,12 +37,17 @@ This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the st
    - `marketplace`
    - `developers`
 11. Email draft HTML is not route UI. Email Helper drafts must use the shared `agent_kyc.approved_disclosure_formatter.v1` strict-ZK renderer so plaintext and Gmail-safe HTML stay synchronized, responsive, and free of consumer-facing implementation noise. Dense email tables need horizontal scroll wrappers with fixed minimum widths instead of squeezed mobile columns.
+12. Agent-aware dialogs, popovers, sheets, menus, and confirmations publish authored
+    interaction-layer metadata from app-level composition. Stock primitives remain
+    registry-safe and contain no app action ids or voice semantics.
 
 ## Morphy Extension Allowlist
 1. CTA-level behavior on top of stock button semantics.
 2. Shared card and surface treatment on top of stock card structure.
 3. Ripple, motion hooks, icon wrappers, and toast helpers.
 4. Confirmation and notification composition must stay on stock shadcn primitives: `alert-dialog` for destructive confirmation and `sonner` for transient status.
+5. Morphy AX may derive redacted layer posture, action availability, and Agent
+   continuity; it never owns visual styling or primitive behavior.
 
 ## Import Rules
 Use stock shadcn by default for baseline primitives:
@@ -70,6 +75,24 @@ Forbidden:
 2. Editing `components/ui/*` for app-specific behavior.
 3. Creating primitive forks in Morphy that bypass stock components.
 4. Route-local inline banners for transient row actions, saves, deletes, refreshes, or short-lived failures.
+5. Global synthetic close actions, DOM-inferred controls, or app-specific voice logic
+   inside `components/ui`.
+
+## Interaction-layer stacking and continuity
+
+1. Use shared stacking tokens for route content, scrim, layer content, Agent Bar, and
+   security-critical overlays; do not solve individual screens with arbitrary z-index
+   escalation.
+2. Legal and informational layers may place Agent Bar above the scrim when the layer
+   explicitly declares `interactive` continuity and reserves content clearance.
+3. Credential, OTP, vault, and destructive layers declare `ambient` or `suppressed`
+   continuity. They remain visually and interactively authoritative.
+4. Nested confirmation outranks its parent. Closing restores focus and the previous
+   interaction inventory before ordinary route controls return.
+5. Every dismissible layer supports the appropriate visible, keyboard, outside-click,
+   and generated-action paths. Nondismissible layers advertise none.
+6. Firebase provider popups remain browser-owned windows. Their lifecycle belongs to
+   authentication settlement, not app z-index or dialog composition.
 
 ## Charts Contract
 1. `hushh-webapp/components/ui/chart.tsx` is the canonical chart primitive layer.

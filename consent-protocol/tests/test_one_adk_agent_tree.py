@@ -73,6 +73,15 @@ class TestAgentTreeShape:
         } <= tool_names
         assert "ask_connections_agent" not in tool_names
 
+    def test_isolated_google_search_uses_the_text_model(self):
+        agent = build_one_root_agent()
+        search_tool = next(
+            tool for tool in agent.tools if getattr(tool, "name", "") == "google_search"
+        )
+        # ADK executes bypassed Google Search in a nested text GenerateContent
+        # turn. It must never inherit One's native-audio Live model.
+        assert search_tool.model == _tree._SPECIALIST_MODEL
+
     def test_identity_instruction_answers_name_question(self):
         assert "I'm One" in ONE_IDENTITY_INSTRUCTION
         assert "Never call yourself Kai" in ONE_IDENTITY_INSTRUCTION
@@ -81,6 +90,9 @@ class TestAgentTreeShape:
         assert "correlated app action settlement" in ONE_IDENTITY_INSTRUCTION
         assert "Conversation comes before workflow" in ONE_IDENTITY_INSTRUCTION
         assert "so what?" in ONE_IDENTITY_INSTRUCTION
+        assert "Use your intelligence in the current turn" in ONE_IDENTITY_INSTRUCTION
+        assert "it is not semantic authority" in ONE_IDENTITY_INSTRUCTION
+        assert "Deterministic policy may validate" in ONE_IDENTITY_INSTRUCTION
 
     def test_runtime_instruction_injects_only_the_active_route_playbook(self):
         instruction = _one_runtime_instruction(
@@ -93,7 +105,8 @@ class TestAgentTreeShape:
                             "primary_action_id": "onboarding.claim_one",
                             "completion_boundary": "Wait for browser settlement.",
                             "out_of_scope_behavior": "Answer naturally.",
-                        }
+                        },
+                        "available_action_ids": ["auth.open_terms"],
                     }
                 }
             )
@@ -102,6 +115,70 @@ class TestAgentTreeShape:
         assert ONE_IDENTITY_INSTRUCTION in instruction
         assert "onboarding.claim_one" in instruction
         assert "ACTIVE ROUTE PLAYBOOK" in instruction
+        assert "Terms => auth.open_terms" in instruction
+        assert "Do not call open_screen" in instruction
+        assert "First assess meaning semantically" in instruction
+
+    def test_runtime_instruction_prioritizes_top_modal_layer(self):
+        instruction = _one_runtime_instruction(
+            SimpleNamespace(
+                state={
+                    STATE_VOICE_CONTEXT: {
+                        "route_playbook": {
+                            "purpose": "Sign in with a verified provider.",
+                            "primary_action_id": "auth.sign_in_apple",
+                        },
+                        "available_action_ids": [
+                            "auth.sign_in_apple",
+                            "auth.sign_in_google",
+                            "auth.close_legal",
+                        ],
+                        "ui": {
+                            "interaction_layer": {
+                                "layer_id": "login_terms",
+                                "kind": "legal",
+                                "modality": "modal",
+                                "lifecycle_state": "open",
+                                "dismiss_action_id": "auth.close_legal",
+                                "visible_action_ids": ["auth.close_legal"],
+                                "visible_control_ids": ["auth_close_legal"],
+                                "options": [],
+                                "underlying_actions_available": False,
+                                "agent_continuity": "interactive",
+                            },
+                        },
+                    }
+                }
+            )
+        )
+
+        assert "ACTIVE INTERACTION LAYER" in instruction
+        assert "strongest current context" in instruction
+        assert "Close legal document => auth.close_legal" in instruction
+        assert "Do not offer or execute controls behind this layer" in instruction
+        assert "Continue with Apple => auth.sign_in_apple" not in instruction
+        assert "Continue with Google => auth.sign_in_google" not in instruction
+        assert "Never claim success until the correlated browser settlement" in instruction
+
+    def test_runtime_instruction_keeps_exact_provider_actions_intelligence_driven(self):
+        instruction = _one_runtime_instruction(
+            SimpleNamespace(
+                state={
+                    STATE_VOICE_CONTEXT: {
+                        "available_action_ids": [
+                            "auth.sign_in_apple",
+                            "auth.sign_in_google",
+                        ],
+                    }
+                }
+            )
+        )
+
+        assert "Continue with Apple => auth.sign_in_apple" in instruction
+        assert "Continue with Google => auth.sign_in_google" in instruction
+        assert "clear provider request selects its exact Apple or Google action" in instruction
+        assert "list_app_actions only to retrieve bounded candidates" in instruction
+        assert "genuinely ambiguous" in instruction
 
     def test_onboarding_tool_accepts_typed_assessment_not_raw_request(self):
         signature = inspect.signature(_tree.resolve_onboarding_goal)
@@ -305,6 +382,24 @@ class TestRunAppAction:
         directive = state[_STATE_PENDING_DIRECTIVE]
         assert directive["kind"] == "action"
         assert directive["payload"]["needsConfirmation"] is True
+
+    @pytest.mark.asyncio
+    async def test_provider_popup_requires_exact_trusted_activation_action(self):
+        state = {
+            _STATE_SCREEN: "login",
+            "hussh:voice_context": {
+                "available_action_ids": ["auth.sign_in_apple", "auth.sign_in_google"],
+            },
+        }
+        result = await run_app_action("auth.sign_in_apple", {}, _tool_context(state))
+        assert result["status"] == "confirm_pending"
+        directive = state[_STATE_PENDING_DIRECTIVE]
+        assert directive["payload"] == {
+            "actionId": "auth.sign_in_apple",
+            "slots": {},
+            "needsConfirmation": True,
+            "trustedActivationRequired": True,
+        }
 
     @pytest.mark.asyncio
     async def test_allow_direct_missing_slot_asks_exactly_one_input(self):

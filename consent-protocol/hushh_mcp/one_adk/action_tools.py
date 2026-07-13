@@ -166,6 +166,7 @@ async def run_app_action(
         }
 
     policy = str((entry.get("risk") or {}).get("execution_policy") or "allow_direct")
+    activation_policy = str(entry.get("activation_policy") or "none")
     label = str(entry.get("label") or clean_id)
     if policy == "manual_only":
         screens = (entry.get("scope") or {}).get("screens") or []
@@ -186,15 +187,21 @@ async def run_app_action(
         }
 
     directive_payload: dict[str, Any] = {"actionId": clean_id, "slots": clean_slots}
-    if policy == "confirm_required":
+    if policy == "confirm_required" or activation_policy == "trusted_activation_required":
         directive_payload["needsConfirmation"] = True
+        if activation_policy == "trusted_activation_required":
+            directive_payload["trustedActivationRequired"] = True
         tool_context.state[_STATE_PENDING_DIRECTIVE] = {
             "kind": "action",
             "payload": directive_payload,
         }
         return {
             "status": "confirm_pending",
-            "message": f"The app will ask the user to confirm {label}.",
+            "message": (
+                f"The app will present the exact {label} action for a trusted tap."
+                if activation_policy == "trusted_activation_required"
+                else f"The app will ask the user to confirm {label}."
+            ),
         }
 
     tool_context.state[_STATE_PENDING_DIRECTIVE] = {

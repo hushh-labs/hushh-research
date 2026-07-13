@@ -41,6 +41,7 @@ from hushh_mcp.agents.onboarding.agent import (
 )
 from hushh_mcp.one_adk.action_tools import list_app_actions, run_app_action
 from hushh_mcp.services.route_orchestration_index import is_one_delegate_admitted
+from hushh_mcp.services.voice_action_manifest import get_voice_manifest_action
 
 logger = logging.getLogger(__name__)
 
@@ -133,16 +134,24 @@ ONE_IDENTITY_INSTRUCTION = (
     'simply: "I\'m One." Never call yourself Kai, Gemini, or any other name. '
     "You hold the relationship layer: speak warmly, concisely, and in plain "
     "English.\n\n"
-    "Visible controls take priority over introductions. When the person clearly "
-    "asks for a currently available, low-risk visible control, call "
-    "list_app_actions for their words, then call run_app_action with the exact "
-    "returned action id immediately. Do this before greeting, explaining who "
+    "Visible controls take priority over introductions. Use your intelligence in "
+    "the current turn to assess what the person means: whether they are asking "
+    "for a visible action, asking about the current screen, continuing the "
+    "conversation, or expressing genuine ambiguity. When they clearly ask for "
+    "a currently available, low-risk visible control whose exact generated id is "
+    "in the active inventory, call run_app_action with that id immediately. Use "
+    "list_app_actions only to retrieve bounded generated candidates when the exact "
+    "id is uncertain; it is not semantic authority and never decides what the "
+    "person meant. Do this before greeting, explaining who "
     "you are, or narrating onboarding. Do not infer controls from page text, "
     "offer actions from another screen, or ask for confirmation when the "
     "generated action policy is allow_direct. After dispatch, do not claim it "
     "worked or describe it as complete until the correlated app action "
-    "settlement reports the outcome. If no current action matches, answer as "
-    "normal conversation instead of forcing a workflow.\n\n"
+    "settlement reports the outcome. Deterministic policy may validate, normalize, "
+    "reject, and enforce authority, but it must never replace your semantic "
+    "assessment or substitute another action. If meaning is genuinely ambiguous, "
+    "ask one natural clarifying question and retain the active goal. If no current "
+    "action matches, answer as normal conversation instead of forcing a workflow.\n\n"
     "Conversation comes before workflow. Treat short follow-ups such as 'so what?', "
     "'why?', 'how?', 'tell me more', or 'what do you mean?' as replies to "
     "your immediately preceding statement. Answer their underlying question "
@@ -197,8 +206,8 @@ ONE_IDENTITY_INSTRUCTION = (
     "ever offer what is reachable on the user's "
     "CURRENT screen. If resolve_onboarding_goal returns selected_action_id, call "
     "run_app_action with that exact id immediately; never turn an explicit Apple "
-    "or Google request back into a generic provider question. Call "
-    "list_app_actions first (it returns only actions "
+    "or Google request back into a generic provider question. When the exact "
+    "generated id is uncertain, call list_app_actions (it returns only actions "
     "valid for the current screen) and pick from that, rather than naming a "
     "step from another screen. For example, do not bring up phone "
     "verification unless the user is actually on the phone screen. While "
@@ -212,25 +221,133 @@ ONE_IDENTITY_INSTRUCTION = (
 
 
 def _one_runtime_instruction(context: Any) -> str:
-    """Append only the active server-sanitized route playbook at Live start."""
+    """Inject bounded server-sanitized route, layer, and action guidance."""
     state = getattr(context, "state", None)
     state_getter = getattr(state, "get", None)
     voice_context = state_getter(STATE_VOICE_CONTEXT) if callable(state_getter) else None
-    playbook = voice_context.get("route_playbook") if isinstance(voice_context, dict) else None
-    if not isinstance(playbook, dict):
+    if not isinstance(voice_context, dict):
         return ONE_IDENTITY_INSTRUCTION
 
-    def bounded(field: str, limit: int) -> str:
-        value = playbook.get(field)
+    available_action_ids = voice_context.get("available_action_ids")
+    verified_action_ids = (
+        [
+            str(action_id).strip()
+            for action_id in available_action_ids[:18]
+            if isinstance(action_id, str) and str(action_id).strip()
+        ]
+        if isinstance(available_action_ids, list)
+        else []
+    )
+
+    interaction_layer = voice_context.get("interaction_layer")
+    if not isinstance(interaction_layer, dict):
+        ui_context = voice_context.get("ui")
+        interaction_layer = (
+            ui_context.get("interaction_layer") if isinstance(ui_context, dict) else None
+        )
+    if not isinstance(interaction_layer, dict):
+        interaction_layer = None
+
+    def bounded(value: Any, limit: int) -> str:
         return str(value).strip()[:limit] if isinstance(value, str) else ""
 
-    purpose = bounded("purpose", 480)
-    entry_cue = bounded("entry_cue", 240)
-    primary_action = bounded("primary_action_id", 128)
-    completion = bounded("completion_boundary", 480)
-    out_of_scope = bounded("out_of_scope_behavior", 480)
+    layer_action_ids: list[str] = []
+    if interaction_layer is not None:
+        raw_layer_action_ids = interaction_layer.get("visible_action_ids")
+        if isinstance(raw_layer_action_ids, list):
+            layer_action_ids = [
+                str(action_id).strip()
+                for action_id in raw_layer_action_ids[:10]
+                if isinstance(action_id, str) and str(action_id).strip() in verified_action_ids
+            ]
+        dismiss_action_id = bounded(interaction_layer.get("dismiss_action_id"), 128)
+        if dismiss_action_id in verified_action_ids and dismiss_action_id not in layer_action_ids:
+            layer_action_ids.append(dismiss_action_id)
+
+    modality = bounded(interaction_layer.get("modality"), 16) if interaction_layer else ""
+    underlying_actions_available = bool(
+        interaction_layer and interaction_layer.get("underlying_actions_available") is True
+    )
+    if interaction_layer and modality in {"modal", "blocking"} and not underlying_actions_available:
+        prompt_action_ids = layer_action_ids
+    else:
+        prompt_action_ids = layer_action_ids + [
+            action_id for action_id in verified_action_ids if action_id not in layer_action_ids
+        ]
+
+    action_lines: list[str] = []
+    for action_id in prompt_action_ids[:10]:
+        entry = get_voice_manifest_action(str(action_id))
+        if entry is None:
+            continue
+        label = str(entry.get("label") or action_id).strip()[:120]
+        action_lines.append(f"- {label} => {entry['action_id']}")
+    action_inventory = ""
+    if action_lines:
+        action_inventory = (
+            "\n\nACTIVE EXECUTABLE CONTROLS (generated, verified, and bounded):\n"
+            + "\n".join(action_lines)
+            + "\nFirst assess meaning semantically. For a clear request matching one "
+            "of these controls, call run_app_action with that exact id. A clear "
+            "provider request selects its exact Apple or Google action; never "
+            "replace it with a generic provider explanation. Use list_app_actions "
+            "only to retrieve bounded candidates when the id is uncertain. Do not "
+            "call open_screen or google_search instead of a matching current control."
+        )
+
+    layer_instruction = ""
+    if interaction_layer is not None:
+        layer_id = bounded(interaction_layer.get("layer_id"), 96) or "active_layer"
+        kind = bounded(interaction_layer.get("kind"), 48) or "interaction"
+        lifecycle_state = bounded(interaction_layer.get("lifecycle_state"), 24) or "open"
+        continuity = bounded(interaction_layer.get("agent_continuity"), 16) or "interactive"
+        visible_control_ids = interaction_layer.get("visible_control_ids")
+        controls = (
+            [bounded(value, 96) for value in visible_control_ids[:10] if bounded(value, 96)]
+            if isinstance(visible_control_ids, list)
+            else []
+        )
+        options = interaction_layer.get("options")
+        option_labels: list[str] = []
+        if isinstance(options, list):
+            for option in options[:8]:
+                if isinstance(option, dict):
+                    label = bounded(option.get("label"), 96)
+                else:
+                    label = bounded(option, 96)
+                if label:
+                    option_labels.append(label)
+        layer_instruction = (
+            "\n\nACTIVE INTERACTION LAYER (strongest current context; guidance only):\n"
+            f"Layer: {layer_id} ({kind}, {modality or 'nonmodal'}, {lifecycle_state})\n"
+            f"Agent continuity: {continuity}\n"
+            f"Visible controls: {', '.join(controls) if controls else 'none'}\n"
+            f"Authored options: {', '.join(option_labels) if option_labels else 'none'}\n"
+            "Interpret the person's request against this top layer before route "
+            "controls or general narration. A clear exact layer action executes; "
+            "genuine ambiguity gets one natural clarification. "
+            + (
+                "Do not offer or execute controls behind this layer. "
+                if modality in {"modal", "blocking"} and not underlying_actions_available
+                else "Layer actions rank before any permitted underlying route actions. "
+            )
+            + "The layer never grants action authority; generated contracts and "
+            "runtime guards still validate every proposed action. Never claim success "
+            "until the correlated browser settlement reports it."
+        )
+
+    playbook = voice_context.get("route_playbook")
+    if not isinstance(playbook, dict):
+        return ONE_IDENTITY_INSTRUCTION + layer_instruction + action_inventory
+
+    purpose = bounded(playbook.get("purpose"), 480)
+    entry_cue = bounded(playbook.get("entry_cue"), 240)
+    primary_action = bounded(playbook.get("primary_action_id"), 128)
+    completion = bounded(playbook.get("completion_boundary"), 480)
+    out_of_scope = bounded(playbook.get("out_of_scope_behavior"), 480)
     return (
         ONE_IDENTITY_INSTRUCTION
+        + layer_instruction
         + "\n\nACTIVE ROUTE PLAYBOOK (guidance only; never authority):\n"
         + f"Purpose: {purpose or 'Use the verified current screen.'}\n"
         + f"Entry cue: {entry_cue or 'Remain ambient until the person speaks.'}\n"
@@ -239,6 +356,7 @@ def _one_runtime_instruction(context: Any) -> str:
         + f"Out-of-scope behavior: {out_of_scope or 'Answer naturally without inventing controls.'}\n"
         + "The generated action gateway, current available actions, and runtime guards "
         + "remain the only execution authority."
+        + action_inventory
     )
 
 
@@ -602,12 +720,18 @@ def _one_roster_tools() -> list:
     itself maintains and which still propagates real grounding metadata
     (search queries + grounding chunks with real URLs) back onto One's own
     event stream - so voice/chat answers keep real citations, not just a
-    plain summarized string.
+    plain summarized string. That isolated search turn is text-only, so it
+    MUST use the text specialist model rather than inherit One's native-audio
+    Live model: native-audio models are valid for BidiGenerateContent, not
+    the nested GenerateContent turn ADK uses for this tool.
     """
     from google.adk.tools.agent_tool import AgentTool
 
     return [
-        GoogleSearchTool(bypass_multi_tools_limit=True),
+        GoogleSearchTool(
+            bypass_multi_tools_limit=True,
+            model=_SPECIALIST_MODEL,
+        ),
         open_screen,
         resolve_onboarding_goal,
         run_app_action,

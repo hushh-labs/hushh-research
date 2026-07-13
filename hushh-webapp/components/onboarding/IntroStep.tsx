@@ -20,16 +20,13 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
 // never labeled "framework". Matches docs/vision/agent-ontology.md.
 const MOTIONS = ["Listens", "Remembers", "Decides", "Acts"];
 
-export function IntroStep({
-  onLogin,
-}: {
-  onLogin?: () => void;
-}) {
+export function IntroStep({ onLogin }: { onLogin?: () => void }) {
   const claimOne = useCallback(() => {
     if (!onLogin) {
       return {
         status: "blocked" as const,
-        summary: "Sign-in is not available yet. Please wait a moment and try again.",
+        summary:
+          "Sign-in is not available yet. Please wait a moment and try again.",
       };
     }
     // Voice and tap intentionally share this one navigation path so a valid
@@ -53,7 +50,12 @@ export function IntroStep({
         actionId: "onboarding.claim_one",
         label: "Claim your One",
         purpose: "Continue to sign in and begin setting up One.",
-        voiceAliases: ["claim your one", "claim one", "get started", "start with one"],
+        voiceAliases: [
+          "claim your one",
+          "claim one",
+          "get started",
+          "start with one",
+        ],
       },
     ],
     controls: [
@@ -63,7 +65,12 @@ export function IntroStep({
         label: "Claim your One",
         type: "button",
         purpose: "Continue to sign in and begin setting up One.",
-        voiceAliases: ["claim your one", "claim one", "get started", "start with one"],
+        voiceAliases: [
+          "claim your one",
+          "claim one",
+          "get started",
+          "start with one",
+        ],
       },
     ],
   });
@@ -92,13 +99,21 @@ export function IntroStep({
             Your private agent
           </span>
 
+          <span
+            aria-hidden="true"
+            className="one-reveal mt-4 select-none text-[44px] leading-none drop-shadow-[0_8px_18px_rgba(109,67,26,0.16)] sm:text-[48px]"
+            style={{ ["--seq-delay" as string]: "280ms" }}
+          >
+            🤫
+          </span>
+
           {/* Sizing lives on h1.one-hero-title in globals.css: the global
               foundation h1 lock uses !important in @layer base, which beats
               Tailwind utilities AND inline styles, so the hero needs a
               same-layer higher-specificity override. */}
           <h1
-            className="one-hero-title one-reveal mt-4 select-none font-[family-name:var(--font-app-display)]"
-            style={{ ["--seq-delay" as string]: "320ms" }}
+            className="one-hero-title one-reveal mt-2 select-none font-[family-name:var(--font-app-display)]"
+            style={{ ["--seq-delay" as string]: "340ms" }}
           >
             <span className="one-molten font-[family-name:var(--font-app-display)]">
               One
@@ -127,7 +142,11 @@ export function IntroStep({
           >
             {MOTIONS.map((motion, i) => (
               <span key={motion} className="flex items-center gap-2">
-                {i > 0 && <span aria-hidden className="opacity-40">&middot;</span>}
+                {i > 0 && (
+                  <span aria-hidden className="opacity-40">
+                    &middot;
+                  </span>
+                )}
                 <span>{motion}</span>
               </span>
             ))}
@@ -137,7 +156,8 @@ export function IntroStep({
             className="one-reveal mt-6 max-w-[19rem] text-[13px] leading-[1.5] text-[color:var(--foundation-dim)]"
             style={{ ["--seq-delay" as string]: "580ms" }}
           >
-            Everything stays encrypted in your vault. Nothing moves without your consent.
+            Everything stays encrypted in your vault. Nothing moves without your
+            consent.
           </p>
         </div>
 

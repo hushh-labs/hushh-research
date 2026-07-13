@@ -37,6 +37,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": "app/page.voice-action-contract.json",
       "action_ids": [
         "onboarding.claim_one"
@@ -78,6 +81,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -116,6 +122,9 @@
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -156,6 +165,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -194,6 +206,9 @@
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -235,6 +250,9 @@
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [
@@ -279,6 +297,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -319,6 +340,9 @@
         "next_route": "/ria/requests",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [
@@ -367,6 +391,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -405,6 +432,9 @@
         "next_route": "/getting-started",
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": "app/getting-started/page.voice-action-contract.json",
       "action_ids": [
@@ -450,6 +480,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -488,6 +521,9 @@
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -528,6 +564,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -566,6 +605,9 @@
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -606,6 +648,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -644,6 +689,9 @@
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -684,6 +732,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -722,6 +773,9 @@
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -762,6 +816,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -800,6 +857,9 @@
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -840,6 +900,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -879,6 +942,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -917,6 +983,9 @@
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -959,10 +1028,19 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": [
+          "legal_document"
+        ]
+      },
       "voice_contract_file": "app/login/page.voice-action-contract.json",
       "action_ids": [
+        "auth.close_legal",
+        "auth.open_privacy",
+        "auth.open_terms",
         "auth.sign_in_apple",
-        "auth.sign_in_google"
+        "auth.sign_in_google",
+        "onboarding.back_to_intro"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -1000,6 +1078,9 @@
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -1041,6 +1122,9 @@
         "next_route": "/marketplace",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [
@@ -1086,6 +1170,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [
         "connections.chat.turn"
@@ -1129,6 +1216,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -1169,6 +1259,9 @@
         "next_route": "/marketplace/ria",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": "app/marketplace/ria/page-client.voice-action-contract.json",
       "action_ids": [
@@ -1214,6 +1307,9 @@
         "next_route": "/one",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": "app/one/page.voice-action-contract.json",
       "action_ids": [
@@ -1276,6 +1372,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [
         "route.profile_connected_systems"
@@ -1317,6 +1416,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -1357,6 +1459,9 @@
         "next_route": "/one/gmail",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": "app/one/gmail/page.voice-action-contract.json",
       "action_ids": [
@@ -1407,6 +1512,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [
         "route.back",
@@ -1449,6 +1557,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -1489,6 +1600,9 @@
         "next_route": "/one/kai/analysis",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": "app/one/kai/analysis/page.voice-action-contract.json",
       "action_ids": [
@@ -1536,6 +1650,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -1576,6 +1693,9 @@
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [
@@ -1620,6 +1740,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [
         "route.kai_investments"
@@ -1660,6 +1783,9 @@
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -1702,6 +1828,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [
         "route.kai_optimize"
@@ -1743,6 +1872,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -1783,6 +1915,9 @@
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [
@@ -1826,6 +1961,9 @@
         "next_route": "/one/kyc",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": "app/one/kyc/page.voice-action-contract.json",
       "action_ids": [
@@ -1872,6 +2010,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [
         "location.chat.turn",
@@ -1916,6 +2057,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -1954,6 +2098,9 @@
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -1995,6 +2142,9 @@
         "next_route": "/one/marketplace",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": "app/one/marketplace/page.voice-action-contract.json",
       "action_ids": [
@@ -2043,6 +2193,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [
         "route.one_pkm",
@@ -2086,6 +2239,9 @@
         "next_route": "/one",
         "return_policy": "resolve_root",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [
@@ -2139,6 +2295,9 @@
         "return_policy": "return_to_hub",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": "app/one/setup/[capability]/one-onboarding-capability-step.voice-action-contract.json",
       "action_ids": [
         "setup.capability_continue"
@@ -2184,6 +2343,9 @@
         "return_policy": "return_to_hub",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": "app/one/setup/kai/page.voice-action-contract.json",
       "action_ids": [
         "kai.setup.answer_drawdown",
@@ -2228,6 +2390,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2266,6 +2431,9 @@
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -2307,6 +2475,9 @@
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": "app/profile/page.voice-action-contract.json",
       "action_ids": [
@@ -2356,6 +2527,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2394,6 +2568,9 @@
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -2434,6 +2611,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2472,6 +2652,9 @@
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -2512,6 +2695,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2550,6 +2736,9 @@
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -2590,6 +2779,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2628,6 +2820,9 @@
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -2668,6 +2863,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2706,6 +2904,9 @@
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -2746,6 +2947,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2784,6 +2988,9 @@
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -2826,6 +3033,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": "app/profile/pkm-agent-lab/page-client.voice-action-contract.json",
       "action_ids": [
         "profile.pkm.preview_capture"
@@ -2867,6 +3077,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2905,6 +3118,9 @@
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -2945,6 +3161,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2983,6 +3202,9 @@
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -3025,6 +3247,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [
         "route.profile_security_panel"
@@ -3066,6 +3291,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -3104,6 +3332,9 @@
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -3146,6 +3377,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [
         "route.profile_support_panel"
@@ -3187,6 +3421,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -3225,6 +3462,9 @@
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -3269,8 +3509,15 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": [
+          "country_picker"
+        ]
+      },
       "voice_contract_file": "app/register-phone/page.voice-action-contract.json",
       "action_ids": [
+        "phone_mandate.close_country_picker",
+        "phone_mandate.select_country",
         "phone_mandate.submit_code",
         "phone_mandate.submit_number"
       ],
@@ -3311,6 +3558,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -3349,6 +3599,9 @@
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [],
@@ -3390,6 +3643,9 @@
         "next_route": "/ria",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": "app/ria/page.voice-action-contract.json",
       "action_ids": [
@@ -3433,6 +3689,9 @@
         "next_route": "/ria/clients",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": "app/ria/clients/page.voice-action-contract.json",
       "action_ids": [
@@ -3478,6 +3737,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [
         "ria.client_workspace.open_overview_tab",
@@ -3522,6 +3784,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": null,
       "action_ids": [
         "ria.client_account.open_workspace_fallback"
@@ -3564,6 +3829,9 @@
         "next_route": "/ria/clients/[userId]?tab=access",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": null,
       "action_ids": [
@@ -3608,6 +3876,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": "app/ria/onboarding/page.voice-action-contract.json",
       "action_ids": [
         "route.ria_onboarding"
@@ -3650,6 +3921,9 @@
         "next_route": "/ria/picks",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": "app/ria/picks/page.voice-action-contract.json",
       "action_ids": [
@@ -3700,6 +3974,9 @@
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": "app/ria/profile/page.voice-action-contract.json",
       "action_ids": [
         "ria.profile.edit_services",
@@ -3742,6 +4019,9 @@
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
       "voice_contract_file": "app/ria/requests/page.voice-action-contract.json",
       "action_ids": [
         "route.ria_requests_compat"
@@ -3782,6 +4062,9 @@
         "next_route": "/ria/settings",
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": "app/ria/settings/page.voice-action-contract.json",
       "action_ids": [
@@ -3824,6 +4107,9 @@
         "next_route": "/ria/workspace",
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
       },
       "voice_contract_file": "app/ria/workspace/page.voice-action-contract.json",
       "action_ids": [

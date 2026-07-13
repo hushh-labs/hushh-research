@@ -8,7 +8,7 @@ description: Use when changing Morphy AX shared agent-experience state, semantic
 ## Purpose and Trigger
 
 - Primary scope: `morphy-agent-experience`
-- Trigger on Morphy AX snapshots, presentation derivation, semantic-assessment validation, compatibility projections, or AX performance budgets.
+- Trigger on Morphy AX snapshots, active interaction layers, presentation derivation, semantic-assessment validation, compatibility projections, or AX performance budgets.
 - Avoid overlap with `frontend-design-system`, `kai-voice-governance`, and `backend-agents-operons`.
 
 ## Coverage and Ownership
@@ -29,7 +29,7 @@ Non-owned surfaces:
 
 ## Do Use
 
-1. Shared, redacted agent-experience snapshot and presentation contracts.
+1. Shared, redacted agent-experience snapshot, active-layer composition, and presentation contracts.
 2. Intelligence-assessment validation and compatibility/non-regression budgets.
 3. Cross-modal AX behavior that reuses the existing runtime owner and action gateway.
 
@@ -37,7 +37,7 @@ Non-owned surfaces:
 
 1. Voice action authoring, generated gateway changes, or ADK orchestration ownership.
 2. Visual primitive work owned by Morphy UX.
-3. A second React provider, store, router, action registry, or model-facing route tool.
+3. A second React provider, store, router, action registry, DOM observer, or model-facing route tool.
 
 ## Read First
 
@@ -51,9 +51,12 @@ Non-owned surfaces:
 1. Verify the existing runtime, voice FSM, route playbook, and generated action authority before changing AX.
 2. Keep Morphy AX pure, redacted, memoizable, and hosted by `AgentRuntimeStateProvider`.
 3. Let intelligence assess meaning; deterministic code may validate, reject, normalize, and enforce authority only.
-4. Preserve `OneVoiceContextSnapshot` through an explicit compatibility projection while migration is active.
-5. Benchmark the same fixtures flag-off and flag-on; block wrong actions, unsafe fallbacks, or budget regressions.
-6. Route voice, backend-agent, design-system, docs, or quality changes to their owning skills.
+4. Compose authored `route`, `chrome`, and `interaction_layer` publishers; expose only the top effective inventory and remove stale owner leases on route change.
+5. Require exact generated dismiss/cancel actions, focus-restored settlement, and declared Agent continuity; never synthesize click or Escape behavior.
+6. Treat `trusted_activation_required` browser actions as exact Agent Bar continuations over mounted handlers, not redirect or popup-broker fallbacks.
+7. Preserve `OneVoiceContextSnapshot` through an explicit compatibility projection while migration is active.
+8. Benchmark the same fixtures flag-off and flag-on; block wrong-layer actions, unsafe fallbacks, or budget regressions.
+9. Route voice, backend-agent, design-system, docs, or quality changes to their owning skills.
 
 ## Handoff Rules
 

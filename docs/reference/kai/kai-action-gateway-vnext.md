@@ -162,10 +162,36 @@ Optional but recommended action fields:
 - `external_callback` for a provider action whose completion occurs after a
   full-page external redirect. It declares the provider, `external_redirect_started`,
   `firebase_redirect_callback`, `retain_goal_and_retry`, and the canonical return route.
+- `trusted_activation_required` for a desktop-web action that must begin inside a
+  browser-trusted tap, such as a Firebase provider popup. One may select the action,
+  but an asynchronous directive must settle into the exact provider-specific Agent Bar
+  action instead of synthesizing activation or changing authentication mode.
 
 `external_callback` does not grant provider authority. It tells One that the original
 directive ends at redirect launch and that a later browser callback, never the launch,
 is the authentication success boundary.
+
+`trusted_activation_required` does not authorize execution either. The trusted tap
+must revalidate the current route, top interaction layer, visible control, guards, and
+attempt correlation, then call the mounted handler synchronously before asynchronous
+work begins.
+
+## Active interaction-layer parity
+
+Runtime publishers are authored as `route`, `chrome`, or `interaction_layer`. The
+route contract remains the physical-screen source; the top open layer provides the
+effective action inventory:
+
+- modal and blocking layers replace underlying actions
+- nonmodal layers retain only explicitly permitted route actions
+- nested layers restore their parent inventory when they close
+- nondismissible layers never receive an invented close action
+
+Every executable layer control must name a generated `action_id`, stable `control_id`,
+and mounted handler. A layer-specific dismiss or cancel action is preferable to a
+global close command because its meaning and settlement remain explicit. Generated
+parity joins gateway, manifest, frontend/native surface map, interaction-layer
+coverage, and route-orchestration index in that order.
 
 ## Goal Metadata
 
@@ -314,6 +340,12 @@ That means the same action contract controls:
 
 Contributors should wire UI controls with stable `control_ids` so both screen context and action suggestions resolve through the same action id.
 
+Runtime visibility is top-layer-aware. A generated action can exist without being
+available on the current turn; hidden route controls must not remain in the active
+inventory behind a modal or blocking layer. One assesses meaning against the bounded
+inventory, and deterministic policy rejects stale or wrong-layer action ids rather
+than substituting a nearby action.
+
 ## Durable Memory Policy
 
 One Voice/Kai compatibility memory follows the Cryptographic Primitives north star:
@@ -344,6 +376,11 @@ When adding a new One Voice or Kai-specialist capability that should be discover
 6. Run the generator.
 7. Run the gateway verifier.
 8. Update targeted tests when capability semantics change.
+
+For interaction layers, also publish the authored role and lifecycle, expose only the
+top effective actions, and verify focus restoration plus success-after-settlement. For
+`trusted_activation_required` actions, verify both semantic provider selection and the
+provider-specific trusted-tap continuation.
 
 If a feature ships without a local contract:
 

@@ -43,6 +43,7 @@ import {
   buildOneVoiceContextSnapshot,
   type OneVoiceContextSnapshot,
 } from "@/lib/voice/screen-context-builder";
+import { useVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import {
   buildMorphyAxSnapshot,
   resolveMorphyAxPresentation,
@@ -145,6 +146,10 @@ function resolveOnboardingPhase(params: {
 
 export function AgentRuntimeStateProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  // This subscription is the runtime bridge between a route-local rendered
+  // control and One's redacted snapshot. It carries authored metadata only;
+  // no DOM inference or second action registry is involved.
+  const surfaceMetadata = useVoiceSurfaceMetadata();
   // The query string is purely client runtime metadata (it shapes the derived
   // voice route screen). We read it from window.location instead of
   // useSearchParams() so this app-wide provider does not force a CSR Suspense
@@ -410,6 +415,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
     () => {
       const compatibilitySnapshot = buildOneVoiceContextSnapshot({
         appRuntimeState,
+        surfaceMetadata,
         state: oneVoiceState,
         lastTransition: lastVoiceTransition,
         onboarding: {
@@ -468,6 +474,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       path,
       preVaultState,
       signedIn,
+      surfaceMetadata,
     ]
   );
 

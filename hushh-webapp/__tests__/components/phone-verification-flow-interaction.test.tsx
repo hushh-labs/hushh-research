@@ -1,8 +1,19 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
+import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/register-phone",
+}));
 
 function renderPhoneVerificationFlow(options?: { startRejects?: boolean }) {
   const startVerification = options?.startRejects
@@ -17,7 +28,7 @@ function renderPhoneVerificationFlow(options?: { startRejects?: boolean }) {
       startVerification={startVerification}
       confirmVerification={confirmVerification}
       onCompleted={onCompleted}
-    />
+    />,
   );
 
   return {
@@ -55,6 +66,48 @@ describe("PhoneVerificationFlow country selector", () => {
     await selectIndiaOnce();
   });
 
+  it("publishes bounded country options and restores the phone surface after close", async () => {
+    renderPhoneVerificationFlow();
+    const countryInput = screen.getByRole("combobox", {
+      name: "Country code",
+    }) as HTMLInputElement;
+    fireEvent.focus(countryInput);
+
+    await waitFor(() => {
+      expect(getVoiceSurfaceMetadata()?.interactionLayer).toMatchObject({
+        id: "phone_country_picker",
+        kind: "country_picker",
+        agentContinuity: "interactive",
+      });
+      expect(
+        getVoiceSurfaceMetadata()?.interactionLayer?.options.length,
+      ).toBeLessThanOrEqual(10);
+    });
+
+    const selectCountry = resolveLocalOnboardingHandler(
+      "phone_mandate.select_country",
+    );
+    let selectionResult;
+    await act(async () => {
+      selectionResult = await selectCountry?.({ country: "IN" });
+    });
+    expect(selectionResult).toMatchObject({ status: "succeeded" });
+    await waitFor(() => expect(countryInput.value).toBe("India (+91)"));
+
+    fireEvent.focus(countryInput);
+    const closePicker = resolveLocalOnboardingHandler(
+      "phone_mandate.close_country_picker",
+    );
+    let closeResult;
+    await act(async () => {
+      closeResult = await closePicker?.({});
+    });
+    expect(closeResult).toMatchObject({ status: "succeeded" });
+    await waitFor(() => {
+      expect(getVoiceSurfaceMetadata()?.interactionLayer ?? null).toBeNull();
+    });
+  });
+
   it("uses the first selected country when sending the verification phone number", async () => {
     const { startVerification } = renderPhoneVerificationFlow();
 
@@ -63,7 +116,9 @@ describe("PhoneVerificationFlow country selector", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Phone number" }), {
       target: { value: "8004482372" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Send verification code" }),
+    );
 
     await waitFor(() => {
       expect(startVerification).toHaveBeenCalledWith("+918004482372", {
@@ -75,10 +130,14 @@ describe("PhoneVerificationFlow country selector", () => {
   it("reports a failed voice settlement when the SMS provider rejects", async () => {
     renderPhoneVerificationFlow({ startRejects: true });
     await waitFor(() => {
-      expect(resolveLocalOnboardingHandler("phone_mandate.submit_number")).not.toBeNull();
+      expect(
+        resolveLocalOnboardingHandler("phone_mandate.submit_number"),
+      ).not.toBeNull();
     });
 
-    const result = await resolveLocalOnboardingHandler("phone_mandate.submit_number")?.({
+    const result = await resolveLocalOnboardingHandler(
+      "phone_mandate.submit_number",
+    )?.({
       phoneNumber: "+16505550101",
     });
 
@@ -88,16 +147,22 @@ describe("PhoneVerificationFlow country selector", () => {
   it("keeps the spoken code transient and settles only after confirmation succeeds", async () => {
     const { confirmVerification, onCompleted } = renderPhoneVerificationFlow();
     await waitFor(() => {
-      expect(resolveLocalOnboardingHandler("phone_mandate.submit_number")).not.toBeNull();
+      expect(
+        resolveLocalOnboardingHandler("phone_mandate.submit_number"),
+      ).not.toBeNull();
     });
     await resolveLocalOnboardingHandler("phone_mandate.submit_number")?.({
       phoneNumber: "+16505550101",
     });
     await waitFor(() => {
-      expect(resolveLocalOnboardingHandler("phone_mandate.submit_code")).not.toBeNull();
+      expect(
+        resolveLocalOnboardingHandler("phone_mandate.submit_code"),
+      ).not.toBeNull();
     });
 
-    const result = await resolveLocalOnboardingHandler("phone_mandate.submit_code")?.({
+    const result = await resolveLocalOnboardingHandler(
+      "phone_mandate.submit_code",
+    )?.({
       code: "123456",
     });
 

@@ -334,11 +334,34 @@ For any agent that classifies user meaning or shapes PKM structure:
 - deterministic code may validate and reject, but must not replace the agent as the semantic classifier
 - the feature must document its validator rules and live-eval phase
 
+For One Voice and Morphy AX, semantic ownership applies on every turn. One assesses
+whether the request is conversation, a current-page question, an exact visible action,
+a clarification, or recovery. The active route playbook, top redacted interaction
+layer, visible generated actions, bounded options, and pending settlement are the only
+screen context supplied. `list_app_actions` retrieves this bounded inventory; it is
+not the classifier.
+
+Deterministic policy then validates the selected generated action against route,
+interaction layer, auth, vault, consent, confirmation, and settlement contracts. It
+may normalize, reject, or retain the goal, but it cannot infer meaning with keywords,
+substitute another action, execute a hidden control, or claim success before browser
+settlement. `agent_onboarding` adjudicates only ambiguous or incomplete onboarding
+assessments and never speaks or executes.
+
+For browser actions requiring trusted activation, such as Apple or Google popup
+authentication, the manifest/action contract must declare that requirement. One still
+selects the exact provider action. The asynchronous directive settles into one exact
+provider-specific Agent Bar action, whose trusted tap revalidates context and invokes
+the mounted handler synchronously. Do not add synthetic clicks, a popup broker, a
+same-tab fallback, DOM inference, or another routing agent.
+
 Reference:
 
 - `./pkm-agent-north-star.md`
 - `./pkm-prompt-contract.md`
 - `./backend-semantic-boundary.md`
+- `../../../docs/reference/quality/morphy-agent-experience.md`
+- `../../../docs/reference/one/one-voice-runtime-architecture.md`
 
 ### Step 3: Subclass HushhAgent
 

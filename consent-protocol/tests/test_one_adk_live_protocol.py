@@ -57,6 +57,7 @@ def test_live_context_keeps_only_bounded_redacted_ui_fields():
         "available_action_ids": ["analysis.start"],
         "visible_modules": ["Portfolio"],
         "visible_control_ids": [],
+        "interaction_layer": None,
         "pending_settlement": False,
         "cache_freshness": "fresh_or_stale_safe",
         "vault_ready": True,
@@ -71,6 +72,47 @@ def test_live_context_keeps_only_bounded_redacted_ui_fields():
             "phone_verified": None,
             "setup_capability_ids": [],
         },
+    }
+
+
+def test_live_context_keeps_only_generated_actions_from_the_top_modal_layer():
+    context = _sanitize_live_context(
+        {
+            "route_family": "/login",
+            "available_action_ids": [
+                "auth.sign_in_apple",
+                "auth.close_legal",
+                "not.generated",
+            ],
+            "interaction_layer": {
+                "layer_id": "login_legal_terms",
+                "kind": "legal_document",
+                "modality": "modal",
+                "lifecycle_state": "open",
+                "dismissible": True,
+                "dismiss_action_id": "auth.close_legal",
+                "visible_action_ids": ["auth.close_legal", "not.generated"],
+                "visible_control_ids": ["auth_close_legal"],
+                "options": [],
+                "underlying_actions_available": True,
+                "agent_continuity": "interactive",
+            },
+        }
+    )
+
+    assert context["available_action_ids"] == ["auth.close_legal"]
+    assert context["interaction_layer"] == {
+        "layer_id": "login_legal_terms",
+        "kind": "legal_document",
+        "modality": "modal",
+        "lifecycle_state": "open",
+        "dismissible": True,
+        "dismiss_action_id": "auth.close_legal",
+        "visible_action_ids": ["auth.close_legal"],
+        "visible_control_ids": ["auth_close_legal"],
+        "options": [],
+        "underlying_actions_available": False,
+        "agent_continuity": "interactive",
     }
 
 
