@@ -50,6 +50,11 @@ import {
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { CapabilityExploreCard } from "@/components/onboarding/setup/capability-explore-card";
+import {
+  OneLocationOnboardingFlow as OneLocationOnboardingExperience,
+  type ConnectionRequestResult,
+} from "@/components/one-location/onboarding/one-location-onboarding-flow";
+import { useConsentNotificationState } from "@/components/consent/notification-provider";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -98,9 +103,11 @@ function BodyPortal({ children }: { children: ReactNode }) {
 
 
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
+import { isWeb } from "@/lib/capacitor/platform";
 
 import {
   RECIPIENT_KEY_UNAVAILABLE_MESSAGE,
+
   decryptLocationEnvelope,
   encryptLocationForRecipient,
   ensureLocationRecipientKey,
@@ -175,6 +182,11 @@ import {
   saveDriveSession,
 } from "@/lib/one-location/drive-session-store";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
+import {
+  ConnectionsService,
+  type ConnectionSummaryEntry,
+  type DirectoryPerson,
+} from "@/lib/services/connections-service";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { useVault } from "@/lib/vault/vault-context";
@@ -273,7 +285,7 @@ type OneLocationDurationBucket = "15m" | "30m" | "1h" | "4h" | "24h" | "custom";
 type OneLocationForegroundOperation = "publish" | "view";
 type OneLocationForegroundTrigger = "manual" | "foreground_interval";
 type OneLocationFocusTarget = OneLocationNotificationSection;
-type OneLocationOnboardingStep = "intro" | "permission";
+type OneLocationOnboardingStep = "welcome" | "permissions";
 type OneLocationOnboardingGate = "checking" | "show" | "hidden";
 type OneLocationNativeTestConfig = ComponentProps<typeof NativeTestBeacon>;
 type OneLocationBackoffBucket =
@@ -1522,237 +1534,6 @@ function OneLocationInitialSkeleton() {
   );
 }
 
-function OneLocationIntroMapIllustration() {
-  return (
-    <div
-      className="relative aspect-square w-[min(290px,78vw,42dvh)] overflow-hidden rounded-[32px] bg-[#efece5] shadow-[0_26px_54px_-14px_rgba(40,34,22,0.24),0_6px_16px_rgba(0,0,0,0.06)] dark:bg-[#1d2229] dark:shadow-[0_26px_54px_-14px_rgba(0,0,0,0.65),0_6px_16px_rgba(0,0,0,0.28)]"
-      aria-hidden="true"
-    >
-      <svg
-        width="100%"
-        height="100%"
-        viewBox="0 0 300 300"
-        preserveAspectRatio="xMidYMid slice"
-        focusable="false"
-      >
-        <rect width="300" height="300" className="fill-[#efece5] dark:fill-[#1d2229]" />
-        <path
-          d="M0 198 Q44 182 86 198 T172 204 L172 300 L0 300 Z"
-          className="fill-[#d3e7c4] dark:fill-[#243f2d]"
-        />
-        <path
-          d="M214 0 Q248 42 300 38 L300 0 Z"
-          className="fill-[#c2dcf4] dark:fill-[#20374f]"
-        />
-        <circle cx="58" cy="54" r="30" className="fill-[#d3e7c4] dark:fill-[#274633]" />
-        <path
-          d="M-20 116 L320 88"
-          className="stroke-[#e6e0d4] dark:stroke-[#2c333c]"
-          strokeWidth="17"
-          fill="none"
-        />
-        <path
-          d="M150 -20 L172 320"
-          className="stroke-[#e6e0d4] dark:stroke-[#2c333c]"
-          strokeWidth="17"
-          fill="none"
-        />
-        <path
-          d="M-20 224 L320 202"
-          className="stroke-[#e6e0d4] dark:stroke-[#2c333c]"
-          strokeWidth="12"
-          fill="none"
-        />
-        <path
-          d="M-20 116 L320 88"
-          className="stroke-[#fbfaf6] dark:stroke-[#11161c]"
-          strokeWidth="11.5"
-          fill="none"
-        />
-        <path
-          d="M150 -20 L172 320"
-          className="stroke-[#fbfaf6] dark:stroke-[#11161c]"
-          strokeWidth="11.5"
-          fill="none"
-        />
-        <path
-          d="M-20 224 L320 202"
-          className="stroke-[#fbfaf6] dark:stroke-[#11161c]"
-          strokeWidth="7.5"
-          fill="none"
-        />
-        <rect x="38" y="128" width="44" height="38" rx="6" className="fill-[#e8e2d6] dark:fill-[#29313a]" />
-        <rect x="90" y="132" width="40" height="34" rx="6" className="fill-[#e8e2d6] dark:fill-[#29313a]" />
-        <rect x="198" y="124" width="52" height="46" rx="6" className="fill-[#e8e2d6] dark:fill-[#29313a]" />
-        <rect x="40" y="250" width="48" height="40" rx="6" className="fill-[#e8e2d6] dark:fill-[#29313a]" />
-      </svg>
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(110%_80%_at_28%_4%,rgba(255,255,255,0.55),rgba(255,255,255,0)_58%)] dark:bg-[radial-gradient(110%_80%_at_28%_4%,rgba(255,255,255,0.09),rgba(255,255,255,0)_58%)]" />
-      <div className="absolute left-[18%] top-[27%] flex flex-col items-center">
-        <span className="flex h-[50px] w-[50px] items-center justify-center rounded-full border-[3px] border-white bg-[#34c759] text-[19px] font-semibold text-white shadow-[0_6px_15px_rgba(0,0,0,0.16),0_1px_3px_rgba(0,0,0,0.1)]">
-          M
-        </span>
-        <span className="-mt-0.5 h-0 w-0 border-l-[6px] border-r-[6px] border-t-[9px] border-l-transparent border-r-transparent border-t-white" />
-      </div>
-      <div className="absolute left-[45%] top-[47%] flex -translate-x-1/2 -translate-y-1/2 items-center justify-center">
-        <span className="absolute h-20 w-20 rounded-full bg-[#b8894d]/12 dark:bg-[#d4a574]/18" />
-        <span className="absolute h-[30px] w-[30px] animate-ping rounded-full bg-[#b8894d]/35" />
-        <span className="relative h-[22px] w-[22px] rounded-full border-[3px] border-white bg-[#b8894d] shadow-[0_2px_8px_rgba(0,113,227,0.55),0_1px_3px_rgba(0,0,0,0.25)]" />
-      </div>
-      <div className="absolute bottom-[29%] right-[21%] flex flex-col items-center">
-        <span className="flex h-11 w-11 items-center justify-center rounded-full border-[3px] border-white bg-[#ff3b30] text-[16px] font-semibold text-white shadow-[0_6px_15px_rgba(0,0,0,0.16),0_1px_3px_rgba(0,0,0,0.1)]">
-          E
-        </span>
-        <span className="-mt-0.5 h-0 w-0 border-l-[6px] border-r-[6px] border-t-[9px] border-l-transparent border-r-transparent border-t-white" />
-      </div>
-      <div className="absolute bottom-[16%] left-[29%] flex flex-col items-center">
-        <span className="flex h-[42px] w-[42px] items-center justify-center rounded-full border-[3px] border-white bg-[#ff9f0a] text-[15px] font-semibold text-white shadow-[0_6px_15px_rgba(0,0,0,0.16),0_1px_3px_rgba(0,0,0,0.1)]">
-          J
-        </span>
-        <span className="-mt-0.5 h-0 w-0 border-l-[6px] border-r-[6px] border-t-[9px] border-l-transparent border-r-transparent border-t-white" />
-      </div>
-      <div className="pointer-events-none absolute inset-0 rounded-[32px] shadow-[inset_0_0_60px_rgba(70,60,40,0.09),inset_0_0_0_1px_rgba(255,255,255,0.35)] dark:shadow-[inset_0_0_60px_rgba(0,0,0,0.28),inset_0_0_0_1px_rgba(255,255,255,0.08)]" />
-    </div>
-  );
-}
-
-function OneLocationPermissionGlyph() {
-  return (
-    <div
-      className="flex h-24 w-24 items-center justify-center rounded-full bg-[#b8894d] text-[#b8894d] shadow-[0_0_64px_10px_rgba(0,113,227,0.34),0_16px_34px_rgba(0,113,227,0.34)] dark:bg-[#d4a574] dark:text-[#d4a574] dark:shadow-[0_0_70px_10px_rgba(10,132,255,0.42),0_18px_38px_rgba(10,132,255,0.32)]"
-      aria-hidden="true"
-    >
-      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" focusable="false">
-        <path
-          d="M12 21s7-6.3 7-11.5A7 7 0 0 0 5 9.5C5 14.7 12 21 12 21Z"
-          fill="#fff"
-        />
-        <circle cx="12" cy="9.5" r="2.7" fill="currentColor" />
-      </svg>
-    </div>
-  );
-}
-
-function OneLocationOnboardingFlow({
-  step,
-  busy,
-  permission,
-  nativeTest,
-  onContinueIntro,
-  onRequestPermission,
-  onSkip,
-}: {
-  step: OneLocationOnboardingStep;
-  busy: boolean;
-  permission: HushhLocationPermissionState | null;
-  nativeTest: OneLocationNativeTestConfig;
-  onContinueIntro: () => void;
-  onRequestPermission: () => void;
-  onSkip: () => void;
-}) {
-  const isPermissionStep = step === "permission";
-  const isDeviceLocationOff =
-    isPermissionStep && isLocationServicesDisabled(permission);
-  const isPermissionBlocked =
-    isPermissionStep &&
-    (permission?.state === "denied" || permission?.state === "restricted");
-  const permissionTitle = isDeviceLocationOff
-    ? "Turn on phone Location"
-    : isPermissionBlocked
-      ? "Allow location in Settings"
-      : "Allow location access";
-  const permissionDescription = isDeviceLocationOff
-    ? "Your app permission is ready, but your phone Location switch is off. Turn it on, then return to continue."
-    : isPermissionBlocked
-      ? "Open Settings and allow location for One. Sharing still only happens after you confirm."
-      : "Choose While using the app. One only shares your location after you confirm a Circle share.";
-  const permissionBadge = isDeviceLocationOff
-    ? "Phone Location is off"
-    : "You can pause sharing anytime";
-  const primaryActionLabel = isPermissionStep
-    ? isDeviceLocationOff || isPermissionBlocked
-      ? isPermissionBlocked
-        ? "Open App Settings"
-        : "Open Location Settings"
-      : "Allow Location"
-    : "Continue";
-
-  return (
-    <main
-      className="fixed inset-0 z-[540] h-dvh min-h-[100svh] w-full overflow-hidden bg-white text-[#1d1d1f] dark:bg-[#050506] dark:text-white"
-      data-no-route-swipe
-    >
-      <NativeTestBeacon {...nativeTest} />
-      <div className="mx-auto flex h-full min-h-0 w-full max-w-[430px] flex-col overflow-hidden bg-white dark:bg-[#050506]">
-        <div className="h-[calc(env(safe-area-inset-top,0px)+24px)] shrink-0" />
-        <section className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-[clamp(24px,7vw,34px)] py-3 [-webkit-overflow-scrolling:touch]">
-          <div
-            key={step}
-            className="motion-step-enter flex w-full flex-col items-center text-center"
-          >
-            {isPermissionStep ? <OneLocationPermissionGlyph /> : <OneLocationIntroMapIllustration />}
-
-            <h1
-              className={cn(
-                "mt-8 max-w-[340px] text-center text-[28px] font-medium leading-[1.1] text-[#1d1d1f] sm:text-[31px] dark:text-white",
-                isPermissionStep && "max-w-[330px] text-[27px] leading-[1.12] sm:text-[30px]",
-              )}
-            >
-              {isPermissionStep
-                ? permissionTitle
-                : "Experience location sharing with One."}
-            </h1>
-
-            {isPermissionStep ? (
-              <>
-                <p className="mt-3 max-w-[330px] text-[15.5px] font-normal leading-[1.5] text-[#6e6e73] dark:text-white/62">
-                  {permissionDescription}
-                </p>
-                <div className="mt-6 inline-flex max-w-full items-center gap-2.5 rounded-full bg-[#f5f5f7] px-4 py-2.5 text-[14px] text-[#6e6e73] dark:bg-white/[0.08] dark:text-white/62">
-                  <Clock3 className="h-[18px] w-[18px] shrink-0 text-[#34c759]" aria-hidden="true" />
-                  <span className="min-w-0 truncate">{permissionBadge}</span>
-                </div>
-              </>
-            ) : (
-              <p className="mt-3 max-w-[310px] text-[15.5px] leading-[1.45] text-[#6e6e73] dark:text-white/62">
-                Never text "where are you?" again.
-              </p>
-            )}
-          </div>
-        </section>
-        <footer className="flex shrink-0 flex-col items-center gap-3.5 px-[clamp(24px,7vw,34px)] pb-2 pt-2">
-          <Button
-            type="button"
-            onClick={isPermissionStep ? onRequestPermission : onContinueIntro}
-            disabled={busy}
-            className="h-[54px] w-full rounded-full bg-[#b8894d] text-[17px] font-semibold text-white shadow-[0_8px_22px_rgba(0,113,227,0.28)] hover:bg-[#006fe6] dark:bg-[#d4a574] dark:hover:bg-[#0077ed]"
-          >
-            {busy ? (
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" aria-hidden="true" />
-            ) : null}
-            {primaryActionLabel}
-          </Button>
-
-          {isPermissionStep ? (
-            <button
-              type="button"
-              onClick={onSkip}
-              disabled={busy}
-              className="h-6 rounded-full px-3 text-[14.5px] font-medium text-[#86868b] transition-colors hover:text-[#1d1d1f] disabled:opacity-50 dark:text-white/45 dark:hover:text-white"
-            >
-              Not now
-            </button>
-          ) : (
-            <p className="min-h-6 text-center text-[13px] text-[#86868b] dark:text-white/45">
-              Private - shared only with your Circle.
-            </p>
-          )}
-        </footer>
-        <div className="h-[calc(env(safe-area-inset-bottom,0px)+22px)] shrink-0" />
-      </div>
-    </main>
-  );
-}
-
 export function OneLocationAgentPageContent({
   onSetupReadinessChange,
 }: {
@@ -1761,6 +1542,11 @@ export function OneLocationAgentPageContent({
   const router = useRouter();
   const searchParams = useSearchParams();
   const auth = useRequireAuth();
+  const {
+    deliveryMode: notificationDeliveryMode,
+    retryPushRegistration,
+    isRetryingPushRegistration,
+  } = useConsentNotificationState();
   const { isVaultUnlocked, vaultOwnerToken, vaultKey } = useVault();
   const pendingCircleInviteToken = useMemo(
     () => String(searchParams.get("circleInviteToken") || "").trim(),
@@ -1794,8 +1580,22 @@ export function OneLocationAgentPageContent({
   const [locationOnboardingGate, setLocationOnboardingGate] =
     useState<OneLocationOnboardingGate>("checking");
   const [locationOnboardingStep, setLocationOnboardingStep] =
-    useState<OneLocationOnboardingStep>("intro");
+    useState<OneLocationOnboardingStep>("welcome");
   const [locationOnboardingBusy, setLocationOnboardingBusy] = useState(false);
+  const notificationOnboardingAttemptRef = useRef(false);
+  const notificationOnboardingObservedBusyRef = useRef(false);
+  const notificationOnboardingRetryOnFocusRef = useRef(false);
+  const [locationOnboardingPeople, setLocationOnboardingPeople] = useState<
+    DirectoryPerson[]
+  >([]);
+  const [locationOnboardingConnections, setLocationOnboardingConnections] =
+    useState<ConnectionSummaryEntry[]>([]);
+  const [locationOnboardingPeopleLoading, setLocationOnboardingPeopleLoading] =
+    useState(false);
+  const [locationOnboardingPeopleError, setLocationOnboardingPeopleError] =
+    useState<string | null>(null);
+  const [locationOnboardingPeopleRefresh, setLocationOnboardingPeopleRefresh] =
+    useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeMode, setActiveMode] = useState<ShareMode>("share");
   const locationTab = normalizeLocationTab(
@@ -2442,6 +2242,69 @@ export function OneLocationAgentPageContent({
   }, [auth.loading, refresh]);
 
   useEffect(() => {
+    if (
+      locationOnboardingGate !== "show" ||
+      locationOnboardingStep !== "welcome" ||
+      !auth.user
+    ) {
+      return;
+    }
+
+    const authenticatedUser = auth.user;
+    let cancelled = false;
+    const loadPeople = async () => {
+      setLocationOnboardingPeopleLoading(true);
+      setLocationOnboardingPeopleError(null);
+      try {
+        const idToken = await authenticatedUser.getIdToken();
+        const [directoryResult, connectionsResult] = await Promise.allSettled([
+          ConnectionsService.searchDirectory({ idToken, page: 1, limit: 12 }),
+          ConnectionsService.listConnections({ idToken }),
+        ]);
+        if (cancelled) return;
+
+        if (directoryResult.status === "fulfilled") {
+          setLocationOnboardingPeople(directoryResult.value.items ?? []);
+        } else {
+          setLocationOnboardingPeople([]);
+          setLocationOnboardingPeopleError(
+            directoryResult.reason instanceof Error
+              ? directoryResult.reason.message
+              : "Could not load recommended people.",
+          );
+        }
+
+        if (connectionsResult.status === "fulfilled") {
+          setLocationOnboardingConnections(connectionsResult.value);
+        } else {
+          setLocationOnboardingConnections([]);
+        }
+      } catch (error) {
+        if (cancelled) return;
+        setLocationOnboardingPeople([]);
+        setLocationOnboardingConnections([]);
+        setLocationOnboardingPeopleError(
+          error instanceof Error
+            ? error.message
+            : "Could not load recommended people.",
+        );
+      } finally {
+        if (!cancelled) setLocationOnboardingPeopleLoading(false);
+      }
+    };
+
+    void loadPeople();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    auth.user,
+    locationOnboardingGate,
+    locationOnboardingPeopleRefresh,
+    locationOnboardingStep,
+  ]);
+
+  useEffect(() => {
     if (auth.loading) {
       setLocationOnboardingGate("checking");
       return;
@@ -2461,38 +2324,16 @@ export function OneLocationAgentPageContent({
 
     const introSeen =
       typeof window !== "undefined" &&
-      window.localStorage.getItem(
-        `one_location_onboarding_v1:${auth.userId}`,
-      ) === "1";
-    // Re-show the permission screen only when location is *actionably* off:
-    // the phone Location switch is disabled, or the user explicitly denied /
-    // restricted access. Neutral states ("prompt" = never asked yet, or
-    // "unavailable" = web Permissions API can't determine state) must NOT trap
-    // the user on the permission screen — they can use the app, see their
-    // circle, and grant access at the moment they actually share.
-    const deviceLocationBlocked =
-      isLocationServicesDisabled(permission) ||
-      permission?.state === "denied" ||
-      permission?.state === "restricted";
+      (window.localStorage.getItem(
+        `one_location_onboarding_v2:${auth.userId}`,
+      ) === "1" ||
+        window.localStorage.getItem(
+          `one_location_onboarding_v1:${auth.userId}`,
+        ) === "1");
 
-    // The marketing intro screen only ever shows once per user (persisted in
-    // localStorage). After that, the second "Allow location" screen is driven
-    // purely by the real device location state: it re-appears only when access
-    // is explicitly off / blocked, and stays hidden otherwise.
+    // The whole takeover is first-run only. Returning users manage Location
+    // and notification readiness from the normal Onepoint surface.
     if (introSeen) {
-      // If onboarding is already visible (the user is mid-flow, e.g. just
-      // advanced from the intro to the permission step), never auto-hide or
-      // redirect — let them finish the current step. Dismissal happens through
-      // the flow's own handlers. Device-state-driven (re)appearance only
-      // applies on a fresh load when onboarding is not already showing.
-      if (locationOnboardingGate === "show") {
-        return;
-      }
-      if (deviceLocationBlocked) {
-        setLocationOnboardingStep("permission");
-        setLocationOnboardingGate("show");
-        return;
-      }
       setLocationOnboardingGate("hidden");
       return;
     }
@@ -2501,7 +2342,7 @@ export function OneLocationAgentPageContent({
 
 
     if (locationOnboardingGate !== "show") {
-      setLocationOnboardingStep("intro");
+      setLocationOnboardingStep("welcome");
     }
     setLocationOnboardingGate("show");
   }, [
@@ -2509,7 +2350,6 @@ export function OneLocationAgentPageContent({
     auth.userId,
     loadError,
     locationOnboardingGate,
-    permission,
     vaultOwnerToken,
   ]);
 
@@ -4743,15 +4583,12 @@ export function OneLocationAgentPageContent({
   }, [ensureForegroundLocationReady]);
 
   const dismissLocationOnboarding = useCallback(() => {
-    // Persist that onboarding is complete so the one-time marketing intro never
-    // shows again for this user; only the location-permission screen can
-    // re-appear, and only when device location is actually off. We persist on
-    // dismissal/completion (not when merely advancing to the permission step)
-    // so a partially-seen flow still re-shows next time.
+    // Persist only after dismissal/completion so an interrupted first run can
+    // resume next time. Once complete, the entire takeover stays dismissed.
     if (typeof window !== "undefined" && auth.userId) {
       try {
         window.localStorage.setItem(
-          `one_location_onboarding_v1:${auth.userId}`,
+          `one_location_onboarding_v2:${auth.userId}`,
           "1",
         );
       } catch {
@@ -4763,9 +4600,60 @@ export function OneLocationAgentPageContent({
     setLocationOnboardingBusy(false);
   }, [auth.userId]);
 
-  const handleContinueLocationOnboardingIntro = useCallback(() => {
-    setLocationOnboardingStep("permission");
-  }, []);
+  const handleSendLocationOnboardingConnectionRequests = useCallback(
+    async (userIds: string[]): Promise<ConnectionRequestResult> => {
+      if (!auth.user || userIds.length === 0) {
+        return { sentUserIds: [], failedUserIds: [] };
+      }
+
+      let idToken: string;
+      try {
+        idToken = await auth.user.getIdToken();
+      } catch {
+        toast.error("Your session could not be verified. Please try again.");
+        return { sentUserIds: [], failedUserIds: [...new Set(userIds)] };
+      }
+      const sentUserIds: string[] = [];
+      const failedUserIds: string[] = [];
+
+      // Keep requests sequential so a first-run selection cannot burst the
+      // connections endpoint. Each request is independently recoverable.
+      for (const userId of [...new Set(userIds)]) {
+        try {
+          await ConnectionsService.sendRequest({
+            idToken,
+            addresseeUserId: userId,
+            message: "I would like to add you to my private Onepoint circle.",
+          });
+          sentUserIds.push(userId);
+        } catch {
+          failedUserIds.push(userId);
+        }
+      }
+
+      if (sentUserIds.length > 0) {
+        const sentSet = new Set(sentUserIds);
+        setLocationOnboardingPeople((current) =>
+          current.map((person) =>
+            sentSet.has(person.userId)
+              ? { ...person, relationship: "pending_outgoing" }
+              : person,
+          ),
+        );
+        toast.success(
+          `${sentUserIds.length} connection request${sentUserIds.length === 1 ? "" : "s"} sent.`,
+        );
+      }
+      if (failedUserIds.length > 0) {
+        toast.error(
+          `${failedUserIds.length} request${failedUserIds.length === 1 ? "" : "s"} could not be sent.`,
+        );
+      }
+
+      return { sentUserIds, failedUserIds };
+    },
+    [auth.user],
+  );
 
   const handleDismissFirstRunGuide = useCallback(() => {
     setFirstRunGuideDismissed(true);
@@ -4811,21 +4699,28 @@ export function OneLocationAgentPageContent({
 
 
 
-  const handleSkipLocationOnboarding = useCallback(() => {
-    dismissLocationOnboarding();
-  }, [dismissLocationOnboarding]);
-
   const openLocationSettingsForOnboarding = useCallback(async () => {
     await OneLocationService.openLocationSettings().catch(() => null);
-    toast.info("Turn on phone Location, then return to continue.");
+    // On web the app can't open device settings; guide the user to the browser's
+    // own site-permission UI instead of a nonexistent "phone Location" switch.
+    toast.info(
+      isWeb()
+        ? "Allow location in your browser's site settings (lock icon in the address bar), then try again."
+        : "Turn on phone Location, then return to continue.",
+    );
     window.setTimeout(() => void refreshLocationPermission(), 1200);
   }, [refreshLocationPermission]);
 
   const openAppSettingsForOnboarding = useCallback(async () => {
     await OneLocationService.openAppSettings().catch(() => null);
-    toast.info("Allow Location for One in Settings, then return.");
+    toast.info(
+      isWeb()
+        ? "Allow location for this site in your browser settings, then try again."
+        : "Allow Location for One in Settings, then return.",
+    );
     window.setTimeout(() => void refreshLocationPermission(), 1200);
   }, [refreshLocationPermission]);
+
 
   const handleLocationOnboardingPermission = useCallback(async () => {
     if (locationOnboardingBusy) return;
@@ -4846,11 +4741,18 @@ export function OneLocationAgentPageContent({
 
       if (permission?.state === "granted") {
         const refreshedPermission = await refreshLocationPermission();
-        if (!isLocationServicesDisabled(refreshedPermission)) {
-          dismissLocationOnboarding();
-        } else {
+        if (isLocationServicesDisabled(refreshedPermission)) {
           await openLocationSettingsForOnboarding();
+          return;
         }
+        if (
+          refreshedPermission?.state === "denied" ||
+          refreshedPermission?.state === "restricted"
+        ) {
+          await openAppSettingsForOnboarding();
+          return;
+        }
+        toast.success("Location access is on.");
         return;
       }
 
@@ -4876,19 +4778,93 @@ export function OneLocationAgentPageContent({
         await openLocationSettingsForOnboarding();
         return;
       }
-
-      dismissLocationOnboarding();
+      toast.success("Location access enabled.");
+    } catch (error) {
+      toast.error(locationServicesErrorMessage(error));
     } finally {
       setLocationOnboardingBusy(false);
     }
   }, [
-    dismissLocationOnboarding,
     locationOnboardingBusy,
     openAppSettingsForOnboarding,
     openLocationSettingsForOnboarding,
     permission,
     refreshLocationPermission,
   ]);
+
+  useEffect(() => {
+    if (!notificationOnboardingAttemptRef.current) return;
+    if (isRetryingPushRegistration) {
+      notificationOnboardingObservedBusyRef.current = true;
+      return;
+    }
+    if (!notificationOnboardingObservedBusyRef.current) return;
+
+    notificationOnboardingAttemptRef.current = false;
+    notificationOnboardingObservedBusyRef.current = false;
+    if (notificationDeliveryMode === "push_active") {
+      toast.success("Notifications enabled.");
+      return;
+    }
+    if (notificationDeliveryMode === "push_blocked") {
+      toast.error(
+        "Notifications are still blocked. Allow them in Settings and try again.",
+      );
+      return;
+    }
+    toast.info(
+      "Push notifications could not be enabled. Updates will still appear in One.",
+    );
+  }, [isRetryingPushRegistration, notificationDeliveryMode]);
+
+  useEffect(() => {
+    const retryAfterSettings = () => {
+      if (
+        !notificationOnboardingRetryOnFocusRef.current ||
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
+      notificationOnboardingRetryOnFocusRef.current = false;
+      notificationOnboardingAttemptRef.current = true;
+      notificationOnboardingObservedBusyRef.current = false;
+      retryPushRegistration();
+    };
+
+    window.addEventListener("focus", retryAfterSettings);
+    document.addEventListener("visibilitychange", retryAfterSettings);
+    return () => {
+      window.removeEventListener("focus", retryAfterSettings);
+      document.removeEventListener("visibilitychange", retryAfterSettings);
+    };
+  }, [retryPushRegistration]);
+
+  const handleLocationOnboardingNotifications = useCallback(async () => {
+    if (notificationDeliveryMode === "push_active") {
+      toast.success("Notifications are on.");
+      return;
+    }
+    if (notificationDeliveryMode === "push_blocked") {
+      notificationOnboardingRetryOnFocusRef.current = true;
+      const result = await OneLocationService.openAppSettings().catch(() => ({
+        opened: false,
+        sourcePlatform: "web" as const,
+      }));
+      if (!result.opened) {
+        notificationOnboardingRetryOnFocusRef.current = false;
+      }
+      toast.info(
+        result.opened
+          ? "Allow notifications in Settings, then return to One."
+          : "Allow notifications in your browser or device settings, then try again.",
+      );
+      return;
+    }
+
+    notificationOnboardingAttemptRef.current = true;
+    notificationOnboardingObservedBusyRef.current = false;
+    retryPushRegistration();
+  }, [notificationDeliveryMode, retryPushRegistration]);
 
   const nativeTestConfig: OneLocationNativeTestConfig = {
     routeId: "/one/location",
@@ -4921,14 +4897,31 @@ export function OneLocationAgentPageContent({
     // Continue / Allow Location button is always tappable.
     return (
       <BodyPortal>
-        <OneLocationOnboardingFlow
-          step={locationOnboardingStep}
-          busy={locationOnboardingBusy}
-          permission={permission}
+        <OneLocationOnboardingExperience
+          startAt={locationOnboardingStep}
+          currentUserName={
+            String(auth.user?.displayName || auth.user?.email || "You").trim() ||
+            "You"
+          }
+          currentUserPhotoUrl={auth.user?.photoURL}
+          people={locationOnboardingPeople}
+          connections={locationOnboardingConnections}
+          peopleLoading={locationOnboardingPeopleLoading}
+          peopleError={locationOnboardingPeopleError}
+          locationPermission={permission}
+          notificationDeliveryMode={notificationDeliveryMode}
+          notificationBusy={isRetryingPushRegistration}
+          locationBusy={locationOnboardingBusy}
           nativeTest={nativeTestConfig}
-          onContinueIntro={handleContinueLocationOnboardingIntro}
-          onRequestPermission={handleLocationOnboardingPermission}
-          onSkip={handleSkipLocationOnboarding}
+          onRetryPeople={() =>
+            setLocationOnboardingPeopleRefresh((current) => current + 1)
+          }
+          onSendConnectionRequests={
+            handleSendLocationOnboardingConnectionRequests
+          }
+          onRequestLocation={handleLocationOnboardingPermission}
+          onRequestNotifications={handleLocationOnboardingNotifications}
+          onComplete={dismissLocationOnboarding}
         />
       </BodyPortal>
     );
@@ -5075,7 +5068,12 @@ export function OneLocationAgentPageContent({
     return (
       <AppPageShell width="standard" nativeTest={nativeTestConfig}>
         <AppPageContentRegion className="mx-auto w-full max-w-[480px] min-w-0 space-y-6 overflow-x-hidden px-3 pb-12 pt-4">
-          {loadError ? (
+          {/* Only surface the load-failure banner on a genuine cold load (no
+              data yet). Once `state` is populated the hub is fully usable, so a
+              transient failure from the 5s background poll must NOT flash a
+              scary red alert over working content — the next poll refreshes it
+              silently. */}
+          {loadError && !state ? (
             <div
               role="alert"
               className="rounded-[20px] border border-[#ff3b30]/30 bg-[#ff3b30]/10 p-4 text-sm font-medium text-[#ff3b30] dark:text-[#ff9f9a]"
@@ -5083,6 +5081,7 @@ export function OneLocationAgentPageContent({
               {loadError}
             </div>
           ) : null}
+
 
           {showInitialSkeleton ? (
             <HushhLoader variant="page" label="Loading location..." />
