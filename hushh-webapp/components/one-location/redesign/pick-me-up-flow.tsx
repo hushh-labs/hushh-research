@@ -20,6 +20,7 @@ import { haversineMeters } from "@/lib/one-location/marker-interpolation";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 
 import { CARD_SURFACE } from "./tokens";
+import { PlaceSearchDialog } from "./place-search-dialog";
 import type { LocationHubViewModel } from "./location-redesign-hub";
 
 const PICKUP_DURATION_HOURS = "4"; // "until picked up"
@@ -65,10 +66,8 @@ export function PickMeUpFlow({
   // every ~5s during the self-preview stream).
   const lastGeocodedLatLng = useRef<{ lat: number; lng: number } | null>(null);
 
-  // Adjust search state
+  // Adjust opens the shared Command place-search dialog.
   const [adjustOpen, setAdjustOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [suggestions, setSuggestions] = useState<{ placeId: string; text: string }[]>([]);
 
   // The point we actually share: fixed spot if adjusted, else the live location.
   const pickupPoint: { latitude: number; longitude: number } | null = fixedSpot
@@ -118,46 +117,6 @@ export function PickMeUpFlow({
       cancelled = true;
     };
   }, [vm.vaultOwnerToken, livePoint, fixedSpot]);
-
-  // Debounced Places autocomplete for Adjust.
-  useEffect(() => {
-    const token = vm.vaultOwnerToken;
-    const q = query.trim();
-    if (!token || !adjustOpen || q.length < 2) {
-      setSuggestions([]);
-      return;
-    }
-    let cancelled = false;
-    const handle = setTimeout(async () => {
-      try {
-        const results = await OneLocationService.placesAutocomplete({
-          vaultOwnerToken: token,
-          input: q,
-        });
-        if (!cancelled) setSuggestions(results);
-      } catch {
-        if (!cancelled) setSuggestions([]);
-      }
-    }, 300);
-    return () => {
-      cancelled = true;
-      clearTimeout(handle);
-    };
-  }, [query, adjustOpen, vm.vaultOwnerToken]);
-
-  const selectPlace = async (placeId: string) => {
-    const token = vm.vaultOwnerToken;
-    if (!token) return;
-    try {
-      const place = await OneLocationService.placeDetails({ vaultOwnerToken: token, placeId });
-      setFixedSpot({ latitude: place.latitude, longitude: place.longitude, label: place.label });
-      setAdjustOpen(false);
-      setQuery("");
-      setSuggestions([]);
-    } catch {
-      /* leave adjust open; user can retry */
-    }
-  };
 
   const pickupLabel = fixedSpot
     ? fixedSpot.label
@@ -240,7 +199,7 @@ export function PickMeUpFlow({
           ) : (
             <button
               type="button"
-              onClick={() => setAdjustOpen((v) => !v)}
+              onClick={() => setAdjustOpen(true)}
               className="shrink-0 text-[15px] text-[#007aff]"
             >
               Adjust
@@ -248,34 +207,6 @@ export function PickMeUpFlow({
           )}
         </div>
       </section>
-
-      {/* ADJUST SEARCH */}
-      {adjustOpen ? (
-        <section className={cn(CARD_SURFACE, "p-3")}>
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search a pickup place…"
-            className="h-10 w-full rounded-[12px] border border-border/70 bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[#007aff]/25"
-          />
-          {suggestions.length ? (
-            <div className="mt-2 space-y-1">
-              {suggestions.map((s) => (
-                <button
-                  key={s.placeId}
-                  type="button"
-                  onClick={() => void selectPlace(s.placeId)}
-                  className="flex w-full items-center gap-2 rounded-[11px] px-2 py-2 text-left hover:bg-[#007aff]/10"
-                >
-                  <Navigation className="h-4 w-4 shrink-0 rotate-90 text-[#007aff]" />
-                  <span className="min-w-0 flex-1 truncate text-sm text-foreground">{s.text}</span>
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </section>
-      ) : null}
 
       {/* WHO DO YOU ASK */}
       <div>
@@ -379,6 +310,22 @@ export function PickMeUpFlow({
           {busy ? "Asking…" : selectedName ? `Ask ${selectedName} to pick me up` : "Select who to ask"}
         </button>
       </div>
+
+      <PlaceSearchDialog
+        open={adjustOpen}
+        onOpenChange={setAdjustOpen}
+        vaultOwnerToken={vm.vaultOwnerToken}
+        recents={vm.recentDestinations}
+        onSelect={(place) =>
+          setFixedSpot({
+            latitude: place.latitude,
+            longitude: place.longitude,
+            label: place.label,
+          })
+        }
+        title="Search a pickup place"
+        placeholder="Search a pickup place…"
+      />
     </div>
   );
 }

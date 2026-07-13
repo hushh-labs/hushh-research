@@ -6,10 +6,37 @@ vi.mock("@/lib/one-location/use-google-maps", () => ({
   useGoogleMaps: () => ({ status: "loading" }),
 }));
 
+// The destination search is exercised in place-search-dialog.test.tsx; here we
+// stub it to a one-click selector so the flow tests stay focused.
+vi.mock("@/components/one-location/redesign/place-search-dialog", () => ({
+  PlaceSearchDialog: ({
+    open,
+    onSelect,
+  }: {
+    open: boolean;
+    onSelect: (d: { placeId: string; label: string; latitude: number; longitude: number }) => void;
+  }) =>
+    open ? (
+      <button
+        type="button"
+        onClick={() =>
+          onSelect({
+            placeId: "p1",
+            label: "Starbucks, Market St",
+            latitude: 37.79,
+            longitude: -122.4,
+          })
+        }
+      >
+        stub-pick-place
+      </button>
+    ) : null,
+}));
+
 import { DriveToFlow } from "@/components/one-location/redesign/drive-to-flow";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { LocationHubViewModel } from "@/components/one-location/redesign/location-redesign-hub";
-import type { DriveDestination, PlainLocationPoint } from "@/lib/one-location/types";
+import type { PlainLocationPoint } from "@/lib/one-location/types";
 
 const point: PlainLocationPoint = {
   latitude: 37.7,
@@ -47,19 +74,9 @@ function makeVm(overrides: Partial<LocationHubViewModel> = {}): LocationHubViewM
 }
 
 async function pickDestination() {
-  vi.spyOn(OneLocationService, "placesAutocomplete").mockResolvedValue([
-    { placeId: "p1", text: "Starbucks, Market St" },
-  ]);
-  vi.spyOn(OneLocationService, "placeDetails").mockResolvedValue({
-    placeId: "p1",
-    label: "Starbucks, Market St",
-    latitude: 37.79,
-    longitude: -122.4,
-  } as DriveDestination);
-  fireEvent.change(screen.getByPlaceholderText(/where are you headed/i), {
-    target: { value: "Starbucks" },
-  });
-  fireEvent.click(await screen.findByText("Starbucks, Market St"));
+  // Open the (stubbed) place-search dialog, then pick the stub result.
+  fireEvent.click(screen.getByRole("button", { name: /where are you headed/i }));
+  fireEvent.click(await screen.findByText("stub-pick-place"));
 }
 
 describe("DriveToFlow", () => {
