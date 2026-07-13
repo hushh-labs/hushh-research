@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 _PLACES_BASE = "https://places.googleapis.com"
 _ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
+_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 
 
 class GoogleMapsError(RuntimeError):
@@ -128,6 +129,33 @@ class GoogleMapsService:
             "latitude": float(location.get("latitude", 0.0)),
             "longitude": float(location.get("longitude", 0.0)),
         }
+
+    async def reverse_geocode(self, *, lat: float, lng: float) -> dict[str, Any]:
+        key = _require_key()
+        async with _async_client() as client:
+            try:
+                response = await client.get(
+                    _GEOCODE_URL,
+                    params={"latlng": f"{lat},{lng}", "key": key},
+                )
+            except httpx.HTTPError as exc:
+                raise GoogleMapsError(f"Reverse geocode failed: {exc}", status_code=502) from exc
+        if response.status_code >= 400:
+            logger.warning("maps.reverse_geocode upstream %s", response.status_code)
+            raise GoogleMapsError("Reverse geocode failed.", status_code=502)
+        results = response.json().get("results") or []
+        if not results:
+            return {"name": None, "formattedAddress": None}
+        formatted = results[0].get("formatted_address") or None
+        name: str | None = None
+        for result in results:
+            types = result.get("types") or []
+            if any(t in types for t in ("point_of_interest", "establishment", "premise")):
+                components = result.get("address_components") or []
+                if components:
+                    name = components[0].get("long_name") or None
+                break
+        return {"name": name, "formattedAddress": formatted}
 
     async def route_eta(
         self,

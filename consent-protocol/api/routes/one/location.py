@@ -100,6 +100,11 @@ class MapsPlaceDetailsRequest(_CamelModel):
     place_id: str = Field(alias="placeId", min_length=1, max_length=300)
 
 
+class MapsReverseGeocodeRequest(_CamelModel):
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+
+
 class MapsRouteEtaRequest(_CamelModel):
     origin_lat: float = Field(alias="originLat", ge=-90, le=90)
     origin_lng: float = Field(alias="originLng", ge=-180, le=180)
@@ -380,6 +385,22 @@ async def maps_place_details(
     _user_id(token_data)
     try:
         place = await _maps_service().place_details(payload.place_id)
+        return {"place": place}
+    except GoogleMapsError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": "ONE_LOCATION_MAPS_FAILED", "message": str(exc)},
+        ) from exc
+
+
+@router.post("/location/maps/reverse-geocode")
+async def maps_reverse_geocode(
+    payload: MapsReverseGeocodeRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _user_id(token_data)
+    try:
+        place = await _maps_service().reverse_geocode(lat=payload.lat, lng=payload.lng)
         return {"place": place}
     except GoogleMapsError as exc:
         raise HTTPException(

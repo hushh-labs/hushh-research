@@ -1889,6 +1889,11 @@ function OneLocationAgentPageContent() {
     lastEtaPoint: PlainLocationPoint | null;
     lastEtaAt: number;
   } | null>(null);
+  // Maps each fixed-pickup grantId to the PlainLocationPoint anchored at request
+  // time. Using a Map (rather than a single shared object) means a second "Pick
+  // Me Up" request no longer overwrites the first grant's fixed spot, which
+  // would otherwise cause it to drift back to live GPS.
+  const pickupSessionRef = useRef<Map<string, PlainLocationPoint>>(new Map());
   const [recentDestinations, setRecentDestinations] = useState<DriveDestination[]>([]);
 
 
@@ -2743,6 +2748,14 @@ function OneLocationAgentPageContent() {
     [vaultOwnerToken],
   );
 
+  // Keep an adjusted (fixed) pickup spot fixed: the watch loop must not overwrite
+  // these grants with live GPS as the owner moves.
+  const pickupPointForGrant = useCallback(
+    (grant: OneLocationGrant, livePoint: PlainLocationPoint): PlainLocationPoint =>
+      pickupSessionRef.current.get(grant.id) ?? livePoint,
+    [],
+  );
+
   const resetShareComposer = useCallback(() => {
     suppressAutoRecipientSelectionRef.current = true;
     setSelectedRecipientId("");
@@ -3243,7 +3256,8 @@ function OneLocationAgentPageContent() {
         for (const grant of activeOwnerGrants) {
           const recipient = recipientForGrant(grant);
           if (!recipient?.keyId || !recipient.publicKeyJwk) continue;
-          const pointForGrant = await drivePointForGrant(grant, point);
+          const driven = await drivePointForGrant(grant, point);
+          const pointForGrant = pickupPointForGrant(grant, driven);
           await publishEnvelopeWithRetry(
             grant,
             recipient,
@@ -3295,6 +3309,7 @@ function OneLocationAgentPageContent() {
     publishEnvelopeWithRetry,
     recipientForGrant,
     drivePointForGrant,
+    pickupPointForGrant,
     vaultOwnerToken,
   ]);
 
@@ -4324,6 +4339,7 @@ function OneLocationAgentPageContent() {
       recipientIds: string[],
       durationHoursValue: string,
       messageValue?: string,
+      pickupPoint?: { latitude: number; longitude: number; label?: string },
     ) => {
       if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) {
         toast.error("Location permission is required to request a pickup.");
@@ -4342,15 +4358,26 @@ function OneLocationAgentPageContent() {
       setBusy("share");
       let successCount = 0;
       try {
-        const readiness = await ensureForegroundLocationReady({
-          capturePoint: true,
-          autoOpenSettings: true,
-        });
-        if (!readiness.ready || !readiness.point) {
-          toast.error("Couldn't get your location — pickup request not sent.");
-          return;
+        let point: PlainLocationPoint;
+        if (pickupPoint) {
+          // Adjusted fixed spot: share exactly this point (kept fixed by the watch loop).
+          point = {
+            latitude: pickupPoint.latitude,
+            longitude: pickupPoint.longitude,
+            capturedAt: new Date().toISOString(),
+            sourcePlatform: "web",
+          };
+        } else {
+          const readiness = await ensureForegroundLocationReady({
+            capturePoint: true,
+            autoOpenSettings: true,
+          });
+          if (!readiness.ready || !readiness.point) {
+            toast.error("Couldn't get your location — pickup request not sent.");
+            return;
+          }
+          point = readiness.point;
         }
-        const point = readiness.point;
         const durationHoursNum = Number(durationHoursValue) || 1;
         for (const recipient of selected) {
           const grant = await OneLocationService.createGrant({
@@ -4360,6 +4387,12 @@ function OneLocationAgentPageContent() {
             durationHours: durationHoursNum,
             reason: pickupMessage,
           });
+          // Anchor the grant to the fixed-pickup session BEFORE publishing so a
+          // mid-publish failure can't leave a created grant drifting to live GPS
+          // when the user chose a fixed spot.
+          if (pickupPoint) {
+            pickupSessionRef.current.set(grant.id, point);
+          }
           await publishEnvelopeWithRetry(grant, recipient, "manual", point);
           successCount += 1;
         }
@@ -4926,8 +4959,15 @@ function OneLocationAgentPageContent() {
     recentDestinations,
     onDriveTo: (destination, recipientIds, durationHoursValue) =>
       void handleDriveTo(destination, recipientIds, durationHoursValue),
-    onPickMeUp: (recipientIds, durationHoursValue, messageValue) =>
-      void handlePickMeUp(recipientIds, durationHoursValue, messageValue),
+    onPickMeUp: (recipientIds, durationHoursValue, messageValue, pickupPoint) =>
+      void handlePickMeUp(recipientIds, durationHoursValue, messageValue, pickupPoint),
+    recipientLivePoint: (userId: string) => {
+      const grant = (state?.receivedGrants ?? []).find(
+        (g) => String(g.ownerUserId || "").trim() === userId,
+      );
+      if (!grant) return null;
+      return decryptedPoints[grant.id] ?? null;
+    },
     safeArrivalBusy: busy === "safeArrival",
     onSafeArrival: (destination, recipientIds, durationHoursValue, messageValue) =>
       void handleSafeArrival(

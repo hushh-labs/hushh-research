@@ -3,86 +3,31 @@
 /**
  * One Location redesign — Pick Me Up flow (Quick Action).
  *
- * "Ask a trusted person to come get you." The inbound counterpart to Drive To:
- * instead of telling people where you're going, you ask someone to come to
- * exactly where you are right now (stranded, no ride, unsafe late night, a
- * child/elder who needs a lift, car trouble, airport/station pickup).
- *
- * PRESENTATION + LOCAL SELECTION STATE ONLY.
- * - The list of people ("Who can come get you?") is the SAME trusted circle used
- *   by SOS / Check-In (`vm.sosRecipients`), so help comes from people you already
- *   trust with your live location.
- * - On confirm it hands the chosen recipient ids + duration + a pickup message to
- *   `vm.onPickMeUp`, which runs the exact same createGrant + encrypt + publish
- *   path as a normal share (no new crypto, no new consent surface). Recipients
- *   receive your LIVE location, so they can navigate straight to you and watch
- *   you until they arrive.
+ * Ask ONE trusted person to come to your pickup spot. The spot defaults to your
+ * live location (reverse-geocoded for a human label) and can be Adjusted to a
+ * fixed searched place. Distance to a contact is shown only when they are
+ * currently sharing their live location with you. On confirm it hands the chosen
+ * recipient + note (+ optional fixed pickup point) to `vm.onPickMeUp`.
  */
 
-import { useMemo, useState } from "react";
-import { Check, Clock, Hand, MapPin, Navigation, RefreshCw, ShieldCheck } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, Navigation } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { OneLocationService } from "@/lib/one-location/service";
+import { LiveMap } from "@/components/one-location/live-map";
+import { haversineMeters } from "@/lib/one-location/marker-interpolation";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 
-import { TaskFlowHeader } from "./primitives";
-import { PersonSearchInput } from "./selectors";
-import { CARD_SURFACE, MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
+import { CARD_SURFACE } from "./tokens";
 import type { LocationHubViewModel } from "./location-redesign-hub";
 
-/** How long to keep sharing your live location while you wait for the pickup. */
-const PICK_ME_UP_DURATIONS: { value: string; label: string }[] = [
-  { value: "0.5", label: "30 min" },
-  { value: "1", label: "1 hour" },
-  { value: "2", label: "2 hours" },
-];
-/** "Until I'm picked up" maps to the longest supported live-share window. */
-const UNTIL_PICKED_UP_VALUE = "4";
-
-/**
- * Urgency shapes the message the recipient sees in their notification, so a
- * casual "whenever you can" pickup reads differently from an "I need a ride
- * now" one. The user can still add their own detail on top.
- */
-type UrgencyValue = "flexible" | "soon" | "urgent";
-const URGENCY_OPTIONS: {
-  value: UrgencyValue;
-  label: string;
-  lead: string;
-  tone: string;
-}[] = [
-  {
-    value: "flexible",
-    label: "Whenever you can",
-    lead: "Could you pick me up when you get a chance?",
-    tone: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  },
-  {
-    value: "soon",
-    label: "Soon",
-    lead: "Could you come pick me up soon?",
-    tone: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-  },
-  {
-    value: "urgent",
-    label: "Urgent",
-    lead: "I need a ride now — please pick me up ASAP.",
-    tone: "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",
-  },
-];
-
-const PICK_ME_UP_NOTE_MAX_LENGTH = 120;
-
-// Contact list cap: trusted circles can be long, so show ~4 rows then scroll.
-const CONTACT_LIST_SCROLL_CLASS =
-  "max-h-[300px] space-y-2.5 overflow-y-auto overscroll-contain pr-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/15 dark:[&::-webkit-scrollbar-thumb]:bg-white/20";
+const PICKUP_DURATION_HOURS = "4"; // "until picked up"
+const NOTE_MAX = 160;
 
 function initialsOf(label: string): string {
   const words = label.trim().split(/\s+/).filter(Boolean);
-  if (words.length >= 2) {
-    return `${words[0]![0] ?? ""}${words[1]![0] ?? ""}`.toUpperCase();
-  }
+  if (words.length >= 2) return `${words[0]![0] ?? ""}${words[1]![0] ?? ""}`.toUpperCase();
   return (words[0]?.slice(0, 1) || "?").toUpperCase();
 }
 
@@ -97,88 +42,7 @@ function avatarTone(index: number): string {
   return tones[index % tones.length]!;
 }
 
-function accuracyLine(point: PlainLocationPoint | null): string | null {
-  if (!point) return null;
-  const accuracyM = point.accuracyM;
-  if (typeof accuracyM !== "number" || !Number.isFinite(accuracyM) || accuracyM <= 0) {
-    return null;
-  }
-  return `Accurate to about ${Math.round(accuracyM)} meters`;
-}
-
-/**
- * Compose the message the recipient reads. The urgency lead is always present so
- * the intent is unmistakable; the optional detail is appended verbatim.
- */
-export function composePickMeUpMessage(urgency: UrgencyValue, note: string): string {
-  const lead =
-    URGENCY_OPTIONS.find((option) => option.value === urgency)?.lead ??
-    URGENCY_OPTIONS[0]!.lead;
-  const detail = note.trim();
-  const composed = detail ? `${lead} ${detail}` : lead;
-  return composed.slice(0, 160);
-}
-
-function ContactRow({
-  index,
-  checked,
-  ready,
-  label,
-  subtitle,
-  onToggle,
-}: {
-  index: number;
-  checked: boolean;
-  ready: boolean;
-  label: string;
-  subtitle: string;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={ready ? onToggle : undefined}
-      disabled={!ready}
-      aria-pressed={checked}
-      className={cn(
-        SUBCARD_SURFACE,
-        "flex w-full items-center gap-3 p-3 text-left transition-all duration-150",
-        ready
-          ? "hover:border-[#007aff]/40 active:scale-[0.99]"
-          : "cursor-not-allowed opacity-60",
-        checked && "border-[#007aff]/60 ring-1 ring-[#007aff]/30",
-      )}
-    >
-      <span
-        className={cn(
-          "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold",
-          avatarTone(index),
-        )}
-        aria-hidden
-      >
-        {initialsOf(label)}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold text-foreground">
-          {label}
-        </span>
-        <span className={cn(MUTED_TEXT, "block truncate")}>
-          {ready ? subtitle : "Not ready to receive location"}
-        </span>
-      </span>
-      <span
-        className={cn(
-          "flex h-6 w-6 shrink-0 items-center justify-center rounded-[7px] border-2 transition-colors",
-          checked
-            ? "border-[#007aff] bg-[#007aff] text-white"
-            : "border-border bg-background",
-        )}
-      >
-        {checked ? <Check className="h-4 w-4" strokeWidth={3} /> : null}
-      </span>
-    </button>
-  );
-}
+type FixedSpot = { latitude: number; longitude: number; label: string };
 
 export function PickMeUpFlow({
   vm,
@@ -189,293 +53,331 @@ export function PickMeUpFlow({
 }) {
   const contacts = vm.sosRecipients;
   const busy = vm.busy === "share" || vm.busy === "selfLocation";
+  const livePoint = vm.myLocationPoint;
 
-  const [search, setSearch] = useState("");
-  const [checkedIds, setCheckedIds] = useState<string[]>([]);
-  const [durationValue, setDurationValue] = useState("1");
-  const [untilPickedUp, setUntilPickedUp] = useState(true);
-  const [urgency, setUrgency] = useState<UrgencyValue>("soon");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [note, setNote] = useState("");
+  const [fixedSpot, setFixedSpot] = useState<FixedSpot | null>(null);
+  const [geoLabel, setGeoLabel] = useState<string | null>(null);
 
-  // No default selection: the user explicitly chooses who can come get them.
+  // Track the last coordinates we actually reverse-geocoded so we can skip the
+  // call when the live GPS hasn't moved meaningfully (avoids billable requests
+  // every ~5s during the self-preview stream).
+  const lastGeocodedLatLng = useRef<{ lat: number; lng: number } | null>(null);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return contacts;
-    return contacts.filter((r) =>
-      vm.recipientLabel(r).toLowerCase().includes(q),
+  // Adjust search state
+  const [adjustOpen, setAdjustOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<{ placeId: string; text: string }[]>([]);
+
+  // The point we actually share: fixed spot if adjusted, else the live location.
+  const pickupPoint: { latitude: number; longitude: number } | null = fixedSpot
+    ? { latitude: fixedSpot.latitude, longitude: fixedSpot.longitude }
+    : livePoint
+      ? { latitude: livePoint.latitude, longitude: livePoint.longitude }
+      : null;
+
+  // Reverse-geocode the LIVE location for the default label (skip when adjusted).
+  // Guard: only re-request when the location has moved at least 50 m since the
+  // last geocode, so the live-preview stream (which updates ~every 5 s) and GPS
+  // jitter don't trigger a billable Google Geocoding request on every tick.
+  useEffect(() => {
+    const token = vm.vaultOwnerToken;
+    if (!token || fixedSpot || !livePoint) {
+      setGeoLabel(null);
+      lastGeocodedLatLng.current = null;
+      return;
+    }
+    const current = { lat: livePoint.latitude, lng: livePoint.longitude };
+    const last = lastGeocodedLatLng.current;
+    if (last && haversineMeters(last, current) < 50) {
+      // Location hasn't moved enough — keep the existing label.
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const place = await OneLocationService.reverseGeocode({
+          vaultOwnerToken: token,
+          lat: livePoint.latitude,
+          lng: livePoint.longitude,
+        });
+        if (cancelled) return;
+        lastGeocodedLatLng.current = current;
+        const label = place.name
+          ? place.formattedAddress
+            ? `${place.name} · ${place.formattedAddress}`
+            : place.name
+          : place.formattedAddress;
+        setGeoLabel(label ?? null);
+      } catch {
+        if (!cancelled) setGeoLabel(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [vm.vaultOwnerToken, livePoint, fixedSpot]);
+
+  // Debounced Places autocomplete for Adjust.
+  useEffect(() => {
+    const token = vm.vaultOwnerToken;
+    const q = query.trim();
+    if (!token || !adjustOpen || q.length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const handle = setTimeout(async () => {
+      try {
+        const results = await OneLocationService.placesAutocomplete({
+          vaultOwnerToken: token,
+          input: q,
+        });
+        if (!cancelled) setSuggestions(results);
+      } catch {
+        if (!cancelled) setSuggestions([]);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [query, adjustOpen, vm.vaultOwnerToken]);
+
+  const selectPlace = async (placeId: string) => {
+    const token = vm.vaultOwnerToken;
+    if (!token) return;
+    try {
+      const place = await OneLocationService.placeDetails({ vaultOwnerToken: token, placeId });
+      setFixedSpot({ latitude: place.latitude, longitude: place.longitude, label: place.label });
+      setAdjustOpen(false);
+      setQuery("");
+      setSuggestions([]);
+    } catch {
+      /* leave adjust open; user can retry */
+    }
+  };
+
+  const pickupLabel = fixedSpot
+    ? fixedSpot.label
+    : geoLabel ?? "Live location";
+
+  const selectedContact = contacts.find((c) => c.userId === selectedId) ?? null;
+  const selectedName = selectedContact ? vm.recipientLabel(selectedContact) : null;
+  const canAsk = Boolean(pickupPoint) && Boolean(selectedContact) && !busy;
+
+  function distanceLabel(userId: string): string | null {
+    if (!pickupPoint) return null;
+    const p = vm.recipientLivePoint(userId);
+    if (!p) return null;
+    const meters = haversineMeters(
+      { lat: pickupPoint.latitude, lng: pickupPoint.longitude },
+      { lat: p.latitude, lng: p.longitude },
     );
-  }, [contacts, search, vm]);
+    return `${(meters / 1000).toFixed(1)} km away`;
+  }
 
-  const selectedReadyCount = useMemo(
+  const mapPoint: PlainLocationPoint | null = useMemo(
     () =>
-      contacts.filter(
-        (r) => checkedIds.includes(r.userId) && vm.isRecipientShareReady(r),
-      ).length,
-    [contacts, checkedIds, vm],
+      fixedSpot
+        ? {
+            latitude: fixedSpot.latitude,
+            longitude: fixedSpot.longitude,
+            capturedAt: new Date().toISOString(),
+            sourcePlatform: "web" as const,
+          }
+        : livePoint,
+    [fixedSpot, livePoint],
   );
 
-  const toggle = (id: string) =>
-    setCheckedIds((current) =>
-      current.includes(id)
-        ? current.filter((value) => value !== id)
-        : [...current, id],
-    );
-
-  const effectiveDuration = untilPickedUp ? UNTIL_PICKED_UP_VALUE : durationValue;
-  const point = vm.myLocationPoint;
-  const accuracy = accuracyLine(point);
-  const previewMessage = composePickMeUpMessage(urgency, note);
-
   return (
-    <div className="space-y-5">
-      <TaskFlowHeader
-        eyebrow="Pick Me Up"
-        title="Ask someone to come get you"
-        description="Share your live location so a trusted person can drive straight to you."
-        onBack={onClose}
-      />
+    <div className="space-y-4">
+      {/* HEADER */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-[24px] font-semibold leading-tight tracking-[-0.3px] text-foreground">
+          Pick me up
+        </h2>
+        <button type="button" onClick={onClose} className="text-[15px] text-[#007aff]">
+          Cancel
+        </button>
+      </div>
 
-      {/* YOUR LOCATION — the exact point the helper will drive to. */}
-      <section className={cn(CARD_SURFACE, "p-4")}>
-        <div className="flex items-start gap-3">
-          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#007aff]/12 text-[#007aff]">
-            <MapPin className="h-5 w-5" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Where to pick you up
-            </p>
-            {point ? (
-              <>
-                <p className="mt-0.5 text-[15px] font-semibold text-foreground">
-                  Live location ready
-                </p>
-                <p className={cn(MUTED_TEXT, "mt-0.5")}>
-                  {accuracy ?? "Location captured"} ·{" "}
-                  {vm.formatDateTime(point.capturedAt)}
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="mt-0.5 text-[15px] font-semibold text-foreground">
-                  Location not captured yet
-                </p>
-                <p className={cn(MUTED_TEXT, "mt-0.5")}>
-                  Capture your current location so they know where to come.
-                </p>
-              </>
-            )}
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={vm.onShowMyLocation}
-            isLoading={vm.busy === "selfLocation"}
-            className="h-9 shrink-0 rounded-full px-3 text-xs"
-          >
-            <RefreshCw className="mr-1 h-3.5 w-3.5" />
-            {point ? "Refresh" : "Capture"}
-          </Button>
-        </div>
-        {vm.myLocationError ? (
-          <p className="mt-2 text-xs font-medium text-red-600 dark:text-red-300">
-            {vm.myLocationError}
-          </p>
-        ) : null}
-        {point ? (
-          <div className="mt-3">{vm.renderMapPreview(point, false)}</div>
-        ) : null}
-      </section>
-
-      {/* WHO CAN COME GET YOU? */}
-      <section className={cn(CARD_SURFACE, "p-4")}>
-        <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Who can come get you?
-        </p>
-        <PersonSearchInput
-          value={search}
-          onChange={setSearch}
-          placeholder="Search contacts..."
-        />
-        <div
-          className={cn(
-            "mt-3",
-            filtered.length ? CONTACT_LIST_SCROLL_CLASS : "space-y-2.5",
-          )}
-        >
-          {filtered.length ? (
-            filtered.map((recipient, index) => (
-              <ContactRow
-                key={recipient.userId}
-                index={index}
-                checked={checkedIds.includes(recipient.userId)}
-                ready={vm.isRecipientShareReady(recipient)}
-                label={vm.recipientLabel(recipient)}
-                subtitle={vm.recipientSubtitle(recipient)}
-                onToggle={() => toggle(recipient.userId)}
-              />
-            ))
+      {/* PICKUP CARD */}
+      <section className={cn(CARD_SURFACE, "overflow-hidden p-0")}>
+        <div className="relative h-[150px] bg-[#eceef2] dark:bg-white/5">
+          {mapPoint ? (
+            <LiveMap point={mapPoint} className="absolute inset-0" />
           ) : (
-            <div
-              className={cn(
-                SUBCARD_SURFACE,
-                "p-5 text-center text-sm text-muted-foreground",
-              )}
-            >
-              {contacts.length === 0
-                ? "No trusted contacts yet. Add people to your Circle first."
-                : "No matching contacts."}
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
+              <p className="text-sm text-muted-foreground">
+                Turn on your live location so they know where to come.
+              </p>
+              <button
+                type="button"
+                onClick={vm.onShowMyLocation}
+                disabled={vm.busy === "selfLocation"}
+                className="inline-flex items-center gap-2 rounded-full bg-[#007aff] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {vm.busy === "selfLocation" ? "Capturing…" : "Capture location"}
+              </button>
             </div>
           )}
         </div>
-      </section>
-
-      {/* URGENCY — sets the tone of the request in the recipient's alert. */}
-      <section className={cn(CARD_SURFACE, "p-4")}>
-        <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          How soon do you need it?
-        </p>
-        <div className="grid grid-cols-3 gap-2">
-          {URGENCY_OPTIONS.map((option) => {
-            const active = urgency === option.value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setUrgency(option.value)}
-                className={cn(
-                  "flex h-10 items-center justify-center rounded-full border px-2 text-[13px] font-semibold transition-colors",
-                  active
-                    ? option.tone
-                    : "border-border/70 bg-background text-muted-foreground hover:border-[#007aff]/40",
-                )}
-              >
-                {option.label}
-              </button>
-            );
-          })}
+        <div className="flex items-center gap-3 px-4 py-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-[15px] font-semibold text-foreground">Your pickup spot</div>
+            <div className="truncate text-sm text-muted-foreground">{pickupLabel}</div>
+          </div>
+          {fixedSpot ? (
+            <button
+              type="button"
+              onClick={() => setFixedSpot(null)}
+              className="shrink-0 text-[15px] text-[#007aff]"
+            >
+              Use live
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setAdjustOpen((v) => !v)}
+              className="shrink-0 text-[15px] text-[#007aff]"
+            >
+              Adjust
+            </button>
+          )}
         </div>
       </section>
 
-      {/* DURATION */}
-      <section
-        className={cn(
-          "rounded-[var(--app-card-radius-standard)] border border-amber-500/20 bg-amber-500/[0.06] p-4 dark:bg-amber-400/[0.08]",
-        )}
-      >
-        <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-          <Clock className="h-3.5 w-3.5" />
-          Keep sharing for
+      {/* ADJUST SEARCH */}
+      {adjustOpen ? (
+        <section className={cn(CARD_SURFACE, "p-3")}>
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search a pickup place…"
+            className="h-10 w-full rounded-[12px] border border-border/70 bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[#007aff]/25"
+          />
+          {suggestions.length ? (
+            <div className="mt-2 space-y-1">
+              {suggestions.map((s) => (
+                <button
+                  key={s.placeId}
+                  type="button"
+                  onClick={() => void selectPlace(s.placeId)}
+                  className="flex w-full items-center gap-2 rounded-[11px] px-2 py-2 text-left hover:bg-[#007aff]/10"
+                >
+                  <Navigation className="h-4 w-4 shrink-0 rotate-90 text-[#007aff]" />
+                  <span className="min-w-0 flex-1 truncate text-sm text-foreground">{s.text}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {/* WHO DO YOU ASK */}
+      <div>
+        <p className="mb-2 px-1 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Who do you ask
         </p>
-        <div className="flex flex-wrap gap-2">
-          {PICK_ME_UP_DURATIONS.map((option) => {
-            const active = !untilPickedUp && option.value === durationValue;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => {
-                  setUntilPickedUp(false);
-                  setDurationValue(option.value);
-                }}
-                className={cn(
-                  "h-9 rounded-full border px-4 text-sm font-medium transition-colors",
-                  active
-                    ? "border-[#007aff] bg-[#007aff] text-white"
-                    : "border-border/70 bg-background text-foreground hover:border-[#007aff]/40",
-                )}
-              >
-                {option.label}
-              </button>
-            );
-          })}
-        </div>
+        <section className={cn(CARD_SURFACE, "px-4")}>
+          {contacts.length ? (
+            contacts.map((recipient, index) => {
+              const ready = vm.isRecipientShareReady(recipient);
+              const selected = selectedId === recipient.userId;
+              const dist = distanceLabel(recipient.userId);
+              return (
+                <button
+                  key={recipient.userId}
+                  type="button"
+                  onClick={ready ? () => setSelectedId(recipient.userId) : undefined}
+                  disabled={!ready}
+                  aria-pressed={selected}
+                  className={cn(
+                    "flex w-full items-center gap-[13px] py-3 text-left",
+                    index < contacts.length - 1 && "border-b border-black/[0.06] dark:border-white/10",
+                    !ready && "cursor-not-allowed opacity-60",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full text-sm font-semibold",
+                      avatarTone(index),
+                    )}
+                    aria-hidden
+                  >
+                    {initialsOf(vm.recipientLabel(recipient))}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[16px] font-semibold text-foreground">
+                      {vm.recipientLabel(recipient)}
+                    </span>
+                    {dist ? (
+                      <span className="block truncate text-sm text-muted-foreground">{dist}</span>
+                    ) : null}
+                  </span>
+                  <span
+                    className={cn(
+                      "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+                      selected ? "border-[#007aff] bg-[#007aff] text-white" : "border-border",
+                    )}
+                  >
+                    {selected ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : null}
+                  </span>
+                </button>
+              );
+            })
+          ) : (
+            <p className="py-5 text-center text-sm text-muted-foreground">
+              No trusted contacts yet. Add people to your Circle first.
+            </p>
+          )}
+        </section>
+      </div>
+
+      {/* NOTE */}
+      <div>
+        <p className="mb-2 px-1 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Note
+        </p>
+        <section className={cn(CARD_SURFACE, "p-3")}>
+          <input
+            type="text"
+            value={note}
+            onChange={(e) => setNote(e.target.value.slice(0, NOTE_MAX))}
+            placeholder="Meet me at the main entrance."
+            className="w-full bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted-foreground"
+          />
+        </section>
+      </div>
+
+      <p className="px-1 text-center text-sm text-muted-foreground">
+        {fixedSpot
+          ? "They see your pickup spot until you're picked up or cancel."
+          : "They see your live pickup spot until you're picked up or cancel."}
+      </p>
+
+      {/* ACTION */}
+      <div className="pt-1">
         <button
           type="button"
-          onClick={() => setUntilPickedUp((value) => !value)}
-          className={cn(
-            "mt-3 flex w-full items-center gap-2 rounded-[12px] border px-3 py-2.5 text-left text-sm font-medium transition-colors",
-            untilPickedUp
-              ? "border-[#007aff]/50 bg-[#007aff]/10 text-foreground"
-              : "border-border/70 bg-background text-foreground hover:border-[#007aff]/40",
-          )}
-        >
-          <span
-            className={cn(
-              "flex h-5 w-5 items-center justify-center rounded-full border-2",
-              untilPickedUp ? "border-[#007aff] bg-[#007aff]" : "border-border",
-            )}
-          >
-            {untilPickedUp ? (
-              <span className="h-2 w-2 rounded-full bg-white" />
-            ) : null}
-          </span>
-          Until I&apos;m picked up
-        </button>
-        <p className="mt-3 flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-          <ShieldCheck className="h-3.5 w-3.5" />
-          Sharing stops automatically · no manual revoke needed
-        </p>
-      </section>
-
-      {/* DETAIL — optional context appended to the pickup message. */}
-      <section className={cn(CARD_SURFACE, "p-4")}>
-        <div className="mb-2 flex items-center justify-between">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Add detail (optional)
-          </p>
-          <span className="text-[11px] font-medium text-muted-foreground">
-            {note.length}/{PICK_ME_UP_NOTE_MAX_LENGTH}
-          </span>
-        </div>
-        <textarea
-          value={note}
-          onChange={(event) =>
-            setNote(event.target.value.slice(0, PICK_ME_UP_NOTE_MAX_LENGTH))
-          }
-          rows={2}
-          placeholder="I'm at the north gate near the coffee cart"
-          className="w-full rounded-[14px] border border-border/70 bg-background p-3 text-sm text-foreground outline-none transition-shadow focus:ring-2 focus:ring-[#007aff]/25"
-        />
-        <div className={cn(SUBCARD_SURFACE, "mt-3 flex items-start gap-2 p-3")}>
-          <Navigation className="mt-0.5 h-4 w-4 shrink-0 text-[#007aff]" />
-          <p className="min-w-0 text-xs leading-snug text-muted-foreground">
-            They&apos;ll see:{" "}
-            <span className="font-medium text-foreground">
-              &ldquo;{previewMessage}&rdquo;
-            </span>{" "}
-            with your live location and one-tap directions to you.
-          </p>
-        </div>
-      </section>
-
-      {/* ACTION BAR */}
-      <div className="space-y-2 pt-1">
-        <Button
           onClick={() =>
-            vm.onPickMeUp(checkedIds, effectiveDuration, previewMessage)
+            selectedContact &&
+            vm.onPickMeUp(
+              [selectedContact.userId],
+              PICKUP_DURATION_HOURS,
+              note.trim() || undefined,
+              fixedSpot ?? undefined,
+            )
           }
-          disabled={!point || selectedReadyCount === 0}
-          isLoading={busy}
-          className="h-12 w-full rounded-2xl bg-amber-600 text-base font-semibold text-white hover:bg-amber-600/90 disabled:opacity-50"
+          disabled={!canAsk}
+          className="flex w-full items-center justify-center gap-2 rounded-full bg-[#007aff] py-4 text-[17px] font-medium text-white transition-opacity disabled:opacity-40"
         >
-          <Hand className="mr-1.5 h-5 w-5" />
-          {point
-            ? selectedReadyCount > 0
-              ? `Ask ${selectedReadyCount} ${
-                  selectedReadyCount === 1 ? "person" : "people"
-                } to pick you up`
-              : "Select who can come get you"
-            : "Capture your location first"}
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={onClose}
-          className="h-10 w-full rounded-2xl text-sm text-muted-foreground"
-        >
-          Cancel
-        </Button>
+          <Navigation className="h-[18px] w-[18px]" fill="currentColor" strokeWidth={0} />
+          {busy ? "Asking…" : selectedName ? `Ask ${selectedName} to pick me up` : "Select who to ask"}
+        </button>
       </div>
     </div>
   );
