@@ -101,7 +101,12 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { resolveDeveloperRuntime } from "@/lib/developers/runtime";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
-import { resolveDeleteAccountAuth } from "@/lib/flows/delete-account";
+import {
+  DELETE_ACCOUNT_DIALOG_DESCRIPTION,
+  DELETE_ACCOUNT_DIALOG_TITLE,
+  executeVerifiedAccountDeletion,
+  resolveDeleteAccountAuth,
+} from "@/lib/flows/delete-account";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   buildCanonicalProfileRouteFromLegacyQuery,
@@ -124,10 +129,7 @@ import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
-import {
-  AccountService,
-  type AccountDeletionTarget,
-} from "@/lib/services/account-service";
+import { AccountService } from "@/lib/services/account-service";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import {
   setOnboardingFlowActiveCookie,
@@ -720,9 +722,6 @@ function ProfilePageContent() {
     gmail.refreshingStatus || gmail.syncingRun || gmailActionBusy !== null;
   const personaList = personaState?.personas ?? ["investor"];
   const hasRiaPersona = personaList.includes("ria");
-  // One account model: deletion always removes the whole One account. Persona-scoped
-  // deletes are retired from the UX; the backend still accepts "both" as the full wipe.
-  const effectiveDeleteTarget: AccountDeletionTarget = "both";
   const vaultAccess = useMemo(
     () =>
       resolveVaultAvailabilityState({
@@ -1376,14 +1375,10 @@ function ProfilePageContent() {
       await morphyToast
         .promise(
           (async () => {
-            await AccountService.deleteAccount(token, effectiveDeleteTarget);
-
-            CacheSyncService.onAccountDeleted(user.uid);
-            await UserLocalStateService.clearForUser(user.uid);
-
-            // One account model: deletion is always a full account removal.
-            setOnboardingRequiredCookie(false);
-            setOnboardingFlowActiveCookie(false);
+            await executeVerifiedAccountDeletion({
+              userId: user.uid,
+              vaultOwnerToken: token,
+            });
           })(),
           {
             loading: "Deleting your account...",
@@ -1906,9 +1901,8 @@ function ProfilePageContent() {
   const deleteRowDescription = vaultAccess.needsVaultCreation
     ? "No vault exists yet. This deletes cloud-linked account records."
     : "This permanently deletes your One account.";
-  const deleteDialogTitle = "Delete your One account?";
-  const deleteDialogDescription =
-    "This action cannot be undone. This permanently deletes your One account, your encrypted vault and saved details, every connected service, and your cloud-linked identity.";
+  const deleteDialogTitle = DELETE_ACCOUNT_DIALOG_TITLE;
+  const deleteDialogDescription = DELETE_ACCOUNT_DIALOG_DESCRIPTION;
 
   const resetRowDescription =
     "Clear your saved details and start onboarding fresh. Keeps your account and sign-in.";
