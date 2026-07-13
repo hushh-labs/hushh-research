@@ -4390,8 +4390,11 @@ function OneLocationAgentPageContent() {
             durationHours: durationHoursNum,
             reason: pickupMessage,
           });
-          await publishEnvelopeWithRetry(grant, recipient, "manual", point);
+          // Anchor the grant to the fixed-pickup session BEFORE publishing so a
+          // mid-publish failure can't leave a created grant drifting to live GPS
+          // when the user chose a fixed spot.
           grantCreatedIds.push(grant.id);
+          await publishEnvelopeWithRetry(grant, recipient, "manual", point);
           successCount += 1;
         }
         if (pickupPoint) {
