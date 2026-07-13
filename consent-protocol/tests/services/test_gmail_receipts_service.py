@@ -67,6 +67,75 @@ def test_state_token_invalid_signature_rejected():
     assert exc_info.value.status_code == 400
 
 
+def _configure_gmail_oauth(monkeypatch, *, origin: str = "https://uat.one.hushh.ai"):
+    redirect_uri = f"{origin}/profile/gmail/oauth/return"
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", origin)
+    monkeypatch.setenv("GMAIL_OAUTH_CLIENT_ID", "test-client-id")
+    monkeypatch.setenv("GMAIL_OAUTH_CLIENT_SECRET", "test-client-secret")
+    monkeypatch.setenv("GMAIL_OAUTH_REDIRECT_URI", redirect_uri)
+    return redirect_uri
+
+
+def test_oauth_redirect_uses_environment_owned_callback(monkeypatch):
+    redirect_uri = _configure_gmail_oauth(monkeypatch)
+    service = GmailReceiptsService()
+
+    assert service.is_configured() is True
+    assert service._resolve_oauth_redirect_uri(redirect_uri) == redirect_uri
+    assert service._resolve_oauth_redirect_uri(None) == redirect_uri
+
+
+def test_oauth_redirect_rejects_caller_selected_origin(monkeypatch):
+    _configure_gmail_oauth(monkeypatch)
+    service = GmailReceiptsService()
+
+    with pytest.raises(GmailApiError) as exc_info:
+        service._resolve_oauth_redirect_uri("https://untrusted.example/profile/gmail/oauth/return")
+
+    assert exc_info.value.status_code == 400
+
+
+def test_oauth_redirect_rejects_environment_configuration_drift(monkeypatch):
+    _configure_gmail_oauth(monkeypatch)
+    monkeypatch.setenv(
+        "GMAIL_OAUTH_REDIRECT_URI",
+        "http://localhost:3000/profile/gmail/oauth/return",
+    )
+    service = GmailReceiptsService()
+
+    assert service.is_configured() is False
+    with pytest.raises(GmailApiError) as exc_info:
+        service._resolve_oauth_redirect_uri(None)
+
+    assert exc_info.value.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_connect_boundaries_reject_wrong_redirect_before_oauth_work(monkeypatch):
+    _configure_gmail_oauth(monkeypatch)
+    service = GmailReceiptsService()
+    wrong_redirect = "https://untrusted.example/profile/gmail/oauth/return"
+
+    with pytest.raises(GmailApiError) as start_error:
+        await service.start_connect(
+            user_id="user_123",
+            redirect_uri=wrong_redirect,
+            login_hint=None,
+            include_granted_scopes=False,
+        )
+
+    with pytest.raises(GmailApiError) as complete_error:
+        await service.complete_connect(
+            user_id="user_123",
+            code="oauth-code",
+            state="state-token",
+            redirect_uri=wrong_redirect,
+        )
+
+    assert start_error.value.status_code == 400
+    assert complete_error.value.status_code == 400
+
+
 @pytest.mark.asyncio
 async def test_verify_webhook_ingress_accepts_signed_pubsub_token(monkeypatch):
     service = GmailReceiptsService()
@@ -232,7 +301,7 @@ async def test_complete_connect_returns_status_even_when_initial_queue_sync_fail
     monkeypatch, caplog
 ):
     service = GmailReceiptsService()
-    monkeypatch.setattr(service, "is_configured", lambda: True)
+    redirect_uri = _configure_gmail_oauth(monkeypatch, origin="https://example.com")
     monkeypatch.setattr(service, "_verify_state_token", lambda **kwargs: {"uid": "user_123"})
     monkeypatch.setattr(
         service,
@@ -293,7 +362,7 @@ async def test_complete_connect_returns_status_even_when_initial_queue_sync_fail
             user_id="user_123",
             code="oauth-code",
             state="state-token",
-            redirect_uri="https://example.com/oauth/callback",
+            redirect_uri=redirect_uri,
         )
 
     assert result == {"user_id": "user_123", "status": "connected"}

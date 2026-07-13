@@ -146,7 +146,6 @@ describe("ProfileGmailOAuthReturnPage", () => {
         userId: "user-123",
         code: "live-code-123",
         state: "live-state-123",
-        redirectUri: "http://localhost:3000/profile/gmail/oauth/return",
       });
     });
   });

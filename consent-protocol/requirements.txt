@@ -22,7 +22,7 @@ cachecontrol==0.14.4
 certifi==2026.2.25
 cffi==2.0.0
 charset-normalizer==3.4.7
-click==8.3.2
+click==8.4.2
 colorama==0.4.6 ; sys_platform == 'win32'
 cryptography==49.0.0
 curl-cffi==0.15.0
@@ -100,11 +100,11 @@ orjson==3.11.8
 ormsgpack==1.12.2
 packaging==26.1
 pandas==3.0.2
-pdfminer-six==20231228
-pdfplumber==0.11.0
+pdfminer-six==20260107
+pdfplumber==0.11.10
 peewee==4.0.4
 phonenumbers==9.0.28
-pillow==12.2.0
+pillow==12.3.0
 platformdirs==4.9.6
 propcache==0.4.1
 proto-plus==1.27.0
@@ -120,7 +120,7 @@ pydantic-settings==2.14.2
 pygments==2.20.0
 pyjwt==2.13.0
 pyopenssl==26.3.0
-pypdfium2==5.7.0
+pypdfium2==5.11.0
 pytesseract==0.3.13
 python-a2a==0.5.10
 python-dateutil==2.9.0.post0

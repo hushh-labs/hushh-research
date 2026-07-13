@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -61,6 +61,7 @@ _GMAIL_MESSAGES_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
 _GMAIL_THREADS_URL = "https://gmail.googleapis.com/gmail/v1/users/me/threads"
 _GMAIL_HISTORY_URL = "https://gmail.googleapis.com/gmail/v1/users/me/history"
 _GMAIL_WATCH_URL = "https://gmail.googleapis.com/gmail/v1/users/me/watch"
+_GMAIL_OAUTH_RETURN_PATH = "/profile/gmail/oauth/return"
 
 # Bounds for the inbox scan behind "Needs a reply" nudges: how far back to look,
 # how many recent threads to inspect, and how many cards to return.
@@ -317,6 +318,54 @@ class GmailReceiptsService:
     def _oauth_redirect_uri(self) -> str:
         return _clean_text(os.getenv("GMAIL_OAUTH_REDIRECT_URI"))
 
+    def _expected_oauth_redirect_uri(self) -> str:
+        """Build the only web callback this backend may use for Gmail OAuth.
+
+        The browser may report its callback as part of the connect/complete
+        request, but it is not an authority for choosing a redirect host. The
+        deployed environment owns that boundary through APP_FRONTEND_ORIGIN.
+        """
+
+        origin = _clean_text(os.getenv("APP_FRONTEND_ORIGIN"))
+        parsed = urlsplit(origin)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or parsed.path not in {"", "/"}
+        ):
+            return ""
+        normalized_origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+        return f"{normalized_origin}{_GMAIL_OAUTH_RETURN_PATH}"
+
+    def _resolve_oauth_redirect_uri(self, requested_redirect_uri: str | None) -> str:
+        """Validate the optional caller echo against the environment callback.
+
+        OAuth state integrity alone does not make a caller-selected callback
+        safe: a state token can faithfully preserve an untrusted origin. Keep
+        the configured secret and APP_FRONTEND_ORIGIN in lockstep, then accept
+        only an exact echo of that canonical callback.
+        """
+
+        configured_redirect = self._oauth_redirect_uri()
+        expected_redirect = self._expected_oauth_redirect_uri()
+        if not configured_redirect or not expected_redirect:
+            raise GmailApiError("Gmail OAuth callback is not configured", status_code=503)
+        if not hmac.compare_digest(configured_redirect, expected_redirect):
+            logger.error("gmail.receipts.oauth_redirect_configuration_mismatch")
+            raise GmailApiError(
+                "Gmail OAuth callback configuration does not match this environment",
+                status_code=503,
+            )
+
+        requested_redirect = _clean_text(requested_redirect_uri)
+        if requested_redirect and not hmac.compare_digest(requested_redirect, configured_redirect):
+            raise GmailApiError("Gmail OAuth redirect URI is not allowed", status_code=400)
+        return configured_redirect
+
     def _state_secret(self) -> str:
         try:
             return get_core_security_settings().app_signing_key
@@ -438,7 +487,11 @@ class GmailReceiptsService:
 
     def is_configured(self) -> bool:
         return bool(
-            self._oauth_client_id() and self._oauth_client_secret() and self._oauth_redirect_uri()
+            self._oauth_client_id()
+            and self._oauth_client_secret()
+            and self._oauth_redirect_uri()
+            and self._expected_oauth_redirect_uri()
+            and hmac.compare_digest(self._oauth_redirect_uri(), self._expected_oauth_redirect_uri())
         )
 
     def _sync_enabled(self) -> bool:
@@ -978,7 +1031,7 @@ class GmailReceiptsService:
         if not self.is_configured():
             raise GmailApiError("Gmail OAuth is not configured", status_code=503)
 
-        resolved_redirect = _clean_text(redirect_uri) or self._oauth_redirect_uri()
+        resolved_redirect = self._resolve_oauth_redirect_uri(redirect_uri)
         state = self._build_state_token(user_id=user_id, redirect_uri=resolved_redirect)
 
         scope = " ".join(
@@ -1254,7 +1307,7 @@ class GmailReceiptsService:
         if not self.is_configured():
             raise GmailApiError("Gmail OAuth is not configured", status_code=503)
 
-        resolved_redirect = _clean_text(redirect_uri) or self._oauth_redirect_uri()
+        resolved_redirect = self._resolve_oauth_redirect_uri(redirect_uri)
         self._verify_state_token(state=state, user_id=user_id, redirect_uri=resolved_redirect)
 
         token_payload = await self._exchange_code(code=code, redirect_uri=resolved_redirect)

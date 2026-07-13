@@ -38,7 +38,7 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.54b0",
     "opentelemetry-instrumentation-httpx>=0.54b0",
     "opentelemetry-sdk>=1.33.0",
-    "pdfplumber==0.11.0",
+    "pdfplumber==0.11.10",
     "pillow>=10.0.0",
     "proto-plus==1.27.0",
     "protobuf>=6.31.1,<7.0.0",

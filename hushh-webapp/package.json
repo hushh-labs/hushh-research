@@ -134,7 +134,7 @@
   "overrides": {
     "@google-cloud/storage": "7.19.0",
     "@tootallnate/once": "3.0.1",
-    "@xmldom/xmldom": "0.8.12",
+    "@xmldom/xmldom": "0.8.13",
     "@eslint/config-array": {
       "minimatch": {
         ".": "3.1.5",
@@ -158,8 +158,8 @@
     "firebase-admin": {
       "node-forge": "1.4.0"
     },
-    "dompurify": "3.4.0",
-    "fast-xml-parser": "5.5.9",
+    "dompurify": "3.4.12",
+    "fast-xml-parser": "5.10.0",
     "flatted": "3.4.2",
     "@capacitor/cli": {
       "glob": "13.0.6"
@@ -191,12 +191,15 @@
     "router": {
       "path-to-regexp": "8.4.0"
     },
+    "postcss": "8.5.18",
+    "uuid": "11.1.1",
     "google-gax": "4.6.1",
     "hono": "4.12.8",
     "http-proxy-agent": "7.0.2",
-    "protobufjs": "7.5.5",
+    "protobufjs": "7.6.3",
+    "proto3-json-serializer": "3.0.5",
     "retry-request": "8.0.2",
-    "tar": "7.5.11",
+    "tar": "7.5.16",
     "teeny-request": "10.1.0",
     "typescript-eslint": "8.57.0",
     "yauzl": "3.2.1"

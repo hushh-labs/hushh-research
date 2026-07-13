@@ -182,17 +182,12 @@ export default function ProfileGmailOAuthReturnPageClient({
       try {
         setStage("completing");
         const idToken = await user.getIdToken();
-        const redirectUri =
-          typeof window !== "undefined"
-            ? `${window.location.origin}${ROUTES.PROFILE_GMAIL_OAUTH_RETURN}`
-            : ROUTES.PROFILE_GMAIL_OAUTH_RETURN;
 
         const status = await GmailReceiptsService.completeConnect({
           idToken,
           userId: user.uid,
           code,
           state,
-          redirectUri,
         });
         primeConnectorStatus({
           userId: user.uid,

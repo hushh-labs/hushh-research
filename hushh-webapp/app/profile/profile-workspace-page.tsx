@@ -1643,16 +1643,11 @@ function ProfilePageContent() {
       setGmailActionBusy("connect");
 
       const idToken = await user.getIdToken();
-      const redirectUri =
-        typeof window !== "undefined"
-          ? `${window.location.origin}${ROUTES.PROFILE_GMAIL_OAUTH_RETURN}`
-          : ROUTES.PROFILE_GMAIL_OAUTH_RETURN;
       const isGoogleProvider = provider.id === "google";
 
       const payload = await GmailReceiptsService.startConnect({
         idToken,
         userId: user.uid,
-        redirectUri,
         loginHint: isGoogleProvider ? user.email : null,
         includeGrantedScopes: isGoogleProvider,
       });
