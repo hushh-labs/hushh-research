@@ -8,6 +8,22 @@
 
 **Tech Stack:** Next.js (App Router) + React 18 + TypeScript, Tailwind, `@googlemaps/js-api-loader`, Vitest + Testing Library (frontend); FastAPI + Google Routes API, pytest (backend).
 
+## Visual Map
+
+```mermaid
+flowchart LR
+  flow[DriveToFlow] --> search[Destination search → maps proxy]
+  flow --> map[DriveRouteMap]
+  flow --> who[Who-sees picker]
+  flow --> start[Start sharing drive → onDriveTo]
+  map --> route[Directions route + polyline fallback]
+  map --> iframe[Keyless directions iframe fallback]
+  map --> badge[ETA badge]
+  flow --> eta[routeEta]
+  eta --> traffic[backend route_eta TRAFFIC_AWARE → trafficLevel]
+  start --> grant[createGrant + encrypted envelope]
+```
+
 ## Global Constraints
 
 - Two distinct Maps keys: browser `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` (JS SDK), backend `GOOGLE_MAPS_API_KEY` (Routes/Places). Do not cross them.

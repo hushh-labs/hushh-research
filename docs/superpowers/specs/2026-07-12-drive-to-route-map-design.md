@@ -4,6 +4,22 @@
 **Branch:** `fix/location-ui-bug-fixes`
 **Status:** Approved
 
+## Visual Map
+
+```mermaid
+flowchart TD
+  subgraph Frontend
+    DTF[DriveToFlow] --> DRM[DriveRouteMap]
+    DTF --> SVC[OneLocationService.routeEta]
+    DRM --> MAPS[useGoogleMaps → interactive map or directions iframe]
+    DRM --> BADGE[ETA + traffic badge]
+  end
+  subgraph Backend
+    SVC --> RE[route_eta TRAFFIC_AWARE + staticDuration]
+    RE --> TL[trafficLevel: light / moderate / heavy]
+  end
+```
+
 ## Goal
 
 Bring the One Location **Drive to** flow in line with the "Location Agent — Apple
