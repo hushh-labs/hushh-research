@@ -119,7 +119,8 @@ function shellForPage(pageFile) {
       source.includes("SettingsGroup") ||
       source.includes("SettingsRow") ||
       source.includes("SettingsDetailPanel"),
-    shared_loader: source.includes("HushhLoader"),
+    shared_loader:
+      source.includes("HushhLoader") || source.includes("RouteLoadingState"),
     back_button_pattern: source.includes("Back")
       ? "route-local-check-required"
       : "shared-shell",

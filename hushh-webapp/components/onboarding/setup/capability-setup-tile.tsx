@@ -14,6 +14,7 @@ import {
   type CapabilityStatus,
 } from "@/lib/services/capability-setup-state-service";
 import { SettingsRow } from "@/components/app-ui/settings-ui";
+import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { cn } from "@/lib/utils";
 
 /**
@@ -36,9 +37,14 @@ const STATUS_TEXT_CLASS_BY_TONE: Record<CapabilityStatusTone, string> = {
 };
 
 export interface CapabilitySetupTileProps {
+  capabilityId: string;
   title: string;
   /** Plain, One-voice description of what this step sets up. */
   description: string;
+  /** Capability-specific next action for the trailing state label. */
+  actionLabel: string;
+  /** Capability-specific continuation label after a partial setup. */
+  resumeActionLabel: string;
   href: string;
   voiceControlId: string;
   icon: LucideIcon;
@@ -52,18 +58,26 @@ export interface CapabilitySetupTileProps {
 }
 
 export function CapabilitySetupTile({
+  capabilityId,
   title,
   description,
+  actionLabel,
+  resumeActionLabel,
   href,
   voiceControlId,
   icon: Icon,
+  tone,
   status,
   isExploreOnly = false,
   isCurrent = false,
   className,
 }: CapabilitySetupTileProps) {
   const router = useRouter();
-  const display = getCapabilityStatusDisplay(status, { isExploreOnly });
+  const display = getCapabilityStatusDisplay(status, {
+    isExploreOnly,
+    actionLabel,
+    resumeActionLabel,
+  });
   const isComplete = isCapabilitySetupComplete(status);
   const handleOpen = useCallback(() => {
     router.push(href, { scroll: false });
@@ -73,9 +87,12 @@ export function CapabilitySetupTile({
     <SettingsRow
       asChild
       leading={
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-accent-border bg-accent-surface text-accent-strong">
-          <Icon className="h-5 w-5" aria-hidden />
-        </span>
+        <AgentSectionIcon
+          id={capabilityId}
+          icon={Icon}
+          tone={tone}
+          size="menu"
+        />
       }
       title={title}
       description={description}

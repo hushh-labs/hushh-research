@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, LogOut, MoreHorizontal } from "lucide-react";
@@ -69,7 +68,9 @@ function PhoneMandatePageContent() {
     const currentPath = redirectPath
       ? `${ROUTES.PHONE_MANDATE}?redirect=${encodeURIComponent(redirectPath)}`
       : ROUTES.PHONE_MANDATE;
-    router.replace(`${ROUTES.LOGIN}?redirect=${encodeURIComponent(currentPath)}`);
+    router.replace(
+      `${ROUTES.LOGIN}?redirect=${encodeURIComponent(currentPath)}`,
+    );
   }, [loading, redirectPath, router, user]);
 
   const continueToNextRoute = useCallback(
@@ -90,12 +91,18 @@ function PhoneMandatePageContent() {
         phoneVerified: AccountIdentityService.hasVerifiedPhone(identity),
         hostname: window.location.hostname,
       });
-      const setupResolved = await PreVaultUserStateService.bootstrapState(activeUser.uid, {
-        force: true,
-      })
+      const setupResolved = await PreVaultUserStateService.bootstrapState(
+        activeUser.uid,
+        {
+          force: true,
+        },
+      )
         .then((state) => PreVaultUserStateService.isSetupResolved(state))
         .catch((error) => {
-          console.warn("[RegisterPhonePage] Failed to refresh setup state:", error);
+          console.warn(
+            "[RegisterPhonePage] Failed to refresh setup state:",
+            error,
+          );
           return false;
         });
       await PreVaultUserStateService.syncOnboardingJourney({
@@ -106,14 +113,18 @@ function PhoneMandatePageContent() {
         activeCapability: null,
         callbackState: "none",
       }).catch((error) => {
-        console.warn("[RegisterPhonePage] Failed to persist phone journey settlement:", error);
+        console.warn(
+          "[RegisterPhonePage] Failed to persist phone journey settlement:",
+          error,
+        );
       });
       router.replace(nextPath);
     },
-    [redirectPath, refreshUser, router, user]
+    [redirectPath, refreshUser, router, user],
   );
 
-  const [shouldBypassLocalPhoneMandate, setShouldBypassLocalPhoneMandate] = useState(false);
+  const [shouldBypassLocalPhoneMandate, setShouldBypassLocalPhoneMandate] =
+    useState(false);
 
   const handleSignOut = useCallback(async () => {
     try {
@@ -128,7 +139,10 @@ function PhoneMandatePageContent() {
 
   useEffect(() => {
     if (!loading && Boolean(user) && !phoneNumber) {
-      if (typeof window !== "undefined" && shouldBypassPhoneMandateForLocalhost(window.location.hostname)) {
+      if (
+        typeof window !== "undefined" &&
+        shouldBypassPhoneMandateForLocalhost(window.location.hostname)
+      ) {
         setShouldBypassLocalPhoneMandate(true);
       }
     }
@@ -156,15 +170,19 @@ function PhoneMandatePageContent() {
             },
           ],
         }
-      : null
+      : null,
   );
 
   if (loading || !user) {
-    return <HushhLoader label="Loading phone verification..." variant="fullscreen" />;
+    return (
+      <HushhLoader label="Loading phone verification..." variant="fullscreen" />
+    );
   }
 
   if (shouldBypassLocalPhoneMandate) {
-    return <HushhLoader label="Continuing local session..." variant="fullscreen" />;
+    return (
+      <HushhLoader label="Continuing local session..." variant="fullscreen" />
+    );
   }
 
   const shell = (
@@ -176,7 +194,10 @@ function PhoneMandatePageContent() {
         dataState="loaded"
       />
       {/* Immersive hero glows */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[58%]">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-[58%]"
+      >
         <span
           className="absolute -top-24 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full"
           style={{ background: "rgba(212,175,106,0.26)", filter: "blur(80px)" }}
@@ -219,19 +240,12 @@ function PhoneMandatePageContent() {
 
         {/* Dark hero */}
         <div className="flex flex-1 flex-col items-center justify-center px-6 pb-6 text-center">
-          <div className="flex h-[84px] w-[84px] items-center justify-center rounded-[22px] border border-[rgba(214,175,106,0.30)] bg-gradient-to-b from-white/[0.16] to-white/[0.06] shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
-            <Image
-              src="/one-quiet-emoji.png"
-              alt=""
-              width={762}
-              height={766}
-              priority
-              unoptimized
-              aria-hidden="true"
-              draggable={false}
-              className="h-11 w-11 select-none object-contain [filter:drop-shadow(0_4px_10px_rgba(0,0,0,0.35))]"
-            />
-          </div>
+          <span
+            aria-hidden="true"
+            className="select-none text-[48px] leading-none drop-shadow-[0_8px_18px_rgba(109,67,26,0.28)]"
+          >
+            🤫
+          </span>
           <h1
             role="heading"
             aria-level={1}
@@ -262,9 +276,27 @@ function PhoneMandatePageContent() {
             className="gap-5"
           />
           <div className="mt-4 flex items-center justify-center gap-1.5 text-[13px] text-black/40 dark:text-white/45">
-            <svg width="11" height="12" viewBox="0 0 11 12" fill="none" aria-hidden>
-              <rect x="1.5" y="5" width="8" height="6" rx="1.6" stroke="currentColor" strokeWidth="1.3" />
-              <path d="M3.2 5V3.7a2.3 2.3 0 014.6 0V5" stroke="currentColor" strokeWidth="1.3" />
+            <svg
+              width="11"
+              height="12"
+              viewBox="0 0 11 12"
+              fill="none"
+              aria-hidden
+            >
+              <rect
+                x="1.5"
+                y="5"
+                width="8"
+                height="6"
+                rx="1.6"
+                stroke="currentColor"
+                strokeWidth="1.3"
+              />
+              <path
+                d="M3.2 5V3.7a2.3 2.3 0 014.6 0V5"
+                stroke="currentColor"
+                strokeWidth="1.3"
+              />
             </svg>
             Used only to secure your vault. Never shared.
           </div>
@@ -283,7 +315,14 @@ function PhoneMandatePageContent() {
 
 export default function RegisterPhonePage() {
   return (
-    <Suspense fallback={<HushhLoader label="Loading phone verification..." variant="fullscreen" />}>
+    <Suspense
+      fallback={
+        <HushhLoader
+          label="Loading phone verification..."
+          variant="fullscreen"
+        />
+      }
+    >
       <PhoneMandatePageContent />
     </Suspense>
   );

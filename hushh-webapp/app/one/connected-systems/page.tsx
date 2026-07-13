@@ -40,8 +40,9 @@ export default function ConnectedSystemsPage() {
       />
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow="One / Connected Systems"
-          title="CRM systems"
+          eyebrow="One / Setup"
+          title="Link your tools"
+          description="Choose an available CRM system, find your existing profile, or create one where profile creation is supported."
           icon={Building2}
           accent="neutral"
         />
@@ -59,8 +60,8 @@ export default function ConnectedSystemsPage() {
           user={user}
           open={showUnlock}
           onOpenChange={setShowUnlock}
-          title="Unlock vault"
-          description="Unlock your vault to inspect CRM records and approve Connected Systems actions."
+          title="Set up your private vault"
+          description="Set up or open your private vault to inspect CRM records and approve Connected Systems actions."
           onSuccess={() => setShowUnlock(false)}
         />
       ) : null}

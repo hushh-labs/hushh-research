@@ -25,7 +25,7 @@ xcodebuild -project ios/App/App.xcodeproj -scheme App clean build \
 ```bash
 cd hushh-webapp
 cd android && ./gradlew clean && cd ..
-cross-env CAPACITOR_BUILD=true npm run build
+npm run cap:build
 npx cap sync android
 cd android && ./gradlew assembleDebug
 ```
@@ -43,10 +43,10 @@ Production static export checklist:
 
 ## Device Requirements
 
-| Requirement | iOS | Android |
-| --- | --- | --- |
-| Minimum OS | iOS 16+ | Android 11+ |
-| Target OS | iOS 18+ | Android 14+ |
+| Requirement | iOS     | Android     |
+| ----------- | ------- | ----------- |
+| Minimum OS  | iOS 16+ | Android 11+ |
+| Target OS   | iOS 18+ | Android 14+ |
 
 ## App Store Release Checklist
 

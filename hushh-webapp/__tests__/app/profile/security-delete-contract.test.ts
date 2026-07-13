@@ -7,6 +7,14 @@ const profilePageSource = readFileSync(
   join(process.cwd(), "app/profile/profile-workspace-page.tsx"),
   "utf8",
 );
+const topAppBarSource = readFileSync(
+  join(process.cwd(), "components/app-ui/top-app-bar.tsx"),
+  "utf8",
+);
+const deleteFlowSource = readFileSync(
+  join(process.cwd(), "lib/flows/delete-account.ts"),
+  "utf8",
+);
 
 describe("profile security deletion contract", () => {
   it("keeps Security reachable before vault creation", () => {
@@ -31,11 +39,20 @@ describe("profile security deletion contract", () => {
     expect(profilePageSource).toContain("sm:min-w-[12rem]");
   });
 
-  it("deletes the whole One account with no persona-scoped choice", () => {
-    expect(profilePageSource).toContain(
-      'const effectiveDeleteTarget: AccountDeletionTarget = "both";',
+  it("uses the same destructive settlement from Profile and setup chrome", () => {
+    expect(profilePageSource).toContain("executeVerifiedAccountDeletion");
+    expect(topAppBarSource).toContain("executeVerifiedAccountDeletion");
+    expect(topAppBarSource).toContain("requestDeleteAccount");
+    expect(topAppBarSource).toContain("Unlock Vault to Delete Account");
+    expect(topAppBarSource).toContain("skipFcmCleanup: true");
+    expect(deleteFlowSource).toContain(
+      'AccountService.deleteAccount(params.vaultOwnerToken, "both")',
     );
-    expect(profilePageSource).toContain("Delete your One account?");
+    expect(deleteFlowSource).toContain("CacheSyncService.onAccountDeleted");
+    expect(deleteFlowSource).toContain("UserLocalStateService.clearForUser");
+    expect(deleteFlowSource).toContain("DELETE_ACCOUNT_DIALOG_TITLE");
+    expect(profilePageSource).toContain("DELETE_ACCOUNT_DIALOG_TITLE");
+    expect(topAppBarSource).toContain("DELETE_ACCOUNT_DIALOG_TITLE");
     expect(profilePageSource).not.toContain("Delete Investor, RIA");
     expect(profilePageSource).not.toContain('"Yes, Delete Investor"');
     expect(profilePageSource).not.toContain('"Yes, Delete RIA"');
@@ -44,7 +61,9 @@ describe("profile security deletion contract", () => {
   it("offers a reset-account path that keeps the account and re-runs setup", () => {
     expect(profilePageSource).toContain("Reset your One account?");
     expect(profilePageSource).toContain('"Yes, reset my account"');
-    expect(profilePageSource).toContain("AccountService.resetAccount(resolution.token)");
+    expect(profilePageSource).toContain(
+      "AccountService.resetAccount(resolution.token)",
+    );
     expect(profilePageSource).toContain("router.replace(ROUTES.ONE_SETUP)");
     expect(profilePageSource).toContain("setOnboardingRequiredCookie(true)");
   });

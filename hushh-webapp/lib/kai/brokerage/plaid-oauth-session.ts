@@ -15,6 +15,8 @@ export interface PlaidOAuthResumeSession {
   resumeSessionId: string;
   returnPath: string;
   startedAt: string;
+  /** Opaque setup-attempt id; never a Plaid or vault credential. */
+  onboardingAttemptId?: string;
 }
 
 // This stores only an opaque resume session id and return route. No vault key,
@@ -40,6 +42,12 @@ export function loadPlaidOAuthResumeSession(): PlaidOAuthResumeSession | null {
         typeof parsed.startedAt === "string" && parsed.startedAt.trim().length > 0
           ? parsed.startedAt
           : new Date().toISOString(),
+      onboardingAttemptId:
+        typeof parsed.onboardingAttemptId === "string" &&
+        parsed.onboardingAttemptId.trim().length > 0 &&
+        parsed.onboardingAttemptId.length <= 96
+          ? parsed.onboardingAttemptId
+          : undefined,
     };
   } catch {
     return null;

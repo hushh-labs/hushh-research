@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     getStatus: vi.fn(),
   },
   syncOnboardingJourney: vi.fn(),
+  bootstrapState: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -31,6 +32,9 @@ vi.mock("@/lib/services/gmail-receipts-service", () => ({
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: {
     syncOnboardingJourney: mocks.syncOnboardingJourney,
+    bootstrapState: mocks.bootstrapState,
+    isSetupResolved: (state: { setupCompleted?: boolean } | null) =>
+      state?.setupCompleted === true,
   },
 }));
 
@@ -39,8 +43,12 @@ vi.mock("@/lib/profile/gmail-connector-store", () => ({
 }));
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
-  AppPageShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  AppPageContentRegion: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  AppPageShell: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  AppPageContentRegion: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
 }));
 
 vi.mock("@/components/app-ui/hushh-loader", () => ({
@@ -93,12 +101,13 @@ describe("ProfileGmailOAuthReturnPage", () => {
       revoked: false,
     });
     mocks.syncOnboardingJourney.mockResolvedValue(undefined);
+    mocks.bootstrapState.mockResolvedValue(null);
     window.sessionStorage.clear();
   });
 
   it("redirects back to Gmail receipts when the callback is replayed after a successful connection", async () => {
     mocks.gmailReceiptsService.completeConnect.mockRejectedValue(
-      new Error("OAuth state expired")
+      new Error("OAuth state expired"),
     );
     mocks.searchParamsGet.mockImplementation((key: string) => {
       if (key === "code") return "code-123";
@@ -142,7 +151,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
     });
   });
 
-  it("settles a setup-originated Gmail callback back to the setup hub", async () => {
+  it("settles a setup-originated Gmail callback at its terminal acknowledgement", async () => {
     window.sessionStorage.setItem(
       "one_onboarding_connector_intent_v1",
       JSON.stringify({
@@ -151,12 +160,20 @@ describe("ProfileGmailOAuthReturnPage", () => {
         returnTo: "/one/setup",
         correlationId: "connector-test",
         startedAt: Date.now(),
-      })
+      }),
     );
     mocks.searchParamsGet.mockImplementation((key: string) => {
       if (key === "code") return "code-setup";
       if (key === "state") return "state-setup";
       return null;
+    });
+    mocks.bootstrapState.mockResolvedValue({
+      setupCompleted: false,
+      onboardingPhase: "external_connector",
+      onboardingActiveCapability: "gmail",
+      onboardingCallbackState: "pending",
+      onboardingCallbackAttemptId: "connector-test",
+      onboardingJourneyUpdatedAt: 123,
     });
 
     render(<ProfileGmailOAuthReturnPage />);
@@ -164,13 +181,46 @@ describe("ProfileGmailOAuthReturnPage", () => {
     await waitFor(() => {
       expect(mocks.syncOnboardingJourney).toHaveBeenCalledWith({
         userId: "user-123",
-        phase: "setup_hub",
-        activeCapability: null,
+        phase: "capability_setup",
+        activeCapability: "gmail",
         callbackState: "succeeded",
+        expectedJourneyUpdatedAt: 123,
+        expectedCallbackAttemptId: "connector-test",
       });
-      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/setup");
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/setup/gmail");
     });
-    expect(window.sessionStorage.getItem("one_onboarding_connector_intent_v1")).toBeNull();
+    expect(
+      window.sessionStorage.getItem("one_onboarding_connector_intent_v1"),
+    ).toBeNull();
+  });
+
+  it("does not settle a durable setup journey when the browser correlation is missing", async () => {
+    mocks.bootstrapState.mockResolvedValue({
+      setupCompleted: false,
+      onboardingActiveCapability: "gmail",
+    });
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "error") return "access_denied";
+      return null;
+    });
+
+    render(<ProfileGmailOAuthReturnPage />);
+
+    await waitFor(() => expect(screen.getByText("Gmail connection needs attention")).toBeTruthy());
+    expect(mocks.syncOnboardingJourney).not.toHaveBeenCalled();
+    expect(screen.getByText("Gmail connection needs attention")).toBeTruthy();
+  });
+
+  it("does not mark a callback without the matching browser correlation", async () => {
+    mocks.bootstrapState.mockResolvedValue({
+      setupCompleted: false,
+      onboardingActiveCapability: "gmail",
+    });
+
+    render(<ProfileGmailOAuthReturnPage />);
+
+    await waitFor(() => expect(screen.getByText("Gmail connection needs attention")).toBeTruthy());
+    expect(mocks.syncOnboardingJourney).not.toHaveBeenCalled();
   });
 
   it("keeps connector success authoritative when the journey echo fails", async () => {
@@ -189,14 +239,26 @@ describe("ProfileGmailOAuthReturnPage", () => {
       if (key === "state") return "state-setup";
       return null;
     });
-    mocks.syncOnboardingJourney.mockRejectedValue(new Error("journey unavailable"));
+    mocks.syncOnboardingJourney.mockRejectedValue(
+      new Error("journey unavailable"),
+    );
+    mocks.bootstrapState.mockResolvedValue({
+      setupCompleted: false,
+      onboardingPhase: "external_connector",
+      onboardingActiveCapability: "gmail",
+      onboardingCallbackState: "pending",
+      onboardingCallbackAttemptId: "connector-test",
+      onboardingJourneyUpdatedAt: 123,
+    });
 
     render(<ProfileGmailOAuthReturnPage />);
 
     await waitFor(() => {
-      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/setup");
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
     });
     expect(screen.queryByText("Gmail connection needs attention")).toBeNull();
-    expect(window.sessionStorage.getItem("one_onboarding_connector_intent_v1")).toBeNull();
+    expect(
+      window.sessionStorage.getItem("one_onboarding_connector_intent_v1"),
+    ).toBeNull();
   });
 });

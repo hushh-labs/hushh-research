@@ -10,8 +10,13 @@
     "hushh-webapp/app/one/kyc/page.voice-action-contract.json",
     "hushh-webapp/app/one/marketplace/page.voice-action-contract.json",
     "hushh-webapp/app/one/page.voice-action-contract.json",
-    "hushh-webapp/app/one/setup/[capability]/one-onboarding-capability-step.voice-action-contract.json",
+    "hushh-webapp/app/one/setup/connected-systems/page.voice-action-contract.json",
+    "hushh-webapp/app/one/setup/email/page.voice-action-contract.json",
+    "hushh-webapp/app/one/setup/finance/import/page.voice-action-contract.json",
+    "hushh-webapp/app/one/setup/gmail/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/kai/page.voice-action-contract.json",
+    "hushh-webapp/app/one/setup/location/page.voice-action-contract.json",
+    "hushh-webapp/app/one/setup/ria/page.voice-action-contract.json",
     "hushh-webapp/app/page.voice-action-contract.json",
     "hushh-webapp/app/profile/page.voice-action-contract.json",
     "hushh-webapp/app/profile/pkm-agent-lab/page-client.voice-action-contract.json",
@@ -236,13 +241,87 @@
     },
     {
       "schema_version": "kai.local_action_contract.v1",
-      "surface_id": "one_setup_capability_step",
-      "surface_title": "One Setup Capability Step",
+      "surface_id": "one_setup_connected_systems",
+      "surface_title": "Linked Systems Setup",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/app/one/setup/connected-systems/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        },
+        "speaker_persona": "one",
+        "guard_ids": [
+          "auth_signed_in"
+        ]
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_setup_email",
+      "surface_title": "KYC Setup",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/app/one/setup/email/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        },
+        "speaker_persona": "one",
+        "guard_ids": [
+          "auth_signed_in"
+        ]
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_setup_finance_import",
+      "surface_title": "Finance Source Setup",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/app/one/setup/finance/import/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor"
+          ]
+        },
+        "speaker_persona": "one",
+        "guard_ids": [
+          "auth_signed_in"
+        ]
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_setup_gmail",
+      "surface_title": "Gmail Setup",
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
       ],
-      "contract_file": "hushh-webapp/app/one/setup/[capability]/one-onboarding-capability-step.voice-action-contract.json",
+      "contract_file": "hushh-webapp/app/one/setup/gmail/page.voice-action-contract.json",
       "defaults": {
         "reachability": {
           "active_personas": [
@@ -278,6 +357,56 @@
           ]
         },
         "speaker_persona": "kai",
+        "guard_ids": [
+          "auth_signed_in"
+        ]
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_setup_location",
+      "surface_title": "Location Setup",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/app/one/setup/location/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        },
+        "speaker_persona": "one",
+        "guard_ids": [
+          "auth_signed_in"
+        ]
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_setup_ria",
+      "surface_title": "RIA Setup",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/app/one/setup/ria/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        },
+        "speaker_persona": "one",
         "guard_ids": [
           "auth_signed_in"
         ]
@@ -815,7 +944,7 @@
           "login",
           "one_setup"
         ],
-        "hidden_navigable": true,
+        "hidden_navigable": false,
         "navigation_prerequisites": [
           "None; the welcome carousel is public."
         ],
@@ -1027,7 +1156,7 @@
           "getting_started",
           "one_agents"
         ],
-        "hidden_navigable": true,
+        "hidden_navigable": false,
         "navigation_prerequisites": [
           "None; sign-in is reachable from any anonymous screen."
         ],
@@ -1136,7 +1265,7 @@
           "one_setup",
           "one_agents"
         ],
-        "hidden_navigable": true,
+        "hidden_navigable": false,
         "navigation_prerequisites": [
           "Requires a signed-in session before vault setup can begin."
         ],
@@ -4673,45 +4802,137 @@
       }
     },
     {
-      "action_id": "setup.capability_continue",
-      "surface_id": "one_setup_capability_step",
-      "label": "Continue Capability Setup",
+      "action_id": "setup.finish_connected_systems",
+      "surface_id": "one_setup_connected_systems",
+      "label": "Finish linking setup",
       "aliases": [
-        "continue",
-        "unlock and continue",
-        "got it",
-        "next"
+        "finish linked systems setup",
+        "finish linking",
+        "finish tools setup"
       ],
       "search_keywords": [
-        "continue",
-        "next",
-        "got it",
-        "unlock"
+        "finish",
+        "link",
+        "systems"
       ],
-      "meaning": "Advances past the current capability setup step to its next destination (workspace, wizard, or explore acknowledgement). Applies to whichever capability route is currently open.",
+      "meaning": "Records an active CRM record binding and returns to setup.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/setup/finance",
-          "/one/setup/gmail",
-          "/one/setup/email",
-          "/one/setup/location",
-          "/one/setup/pkm",
-          "/one/setup/consent",
-          "/one/setup/marketplace",
           "/one/setup/connected-systems"
         ],
         "screens": [
-          "one_setup_finance",
-          "one_setup_gmail",
-          "one_setup_email",
-          "one_setup_location",
-          "one_setup_pkm",
-          "one_setup_consent",
-          "one_setup_marketplace",
-          "one_setup_connected-systems",
-          "one_setup"
+          "one_setup_connected_systems"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "An active CRM record binding exists."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.finish_connected_systems"
+      },
+      "control_ids": [
+        "one-setup-connected-systems-terminal"
+      ],
+      "state_exposure": [
+        "active CRM binding",
+        "active setup capability"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/connected-systems"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.finish_connected_systems",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.finish_connected_systems",
+            "label": "Finish linking setup",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.skip_connected_systems",
+      "surface_id": "one_setup_connected_systems",
+      "label": "Skip linking setup",
+      "aliases": [
+        "skip linked systems setup",
+        "skip linking",
+        "not now"
+      ],
+      "search_keywords": [
+        "skip",
+        "link",
+        "systems"
+      ],
+      "meaning": "Returns to the setup hub without recording linked systems as complete.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/connected-systems"
+        ],
+        "screens": [
+          "one_setup_connected_systems"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [],
@@ -4730,18 +4951,444 @@
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
-        "target": "setup.capability_continue"
+        "target": "setup.skip_connected_systems"
       },
       "control_ids": [
-        "one_setup_capability_primary"
+        "one-setup-connected-systems-terminal"
       ],
       "state_exposure": [
-        "capability seen/explored signal"
+        "active setup capability"
       ],
       "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md",
-        "hushh-webapp/app/one/setup/[capability]/one-onboarding-capability-client.tsx"
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/connected-systems"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.skip_connected_systems",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.skip_connected_systems",
+            "label": "Skip linking setup",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.finish_email",
+      "surface_id": "one_setup_email",
+      "label": "Finish KYC setup",
+      "aliases": [
+        "finish kyc setup",
+        "finish email setup",
+        "finish KYC"
+      ],
+      "search_keywords": [
+        "finish",
+        "kyc",
+        "email"
+      ],
+      "meaning": "Records a verified email identity and initialized client connector, then returns to setup.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/email"
+        ],
+        "screens": [
+          "one_setup_email"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A verified email identity and client connector are ready."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.finish_email"
+      },
+      "control_ids": [
+        "one-setup-email-terminal"
+      ],
+      "state_exposure": [
+        "verified email identity",
+        "connector readiness",
+        "active setup capability"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/email"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.finish_email",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.finish_email",
+            "label": "Finish KYC setup",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.skip_email",
+      "surface_id": "one_setup_email",
+      "label": "Skip KYC setup",
+      "aliases": [
+        "skip kyc setup",
+        "skip email setup",
+        "not now"
+      ],
+      "search_keywords": [
+        "skip",
+        "kyc",
+        "email"
+      ],
+      "meaning": "Returns to the setup hub without recording KYC as complete.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/email"
+        ],
+        "screens": [
+          "one_setup_email"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.skip_email"
+      },
+      "control_ids": [
+        "one-setup-email-terminal"
+      ],
+      "state_exposure": [
+        "active setup capability"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/email"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.skip_email",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.skip_email",
+            "label": "Skip KYC setup",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.finish_finance",
+      "surface_id": "one_setup_finance_import",
+      "label": "Finish Finance setup",
+      "aliases": [
+        "finish finance setup",
+        "finish finance"
+      ],
+      "search_keywords": [
+        "finish",
+        "finance"
+      ],
+      "meaning": "Records a settled Plaid connection, statement save, or explicit later source choice and returns to setup.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/finance/import"
+        ],
+        "screens": [
+          "one_setup_finance_import"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Finance preferences and one source choice are settled."
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.finish_finance"
+      },
+      "control_ids": [
+        "one-setup-finance-terminal"
+      ],
+      "state_exposure": [
+        "Finance source state",
+        "active setup capability"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/finance/import"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.finish_finance",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.finish_finance",
+            "label": "Finish Finance setup",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.skip_finance",
+      "surface_id": "one_setup_finance_import",
+      "label": "Skip Finance setup",
+      "aliases": [
+        "skip finance setup",
+        "skip finance",
+        "not now"
+      ],
+      "search_keywords": [
+        "skip",
+        "finance"
+      ],
+      "meaning": "Returns to the setup hub without recording Finance as complete.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/finance",
+          "/one/setup/finance/import"
+        ],
+        "screens": [
+          "one_setup_finance",
+          "one_setup_finance_import"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.skip_finance"
+      },
+      "control_ids": [
+        "one-setup-finance-terminal"
+      ],
+      "state_exposure": [
+        "active setup capability"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
       ],
       "workflow": null,
       "external_callback": null,
@@ -4761,19 +5408,353 @@
         ]
       },
       "goal": {
-        "goal_id": "goal.setup.capability_continue",
+        "goal_id": "goal.setup.skip_finance",
         "required_inputs": [],
         "input_resolvers": [],
         "slot_schema": {},
         "workflow_steps": [
           {
             "type": "action",
-            "action_id": "setup.capability_continue",
-            "label": "Continue Capability Setup",
+            "action_id": "setup.skip_finance",
+            "label": "Skip Finance setup",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/setup/finance",
-              "screen": "one_setup_finance"
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.connect_gmail",
+      "surface_id": "one_setup_gmail",
+      "label": "Connect Gmail",
+      "aliases": [
+        "connect gmail",
+        "connect my gmail",
+        "set up gmail",
+        "open gmail connector"
+      ],
+      "search_keywords": [
+        "connect",
+        "gmail",
+        "connector"
+      ],
+      "meaning": "Starts the Gmail connector from the current setup workspace.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/gmail"
+        ],
+        "screens": [
+          "one_setup_gmail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.connect_gmail"
+      },
+      "control_ids": [
+        "open_gmail_connector"
+      ],
+      "state_exposure": [
+        "gmail connection state",
+        "active setup capability"
+      ],
+      "docs_references": [
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "components/gmail/gmail-receipts-page.tsx",
+        "app/one/setup/gmail/gmail-onboarding-setup-client.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/gmail"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.connect_gmail",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Connect Gmail",
+            "failure_behavior": "stop",
+            "action_id": "setup.connect_gmail",
+            "settlement_target": {
+              "route": "/one/setup/gmail",
+              "screen": "one_setup_gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.finish_gmail",
+      "surface_id": "one_setup_gmail",
+      "label": "Finish Gmail setup",
+      "aliases": [
+        "finish gmail setup",
+        "finish gmail",
+        "complete gmail setup"
+      ],
+      "search_keywords": [
+        "finish",
+        "gmail",
+        "complete"
+      ],
+      "meaning": "Records an already verified Gmail connection as complete and returns to the setup hub.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/gmail"
+        ],
+        "screens": [
+          "one_setup",
+          "one_setup_gmail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "gmail_connected"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.finish_gmail"
+      },
+      "control_ids": [
+        "finish_gmail_setup"
+      ],
+      "state_exposure": [
+        "gmail connection state",
+        "active setup capability"
+      ],
+      "docs_references": [
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "app/one/setup/gmail/gmail-onboarding-setup-client.tsx",
+        "components/onboarding/setup/setup-completion-footer.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/gmail"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.finish_gmail",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Finish Gmail setup",
+            "failure_behavior": "stop",
+            "action_id": "setup.finish_gmail",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.skip_gmail",
+      "surface_id": "one_setup_gmail",
+      "label": "Skip Gmail setup",
+      "aliases": [
+        "skip gmail setup",
+        "skip gmail",
+        "not now"
+      ],
+      "search_keywords": [
+        "skip",
+        "gmail",
+        "not now"
+      ],
+      "meaning": "Leaves Gmail setup and returns to the setup hub without recording Gmail as complete.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/gmail"
+        ],
+        "screens": [
+          "one_setup",
+          "one_setup_gmail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.skip_gmail"
+      },
+      "control_ids": [
+        "skip_gmail_setup"
+      ],
+      "state_exposure": [
+        "gmail connection state",
+        "active setup capability"
+      ],
+      "docs_references": [
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "app/one/setup/gmail/gmail-onboarding-setup-client.tsx",
+        "components/onboarding/setup/setup-completion-footer.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/gmail"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.skip_gmail",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Skip Gmail setup",
+            "failure_behavior": "stop",
+            "action_id": "setup.skip_gmail",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
             }
           }
         ],
@@ -4816,11 +5797,10 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/setup/kai"
+          "/one/setup/finance"
         ],
         "screens": [
-          "kai_setup_wizard",
-          "one_setup"
+          "one_setup_finance"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [],
@@ -4855,7 +5835,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup/kai"
+          "current route becomes /one/setup/finance"
         ],
         "backend_effects": []
       },
@@ -4892,8 +5872,8 @@
             "label": "Answer Investment Horizon",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/setup/kai",
-              "screen": "kai_setup_wizard"
+              "route": "/one/setup/finance",
+              "screen": "one_setup_finance"
             }
           }
         ],
@@ -4936,11 +5916,10 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/setup/kai"
+          "/one/setup/finance"
         ],
         "screens": [
-          "kai_setup_wizard",
-          "one_setup"
+          "one_setup_finance"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
@@ -4977,7 +5956,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup/kai"
+          "current route becomes /one/setup/finance"
         ],
         "backend_effects": []
       },
@@ -5014,8 +5993,8 @@
             "label": "Answer Drawdown Response",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/setup/kai",
-              "screen": "kai_setup_wizard"
+              "route": "/one/setup/finance",
+              "screen": "one_setup_finance"
             }
           }
         ],
@@ -5058,11 +6037,10 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/setup/kai"
+          "/one/setup/finance"
         ],
         "screens": [
-          "kai_setup_wizard",
-          "one_setup"
+          "one_setup_finance"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
@@ -5099,7 +6077,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup/kai"
+          "current route becomes /one/setup/finance"
         ],
         "backend_effects": []
       },
@@ -5136,8 +6114,8 @@
             "label": "Answer Volatility Preference",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/setup/kai",
-              "screen": "kai_setup_wizard"
+              "route": "/one/setup/finance",
+              "screen": "one_setup_finance"
             }
           }
         ],
@@ -5182,11 +6160,10 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/setup/kai"
+          "/one/setup/finance"
         ],
         "screens": [
-          "kai_setup_wizard",
-          "one_setup"
+          "one_setup_finance"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
@@ -5223,7 +6200,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup/kai"
+          "current route becomes /one/setup/finance"
         ],
         "backend_effects": []
       },
@@ -5248,8 +6225,431 @@
             "label": "Save Finance Preferences",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/setup/kai",
-              "screen": "kai_setup_wizard"
+              "route": "/one/setup/finance",
+              "screen": "one_setup_finance"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.finish_location",
+      "surface_id": "one_setup_location",
+      "label": "Finish Location setup",
+      "aliases": [
+        "finish location setup",
+        "finish location"
+      ],
+      "search_keywords": [
+        "finish",
+        "location"
+      ],
+      "meaning": "Records granted device location permission and returns to the setup hub.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/location"
+        ],
+        "screens": [
+          "one_setup_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Device location permission is granted."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.finish_location"
+      },
+      "control_ids": [
+        "one-setup-location-terminal"
+      ],
+      "state_exposure": [
+        "location permission state",
+        "active setup capability"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.finish_location",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.finish_location",
+            "label": "Finish Location setup",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.skip_location",
+      "surface_id": "one_setup_location",
+      "label": "Skip Location setup",
+      "aliases": [
+        "skip location setup",
+        "skip location",
+        "not now"
+      ],
+      "search_keywords": [
+        "skip",
+        "location"
+      ],
+      "meaning": "Returns to the setup hub without recording Location as complete.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/location"
+        ],
+        "screens": [
+          "one_setup_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.skip_location"
+      },
+      "control_ids": [
+        "one-setup-location-terminal"
+      ],
+      "state_exposure": [
+        "active setup capability"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.skip_location",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.skip_location",
+            "label": "Skip Location setup",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.finish_ria",
+      "surface_id": "one_setup_ria",
+      "label": "Finish RIA setup",
+      "aliases": [
+        "finish ria setup",
+        "finish ria"
+      ],
+      "search_keywords": [
+        "finish",
+        "ria"
+      ],
+      "meaning": "Records a non-rejected RIA profile submission and returns to setup.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/ria"
+        ],
+        "screens": [
+          "one_setup_ria"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The RIA profile submission is not rejected."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.finish_ria"
+      },
+      "control_ids": [
+        "one-setup-ria-terminal"
+      ],
+      "state_exposure": [
+        "RIA profile outcome",
+        "active setup capability"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/ria"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.finish_ria",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.finish_ria",
+            "label": "Finish RIA setup",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.skip_ria",
+      "surface_id": "one_setup_ria",
+      "label": "Skip RIA setup",
+      "aliases": [
+        "skip ria setup",
+        "not now"
+      ],
+      "search_keywords": [
+        "skip",
+        "ria"
+      ],
+      "meaning": "Returns to the setup hub without recording RIA as complete.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/ria"
+        ],
+        "screens": [
+          "one_setup_ria"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.skip_ria"
+      },
+      "control_ids": [
+        "one-setup-ria-terminal"
+      ],
+      "state_exposure": [
+        "active setup capability"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/ria"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.skip_ria",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.skip_ria",
+            "label": "Skip RIA setup",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
             }
           }
         ],
@@ -12024,9 +13424,330 @@
       }
     },
     {
+      "action_id": "setup.open_gmail",
+      "surface_id": "one_setup_hub",
+      "label": "Connect Gmail",
+      "aliases": [
+        "set up gmail",
+        "open gmail setup",
+        "connect gmail"
+      ],
+      "search_keywords": [
+        "gmail",
+        "setup",
+        "receipts"
+      ],
+      "meaning": "Opens Gmail setup so One can understand approved brand affinities and keep a private memory of recent interactions.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/gmail"
+      },
+      "control_ids": [
+        "one_setup_tile_gmail"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/gmail"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.open_gmail",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.open_gmail",
+            "label": "Connect Gmail",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/gmail",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.open_location",
+      "surface_id": "one_setup_hub",
+      "label": "Set up location",
+      "aliases": [
+        "set up location",
+        "open location setup",
+        "set up live sharing"
+      ],
+      "search_keywords": [
+        "location",
+        "setup",
+        "sharing"
+      ],
+      "meaning": "Opens Location setup so the person can share location with trusted people they choose.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/location"
+      },
+      "control_ids": [
+        "one_setup_tile_location"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.open_location",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.open_location",
+            "label": "Set up location",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/location",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.open_email",
+      "surface_id": "one_setup_hub",
+      "label": "KYC",
+      "aliases": [
+        "kyc",
+        "let one draft for me",
+        "set up email",
+        "open email setup"
+      ],
+      "search_keywords": [
+        "kyc",
+        "email",
+        "draft",
+        "approvals",
+        "one@hushh.ai"
+      ],
+      "meaning": "Opens KYC setup for approval-gated drafting when One is invoked at one@hushh.ai.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/email"
+      },
+      "control_ids": [
+        "one_setup_tile_email"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/email"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.open_email",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.open_email",
+            "label": "KYC",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/email",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "setup.open_finance",
       "surface_id": "one_setup_hub",
-      "label": "Set Up Finance",
+      "label": "Set up your finances",
       "aliases": [
         "set up finance",
         "open finance setup",
@@ -12102,7 +13823,7 @@
           {
             "type": "action",
             "action_id": "setup.open_finance",
-            "label": "Set Up Finance",
+            "label": "Set up your finances",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/finance",
@@ -12131,20 +13852,22 @@
       }
     },
     {
-      "action_id": "setup.open_gmail",
+      "action_id": "setup.open_ria",
       "surface_id": "one_setup_hub",
-      "label": "Set Up Gmail",
+      "label": "Set up RIA",
       "aliases": [
-        "set up gmail",
-        "open gmail setup",
-        "connect gmail"
+        "set up ria",
+        "set up my advisor profile",
+        "open ria setup"
       ],
       "search_keywords": [
-        "gmail",
-        "setup",
-        "receipts"
+        "ria",
+        "advisor",
+        "profile",
+        "verification",
+        "setup"
       ],
-      "meaning": "Opens the Gmail capability setup step from the setup hub.",
+      "meaning": "Opens the RIA advisor-profile setup step from the setup hub.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -12172,10 +13895,10 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/one/setup/gmail"
+        "target": "/one/setup/ria"
       },
       "control_ids": [
-        "one_setup_tile_gmail"
+        "one_setup_tile_ria"
       ],
       "state_exposure": [],
       "docs_references": [
@@ -12186,7 +13909,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/setup/gmail"
+          "current route becomes /one/setup/ria"
         ],
         "backend_effects": []
       },
@@ -12200,549 +13923,18 @@
         ]
       },
       "goal": {
-        "goal_id": "goal.setup.open_gmail",
+        "goal_id": "goal.setup.open_ria",
         "required_inputs": [],
         "input_resolvers": [],
         "slot_schema": {},
         "workflow_steps": [
           {
             "type": "action",
-            "action_id": "setup.open_gmail",
-            "label": "Set Up Gmail",
+            "action_id": "setup.open_ria",
+            "label": "Set up RIA",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/setup/gmail",
-              "screen": "one_setup_hub"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "setup.open_email",
-      "surface_id": "one_setup_hub",
-      "label": "Set Up Email",
-      "aliases": [
-        "set up email",
-        "open email setup"
-      ],
-      "search_keywords": [
-        "email",
-        "setup",
-        "approvals"
-      ],
-      "meaning": "Opens the Email capability setup step from the setup hub.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/setup"
-        ],
-        "screens": [
-          "one_setup_hub",
-          "one_setup"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/setup/email"
-      },
-      "control_ids": [
-        "one_setup_tile_email"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/setup/email"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.setup.open_email",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "setup.open_email",
-            "label": "Set Up Email",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/setup/email",
-              "screen": "one_setup_hub"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "setup.open_location",
-      "surface_id": "one_setup_hub",
-      "label": "Set Up Location",
-      "aliases": [
-        "set up location",
-        "open location setup",
-        "set up live sharing"
-      ],
-      "search_keywords": [
-        "location",
-        "setup",
-        "sharing"
-      ],
-      "meaning": "Opens the Location capability setup step from the setup hub.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/setup"
-        ],
-        "screens": [
-          "one_setup_hub",
-          "one_setup"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/setup/location"
-      },
-      "control_ids": [
-        "one_setup_tile_location"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/setup/location"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.setup.open_location",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "setup.open_location",
-            "label": "Set Up Location",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/setup/location",
-              "screen": "one_setup_hub"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "setup.open_pkm",
-      "surface_id": "one_setup_hub",
-      "label": "Set Up Memory",
-      "aliases": [
-        "set up memory",
-        "open memory setup",
-        "set up personal information"
-      ],
-      "search_keywords": [
-        "memory",
-        "pkm",
-        "setup",
-        "personal information"
-      ],
-      "meaning": "Opens the Memory (PKM) capability setup step from the setup hub.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/setup"
-        ],
-        "screens": [
-          "one_setup_hub",
-          "one_setup"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/setup/pkm"
-      },
-      "control_ids": [
-        "one_setup_tile_pkm"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/setup/pkm"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.setup.open_pkm",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "setup.open_pkm",
-            "label": "Set Up Memory",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/setup/pkm",
-              "screen": "one_setup_hub"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "setup.open_marketplace",
-      "surface_id": "one_setup_hub",
-      "label": "Explore Information Marketplace",
-      "aliases": [
-        "explore information marketplace",
-        "open marketplace setup",
-        "set up marketplace"
-      ],
-      "search_keywords": [
-        "information marketplace",
-        "marketplace",
-        "setup",
-        "explore"
-      ],
-      "meaning": "Opens the Information Marketplace explore step from the setup hub.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/setup"
-        ],
-        "screens": [
-          "one_setup_hub",
-          "one_setup"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/setup/marketplace"
-      },
-      "control_ids": [
-        "one_setup_tile_marketplace"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/setup/marketplace"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.setup.open_marketplace",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "setup.open_marketplace",
-            "label": "Explore Information Marketplace",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/setup/marketplace",
-              "screen": "one_setup_hub"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "setup.open_consent",
-      "surface_id": "one_setup_hub",
-      "label": "Explore Consent",
-      "aliases": [
-        "set up consent",
-        "open consent setup",
-        "explore consent"
-      ],
-      "search_keywords": [
-        "consent",
-        "setup",
-        "approvals"
-      ],
-      "meaning": "Opens the Consent explore-only step from the setup hub.",
-      "speaker_persona": "nav",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/setup"
-        ],
-        "screens": [
-          "one_setup_hub",
-          "one_setup"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/setup/consent"
-      },
-      "control_ids": [
-        "one_setup_tile_consent"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/setup/consent"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.setup.open_consent",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "setup.open_consent",
-            "label": "Explore Consent",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/setup/consent",
+              "route": "/one/setup/ria",
               "screen": "one_setup_hub"
             }
           }
@@ -12770,18 +13962,23 @@
     {
       "action_id": "setup.open_connected_systems",
       "surface_id": "one_setup_hub",
-      "label": "Set Up Connected Systems",
+      "label": "Link your record to external systems",
       "aliases": [
+        "link my record to external systems",
+        "link my record",
+        "link my tools",
         "set up connected systems",
-        "open connected systems setup",
+        "show crm systems",
         "connect crm"
       ],
       "search_keywords": [
+        "link tools",
         "connected systems",
         "crm",
+        "profile",
         "setup"
       ],
-      "meaning": "Opens the Connected Systems capability setup step from the setup hub.",
+      "meaning": "Opens external-system setup so the person can choose where One may find or create their record.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -12845,7 +14042,7 @@
           {
             "type": "action",
             "action_id": "setup.open_connected_systems",
-            "label": "Set Up Connected Systems",
+            "label": "Link your record to external systems",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/connected-systems",
@@ -12876,7 +14073,7 @@
     {
       "action_id": "setup.hub_master_ack",
       "surface_id": "one_setup_hub",
-      "label": "Finish Setup For Now",
+      "label": "Skip or finish setup",
       "aliases": [
         "skip setup",
         "i'm done setting up",
@@ -12891,7 +14088,7 @@
         "finish setup",
         "home"
       ],
-      "meaning": "Resolves the master setup gate: Skip when nothing is set up yet, or Continue once at least one capability is ready, then opens One's home.",
+      "meaning": "Resolves the master setup gate: Skip setup when nothing is set up yet, or Finish setup once at least one capability is ready, then opens One's home.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -12958,7 +14155,7 @@
           {
             "type": "action",
             "action_id": "setup.hub_master_ack",
-            "label": "Finish Setup For Now",
+            "label": "Skip or finish setup",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup",

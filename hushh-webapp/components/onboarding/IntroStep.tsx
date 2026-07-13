@@ -35,6 +35,8 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
     return {
       status: "started" as const,
       summary: "Opening sign-in.",
+      routeAfter: ROUTES.LOGIN,
+      screenAfter: "login",
     };
   }, [onLogin]);
 

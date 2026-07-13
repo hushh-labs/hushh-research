@@ -51,11 +51,21 @@ export function createHotGetJsonCache(params: {
     }
   }
 
+  function invalidate(predicate: (key: string) => boolean): void {
+    for (const key of cache.keys()) {
+      if (predicate(key)) cache.delete(key);
+    }
+    for (const key of inflight.keys()) {
+      if (predicate(key)) inflight.delete(key);
+    }
+  }
+
   return {
     read,
     write,
     getInflight,
     setInflight,
     clearInflight,
+    invalidate,
   };
 }

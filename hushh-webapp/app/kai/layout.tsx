@@ -7,7 +7,6 @@
  */
 
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
-import { KaiOnboardingGuard } from "@/components/kai/onboarding/kai-onboarding-guard";
 import { KaiNavTour } from "@/components/kai/onboarding/kai-nav-tour";
 import { RouteErrorBoundary } from "@/components/app-ui/route-error-boundary";
 import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
@@ -119,9 +118,7 @@ export default function KaiLayout({
 
   return (
     <VaultLockGuard>
-      <PhoneMandateGuard>
-        <KaiOnboardingGuard>{shell}</KaiOnboardingGuard>
-      </PhoneMandateGuard>
+      <PhoneMandateGuard>{shell}</PhoneMandateGuard>
     </VaultLockGuard>
   );
 }

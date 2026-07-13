@@ -7,7 +7,7 @@ import path from "path";
  * IMPORTANT: This config is used for building the mobile app.
  * For cloud deployment, use the standard next.config.ts
  *
- * Usage: CAPACITOR_BUILD=true npm run build
+ * Usage: npm run cap:build
  */
 const capacitorConfig: NextConfig = {
   // Keep file tracing and workspace discovery scoped to this monorepo.

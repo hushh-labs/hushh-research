@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  describeGmailReceiptScanProgress,
   resolveGmailConnectionPresentation,
   resolveGmailLastUpdatedLabel,
   resolveGmailStatusSummary,
@@ -225,6 +226,18 @@ describe("sanitizeGmailUserMessage", () => {
 });
 
 describe("resolveGmailStatusSummary", () => {
+  it("explains the purchase-signal benefit before Gmail is connected", () => {
+    expect(resolveGmailStatusSummary({ status: null }).detail).toContain(
+      "Receipt emails capture purchase interactions.",
+    );
+  });
+
+  it("uses only available scan counts when explaining receipt progress", () => {
+    expect(describeGmailReceiptScanProgress({ scanned: 12, matched: 3 })).toBe(
+      "12 emails checked. 3 receipts matched so far. Receipt-based purchase interactions help One understand the brands you care about.",
+    );
+  });
+
   it("returns a calm success summary for connected Gmail", () => {
     expect(
       resolveGmailStatusSummary({

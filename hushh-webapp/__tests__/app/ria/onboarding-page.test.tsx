@@ -51,6 +51,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.routerPush, replace: mocks.routerReplace }),
   useSearchParams: () => mocks.useSearchParams(),
+  usePathname: () => "/ria/onboarding",
 }));
 
 vi.mock("lucide-react", () => ({
@@ -267,9 +268,16 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
 
 vi.mock("@/lib/navigation/routes", () => ({
   ROUTES: {
+    ONE_SETUP: "/one/setup",
     RIA_HOME: "/ria",
     RIA_PROFILE: "/ria/profile",
     RIA_ONBOARDING: "/ria/onboarding",
+  },
+  normalizeInternalRouteHref: (value: string | null | undefined) => {
+    const candidate = String(value ?? "").trim();
+    return candidate.startsWith("/") && !candidate.startsWith("//")
+      ? candidate
+      : null;
   },
 }));
 

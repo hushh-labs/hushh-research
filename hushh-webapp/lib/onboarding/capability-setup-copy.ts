@@ -1,4 +1,7 @@
-import { ONE_CAPABILITIES, type OneCapability } from "@/lib/onboarding/one-capabilities";
+import {
+  ONE_SETUP_CAPABILITIES,
+  type OneCapability,
+} from "@/lib/onboarding/one-capabilities";
 import { buildOneSetupCapabilityRoute } from "@/lib/navigation/routes";
 
 /**
@@ -24,6 +27,10 @@ export interface CapabilitySetupCopy {
   setupTitle: string;
   /** One-sentence, value-first explanation. */
   setupBlurb: string;
+  /** Short, capability-specific action for the setup-hub trailing label. */
+  actionLabel: string;
+  /** Short continuation action after the capability has started. */
+  resumeActionLabel: string;
   /**
    * Where "Set up" / "Explore" routes for this capability. Always the
    * setup-scoped handoff route (`/one/setup/<id>`) so the hard setup gate
@@ -52,6 +59,8 @@ const SETUP_COPY_BY_ID: Record<
   {
     setupTitle: string;
     setupBlurb: string;
+    actionLabel: string;
+    resumeActionLabel: string;
     exploreTitle?: string;
     exploreBlurb?: string;
     exploreBullets?: readonly string[];
@@ -62,6 +71,8 @@ const SETUP_COPY_BY_ID: Record<
     setupTitle: "Set up your finances",
     setupBlurb:
       "Tell One how you like to invest so it can read your portfolio and surface analysis that fits you.",
+    actionLabel: "Set up Finance",
+    resumeActionLabel: "Finish Finance",
     setupBullets: [
       "Share how you like to invest in a few quick taps.",
       "One reads your portfolio and tailors the analysis to you.",
@@ -69,39 +80,60 @@ const SETUP_COPY_BY_ID: Record<
     ],
   },
   gmail: {
-    setupTitle: "Bring in your receipts",
+    setupTitle: "Connect Gmail",
     setupBlurb:
-      "Connect Gmail so One can keep a private memory of your purchases and pull up any receipt in seconds.",
+      "Connect Gmail so One can understand the brands you care about and build a private memory of recent interactions.",
+    actionLabel: "Connect Gmail",
+    resumeActionLabel: "Finish Gmail",
     setupBullets: [
       "Connect Gmail once, with your approval.",
-      "One keeps a private memory of your purchases.",
-      "Pull up any receipt in seconds.",
+      "One learns your brand affinities from the interactions you approve.",
+      "Keep a private memory of recent interactions, ready when you need it.",
     ],
   },
   email: {
-    setupTitle: "Let One draft for you",
+    setupTitle: "KYC",
     setupBlurb:
-      "Set up email so One can prepare replies and approvals you can send with a tap.",
+      "Let One draft for you when you invoke it from email at one@hushh.ai.",
+    actionLabel: "Set up KYC",
+    resumeActionLabel: "Finish KYC",
     setupBullets: [
-      "One drafts replies and approvals you can send with a tap.",
+      "Invoke One from email at one@hushh.ai when you want a draft.",
+      "One prepares replies and approvals you can review before sending.",
       "Everything stays a draft until you choose to send it.",
       "You are always in control of what goes out.",
     ],
   },
   location: {
-    setupTitle: "Add live location",
+    setupTitle: "Set up location",
     setupBlurb:
-      "Share location when it helps so One can offer local context and referrals. You stay in control.",
+      "Set up location so you can share it with the trusted people you choose, whenever you want.",
+    actionLabel: "Choose location",
+    resumeActionLabel: "Finish location",
     setupBullets: [
-      "Share your location only when it actually helps.",
-      "One adds local context and referrals around you.",
-      "Turn sharing off whenever you want.",
+      "Choose the trusted people who can receive a location share.",
+      "Start and stop sharing whenever you want.",
+      "Your location stays private unless you choose to share it.",
+    ],
+  },
+  ria: {
+    setupTitle: "Set up RIA",
+    setupBlurb:
+      "Create and verify your advisor profile so One can open the right professional workspace for you.",
+    actionLabel: "Verify RIA",
+    resumeActionLabel: "Finish RIA",
+    setupBullets: [
+      "Verify your advisor or firm credentials.",
+      "Choose the services you offer and review your profile.",
+      "Submit only when the profile is accurate.",
     ],
   },
   pkm: {
     setupTitle: "Save what matters",
     setupBlurb:
       "Keep notes and personal details in one private place that only you and One can open.",
+    actionLabel: "Save what matters",
+    resumeActionLabel: "Finish saving",
     setupBullets: [
       "Save notes and personal details in one place.",
       "Only you and One can ever open it.",
@@ -112,6 +144,8 @@ const SETUP_COPY_BY_ID: Record<
     setupTitle: "Review who has access",
     setupBlurb:
       "See every request to use your personal information, approve what you trust, and pull access back any time.",
+    actionLabel: "Review access",
+    resumeActionLabel: "Review access",
     exploreTitle: "Here's your access center",
     exploreBlurb:
       "Nothing to set up. This is where you see and control who can use your personal information.",
@@ -122,13 +156,15 @@ const SETUP_COPY_BY_ID: Record<
     ],
   },
   "connected-systems": {
-    setupTitle: "Link your tools",
+    setupTitle: "Link your record to external systems",
     setupBlurb:
-      "Connect the systems you already use so One can read and update them with your approval.",
+      "Choose the external systems where One can find or create your record, only with your approval.",
+    actionLabel: "Link your record",
+    resumeActionLabel: "Finish linking",
     setupBullets: [
-      "Link the tools you already use.",
-      "One reads and updates them only with your approval.",
-      "Disconnect any tool whenever you want.",
+      "See every CRM system currently available to your account.",
+      "Check whether your record already exists before creating one.",
+      "One creates or updates a record only after your approval.",
     ],
   },
 };
@@ -140,6 +176,8 @@ function toSetupCopy(cap: OneCapability): CapabilitySetupCopy {
     title: cap.title,
     setupTitle: extra?.setupTitle ?? `Set up ${cap.title}`,
     setupBlurb: extra?.setupBlurb ?? cap.description,
+    actionLabel: extra?.actionLabel ?? `Set up ${cap.title}`,
+    resumeActionLabel: extra?.resumeActionLabel ?? `Finish ${cap.title}`,
     // Every tile routes through the onboarding-scoped handoff so the hard gate
     // never bounces a first-time tap. The handoff resolves the gate and
     // forwards to the canonical capability destination.
@@ -151,11 +189,13 @@ function toSetupCopy(cap: OneCapability): CapabilitySetupCopy {
   };
 }
 
-/** Ordered setup copy for every One capability, mirroring the catalog order. */
+/** Ordered setup copy for the authored onboarding sequence only. */
 export const CAPABILITY_SETUP_COPY: readonly CapabilitySetupCopy[] =
-  ONE_CAPABILITIES.map(toSetupCopy);
+  ONE_SETUP_CAPABILITIES.map(toSetupCopy);
 
 /** Lookup setup copy by capability id. */
-export function getCapabilitySetupCopy(id: string): CapabilitySetupCopy | undefined {
+export function getCapabilitySetupCopy(
+  id: string,
+): CapabilitySetupCopy | undefined {
   return CAPABILITY_SETUP_COPY.find((c) => c.id === id);
 }

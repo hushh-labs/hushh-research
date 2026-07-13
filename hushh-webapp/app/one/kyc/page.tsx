@@ -107,7 +107,10 @@ import {
 } from "@/lib/services/one-kyc-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { useVault } from "@/lib/vault/vault-context";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import {
+  usePublishVoiceSurfaceMetadata,
+  type VoiceSurfacePublisherRole,
+} from "@/lib/voice/voice-surface-metadata";
 
 const STATUS_LABELS: Record<OneKycWorkflowStatus, string> = {
   needs_client_connector: "Needs vault setup",
@@ -288,7 +291,13 @@ function mergeWorkflows(
   return merged;
 }
 
-export default function OneKycPage() {
+export default function OneKycPage({
+  onSetupReadinessChange,
+  voicePublisherRole = "route",
+}: {
+  onSetupReadinessChange?: (ready: boolean) => void;
+  voicePublisherRole?: VoiceSurfacePublisherRole;
+} = {}) {
   const auth = useAuth();
 
   return (
@@ -300,13 +309,22 @@ export default function OneKycPage() {
         dataState={auth.user ? "loaded" : "loading"}
       />
       <VaultLockGuard>
-        <OneKycWorkspace />
+        <OneKycWorkspace
+          onSetupReadinessChange={onSetupReadinessChange}
+          voicePublisherRole={voicePublisherRole}
+        />
       </VaultLockGuard>
     </>
   );
 }
 
-function OneKycWorkspace() {
+export function OneKycWorkspace({
+  onSetupReadinessChange,
+  voicePublisherRole = "route",
+}: {
+  onSetupReadinessChange?: (ready: boolean) => void;
+  voicePublisherRole?: VoiceSurfacePublisherRole;
+}) {
   const auth = useRequireAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const { handleApprove, handleApproveBundle, handleDeny, handleDenyBundle } =
@@ -425,6 +443,11 @@ function OneKycWorkspace() {
       emailAliases.filter((alias) => alias.verification_status === "verified"),
     [emailAliases],
   );
+  useEffect(() => {
+    // Sending remains optional. A verified invocation identity and initialized
+    // client connector are the operational boundary for first-run setup.
+    onSetupReadinessChange?.(connectorReady && verifiedAliases.length > 0);
+  }, [connectorReady, onSetupReadinessChange, verifiedAliases.length]);
   const pendingAliases = useMemo(
     () =>
       emailAliases.filter((alias) => alias.verification_status === "pending"),
@@ -541,7 +564,9 @@ function OneKycWorkspace() {
       workflows.length,
     ],
   );
-  usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
+  usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata, {
+    role: voicePublisherRole,
+  });
 
   const clearLocalWorkflowState = useCallback((workflowId: string) => {
     setLocalDrafts((current) =>

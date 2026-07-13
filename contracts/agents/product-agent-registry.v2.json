@@ -1415,11 +1415,11 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "a8519c516cad52790683b90511cd8519e72c360549d44e6cb72d405af3323914",
+      "system_instruction_sha256": "07e44322b2983f8975ba613ae0d367a227d4ca50212e7f3f60b77f6a53de7315",
       "telemetry_namespace": "agent.onboarding",
       "tools": [],
       "ui_type": "chat",
-      "version": "1.0.0"
+      "version": "1.0.2"
     },
     {
       "action_ids": [],
