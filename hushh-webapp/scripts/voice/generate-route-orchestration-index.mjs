@@ -55,8 +55,15 @@ const surfaces = new Map(
 const routes = (surfaceMap.routes || [])
   .map((entry) => {
     const route = entry.route;
+    const playbook = entry.route_contract?.voice_playbook;
+    if (!playbook)
+      throw new Error(`Route ${route} has no generated voice playbook`);
+    const mode = entry.route_contract?.mode || "unclassified";
     const localActionIds = new Set(entry.voice_action_contract_ids || []);
-    const routeActions = actions.filter(
+    // Redirect/callback routes never publish ordinary actions. Their physical
+    // page file may share a compatibility component with a canonical route,
+    // but the current route has no mounted controls and must not inherit them.
+    const routeActions = mode === "redirect" ? [] : actions.filter(
       (action) =>
         localActionIds.has(action.action_id) ||
         (Array.isArray(action.reachability?.routes) &&
@@ -64,7 +71,13 @@ const routes = (surfaceMap.routes || [])
             // Reachability patterns may admit a concrete physical route, but a
             // concrete action must never leak into a dynamic physical-route entry.
             routeMatchesPattern(route, actionRoute),
-          )),
+          ) &&
+          // A route index represents controls that can be reached from this
+          // route, not every action that happens to navigate *to* it. Keep a
+          // route-reachable action only when it has an authored control or is
+          // explicitly declared hidden-navigable.
+          ((action.control_ids || []).length > 0 ||
+            action.reachability?.hidden_navigable === true)),
     );
     const actionIds = routeActions
       .filter((action) => action.execution_target?.status === "wired")
@@ -77,7 +90,6 @@ const routes = (surfaceMap.routes || [])
           .filter((agentId) => typeof agentId === "string" && agentId.trim()),
       ),
     ].sort();
-    const mode = entry.route_contract?.mode || "unclassified";
     const transitional =
       mode === "redirect" ||
       /oauth\/return|callback|logout/.test(route) ||
@@ -86,9 +98,6 @@ const routes = (surfaceMap.routes || [])
       routeActions
         .map((action) => surfaces.get(action.surface_id)?.orchestration)
         .find((value) => value && Object.values(value).some(Boolean)) || {};
-    const playbook = entry.route_contract?.voice_playbook;
-    if (!playbook)
-      throw new Error(`Route ${route} has no generated voice playbook`);
     if (
       playbook.primary_action_id &&
       !actionIds.includes(playbook.primary_action_id)
@@ -123,7 +132,12 @@ const routes = (surfaceMap.routes || [])
       voice_playbook: playbook,
       interaction_layer_policy: entry.route_contract
         ?.interaction_layer_policy || { allowed_families: [] },
-      voice_contract_file: entry.voice_action_contract_file,
+      canonical_screen: playbook.screen || null,
+      voice_contract_file:
+        entry.voice_action_contract_file ||
+        (route === "/one/setup/finance"
+          ? "app/one/setup/kai/page.voice-action-contract.json"
+          : null),
       action_ids: actionIds,
       action_coverage: actionIds.length
         ? "inherited"

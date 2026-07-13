@@ -76,4 +76,41 @@ describe("waitForVoiceActionSettlement", () => {
       })
     );
   });
+
+  it("waits for the new route publisher instead of settling on a stale surface", async () => {
+    let reads = 0;
+    const result = await waitForVoiceActionSettlement({
+      actionId: "onboarding.claim_one",
+      mode: "execute_and_wait",
+      actionStatus: "started",
+      routeBefore: { pathname: "/", screen: "one_intro", subview: null },
+      expectedRoute: "/login",
+      expectedScreen: "login",
+      getCurrentRoute: () => ({
+        pathname: "/login",
+        screen: "login",
+        subview: null,
+      }),
+      getCurrentSurfaceMetadata: () => {
+        reads += 1;
+        return reads < 3
+          ? {
+              publisherRouteKey: "/",
+              screenId: "one_intro",
+              title: "Claim your One",
+            }
+          : {
+              publisherRouteKey: "/login",
+              screenId: "login",
+              title: "Sign in",
+            };
+      },
+      timeoutMs: 50,
+      pollIntervalMs: 1,
+    });
+
+    expect(reads).toBeGreaterThanOrEqual(3);
+    expect(result.settled_by).toBe("screen");
+    expect(result.route_after).toBe("/login");
+  });
 });

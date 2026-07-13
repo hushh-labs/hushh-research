@@ -36,16 +36,24 @@ resumption hint; route guards and the generated contracts are still authoritativ
 | Anonymous auth | choose Google or Apple | verified Firebase session | choose a provider / retry |
 | Phone required | phone verification only | setup hub | verify phone |
 | Setup hub | choose a capability, skip, or finish | capability route / One home | return to hub |
-| Capability setup | scoped local action or approved connector | terminal callback or explicit breadcrumb return to `/one/setup` | retain goal and return hub |
-| External connector | callback settlement only | `/one/setup` | retry/cancel without root completion |
+| Capability setup | scoped local action or approved connector | `/one/setup/<capability>?finish=1` | retain goal and return through the terminal step |
+| External connector | callback settlement only | capability terminal step | retry/cancel without root completion |
 | Root completion | explicit hub finish or skip only | `/one` | none |
 
-Finance and external connector completion return directly to `/one/setup`. Capability
-workspaces without an authoritative terminal event preserve a setup-origin breadcrumb
-and active goal so the person can explicitly return to the hub; they must not fabricate
-completion from navigation alone. Only the hub's explicit Finish/Skip calls the
-setup-exit service and synchronizes root completion to the pre-vault record and, when
-unlocked, the vault-backed compatibility state.
+Every capability ends at the shared terminal acknowledgement **Finish `<capability>`
+setup**. That action alone adds the capability to the durable completed-capability set,
+clears the active capability, and returns to `/one/setup`; backing out clears the active
+goal without claiming completion. Finance is preferences → Plaid, statement upload, or
+later → **Finish Finance setup**. Gmail callback success keeps Gmail active and routes to
+**Finish Gmail setup**. The hub order is fixed: Connect Gmail, Location, Let One draft
+for you, Finance, RIA, then Link your tools. RIA profile submission and CRM selection
+return through their own explicit terminal acknowledgements. Memory, Consent, and
+Information Marketplace remain product surfaces but are not setup-hub actions. Only the
+hub's explicit Finish/Skip calls the setup-exit service
+and resolves the root pre-vault record. Root completion never marks Finance complete.
+Within the setup hub, One receives the same ordered remaining/completed partition shown
+on screen. The completed section is hidden at zero and appears below Remaining after the
+first terminal acknowledgement.
 
 ## Voice and provider authentication
 
@@ -94,6 +102,18 @@ Firebase identity or client-local state. `deriveVoiceRouteScreen`, the generated
 the browser-published redacted context, and the `/api/one/[...path]` BFF/proxy boundary
 are the route authority. There is no public MCP route-awareness tool.
 
+`OnboardingJourneyGuard` is the authenticated app-wide admission boundary. It verifies
+the durable root state and admits only the verified active capability's route family;
+query parameters are navigation history, never authority. Internal Profile,
+Marketplace, RIA, Finance, and connector routes cannot bypass unfinished setup. A
+pre-vault mutation invalidates the shared BFF bootstrap cache before the next decision.
+
+Each authored route publisher carries its pathname lease. During navigation, a snapshot
+whose publisher still belongs to the prior route exposes no actions. A voice directive
+settles only after the new pathname and its authored surface have both mounted; a timeout
+remains `started`, never a fabricated success. Same-route action/layer revisions update
+the live ADK context without recreating the voice session.
+
 ## Consent, delegation, and performance
 
 Onboarding grants no broad standing authority. A capability specialist runs only after
@@ -113,7 +133,7 @@ the browser journey suite is expanded.
 - explicit Google/Apple from Login selects the exact provider action and requests one provider-specific trusted tap; generic sign-in requests a provider
 - popup success, cancellation, close/retry, focus recovery, SDK failure, and stale completion preserve the existing goal and post-auth route correctly
 - Terms/Privacy expose only their active-layer action inventory and close through visible, keyboard, outside-interaction, and voice paths
-- Login → phone → hub → capability → terminal/explicit hub return reaches One home only through explicit hub completion
-- Finance completion returns to the hub and cannot resolve root setup
+- Login → phone → hub → capability → explicit capability finish → hub reaches One home only through explicit hub completion
+- Finance offers Plaid, statement upload, or later before its terminal finish and cannot resolve root setup
 - redacted relay context and directive settlement are correlated; One cannot state success before settlement
 - generated contract output, Next.js BFF header forwarding, and browser hands-free journeys remain parity gates

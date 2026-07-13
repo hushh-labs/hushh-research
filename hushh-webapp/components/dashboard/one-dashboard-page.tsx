@@ -16,6 +16,7 @@ import {
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import {
   ONE_CAPABILITIES,
+  ONE_SETUP_CAPABILITIES,
   type OneCapabilityTone,
 } from "@/lib/onboarding/one-capabilities";
 import {
@@ -27,7 +28,7 @@ import {
   isCapabilitySetupComplete,
   type CapabilityStatus,
 } from "@/lib/services/capability-setup-state-service";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildOneSetupRoute, ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 
 type OneAgentMode = {
@@ -77,30 +78,34 @@ const RIA_AGENT_MODE: OneAgentMode = {
 function buildModes(
   statusById: Record<string, CapabilityStatus>,
 ): OneAgentMode[] {
-  const modes = ONE_CAPABILITIES.map((cap) => {
-    const status = statusById[cap.id];
-    const display = status
-      ? getCapabilityStatusDisplay(status, { isExploreOnly: cap.isExploreOnly })
-      : { label: "Checking...", tone: "muted" as CapabilityStatusTone };
-    const locked =
-      !!status &&
-      (status.requiresUnlock === true ||
-        (status.state === "blocked" && status.prerequisite === "vault"));
-    return {
-      id: cap.id,
-      title: cap.title,
-      description: cap.description,
-      href: cap.href.includes("?")
-        ? `${cap.href}&from=${ROUTES.ONE_HOME}`
-        : `${cap.href}?from=${ROUTES.ONE_HOME}`,
-      icon: cap.icon,
-      status: display.label,
-      statusTone: display.tone,
-      tone: cap.tone,
-      locked,
-      isExploreOnly: cap.isExploreOnly === true,
-    };
-  });
+  const modes = ONE_CAPABILITIES.filter((cap) => cap.id !== "ria").map(
+    (cap) => {
+      const status = statusById[cap.id];
+      const display = status
+        ? getCapabilityStatusDisplay(status, {
+            isExploreOnly: cap.isExploreOnly,
+          })
+        : { label: "Checking...", tone: "muted" as CapabilityStatusTone };
+      const locked =
+        !!status &&
+        (status.requiresUnlock === true ||
+          (status.state === "blocked" && status.prerequisite === "vault"));
+      return {
+        id: cap.id,
+        title: cap.title,
+        description: cap.description,
+        href: cap.href.includes("?")
+          ? `${cap.href}&from=${ROUTES.ONE_HOME}`
+          : `${cap.href}?from=${ROUTES.ONE_HOME}`,
+        icon: cap.icon,
+        status: display.label,
+        statusTone: display.tone,
+        tone: cap.tone,
+        locked,
+        isExploreOnly: cap.isExploreOnly === true,
+      };
+    },
+  );
   const financeIndex = modes.findIndex((mode) => mode.id === "finance");
   modes.splice(
     financeIndex >= 0 ? financeIndex + 1 : modes.length,
@@ -192,7 +197,7 @@ function AgentTile({ mode }: { mode: OneAgentMode }) {
 function FinishSetupStrip({ percent }: { percent: number }) {
   return (
     <Link
-      href={ROUTES.ONE_SETUP}
+      href={buildOneSetupRoute({ returnTo: ROUTES.ONE_HOME })}
       aria-label="Finish setting up One"
       className="flex w-full items-center gap-3 overflow-hidden rounded-[22px] border border-border/55 bg-black/[0.035] px-4 py-3 transition-[background-color] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:bg-black/[0.055] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:bg-white/[0.06] dark:hover:bg-white/[0.09] motion-reduce:transition-none"
     >
@@ -229,7 +234,7 @@ export function OneDashboardPage({
   const hasSetupRemaining = Object.values(capabilityStatusById).some((status) =>
     isCapabilitySetupActionable(status),
   );
-  const setupable = ONE_CAPABILITIES.filter((cap) => !cap.isExploreOnly);
+  const setupable = ONE_SETUP_CAPABILITIES;
   const doneCount = setupable.filter((cap) => {
     const status = capabilityStatusById[cap.id];
     return status ? isCapabilitySetupComplete(status) : false;

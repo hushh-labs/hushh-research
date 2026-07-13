@@ -3,8 +3,8 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
+import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -26,7 +26,7 @@ export default function OneHomePage() {
   }, [loading, router, user]);
 
   if (loading || !user) {
-    return <HushhLoader label="Opening One..." variant="fullscreen" />;
+    return <RouteLoadingState label="Opening One…" />;
   }
 
   return (

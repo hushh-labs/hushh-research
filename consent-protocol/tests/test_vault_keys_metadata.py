@@ -958,6 +958,33 @@ async def test_ensure_user_entry_creates_placeholder_row():
     assert row["recovery_encrypted_vault_key"] is None
 
 
+def test_pre_vault_serialization_drops_retired_setup_capabilities():
+    state = VaultKeysService._serialize_user_entry(
+        {
+            "user_id": "user-legacy",
+            "setup_capability_ids": '["finance", "pkm", "gmail", "marketplace"]',
+            "onboarding_active_capability": "consent",
+        }
+    )
+
+    assert state["setupCapabilityIds"] == ["gmail", "finance"]
+    assert state["onboardingActiveCapability"] is None
+
+
+@pytest.mark.asyncio
+async def test_pre_vault_update_rejects_retired_active_capability():
+    fake = _FakeSupabase()
+    service = VaultKeysService()
+    service._supabase = fake
+
+    with pytest.raises(ValueError, match="invalid onboarding active capability"):
+        await service.update_pre_vault_state(
+            user_id="user-retired-capability",
+            onboarding_phase="capability_setup",
+            onboarding_active_capability="pkm",
+        )
+
+
 @pytest.mark.asyncio
 async def test_check_vault_exists_false_for_placeholder_and_true_for_active_with_passphrase():
     fake = _FakeSupabase()

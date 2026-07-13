@@ -10,7 +10,9 @@ const profilePageSource = readFileSync(
 
 describe("profile workspace duplication contract", () => {
   it("keeps One dashboard workspaces out of the Profile landing screen", () => {
-    expect(profilePageSource).not.toContain('<SettingsGroup title="Workspaces">');
+    expect(profilePageSource).not.toContain(
+      '<SettingsGroup title="Workspaces">',
+    );
     expect(profilePageSource).not.toContain(
       "const openMyDataPanel = () => router.push(ROUTES.PKM);",
     );
@@ -25,17 +27,31 @@ describe("profile workspace duplication contract", () => {
     expect(profilePageSource).not.toContain("accessRootBadge");
     expect(profilePageSource).not.toContain("Data loaded partially");
     expect(profilePageSource).not.toContain("Access loaded partially");
-    expect(profilePageSource).not.toContain("Unlock to review sync and receipts.");
+    expect(profilePageSource).not.toContain(
+      "Unlock to review sync and receipts.",
+    );
     expect(profilePageSource).not.toContain("Unlock to review email requests.");
   });
 
   it("loads legacy workspace data only for legacy workspace panels", () => {
-    expect(profilePageSource).toContain("function profileRouteNeedsWorkspaceData");
+    expect(profilePageSource).toContain(
+      "function profileRouteNeedsWorkspaceData",
+    );
     expect(profilePageSource).toContain(
       'return panel === "my-data" || panel === "access";',
     );
     expect(profilePageSource).toContain(
-      "enabled: Boolean(user?.uid) && !authLoading && activePanel === \"gmail\"",
+      'enabled: Boolean(user?.uid) && !authLoading && activePanel === "gmail"',
+    );
+  });
+
+  it("keeps one vault entry on Profile and uses the generated router action", () => {
+    expect(profilePageSource).not.toContain('className="min-w-[148px]"');
+    expect(profilePageSource).toContain(
+      'voiceActionId="route.profile_security_panel"',
+    );
+    expect(profilePageSource).not.toContain(
+      'voiceActionId="route.profile_security"',
     );
   });
 });

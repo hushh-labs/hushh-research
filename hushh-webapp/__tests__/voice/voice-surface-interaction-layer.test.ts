@@ -230,4 +230,58 @@ describe("voice surface interaction-layer composition", () => {
     expect(getVoiceSurfaceMetadata()?.screenId).toBe("one_intro");
     expect(getVoiceSurfaceMetadata()?.interactionLayer).toBeNull();
   });
+
+  it("never exposes actions from a publisher that belongs to the previous route", () => {
+    publishLoginRoute();
+
+    const betweenRoutes = buildOneVoiceContextSnapshot({
+      appRuntimeState: runtime("/", "one_intro"),
+    });
+    expect(betweenRoutes.available_action_ids).toEqual([]);
+    expect(betweenRoutes.ui.controls || []).toEqual([]);
+
+    publishVoiceSurfaceMetadata(
+      "next_route",
+      {
+        screenId: "one_intro",
+        title: "Claim your One",
+        actions: [
+          {
+            id: "onboarding_claim_one",
+            actionId: "onboarding.claim_one",
+            label: "Claim your One",
+          },
+        ],
+      },
+      { role: "route", routeKey: "/" },
+    );
+
+    const settledRoute = buildOneVoiceContextSnapshot({
+      appRuntimeState: runtime("/", "one_intro"),
+    });
+    expect(settledRoute.available_action_ids).toContain(
+      "onboarding.claim_one",
+    );
+  });
+
+  it("keeps the static route screen when a feature body publishes chrome", () => {
+    publishVoiceSurfaceMetadata(
+      "route",
+      { screenId: "one_setup_email", title: "KYC setup" },
+      { role: "route", routeKey: "/one/setup/email" },
+    );
+    publishVoiceSurfaceMetadata(
+      "chrome",
+      {
+        screenId: "one_kyc",
+        title: "Email",
+        actions: [
+          { id: "route_one_kyc", actionId: "route.one_kyc", label: "Open Email" },
+        ],
+      },
+      { role: "chrome", routeKey: "/one/setup/email" },
+    );
+
+    expect(getVoiceSurfaceMetadata()?.screenId).toBe("one_setup_email");
+  });
 });

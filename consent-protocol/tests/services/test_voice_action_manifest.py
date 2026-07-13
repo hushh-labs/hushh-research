@@ -299,6 +299,14 @@ class TestSelectVoiceManifestActionsForPrompt:
         result = self._select(available_action_ids=["open_portfolio"])
         assert result[0]["action_id"] == "open_portfolio"
 
+    def test_nonempty_visible_action_inventory_is_an_exact_allowlist(self):
+        result = self._select(
+            screen="settings",
+            available_action_ids=["open_settings"],
+            transcript="open my portfolio",
+        )
+        assert [action["action_id"] for action in result] == ["open_settings"]
+
     def test_screen_match_boosts_score(self):
         result = self._select(screen="settings")
         assert result[0]["action_id"] == "open_settings"

@@ -11,8 +11,9 @@ import {
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button } from "@/components/ui/button";
+import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
-import { getOneCapability } from "@/lib/onboarding/one-capabilities";
+import { getOneSetupCapability } from "@/lib/onboarding/one-capabilities";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import styles from "./one-setup-hub.module.css";
 
@@ -40,47 +41,63 @@ export interface OnboardingCapabilityStepProps {
   onPrimary: () => void;
   /** Invoked by the back affordance. The page returns to the setup hub. */
   onBack: () => void;
+  /** Explicitly leaves an unfinished setup without recording completion. */
+  onSkip: () => void;
   /** Disables the CTA while the page resolves the gate. */
   busy?: boolean;
   /**
-   * True when this capability's real workspace needs an unlocked vault and the
-   * vault is currently locked. The step still forwards (the destination owns
-   * the unlock prompt), but the CTA + helper copy set the honest expectation so
-   * the person is not surprised by an unlock screen on the next step.
+   * True when this capability's real workspace needs private vault access and
+   * the current session is locked. The step still forwards (the destination
+   * owns that prompt); the helper copy simply sets expectations.
    */
   needsVaultUnlock?: boolean;
+  /** Terminal acknowledgement after the capability's real work settles. */
+  completion?: boolean;
 }
 
 export function OnboardingCapabilityStep({
   capabilityId,
   onPrimary,
   onBack,
+  onSkip,
   busy = false,
   needsVaultUnlock = false,
+  completion = false,
 }: OnboardingCapabilityStepProps) {
-  const capability = getOneCapability(capabilityId);
+  const capability = getOneSetupCapability(capabilityId);
   const copy = getCapabilitySetupCopy(capabilityId);
   const [acted, setActed] = useState(false);
 
   const isExploreOnly = capability?.isExploreOnly === true;
+  const setupActionLabel =
+    copy?.actionLabel ?? `Set up ${capability?.title || "capability"}`;
+  const finishActionLabel =
+    copy?.resumeActionLabel ?? `Finish ${capability?.title || "capability"}`;
 
-  const title = isExploreOnly
-    ? copy?.exploreTitle ?? copy?.setupTitle ?? ""
-    : copy?.setupTitle ?? "";
-  const blurb = isExploreOnly
-    ? copy?.exploreBlurb ?? copy?.setupBlurb ?? ""
-    : copy?.setupBlurb ?? "";
+  const title = completion
+    ? finishActionLabel
+    : isExploreOnly
+      ? (copy?.exploreTitle ?? copy?.setupTitle ?? "")
+      : (copy?.setupTitle ?? "");
+  const blurb = completion
+    ? `Review this step, then ${finishActionLabel.toLowerCase()} and return to your setup home.`
+    : isExploreOnly
+      ? (copy?.exploreBlurb ?? copy?.setupBlurb ?? "")
+      : (copy?.setupBlurb ?? "");
   const bullets = isExploreOnly ? copy?.exploreBullets : copy?.setupBullets;
-  const ctaLabel = isExploreOnly
-    ? "Got it"
-    : needsVaultUnlock
-      ? "Unlock & continue"
-      : "Continue";
-  const subline = isExploreOnly
-    ? "No setup required. Just explore."
-    : needsVaultUnlock
-      ? "A quick, one-time setup. You'll unlock your vault next."
-      : "A quick, one-time setup.";
+  const ctaLabel = completion
+    ? finishActionLabel
+    : isExploreOnly
+      ? finishActionLabel
+      : setupActionLabel;
+  const skipActionLabel = `Skip ${capability?.title || "this"} setup`;
+  const subline = completion
+    ? "Finish only when you are comfortable with this setup."
+    : isExploreOnly
+      ? "No additional setup is required."
+      : needsVaultUnlock
+        ? "One will guide you through the private setup required next."
+        : "A quick, one-time setup.";
 
   // Publish screen context so the onboarding guide can explain this exact step.
   // Called before the early return below so hook order stays stable.
@@ -97,17 +114,22 @@ export function OnboardingCapabilityStep({
               actionId: "setup.capability_continue",
               label: ctaLabel,
               purpose: isExploreOnly
-                ? "Acknowledge and continue."
-                : "Start this setup.",
+                ? "Finish this capability and return to setup."
+                : completion
+                  ? "Finish this capability and return to setup."
+                  : "Start this setup.",
             },
             {
               id: "back",
-              label: "Back to setup",
-              purpose: "Return to the setup home.",
+              actionId: completion ? undefined : "setup.capability_skip",
+              label: completion ? "Back to setup" : skipActionLabel,
+              purpose: completion
+                ? "Return to the setup home."
+                : "Return to the setup home without recording this capability as complete.",
             },
           ],
         }
-      : null
+      : null,
   );
 
   if (!capability || !copy) {
@@ -122,11 +144,17 @@ export function OnboardingCapabilityStep({
     onPrimary();
   }
 
+  function handleSkip() {
+    if (busy || acted) return;
+    setActed(true);
+    onSkip();
+  }
+
   return (
     <AppPageShell
       as="main"
       width="content"
-      className="space-y-4 px-4 py-4 pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:px-6"
+      className="space-y-4 px-4 py-4 pb-[calc(var(--app-bottom-inset)+1.5rem)] sm:px-6"
       nativeTest={{
         routeId: "/one/setup/[capability]",
         marker: "native-route-one-setup-capability",
@@ -176,30 +204,56 @@ export function OnboardingCapabilityStep({
 
             {bullets && bullets.length > 0
               ? bullets.map((bullet) => (
-                <SettingsRow
-                  key={bullet}
-                  leading={
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground/[0.06] text-foreground/70">
-                      <Check className="h-4 w-4" aria-hidden />
-                    </span>
-                  }
-                  title={bullet}
-                />
-              ))
+                  <SettingsRow
+                    key={bullet}
+                    leading={
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-foreground/[0.06] text-foreground/70">
+                        <Check className="h-4 w-4" aria-hidden />
+                      </span>
+                    }
+                    title={bullet}
+                  />
+                ))
               : null}
           </SettingsGroup>
 
-          <Button
-            type="button"
-            size="lg"
-            className="h-12 w-full rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
-            onClick={handlePrimary}
-            disabled={busy || acted}
-            data-testid="one-setup-capability-primary"
-            data-voice-control-id="one_setup_capability_primary"
-          >
-            {ctaLabel}
-          </Button>
+          {completion ? (
+            <SetupCompletionFooter
+              label={ctaLabel}
+              onComplete={handlePrimary}
+              busy={busy || acted}
+              controlId="one_setup_capability_primary"
+              testId="one-setup-capability-primary"
+              purpose="finishes this capability and returns to setup."
+            />
+          ) : (
+            <>
+              <Button
+                type="button"
+                size="lg"
+                className="h-12 w-full rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+                onClick={handlePrimary}
+                disabled={busy || acted}
+                data-testid="one-setup-capability-primary"
+                data-voice-control-id="one_setup_capability_primary"
+                data-voice-action-id="setup.capability_continue"
+              >
+                {ctaLabel}
+              </Button>
+              <SetupCompletionFooter
+                label={skipActionLabel}
+                onComplete={handleSkip}
+                busy={busy || acted}
+                controlId="one_setup_capability_skip"
+                actionId="setup.capability_skip"
+                testId="one-setup-capability-skip"
+                purpose="returns to setup without recording this capability as complete."
+                supportingText="You can return to this setup whenever you are ready."
+                variant="none"
+                effect="fade"
+              />
+            </>
+          )}
         </div>
       </AppPageContentRegion>
     </AppPageShell>

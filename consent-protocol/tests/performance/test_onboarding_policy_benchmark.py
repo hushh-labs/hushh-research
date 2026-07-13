@@ -23,14 +23,14 @@ def test_onboarding_policy_meets_morphy_ax_budget_over_10k_runs() -> None:
         vault_state="locked",
         screen="one_setup",
         available_action_ids=[
-            "setup.open_finance",
             "setup.open_gmail",
-            "setup.open_pkm",
-            "setup.open_marketplace",
+            "setup.open_location",
+            "setup.open_email",
+            "setup.open_finance",
         ],
         assessment=OnboardingAssessmentV1(
             intent="execute_visible_action",
-            candidate_action_id="setup.open_pkm",
+            candidate_action_id="setup.open_email",
             confidence=0.99,
         ),
     )
@@ -43,7 +43,7 @@ def test_onboarding_policy_meets_morphy_ax_budget_over_10k_runs() -> None:
         started_at = time.perf_counter()
         goal = resolve_onboarding_goal(context)
         samples_ms.append((time.perf_counter() - started_at) * 1000)
-        assert goal.selected_action_id == "setup.open_pkm"
+        assert goal.selected_action_id == "setup.open_email"
 
     assert _percentile(samples_ms, 0.95) <= 5
     assert _percentile(samples_ms, 0.99) <= 10

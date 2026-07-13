@@ -1,6 +1,5 @@
 "use client";
 
-import { KaiProfileService } from "@/lib/services/kai-profile-service";
 import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
@@ -61,12 +60,6 @@ export function acknowledgeOneSetupExit(params: {
   vaultOwnerToken?: string | null;
 }): Promise<void> {
   const completedAt = Date.now();
-  primeOneSetupResolved({
-    userId: params.userId,
-    skipped: params.skipped,
-    completedAt,
-  });
-
   return (async () => {
     await PreVaultUserStateService.syncKaiSetupState({
       userId: params.userId,
@@ -78,13 +71,14 @@ export function acknowledgeOneSetupExit(params: {
       userId: params.userId,
       phase: "root_completion",
     });
-    if (params.isVaultUnlocked && params.vaultKey && params.vaultOwnerToken) {
-      await KaiProfileService.setOnboardingCompleted({
-        userId: params.userId,
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
-        skippedPreferences: params.skipped,
-      });
-    }
+    // Root completion must not mutate the Finance profile. Finance has its own
+    // terminal capability acknowledgement and setupCapabilityIds signal.
+    // Do not make local guards/cookies claim success before both durable writes
+    // settle. A failed write must leave the journey recoverable on this hub.
+    primeOneSetupResolved({
+      userId: params.userId,
+      skipped: params.skipped,
+      completedAt,
+    });
   })();
 }

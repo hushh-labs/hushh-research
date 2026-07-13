@@ -3,8 +3,8 @@
 import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
+import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { ROUTES } from "@/lib/navigation/routes";
 
@@ -25,7 +25,7 @@ function GettingStartedContent() {
     router.replace(user ? ROUTES.ONE_HOME : loginUrl);
   }, [loading, user, router, loginUrl]);
 
-  return <HushhLoader label="Loading..." variant="fullscreen" />;
+  return <RouteLoadingState surface="onboarding" label="Preparing welcome…" />;
 }
 
 export default function GettingStartedPage() {
@@ -38,7 +38,9 @@ export default function GettingStartedPage() {
         dataState="loaded"
       />
       <Suspense
-        fallback={<HushhLoader label="Loading..." variant="fullscreen" />}
+        fallback={
+          <RouteLoadingState surface="onboarding" label="Preparing welcome…" />
+        }
       >
         <GettingStartedContent />
       </Suspense>

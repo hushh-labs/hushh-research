@@ -57,7 +57,7 @@ This page is current-state implementation truth. It does not rename runtime iden
 | Layer | Runtime id | Current role | Authority |
 | --- | --- | --- | --- |
 | Head agent | `agent_one` | Relationship layer, intent framing, specialist routing | `cap.one.invoke` for external task invocation only |
-| Onboarding policy adjudicator | `agent_onboarding` | Validates One's typed semantic assessment against redacted journey and current-screen action state; never a second semantic router | No tools, scopes, vault access, speaking authority, or standing authority |
+| Onboarding policy adjudicator | `agent_onboarding` | Validates One's typed semantic assessment against redacted journey and current-screen action state; keeps capability messaging and verified completion boundaries aligned; never a second semantic router | No tools, scopes, vault access, speaking authority, or standing authority |
 | Legacy alias | `agent_orchestrator` | Compatibility package and manifest alias for One | Must resolve to One semantics |
 | Finance specialist | `agent_kai` | Finance, portfolio, markets; RIA (advisor workspace) and Investor (personal investing) are its subagents | `agent.kai.analyze` plus finance PKM gates |
 | Consent Center parent | `agent_nav` | Consent, scope review, vault friction, deletion, revocation; parent of Connections | `agent.nav.review` |

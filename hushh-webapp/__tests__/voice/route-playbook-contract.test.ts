@@ -36,7 +36,7 @@ describe("One route voice playbooks", () => {
   it("prefers exact setup routes before the dynamic capability pattern", () => {
     expect(resolveAppRouteLayout("/one/setup/kai").route).toBe("/one/setup/kai");
     expect(resolveAppRouteLayout("/one/setup/finance").route).toBe(
-      "/one/setup/[capability]"
+      "/one/setup/finance"
     );
   });
 

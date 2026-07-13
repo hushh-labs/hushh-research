@@ -35,10 +35,14 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("normalized.startsWith(`${ROUTES.KAI_HOME}/`)");
     expect(source).not.toContain("normalized === ROUTES.LEGACY_KAI_HOME");
     expect(source).not.toContain("normalized === ROUTES.RIA_HOME");
-    expect(source).not.toContain("normalized.startsWith(`${ROUTES.RIA_HOME}/`)");
+    expect(source).not.toContain(
+      "normalized.startsWith(`${ROUTES.RIA_HOME}/`)",
+    );
     expect(source).not.toContain("isProfileTopBarRoute(normalized)");
     expect(source).toContain("function isProfileTopBarRoute");
-    expect(source).toContain("centerTitle.interactive && canShowPersonaSwitcher");
+    expect(source).toContain(
+      "centerTitle.interactive && canShowPersonaSwitcher",
+    );
     expect(source).toContain("function roleSwitcherLabel");
     expect(source).toContain('label: "Profile"');
     expect(source).toContain("icon: UserRound");
@@ -72,7 +76,9 @@ describe("Top app bar responsive contract", () => {
     // marketing HOME route stays excluded.
     expect(source).toContain("normalizedPathname !== ROUTES.HOME");
     expect(source).not.toContain("normalizedPathname !== ROUTES.ONE_HOME");
-    expect(source).toContain("<AgentSectionDropdown pathname={normalizedPathname} />");
+    expect(source).toContain(
+      "<AgentSectionDropdown pathname={normalizedPathname} />",
+    );
     expect(dropdown).toContain("<button");
     expect(dropdown).not.toContain("ShellActionSurface");
   });
@@ -85,7 +91,9 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("!topShellBreadcrumb");
     expect(source).toContain('data-testid="top-app-bar-one-brand"');
     expect(source).toContain("🤫 One");
-    expect(source).toContain("<AgentSectionDropdown pathname={normalizedPathname} />");
+    expect(source).toContain(
+      "<AgentSectionDropdown pathname={normalizedPathname} />",
+    );
     expect(source).toContain("<ConsentInboxDropdown");
     expect(source).toContain("<DebateTaskCenter");
   });
@@ -113,16 +121,24 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain('aria-label="Unlock vault"');
     expect(source).toContain("<KeyRound");
     expect(source).toContain("<DebateTaskCenter");
-    expect(source).not.toContain("Notifications unavailable until your vault is unlocked");
+    expect(source).not.toContain(
+      "Notifications unavailable until your vault is unlocked",
+    );
   });
 
   it("keeps onboarding chrome canonical and shell-sized", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
-    expect(source).toContain('return { label: "Set up One", interactive: false as const };');
-    expect(source).toContain("<ThemeToggleCompact className={TOP_SHELL_ICON_BUTTON_CLASSNAME} />");
-    expect(source).toContain('<ShellActionSurface\n            variant="icon"\n            aria-label="Account actions"');
-    expect(source).not.toContain('return { label: "Get started", interactive: false as const };');
+    expect(source).not.toContain(
+      'return { label: "Set up One", interactive: false as const };',
+    );
+    expect(source).not.toContain("ThemeToggleCompact");
+    expect(source).toContain(
+      '<ShellActionSurface variant="icon" aria-label="Account actions">',
+    );
+    expect(source).not.toContain(
+      'return { label: "Get started", interactive: false as const };',
+    );
     expect(source).not.toContain('className="h-9 w-9 rounded-full"');
   });
   it("preserves deterministic breadcrumb navigation contracts", () => {
@@ -133,26 +149,31 @@ describe("Top app bar responsive contract", () => {
     expect(source).not.toContain("history.back()");
   });
 
-  it("makes setup back prime the guard before deterministic navigation", () => {
+  it("keeps setup back as navigation and root completion explicit", () => {
     const topBar = read("components/app-ui/top-app-bar.tsx");
     const setupHub = read("components/onboarding/setup/one-setup-hub.tsx");
     const exitService = read("lib/services/one-setup-exit-service.ts");
 
-    expect(topBar).toContain("normalizedPathname === ROUTES.ONE_SETUP");
-    expect(topBar).toContain("acknowledgeOneSetupExit({");
-    expect(topBar).toContain("router.push(ROUTES.ONE_HOME);");
+    expect(topBar).not.toContain("acknowledgeOneSetupExit({");
+    expect(topBar).toContain("router.push(topShellBreadcrumb.backHref, {");
     expect(setupHub).toContain("acknowledgeOneSetupExit({");
     expect(exitService).toContain("export function acknowledgeOneSetupExit");
     expect(exitService).toContain("primeOneSetupResolved({");
-    expect(exitService).toContain("writeOneSetupCompletionHint(params.userId, true);");
-    expect(exitService).toContain("PreVaultUserStateService.primeSetupResolved");
+    expect(exitService).toContain(
+      "writeOneSetupCompletionHint(params.userId, true);",
+    );
+    expect(exitService).toContain(
+      "PreVaultUserStateService.primeSetupResolved",
+    );
   });
 
   it("uses shared mobile-width chrome for top-shell shield and bell dropdowns", () => {
     const chrome = read("components/app-ui/top-shell-dropdown.tsx");
     const consentInbox = read("components/consent/consent-inbox-dropdown.tsx");
     const taskCenter = read("components/app-ui/debate-task-center.tsx");
-    const shellActionSurface = read("components/app-ui/shell-action-surface.tsx");
+    const shellActionSurface = read(
+      "components/app-ui/shell-action-surface.tsx",
+    );
 
     expect(chrome).toContain("export function TopShellDropdownContent");
     expect(chrome).toContain("centeredMobileAlignOffset");
@@ -164,7 +185,7 @@ describe("Top app bar responsive contract", () => {
     expect(chrome).toContain("max-md:max-w-[calc(100vw-1.5rem)]");
     expect(chrome).toContain("TOP_SHELL_DROPDOWN_COLLISION_PADDING = 12");
     expect(consentInbox).toContain(
-      'import {\n  TOP_SHELL_DROPDOWN_BODY_CLASSNAME',
+      "import {\n  TOP_SHELL_DROPDOWN_BODY_CLASSNAME",
     );
     expect(consentInbox).toContain("TopShellDropdownContent");
     expect(consentInbox).toContain('<TopShellDropdownContent align="end">');
@@ -175,9 +196,13 @@ describe("Top app bar responsive contract", () => {
     // Lean header treatment: icon controls have no background chip and carry
     // the muted eyebrow tone on the stroke; only the pill variant keeps the
     // translucent track. The blue ripple stays shared across both.
-    expect(shellActionSurface).toContain("text-muted-foreground hover:text-foreground");
+    expect(shellActionSurface).toContain(
+      "text-muted-foreground hover:text-foreground",
+    );
     expect(shellActionSurface).toContain("bg-black/[0.05]");
-    expect(shellActionSurface).toContain('<MaterialRipple variant="blue" effect="glass"');
+    expect(shellActionSurface).toContain(
+      '<MaterialRipple variant="blue" effect="glass"',
+    );
   });
 
   it("clears every selection-driving consent detail param when the panel closes", () => {
@@ -189,4 +214,4 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("selected: null");
     expect(source).toContain("notificationAction: null");
   });
-  });
+});

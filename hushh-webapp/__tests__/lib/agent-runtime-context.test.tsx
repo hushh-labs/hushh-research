@@ -11,6 +11,10 @@ import {
   clearVoiceSurfaceMetadata,
   publishVoiceSurfaceMetadata,
 } from "@/lib/voice/voice-surface-metadata";
+import {
+  registerMountedLocalActionHandler,
+  unregisterMountedLocalActionHandler,
+} from "@/lib/agent/local-onboarding-actions";
 
 let mockPathname = "/profile";
 const cacheMocks = vi.hoisted(() => ({
@@ -169,6 +173,11 @@ describe("AgentRuntimeStateProvider", () => {
 
     await waitFor(() => expect(seen.at(-1)?.screen).toBe("login"));
     act(() => {
+      registerMountedLocalActionHandler(
+        "auth.open_terms",
+        "runtime-context-test",
+        () => ({ status: "succeeded", summary: "Terms opened." }),
+      );
       publishVoiceSurfaceMetadata("login_surface", {
         screenId: "login",
         controls: [
@@ -187,6 +196,12 @@ describe("AgentRuntimeStateProvider", () => {
       );
       expect(seen.at(-1)?.oneVoiceContextSnapshot.ui.visible_control_ids).toContain(
         "auth_terms",
+      );
+    });
+    act(() => {
+      unregisterMountedLocalActionHandler(
+        "auth.open_terms",
+        "runtime-context-test",
       );
     });
   });

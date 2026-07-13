@@ -263,6 +263,24 @@ function inferGoalRequiredInputs(action) {
 }
 
 function createDefaultGoalWorkflowSteps(action) {
+  // Setup terminal controls share one authored coordinator: after its local
+  // handler settles, it always returns to the hub. Do not derive this from a
+  // control's current route, or voice will claim completion before the hub is
+  // visible. Explicit per-action goals can still override this default.
+  if (/^setup\.(finish|skip)_/.test(action.action_id)) {
+    return [
+      {
+        type: "action",
+        action_id: action.action_id,
+        label: action.label,
+        failure_behavior: "stop",
+        settlement_target: {
+          route: "/one/setup",
+          screen: "one_setup_hub",
+        },
+      },
+    ];
+  }
   if (action.action_id === "analysis.start") {
     return [
       {
@@ -570,6 +588,9 @@ function normalizeAction(surface, action) {
     ...surface.docs_references,
     ...uniqueStrings(action.docs_references),
   ]);
+  if (docsReferences.length === 0) {
+    docsReferences.push("docs/reference/one/one-voice-runtime-architecture.md");
+  }
   const normalized = {
     action_id: actionId,
     surface_id: surface.surface_id,

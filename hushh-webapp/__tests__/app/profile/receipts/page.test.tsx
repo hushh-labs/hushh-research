@@ -12,12 +12,15 @@ const mocks = vi.hoisted(() => {
       error: vi.fn(),
       message: vi.fn(),
       info: vi.fn(),
-      promise: vi.fn((promise: Promise<unknown> | (() => Promise<unknown>)) => ({
-        unwrap: () => (typeof promise === "function" ? promise() : promise),
-      })),
+      promise: vi.fn(
+        (promise: Promise<unknown> | (() => Promise<unknown>)) => ({
+          unwrap: () => (typeof promise === "function" ? promise() : promise),
+        }),
+      ),
     },
     gmailReceiptsService: {
       listReceipts: vi.fn(),
+      listNudges: vi.fn(),
       startConnect: vi.fn(),
       syncNow: vi.fn(),
     },
@@ -43,6 +46,7 @@ let gmailView: ReturnType<typeof buildGmailView>;
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.routerPush }),
+  usePathname: () => "/profile/receipts",
 }));
 
 vi.mock("sonner", () => ({
@@ -475,6 +479,9 @@ describe("ProfileReceiptsPage", () => {
       total: 0,
       has_more: false,
     });
+    vi.mocked(GmailReceiptsService.listNudges).mockResolvedValue({
+      nudges: [],
+    });
     vi.mocked(GmailReceiptsService.startConnect).mockResolvedValue({
       configured: true,
       authorize_url: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -507,7 +514,7 @@ describe("ProfileReceiptsPage", () => {
     expect(screen.queryByText(/one \/ gmail/i)).toBeNull();
   });
 
-  it("automatically saves the generated summary to private memory", async () => {
+  it("lets the person explicitly save the generated summary to private memory", async () => {
     vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
       items: [makeReceipt(1, "Summary Shop")],
       page: 1,
@@ -521,6 +528,10 @@ describe("ProfileReceiptsPage", () => {
     expect(
       await screen.findByText("Kai sees recent shopping activity."),
     ).toBeTruthy();
+    expect(mocks.pkmWriteCoordinator.savePreparedDomain).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", { name: /save shopping summary/i }),
+    );
     await waitFor(() => {
       expect(
         mocks.pkmWriteCoordinator.savePreparedDomain,
@@ -528,12 +539,14 @@ describe("ProfileReceiptsPage", () => {
     });
     expect(await screen.findByText("Saved to memory")).toBeTruthy();
     expect(
-      screen.getByText("Your shopping summary is saved to your private memory."),
+      screen.getByText(
+        "Your shopping summary is saved to your private memory.",
+      ),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: /save insights/i })).toBeNull();
   });
 
-  it("shows an existing matching summary as saved without another memory write", async () => {
+  it("requires an explicit save even when a matching summary already exists", async () => {
     vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
       items: [makeReceipt(1, "Existing Summary Shop")],
       page: 1,
@@ -550,11 +563,14 @@ describe("ProfileReceiptsPage", () => {
 
     render(<ProfileReceiptsPage />);
 
-    expect(await screen.findByText("Saved to memory")).toBeTruthy();
+    expect(await screen.findByText("Preparing")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /save shopping summary/i }),
+    ).toBeTruthy();
     expect(mocks.pkmWriteCoordinator.savePreparedDomain).not.toHaveBeenCalled();
   });
 
-  it("does not claim the summary was saved when automatic persistence fails", async () => {
+  it("does not claim the summary was saved when explicit persistence fails", async () => {
     vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
       items: [makeReceipt(1, "Failed Summary Shop")],
       page: 1,
@@ -571,6 +587,10 @@ describe("ProfileReceiptsPage", () => {
 
     render(<ProfileReceiptsPage />);
 
+    await screen.findByText("Kai sees recent shopping activity.");
+    fireEvent.click(
+      screen.getByRole("button", { name: /save shopping summary/i }),
+    );
     expect(await screen.findByText("Save failed")).toBeTruthy();
     expect(screen.queryByText("Saved to memory")).toBeNull();
   });
@@ -586,7 +606,7 @@ describe("ProfileReceiptsPage", () => {
 
     expect(
       await screen.findByText(
-        "Unlock your vault to view and summarize synced receipts.",
+        "Set up or open your private vault to view and summarize synced receipts.",
       ),
     ).toBeTruthy();
     expect(vi.mocked(GmailReceiptsService.listReceipts)).not.toHaveBeenCalled();
@@ -893,8 +913,9 @@ describe("ProfileReceiptsPage", () => {
       screen.getByRole("heading", { name: /gmail not connected/i }),
     ).toBeTruthy();
     expect(
-      screen.getByText(/connect once to sync receipt emails/i),
+      screen.getByText(/receipt emails capture purchase interactions/i),
     ).toBeTruthy();
+    expect(screen.queryByText("0 receipts")).toBeNull();
     expect(
       screen.getAllByRole("button", { name: /connect gmail/i }),
     ).toHaveLength(1);

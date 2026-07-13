@@ -115,7 +115,7 @@ export function KaiPersonaScreen(props: {
                   "active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100"
                 )}
               >
-                Finish finance setup
+                Continue finance setup
               </Button>
 
               {props.onEditAnswers && (
