@@ -2066,7 +2066,12 @@ class OneEmailKycService:
             return client.models.generate_content(model=model_name, contents=prompt, config=config)
 
         loop = asyncio.get_running_loop()
-        response = await loop.run_in_executor(None, _invoke)
+        try:
+            response = await asyncio.wait_for(
+                loop.run_in_executor(None, _invoke), timeout=timeout_seconds
+            )
+        except asyncio.TimeoutError:
+            return None
         parsed = response.parsed if isinstance(getattr(response, "parsed", None), dict) else None
         if parsed is None:
             try:
