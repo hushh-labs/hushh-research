@@ -11,8 +11,9 @@
  * The map reuses the same live-location map component as the home screen: when a
  * live fix is available it renders the interactive map (with the route once a
  * destination is chosen); otherwise it prompts the user to capture their
- * location. Destination + ETA travel inside the encrypted envelope — this
- * component only collects intent and calls `vm.onDriveTo`.
+ * location. Destination search uses the shared Command-based PlaceSearchDialog.
+ * Destination + ETA travel inside the encrypted envelope — this component only
+ * collects intent and calls `vm.onDriveTo`.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -25,6 +26,7 @@ import type { DriveDestination, RouteEta } from "@/lib/one-location/types";
 
 import { CARD_SURFACE } from "./tokens";
 import { DriveRouteMap } from "./drive-route-map";
+import { PlaceSearchDialog } from "./place-search-dialog";
 import type { LocationHubViewModel } from "./location-redesign-hub";
 
 // Drive-to shares default to a 2-hour window (no per-flow duration picker).
@@ -59,77 +61,12 @@ export function DriveToFlow({
   const contacts = vm.sosRecipients;
   const busy = vm.driveBusy || vm.busy === "selfLocation";
 
-  const [query, setQuery] = useState("");
-  const [suggestions, setSuggestions] = useState<{ placeId: string; text: string }[]>([]);
-  const [searching, setSearching] = useState(false);
   const [destination, setDestination] = useState<DriveDestination | null>(null);
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
   const [eta, setEta] = useState<RouteEta | null>(null);
-  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   const point = vm.myLocationPoint;
-
-  // Debounced Places autocomplete via the backend proxy.
-  useEffect(() => {
-    const token = vm.vaultOwnerToken;
-    const q = query.trim();
-    if (!token || q.length < 2 || destination?.label === q) {
-      setSuggestions([]);
-      return;
-    }
-    let cancelled = false;
-    setSearching(true);
-    setSearchError(null);
-    const handle = setTimeout(async () => {
-      try {
-        const results = await OneLocationService.placesAutocomplete({
-          vaultOwnerToken: token,
-          input: q,
-        });
-        if (!cancelled) setSuggestions(results);
-      } catch {
-        if (!cancelled) {
-          setSuggestions([]);
-          setSearchError("Couldn't search places. Check your connection.");
-        }
-      } finally {
-        if (!cancelled) setSearching(false);
-      }
-    }, 300);
-    return () => {
-      cancelled = true;
-      clearTimeout(handle);
-    };
-  }, [query, vm.vaultOwnerToken, destination?.label]);
-
-  const selectSuggestion = async (placeId: string, text: string) => {
-    const token = vm.vaultOwnerToken;
-    if (!token) return;
-    setQuery(text);
-    setSuggestions([]);
-    try {
-      const details = await OneLocationService.placeDetails({
-        vaultOwnerToken: token,
-        placeId,
-      });
-      setDestination(details);
-    } catch {
-      setSearchError("Couldn't load that place. Try another.");
-    }
-  };
-
-  const selectRecent = (recent: DriveDestination) => {
-    setDestination(recent);
-    setQuery(recent.label);
-    setSuggestions([]);
-  };
-
-  const clearDestination = () => {
-    setDestination(null);
-    setQuery("");
-    setSuggestions([]);
-    setEta(null);
-  };
 
   // Fetch a live ETA whenever both origin and destination are known.
   useEffect(() => {
@@ -177,14 +114,6 @@ export function DriveToFlow({
 
   const canStart =
     Boolean(destination) && Boolean(point) && selectedReadyCount > 0 && !busy;
-
-  const recentDestinations = vm.recentDestinations;
-  const showSuggestions =
-    !destination &&
-    (suggestions.length > 0 ||
-      searching ||
-      Boolean(searchError) ||
-      (!query.trim() && recentDestinations.length > 0));
 
   return (
     <div className="space-y-4">
@@ -254,78 +183,37 @@ export function DriveToFlow({
             </div>
           </div>
 
-          {/* Heading to */}
+          {/* Heading to — opens the Command place-search dialog */}
           <div className="flex items-center gap-3 py-[11px]">
             <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#1d1d1f] dark:bg-white" />
-            <div className="min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={() => setSearchOpen(true)}
+              className="min-w-0 flex-1 text-left"
+            >
               <div className="text-xs text-muted-foreground">Heading to</div>
               {destination ? (
-                <button
-                  type="button"
-                  onClick={clearDestination}
-                  className="block w-full truncate text-left text-[15px] font-semibold text-foreground"
-                >
+                <div className="text-[15px] font-semibold text-foreground">
                   {destination.label}
-                </button>
+                </div>
               ) : (
-                <input
-                  type="text"
-                  value={query}
-                  onChange={(event) => {
-                    setQuery(event.target.value);
-                    setDestination(null);
-                  }}
-                  placeholder="Where are you headed?"
-                  className="w-full bg-transparent text-[15px] font-semibold text-foreground outline-none placeholder:font-normal placeholder:text-muted-foreground"
-                />
+                <div className="text-[15px] font-semibold text-muted-foreground">
+                  Where are you headed?
+                </div>
               )}
-            </div>
+            </button>
+            {destination ? (
+              <button
+                type="button"
+                onClick={() => setSearchOpen(true)}
+                className="shrink-0 text-[13px] font-medium text-[#007aff]"
+              >
+                Change
+              </button>
+            ) : null}
           </div>
         </div>
       </section>
-
-      {/* DESTINATION SUGGESTIONS / RECENTS (only while choosing) */}
-      {showSuggestions ? (
-        <section className={cn(CARD_SURFACE, "p-2")}>
-          {searchError ? (
-            <p className="px-2 py-1.5 text-xs font-medium text-red-600 dark:text-red-300">
-              {searchError}
-            </p>
-          ) : null}
-          {searching && suggestions.length === 0 ? (
-            <p className="px-2 py-1.5 text-xs text-muted-foreground">Searching…</p>
-          ) : null}
-          {suggestions.length > 0
-            ? suggestions.map((suggestion) => (
-                <button
-                  key={suggestion.placeId}
-                  type="button"
-                  onClick={() => void selectSuggestion(suggestion.placeId, suggestion.text)}
-                  className="flex w-full items-center gap-3 rounded-[11px] px-2 py-2.5 text-left hover:bg-[#007aff]/10"
-                >
-                  <Navigation className="h-4 w-4 shrink-0 rotate-90 text-[#007aff]" />
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-                    {suggestion.text}
-                  </span>
-                </button>
-              ))
-            : !query.trim()
-              ? recentDestinations.map((recent) => (
-                  <button
-                    key={recent.placeId ?? recent.label}
-                    type="button"
-                    onClick={() => selectRecent(recent)}
-                    className="flex w-full items-center gap-3 rounded-[11px] px-2 py-2.5 text-left hover:bg-[#007aff]/10"
-                  >
-                    <Navigation className="h-4 w-4 shrink-0 rotate-90 text-muted-foreground" />
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-                      {recent.label}
-                    </span>
-                  </button>
-                ))
-              : null}
-        </section>
-      ) : null}
 
       {/* WHO SEES YOUR DRIVE */}
       <div>
@@ -398,6 +286,16 @@ export function DriveToFlow({
           {busy ? "Starting…" : "Start sharing drive"}
         </button>
       </div>
+
+      <PlaceSearchDialog
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        vaultOwnerToken={vm.vaultOwnerToken}
+        recents={vm.recentDestinations}
+        onSelect={(dest) => setDestination(dest)}
+        title="Where are you headed?"
+        placeholder="Search a destination…"
+      />
     </div>
   );
 }
