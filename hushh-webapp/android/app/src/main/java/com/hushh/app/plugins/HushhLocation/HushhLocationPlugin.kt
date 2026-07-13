@@ -92,7 +92,7 @@ class HushhLocationPlugin : Plugin() {
 
     @PluginMethod
     fun requestLocationPermission(call: PluginCall) {
-        if (getPermissionState("location") == PermissionState.GRANTED) {
+        if (hasLocationPermission()) {
             call.resolve(permissionPayload())
             return
         }
@@ -101,7 +101,7 @@ class HushhLocationPlugin : Plugin() {
 
     @PluginMethod
     fun getCurrentPosition(call: PluginCall) {
-        if (getPermissionState("location") != PermissionState.GRANTED) {
+        if (!hasLocationPermission()) {
             requestPermissionForAlias("location", call, "locationPermissionCallback")
             return
         }
@@ -110,7 +110,7 @@ class HushhLocationPlugin : Plugin() {
 
     @PluginMethod(returnType = PluginMethod.RETURN_CALLBACK)
     fun watchPosition(call: PluginCall) {
-        if (getPermissionState("location") != PermissionState.GRANTED) {
+        if (!hasLocationPermission()) {
             requestPermissionForAlias("location", call, "watchPermissionCallback")
             return
         }
@@ -128,6 +128,28 @@ class HushhLocationPlugin : Plugin() {
         call.resolve()
     }
 
+    @PluginMethod
+    fun requestAlwaysAuthorization(call: PluginCall) {
+        // Android background publishing is not implemented yet. Return the
+        // truthful foreground state so the web layer can keep the opt-in off.
+        call.resolve(permissionPayload())
+    }
+
+    @PluginMethod
+    fun startBackgroundShare(call: PluginCall) {
+        call.resolve(
+            JSObject()
+                .put("started", false)
+                .put("reason", "android_background_share_unavailable")
+        )
+    }
+
+    @PluginMethod
+    fun stopBackgroundShare(call: PluginCall) {
+        // Safe idempotent no-op while Android background publishing is absent.
+        call.resolve()
+    }
+
     @PermissionCallback
     private fun locationPermissionStateCallback(call: PluginCall) {
         call.resolve(permissionPayload())
@@ -135,7 +157,7 @@ class HushhLocationPlugin : Plugin() {
 
     @PermissionCallback
     private fun locationPermissionCallback(call: PluginCall) {
-        if (getPermissionState("location") != PermissionState.GRANTED) {
+        if (!hasLocationPermission()) {
             call.reject("Location permission was not granted.")
             return
         }
@@ -144,7 +166,7 @@ class HushhLocationPlugin : Plugin() {
 
     @PermissionCallback
     private fun watchPermissionCallback(call: PluginCall) {
-        if (getPermissionState("location") != PermissionState.GRANTED) {
+        if (!hasLocationPermission()) {
             call.reject("Location permission was not granted.")
             return
         }
@@ -171,6 +193,11 @@ class HushhLocationPlugin : Plugin() {
 
     private fun hasAndroidPermission(permission: String): Boolean {
         return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun hasLocationPermission(): Boolean {
+        return hasAndroidPermission(Manifest.permission.ACCESS_FINE_LOCATION) ||
+            hasAndroidPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
     }
 
     private fun locationServicesEnabled(): Boolean {
