@@ -43,6 +43,12 @@ ENV PATH=/usr/local/bin:$PATH
 COPY . .
 RUN python -m compileall -q .
 
+# Run as a non-root, least-privilege user (FedRAMP CM-6 / SC-2). The app writes
+# no bytecode at runtime (PYTHONDONTWRITEBYTECODE=1) and reads world-readable
+# code, so a non-root UID needs no extra grants.
+RUN useradd --system --uid 10001 --home-dir /app appuser
+USER 10001
+
 # Expose port (Cloud Run will override this)
 EXPOSE 8080
 
