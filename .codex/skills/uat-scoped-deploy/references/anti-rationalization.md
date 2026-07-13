@@ -7,6 +7,7 @@
 | "The build is queued, so the deploy is done" | "Treating queued or in-progress deploys as complete" — only terminal state with timing proof counts. Queued is not deployed. |
 | "It deployed fine, I watched the console" | "Reporting deploy success without revision, label, traffic, or log evidence" — success claims carry revision + label + traffic split + log evidence, or they are not claims. |
 | "Same commit deployed to UAT yesterday" | Yesterday's deploy proves yesterday's build inputs. Env parity, secrets, and base images drift; each dispatch gets fresh provenance. |
+| "Admin means I can deploy a green PR SHA" | Admin authority still requires merge queue, landed `main`, and successful `Main Post-Merge Smoke`; UAT never deploys an unmerged PR SHA. |
 
 ## Red Flags
 

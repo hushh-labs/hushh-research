@@ -12,7 +12,12 @@ If a previous run accidentally used `scope=all`, name that as evidence drift and
 
 ## Deploy Command
 
-Use a green `main` SHA:
+For an admin-authored change, first use the governed landing sequence: independent
+approval when required, merge-queue admission, merge to `main`, and a successful
+`Main Post-Merge Smoke` run. Admin authority is not permission for a direct
+`main` update, author self-approval, or deployment from a green PR SHA.
+
+Use the resulting green `main` SHA:
 
 ```bash
 gh workflow run deploy-uat.yml --ref main -f scope=<frontend|backend|all> -f sha=<main-sha>
