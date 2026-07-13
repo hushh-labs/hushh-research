@@ -542,7 +542,7 @@ function NowHub({
   onCheckIn,
   onDriveTo,
   onPickMeUp,
-  onSafeArrival,
+  onSafeArrival: _onSafeArrival,
   onSos,
   onOpenPrivacy,
 }: {
@@ -655,9 +655,9 @@ function NowHub({
         </Button>
       </div>
 
-      {/* Quick actions — six location shortcuts on a 3-col grid. Five are live
-          (Check-In, Alert, Drive To, Pick Me Up, Safe Arrival); only "Meeting"
-          remains coming soon. "Alert" opens the SOS/notify-circle panel. */}
+      {/* Quick actions — six location shortcuts on a 3-col grid. Four are live
+          (Check-In, Alert, Drive To, Pick Me Up); "Meeting" and "Safe Arrival"
+          are coming soon. "Alert" opens the SOS/notify-circle panel. */}
       <QuickActionsSection title="Quick actions">
 
         <QuickActionCard
@@ -700,7 +700,7 @@ function NowHub({
           icon={<ShieldCheck className="h-5 w-5" />}
           title="Safe Arrival"
           subtitle="Get notified"
-          onClick={onSafeArrival}
+          comingSoon
         />
 
       </QuickActionsSection>
