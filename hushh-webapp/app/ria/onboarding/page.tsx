@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
@@ -52,6 +59,24 @@ import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 const LICENSE_VERIFICATION_TIMEOUT_MS = 90_000;
 const SCRAPE_POLL_INTERVAL_MS = 5_000;
 const RIA_ENVIRONMENT_BYPASS_STATUS = "Environment bypass";
+
+// Decorative advisor photo per onboarding step (transparent, feather-edged
+// WebP under public/ria/onboarding). Welcome = full-bleed hero above the
+// eyebrow; every other step = smaller top-right accent overlapping the header.
+const RIA_ONBOARDING_STEP_IMAGES: Record<
+  string,
+  { src: string; variant: "hero" | "accent"; badge?: boolean }
+> = {
+  welcome: { src: "/ria/onboarding/adv4f.webp", variant: "hero" },
+  license_number: { src: "/ria/onboarding/adv2f.webp", variant: "accent" },
+  license_details: {
+    src: "/ria/onboarding/adv3f.webp",
+    variant: "accent",
+    badge: true,
+  },
+  services: { src: "/ria/onboarding/adv1f.webp", variant: "accent" },
+  review: { src: "/ria/onboarding/adv5f.webp", variant: "accent" },
+};
 const REGULATOR_PREFILL_RESET: Partial<RiaOnboardingDraft> = {
   advisorName: "",
   firmName: "",
@@ -465,6 +490,21 @@ export default function RiaOnboardingPage({
     }
     moveToStep(steps[currentStepIndex + 1]?.id ?? currentStep.id);
   }
+
+  // Horizontal swipe on the onboarding content pages the wizard steps (emitted
+  // by the pinned-chrome RiaSwipePager). Forward = Continue, back = previous.
+  const swipeNavRef = useRef({ next: () => {}, back: () => {} });
+  swipeNavRef.current = { next: handleContinue, back: handleBack };
+  useEffect(() => {
+    const onSwipe = (event: Event) => {
+      const dir = (event as CustomEvent<{ direction?: number }>).detail
+        ?.direction;
+      if (dir === 1) swipeNavRef.current.next();
+      else if (dir === -1) swipeNavRef.current.back();
+    };
+    window.addEventListener("ria-onboarding-swipe", onSwipe);
+    return () => window.removeEventListener("ria-onboarding-swipe", onSwipe);
+  }, []);
 
   const startScrapePolling = useCallback(
     (jobId: string) => {
@@ -1035,7 +1075,16 @@ export default function RiaOnboardingPage({
         errorCode={error ? "ria_onboarding" : null}
         errorMessage={error}
       />
-      <FullscreenFlowShell width="reading" className="px-0">
+      <FullscreenFlowShell
+        width="reading"
+        className="px-0"
+        style={
+          {
+            "--app-fullscreen-flow-content-offset":
+              "var(--top-shell-reserved-height)",
+          } as CSSProperties
+        }
+      >
         <OnboardingShell
           currentStepIndex={currentStepIndex}
           totalSteps={steps.length}
@@ -1048,6 +1097,7 @@ export default function RiaOnboardingPage({
           isLastStep={currentStep.id === "review"}
           advisoryAccessReady={advisoryAccessReady}
           allowInvalidPress={currentStep.id === "services"}
+          heroImage={RIA_ONBOARDING_STEP_IMAGES[currentStep.id]}
           onBack={handleBack}
           onContinue={handleContinue}
         >

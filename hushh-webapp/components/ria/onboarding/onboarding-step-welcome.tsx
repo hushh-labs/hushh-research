@@ -1,22 +1,26 @@
 "use client";
 
-import { Briefcase, Building2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { User, Users } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { RiaSelectControl } from "@/components/ria/ui/ria-primitives";
 
-const OPTIONS = [
+const OPTIONS: {
+  value: "individual" | "firm";
+  icon: LucideIcon;
+  title: string;
+  description: string;
+}[] = [
   {
-    value: "individual" as const,
-    icon: Briefcase,
+    value: "individual",
+    icon: User,
     title: "Individual RIA",
-    description:
-      "You manage client portfolios independently under your own registration.",
+    description: "Work independently under your own registration.",
   },
   {
-    value: "firm" as const,
-    icon: Building2,
+    value: "firm",
+    icon: Users,
     title: "Firm / Practice",
-    description:
-      "You represent a registered firm or multi-advisor practice.",
+    description: "Represent a firm or multi-advisor practice.",
   },
 ];
 
@@ -28,57 +32,60 @@ export function OnboardingStepWelcome({
   onSelect: (type: "individual" | "firm") => void;
 }) {
   return (
-    <div className="overflow-hidden rounded-[24px] border border-border/60 bg-card/80 shadow-[0_12px_34px_rgba(15,23,42,0.06)] backdrop-blur dark:bg-card/55 dark:shadow-none">
+    <div className="flex flex-col gap-[14px]">
       {OPTIONS.map((option) => {
         const selected = onboardingType === option.value;
         const Icon = option.icon;
 
         return (
-          <div key={option.value}>
-            <button
-              type="button"
-              aria-pressed={selected}
-              onClick={() => onSelect(option.value)}
-              className={cn(
-                "relative flex min-h-[92px] w-full items-center gap-4 px-4 py-4 text-left transition-colors sm:px-5",
-                selected ? "bg-primary/10" : "hover:bg-muted/45"
-              )}
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={selected}
+            onClick={() => onSelect(option.value)}
+            className="relative flex min-h-[98px] items-center gap-[14px] rounded-[22px] p-4 text-left transition-transform active:scale-[0.995]"
+            style={
+              selected
+                ? {
+                    background:
+                      "linear-gradient(135deg, #FFFDF8, #F7E8CE)",
+                    border: "1.5px solid rgba(201,139,46,0.55)",
+                    boxShadow: "0 10px 26px rgba(120,88,40,0.10)",
+                  }
+                : {
+                    background: "var(--ria-surface)",
+                    border: "1px solid var(--ria-divider-outer)",
+                    boxShadow: "0 6px 20px rgba(62,48,30,0.045)",
+                  }
+            }
+          >
+            <span
+              className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-full"
+              style={{
+                backgroundColor: selected ? "rgba(255,255,255,0.6)" : "#F1ECE4",
+              }}
             >
-              <span
-                className={cn(
-                  "flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px]",
-                  selected
-                    ? "bg-primary/15 text-primary"
-                    : "bg-muted/55 text-muted-foreground"
-                )}
-              >
-                <Icon className="h-5 w-5" />
-              </span>
+              <Icon
+                className="h-[22px] w-[22px]"
+                strokeWidth={1.8}
+                style={{ color: selected ? "var(--ria-gold)" : "#A6A29A" }}
+              />
+            </span>
 
-              <span className="min-w-0 flex-1 space-y-1">
-                <span className="block text-[17px] font-semibold leading-6 text-foreground">
-                  {option.title}
-                </span>
-                <span className="block text-[15px] leading-6 text-muted-foreground">
-                  {option.description}
-                </span>
-              </span>
-
+            <span className="min-w-0 flex-1">
               <span
-                className={cn(
-                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
-                  selected ? "border-primary" : "border-muted-foreground/35"
-                )}
+                className="block text-[17px] font-semibold leading-6 text-[color:var(--ria-ink)]"
+                style={{ letterSpacing: "-0.2px" }}
               >
-                {selected ? (
-                  <span className="h-3.5 w-3.5 rounded-full bg-primary" />
-                ) : null}
+                {option.title}
               </span>
-            </button>
-            {option.value !== OPTIONS[OPTIONS.length - 1]?.value ? (
-              <div className="ml-[5.5rem] h-px bg-border/50" />
-            ) : null}
-          </div>
+              <span className="mt-[3px] block text-[15px] leading-[1.34] text-[color:var(--ria-muted)]">
+                {option.description}
+              </span>
+            </span>
+
+            <RiaSelectControl checked={selected} variant="radio" />
+          </button>
         );
       })}
     </div>

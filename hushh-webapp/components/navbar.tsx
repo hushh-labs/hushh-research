@@ -236,6 +236,14 @@ export const Navbar = () => {
     });
   }, [activePersona, lastAgentNavScope, lastAgentSectionId, normalizedPathname]);
 
+  // RIA sub-agent = Apple-style ALWAYS-PINNED bottom chrome. Pin the value the
+  // pill consumes (progress -> 0) and force the chrome "visible" so the
+  // pointer-events / first-tap-snap guards never disable the visually-pinned
+  // pill on scroll-down. Never edits the shared visibility singleton, so
+  // One/investor scroll-hide is unchanged.
+  const isRiaChrome = navigationScope === "ria";
+  const effectiveHideBottomChrome = isRiaChrome ? false : hideBottomChrome;
+
   useEffect(() => {
     if (!pathname) return;
     const agentContext = resolveAgentNavigationContextForPath(pathname);
@@ -344,7 +352,12 @@ export const Navbar = () => {
     // `agentWindowOpen` is included so the pill is re-measured when the navbar
     // remounts after the agent window closes (otherwise --app-bottom-fixed-ui
     // stays stale and the agent bar overlaps the nav).
-  }, [agentWindowOpen, isAuthenticated, navOptions.length, useOnboardingChrome]);
+  }, [
+    agentWindowOpen,
+    isAuthenticated,
+    navOptions.length,
+    useOnboardingChrome,
+  ]);
 
   const bottomNavMaxWidth =
     navOptions.length > 0 ? resolveBottomNavMaxWidth(navOptions.length) : "0px";
@@ -430,7 +443,9 @@ export const Navbar = () => {
             "calc(max(var(--app-safe-area-bottom-effective), 0.625rem) + var(--app-bottom-chrome-lift, 0px))",
           transform:
             "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height))), 0)",
-          "--bottom-chrome-progress": String(hideBottomChromeProgress),
+          "--bottom-chrome-progress": isRiaChrome
+            ? "0"
+            : String(hideBottomChromeProgress),
         } as CSSProperties
       }
     >
@@ -438,7 +453,7 @@ export const Navbar = () => {
         className={cn(
           "relative flex items-stretch justify-center gap-2",
           "pointer-events-none",
-          hideBottomChrome && "pointer-events-none",
+          effectiveHideBottomChrome && "pointer-events-none",
         )}
         style={{ width: bottomNavGroupWidth }}
         ref={pillRef}
@@ -446,8 +461,10 @@ export const Navbar = () => {
         // a finger lands, the buttons translate away before pointerup and the
         // tap is lost (felt as "need to tap twice"). Snapping the chrome to
         // its resting position on pointerdown keeps the tap target still.
+        // Skipped in RIA (the pill is already pinned, nothing to snap).
         onPointerDownCapture={() => {
-          if (hideBottomChromeProgress > 0) snapKaiBottomChromeVisible();
+          if (!isRiaChrome && hideBottomChromeProgress > 0)
+            snapKaiBottomChromeVisible();
         }}
       >
         <div
@@ -465,10 +482,15 @@ export const Navbar = () => {
             className={cn(
               "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
               // Shared bottom chrome surface: flat translucent track, no
-              // route-local glass or ink override. Active state uses iOS system
-              // blue (#007aff) so the selected tab reads blue on every screen.
-              "[&_[aria-checked=true]]:text-[#007aff] [&_[aria-checked=true]]:font-semibold",
-              "[&_[data-segment-indicator]]:bg-black/[0.06] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-white/[0.1]",
+              // route-local glass or ink override. RIA scope = gold identity
+              // (active #EFE7D6 pill + gold label); everywhere else = iOS system
+              // blue (#007aff) active tab (from main).
+              isRiaChrome
+                ? "[&_[aria-checked=true]]:text-accent-strong [&_[aria-checked=true]]:font-semibold"
+                : "[&_[aria-checked=true]]:text-[#007aff] [&_[aria-checked=true]]:font-semibold",
+              isRiaChrome
+                ? "[&_[data-segment-indicator]]:bg-[color:var(--ria-nav-active)] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none"
+                : "[&_[data-segment-indicator]]:bg-black/[0.06] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-white/[0.1]",
             )}
           />
         </div>
@@ -485,6 +507,8 @@ export const Navbar = () => {
             // on iOS while web looked fine.
             "pointer-events-auto relative z-20 inline-flex h-[52px] w-[52px] shrink-0 self-center items-center justify-center overflow-hidden rounded-full",
             "kai-bottom-search-action",
+            // RIA: soft greige search circle (#F5F2EC) per the mockup.
+            isRiaChrome && "h-[54px] w-[54px] bg-[color:var(--ria-selected-tint)]",
             "transition-[color,transform,background-color] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)]",
             // Hover styles behind (hover:hover) so iOS taps never latch a
             // sticky hover background on the first touch.

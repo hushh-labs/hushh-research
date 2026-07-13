@@ -497,6 +497,15 @@ export function TopAppBar({ className }: TopAppBarProps) {
     normalizedPathname === ROUTES.ONE_HOME &&
     !topShellBreadcrumb &&
     !showOnboardingActions;
+  const isRiaOnboardingScope =
+    normalizedPathname === ROUTES.RIA_ONBOARDING ||
+    normalizedPathname.startsWith(`${ROUTES.RIA_ONBOARDING}/`);
+  // RIA sub-agent header: 🤫 One (left) + center "RIA ⌄" cluster, per the
+  // onboarding design. During setup the route can load before the persona state
+  // flips to RIA, so include /ria/onboarding explicitly while keeping other RIA
+  // routes persona-gated.
+  const isRiaScope =
+    (activePersona === "ria" || isRiaOnboardingScope) && !topShellBreadcrumb;
   const showKaiTabs = topShellMetrics.hasTabs;
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(
     null,
@@ -581,8 +590,13 @@ export function TopAppBar({ className }: TopAppBarProps) {
 
   // Subscribe to the shared scroll-direction store so top chrome hides opposite
   // the bottom nav while keeping the page layout spacer stable.
-  const { progress: topChromeHideProgress } =
+  const { progress: rawTopChromeHideProgress } =
     useKaiBottomChromeVisibility(!hideChrome);
+  // RIA sub-agent = Apple-style ALWAYS-PINNED chrome: clamp the consumed hide
+  // progress to 0 so the transform stays identity (never translates away on
+  // scroll). Value-only override — we keep the subscription live and never touch
+  // the shared visibility singleton, so One/investor scroll-hide is unchanged.
+  const topChromeHideProgress = isRiaScope ? 0 : rawTopChromeHideProgress;
 
   const topGlassHeight = useMemo(
     () =>
@@ -610,6 +624,12 @@ export function TopAppBar({ className }: TopAppBarProps) {
       }) as React.CSSProperties,
     [],
   );
+  const riaTopIconSurfaceClassName = isRiaScope
+    ? "!h-10 !w-10 !bg-[#F2EFE8] !text-[#8C8A85] shadow-none hover:!bg-[#EDE8DF] hover:!text-[#151619] dark:!bg-[#F2EFE8] dark:!text-[#8C8A85]"
+    : undefined;
+  const riaTopBadgeWrapperClassName = isRiaScope
+    ? "right-[-3px] top-[-3px] translate-x-0 -translate-y-0"
+    : undefined;
 
   if (hideChrome) return null;
 
@@ -693,15 +713,16 @@ export function TopAppBar({ className }: TopAppBarProps) {
                       <ArrowLeft className="h-5 w-5" />
                     </ShellActionSurface>
                   </div>
-                ) : showOneHomeBrand ? (
+                ) : showOneHomeBrand || isRiaScope ? (
                   <div
                     data-testid="top-app-bar-one-brand"
                     aria-label="🤫 One"
-                    className="pointer-events-none flex h-11 min-w-0 items-center justify-start gap-1.5 overflow-visible text-foreground"
+                    className="pointer-events-none flex h-11 min-w-[76px] items-center justify-start gap-2 overflow-visible"
+                    style={{ color: isRiaScope ? "var(--ria-ink)" : undefined }}
                   >
                     <span
                       aria-hidden
-                      className="flex h-7 w-7 shrink-0 items-center justify-center overflow-visible text-[21px] leading-[1.25]"
+                      className="flex h-7 w-7 shrink-0 items-center justify-center overflow-visible text-[23px] leading-none"
                       style={{
                         fontFamily:
                           '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", emoji',
@@ -709,7 +730,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                     >
                       🤫
                     </span>
-                    <span className="truncate font-[family-name:var(--font-app-display)] text-[16px] font-semibold leading-[1.15] tracking-normal">
+                    <span className="font-[family-name:var(--font-app-display)] text-[19px] font-bold leading-none tracking-[-0.3px]">
                       One
                     </span>
                   </div>
@@ -727,7 +748,27 @@ export function TopAppBar({ className }: TopAppBarProps) {
                   showOnboardingActions ? "justify-start" : "justify-center",
                 )}
               >
-                {showAgentSectionDropdown ? (
+                {isRiaScope ? (
+                  <div
+                    data-testid="top-app-bar-ria-cluster"
+                    aria-label="RIA"
+                    className="pointer-events-none inline-flex items-center gap-[9px]"
+                  >
+                    <span className="flex h-[38px] w-[38px] items-center justify-center rounded-[11px] bg-white shadow-[0_2px_8px_rgba(62,48,30,0.10)]">
+                      <BriefcaseBusiness
+                        className="h-[19px] w-[19px] text-[color:var(--ria-ink)]"
+                        strokeWidth={1.7}
+                      />
+                    </span>
+                    <span className="text-[17px] font-semibold tracking-[-0.2px] text-[color:var(--ria-ink)]">
+                      RIA
+                    </span>
+                    <ChevronDown
+                      className="h-[13px] w-[13px] text-[color:var(--ria-ink)]"
+                      strokeWidth={2.3}
+                    />
+                  </div>
+                ) : showAgentSectionDropdown ? (
                   <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
                     <AgentSectionDropdown pathname={normalizedPathname} />
                   </div>
@@ -842,7 +883,10 @@ export function TopAppBar({ className }: TopAppBarProps) {
               >
                 <div
                   data-testid="top-app-bar-actions"
-                  className="pointer-events-auto flex flex-nowrap items-center justify-end gap-1.5 sm:gap-2 pr-[env(safe-area-inset-right)]"
+                  className={cn(
+                    "pointer-events-auto flex flex-nowrap items-center justify-end pr-[env(safe-area-inset-right)]",
+                    isRiaScope ? "gap-2.5 sm:gap-2.5" : "gap-1.5 sm:gap-2",
+                  )}
                 >
                   {!isAuthenticated ? null : showOnboardingActions ? (
                     <OnboardingRouteActions />
@@ -853,9 +897,17 @@ export function TopAppBar({ className }: TopAppBarProps) {
                           <ShellActionSurface
                             variant="icon"
                             aria-label="Open consent inbox"
+                            className={riaTopIconSurfaceClassName}
+                            badgeClassName={riaTopBadgeWrapperClassName}
                             badge={
                               pendingCount > 0 ? (
-                                <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-[#1d1d1f] shadow-[0_8px_18px_rgba(184,137,77,0.32)] ring-2 ring-white/90 dark:ring-[#111113]">
+                                <span
+                                  className={cn(
+                                    "inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-[#1d1d1f] shadow-[0_8px_18px_rgba(184,137,77,0.32)] ring-2 ring-white/90 dark:ring-[#111113]",
+                                    isRiaScope &&
+                                      "bg-[color:var(--ria-gold)] text-white shadow-none ring-[#FCFAF6] dark:ring-[#FCFAF6]",
+                                  )}
+                                >
                                   {pendingCount}
                                 </span>
                               ) : null
@@ -871,6 +923,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                           variant="icon"
                           aria-label="Unlock vault"
                           onClick={() => setVaultUnlockOpen(true)}
+                          className={riaTopIconSurfaceClassName}
                         >
                           <KeyRound className="h-5 w-5 text-amber-600 dark:text-amber-300" />
                         </ShellActionSurface>
@@ -881,9 +934,17 @@ export function TopAppBar({ className }: TopAppBarProps) {
                           <ShellActionSurface
                             variant="icon"
                             aria-label="Notifications"
+                            className={riaTopIconSurfaceClassName}
+                            badgeClassName={riaTopBadgeWrapperClassName}
                             badge={
                               badgeCount > 0 ? (
-                                <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-[#1d1d1f] shadow-[0_8px_18px_rgba(184,137,77,0.32)] ring-2 ring-white/90 dark:ring-[#111113]">
+                                <span
+                                  className={cn(
+                                    "inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-[#1d1d1f] shadow-[0_8px_18px_rgba(184,137,77,0.32)] ring-2 ring-white/90 dark:ring-[#111113]",
+                                    isRiaScope &&
+                                      "bg-[color:var(--ria-gold)] text-white shadow-none ring-[#FCFAF6] dark:ring-[#FCFAF6]",
+                                  )}
+                                >
                                   {badgeCount}
                                 </span>
                               ) : null

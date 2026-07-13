@@ -52,6 +52,19 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("router.push(nextRoute);");
   });
 
+  it("renders the RIA header cluster for RIA persona and the onboarding setup route", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+
+    // Display-only "RIA v" cluster shown across the RIA sub-agent.
+    expect(source).toContain('data-testid="top-app-bar-ria-cluster"');
+    // RIA home remains persona-gated, while setup gets an explicit route
+    // exception because it can load before activePersona flips to RIA.
+    expect(source).toContain("const isRiaOnboardingScope");
+    expect(source).toContain("normalizedPathname === ROUTES.RIA_ONBOARDING");
+    expect(source).toContain('activePersona === "ria" || isRiaOnboardingScope');
+    expect(source).not.toContain("normalizedPathname === ROUTES.RIA_HOME");
+  });
+
   it("uses deterministic breadcrumb parents instead of browser history for top-bar back", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 

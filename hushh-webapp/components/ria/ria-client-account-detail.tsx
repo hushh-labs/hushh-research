@@ -21,6 +21,7 @@ import {
 import { useRiaClientWorkspaceState } from "@/components/ria/use-ria-client-workspace-state";
 import { Database, Loader2, Wallet } from "lucide-react";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { RIA_TONE_BADGE } from "@/lib/ria/ria-tone";
 
 function formatStatusLabel(status?: string | null) {
   return String(status || "pending").replaceAll("_", " ");
@@ -29,11 +30,11 @@ function formatStatusLabel(status?: string | null) {
 function branchBadgeClass(status?: string | null) {
   switch (status) {
     case "approved":
-      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+      return RIA_TONE_BADGE.success;
     case "pending":
-      return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+      return RIA_TONE_BADGE.attention;
     default:
-      return "border-border/70 bg-background/80 text-muted-foreground";
+      return RIA_TONE_BADGE.neutral;
   }
 }
 

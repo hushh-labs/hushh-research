@@ -3665,7 +3665,20 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/setup/connected-systems",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fconnected-systems",
+        "expectedMarker": "native-route-connected-systems",
+        "expectedRoute": "/one/setup/connected-systems",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -3723,7 +3736,20 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/setup/email",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Femail",
+        "expectedMarker": "native-route-one-kyc",
+        "expectedRoute": "/one/setup/email",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -3783,7 +3809,18 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/setup/finance",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Ffinance",
+        "expectedMarker": "native-route-one-setup-kai",
+        "expectedRoute": "/one/setup/finance",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -3835,7 +3872,18 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/setup/finance/import",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Ffinance%2Fimport",
+        "expectedMarker": "native-route-one-setup-kai",
+        "expectedRoute": "/one/setup/finance/import",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -3896,7 +3944,20 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/setup/gmail",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fgmail",
+        "expectedMarker": "native-route-gmail",
+        "expectedRoute": "/one/setup/gmail",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -4022,7 +4083,20 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/setup/location",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Flocation",
+        "expectedMarker": "native-route-one-location",
+        "expectedRoute": "/one/setup/location",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -4077,7 +4151,20 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/setup/ria",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fria",
+        "expectedMarker": "native-route-ria-onboarding",
+        "expectedRoute": "/one/setup/ria",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -6468,8 +6555,8 @@
       "page_file": "app/ria/profile/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "flow",
-        "exemption_reason": "RIA profile uses its existing focused settings surface outside the standard app-page shell.",
+        "mode": "standard",
+        "exemption_reason": null,
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {

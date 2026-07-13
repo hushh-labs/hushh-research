@@ -199,7 +199,7 @@ export function AgentBar() {
   const { user } = useAuth();
   const { resolvedTheme, setTheme } = useTheme();
   const { vaultOwnerToken } = useVault();
-  const { switchPersona } = usePersonaState();
+  const { switchPersona, activePersona } = usePersonaState();
   const busyOperations = useKaiSession((state) => state.busyOperations);
   const setAnalysisParams = useKaiSession((state) => state.setAnalysisParams);
   const appendMirrorEvent = useOneConversationSession(
@@ -926,6 +926,8 @@ export function AgentBar() {
   const allowScrollHide = !useOnboardingChrome;
   const { progress: hideBottomChromeProgress } =
     useKaiBottomChromeVisibility(allowScrollHide);
+  // RIA sub-agent = Apple-style ALWAYS-PINNED ask-bar (matches the pinned nav).
+  const isRiaChrome = activePersona === "ria";
 
   const hint = useMemo(() => resolveAgentBarHint(pathname), [pathname]);
 
@@ -1243,10 +1245,13 @@ export function AgentBar() {
           bottom: useOnboardingChrome
             ? "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)"
             : "calc(var(--app-bottom-inset) + 0.5rem)",
-          transform: useOnboardingChrome
-            ? undefined
-            : "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height))), 0)",
-          "--bottom-chrome-progress": String(hideBottomChromeProgress),
+          transform:
+            useOnboardingChrome || isRiaChrome
+              ? undefined
+              : "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height))), 0)",
+          "--bottom-chrome-progress": isRiaChrome
+            ? "0"
+            : String(hideBottomChromeProgress),
         } as CSSProperties
       }
       aria-hidden={barHidden}
@@ -1309,13 +1314,15 @@ export function AgentBar() {
           // open/close fade+lift. Smoothly eases the bar in/out with the agent
           // window lifecycle so it never snaps back into place after closing.
           "transition-[opacity,transform,background-color,box-shadow] duration-300 ease-[cubic-bezier(0.16,0.84,0.28,1)] will-change-[opacity,transform]",
-          // CANONICAL agent surface: the exact material of the opened agent
-          // window (agent-popover-provider shell: white/95 + blur-xl +
-          // shadow-2xl, dark #1c1c1e/95), so bar and window read as one
-          // continuous object. No idle glow.
+          // CANONICAL agent surface (from main): the exact material of the
+          // opened agent window (white/95 + blur-xl + shadow-2xl, dark
+          // #1c1c1e/95) so bar and window read as one continuous object.
           "backdrop-blur-xl",
           "bg-white/95 text-[#1d1d1f] shadow-2xl",
           "dark:bg-[#1c1c1e]/95 dark:text-[#f5f5f7]",
+          // RIA: warm cream ask-bar pill (#F7F3EC) per the (1) design.
+          isRiaChrome &&
+            "!bg-[#f7f3ec] !text-[color:var(--ria-ink)] !shadow-none !backdrop-blur-none !ring-1 !ring-[color:var(--ria-divider-outer)]",
           barHidden
             ? "pointer-events-none translate-y-1 scale-[0.98] opacity-0"
             : "translate-y-0 scale-100 opacity-100",
