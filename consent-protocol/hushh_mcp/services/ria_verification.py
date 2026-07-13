@@ -34,11 +34,27 @@ def validate_regulated_runtime_configuration() -> None:
     if not _is_production():
         return
 
-    if not str(os.getenv("IAPD_VERIFY_BASE_URL", "")).strip():
-        raise RuntimeError("IAPD_VERIFY_BASE_URL is required in production.")
-
-    if not str(os.getenv("IAPD_VERIFY_API_KEY", "")).strip():
-        raise RuntimeError("IAPD_VERIFY_API_KEY is required in production.")
+    # Production must have at least one advisory verification provider
+    # configured. The runtime chain (FinraVerificationAdapter) tries the IAPD
+    # worker first and falls back to the RIA intelligence verifier, so either
+    # provider satisfies the requirement. Requiring IAPD specifically would
+    # demand a provider the app does not actually use today (UAT verifies via
+    # RIA intelligence), so this mirrors the runtime "IAPD or RIA intelligence"
+    # rule and the provider adapters' own configured checks.
+    iapd_configured = bool(
+        str(os.getenv("IAPD_VERIFY_BASE_URL", "")).strip()
+        and str(os.getenv("IAPD_VERIFY_API_KEY", "")).strip()
+    )
+    ria_intelligence_configured = bool(
+        str(os.getenv("RIA_INTELLIGENCE_VERIFY_URL", "")).strip()
+        or str(os.getenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", "")).strip()
+    )
+    if not (iapd_configured or ria_intelligence_configured):
+        raise RuntimeError(
+            "An advisory verification provider must be configured in production: set "
+            "IAPD_VERIFY_BASE_URL and IAPD_VERIFY_API_KEY, or "
+            "RIA_INTELLIGENCE_VERIFY_BASE_URL (optionally RIA_INTELLIGENCE_VERIFY_URL)."
+        )
 
     if _env_truthy("ADVISORY_VERIFICATION_BYPASS_ENABLED") or _env_truthy("RIA_DEV_BYPASS_ENABLED"):
         raise RuntimeError(
