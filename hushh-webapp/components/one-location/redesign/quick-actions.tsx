@@ -83,32 +83,36 @@ export function QuickActionCard({
           : "cursor-not-allowed",
       )}
     >
-      <span
-        className={cn(
-          "flex h-11 w-11 items-center justify-center rounded-full",
-          palette.tile,
-          palette.icon,
-        )}
-      >
-        {icon}
-      </span>
+      <div className="flex w-full items-start justify-between gap-2">
+        <span
+          className={cn(
+            "flex h-11 w-11 items-center justify-center rounded-full",
+            palette.tile,
+            palette.icon,
+          )}
+        >
+          {icon}
+        </span>
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#eef2f8] dark:bg-white/10">
+          <ChevronRight className="h-3 w-3 text-black/40 dark:text-muted-foreground" />
+        </span>
+      </div>
 
-      <div className="mt-auto min-w-0">
+      <div className="mt-auto w-full min-w-0">
         <p className="truncate text-[15px] font-bold leading-tight text-[#1c1c2e] dark:text-foreground">
           {title}
         </p>
-        <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5">
-          <span className="truncate text-xs text-black/50 dark:text-muted-foreground">
-            {subtitle}
-          </span>
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#eef2f8] dark:bg-white/10">
-            <ChevronRight className="h-3 w-3 text-black/40 dark:text-muted-foreground" />
-          </span>
-        </div>
+        {/* Subtitle spans the full card width (no chevron sharing the row) and
+            uses a compact size so the one-line description stays fully visible
+            on every device without truncating to an ellipsis. */}
+        <span className="mt-1.5 block truncate text-[11px] leading-tight text-black/50 dark:text-muted-foreground">
+          {subtitle}
+        </span>
       </div>
     </button>
   );
 }
+
 
 export function QuickActionsSection({
   title = "Quick actions",

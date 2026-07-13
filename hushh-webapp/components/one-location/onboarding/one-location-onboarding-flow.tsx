@@ -10,11 +10,11 @@ import {
   LockKeyhole,
   MapPin,
   ShieldCheck,
-  UserRound,
   UserPlus,
 } from "lucide-react";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+
 import type { ConsentNotificationDeliveryMode } from "@/components/consent/notification-provider";
 import { isWeb } from "@/lib/capacitor/platform";
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
@@ -221,13 +221,18 @@ function ProgressDots({ activeIndex }: { activeIndex: number }) {
 }
 
 function WelcomeRadar({ people }: { people: DirectoryPerson[] }) {
-  const shown = people
+  const connected = people
     .filter((person) => person.relationship === "connected")
     .slice(0, 3);
+  // Always render three avatar bubbles in an evenly-spaced triangle around the
+  // center pin. Real connected people fill first; remaining slots fall back to
+  // dummy contact avatars so the radar never looks empty and keeps consistent
+  // distancing from the middle on every device.
+  const slots = [0, 1, 2].map((index) => connected[index] ?? null);
   const positions = [
-    "left-[18%] top-[55%]",
-    "right-[14%] top-[48%]",
-    "right-[28%] top-[8%]",
+    "left-1/2 top-[3%] -translate-x-1/2",
+    "left-[9%] bottom-[15%]",
+    "right-[9%] bottom-[15%]",
   ];
 
   return (
@@ -245,32 +250,27 @@ function WelcomeRadar({ people }: { people: DirectoryPerson[] }) {
       <span className="absolute left-1/2 top-1/2 flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-4 border-white/70 bg-white text-[#087cf0] shadow-lg">
         <MapPin className="h-6 w-6 fill-[#087cf0]/12" />
       </span>
-      {shown.length > 0
-        ? shown.map((person, index) => (
-            <span key={person.userId} className={cn("absolute", positions[index])}>
-              <Avatar name={safeName(person.displayName)} photoUrl={person.photoUrl} />
-              <span className="absolute -right-0.5 -top-0.5 h-5 w-5 rounded-full border-[3px] border-white bg-[#34c759]" />
-            </span>
-          ))
-        : positions.map((position, index) => (
-            <span
-              key={position}
-              className={cn(
-                "absolute flex h-14 w-14 items-center justify-center rounded-full border-[3px] border-white/80 bg-white/20 text-white",
-                position,
-              )}
-            >
-              <UserRound className="h-6 w-6" />
-              {index === 0 ? (
-                <span className="absolute -right-0.5 -top-0.5 h-5 w-5 rounded-full border-[3px] border-white bg-[#34c759]" />
-              ) : null}
-            </span>
-          ))}
+      {slots.map((person, index) => (
+        <span
+          key={person?.userId ?? `dummy-${index}`}
+          className={cn("absolute", positions[index])}
+        >
+          {person ? (
+            <Avatar name={safeName(person.displayName)} photoUrl={person.photoUrl} />
+          ) : (
+            <DummyContactAvatar index={index} large />
+          )}
+          {index === 0 ? (
+            <span className="absolute -right-0.5 -top-0.5 h-5 w-5 rounded-full border-[3px] border-white bg-[#34c759]" />
+          ) : null}
+        </span>
+      ))}
     </div>
   );
 }
 
 const DUMMY_AVATAR_POSITIONS = ["0% 0%", "100% 0%", "0% 100%", "100% 100%"];
+
 
 function DummyContactAvatar({ index = 0, large = false }: { index?: number; large?: boolean }) {
   return (
@@ -640,6 +640,7 @@ function CircleScreen({
   failedCount,
   requestsSending,
   onBack,
+  onAddPeople,
   onContinue,
 }: {
   currentUserName: string;
@@ -648,9 +649,12 @@ function CircleScreen({
   failedCount: number;
   requestsSending: boolean;
   onBack: () => void;
+  /** Return to the "Add people" screen when the circular add (+) button is tapped. */
+  onAddPeople: () => void;
   onContinue: () => void;
 }) {
   const pendingCount = members.filter((member) => member.status === "pending").length;
+
   const connectedCount = members.length - pendingCount;
   const title = pendingCount > 0
     ? "Your circle is taking shape"
@@ -698,12 +702,19 @@ function CircleScreen({
               ) : null}
             </span>
           ))}
-          {shown.length === 0 ? (
-            <span className="absolute bottom-[8%] right-[9%] flex h-16 w-16 items-center justify-center rounded-full border-2 border-dashed border-[#83c4fb] bg-[#eaf5ff] text-[#087cf0]">
-              <UserPlus className="h-7 w-7" />
-            </span>
-          ) : null}
+          {/* Add-person (+) button — always available so the user can jump back
+              to the "Add people" screen to grow their circle. Tapping it routes
+              back one step in the flow. */}
+          <button
+            type="button"
+            onClick={onAddPeople}
+            aria-label="Add people to your circle"
+            className="absolute bottom-[8%] right-[9%] flex h-16 w-16 items-center justify-center rounded-full border-2 border-dashed border-[#83c4fb] bg-[#eaf5ff] text-[#087cf0] transition-transform active:scale-95 hover:bg-[#dbeeff]"
+          >
+            <UserPlus className="h-7 w-7" />
+          </button>
         </div>
+
 
         <div className="mt-5 flex gap-4 rounded-[22px] bg-[#f5f8fb] px-5 py-5 shadow-[0_8px_24px_rgba(35,55,78,0.08)]">
           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#dff0ff] text-[#087cf0]">
@@ -1065,8 +1076,10 @@ export function OneLocationOnboardingFlow({
             failedCount={failedRequestCount}
             requestsSending={requestsSending}
             onBack={() => setScreen("people")}
+            onAddPeople={() => setScreen("people")}
             onContinue={() => setScreen("permissions")}
           />
+
         ) : null}
 
         {screen === "permissions" ? (

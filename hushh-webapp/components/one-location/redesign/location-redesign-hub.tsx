@@ -711,23 +711,24 @@ function NowHub({
           tone="blue"
           icon={<Car className="h-5 w-5" />}
           title="Drive To"
-          subtitle="Share route + ETA"
+          subtitle="Route + ETA"
           onClick={onDriveTo}
         />
         <QuickActionCard
           tone="blue"
           icon={<Hand className="h-5 w-5" />}
           title="Pick Me Up"
-          subtitle="Let someone come"
+          subtitle="Someone comes"
           onClick={onPickMeUp}
         />
         <QuickActionCard
           tone="violet"
           icon={<Calendar className="h-5 w-5" />}
           title="Meeting"
-          subtitle="Set a time & place"
+          subtitle="Time & place"
           comingSoon
         />
+
         <QuickActionCard
           tone="slate"
           icon={<ShieldCheck className="h-5 w-5" />}
