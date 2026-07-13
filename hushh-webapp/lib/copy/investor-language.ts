@@ -51,13 +51,13 @@ export function toInvestorMessage(
     case "VAULT_STATUS_UNAVAILABLE":
       return "We could not reach Vault right now. Check your connection and try again.";
     case "LOCAL_BACKEND_UNAVAILABLE":
-      return "Local backend data is unavailable right now. Start the local backend with the proxy-aware launcher, then try again.";
+      return "Local backend information is unavailable right now. Start the local backend with the proxy-aware launcher, then try again.";
     case "VAULT_UNLOCK_FAILED":
       return "We could not unlock your Vault. Please confirm your details and try again.";
     case "VAULT_PASSKEY_ENROLL_REQUIRED":
-      return "This passkey was enrolled under an older domain. Use your passphrase once, then enable passkey again for kai.hushh.ai.";
+      return "This passkey was enrolled under an older domain. Use your passphrase once, then enable passkey again for one.hushh.ai.";
     case "MARKET_DATA_UNAVAILABLE":
-      return "Live market data is temporarily unavailable. Showing the latest available view.";
+      return "Live market information is temporarily unavailable. Showing the latest available view.";
     case "ANALYSIS_UNAVAILABLE":
       return context?.ticker
         ? `Analysis for ${context.ticker} is not available yet.`
@@ -194,7 +194,7 @@ const STREAM_TECHNICAL_SUBSTITUTIONS: Array<{ pattern: RegExp; replacement: stri
   { pattern: /\bruntime\b/gi, replacement: "session" },
   { pattern: /\bdebug(?:ging|)\b/gi, replacement: "" },
   { pattern: /\btrace(?:s|)\b/gi, replacement: "" },
-  { pattern: /\bprovider failure\b/gi, replacement: "data source unavailable" },
+  { pattern: /\bprovider failure\b/gi, replacement: "information source unavailable" },
   { pattern: /\bhttp\s*\d{3}\b/gi, replacement: "network response" },
   { pattern: /\b429\b/gi, replacement: "temporary capacity limit" },
   { pattern: /\btoo many requests\b/gi, replacement: "capacity limit reached" },

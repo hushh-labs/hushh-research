@@ -103,7 +103,8 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `ALPACA_DEFAULT_ACCOUNT_ID` | `hushh_mcp/integrations/alpaca/config.py` | Recommended | Default Alpaca account ID for funding when user-specific mapping is absent. |
 | `ALPACA_CONNECT_CLIENT_ID` | `hushh_mcp/services/broker_funding_service.py` | If Alpaca OAuth connect enabled | Alpaca OAuth app client ID for user login flow. |
 | `ALPACA_CONNECT_CLIENT_SECRET` | `hushh_mcp/services/broker_funding_service.py` | If Alpaca OAuth connect enabled | Alpaca OAuth app client secret. |
-| `ALPACA_CONNECT_REDIRECT_URI` / `ALPACA_OAUTH_REDIRECT_URI` | `hushh_mcp/services/broker_funding_service.py` | If Alpaca OAuth connect enabled | HTTPS callback URI for Alpaca OAuth code exchange. |
+| `ALPACA_CONNECT_REDIRECT_URI` / `ALPACA_OAUTH_REDIRECT_URI` | `hushh_mcp/services/broker_funding_service.py` | Optional override | Full allowlisted HTTPS callback URI. Use only when overriding `APP_FRONTEND_ORIGIN + ALPACA_CONNECT_REDIRECT_PATH`. |
+| `ALPACA_CONNECT_REDIRECT_PATH` | `hushh_mcp/services/broker_funding_service.py` | No | Relative callback path used with `APP_FRONTEND_ORIGIN` (same pattern as `PLAID_REDIRECT_PATH`). Default: `/kai/alpaca/oauth/return`. |
 | `ALPACA_CONNECT_AUTHORIZE_URL` | `hushh_mcp/services/broker_funding_service.py` | No | Override OAuth authorize endpoint. Default `https://app.alpaca.markets/oauth/authorize`. |
 | `ALPACA_CONNECT_TOKEN_URL` | `hushh_mcp/services/broker_funding_service.py` | No | Override OAuth token endpoint. Default `https://api.alpaca.markets/oauth/token`. |
 | `ALPACA_CONNECT_ACCOUNT_URL` | `hushh_mcp/services/broker_funding_service.py` | No | OAuth Bearer account profile endpoint. Default `https://api.alpaca.markets/v2/account`. |
@@ -213,7 +214,7 @@ Existing Plaid investment-sync variables remain valid for read-only holdings/tra
 Webhook maintenance:
 
 - If `PLAID_WEBHOOK_URL` changes after users have already linked institutions, existing Items will need a one-time `/item/webhook/update` maintenance pass from an operator.
-- UAT value: `https://uat.kai.hushh.ai/api/kai/plaid/webhook`
+- UAT value: `https://uat.one.hushh.ai/api/kai/plaid/webhook`
 - Localhost value: `https://<your-current-tunnel>/api/kai/plaid/webhook`
 
 ## Profile Support Messaging

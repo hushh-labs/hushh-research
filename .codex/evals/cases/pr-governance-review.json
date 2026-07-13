@@ -1,0 +1,33 @@
+{
+  "skill_name": "pr-governance-review",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "review this incoming pull request and tell me if it is actually safe to merge",
+        "top_k": 3
+      },
+      {
+        "prompt": "the PR is green but I do not trust it, check merge readiness beyond CI",
+        "top_k": 3
+      },
+      {
+        "prompt": "plan a PR train for the contributor backlog and queue the safe ones",
+        "top_k": 3
+      },
+      {
+        "prompt": "should we harvest this contributor PR or patch it as maintainers first",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "fix the failing GitHub Actions workflow on main",
+        "owner": "repo-operations"
+      },
+      {
+        "prompt": "where should this new contract test live",
+        "owner": "quality-contracts"
+      }
+    ]
+  }
+}

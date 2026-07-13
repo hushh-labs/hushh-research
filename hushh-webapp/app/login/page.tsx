@@ -14,10 +14,7 @@ function LoginContent() {
 
   return (
     <>
-      <AuthStep
-        redirectPath={redirectPath}
-        compact
-      />
+      <AuthStep redirectPath={redirectPath} compact />
     </>
   );
 }
@@ -31,7 +28,9 @@ export default function LoginPage() {
         authState="anonymous"
         dataState="loaded"
       />
-      <Suspense fallback={<HushhLoader label="Loading login..." variant="fullscreen" />}>
+      <Suspense
+        fallback={<HushhLoader label="Loading login..." variant="fullscreen" />}
+      >
         <LoginContent />
       </Suspense>
     </>

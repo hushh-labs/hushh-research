@@ -38,7 +38,7 @@ def test_place_details_route(client, monkeypatch):
 
 def test_route_eta_route(client, monkeypatch):
     async def fake(self, *, origin_lat, origin_lng, dest_lat, dest_lng):
-        return {"etaSeconds": 600, "distanceMeters": 5000}
+        return {"etaSeconds": 600, "distanceMeters": 4200, "trafficLevel": "light"}
 
     monkeypatch.setattr(gms.GoogleMapsService, "route_eta", fake)
     res = client.post(
@@ -46,7 +46,25 @@ def test_route_eta_route(client, monkeypatch):
         json={"originLat": 1, "originLng": 1, "destLat": 2, "destLng": 2},
     )
     assert res.status_code == 200
-    assert res.json()["eta"] == {"etaSeconds": 600, "distanceMeters": 5000}
+    data = res.json()
+    assert data["eta"]["etaSeconds"] == 600
+    assert data["eta"]["distanceMeters"] == 4200
+    assert data["eta"]["trafficLevel"] == "light"
+
+
+def test_reverse_geocode_route(client, monkeypatch):
+    async def fake(self, *, lat, lng):
+        return {"name": "Central Library", "formattedAddress": "476 5th Ave"}
+
+    monkeypatch.setattr(gms.GoogleMapsService, "reverse_geocode", fake)
+    res = client.post(
+        "/api/one/location/maps/reverse-geocode",
+        json={"lat": 40.75, "lng": -73.98},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["place"]["name"] == "Central Library"
+    assert data["place"]["formattedAddress"] == "476 5th Ave"
 
 
 def test_maps_unconfigured_returns_503(client, monkeypatch):

@@ -11,6 +11,7 @@ type AuthProviderButtonProps = {
   disabled?: boolean;
   onClick?: () => void | Promise<void>;
   className?: string;
+  voiceControlId?: string;
 };
 
 export function AuthProviderButton({
@@ -19,6 +20,7 @@ export function AuthProviderButton({
   disabled = false,
   onClick,
   className,
+  voiceControlId,
 }: AuthProviderButtonProps) {
   return (
     <Button
@@ -30,8 +32,9 @@ export function AuthProviderButton({
       showRipple={!disabled}
       disabled={disabled}
       onClick={onClick}
+      data-voice-control-id={voiceControlId}
       className={cn(
-        "type-headline min-h-[52px] rounded-full border-0 bg-black/[0.05] text-[#1d1d1f] shadow-none [backdrop-filter:none] transition-[background,transform] hover:bg-black/[0.08] active:translate-y-px dark:bg-white/[0.07] dark:text-[#f5f5f7] dark:hover:bg-white/[0.10]",
+        "type-headline min-h-[52px] rounded-full border-0 bg-black/[0.05] text-[#1d1d1f] shadow-none [backdrop-filter:none] transition-[background] hover:bg-black/[0.08] dark:bg-white/[0.07] dark:text-[#f5f5f7] dark:hover:bg-white/[0.10]",
         className
       )}
     >

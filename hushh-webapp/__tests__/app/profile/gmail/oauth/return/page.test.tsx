@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
     completeConnect: vi.fn(),
     getStatus: vi.fn(),
   },
+  syncOnboardingJourney: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -25,6 +26,12 @@ vi.mock("@/hooks/use-auth", () => ({
 
 vi.mock("@/lib/services/gmail-receipts-service", () => ({
   GmailReceiptsService: mocks.gmailReceiptsService,
+}));
+
+vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
+  PreVaultUserStateService: {
+    syncOnboardingJourney: mocks.syncOnboardingJourney,
+  },
 }));
 
 vi.mock("@/lib/profile/gmail-connector-store", () => ({
@@ -85,6 +92,8 @@ describe("ProfileGmailOAuthReturnPage", () => {
       auto_sync_enabled: true,
       revoked: false,
     });
+    mocks.syncOnboardingJourney.mockResolvedValue(undefined);
+    window.sessionStorage.clear();
   });
 
   it("redirects back to Gmail receipts when the callback is replayed after a successful connection", async () => {
@@ -131,5 +140,63 @@ describe("ProfileGmailOAuthReturnPage", () => {
         redirectUri: "http://localhost:3000/profile/gmail/oauth/return",
       });
     });
+  });
+
+  it("settles a setup-originated Gmail callback back to the setup hub", async () => {
+    window.sessionStorage.setItem(
+      "one_onboarding_connector_intent_v1",
+      JSON.stringify({
+        version: 1,
+        capability: "gmail",
+        returnTo: "/one/setup",
+        correlationId: "connector-test",
+        startedAt: Date.now(),
+      })
+    );
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "code") return "code-setup";
+      if (key === "state") return "state-setup";
+      return null;
+    });
+
+    render(<ProfileGmailOAuthReturnPage />);
+
+    await waitFor(() => {
+      expect(mocks.syncOnboardingJourney).toHaveBeenCalledWith({
+        userId: "user-123",
+        phase: "setup_hub",
+        activeCapability: null,
+        callbackState: "succeeded",
+      });
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/setup");
+    });
+    expect(window.sessionStorage.getItem("one_onboarding_connector_intent_v1")).toBeNull();
+  });
+
+  it("keeps connector success authoritative when the journey echo fails", async () => {
+    window.sessionStorage.setItem(
+      "one_onboarding_connector_intent_v1",
+      JSON.stringify({
+        version: 1,
+        capability: "gmail",
+        returnTo: "/one/setup",
+        correlationId: "connector-test",
+        startedAt: Date.now(),
+      }),
+    );
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "code") return "code-setup";
+      if (key === "state") return "state-setup";
+      return null;
+    });
+    mocks.syncOnboardingJourney.mockRejectedValue(new Error("journey unavailable"));
+
+    render(<ProfileGmailOAuthReturnPage />);
+
+    await waitFor(() => {
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/setup");
+    });
+    expect(screen.queryByText("Gmail connection needs attention")).toBeNull();
+    expect(window.sessionStorage.getItem("one_onboarding_connector_intent_v1")).toBeNull();
   });
 });

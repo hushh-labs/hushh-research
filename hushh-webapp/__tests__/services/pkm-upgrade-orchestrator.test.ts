@@ -420,7 +420,7 @@ describe("PkmUpgradeOrchestrator", () => {
 
       expect(AppBackgroundTaskService.failTask).toHaveBeenCalledWith(
         expect.stringContaining("pkm_upgrade_"),
-        "We could not update your personal data right now.",
+        "We could not update your saved details right now.",
         "We paused while updating food details.",
         expect.objectContaining({
           domain: "food",
@@ -447,9 +447,9 @@ describe("PkmUpgradeOrchestrator", () => {
       expect(pkmValidatePreparedDomainStoreMock).not.toHaveBeenCalled();
       expect(pkmStoreMergedDomainMock).toHaveBeenCalledTimes(1);
       expect(toastSuccessMock).toHaveBeenCalledWith(
-        "Personal data updated",
+        "Saved details updated",
         expect.objectContaining({
-          description: "Your personal data is up to date.",
+          description: "Your saved details are up to date.",
         })
       );
     });
@@ -490,7 +490,7 @@ describe("PkmUpgradeOrchestrator", () => {
       expect(pkmStoreMergedDomainMock).not.toHaveBeenCalled();
       expect(AppBackgroundTaskService.completeTask).toHaveBeenCalledWith(
         expect.stringContaining("pkm_upgrade_"),
-        "Your personal data is ready to review.",
+        "Your saved details are ready to review.",
         expect.objectContaining({
           dummySaveValidated: true,
           mode: "rehearsal_no_write",
@@ -559,18 +559,18 @@ describe("PkmUpgradeOrchestrator", () => {
       expect(AppBackgroundTaskService.startTask).toHaveBeenCalledWith(
         expect.objectContaining({
           kind: "pkm_upgrade",
-          title: "Updating your personal data",
+          title: "Updating your saved details",
         })
       );
       expect(AppBackgroundTaskService.completeTask).toHaveBeenCalledWith(
         expect.stringContaining("pkm_upgrade_"),
-        "Your personal data is up to date.",
+        "Your saved details are up to date.",
         null
       );
       expect(toastSuccessMock).toHaveBeenCalledWith(
-        "Personal data updated",
+        "Saved details updated",
         expect.objectContaining({
-          description: "Your personal data is up to date.",
+          description: "Your saved details are up to date.",
         })
       );
     });

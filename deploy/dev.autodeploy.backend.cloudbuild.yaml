@@ -1,0 +1,124 @@
+# Dev auto-deploy orchestrator (backend) — GCP-native CI lane.
+#
+# Invoked by the Cloud Build trigger `dev-backend-autodeploy` in the
+# hushh-pda-dev project on pushes to main that touch backend paths
+# (see scripts/ops/setup_dev_cloudbuild_triggers.sh). It replicates what
+# .github/workflows/deploy-dev.yml does around the shared backend build
+# config: apply migrations, enforce the dev schema floor, then run the
+# exact same deploy/backend.cloudbuild.yaml used by every other lane.
+#
+# Gates this lane has: main-branch-only trigger, migrations + schema
+# contract guard, Cloud Run health probe. Gates it deliberately does NOT
+# duplicate from the Actions lane: green-check SHA assertion, secret
+# sync, parity/semantic verification, auto-rollback — dev is disposable
+# and the Actions lane remains the fully-gated path. UAT and production
+# stay GitHub-Actions-only; never point a trigger like this at them.
+
+steps:
+  # Migrations first: a backend image that expects a newer schema must
+  # never reach Cloud Run before the schema does (same ordering as the
+  # deploy-dev workflow).
+  - id: "migrate-and-guard"
+    name: "python:3.13-slim"
+    entrypoint: "bash"
+    secretEnv: ["DB_USER", "DB_PASSWORD"]
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        apt-get update -qq >/dev/null && apt-get install -y -qq curl >/dev/null
+        curl -fsSL \
+          https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
+          -o /usr/local/bin/cloud-sql-proxy
+        chmod +x /usr/local/bin/cloud-sql-proxy
+        cloud-sql-proxy --address 127.0.0.1 --port 6543 \
+          "${_CLOUDSQL_INSTANCE}" >/tmp/cloud-sql-proxy.log 2>&1 &
+        python3 - <<'PY'
+        import socket, time
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            with socket.socket() as sock:
+                sock.settimeout(0.5)
+                if sock.connect_ex(("127.0.0.1", 6543)) == 0:
+                    raise SystemExit(0)
+            time.sleep(0.25)
+        raise SystemExit("Cloud SQL proxy did not bind 127.0.0.1:6543 in time")
+        PY
+
+        pip install --quiet uv
+        cd consent-protocol
+        uv sync --frozen --no-dev
+
+        export DB_HOST=127.0.0.1
+        export DB_PORT=6543
+        export DB_NAME=postgres
+
+        .venv/bin/python db/migrate.py --release
+        .venv/bin/python ../scripts/ops/db_migration_release_guard.py \
+          --contract-file db/contracts/dev_minimum_schema.json
+
+  # Reuse the shared backend build config verbatim so this lane cannot
+  # drift from what the Actions lane deploys. Traffic goes live directly
+  # (_CLOUD_RUN_NO_TRAFFIC=false): this lane has no separate promote step.
+  - id: "submit-backend-build"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        SUBSTITUTIONS="_BACKEND_SERVICE=consent-protocol##_REGION=${_REGION}##_CLOUDSQL_INSTANCES=${_CLOUDSQL_INSTANCE}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=${_ONE_EMAIL_PUBSUB_TOPIC}##_ONE_EMAIL_WEBHOOK_AUDIENCE=${_ONE_EMAIL_WEBHOOK_AUDIENCE}##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_APP_REVIEW_MODE=true##_CLOUD_RUN_NO_TRAFFIC=false##_RUNTIME_ENVIRONMENT=uat##_IMAGE_TAG=dev-${COMMIT_SHA}##_DEPLOY_ENV=dev##_DEPLOY_SOURCE=cloudbuild-trigger##_DEPLOY_SHA=${COMMIT_SHA}##_GITHUB_RUN_ID=cb-${BUILD_ID}"
+        gcloud builds submit \
+          --project="$PROJECT_ID" \
+          --region="${_REGION}" \
+          --config=deploy/backend.cloudbuild.yaml \
+          "--substitutions=^##^${SUBSTITUTIONS}"
+
+  # Post-deploy sanity: newest ready revision must carry this commit's
+  # deploy-sha label and the service must answer its health endpoint.
+  - id: "verify-backend"
+    name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        revision="$(gcloud run services describe consent-protocol \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --format='value(status.latestReadyRevisionName)')"
+        deployed_sha="$(gcloud run revisions describe "${revision}" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --format='value(metadata.labels.deploy-sha)')"
+        if [ "${deployed_sha}" != "${COMMIT_SHA}" ]; then
+          echo "Provenance mismatch: latest ready revision ${revision} carries deploy-sha '${deployed_sha}', expected '${COMMIT_SHA}'."
+          exit 1
+        fi
+        url="$(gcloud run services describe consent-protocol \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --format='value(status.url)')"
+        status="$(curl -s -o /dev/null -w '%{http_code}' "${url}/health" || true)"
+        if [ "${status}" != "200" ]; then
+          echo "Backend health probe returned ${status} at ${url}/health"
+          exit 1
+        fi
+        echo "Backend ${revision} healthy at ${url} (sha ${COMMIT_SHA})."
+
+substitutions:
+  _REGION: us-central1
+  _CLOUDSQL_INSTANCE: hushh-pda-dev:us-central1:hushh-dev-pg
+  _ONE_EMAIL_PUBSUB_TOPIC: projects/hushh-pda/topics/one-email-kyc-uat
+  _ONE_EMAIL_WEBHOOK_AUDIENCE: https://consent-protocol-621416509462.us-central1.run.app/api/one/email/webhook
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/DB_USER/versions/latest
+      env: "DB_USER"
+    - versionName: projects/$PROJECT_ID/secrets/DB_PASSWORD/versions/latest
+      env: "DB_PASSWORD"
+
+timeout: "2400s"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: "E2_HIGHCPU_8"
+  dynamicSubstitutions: true

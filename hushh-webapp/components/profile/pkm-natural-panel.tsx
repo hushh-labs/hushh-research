@@ -69,7 +69,7 @@ function initials(label: string | null | undefined): string {
 }
 
 function globalAccessLabel(scope: string | null | undefined): string | null {
-  if (scope === "pkm.read") return "Can access all of your saved data.";
+  if (scope === "pkm.read") return "Can access all of your saved information.";
   if (scope === "vault.owner") return "Can manage your full vault and everything inside it.";
   return null;
 }
@@ -278,7 +278,7 @@ export function PkmNaturalPanel({
       maxCardsPerDomain: 128,
     });
     return {
-      readable_summary: `${card.domainTitle} memory was ${action} from your data view.`,
+      readable_summary: `${card.domainTitle} memory was ${action} from your saved details view.`,
       readable_highlights: [`${action === "edited" ? "Updated" : "Removed"} ${card.title}`],
       readable_updated_at: now,
       readable_source_label: action === "edited" ? "Edited memory" : "Deleted memory",
@@ -302,6 +302,11 @@ export function PkmNaturalPanel({
         domain: params.card.domain,
         vaultKey,
         vaultOwnerToken,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: `pkm_natural_${params.action}_button`,
+        },
         build: () => ({
           domainData: params.nextDomainData,
           summary: memoryWriteSummary(params.card, params.action, params.nextDomainData),
@@ -408,11 +413,11 @@ export function PkmNaturalPanel({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">
-              Data + Access
+              Information + Access
             </p>
             <h2 className="text-sm font-semibold">What Kai knows about you, in plain English</h2>
             <p className="max-w-3xl text-sm text-muted-foreground">
-              This view keeps the saved data readable for a normal app user. It focuses on what Kai
+              This view keeps saved information readable for a normal app user. It focuses on what Kai
               knows, when it was last updated, and which connected apps can currently access it.
             </p>
           </div>

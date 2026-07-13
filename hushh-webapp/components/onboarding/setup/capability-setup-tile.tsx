@@ -40,6 +40,7 @@ export interface CapabilitySetupTileProps {
   /** Plain, One-voice description of what this step sets up. */
   description: string;
   href: string;
+  voiceControlId: string;
   icon: LucideIcon;
   tone: OneCapabilityTone;
   status: CapabilityStatus;
@@ -54,6 +55,7 @@ export function CapabilitySetupTile({
   title,
   description,
   href,
+  voiceControlId,
   icon: Icon,
   status,
   isExploreOnly = false,
@@ -102,6 +104,7 @@ export function CapabilitySetupTile({
         aria-label={`${title}: ${display.label}`}
         aria-current={isCurrent ? "step" : undefined}
         data-href={href}
+        data-voice-control-id={voiceControlId}
         className={cn(
           "[&]:focus-visible:ring-2 [&]:focus-visible:ring-ring [&]:focus-visible:ring-inset",
           className,

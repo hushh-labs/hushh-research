@@ -2,11 +2,16 @@
  * Structured data (JSON-LD) for answer-engine optimization (AEO).
  *
  * Builds a schema.org @graph describing the Hussh platform, the website, and
- * the One personal agent application. Aligned to the canonical agent ontology
+ * the One private agent application. Aligned to the canonical agent ontology
  * (Hussh -> One -> {Kai, Nav, KYC}); see docs/vision/agent-ontology.md.
  */
 
-import { absoluteUrl, SITE_URL } from "@/lib/seo/site";
+import {
+  absoluteUrl,
+  PUBLIC_ROUTES,
+  PUBLIC_ROUTE_SEMANTICS,
+  SITE_URL,
+} from "@/lib/seo/site";
 
 const ORG_ID = `${SITE_URL}/#organization`;
 const SITE_ID = `${SITE_URL}/#website`;
@@ -23,7 +28,7 @@ export function buildOrganizationGraph(): Record<string, unknown> {
         url: SITE_URL,
         logo: absoluteUrl("/quiet-emoji-icon.png"),
         description:
-          "Hussh is the platform and trust infrastructure for consent-first personal AI agents: scoped access, BYOK, zero-knowledge vault, and encrypted PKM.",
+          "Hussh is the platform and trust infrastructure for consent-first private AI agents: scoped access, BYOK, zero-knowledge vault, and encrypted PKM.",
         sameAs: ["https://hushh.ai"],
       },
       {
@@ -32,7 +37,17 @@ export function buildOrganizationGraph(): Record<string, unknown> {
         url: SITE_URL,
         name: "Hussh",
         publisher: { "@id": ORG_ID },
+        hasPart: PUBLIC_ROUTES.map((route) => ({ "@id": `${absoluteUrl(route)}#page` })),
       },
+      ...PUBLIC_ROUTES.map((route) => ({
+        "@type": PUBLIC_ROUTE_SEMANTICS[route].schemaType,
+        "@id": `${absoluteUrl(route)}#page`,
+        url: absoluteUrl(route),
+        name: PUBLIC_ROUTE_SEMANTICS[route].title,
+        description: PUBLIC_ROUTE_SEMANTICS[route].description,
+        isPartOf: { "@id": SITE_ID },
+        publisher: { "@id": ORG_ID },
+      })),
       {
         "@type": "SoftwareApplication",
         "@id": APP_ID,
@@ -42,7 +57,7 @@ export function buildOrganizationGraph(): Record<string, unknown> {
         url: SITE_URL,
         publisher: { "@id": ORG_ID },
         description:
-          "One is your top personal agent in Hussh. One holds the relationship and delegates specialist work to Kai (finance), Nav (privacy and consent), and KYC (identity).",
+          "One is your top private agent in Hussh. One holds the relationship and delegates specialist work to Kai (finance), Nav (privacy and consent), and KYC (identity).",
         offers: {
           "@type": "Offer",
           price: "0",
@@ -54,7 +69,7 @@ export function buildOrganizationGraph(): Record<string, unknown> {
           "Nav: privacy, consent, and vault guardian",
           "KYC: identity workflow specialist",
           "Consent-first scoped access with BYOK",
-          "Zero-knowledge vault and encrypted PKM",
+          "Zero-knowledge vault and encrypted personal information memory",
         ],
       },
     ],

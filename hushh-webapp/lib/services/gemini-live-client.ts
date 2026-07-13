@@ -2,6 +2,7 @@
 
 import { ApiService } from "@/lib/services/api-service";
 import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
+import type { OneVoiceActionSettlement } from "@/lib/voice/one-voice-transport";
 import type {
   OneVoiceTransportHandlers,
   OneVoiceTransportStartOptions,
@@ -28,13 +29,14 @@ import { mapAgentVoiceStatusToOneVoiceState } from "@/lib/voice/voice-ui-state-m
 
 const INPUT_SAMPLE_RATE = 16000;
 const OUTPUT_SAMPLE_RATE = 24000;
+// This is intentionally a coarse barge-in signal, not speech recognition.
+// It needs sustained energy to avoid treating microphone silence/noise as a
+// visitor turn and cancelling the idle welcome cue on every connection.
+const VISITOR_ACTIVITY_LEVEL = 0.08;
+const VISITOR_ACTIVITY_FRAMES = 8;
 
 export type GeminiLiveVoiceState =
-  | "idle"
-  | "connecting"
-  | "listening"
-  | "thinking"
-  | "speaking";
+  "idle" | "connecting" | "listening" | "thinking" | "speaking";
 
 export type GeminiLiveVoiceEventOptions = {
   sessionId: string | null;
@@ -45,7 +47,7 @@ export type GeminiLiveVoiceEventOptions = {
 export type GeminiLiveHandlers = {
   onVoiceState?: (
     state: GeminiLiveVoiceState,
-    options: GeminiLiveVoiceEventOptions
+    options: GeminiLiveVoiceEventOptions,
   ) => void;
   onEvent?: OneVoiceTransportHandlers["onEvent"];
   /** Input (mic) amplitude in [0, 1], sampled continuously while listening. */
@@ -198,6 +200,9 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private startContext: OneVoiceContextSnapshot | null = null;
   /** Consent token for One's specialist tools; rides only in app_context frames. */
   private consentToken: string | null = null;
+  private visitorActivitySent = false;
+  private consecutiveSpeechFrames = 0;
+  private bufferedVisitorSpeechFrames: Uint8Array[] = [];
   /**
    * True while the model's turn is open (audio received since the last
    * turnComplete/interrupted). The Live API closes a model turn with
@@ -256,6 +261,9 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     if (this.ws) return;
     this.sessionId = createGeminiLiveSessionId();
     this.sourceSeq = 0;
+    this.visitorActivitySent = false;
+    this.consecutiveSpeechFrames = 0;
+    this.bufferedVisitorSpeechFrames = [];
     this.setState("connecting");
 
     const context = options?.context ?? null;
@@ -263,9 +271,12 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.consentToken = options?.consentToken ?? null;
     let relayUrl: string;
     try {
-      relayUrl = options?.relayUrl || (await ApiService.getOneAdkLiveRelayUrl());
+      relayUrl =
+        options?.relayUrl || (await ApiService.getOneAdkLiveRelayUrl());
     } catch (error) {
-      this.fail(error instanceof Error ? error.message : "Could not start One voice.");
+      this.fail(
+        error instanceof Error ? error.message : "Could not start One voice.",
+      );
       return;
     }
 
@@ -284,7 +295,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new DOMException(
         "This browser does not support microphone capture.",
-        "NotSupportedError"
+        "NotSupportedError",
       );
     }
     this.mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -310,21 +321,27 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     // thread posts fixed-size mono frames back to us. Falls back gracefully if
     // the worklet module cannot load.
     await this.inputContext.audioWorklet.addModule(
-      "/audio/gemini-live-capture.worklet.js"
+      "/audio/gemini-live-capture.worklet.js",
     );
     if (this.closed) return;
 
-    this.sourceNode = this.inputContext.createMediaStreamSource(this.mediaStream);
+    this.sourceNode = this.inputContext.createMediaStreamSource(
+      this.mediaStream,
+    );
     this.captureNode = new AudioWorkletNode(
       this.inputContext,
       "gemini-live-capture",
-      { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 1 }
+      { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 1 },
     );
     this.sourceNode.connect(this.captureNode);
 
     this.captureNode.port.onmessage = (event) => {
       const frame = event.data as Float32Array;
-      if (!this.setupComplete || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      if (
+        !this.setupComplete ||
+        !this.ws ||
+        this.ws.readyState !== WebSocket.OPEN
+      ) {
         return;
       }
       const level = Math.min(1, rms(frame) * 4);
@@ -342,17 +359,64 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       }
       const sourceRate = this.inputContext?.sampleRate ?? INPUT_SAMPLE_RATE;
       const pcm = floatToPcm16(downsample(frame, sourceRate));
-      this.ws.send(
-        JSON.stringify({
-          realtimeInput: {
-            audio: {
-              mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}`,
-              data: base64FromBytes(pcm),
-            },
-          },
-        })
-      );
+      if (!this.sendVisitorActivityStart(level, pcm)) return;
+      this.sendRealtimeAudio(pcm);
     };
+  }
+
+  private sendRealtimeAudio(pcm: Uint8Array): void {
+    if (
+      !this.ws ||
+      this.ws.readyState !== WebSocket.OPEN ||
+      !this.setupComplete
+    )
+      return;
+    this.ws.send(
+      JSON.stringify({
+        realtimeInput: {
+          audio: {
+            mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}`,
+            data: base64FromBytes(pcm),
+          },
+        },
+      }),
+    );
+  }
+
+  /**
+   * Returns false while an initial speech onset is buffered. That makes the
+   * transcript-free activity signal precede every first-turn audio frame on
+   * the same socket, instead of relying on raw silence frames as a proxy for
+   * visitor intent.
+   */
+  private sendVisitorActivityStart(level: number, pcm: Uint8Array): boolean {
+    if (this.visitorActivitySent) return true;
+    if (level >= VISITOR_ACTIVITY_LEVEL) {
+      this.consecutiveSpeechFrames += 1;
+      this.bufferedVisitorSpeechFrames.push(pcm);
+    } else {
+      this.consecutiveSpeechFrames = 0;
+      this.bufferedVisitorSpeechFrames = [];
+    }
+    if (this.consecutiveSpeechFrames < VISITOR_ACTIVITY_FRAMES) return false;
+    if (
+      !this.ws ||
+      this.ws.readyState !== WebSocket.OPEN ||
+      !this.setupComplete
+    )
+      return false;
+    this.visitorActivitySent = true;
+    this.ws.send(JSON.stringify({ type: "voice_activity_start" }));
+    for (const bufferedFrame of this.bufferedVisitorSpeechFrames) {
+      this.sendRealtimeAudio(bufferedFrame);
+    }
+    this.bufferedVisitorSpeechFrames = [];
+    // A visitor who starts speaking should be able to barge in over an
+    // already-playing idle cue. The interruption fence drops stale audio.
+    if (this.modelTurnOpen || this.state === "speaking") {
+      this.interrupt();
+    }
+    return false;
   }
 
   private connectSocket(relayUrl: string): void {
@@ -409,7 +473,9 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       if (this.startContext) {
         this.updateContext(this.startContext);
         this.startContext = null;
-      } else if (this.consentToken) {
+      } else {
+        // Even a context-free/legacy start publishes one bounded frame so the
+        // relay can settle its initial-context gate without guessing.
         this.sendAppContext({});
       }
       this.setState("listening");
@@ -448,7 +514,9 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       readRecord(message.input_transcription) ||
       readRecord(message.transcriptFinal);
     const inputText = readString(
-      inputTranscription?.text ?? inputTranscription?.transcript ?? inputTranscription?.final
+      inputTranscription?.text ??
+        inputTranscription?.transcript ??
+        inputTranscription?.final,
     );
     if (inputText) {
       // The provider transcribed the user's speech, which means the user's
@@ -462,7 +530,9 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
         type: "transcript_final",
         provider: this.provider,
         text: inputText,
-        turnId: readString(inputTranscription?.turn_id ?? inputTranscription?.turnId),
+        turnId: readString(
+          inputTranscription?.turn_id ?? inputTranscription?.turnId,
+        ),
         confidence: readNumber(inputTranscription?.confidence),
         source: "provider",
         sessionId: eventOptions.sessionId,
@@ -476,14 +546,16 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       readRecord(message.output_transcription) ||
       readRecord(message.assistantText);
     const outputText = readString(
-      outputTranscription?.text ?? outputTranscription?.transcript
+      outputTranscription?.text ?? outputTranscription?.transcript,
     );
     if (outputText) {
       this.handlers.onEvent?.({
         type: "assistant_text",
         provider: this.provider,
         text: outputText,
-        turnId: readString(outputTranscription?.turn_id ?? outputTranscription?.turnId),
+        turnId: readString(
+          outputTranscription?.turn_id ?? outputTranscription?.turnId,
+        ),
         source: "provider",
         sessionId: eventOptions.sessionId,
         sourceId: eventOptions.sourceId,
@@ -495,7 +567,9 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     const handoffTarget = readString(handoff?.target);
     const handoffReason = readString(handoff?.reason);
     if (
-      (handoffTarget === "chat" || handoffTarget === "consent" || handoffTarget === "route") &&
+      (handoffTarget === "chat" ||
+        handoffTarget === "consent" ||
+        handoffTarget === "route") &&
       handoffReason
     ) {
       this.handlers.onEvent?.({
@@ -525,7 +599,11 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       // When audio is still queued, the last node's onended settles instead.
       this.modelTurnOpen = false;
       this.suppressModelAudio = false;
-      if (this.activeSources.size === 0 && !this.closed && this.state !== "idle") {
+      if (
+        this.activeSources.size === 0 &&
+        !this.closed &&
+        this.state !== "idle"
+      ) {
         this.setState("listening");
         this.resolvePlaybackDrain();
       }
@@ -535,9 +613,11 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     const parts = serverContent.modelTurn?.parts ?? [];
     for (const part of parts) {
       const inlineData = part.inlineData as
-        | { mimeType?: string; data?: string }
-        | undefined;
-      if (inlineData?.data && (inlineData.mimeType ?? "").startsWith("audio/")) {
+        { mimeType?: string; data?: string } | undefined;
+      if (
+        inlineData?.data &&
+        (inlineData.mimeType ?? "").startsWith("audio/")
+      ) {
         if (!this.suppressModelAudio) {
           this.enqueueAudio(bytesFromBase64(inlineData.data));
         }
@@ -565,7 +645,12 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     signal?: AbortSignal;
   }): Promise<boolean> {
     const text = input.text.trim();
-    if (!text || !this.ws || this.ws.readyState !== WebSocket.OPEN || !this.setupComplete) {
+    if (
+      !text ||
+      !this.ws ||
+      this.ws.readyState !== WebSocket.OPEN ||
+      !this.setupComplete
+    ) {
       return false;
     }
     if (input.signal?.aborted) return false;
@@ -578,7 +663,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
         text,
         turn_id: input.turnId ?? null,
         segment_type: input.segmentType ?? "final",
-      })
+      }),
     );
     // Settle on playback, not on socket send. Resolving at ws.send made the
     // bridge flip the UI back to "Listening" while the answer was still being
@@ -607,7 +692,10 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   }
 
   /** Resolves true when a new audio chunk starts within the timeout. */
-  private waitForAudioStart(timeoutMs: number, signal?: AbortSignal): Promise<boolean> {
+  private waitForAudioStart(
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
     const startedAfter = Date.now();
     return new Promise((resolve) => {
       const poll = setInterval(() => {
@@ -616,7 +704,10 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
           resolve(false);
           return;
         }
-        if (this.lastAudioEnqueueAt >= startedAfter || this.activeSources.size > 0) {
+        if (
+          this.lastAudioEnqueueAt >= startedAfter ||
+          this.activeSources.size > 0
+        ) {
           clearInterval(poll);
           resolve(true);
           return;
@@ -630,7 +721,10 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   }
 
   /** Resolves when the playback queue empties (or the timeout/abort hits). */
-  private waitForPlaybackDrain(timeoutMs: number, signal?: AbortSignal): Promise<void> {
+  private waitForPlaybackDrain(
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<void> {
     if (this.activeSources.size === 0) return Promise.resolve();
     return new Promise((resolve) => {
       const done = () => {
@@ -651,13 +745,18 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     return this.sendAppContext({
       screen: context.route.screen,
       route_family: context.route.route_family,
+      route_playbook_id: context.route.playbook_id,
       persona: context.persona.active,
       voice_state: context.voice.state,
       available_action_ids: context.available_action_ids,
       visible_modules: context.ui.visible_modules,
+      visible_control_ids: context.ui.visible_control_ids,
+      interaction_layer: context.ui.interaction_layer ?? null,
+      pending_settlement: context.pending_settlement,
       cache_freshness: context.cache.freshness,
       vault_ready: context.cache.vault_ready,
       portfolio_ready: context.cache.portfolio_ready,
+      onboarding: context.onboarding,
     });
   }
 
@@ -671,8 +770,24 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     const trimmed = consentToken?.trim() || null;
     if (trimmed === this.consentToken) return false;
     this.consentToken = trimmed;
-    if (!trimmed) return false;
     return this.sendAppContext({});
+  }
+
+  reportActionSettlement(settlement: OneVoiceActionSettlement): boolean {
+    if (
+      !this.ws ||
+      this.ws.readyState !== WebSocket.OPEN ||
+      !this.setupComplete
+    ) {
+      return false;
+    }
+    this.ws.send(
+      JSON.stringify({
+        type: "action_settled",
+        actionSettlement: settlement,
+      }),
+    );
+    return true;
   }
 
   /**
@@ -681,7 +796,11 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
    * the relay stores them in session state and they never reach the model.
    */
   private sendAppContext(appContext: Record<string, unknown>): boolean {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.setupComplete) {
+    if (
+      !this.ws ||
+      this.ws.readyState !== WebSocket.OPEN ||
+      !this.setupComplete
+    ) {
       return false;
     }
     const timezone =
@@ -693,10 +812,12 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
         type: "app_context",
         appContext: {
           ...appContext,
-          ...(this.consentToken ? { consent_token: this.consentToken } : {}),
+          // Explicit null clears authority server-side when the vault locks or
+          // consent is revoked during an already-open voice session.
+          consent_token: this.consentToken,
           ...(timezone ? { timezone } : {}),
         },
-      })
+      }),
     );
     return true;
   }
@@ -721,7 +842,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     const view = new DataView(
       pcmBytes.buffer,
       pcmBytes.byteOffset,
-      pcmBytes.byteLength
+      pcmBytes.byteLength,
     );
     const buffer = context.createBuffer(1, frames, OUTPUT_SAMPLE_RATE);
     const channel = buffer.getChannelData(0);

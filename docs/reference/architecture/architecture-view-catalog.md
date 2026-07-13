@@ -123,7 +123,7 @@ View metadata:
 flowchart TB
   user["User<br/>subject and authority"]
   kai["Kai<br/>current finance specialist surface"]
-  one["One<br/>approved top personal-agent direction"]
+  one["One<br/>approved top private-agent direction"]
   nav["Nav<br/>privacy and consent guardian"]
   kyc["KYC<br/>identity workflow specialist"]
 
@@ -327,7 +327,7 @@ View metadata:
 | Stakeholders | product, agent-runtime engineers, security |
 | Concern | How specialist handoffs should inherit authority instead of minting broader access |
 | Model kind | C4 dynamic / sequence diagram |
-| Source anchors | `docs/vision/agent-ontology.md`, `docs/reference/kai/kai-action-gateway-vnext.md`, `docs/reference/kai/kai-architecture-specification-v1.md`, `consent-protocol/hushh_mcp/agents/orchestrator/agent.yaml` |
+| Source anchors | `docs/vision/agent-ontology.md`, `docs/reference/kai/kai-action-gateway-vnext.md`, `docs/reference/kai/kai-architecture-specification-v1.md`, `consent-protocol/hushh_mcp/agents/one/agent.yaml` |
 
 ```mermaid
 sequenceDiagram
@@ -454,7 +454,7 @@ flowchart TB
     uatRegion["Region<br/>us-central1"]
     uatFrontend["Cloud Run service<br/>hushh-webapp"]
     uatBackend["Cloud Run service<br/>consent-protocol"]
-    uatApp["App origin<br/>https://uat.kai.hushh.ai"]
+    uatApp["App origin<br/>https://uat.one.hushh.ai"]
     uatApi["API origin<br/>https://api.uat.hushh.ai"]
     uatMcp["Remote MCP<br/>/mcp/ trailing-slash endpoint"]
     uatDb["UAT Cloud SQL / Postgres path<br/>hushh-uat-pg via governed workflow"]
@@ -465,7 +465,7 @@ flowchart TB
     prodRegion["Region<br/>us-central1"]
     prodFrontend["Cloud Run service<br/>hushh-webapp"]
     prodBackend["Cloud Run service<br/>consent-protocol"]
-    prodApp["App origin<br/>https://kai.hushh.ai"]
+    prodApp["App origin<br/>https://one.hushh.ai"]
     prodBackup["Production logical backup posture<br/>Cloud Run Job + storage bucket"]
     prodDb["Production Supabase/Postgres path<br/>runtime DB_* contract"]
   end
@@ -587,7 +587,7 @@ Boundary rules:
 | Developer API | interface | REST lane for scope discovery, consent, status, and scoped export | `consent-protocol/docs/reference/developer-api.md` |
 | Hussh MCP | interface/container | Hosted remote MCP and npm bridge for consent tool access | `packages/hushh-mcp/README.md` |
 | PKM / Vault | data boundary | Encrypted user memory, manifests, scope registry, discovery-safe index | `consent-protocol/docs/reference/personal-knowledge-model.md` |
-| Agent One | agent | Top personal-agent direction and orchestrator manifest | `consent-protocol/hushh_mcp/agents/orchestrator/agent.yaml` |
+| Agent One | agent | Top private-agent direction and strict product manifest | `consent-protocol/hushh_mcp/agents/one/agent.yaml` |
 | Kai | agent | Finance specialist and current mature runtime surface | `consent-protocol/hushh_mcp/agents/kai/agent.yaml` |
 | Nav | agent | Privacy and consent guardian manifest | `consent-protocol/hushh_mcp/agents/nav/agent.yaml` |
 | KYC | agent | Identity/KYC workflow specialist manifest | `consent-protocol/hushh_mcp/agents/kyc/agent.yaml` |

@@ -1,3 +1,4 @@
+manifest_version: 2
 id: agent_personal_information
 name: Information Marketplace
 version: 0.1.0
@@ -68,10 +69,8 @@ system_instruction: |
   Keep replies short, concrete, and calm. Never return raw personal data — only
   labels, counts, and prices.
 required_scopes:
-  - agent.one.orchestrate
   - cap.pkm.marketplace.view
 optional_scopes:
-  - cap.pkm.marketplace.publish
   - cap.pkm.marketplace.manage
 tools:
   - name: list_published_slices

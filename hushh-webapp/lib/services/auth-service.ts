@@ -32,7 +32,10 @@ import {
   onAuthStateChanged,
 } from "firebase/auth";
 import { app, auth } from "@/lib/firebase/config";
-import { FirebaseAuthentication, ProviderId } from "@capacitor-firebase/authentication";
+import {
+  FirebaseAuthentication,
+  ProviderId,
+} from "@capacitor-firebase/authentication";
 import { HushhAuth, type AuthUser } from "@/lib/capacitor";
 import { toast } from "sonner";
 
@@ -52,13 +55,43 @@ export interface PhoneVerificationStartResult {
 type PhoneVerificationIntent = "link" | "replace";
 const PHONE_CLAIM_APP_NAME = "hushh-phone-claim";
 const LOCAL_DEV_PHONE_VERIFICATION_ID_PREFIX = "local-dev-phone:";
-const LOCAL_DEV_PHONE_VERIFICATION_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+const LOCAL_DEV_PHONE_VERIFICATION_HOSTS = new Set([
+  "localhost",
+  "127.0.0.1",
+  "::1",
+]);
 const UAT_PHONE_TEST_VERIFICATION_ID_PREFIX = "uat-test-phone:";
+type AuthProviderName = "google" | "apple";
+const EXPECTED_POPUP_CLOSE_CODES = new Set([
+  "auth/cancelled-popup-request",
+  "auth/popup-closed-by-user",
+  "auth/user-cancelled",
+]);
 
 /**
  * Platform-aware authentication service
  */
 export class AuthService {
+  private static isExpectedPopupClose(error: unknown): boolean {
+    if (!error || typeof error !== "object" || !("code" in error)) {
+      return false;
+    }
+    return EXPECTED_POPUP_CLOSE_CODES.has(
+      String((error as { code?: unknown }).code || ""),
+    );
+  }
+
+  private static createWebProvider(provider: AuthProviderName) {
+    if (provider === "google") {
+      const googleProvider = new GoogleAuthProvider();
+      googleProvider.setCustomParameters({ prompt: "select_account" });
+      return googleProvider;
+    }
+    const appleProvider = new OAuthProvider("apple.com");
+    appleProvider.addScope("email");
+    appleProvider.addScope("name");
+    return appleProvider;
+  }
   private static debugLog(...args: unknown[]) {
     if (process.env.NODE_ENV !== "production") {
       console.log(...args);
@@ -77,21 +110,23 @@ export class AuthService {
     await new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  private static getLocalDevPhoneTestConfig():
-    | { phoneNumber: string; verificationCode: string }
-    | null {
+  private static getLocalDevPhoneTestConfig(): {
+    phoneNumber: string;
+    verificationCode: string;
+  } | null {
     if (
       process.env.NEXT_PUBLIC_APP_ENV !== "development" ||
-      process.env.NEXT_PUBLIC_FIREBASE_PHONE_AUTH_DISABLE_APP_VERIFICATION !== "true"
+      process.env.NEXT_PUBLIC_FIREBASE_PHONE_AUTH_DISABLE_APP_VERIFICATION !==
+        "true"
     ) {
       return null;
     }
 
     const phoneNumber = String(
-      process.env.NEXT_PUBLIC_FIREBASE_PHONE_AUTH_LOCAL_TEST_PHONE || ""
+      process.env.NEXT_PUBLIC_FIREBASE_PHONE_AUTH_LOCAL_TEST_PHONE || "",
     ).trim();
     const verificationCode = String(
-      process.env.NEXT_PUBLIC_FIREBASE_PHONE_AUTH_LOCAL_TEST_CODE || ""
+      process.env.NEXT_PUBLIC_FIREBASE_PHONE_AUTH_LOCAL_TEST_CODE || "",
     ).trim();
 
     if (!phoneNumber || !verificationCode) {
@@ -106,7 +141,9 @@ export class AuthService {
       return false;
     }
 
-    return LOCAL_DEV_PHONE_VERIFICATION_HOSTS.has(window.location.hostname.toLowerCase());
+    return LOCAL_DEV_PHONE_VERIFICATION_HOSTS.has(
+      window.location.hostname.toLowerCase(),
+    );
   }
 
   static shouldUseLocalDevPhoneVerification(phoneNumber: string): boolean {
@@ -118,20 +155,28 @@ export class AuthService {
     );
   }
 
-  static isLocalDevPhoneVerificationId(verificationId?: string | null): boolean {
-    return String(verificationId ?? "").startsWith(LOCAL_DEV_PHONE_VERIFICATION_ID_PREFIX);
+  static isLocalDevPhoneVerificationId(
+    verificationId?: string | null,
+  ): boolean {
+    return String(verificationId ?? "").startsWith(
+      LOCAL_DEV_PHONE_VERIFICATION_ID_PREFIX,
+    );
   }
 
   static isUatPhoneTestVerificationId(verificationId?: string | null): boolean {
-    return String(verificationId ?? "").startsWith(UAT_PHONE_TEST_VERIFICATION_ID_PREFIX);
+    return String(verificationId ?? "").startsWith(
+      UAT_PHONE_TEST_VERIFICATION_ID_PREFIX,
+    );
   }
 
-  private static createLocalDevPhoneVerificationId(phoneNumber: string): string {
+  private static createLocalDevPhoneVerificationId(
+    phoneNumber: string,
+  ): string {
     return `${LOCAL_DEV_PHONE_VERIFICATION_ID_PREFIX}${encodeURIComponent(phoneNumber)}`;
   }
 
   private static getPhoneNumberFromLocalDevVerificationId(
-    verificationId: string
+    verificationId: string,
   ): string | null {
     if (!this.isLocalDevPhoneVerificationId(verificationId)) {
       return null;
@@ -139,7 +184,7 @@ export class AuthService {
 
     try {
       return decodeURIComponent(
-        verificationId.slice(LOCAL_DEV_PHONE_VERIFICATION_ID_PREFIX.length)
+        verificationId.slice(LOCAL_DEV_PHONE_VERIFICATION_ID_PREFIX.length),
       );
     } catch {
       return null;
@@ -152,7 +197,8 @@ export class AuthService {
   }): Promise<User> {
     const verificationId = String(params.verificationId ?? "").trim();
     const verificationCode = String(params.verificationCode ?? "").trim();
-    const phoneNumber = this.getPhoneNumberFromLocalDevVerificationId(verificationId);
+    const phoneNumber =
+      this.getPhoneNumberFromLocalDevVerificationId(verificationId);
     const config = this.getLocalDevPhoneTestConfig();
 
     if (
@@ -163,14 +209,14 @@ export class AuthService {
     ) {
       throw this.createPhoneVerificationError(
         "local-phone-test-disabled",
-        "Local phone verification is not enabled for this phone number."
+        "Local phone verification is not enabled for this phone number.",
       );
     }
 
     if (verificationCode !== config.verificationCode) {
       throw this.createPhoneVerificationError(
         "invalid-verification-code",
-        "Invalid local test verification code."
+        "Invalid local test verification code.",
       );
     }
 
@@ -181,7 +227,9 @@ export class AuthService {
     return auth.currentUser;
   }
 
-  private static decodeJwtPayload(token: string): Record<string, unknown> | null {
+  private static decodeJwtPayload(
+    token: string,
+  ): Record<string, unknown> | null {
     const normalized = String(token || "").trim();
     if (!normalized) return null;
     const parts = normalized.split(".");
@@ -204,7 +252,10 @@ export class AuthService {
     }
   }
 
-  private static isUsableIdToken(token: string | null | undefined, minRemainingMs = 60_000): boolean {
+  private static isUsableIdToken(
+    token: string | null | undefined,
+    minRemainingMs = 60_000,
+  ): boolean {
     const normalized = String(token || "").trim();
     if (!normalized) return false;
     const payload = this.decodeJwtPayload(normalized);
@@ -236,14 +287,17 @@ export class AuthService {
 
   private static async resolveLiveNativeIdToken(
     initialToken: string,
-    forceRefresh = false
+    forceRefresh = false,
   ): Promise<string> {
     const firebaseUser = auth.currentUser;
     if (firebaseUser) {
       try {
         return await firebaseUser.getIdToken(forceRefresh);
       } catch (error) {
-        this.debugError("[AuthService] Failed to get Firebase JS token during native resolution", error);
+        this.debugError(
+          "[AuthService] Failed to get Firebase JS token during native resolution",
+          error,
+        );
       }
     }
 
@@ -253,7 +307,10 @@ export class AuthService {
         return result.token;
       }
     } catch (error) {
-      this.debugError("[AuthService] FirebaseAuthentication token lookup failed", error);
+      this.debugError(
+        "[AuthService] FirebaseAuthentication token lookup failed",
+        error,
+      );
     }
 
     try {
@@ -289,7 +346,10 @@ export class AuthService {
    * On Native: Uses @capacitor-firebase/authentication for Keychain persistence.
    * On Web: Uses Firebase JS SDK directly.
    */
-  static async signInWithEmailAndPassword(email: string, password: string): Promise<AuthResult> {
+  static async signInWithEmailAndPassword(
+    email: string,
+    password: string,
+  ): Promise<AuthResult> {
     if (Capacitor.isNativePlatform()) {
       this.debugLog("🍎 [AuthService] Starting native Email/Password Sign-In");
       const toastId = toast.loading("Signing in as reviewer...");
@@ -308,16 +368,18 @@ export class AuthService {
         const idToken = idTokenResult.token || "";
 
         this.debugLog("✅ [AuthService] Native email/password complete");
-        
+
         // Wait for JS SDK to see the change (usually happens automatically but we can force)
         let firebaseUser = auth.currentUser;
         if (!firebaseUser) {
-           // Small delay to let sync happen
-           await new Promise(resolve => setTimeout(resolve, 500));
-           firebaseUser = auth.currentUser;
+          // Small delay to let sync happen
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          firebaseUser = auth.currentUser;
         }
 
-        const user = firebaseUser || this.createUserFromNative(result.user, idToken, "password");
+        const user =
+          firebaseUser ||
+          this.createUserFromNative(result.user, idToken, "password");
         toast.success("Signed in successfully", { id: toastId });
 
         return {
@@ -331,7 +393,8 @@ export class AuthService {
       }
     } else {
       // WEB FLOW
-      const { signInWithEmailAndPassword: webSignIn } = await import("firebase/auth");
+      const { signInWithEmailAndPassword: webSignIn } =
+        await import("firebase/auth");
       const result = await webSignIn(auth, email, password);
       const idToken = await result.user.getIdToken();
       return {
@@ -366,28 +429,30 @@ export class AuthService {
    */
   private static async nativeGoogleSignIn(): Promise<AuthResult> {
     this.debugLog(
-      "🍎 [AuthService] Starting native Google Sign-In via FirebaseAuthentication"
+      "🍎 [AuthService] Starting native Google Sign-In via FirebaseAuthentication",
     );
     const toastId = toast.loading("Signing in with Google...");
 
     try {
-      this.debugLog("🍎 [AuthService] Calling FirebaseAuthentication.signInWithGoogle()...");
+      this.debugLog(
+        "🍎 [AuthService] Calling FirebaseAuthentication.signInWithGoogle()...",
+      );
 
       const result = await FirebaseAuthentication.signInWithGoogle();
 
       this.debugLog("✅ [AuthService] Native sign-in returned result");
 
       if (!result.user) {
-        this.debugError("❌ [AuthService] Invalid response from native sign-in");
+        this.debugError(
+          "❌ [AuthService] Invalid response from native sign-in",
+        );
         toast.error("Invalid native auth response", { id: toastId });
         throw new Error("Invalid response from native sign-in");
       }
 
       const nativeIdTokenResult = await FirebaseAuthentication.getIdToken();
       const idToken =
-        nativeIdTokenResult.token ||
-        result.credential?.idToken ||
-        "";
+        nativeIdTokenResult.token || result.credential?.idToken || "";
       const accessToken = result.credential?.accessToken;
       const nativeAuthUser = result.user; // AuthUser type
 
@@ -413,7 +478,7 @@ export class AuthService {
           // Wrapped in a timeout to prevent hanging on iOS
           const syncPromise = signInWithCredential(auth, credential);
           const timeoutPromise = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error("JS SDK Sync Timed Out")), 5000)
+            setTimeout(() => reject(new Error("JS SDK Sync Timed Out")), 5000),
           );
 
           const firebaseResult = (await Promise.race([
@@ -425,7 +490,7 @@ export class AuthService {
         } catch (syncError) {
           this.debugError(
             "⚠️ [AuthService] JS SDK Sync Failed/Timed Out",
-            syncError
+            syncError,
           );
           // Don't show error toast to user as this is a background sync issue
           // toast.error("JS SDK Sync Failed (proceeding with native user)");
@@ -434,7 +499,7 @@ export class AuthService {
       }
 
       // Construct final User object
-      // If JS SDK failed, we wrap the native user data into a Firebase-like User object
+      // If JS SDK failed, we wrap the native user information into a Firebase-like User object
       const user =
         firebaseUser || this.createUserFromNative(nativeAuthUser, idToken);
 
@@ -457,7 +522,7 @@ export class AuthService {
         errorMessage.includes("not available")
       ) {
         this.debugLog(
-          "⚠️ [AuthService] Native plugin not available, falling back to web auth"
+          "⚠️ [AuthService] Native plugin not available, falling back to web auth",
         );
         toast.dismiss(toastId); // Dismiss loading before switching
         return this.webGoogleSignIn();
@@ -470,17 +535,20 @@ export class AuthService {
   }
 
   /**
-   * Create a User-like object from native Firebase user data
+   * Create a User-like object from native Firebase user information
    */
   private static createUserFromNative(
     nativeUser: any,
     idToken: string,
-    providerId: string = "google.com"
+    providerId: string = "google.com",
   ): User {
     const uid = this.getNativeUserField(nativeUser, ["uid", "id"]);
     const email = this.getNativeUserField(nativeUser, ["email"]);
     const displayName = this.getNativeUserField(nativeUser, ["displayName"]);
-    const photoURL = this.getNativeUserField(nativeUser, ["photoUrl", "photoURL"]);
+    const photoURL = this.getNativeUserField(nativeUser, [
+      "photoUrl",
+      "photoURL",
+    ]);
     const phoneNumber = this.getNativeUserField(nativeUser, ["phoneNumber"]);
     const emailVerified =
       typeof nativeUser?.emailVerified === "boolean"
@@ -541,12 +609,11 @@ export class AuthService {
    */
   private static async webGoogleSignIn(): Promise<AuthResult> {
     this.debugLog(
-      "🌐 [AuthService] Starting web Google Sign-In (Firebase popup)"
+      "🌐 [AuthService] Starting web Google Sign-In (Firebase popup)",
     );
 
     try {
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: "select_account" });
+      const provider = this.createWebProvider("google");
 
       const result = await signInWithPopup(auth, provider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
@@ -566,7 +633,9 @@ export class AuthService {
         accessToken,
       };
     } catch (error) {
-      this.debugError("❌ [AuthService] Web sign-in failed", error);
+      if (!this.isExpectedPopupClose(error)) {
+        this.debugError("❌ [AuthService] Web sign-in failed", error);
+      }
       throw error;
     }
   }
@@ -592,14 +661,16 @@ export class AuthService {
 
   /**
    * Native iOS/Android Apple Sign-In flow using HushhAuth plugin
-   * 
+   *
    * iOS: Uses ASAuthorizationController (native Apple Sign-In sheet)
    * Android: Uses Firebase OAuthProvider (web-based OAuth flow)
-   * 
+   *
    * Falls back to web auth if native plugin is not available
    */
   private static async nativeAppleSignIn(): Promise<AuthResult> {
-    this.debugLog("🍎 [AuthService] Starting native Apple Sign-In via HushhAuth Plugin");
+    this.debugLog(
+      "🍎 [AuthService] Starting native Apple Sign-In via HushhAuth Plugin",
+    );
     const toastId = toast.loading("Signing in with Apple...");
 
     try {
@@ -608,7 +679,9 @@ export class AuthService {
       this.debugLog("✅ [AuthService] Native Apple sign-in returned result");
 
       if (!result.user || !result.idToken) {
-        this.debugError("❌ [AuthService] Invalid response from native Apple sign-in");
+        this.debugError(
+          "❌ [AuthService] Invalid response from native Apple sign-in",
+        );
         toast.error("Invalid native auth response", { id: toastId });
         throw new Error("Invalid response from native Apple sign-in");
       }
@@ -623,7 +696,9 @@ export class AuthService {
       let firebaseUser = auth.currentUser;
 
       if (!firebaseUser) {
-        this.debugLog("🔄 [AuthService] Syncing Apple credential with Firebase JS SDK...");
+        this.debugLog(
+          "🔄 [AuthService] Syncing Apple credential with Firebase JS SDK...",
+        );
 
         try {
           // The native plugin already handled Firebase sign-in
@@ -645,12 +720,12 @@ export class AuthService {
 
           const firebaseResult = await syncPromise;
           firebaseUser = firebaseResult.user;
-          
+
           this.debugLog("✅ [AuthService] Firebase JS SDK synced");
         } catch (syncError) {
           this.debugError(
             "⚠️ [AuthService] JS SDK Sync Failed/Timed Out",
-            syncError
+            syncError,
           );
           // Don't show error toast - native auth succeeded, JS sync is optional
           this.debugLog("⚠️ Proceeding with Native User anyway.");
@@ -658,7 +733,8 @@ export class AuthService {
       }
 
       // Construct final User object
-      const user = firebaseUser || this.createUserFromNativeApple(nativeAuthUser, idToken);
+      const user =
+        firebaseUser || this.createUserFromNativeApple(nativeAuthUser, idToken);
 
       toast.success("Signed in successfully", { id: toastId });
 
@@ -668,12 +744,17 @@ export class AuthService {
         accessToken: result.accessToken,
       };
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
 
       this.debugError("❌ [AuthService] nativeAppleSignIn error", error);
 
       // Check for user cancellation
-      if (errorMessage.includes("USER_CANCELLED") || errorMessage.includes("cancelled") || errorMessage.includes("canceled")) {
+      if (
+        errorMessage.includes("USER_CANCELLED") ||
+        errorMessage.includes("cancelled") ||
+        errorMessage.includes("canceled")
+      ) {
         toast.dismiss(toastId);
         throw new Error("Sign in cancelled");
       }
@@ -684,7 +765,7 @@ export class AuthService {
         errorMessage.includes("not available")
       ) {
         this.debugLog(
-          "⚠️ [AuthService] Native Apple plugin not available, falling back to web auth"
+          "⚠️ [AuthService] Native Apple plugin not available, falling back to web auth",
         );
         toast.dismiss(toastId);
         return this.webAppleSignIn();
@@ -696,9 +777,12 @@ export class AuthService {
   }
 
   /**
-   * Create a User-like object from native Apple Sign-In user data
+   * Create a User-like object from native Apple Sign-In user information
    */
-  private static createUserFromNativeApple(nativeUser: any, idToken: string): User {
+  private static createUserFromNativeApple(
+    nativeUser: any,
+    idToken: string,
+  ): User {
     return this.createUserFromNative(nativeUser, idToken, "apple.com");
   }
 
@@ -708,12 +792,12 @@ export class AuthService {
    * This is ALSO the fallback for native if the native plugin fails
    */
   private static async webAppleSignIn(): Promise<AuthResult> {
-    this.debugLog("🌐 [AuthService] Starting web Apple Sign-In (Firebase popup)");
+    this.debugLog(
+      "🌐 [AuthService] Starting web Apple Sign-In (Firebase popup)",
+    );
 
     try {
-      const provider = new OAuthProvider("apple.com");
-      provider.addScope("email");
-      provider.addScope("name");
+      const provider = this.createWebProvider("apple");
 
       const result = await signInWithPopup(auth, provider);
       const idToken = await result.user.getIdToken();
@@ -725,7 +809,9 @@ export class AuthService {
         idToken,
       };
     } catch (error) {
-      this.debugError("❌ [AuthService] Apple web sign-in failed", error);
+      if (!this.isExpectedPopupClose(error)) {
+        this.debugError("❌ [AuthService] Apple web sign-in failed", error);
+      }
       throw error;
     }
   }
@@ -758,7 +844,7 @@ export class AuthService {
       recaptchaVerifier?: ApplicationVerifier;
       resendCode?: boolean;
       timeout?: number;
-    }
+    },
   ): Promise<PhoneVerificationStartResult> {
     return this.startPhoneVerification("link", phoneNumber, options);
   }
@@ -769,7 +855,7 @@ export class AuthService {
       recaptchaVerifier?: ApplicationVerifier;
       resendCode?: boolean;
       timeout?: number;
-    }
+    },
   ): Promise<PhoneVerificationStartResult> {
     return this.startPhoneVerification("replace", phoneNumber, options);
   }
@@ -781,25 +867,31 @@ export class AuthService {
       recaptchaVerifier?: ApplicationVerifier;
       resendCode?: boolean;
       timeout?: number;
-    }
+    },
   ): Promise<PhoneVerificationStartResult> {
     const normalizedPhoneNumber = String(phoneNumber ?? "").trim();
     if (!normalizedPhoneNumber) {
       throw new Error("Phone number is required.");
     }
 
-    const currentPhoneNumber = String(auth.currentUser?.phoneNumber ?? "").trim();
+    const currentPhoneNumber = String(
+      auth.currentUser?.phoneNumber ?? "",
+    ).trim();
     if (currentPhoneNumber && currentPhoneNumber === normalizedPhoneNumber) {
       throw this.createPhoneVerificationError(
         "phone-already-linked-to-current-user",
-        "This phone number is already linked to your account."
+        "This phone number is already linked to your account.",
       );
     }
 
-    if (intent === "link" && currentPhoneNumber && currentPhoneNumber !== normalizedPhoneNumber) {
+    if (
+      intent === "link" &&
+      currentPhoneNumber &&
+      currentPhoneNumber !== normalizedPhoneNumber
+    ) {
       throw this.createPhoneVerificationError(
         "phone-replace-required",
-        "Use Change phone number to replace the current number."
+        "Use Change phone number to replace the current number.",
       );
     }
 
@@ -808,100 +900,111 @@ export class AuthService {
         throw new Error(
           intent === "replace"
             ? "You must be signed in before changing the phone number."
-            : "You must be signed in before linking a phone number."
+            : "You must be signed in before linking a phone number.",
         );
       }
 
       const handles: Array<{ remove: () => Promise<void> }> = [];
       const cleanup = async () => {
-        await Promise.all(handles.map((handle) => handle.remove().catch(() => undefined)));
+        await Promise.all(
+          handles.map((handle) => handle.remove().catch(() => undefined)),
+        );
       };
 
-      return await new Promise<PhoneVerificationStartResult>((resolve, reject) => {
-        let settled = false;
+      return await new Promise<PhoneVerificationStartResult>(
+        (resolve, reject) => {
+          let settled = false;
 
-        const settle = async (
-          next:
-            | { type: "resolve"; value: PhoneVerificationStartResult }
-            | { type: "reject"; error: Error }
-        ) => {
-          if (settled) return;
-          settled = true;
-          await cleanup();
-          if (next.type === "resolve") {
-            resolve(next.value);
-            return;
-          }
-          reject(next.error);
-        };
-
-        void (async () => {
-          try {
-            handles.push(
-              await FirebaseAuthentication.addListener("phoneCodeSent", async (event) => {
-                await settle({
-                  type: "resolve",
-                  value: {
-                    autoVerified: false,
-                    verificationId: event.verificationId,
-                  },
-                });
-              })
-            );
-            handles.push(
-              await FirebaseAuthentication.addListener(
-                "phoneVerificationFailed",
-                async (event) => {
-                  await settle({
-                    type: "reject",
-                    error: new Error(event.message || "Phone verification failed."),
-                  });
-                }
-              )
-            );
-            handles.push(
-              await FirebaseAuthentication.addListener(
-                "phoneVerificationCompleted",
-                async () => {
-                  const restoredUser = await this.restoreNativeSession();
-                  await settle({
-                    type: "resolve",
-                    value: {
-                      autoVerified: true,
-                      user: restoredUser,
-                    },
-                  });
-                }
-              )
-            );
-
-            if (intent === "replace" && currentPhoneNumber) {
-              await FirebaseAuthentication.unlink({ providerId: ProviderId.PHONE });
+          const settle = async (
+            next:
+              | { type: "resolve"; value: PhoneVerificationStartResult }
+              | { type: "reject"; error: Error },
+          ) => {
+            if (settled) return;
+            settled = true;
+            await cleanup();
+            if (next.type === "resolve") {
+              resolve(next.value);
+              return;
             }
+            reject(next.error);
+          };
 
-            await FirebaseAuthentication.linkWithPhoneNumber({
-              phoneNumber: normalizedPhoneNumber,
-              resendCode: options?.resendCode,
-              timeout: options?.timeout,
-            });
-          } catch (error) {
-            await settle({
-              type: "reject",
-              error: this.normalizePhoneVerificationError(
-                error,
-                intent === "replace" ? "replace_start" : "link_start"
-              ),
-            });
-          }
-        })();
-      });
+          void (async () => {
+            try {
+              handles.push(
+                await FirebaseAuthentication.addListener(
+                  "phoneCodeSent",
+                  async (event) => {
+                    await settle({
+                      type: "resolve",
+                      value: {
+                        autoVerified: false,
+                        verificationId: event.verificationId,
+                      },
+                    });
+                  },
+                ),
+              );
+              handles.push(
+                await FirebaseAuthentication.addListener(
+                  "phoneVerificationFailed",
+                  async (event) => {
+                    await settle({
+                      type: "reject",
+                      error: new Error(
+                        event.message || "Phone verification failed.",
+                      ),
+                    });
+                  },
+                ),
+              );
+              handles.push(
+                await FirebaseAuthentication.addListener(
+                  "phoneVerificationCompleted",
+                  async () => {
+                    const restoredUser = await this.restoreNativeSession();
+                    await settle({
+                      type: "resolve",
+                      value: {
+                        autoVerified: true,
+                        user: restoredUser,
+                      },
+                    });
+                  },
+                ),
+              );
+
+              if (intent === "replace" && currentPhoneNumber) {
+                await FirebaseAuthentication.unlink({
+                  providerId: ProviderId.PHONE,
+                });
+              }
+
+              await FirebaseAuthentication.linkWithPhoneNumber({
+                phoneNumber: normalizedPhoneNumber,
+                resendCode: options?.resendCode,
+                timeout: options?.timeout,
+              });
+            } catch (error) {
+              await settle({
+                type: "reject",
+                error: this.normalizePhoneVerificationError(
+                  error,
+                  intent === "replace" ? "replace_start" : "link_start",
+                ),
+              });
+            }
+          })();
+        },
+      );
     }
 
     if (!auth.currentUser) {
       throw new Error(
         intent === "replace"
           ? "You must be signed in before changing the phone number."
-          : "You must be signed in before linking a phone number."
+          : "You must be signed in before linking a phone number.",
       );
     }
 
@@ -912,7 +1015,9 @@ export class AuthService {
       });
       return {
         autoVerified: false,
-        verificationId: this.createLocalDevPhoneVerificationId(normalizedPhoneNumber),
+        verificationId: this.createLocalDevPhoneVerificationId(
+          normalizedPhoneNumber,
+        ),
       };
     }
 
@@ -927,7 +1032,7 @@ export class AuthService {
       const provider = new PhoneAuthProvider(auth);
       const verificationId = await provider.verifyPhoneNumber(
         normalizedPhoneNumber,
-        options?.recaptchaVerifier
+        options?.recaptchaVerifier,
       );
 
       return {
@@ -937,7 +1042,7 @@ export class AuthService {
     } catch (error) {
       throw this.normalizePhoneVerificationError(
         error,
-        intent === "replace" ? "replace_start" : "link_start"
+        intent === "replace" ? "replace_start" : "link_start",
       );
     }
   }
@@ -968,10 +1073,14 @@ export class AuthService {
       throw new Error("Verification ID is required.");
     }
 
-    const credential = PhoneAuthProvider.credential(verificationId, verificationCode);
+    const credential = PhoneAuthProvider.credential(
+      verificationId,
+      verificationCode,
+    );
     const secondaryApp =
-      getApps().find((firebaseApp) => firebaseApp.name === PHONE_CLAIM_APP_NAME) ||
-      initializeApp(app.options, PHONE_CLAIM_APP_NAME);
+      getApps().find(
+        (firebaseApp) => firebaseApp.name === PHONE_CLAIM_APP_NAME,
+      ) || initializeApp(app.options, PHONE_CLAIM_APP_NAME);
     const phoneClaimAuth = getAuth(secondaryApp);
 
     await setPersistence(phoneClaimAuth, inMemoryPersistence);
@@ -985,7 +1094,9 @@ export class AuthService {
     }
 
     if (!claimToken) {
-      throw new Error("Phone verification completed but no claim token was returned.");
+      throw new Error(
+        "Phone verification completed but no claim token was returned.",
+      );
     }
 
     return claimToken;
@@ -1005,7 +1116,7 @@ export class AuthService {
       verificationCode: string;
       confirmationResult?: ConfirmationResult | null;
       verificationId?: string | null;
-    }
+    },
   ): Promise<User> {
     const verificationCode = String(params.verificationCode ?? "").trim();
     if (!verificationCode) {
@@ -1026,13 +1137,15 @@ export class AuthService {
       } catch (error) {
         throw this.normalizePhoneVerificationError(
           error,
-          intent === "replace" ? "replace_confirm" : "link_confirm"
+          intent === "replace" ? "replace_confirm" : "link_confirm",
         );
       }
 
       const restoredUser = await this.restoreNativeSession();
       if (!restoredUser) {
-        throw new Error("Phone verification completed but the native session could not be refreshed.");
+        throw new Error(
+          "Phone verification completed but the native session could not be refreshed.",
+        );
       }
 
       return restoredUser;
@@ -1043,7 +1156,7 @@ export class AuthService {
         throw new Error(
           intent === "replace"
             ? "You must be signed in before changing the phone number."
-            : "You must be signed in before linking a phone number."
+            : "You must be signed in before linking a phone number.",
         );
       }
 
@@ -1052,7 +1165,10 @@ export class AuthService {
         throw new Error("Verification ID is required.");
       }
 
-      const credential = PhoneAuthProvider.credential(verificationId, verificationCode);
+      const credential = PhoneAuthProvider.credential(
+        verificationId,
+        verificationCode,
+      );
 
       if (intent === "replace") {
         await updatePhoneNumber(auth.currentUser, credential);
@@ -1060,18 +1176,24 @@ export class AuthService {
         return auth.currentUser;
       }
 
-      const linkedCredential = await linkWithCredential(auth.currentUser, credential);
+      const linkedCredential = await linkWithCredential(
+        auth.currentUser,
+        credential,
+      );
       await linkedCredential.user.reload().catch(() => undefined);
       return linkedCredential.user;
     } catch (error) {
       throw this.normalizePhoneVerificationError(
         error,
-        intent === "replace" ? "replace_confirm" : "link_confirm"
+        intent === "replace" ? "replace_confirm" : "link_confirm",
       );
     }
   }
 
-  private static createPhoneVerificationError(code: string, message: string): Error {
+  private static createPhoneVerificationError(
+    code: string,
+    message: string,
+  ): Error {
     const error = new Error(message) as Error & { code?: string };
     error.code = code;
     return error;
@@ -1086,12 +1208,19 @@ export class AuthService {
       return explicitCode.replace(/^auth\//, "");
     }
 
-    const message = String((error as { message?: unknown })?.message ?? "").toLowerCase();
-    if (message.includes("credential-already-in-use")) return "credential-already-in-use";
-    if (message.includes("phone-number-already-exists")) return "phone-number-already-exists";
-    if (message.includes("provider-already-linked")) return "provider-already-linked";
-    if (message.includes("requires-recent-login")) return "requires-recent-login";
-    if (message.includes("invalid-app-credential")) return "invalid-app-credential";
+    const message = String(
+      (error as { message?: unknown })?.message ?? "",
+    ).toLowerCase();
+    if (message.includes("credential-already-in-use"))
+      return "credential-already-in-use";
+    if (message.includes("phone-number-already-exists"))
+      return "phone-number-already-exists";
+    if (message.includes("provider-already-linked"))
+      return "provider-already-linked";
+    if (message.includes("requires-recent-login"))
+      return "requires-recent-login";
+    if (message.includes("invalid-app-credential"))
+      return "invalid-app-credential";
     if (message.includes("captcha-check-failed")) return "captcha-check-failed";
     if (message.includes("too-many-requests")) return "too-many-requests";
     return "";
@@ -1099,28 +1228,32 @@ export class AuthService {
 
   private static normalizePhoneVerificationError(
     error: unknown,
-    context: "link_start" | "link_confirm" | "replace_start" | "replace_confirm"
+    context:
+      "link_start" | "link_confirm" | "replace_start" | "replace_confirm",
   ): Error {
     const code = this.getPhoneVerificationErrorCode(error);
 
     if (code === "phone-already-linked-to-current-user") {
       return this.createPhoneVerificationError(
         code,
-        "This phone number is already linked to your account."
+        "This phone number is already linked to your account.",
       );
     }
 
     if (code === "phone-replace-required") {
       return this.createPhoneVerificationError(
         code,
-        "Use Change phone number to replace the current number."
+        "Use Change phone number to replace the current number.",
       );
     }
 
-    if (code === "credential-already-in-use" || code === "phone-number-already-exists") {
+    if (
+      code === "credential-already-in-use" ||
+      code === "phone-number-already-exists"
+    ) {
       return this.createPhoneVerificationError(
         code,
-        "This phone number is already associated with another active account. If the account was just deleted, wait a moment and try again."
+        "This phone number is already associated with another active account. If the account was just deleted, wait a moment and try again.",
       );
     }
 
@@ -1129,26 +1262,27 @@ export class AuthService {
         code,
         context.startsWith("replace")
           ? "This account already has a phone number linked. Use Change phone number to replace it."
-          : "This account already has a phone number linked."
+          : "This account already has a phone number linked.",
       );
     }
 
     if (code === "requires-recent-login") {
       return this.createPhoneVerificationError(
         code,
-        "For security, sign in again before changing your phone number."
+        "For security, sign in again before changing your phone number.",
       );
     }
 
     if (code === "too-many-requests") {
       return this.createPhoneVerificationError(
         code,
-        "Firebase is temporarily blocking SMS verification for this phone number or device after too many attempts. Wait before trying again, or use a different phone number."
+        "Firebase is temporarily blocking SMS verification for this phone number or device after too many attempts. Wait before trying again, or use a different phone number.",
       );
     }
 
     if (code === "invalid-app-credential" || code === "captcha-check-failed") {
-      const hostname = typeof window === "undefined" ? "" : window.location.hostname;
+      const hostname =
+        typeof window === "undefined" ? "" : window.location.hostname;
       const host = typeof window === "undefined" ? "" : window.location.host;
       const origin =
         typeof window === "undefined"
@@ -1158,7 +1292,7 @@ export class AuthService {
         code,
         host
           ? `Firebase could not verify phone auth from ${host}. Check Firebase Authentication authorized domains, reCAPTCHA settings, and API key restrictions for ${origin || hostname}.`
-          : "Firebase could not verify this app for phone auth. Check Firebase Authentication authorized domains and reCAPTCHA configuration."
+          : "Firebase could not verify this app for phone auth. Check Firebase Authentication authorized domains and reCAPTCHA configuration.",
       );
     }
 
@@ -1169,7 +1303,7 @@ export class AuthService {
     return new Error(
       context.startsWith("replace")
         ? "Failed to change the phone number."
-        : "Failed to verify the phone number."
+        : "Failed to verify the phone number.",
     );
   }
 
@@ -1279,7 +1413,9 @@ export class AuthService {
           resolve(user);
         };
         timeout = setTimeout(() => finish(auth.currentUser), 1_000);
-        const unsubscribeCandidate = onAuthStateChanged(auth, finish, () => finish(null));
+        const unsubscribeCandidate = onAuthStateChanged(auth, finish, () =>
+          finish(null),
+        );
         if (typeof unsubscribeCandidate === "function") {
           if (settled) {
             unsubscribeCandidate();
@@ -1289,21 +1425,22 @@ export class AuthService {
         }
       });
 
-    const restoreFromFirebaseAuthentication = async (): Promise<User | null> => {
-      const result = await FirebaseAuthentication.getCurrentUser();
-      if (!result.user) {
-        return null;
-      }
+    const restoreFromFirebaseAuthentication =
+      async (): Promise<User | null> => {
+        const result = await FirebaseAuthentication.getCurrentUser();
+        if (!result.user) {
+          return null;
+        }
 
-      const tokenResult = await FirebaseAuthentication.getIdToken();
-      const idToken = tokenResult.token || "";
-      const providerId =
-        (result.user as { providerId?: string | null }).providerId?.trim() ||
-        auth.currentUser?.providerData?.[0]?.providerId ||
-        "native";
+        const tokenResult = await FirebaseAuthentication.getIdToken();
+        const idToken = tokenResult.token || "";
+        const providerId =
+          (result.user as { providerId?: string | null }).providerId?.trim() ||
+          auth.currentUser?.providerData?.[0]?.providerId ||
+          "native";
 
-      return this.createUserFromNative(result.user, idToken, providerId);
-    };
+        return this.createUserFromNative(result.user, idToken, providerId);
+      };
 
     const restoreFromHushhAuth = async (): Promise<User | null> => {
       const [{ user }, { idToken }] = await Promise.all([
@@ -1313,7 +1450,9 @@ export class AuthService {
       if (!user) {
         return null;
       }
-      const restoredIdToken = this.isUsableIdToken(idToken) ? String(idToken) : "";
+      const restoredIdToken = this.isUsableIdToken(idToken)
+        ? String(idToken)
+        : "";
       if (!restoredIdToken) {
         return null;
       }
@@ -1326,23 +1465,32 @@ export class AuthService {
 
     try {
       if (auth.currentUser) {
-        this.debugLog("✅ [AuthService] Firebase JS SDK user already available");
+        this.debugLog(
+          "✅ [AuthService] Firebase JS SDK user already available",
+        );
         return auth.currentUser;
       }
 
       const firebaseJsUser = await waitForFirebaseJsUser();
       if (firebaseJsUser) {
-        this.debugLog("✅ [AuthService] Firebase JS SDK user restored from persistence");
+        this.debugLog(
+          "✅ [AuthService] Firebase JS SDK user restored from persistence",
+        );
         return firebaseJsUser;
       }
 
       const maxAttempts = Capacitor.getPlatform() === "ios" ? 4 : 2;
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-        this.debugLog(`🍎 [AuthService] Attempting native session restore (${attempt}/${maxAttempts})`);
+        this.debugLog(
+          `🍎 [AuthService] Attempting native session restore (${attempt}/${maxAttempts})`,
+        );
 
         const restoredUser =
           (await restoreFromFirebaseAuthentication().catch((error) => {
-            this.debugError("🍎 [AuthService] FirebaseAuthentication restore failed", error);
+            this.debugError(
+              "🍎 [AuthService] FirebaseAuthentication restore failed",
+              error,
+            );
             return null;
           })) ||
           (await restoreFromHushhAuth().catch((error) => {

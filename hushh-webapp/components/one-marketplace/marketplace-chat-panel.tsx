@@ -133,7 +133,7 @@ export function MarketplaceChatPanel(props: {
         >
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-emerald-900 dark:text-emerald-200">
             {chat.publishCard.topic
-              ? `Publish your ${chat.publishCard.topic} data for offers?`
+              ? `Publish your ${chat.publishCard.topic} information for offers?`
               : "Publish these for offers?"}
           </div>
           <div className="flex flex-col gap-2">

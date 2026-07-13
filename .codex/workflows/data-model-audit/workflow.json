@@ -18,7 +18,8 @@
     "docs/reference/architecture/data-model-governance.md",
     "docs/reference/architecture/runtime-db-fact-sheet.md",
     "docs/reference/operations/migration-governance.md",
-    "consent-protocol/docs/reference/personal-knowledge-model.md"
+    "consent-protocol/docs/reference/personal-knowledge-model.md",
+    "docs/reference/architecture/schema-migration-discipline.md"
   ],
   "required_commands": [
     "./bin/hushh codex route-task data-model-audit",

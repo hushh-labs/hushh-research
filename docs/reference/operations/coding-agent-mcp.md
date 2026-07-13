@@ -92,7 +92,7 @@ Repo references:
 Codex remote setup:
 
 ```bash
-codex mcp add hushh_consent --url "https://<consent-api-origin>/mcp/?token=<developer-token>"
+codex mcp add hushh_consent --url "https://<consent-api-origin>/mcp/" --bearer-token-env-var HUSHH_DEVELOPER_TOKEN
 ```
 
 Codex stdio config:
@@ -204,7 +204,7 @@ npx -y @hushh/mcp --help
 ```
 
 2. Confirm the host can discover Hussh tools/resources after attaching it.
-3. For hosted UAT, use the slash-safe mount URL: `/mcp/?token=<developer-token>`.
+3. For hosted UAT, use the slash-safe mount URL `/mcp/` and send the developer token only through the configured bearer-header environment variable. Query tokens are rejected.
 4. `@hushh/mcp` is the default stdio install surface.
 5. If you are working contributor-local instead, use the repo-local fallback:
 
@@ -291,6 +291,7 @@ Operator precedence:
 12. Use `.codex/skills/uat-scoped-deploy/` for scoped UAT deploys and Cloud Run region/provenance proof.
 13. Use `.codex/skills/frontend-native-surface-mapper/` before route/API/native/plugin/voice mapping work.
 14. Use `.codex/skills/frontend-cache-coherence/` for warm-cache UX, TTL, stale background refresh, and reviewer-backed screen cache proof.
+15. Use `.codex/skills/morphy-ax/` for shared Agent Experience state, typed semantic-assessment validation, compatibility projection, and performance budgets.
 15. Use `.codex/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
 16. Use `.codex/skills/future-planner/` for future-state roadmap concepts, R&D architecture notes, and planning-only assessments that must stay separate from north-star vision and active implementation docs.
 17. Use `.codex/skills/planning-board/` for `Hussh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.

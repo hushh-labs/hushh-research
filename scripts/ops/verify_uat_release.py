@@ -37,7 +37,15 @@ RIA_STAGE1_SMOKE_CRD = "5838118"
 
 
 def _http_probe(url: str) -> dict[str, Any]:
-    response = requests.get(url, timeout=30)
+    try:
+        response = requests.get(url, timeout=30)
+    except requests.RequestException as exc:
+        return {
+            "url": url,
+            "status_code": None,
+            "ok": False,
+            "error": str(exc),
+        }
     return {
         "url": url,
         "status_code": response.status_code,

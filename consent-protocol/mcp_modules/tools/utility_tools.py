@@ -13,17 +13,10 @@ import re
 import httpx
 from mcp.types import TextContent
 
-from hushh_mcp.consent.scope_helpers import (
-    get_scope_description,
-    get_scope_display_metadata,
-    resolve_scope_to_enum,
-)
+from hushh_mcp.consent.scope_helpers import get_scope_description, get_scope_display_metadata
 from hushh_mcp.consent.token import validate_token_with_db
-from hushh_mcp.constants import AGENT_PORTS
-from hushh_mcp.trust.link import create_trust_link, verify_trust_link
-from hushh_mcp.types import AgentID, UserID
 from mcp_modules.config import FASTAPI_URL
-from mcp_modules.developer_context import get_developer_request_query
+from mcp_modules.developer_context import get_developer_api_headers
 
 logger = logging.getLogger("hushh-mcp-server")
 
@@ -91,66 +84,6 @@ async def handle_validate_token(args: dict) -> list[TextContent]:
     ]
 
 
-async def handle_delegate(args: dict) -> list[TextContent]:
-    """
-    Create TrustLink for agent-to-agent delegation.
-
-    Compliance:
-    ✅ HushhMCP: A2A delegation via TrustLink
-    ✅ Cryptographically signed delegation proof
-    ✅ Scoped and time-limited
-    ✅ User authorization recorded
-    """
-    from_agent = args.get("from_agent")
-    to_agent = args.get("to_agent")
-    scope_str = args.get("scope")
-    user_id = args.get("user_id")
-    session_id = str(args.get("session_id") or "")
-
-    # Map scope string to enum
-    # NOTE: Legacy VAULT_READ_* scopes have been removed.
-    # Parse scope using centralized resolver
-    scope = resolve_scope_to_enum(scope_str)
-
-    # Create TrustLink
-    trust_link = create_trust_link(
-        from_agent=AgentID(from_agent),
-        to_agent=AgentID(to_agent),
-        scope=scope,
-        signed_by_user=UserID(user_id),
-        session_id=session_id,
-    )
-
-    # Verify the TrustLink
-    is_valid = verify_trust_link(trust_link)
-
-    logger.info(f"🔗 TrustLink CREATED: {from_agent} → {to_agent} (scope={scope_str})")
-
-    return [
-        TextContent(
-            type="text",
-            text=json.dumps(
-                {
-                    "status": "delegated",
-                    "trust_link": {
-                        "from_agent": trust_link.from_agent,
-                        "to_agent": trust_link.to_agent,
-                        "scope": str(trust_link.scope),
-                        "authorized_by_user": trust_link.signed_by_user,
-                        "created_at": trust_link.created_at,
-                        "expires_at": trust_link.expires_at,
-                        "signature": trust_link.signature[:20] + "...",
-                        "signature_verified": is_valid,
-                    },
-                    "message": f"Task delegated from {from_agent} to {to_agent}",
-                    "target_port": AGENT_PORTS.get(to_agent, 10000),
-                    "a2a_note": "This TrustLink can be verified by the target agent to confirm delegation authority.",
-                }
-            ),
-        )
-    ]
-
-
 async def handle_list_scopes(_args: dict | None = None) -> list[TextContent]:
     """
     List scope categories using backend dynamic registry output.
@@ -166,20 +99,12 @@ async def handle_list_scopes(_args: dict | None = None) -> list[TextContent]:
         fallback = {
             "scopes": [
                 {
-                    "name": "pkm.read",
-                    "description": get_scope_description("pkm.read"),
+                    "name": "cap.one.invoke",
+                    "description": get_scope_description("cap.one.invoke"),
                 },
                 {
-                    "name": "pkm.write",
-                    "description": get_scope_description("pkm.write"),
-                },
-                {
-                    "name": "attr.{domain}.*",
-                    "description": "Dynamic domain scope (discover per user first).",
-                },
-                {
-                    "name": "attr.{domain}.{subintent}.*",
-                    "description": "Dynamic subintent scope when metadata exposes subintents.",
+                    "name": "attr.{domain_slug}.{scope_slug}.*",
+                    "description": "Dynamic semantic scope (discover per user first).",
                 },
             ],
             "scopes_are_dynamic": True,
@@ -234,10 +159,10 @@ async def handle_discover_user_domains(args: dict) -> list[TextContent]:
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            token_query = get_developer_request_query()
+            developer_headers = get_developer_api_headers()
             r = await client.get(
                 f"{FASTAPI_URL}/api/v1/user-scopes/{uid}",
-                params=token_query or None,
+                headers=developer_headers,
             )
             if r.status_code == 404:
                 return [
@@ -249,12 +174,12 @@ async def handle_discover_user_domains(args: dict) -> list[TextContent]:
                                 "domains": [],
                                 "scopes": [],
                                 "message": "No PKM domains for this user yet (new user or no domains yet)",
-                                "usage": "Call request_consent with a discovered attr.{domain}.* scope after the user adds data; pkm.read is reserved for approved first-party/internal full-PKM access.",
+                                "usage": "Call request_consent with a discovered attr.{domain_slug}.{scope_slug}.* scope after the user adds data.",
                             }
                         ),
                     )
                 ]
-            if r.status_code == 401 and not token_query:
+            if r.status_code == 401 and not developer_headers:
                 return [
                     TextContent(
                         type="text",

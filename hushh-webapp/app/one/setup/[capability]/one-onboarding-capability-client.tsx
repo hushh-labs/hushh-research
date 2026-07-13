@@ -104,7 +104,7 @@ export function OneOnboardingCapabilityClient({
     // just forward so the user is never stranded on this screen.
     if (!userId) {
       router.replace(target);
-      return;
+      return { status: "started" as const, summary: "Opening the capability." };
     }
 
     setBusy(true);
@@ -114,6 +114,11 @@ export function OneOnboardingCapabilityClient({
       // never-opened tile, and record the explore signal for explore-only
       // capabilities.
       OneSetupGateService.markSeen(userId);
+      await PreVaultUserStateService.syncOnboardingJourney({
+        userId,
+        phase: "capability_setup",
+        activeCapability: capabilityId,
+      });
 
       if (capability?.isExploreOnly === true) {
         await CapabilityTourService.markExplored(userId, capabilityId).catch(
@@ -131,14 +136,22 @@ export function OneOnboardingCapabilityClient({
       // allows through) — see the component doc comment. Marking
       // `setupCompleted = true` on capability entry was the cause of the
       // dashboard "Finish setup" bar clearing prematurely.
+      router.replace(target);
+      return {
+        status: "started" as const,
+        summary: `Opening ${capability?.title || capabilityId}.`,
+      };
     } catch (resolveError) {
       console.warn(
         "[OneOnboardingCapabilityClient] Failed to record capability signal:",
         resolveError,
       );
-      // Fail-open: still forward so the user is never stranded.
+      return {
+        status: "failed" as const,
+        summary: "This setup step could not save its progress. Please try again.",
+      };
     } finally {
-      router.replace(target);
+      setBusy(false);
     }
   };
 
@@ -153,8 +166,7 @@ export function OneOnboardingCapabilityClient({
     if (busy) {
       return { status: "blocked", summary: "Already continuing, one moment." };
     }
-    await runPrimary();
-    return { status: "succeeded", summary: `Continuing from ${capability.title} setup.` };
+    return runPrimary();
   });
 
   if (!capability) {

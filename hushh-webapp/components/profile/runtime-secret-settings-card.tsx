@@ -185,12 +185,17 @@ export function RuntimeSecretSettingsCard({
         vaultOwnerToken,
         credentialRef: provider.credentialRef,
         secret: trimmedKey,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "runtime_secret_save_button",
+        },
       });
       setDraftKeys((current) => ({ ...current, [provider.id]: "" }));
       setRevealedKeys((current) => ({ ...current, [provider.id]: null }));
       setShowKeys((current) => ({ ...current, [provider.id]: false }));
       setConfiguredKeys((current) => ({ ...current, [provider.id]: true }));
-      toast.success(`${provider.label} key saved to your encrypted personal data.`);
+      toast.success(`${provider.label} key saved to your encrypted vault.`);
     } catch (error) {
       const message =
         error instanceof Error
@@ -221,6 +226,11 @@ export function RuntimeSecretSettingsCard({
         vaultOwnerToken,
         credentialRef: RUNTIME_CREDENTIAL_MODE_REF,
         secret: nextMode,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "runtime_credential_mode_toggle",
+        },
       });
       setCredentialMode(nextMode);
       toast.success(
@@ -256,12 +266,17 @@ export function RuntimeSecretSettingsCard({
         vaultKey,
         vaultOwnerToken,
         credentialRef: provider.credentialRef,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "runtime_secret_delete_button",
+        },
       });
       setDraftKeys((current) => ({ ...current, [provider.id]: "" }));
       setRevealedKeys((current) => ({ ...current, [provider.id]: null }));
       setShowKeys((current) => ({ ...current, [provider.id]: false }));
       setConfiguredKeys((current) => ({ ...current, [provider.id]: false }));
-      toast.success(`${provider.label} key removed from your encrypted personal data.`);
+      toast.success(`${provider.label} key removed from your encrypted vault.`);
     } catch (error) {
       const message =
         error instanceof Error
@@ -304,7 +319,7 @@ export function RuntimeSecretSettingsCard({
       });
       if (!secret) {
         setConfiguredKeys((current) => ({ ...current, [provider.id]: false }));
-        toast.error(`No saved ${provider.label} key found in your encrypted personal data.`);
+        toast.error(`No saved ${provider.label} key found in your encrypted vault.`);
         return;
       }
       setRevealedKeys((current) => ({ ...current, [provider.id]: secret }));

@@ -42,6 +42,10 @@ export type OneCapabilityGroup = "workflow" | "memory" | "access";
 
 export interface OneCapability {
   id: string;
+  /** Stable generated action identity for opening this setup tile. */
+  setupActionId: `setup.open_${string}`;
+  /** Stable DOM/action-contract correlation id for the setup tile. */
+  setupControlId: `one_setup_tile_${string}`;
   /**
    * Backend agent lane this tile is bound to, or null when the tile is a
    * pure access/preview surface with no agent behind it (consent center,
@@ -65,7 +69,7 @@ export interface OneCapability {
   tone: OneCapabilityTone;
   group: OneCapabilityGroup;
   /**
-   * True when this capability collects NOTHING from the user — there is no data
+   * True when this capability collects NOTHING from the user — there is no information
    * to enter or connection to authorize, the tab is usable as soon as it opens.
    * Such capabilities are "set up" by taking a one-time look (an Explore tour)
    * rather than by a configuration step. The resolver treats them as
@@ -76,11 +80,11 @@ export interface OneCapability {
   isExploreOnly?: boolean;
   /**
    * True when this capability's real workspace reads or writes vault-backed
-   * personal data and therefore needs an UNLOCKED vault to be usable. The setup
+   * personal information and therefore needs an UNLOCKED vault to be usable. The setup
    * STEP itself collects nothing and renders pre-vault; this flag only lets the
    * step set honest "you'll unlock your vault next" expectations and lets the
    * destination's own guard own the actual unlock prompt. Consent is
-   * the only capability that does not read vault-backed data here.
+   * the only capability that does not read vault-backed information here.
    */
   requiresVault?: boolean;
 }
@@ -91,6 +95,8 @@ export interface OneCapability {
 export const ONE_CAPABILITIES: readonly OneCapability[] = [
   {
     id: "finance",
+    setupActionId: "setup.open_finance",
+    setupControlId: "one_setup_tile_finance",
     agentId: "agent_kai",
     // Public agent name is "Finance" (renamed back from a brief "Investor"
     // pass). Kai remains the internal finance runtime naming: id, routes,
@@ -106,6 +112,8 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "gmail",
+    setupActionId: "setup.open_gmail",
+    setupControlId: "one_setup_tile_gmail",
     agentId: "agent_gmail",
     title: "Gmail",
     description: "Receipt sync and purchase-memory review.",
@@ -118,6 +126,8 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "email",
+    setupActionId: "setup.open_email",
+    setupControlId: "one_setup_tile_email",
     agentId: "agent_email",
     title: "Email",
     description: "Approval drafts and client request workflows.",
@@ -129,10 +139,12 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "location",
+    setupActionId: "setup.open_location",
+    setupControlId: "one_setup_tile_location",
     agentId: "agent_location",
-    title: "Location",
-    description: "Live sharing, referrals, and local context.",
-    previewLabel: "Live sharing & local context",
+    title: "Onepoint",
+    description: "Live location & Alerts",
+    previewLabel: "Live location & Alerts",
     href: ROUTES.ONE_LOCATION,
     icon: MapPin,
     tone: "location",
@@ -141,6 +153,8 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "pkm",
+    setupActionId: "setup.open_pkm",
+    setupControlId: "one_setup_tile_pkm",
     agentId: "agent_personal_information",
     title: "Memory",
     description: "Saved knowledge and context you can review.",
@@ -152,6 +166,8 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "consent",
+    setupActionId: "setup.open_consent",
+    setupControlId: "one_setup_tile_consent",
     // Nav owns the consent center: approvals, revocations, and the
     // Connections tab (trusted connections are Nav's domain too).
     agentId: "agent_nav",
@@ -165,11 +181,13 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "marketplace",
+    setupActionId: "setup.open_marketplace",
+    setupControlId: "one_setup_tile_marketplace",
     // Preview surface only today; no roster agent behind it.
     agentId: null,
     title: "Information Marketplace",
-    description: "Preview priced slices of your data you could publish.",
-    previewLabel: "Priced data slices",
+    description: "Preview priced slices of your personal information you could publish.",
+    previewLabel: "Priced information slices",
     href: ROUTES.ONE_MARKETPLACE,
     icon: Store,
     tone: "pkm",
@@ -178,6 +196,8 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "connected-systems",
+    setupActionId: "setup.open_connected_systems",
+    setupControlId: "one_setup_tile_connected-systems",
     agentId: "agent_connected_systems",
     title: "Connected Systems",
     description: "Approved CRM reads and writes.",

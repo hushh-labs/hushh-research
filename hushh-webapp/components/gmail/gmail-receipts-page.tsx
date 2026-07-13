@@ -62,6 +62,11 @@ import {
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { VaultService } from "@/lib/services/vault-service";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
+import {
+  beginOnboardingConnectorIntent,
+  clearOnboardingConnectorIntent,
+} from "@/lib/onboarding/onboarding-connector-intent";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   usePublishVoiceSurfaceMetadata,
@@ -479,6 +484,9 @@ export default function ProfileReceiptsPage() {
 
   const handleConnectGmail = useCallback(async () => {
     if (!user?.uid) return;
+    const fromSetup =
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("from") === ROUTES.ONE_SETUP;
 
     try {
       setGmailActionBusy("connect");
@@ -504,8 +512,24 @@ export default function ProfileReceiptsPage() {
         throw new Error("Gmail OAuth is not configured for this environment.");
       }
 
+      if (fromSetup) {
+        await PreVaultUserStateService.syncOnboardingJourney({
+          userId: user.uid,
+          phase: "external_connector",
+          activeCapability: "gmail",
+          callbackState: "pending",
+        });
+        // Write the browser correlation marker only after the durable journey
+        // accepted the pending transition. A failed write must not cause an
+        // unrelated callback to be mistaken for onboarding later.
+        beginOnboardingConnectorIntent("gmail");
+      }
+
       assignWindowLocation(payload.authorize_url);
     } catch (error) {
+      if (fromSetup) {
+        clearOnboardingConnectorIntent();
+      }
       const message = sanitizeGmailUserMessage(error, {
         fallback:
           "We couldn't start Gmail connection right now. Please try again in a moment.",
@@ -1005,6 +1029,14 @@ export default function ProfileReceiptsPage() {
           domain: "shopping",
           vaultKey,
           vaultOwnerToken,
+          // Required by the write-coordinator's confirmation-gated mutation
+          // contract (branch): explicit user confirmation provenance for
+          // this save action.
+          confirmation: {
+            confirmedByUser: true,
+            surface: "web",
+            source: "gmail_receipt_memory_save_button",
+          },
           build: async (context) => {
             const prepared = buildShoppingReceiptMemoryPreparedDomain({
               currentDomainData: context.currentDomainData,

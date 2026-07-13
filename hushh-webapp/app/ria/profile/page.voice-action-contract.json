@@ -101,7 +101,7 @@
       "execution_policy": "allow_direct",
       "execution_target": {
         "status": "wired",
-        "path": "in_page",
+        "path": "local_handler",
         "target": "ria_profile_edit_panel"
       },
       "control_ids": [

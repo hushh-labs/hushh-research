@@ -248,7 +248,7 @@ function toStatus(
   if (detailCount <= 0) {
     return presentation.sections.length > 0
       ? { status: "partial", statusLabel: "Ready" }
-      : { status: "missing", statusLabel: "No saved data" };
+      : { status: "missing", statusLabel: "Nothing saved yet" };
   }
   if (domain.summary?.refresh_recommended === true) {
     return { status: "stale", statusLabel: "Stale" };
@@ -326,7 +326,7 @@ export function buildPkmDomainPresentation(params: {
   ]);
   const { status, statusLabel } = toStatus(params.domain, { ...presentation, updatedAt }, detailCount);
   const attentionFlags: string[] = [];
-  if (status === "missing") attentionFlags.push("Needs data");
+  if (status === "missing") attentionFlags.push("Needs information");
   if (status === "stale") attentionFlags.push("Refresh recommended");
   if (accessEntries.length > 0) attentionFlags.push("Shared");
   const permissions = buildPkmDomainPermissionPresentation({
@@ -428,7 +428,7 @@ export function buildPkmProfileSummaryPresentation(params: {
   ).size;
   const attentionItems: string[] = [];
   if (missingDomainCount > 0) {
-    attentionItems.push(`${missingDomainCount} domain${missingDomainCount === 1 ? "" : "s"} still need data.`);
+    attentionItems.push(`${missingDomainCount} domain${missingDomainCount === 1 ? "" : "s"} still need information.`);
   }
   if (staleDomainCount > 0) {
     attentionItems.push(`${staleDomainCount} domain${staleDomainCount === 1 ? "" : "s"} should be refreshed.`);
@@ -438,7 +438,7 @@ export function buildPkmProfileSummaryPresentation(params: {
     attentionItems.push(`${pending} access request${pending === 1 ? "" : "s"} waiting for review.`);
   }
   if (attentionItems.length === 0 && params.domains.length > 0) {
-    attentionItems.push("Your saved data is readable and ready to manage.");
+    attentionItems.push("Your saved information is readable and ready to manage.");
   }
 
   return {
@@ -504,7 +504,7 @@ function normalizeVisibilityPosture(params: {
   exposureEnabled?: boolean;
 }): PkmVisibilityPosture {
   const posture = String(params.visibilityPosture || "").trim().toLowerCase();
-  if (posture === "private" || posture === "consent_required" || posture === "default_available") {
+  if (posture === "private" || posture === "consent_required") {
     return posture;
   }
   return params.exposureEnabled === false ? "private" : "consent_required";
@@ -523,17 +523,6 @@ function visibilityPostureCopy(params: {
         params.readerSummary.activeReaderCount > 0
           ? params.readerSummary.counterpartSummary
           : "Hidden from new sharing",
-    };
-  }
-  if (params.posture === "default_available") {
-    return {
-      label: params.defaultProjectionReady ? "Available by default" : "Preview needed",
-      description: params.defaultProjectionReady
-        ? "One can use this saved section without asking again."
-        : "Preview this section once before One can use it by default.",
-      counterpartSummary: params.defaultProjectionReady
-        ? "Ready to use when you ask One"
-        : "Preview required before this is available by default",
     };
   }
   return {
@@ -622,7 +611,7 @@ export function buildPkmDomainUpgradePresentation(params: {
       status: "missing_manifest",
       label: "Updating structure",
       description:
-        "This domain is still being prepared for section-level sharing controls. You can review the data now and manage detailed sharing once the manifest is ready.",
+        "This domain is still being prepared for section-level sharing controls. You can review the information now and manage detailed sharing once the manifest is ready.",
       canManagePermissions: false,
     };
   }
@@ -732,7 +721,7 @@ export function buildPkmDomainPermissionPresentation(params: {
         scopeHandle: entry.scopeHandle,
         topLevelScopePath: entry.topLevelScopePath,
         label: entry.scopeLabel,
-        description: `Manage how One can use the ${entry.scopeLabel.toLowerCase()} section of your ${params.domain.displayName.toLowerCase()} data.`,
+        description: `Manage how One can use the ${entry.scopeLabel.toLowerCase()} section of your ${params.domain.displayName.toLowerCase()} information.`,
         exposureEnabled: entry.exposureEnabled,
         visibilityPosture: entry.visibilityPosture,
         defaultProjectionReady: entry.defaultProjectionReady,

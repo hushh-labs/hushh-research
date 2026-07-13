@@ -96,7 +96,7 @@ export function OneSetupHub() {
     actions: [
       ...CAPABILITY_SETUP_COPY.map((cap) => ({
         id: cap.id,
-        actionId: `setup.open_${cap.id.replace(/-/g, "_")}`,
+        actionId: getOneCapability(cap.id)?.setupActionId,
         label: cap.title,
         purpose: cap.setupBlurb,
       })),
@@ -120,10 +120,12 @@ export function OneSetupHub() {
   // so the gate is consistent on the very next route resolve. Failures stay
   // fail-open (we still navigate home).
   const handleMasterAck = async () => {
-    if (dismissing) return;
+    if (dismissing) {
+      return { status: "blocked" as const, summary: "Setup is already being finished." };
+    }
     if (!user?.uid) {
       router.push(completionTarget);
-      return;
+      return { status: "started" as const, summary: "Opening home." };
     }
     setDismissing(true);
     try {
@@ -134,22 +136,26 @@ export function OneSetupHub() {
         vaultKey,
         vaultOwnerToken,
       });
+      router.push(completionTarget);
+      return {
+        status: "succeeded" as const,
+        summary: masterSkipped ? "Skipped setup for now." : "Setup acknowledged. Opening home.",
+      };
     } catch (error) {
       console.warn("[OneSetupHub] Failed to resolve master setup gate:", error);
+      return {
+        status: "failed" as const,
+        summary: "Setup could not be finished yet. You are still on the setup hub.",
+      };
     } finally {
       setDismissing(false);
-      router.push(completionTarget);
     }
   };
 
   // Voice parity: "skip setup" / "continue to home" drive the same master
   // acknowledgement as tapping the hub's Skip/Continue button.
   useLocalOnboardingActionHandler("setup.hub_master_ack", async () => {
-    await handleMasterAck();
-    return {
-      status: "succeeded",
-      summary: masterSkipped ? "Skipped setup for now." : "Setup acknowledged. Opening home.",
-    };
+    return handleMasterAck();
   });
 
   const summary = isLoading
@@ -184,6 +190,7 @@ export function OneSetupHub() {
               disabled={dismissing}
               onClick={() => void handleMasterAck()}
               data-testid="one-setup-master-ack"
+              data-voice-control-id="one-setup-master-ack"
               className={cn(
                 "rounded-full type-subhead font-medium",
                 "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
@@ -222,6 +229,7 @@ export function OneSetupHub() {
                 title={item.copy.setupTitle}
                 description={item.copy.setupBlurb}
                 href={item.copy.href}
+                voiceControlId={item.voiceControlId}
                 icon={item.icon}
                 tone={item.tone}
                 status={item.status}
@@ -242,6 +250,7 @@ interface SetupItem {
   status: CapabilityStatus;
   icon: LucideIcon;
   tone: OneCapabilityTone;
+  voiceControlId: string;
   isActionable: boolean;
   isExploreOnly: boolean;
   isCurrent: boolean;
@@ -270,6 +279,7 @@ function buildSetupItems(
         status,
         icon: capability.icon,
         tone: capability.tone,
+        voiceControlId: capability.setupControlId,
         isActionable: isCapabilitySetupActionable(status),
         isExploreOnly: capability.isExploreOnly === true,
       },

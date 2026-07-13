@@ -339,12 +339,12 @@ ${signature}`;
     .map((field) => `- ${field.replaceAll("_", " ")}`)
     .join("\n");
   const missingCopy = missingLines
-    ? `\nNot found in the approved data:\n${missingLines}\n`
+    ? `\nNot found in the approved information:\n${missingLines}\n`
     : "";
 
   return `${opening}
 
-${sectionBlocks || "No requested values were present in the approved data."}
+${sectionBlocks || "No requested values were present in the approved information."}
 ${missingCopy}
 ${signature}`.slice(0, MAX_DRAFT_BODY_LENGTH);
 }
@@ -551,7 +551,7 @@ export function buildApprovedDisclosureHtml(model: ApprovedDisclosureRenderModel
     .join('<div style="height:20px;line-height:20px;">&nbsp;</div>');
   const content = [
     htmlParagraph(opening),
-    sections || htmlParagraph("No requested values were present in the approved data."),
+    sections || htmlParagraph("No requested values were present in the approved information."),
     `<p style="margin:0;padding-top:14px;border-top:1px solid ${EMAIL_THEME.border};color:${EMAIL_THEME.heading};font-weight:650;line-height:1.5;">Best,<br/>hussh One</p>`,
   ].join('<div style="height:18px;line-height:18px;">&nbsp;</div>');
 

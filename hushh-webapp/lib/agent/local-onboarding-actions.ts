@@ -20,39 +20,113 @@
 import { useEffect, useRef } from "react";
 
 export type LocalOnboardingActionResult = {
-  status: "succeeded" | "blocked" | "failed";
+  status: "started" | "succeeded" | "blocked" | "failed";
   summary: string;
   data?: Record<string, unknown>;
 };
 
+/**
+ * Execution-only gateway context. This is deliberately separate from
+ * model-resolved slots: it carries correlation metadata, never owner
+ * information or provider credentials.
+ */
+export type LocalOnboardingActionContext = {
+  directiveId?: string | null;
+};
+
 export type LocalOnboardingActionHandler = (
-  slots: Record<string, unknown>
+  slots: Record<string, unknown>,
+  context?: LocalOnboardingActionContext,
 ) => LocalOnboardingActionResult | Promise<LocalOnboardingActionResult>;
 
-const handlers = new Map<string, LocalOnboardingActionHandler>();
+type MountedLocalActionHandler = {
+  ownerId: string;
+  sequence: number;
+  handler: LocalOnboardingActionHandler;
+};
+
+const handlers = new Map<string, Map<string, MountedLocalActionHandler>>();
+const legacyOwnerIds = new WeakMap<LocalOnboardingActionHandler, string>();
+let registrationSequence = 0;
+
+function legacyOwnerId(handler: LocalOnboardingActionHandler): string {
+  const existing = legacyOwnerIds.get(handler);
+  if (existing) return existing;
+  const ownerId = `legacy_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  legacyOwnerIds.set(handler, ownerId);
+  return ownerId;
+}
+
+/** Register a mounted handler without allowing an older owner to steal it. */
+export function registerMountedLocalActionHandler(
+  actionId: string,
+  ownerId: string,
+  handler: LocalOnboardingActionHandler,
+) {
+  const owners =
+    handlers.get(actionId) ?? new Map<string, MountedLocalActionHandler>();
+  registrationSequence += 1;
+  owners.set(ownerId, { ownerId, sequence: registrationSequence, handler });
+  handlers.set(actionId, owners);
+}
+
+/** Remove only the registration owned by the caller. */
+export function unregisterMountedLocalActionHandler(
+  actionId: string,
+  ownerId: string,
+) {
+  const owners = handlers.get(actionId);
+  if (!owners) return;
+  owners.delete(ownerId);
+  if (owners.size === 0) handlers.delete(actionId);
+}
 
 /** Register a handler for a governed `action_id`. Last registration wins. */
 export function registerLocalOnboardingHandler(
   actionId: string,
-  handler: LocalOnboardingActionHandler
+  handler: LocalOnboardingActionHandler,
 ) {
-  handlers.set(actionId, handler);
+  registerMountedLocalActionHandler(actionId, legacyOwnerId(handler), handler);
 }
 
 /** Remove a handler only if it is still the one that registered it. */
 export function unregisterLocalOnboardingHandler(
   actionId: string,
-  handler: LocalOnboardingActionHandler
+  handler: LocalOnboardingActionHandler,
 ) {
-  if (handlers.get(actionId) === handler) {
-    handlers.delete(actionId);
-  }
+  unregisterMountedLocalActionHandler(actionId, legacyOwnerId(handler));
 }
 
 export function resolveLocalOnboardingHandler(
-  actionId: string
+  actionId: string,
 ): LocalOnboardingActionHandler | null {
-  return handlers.get(actionId) ?? null;
+  const owners = handlers.get(actionId);
+  if (!owners || owners.size === 0) return null;
+  return (
+    Array.from(owners.values()).sort(
+      (left, right) => right.sequence - left.sequence,
+    )[0]?.handler ?? null
+  );
+}
+
+/**
+ * A Live directive can arrive in the small window between route paint and a
+ * component's effect registration. Wait briefly for that route-local handler
+ * instead of falsely reporting that a visible control is unavailable.
+ */
+export async function waitForLocalOnboardingHandler(
+  actionId: string,
+  timeoutMs = 750,
+): Promise<LocalOnboardingActionHandler | null> {
+  const immediate = resolveLocalOnboardingHandler(actionId);
+  if (immediate) return immediate;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 16));
+    const handler = resolveLocalOnboardingHandler(actionId);
+    if (handler) return handler;
+  }
+  return null;
 }
 
 /**
@@ -62,8 +136,11 @@ export function resolveLocalOnboardingHandler(
  */
 export function useLocalOnboardingActionHandler(
   actionId: string,
-  handler: LocalOnboardingActionHandler
+  handler: LocalOnboardingActionHandler,
 ) {
+  const ownerIdRef = useRef(
+    `local_action_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+  );
   const handlerRef = useRef(handler);
   // Refs must not be written during render (react-hooks/refs); keep the ref
   // fresh in an effect instead so the registered handler below never closes
@@ -74,11 +151,12 @@ export function useLocalOnboardingActionHandler(
   });
 
   useEffect(() => {
-    const stableHandler: LocalOnboardingActionHandler = (slots) =>
-      handlerRef.current(slots);
-    registerLocalOnboardingHandler(actionId, stableHandler);
+    const stableHandler: LocalOnboardingActionHandler = (slots, context) =>
+      handlerRef.current(slots, context);
+    const ownerId = ownerIdRef.current;
+    registerMountedLocalActionHandler(actionId, ownerId, stableHandler);
     return () => {
-      unregisterLocalOnboardingHandler(actionId, stableHandler);
+      unregisterMountedLocalActionHandler(actionId, ownerId);
     };
   }, [actionId]);
 }

@@ -3,7 +3,10 @@ import type {
   OneLocationRecipient,
   OneLocationState,
 } from "@/lib/one-location/types";
-import type { OneLocationWorkflowNotificationType } from "@/lib/one-location/notifications";
+import {
+  privacySafeOneLocationNotificationLabel,
+  type OneLocationWorkflowNotificationType,
+} from "@/lib/one-location/notifications";
 
 export type OneLocationNotificationPayload = Record<string, string> & {
   type: OneLocationWorkflowNotificationType;
@@ -27,9 +30,9 @@ function recipientLabel(
   userId: string,
   fallback: string,
 ): string {
-  return (
-    recipients.find((recipient) => recipient.userId === userId)?.displayName?.trim() ||
-    fallback
+  return privacySafeOneLocationNotificationLabel(
+    recipients.find((recipient) => recipient.userId === userId)?.displayName,
+    fallback,
   );
 }
 
@@ -81,8 +84,10 @@ export function buildOneLocationNotificationPayloads(
     addValue(
       payload,
       "owner_display_label",
-      grant.ownerDisplayName ||
-        recipientLabel(recipients, grant.ownerUserId, "A trusted person"),
+      privacySafeOneLocationNotificationLabel(
+        grant.ownerDisplayName ||
+          recipientLabel(recipients, grant.ownerUserId, "A trusted person"),
+      ),
     );
     addValue(payload, "expires_at", grant.expiresAt);
     addValue(payload, "duration_hours", grant.durationHours);

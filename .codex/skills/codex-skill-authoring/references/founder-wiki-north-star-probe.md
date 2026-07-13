@@ -45,7 +45,7 @@ Use `wiki_search` for task-specific pages after reading the index.
 
 Use these as north-star checks, then verify repo current state separately:
 
-1. One is the personal agent platform and personal operating layer, not a generic assistant or super-app destination.
+1. One is the private agent platform and private operating layer, not a generic assistant or super-app destination.
 2. Kai assembles context, proposes decisions, and executes only through consented action paths.
 3. Nav is the privacy and consent guardian; helper and protector voices must stay distinct.
 4. PCHP is the consent protocol and "SSH for humans"; every user-data read must preserve consent, audit, revocation, and ephemeral access boundaries.

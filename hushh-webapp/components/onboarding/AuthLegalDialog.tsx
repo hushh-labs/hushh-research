@@ -18,6 +18,7 @@ import {
 type AuthLegalDialogProps = {
   docType: KaiLegalDocumentType | null;
   onOpenChange: (open: boolean) => void;
+  closeControlId?: string;
 };
 
 // External canonical sources on hushh.ai. We render the same content inline
@@ -28,13 +29,17 @@ const LEGAL_SOURCE_URL: Record<KaiLegalDocumentType, string> = {
   terms: "https://www.hushh.ai/terms",
 };
 
-export function AuthLegalDialog({ docType, onOpenChange }: AuthLegalDialogProps) {
+export function AuthLegalDialog({
+  docType,
+  onOpenChange,
+  closeControlId,
+}: AuthLegalDialogProps) {
   const isOpen = docType !== null;
   const doc = docType ? KAI_LEGAL_DOCUMENTS[docType] : null;
   const sourceUrl = docType ? LEGAL_SOURCE_URL[docType] : null;
 
   return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange} modal>
+    <Dialog open={isOpen} onOpenChange={onOpenChange} modal={false}>
       <DialogContent
         showCloseButton={false}
         className="max-w-[min(40rem,calc(100%-1.5rem))] max-h-[calc(100dvh-1.5rem)] gap-0 overflow-hidden p-0"
@@ -60,13 +65,14 @@ export function AuthLegalDialog({ docType, onOpenChange }: AuthLegalDialogProps)
                     size="icon"
                     className="absolute right-3 top-3 h-9 w-9 rounded-full"
                     aria-label="Close legal document"
+                    data-voice-control-id={closeControlId}
                   >
                     <X className="h-4 w-4" />
                   </Button>
                 </DialogClose>
               </div>
             </DialogHeader>
-            <div className="max-h-[min(72dvh,44rem)] overflow-y-auto px-5 py-5">
+            <div className="max-h-[min(72dvh,44rem)] overflow-y-auto px-5 pt-5 pb-24">
               <p className="type-footnote text-muted-foreground">
                 Last updated {doc.updatedAt}
               </p>

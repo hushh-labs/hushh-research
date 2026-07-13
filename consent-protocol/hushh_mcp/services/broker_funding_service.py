@@ -27,7 +27,10 @@ from hushh_mcp.integrations.alpaca import (
     AlpacaBrokerRuntimeConfig,
 )
 from hushh_mcp.integrations.plaid import PlaidHttpClient, PlaidRuntimeConfig
-from hushh_mcp.runtime_settings import get_optional_plaid_access_token_key
+from hushh_mcp.runtime_settings import (
+    get_app_runtime_settings,
+    get_optional_plaid_access_token_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +57,12 @@ _ALPACA_CONNECT_DEFAULT_TOKEN_URL = "https://api.alpaca.markets/oauth/token"  # 
 _ALPACA_CONNECT_DEFAULT_ACCOUNT_URL = "https://api.alpaca.markets/v2/account"
 _ALPACA_CONNECT_DEFAULT_SCOPES = "account:write trading"
 _ALPACA_CONNECT_SESSION_TTL_SECONDS_DEFAULT = 15 * 60
+# Relative callback path used with APP_FRONTEND_ORIGIN when no absolute
+# ALPACA_CONNECT_REDIRECT_URI is explicitly configured. Mirrors how Plaid's
+# redirect URI is derived (see hushh_mcp/integrations/plaid/config.py) so a
+# domain migration only requires updating APP_FRONTEND_ORIGIN, not every
+# individual OAuth redirect secret.
+_ALPACA_CONNECT_DEFAULT_REDIRECT_PATH = "/kai/alpaca/oauth/return"
 
 _TRADE_INTENT_TERMINAL_STATUSES = {
     "order_filled",
@@ -586,6 +595,21 @@ class BrokerFundingService:
         redirect_uri = _normalize_https_url(
             os.getenv("ALPACA_CONNECT_REDIRECT_URI") or os.getenv("ALPACA_OAUTH_REDIRECT_URI")
         )
+        if redirect_uri is None:
+            # No explicit absolute override configured: derive from the
+            # backend-owned APP_FRONTEND_ORIGIN + a relative path, same
+            # pattern Plaid uses. This means a domain migration only needs
+            # APP_FRONTEND_ORIGIN updated once, instead of every OAuth
+            # redirect secret being hand-maintained per environment.
+            redirect_path = _clean_text(
+                os.getenv("ALPACA_CONNECT_REDIRECT_PATH"),
+                default=_ALPACA_CONNECT_DEFAULT_REDIRECT_PATH,
+            )
+            if not redirect_path.startswith("/"):
+                redirect_path = f"/{redirect_path}"
+            frontend_origin = get_app_runtime_settings().app_frontend_origin
+            if frontend_origin:
+                redirect_uri = _normalize_https_url(f"{frontend_origin.rstrip('/')}{redirect_path}")
         authorize_url = _normalize_https_url(
             os.getenv("ALPACA_CONNECT_AUTHORIZE_URL") or _ALPACA_CONNECT_DEFAULT_AUTHORIZE_URL
         )

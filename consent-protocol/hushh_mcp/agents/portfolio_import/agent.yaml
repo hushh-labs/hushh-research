@@ -1,3 +1,4 @@
+manifest_version: 2
 id: agent_portfolio_import
 name: Portfolio Import Agent
 version: 1.0.0

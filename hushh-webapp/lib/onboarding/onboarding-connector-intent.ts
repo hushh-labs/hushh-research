@@ -1,0 +1,60 @@
+"use client";
+
+import { ROUTES } from "@/lib/navigation/routes";
+
+const STORAGE_KEY = "one_onboarding_connector_intent_v1";
+const MAX_AGE_MS = 15 * 60 * 1000;
+
+export type OnboardingConnectorIntent = {
+  version: 1;
+  capability: "gmail";
+  returnTo: typeof ROUTES.ONE_SETUP;
+  correlationId: string;
+  startedAt: number;
+};
+
+function storage(): Storage | null {
+  return typeof window === "undefined" ? null : window.sessionStorage;
+}
+
+export function beginOnboardingConnectorIntent(
+  capability: "gmail"
+): OnboardingConnectorIntent {
+  const intent: OnboardingConnectorIntent = {
+    version: 1,
+    capability,
+    returnTo: ROUTES.ONE_SETUP,
+    correlationId:
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `connector_${Date.now().toString(36)}`,
+    startedAt: Date.now(),
+  };
+  storage()?.setItem(STORAGE_KEY, JSON.stringify(intent));
+  return intent;
+}
+
+export function readOnboardingConnectorIntent(): OnboardingConnectorIntent | null {
+  const store = storage();
+  const raw = store?.getItem(STORAGE_KEY);
+  if (!store || !raw) return null;
+  try {
+    const value = JSON.parse(raw) as Partial<OnboardingConnectorIntent>;
+    const valid =
+      value.version === 1 &&
+      value.capability === "gmail" &&
+      value.returnTo === ROUTES.ONE_SETUP &&
+      typeof value.correlationId === "string" &&
+      typeof value.startedAt === "number" &&
+      Date.now() - value.startedAt <= MAX_AGE_MS;
+    if (valid) return value as OnboardingConnectorIntent;
+  } catch {
+    // Invalid browser state is discarded below.
+  }
+  store.removeItem(STORAGE_KEY);
+  return null;
+}
+
+export function clearOnboardingConnectorIntent(): void {
+  storage()?.removeItem(STORAGE_KEY);
+}

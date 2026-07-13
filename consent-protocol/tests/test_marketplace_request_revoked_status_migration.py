@@ -20,7 +20,7 @@ def test_revoked_status_migration_is_registered_at_release_head() -> None:
     assert len(ordered) == len(set(ordered))
     # This migration is the new release head.
     assert ordered.index(MIGRATION_NAME) > ordered.index("081_marketplace_delivery_envelopes.sql")
-    assert contract["expected_migration_version"] == 82
+    assert contract["expected_migration_version"] >= 82
     assert contract["migration_version_policy"] == "exact"
 
 

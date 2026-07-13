@@ -41,15 +41,73 @@ export type VoiceSurfaceMetadata = {
   screenMetadata?: Record<string, unknown>;
   activeControlId?: string | null;
   lastInteractedControlId?: string | null;
+  /** Authored description of the currently mounted interaction layer. */
+  interactionLayer?: VoiceInteractionLayerV1 | null;
 };
 
-type VoiceSurfaceDefinitionInput = Omit<Partial<VoiceSurfaceDefinition>, "concepts"> & {
+export type VoiceSurfacePublisherRole =
+  "route" | "chrome" | "interaction_layer";
+
+export type VoiceInteractionLayerModality = "nonmodal" | "modal" | "blocking";
+export type VoiceInteractionLayerLifecycle = "opening" | "open" | "closing";
+export type VoiceInteractionLayerAgentContinuity =
+  "interactive" | "ambient" | "suppressed";
+
+export type VoiceInteractionLayerOption = {
+  id: string;
+  label: string;
+  actionId?: string | null;
+  description?: string | null;
+};
+
+/**
+ * Redacted, authored facts about a dialog, popover, sheet, or menu.
+ *
+ * This is context for One and deterministic policy. It is not an action
+ * registry: every executable id must still resolve through the generated
+ * action gateway and a mounted handler.
+ */
+export type VoiceInteractionLayerV1 = {
+  schemaVersion: "voice_interaction_layer.v1";
+  id: string;
+  kind: string;
+  modality: VoiceInteractionLayerModality;
+  lifecycle: VoiceInteractionLayerLifecycle;
+  dismissible: boolean;
+  dismissActionId?: string | null;
+  visibleActionIds: string[];
+  visibleControlIds: string[];
+  options: VoiceInteractionLayerOption[];
+  returnFocusControlId?: string | null;
+  blocksUnderlyingActions: boolean;
+  agentContinuity: VoiceInteractionLayerAgentContinuity;
+};
+
+export type VoiceSurfacePublisherOptions = {
+  role?: VoiceSurfacePublisherRole;
+  /** Route family at mount time; used only to evict stale interaction layers. */
+  routeKey?: string | null;
+};
+
+type VoiceSurfaceDefinitionInput = Omit<
+  Partial<VoiceSurfaceDefinition>,
+  "concepts"
+> & {
   concepts?: Array<VoiceSurfaceConceptDefinition | string>;
 };
 
 const listeners = new Set<() => void>();
 let currentSurfaceMetadata: VoiceSurfaceMetadata | null = null;
-let currentPublisherId: string | null = null;
+type VoiceSurfacePublisherEntry = {
+  id: string;
+  role: VoiceSurfacePublisherRole;
+  routeKey: string | null;
+  sequence: number;
+  metadata: VoiceSurfaceMetadata | null;
+};
+const publisherEntries = new Map<string, VoiceSurfacePublisherEntry>();
+let publisherSequence = 0;
+let activeRouteKey: string | null = null;
 
 function emitChange() {
   listeners.forEach((listener) => listener());
@@ -73,7 +131,78 @@ function uniqueStrings(values: unknown[] | null | undefined): string[] {
   return Array.from(next);
 }
 
-function normalizeSectionDefinition(value: unknown): VoiceSurfaceSectionDefinition | null {
+function normalizeInteractionLayerOption(
+  value: unknown,
+): VoiceInteractionLayerOption | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const id = cleanString(record.id);
+  const label = cleanString(record.label);
+  if (!id || !label) return null;
+  return {
+    id,
+    label,
+    actionId: cleanString(record.actionId),
+    description: cleanString(record.description),
+  };
+}
+
+function normalizeInteractionLayer(
+  value: unknown,
+): VoiceInteractionLayerV1 | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const id = cleanString(record.id);
+  const kind = cleanString(record.kind);
+  const modality = cleanString(record.modality);
+  const lifecycle = cleanString(record.lifecycle);
+  const agentContinuity = cleanString(record.agentContinuity);
+  if (
+    record.schemaVersion !== "voice_interaction_layer.v1" ||
+    !id ||
+    !kind ||
+    !["nonmodal", "modal", "blocking"].includes(modality || "") ||
+    !["opening", "open", "closing"].includes(lifecycle || "") ||
+    !["interactive", "ambient", "suppressed"].includes(agentContinuity || "")
+  ) {
+    return null;
+  }
+  const requestedDismissible = record.dismissible === true;
+  const dismissActionId = requestedDismissible
+    ? cleanString(record.dismissActionId)
+    : null;
+  const dismissible = Boolean(requestedDismissible && dismissActionId);
+  return {
+    schemaVersion: "voice_interaction_layer.v1",
+    id,
+    kind,
+    modality: modality as VoiceInteractionLayerModality,
+    lifecycle: lifecycle as VoiceInteractionLayerLifecycle,
+    dismissible,
+    dismissActionId,
+    visibleActionIds: uniqueStrings(record.visibleActionIds as unknown[]),
+    visibleControlIds: uniqueStrings(record.visibleControlIds as unknown[]),
+    options: uniqueById(
+      Array.isArray(record.options)
+        ? record.options
+            .map(normalizeInteractionLayerOption)
+            .filter((option): option is VoiceInteractionLayerOption =>
+              Boolean(option),
+            )
+        : [],
+    ).slice(0, 10),
+    returnFocusControlId: cleanString(record.returnFocusControlId),
+    blocksUnderlyingActions:
+      record.blocksUnderlyingActions === true ||
+      modality === "modal" ||
+      modality === "blocking",
+    agentContinuity: agentContinuity as VoiceInteractionLayerAgentContinuity,
+  };
+}
+
+function normalizeSectionDefinition(
+  value: unknown,
+): VoiceSurfaceSectionDefinition | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   const id = cleanString(record.id);
@@ -87,7 +216,9 @@ function normalizeSectionDefinition(value: unknown): VoiceSurfaceSectionDefiniti
   };
 }
 
-function normalizeActionDefinition(value: unknown): VoiceSurfaceActionDefinition | null {
+function normalizeActionDefinition(
+  value: unknown,
+): VoiceSurfaceActionDefinition | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   const id = cleanString(record.id);
@@ -103,7 +234,9 @@ function normalizeActionDefinition(value: unknown): VoiceSurfaceActionDefinition
   };
 }
 
-function normalizeControlDefinition(value: unknown): VoiceSurfaceControlDefinition | null {
+function normalizeControlDefinition(
+  value: unknown,
+): VoiceSurfaceControlDefinition | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   const id = cleanString(record.id);
@@ -122,7 +255,9 @@ function normalizeControlDefinition(value: unknown): VoiceSurfaceControlDefiniti
   };
 }
 
-function normalizeConceptDefinition(value: unknown): VoiceSurfaceConceptDefinition | null {
+function normalizeConceptDefinition(
+  value: unknown,
+): VoiceSurfaceConceptDefinition | null {
   if (typeof value === "string") {
     const label = cleanString(value);
     if (!label) return null;
@@ -158,7 +293,9 @@ function uniqueById<T extends { id: string }>(values: T[]): T[] {
   return Array.from(next.values());
 }
 
-function uniqueConcepts(values: VoiceSurfaceConceptDefinition[]): VoiceSurfaceConceptDefinition[] {
+function uniqueConcepts(
+  values: VoiceSurfaceConceptDefinition[],
+): VoiceSurfaceConceptDefinition[] {
   const next = new Map<string, VoiceSurfaceConceptDefinition>();
   values.forEach((value) => {
     const key = value.id || value.label.toLowerCase();
@@ -168,9 +305,14 @@ function uniqueConcepts(values: VoiceSurfaceConceptDefinition[]): VoiceSurfaceCo
 }
 
 function normalizeSurfaceDefinition(
-  definition: VoiceSurfaceDefinitionInput | null | undefined
+  definition: VoiceSurfaceDefinitionInput | null | undefined,
 ): VoiceSurfaceDefinition | null {
-  if (!definition || typeof definition !== "object" || Array.isArray(definition)) return null;
+  if (
+    !definition ||
+    typeof definition !== "object" ||
+    Array.isArray(definition)
+  )
+    return null;
   const normalized: VoiceSurfaceDefinition = {
     screenId: cleanString(definition.screenId),
     title: cleanString(definition.title),
@@ -180,29 +322,37 @@ function normalizeSurfaceDefinition(
       Array.isArray(definition.sections)
         ? definition.sections
             .map((section) => normalizeSectionDefinition(section))
-            .filter((section): section is VoiceSurfaceSectionDefinition => Boolean(section))
-        : []
+            .filter((section): section is VoiceSurfaceSectionDefinition =>
+              Boolean(section),
+            )
+        : [],
     ),
     actions: uniqueById(
       Array.isArray(definition.actions)
         ? definition.actions
             .map((action) => normalizeActionDefinition(action))
-            .filter((action): action is VoiceSurfaceActionDefinition => Boolean(action))
-        : []
+            .filter((action): action is VoiceSurfaceActionDefinition =>
+              Boolean(action),
+            )
+        : [],
     ),
     controls: uniqueById(
       Array.isArray(definition.controls)
         ? definition.controls
             .map((control) => normalizeControlDefinition(control))
-            .filter((control): control is VoiceSurfaceControlDefinition => Boolean(control))
-        : []
+            .filter((control): control is VoiceSurfaceControlDefinition =>
+              Boolean(control),
+            )
+        : [],
     ),
     concepts: uniqueConcepts(
       Array.isArray(definition.concepts)
         ? definition.concepts
             .map((concept) => normalizeConceptDefinition(concept))
-            .filter((concept): concept is VoiceSurfaceConceptDefinition => Boolean(concept))
-        : []
+            .filter((concept): concept is VoiceSurfaceConceptDefinition =>
+              Boolean(concept),
+            )
+        : [],
     ),
     activeControlId: cleanString(definition.activeControlId),
     lastInteractedControlId: cleanString(definition.lastInteractedControlId),
@@ -210,15 +360,15 @@ function normalizeSurfaceDefinition(
 
   const hasMeaningfulContent = Boolean(
     normalized.screenId ||
-      normalized.title ||
-      normalized.purpose ||
-      normalized.primaryEntity ||
-      normalized.sections.length ||
-      normalized.actions.length ||
-      normalized.controls.length ||
-      normalized.concepts.length ||
-      normalized.activeControlId ||
-      normalized.lastInteractedControlId
+    normalized.title ||
+    normalized.purpose ||
+    normalized.primaryEntity ||
+    normalized.sections.length ||
+    normalized.actions.length ||
+    normalized.controls.length ||
+    normalized.concepts.length ||
+    normalized.activeControlId ||
+    normalized.lastInteractedControlId,
   );
 
   return hasMeaningfulContent ? normalized : null;
@@ -226,18 +376,27 @@ function normalizeSurfaceDefinition(
 
 function mergeSurfaceDefinitions(
   legacySurfaceDefinition: VoiceSurfaceDefinition | null,
-  directSurfaceDefinition: VoiceSurfaceDefinition | null
+  directSurfaceDefinition: VoiceSurfaceDefinition | null,
 ): VoiceSurfaceDefinition | null {
   if (!legacySurfaceDefinition && !directSurfaceDefinition) return null;
   if (!legacySurfaceDefinition) return directSurfaceDefinition;
   if (!directSurfaceDefinition) return legacySurfaceDefinition;
 
   return {
-    screenId: directSurfaceDefinition.screenId || legacySurfaceDefinition.screenId || null,
-    title: directSurfaceDefinition.title || legacySurfaceDefinition.title || null,
-    purpose: directSurfaceDefinition.purpose || legacySurfaceDefinition.purpose || null,
+    screenId:
+      directSurfaceDefinition.screenId ||
+      legacySurfaceDefinition.screenId ||
+      null,
+    title:
+      directSurfaceDefinition.title || legacySurfaceDefinition.title || null,
+    purpose:
+      directSurfaceDefinition.purpose ||
+      legacySurfaceDefinition.purpose ||
+      null,
     primaryEntity:
-      directSurfaceDefinition.primaryEntity || legacySurfaceDefinition.primaryEntity || null,
+      directSurfaceDefinition.primaryEntity ||
+      legacySurfaceDefinition.primaryEntity ||
+      null,
     sections: uniqueById([
       ...legacySurfaceDefinition.sections,
       ...directSurfaceDefinition.sections,
@@ -255,7 +414,9 @@ function mergeSurfaceDefinitions(
       ...directSurfaceDefinition.concepts,
     ]),
     activeControlId:
-      directSurfaceDefinition.activeControlId || legacySurfaceDefinition.activeControlId || null,
+      directSurfaceDefinition.activeControlId ||
+      legacySurfaceDefinition.activeControlId ||
+      null,
     lastInteractedControlId:
       directSurfaceDefinition.lastInteractedControlId ||
       legacySurfaceDefinition.lastInteractedControlId ||
@@ -264,7 +425,7 @@ function mergeSurfaceDefinitions(
 }
 
 function normalizeSurfaceMetadata(
-  metadata: VoiceSurfaceMetadata | null | undefined
+  metadata: VoiceSurfaceMetadata | null | undefined,
 ): VoiceSurfaceMetadata | null {
   if (!metadata) return null;
   const directSurfaceDefinition = normalizeSurfaceDefinition({
@@ -281,7 +442,7 @@ function normalizeSurfaceMetadata(
   });
   const surfaceDefinition = mergeSurfaceDefinitions(
     normalizeSurfaceDefinition(metadata.surfaceDefinition),
-    directSurfaceDefinition
+    directSurfaceDefinition,
   );
 
   return {
@@ -305,10 +466,13 @@ function normalizeSurfaceMetadata(
     selectedObjects: uniqueStrings(metadata.selectedObjects),
     availableActions: uniqueStrings(metadata.availableActions),
     busyOperations: uniqueStrings(metadata.busyOperations),
-    activeControlId: surfaceDefinition?.activeControlId || cleanString(metadata.activeControlId),
+    activeControlId:
+      surfaceDefinition?.activeControlId ||
+      cleanString(metadata.activeControlId),
     lastInteractedControlId:
       surfaceDefinition?.lastInteractedControlId ||
       cleanString(metadata.lastInteractedControlId),
+    interactionLayer: normalizeInteractionLayer(metadata.interactionLayer),
     screenMetadata:
       metadata.screenMetadata &&
       typeof metadata.screenMetadata === "object" &&
@@ -316,6 +480,199 @@ function normalizeSurfaceMetadata(
         ? metadata.screenMetadata
         : {},
   };
+}
+
+function mergeMetadataArrays<T extends { id: string }>(
+  base: T[] | undefined,
+  overlay: T[] | undefined,
+  overlayFirst = false,
+): T[] {
+  if (!overlayFirst) return uniqueById([...(base || []), ...(overlay || [])]);
+  const next = new Map<string, T>();
+  [...(overlay || []), ...(base || [])].forEach((value) => {
+    if (!next.has(value.id)) next.set(value.id, value);
+  });
+  return Array.from(next.values());
+}
+
+function mergeVoiceSurfaceMetadata(
+  base: VoiceSurfaceMetadata | null,
+  overlay: VoiceSurfaceMetadata | null,
+  options: { overlayFirst?: boolean } = {},
+): VoiceSurfaceMetadata | null {
+  if (!base) return overlay;
+  if (!overlay) return base;
+  const overlayFirst = options.overlayFirst === true;
+  const surfaceDefinition = normalizeSurfaceDefinition({
+    screenId: overlay.screenId || base.screenId,
+    title: overlay.title || base.title,
+    purpose: overlay.purpose || base.purpose,
+    primaryEntity: overlay.primaryEntity || base.primaryEntity,
+    sections: mergeMetadataArrays(
+      base.sections,
+      overlay.sections,
+      overlayFirst,
+    ),
+    actions: mergeMetadataArrays(base.actions, overlay.actions, overlayFirst),
+    controls: mergeMetadataArrays(
+      base.controls,
+      overlay.controls,
+      overlayFirst,
+    ),
+    concepts: uniqueConcepts(
+      (overlayFirst
+        ? [...(overlay.concepts || []), ...(base.concepts || [])]
+        : [...(base.concepts || []), ...(overlay.concepts || [])]
+      )
+        .map(normalizeConceptDefinition)
+        .filter((concept): concept is VoiceSurfaceConceptDefinition =>
+          Boolean(concept),
+        ),
+    ),
+    activeControlId: overlay.activeControlId || base.activeControlId,
+    lastInteractedControlId:
+      overlay.lastInteractedControlId || base.lastInteractedControlId,
+  });
+  return normalizeSurfaceMetadata({
+    ...base,
+    ...overlay,
+    surfaceDefinition,
+    visibleModules: uniqueStrings(
+      overlayFirst
+        ? [...(overlay.visibleModules || []), ...(base.visibleModules || [])]
+        : [...(base.visibleModules || []), ...(overlay.visibleModules || [])],
+    ),
+    activeFilters: uniqueStrings([
+      ...(base.activeFilters || []),
+      ...(overlay.activeFilters || []),
+    ]),
+    selectedObjects: uniqueStrings([
+      ...(base.selectedObjects || []),
+      ...(overlay.selectedObjects || []),
+    ]),
+    availableActions: uniqueStrings(
+      overlayFirst
+        ? [
+            ...(overlay.availableActions || []),
+            ...(base.availableActions || []),
+          ]
+        : [
+            ...(base.availableActions || []),
+            ...(overlay.availableActions || []),
+          ],
+    ),
+    busyOperations: uniqueStrings([
+      ...(base.busyOperations || []),
+      ...(overlay.busyOperations || []),
+    ]),
+    screenMetadata: {
+      ...(base.screenMetadata || {}),
+      ...(overlay.screenMetadata || {}),
+    },
+    interactionLayer: overlay.interactionLayer || base.interactionLayer || null,
+  });
+}
+
+function actionIdForDefinition(action: VoiceSurfaceActionDefinition): string {
+  return action.actionId || action.id;
+}
+
+function restrictMetadataToInteractionLayer(
+  base: VoiceSurfaceMetadata | null,
+  layerMetadata: VoiceSurfaceMetadata,
+  layer: VoiceInteractionLayerV1,
+): VoiceSurfaceMetadata {
+  const allowedActionIds = new Set(layer.visibleActionIds);
+  if (layer.dismissActionId) allowedActionIds.add(layer.dismissActionId);
+  layer.options.forEach((option) => {
+    if (option.actionId) allowedActionIds.add(option.actionId);
+  });
+  const allowedControlIds = new Set(layer.visibleControlIds);
+  const actions = (layerMetadata.actions || []).filter((action) =>
+    allowedActionIds.has(actionIdForDefinition(action)),
+  );
+  const controls = (layerMetadata.controls || []).filter(
+    (control) =>
+      allowedControlIds.has(control.id) &&
+      (!control.actionId || allowedActionIds.has(control.actionId)),
+  );
+  return normalizeSurfaceMetadata({
+    ...layerMetadata,
+    // Route identity stays stable while the interaction layer changes.
+    screenId: base?.screenId || layerMetadata.screenId,
+    title: layerMetadata.title || base?.title,
+    purpose: layerMetadata.purpose || base?.purpose,
+    sections: layerMetadata.sections || [],
+    actions,
+    controls,
+    concepts: layerMetadata.concepts || [],
+    visibleModules: layerMetadata.visibleModules || [],
+    availableActions: (layerMetadata.availableActions || []).filter((label) =>
+      actions.some((action) => action.label === label),
+    ),
+    modalState: layer.id,
+    activeControlId: layerMetadata.activeControlId || controls[0]?.id || null,
+    selectedEntity: null,
+    activeFilters: [],
+    searchQuery: null,
+    selectedObjects: [],
+    interactionLayer: layer,
+    screenMetadata: {
+      ...(base?.screenMetadata || {}),
+      ...(layerMetadata.screenMetadata || {}),
+      active_interaction_layer_id: layer.id,
+      active_interaction_layer_kind: layer.kind,
+    },
+  }) as VoiceSurfaceMetadata;
+}
+
+function composePublishedMetadata(): VoiceSurfaceMetadata | null {
+  const entries = Array.from(publisherEntries.values()).sort(
+    (left, right) => left.sequence - right.sequence,
+  );
+  const routeEntry = [...entries]
+    .reverse()
+    .find((entry) => entry.role === "route");
+  let composed = routeEntry?.metadata || null;
+  entries
+    .filter((entry) => entry.role === "chrome" && entry.metadata)
+    .forEach((entry) => {
+      composed = mergeVoiceSurfaceMetadata(composed, entry.metadata);
+    });
+  const layerEntry = [...entries]
+    .reverse()
+    .find(
+      (entry) =>
+        entry.role === "interaction_layer" && entry.metadata?.interactionLayer,
+    );
+  const layer = layerEntry?.metadata?.interactionLayer;
+  if (!layerEntry?.metadata || !layer) return composed;
+  if (layer.blocksUnderlyingActions) {
+    return restrictMetadataToInteractionLayer(
+      composed,
+      layerEntry.metadata,
+      layer,
+    );
+  }
+  const merged = mergeVoiceSurfaceMetadata(composed, layerEntry.metadata, {
+    overlayFirst: true,
+  });
+  return normalizeSurfaceMetadata({
+    ...(merged || {}),
+    screenId: composed?.screenId || merged?.screenId || null,
+    modalState: layer.id,
+    interactionLayer: layer,
+    screenMetadata: {
+      ...(merged?.screenMetadata || {}),
+      active_interaction_layer_id: layer.id,
+      active_interaction_layer_kind: layer.kind,
+    },
+  });
+}
+
+function refreshComposedMetadata() {
+  currentSurfaceMetadata = composePublishedMetadata();
+  emitChange();
 }
 
 function subscribe(listener: () => void) {
@@ -329,18 +686,47 @@ function getSnapshot() {
 
 export function publishVoiceSurfaceMetadata(
   publisherId: string,
-  metadata: VoiceSurfaceMetadata | null | undefined
+  metadata: VoiceSurfaceMetadata | null | undefined,
+  options: VoiceSurfacePublisherOptions = {},
 ) {
-  currentPublisherId = publisherId;
-  currentSurfaceMetadata = normalizeSurfaceMetadata(metadata);
-  emitChange();
+  const role = options.role || "route";
+  const routeKey = cleanString(options.routeKey);
+  if (
+    role === "route" &&
+    routeKey &&
+    activeRouteKey &&
+    activeRouteKey !== routeKey
+  ) {
+    publisherEntries.forEach((entry, id) => {
+      if (entry.role === "interaction_layer" && entry.routeKey !== routeKey) {
+        publisherEntries.delete(id);
+      }
+    });
+  }
+  if (role === "route" && routeKey) activeRouteKey = routeKey;
+  publisherSequence += 1;
+  publisherEntries.set(publisherId, {
+    id: publisherId,
+    role,
+    routeKey,
+    sequence: publisherSequence,
+    metadata: normalizeSurfaceMetadata(metadata),
+  });
+  refreshComposedMetadata();
 }
 
 export function clearVoiceSurfaceMetadata(publisherId: string) {
-  if (currentPublisherId !== publisherId) return;
-  currentPublisherId = null;
-  currentSurfaceMetadata = null;
-  emitChange();
+  if (!publisherEntries.delete(publisherId)) return;
+  if (publisherEntries.size === 0) {
+    activeRouteKey = null;
+  } else {
+    activeRouteKey =
+      [...publisherEntries.values()]
+        .sort((left, right) => right.sequence - left.sequence)
+        .find((entry) => entry.role === "route" && entry.routeKey)?.routeKey ||
+      null;
+  }
+  refreshComposedMetadata();
 }
 
 export function getVoiceSurfaceMetadata(): VoiceSurfaceMetadata | null {
@@ -352,24 +738,33 @@ export function useVoiceSurfaceMetadata(): VoiceSurfaceMetadata | null {
 }
 
 export function usePublishVoiceSurfaceMetadata(
-  metadata: VoiceSurfaceMetadata | null | undefined
+  metadata: VoiceSurfaceMetadata | null | undefined,
+  options: VoiceSurfacePublisherOptions = {},
 ) {
   const publisherIdRef = useRef(
-    `voice_surface_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+    `voice_surface_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
   );
 
   useEffect(() => {
     const publisherId = publisherIdRef.current;
-    publishVoiceSurfaceMetadata(publisherId, metadata);
+    const routeKey =
+      options.routeKey ??
+      (typeof window !== "undefined" ? window.location.pathname : null);
+    publishVoiceSurfaceMetadata(publisherId, metadata, {
+      role: options.role,
+      routeKey,
+    });
     return () => {
       clearVoiceSurfaceMetadata(publisherId);
     };
-  }, [metadata]);
+  }, [metadata, options.role, options.routeKey]);
 }
 
 export function useVoiceSurfaceControlTracking() {
   const [activeControlId, setActiveControlId] = useState<string | null>(null);
-  const [lastInteractedControlId, setLastInteractedControlId] = useState<string | null>(null);
+  const [lastInteractedControlId, setLastInteractedControlId] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     if (typeof document === "undefined") {

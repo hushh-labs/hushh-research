@@ -2,6 +2,22 @@
 
 > The community contribution bible. Everything you need to build, test, and ship a new Hussh agent or operon.
 
+The executable lifecycle route is `./bin/hushh codex route-task product-agent-development`.
+Runtime product agents live under `consent-protocol/hushh_mcp/agents`; repo-scoped
+engineering evidence agents live under `.codex/agents`. They are separate namespaces.
+
+`agent.yaml` is the only authored product-agent source. The strict
+`AgentManifestV2` loader rejects unknown fields, and
+`consent-protocol/scripts/generate_product_agent_registry.py` produces
+`contracts/agents/product-agent-registry.v2.json`. Do not add a parallel Python
+manifest, repeated prompt, delegate enum, agent card, or hand-maintained registry.
+
+Every product-agent change must declare runtime mode, invocation/data/action
+authority, typed contracts and failure states, side effects and confirmation,
+PKM behavior, surface applicability, privacy allowlist, telemetry namespace,
+evaluation threshold, performance budget, kill switch, rollout, and rollback.
+Invocation authority never implies private-data access or mutation authority.
+
 
 ## Visual Context
 
@@ -23,7 +39,7 @@ Hussh agents are built from four composable layers. Each layer has a single resp
 ┌─────────────────────────────────────────────────────┐
 │ AGENT                                                │
 │ Orchestrates tools, owns a manifest, enforces        │
-│ consent at entry via HushhAgent.run()                │
+│ consent at entry via HushhAgent.run_turn()           │
 ├─────────────────────────────────────────────────────┤
 │ TOOLS                                                │
 │ LLM-callable functions decorated with @hushh_tool    │
@@ -59,7 +75,7 @@ Consent is validated at multiple points during execution. This is belt-and-suspe
 
 ### Layer 1: Agent Entry
 
-`HushhAgent.run()` validates the consent token against the agent's `required_scopes` before any tool executes.
+`HushhAgent.run_turn()` validates the consent token against the agent's `required_scopes` before any tool executes.
 
 ```python
 # hushh_mcp/hushh_adk/core.py
@@ -114,7 +130,7 @@ def analyze_fundamentals(ticker, user_id, sec_filings, consent_token):
 Context flows via Python's `contextvars` module -- thread-safe, zero argument passing.
 
 ```python
-# Set by HushhAgent.run():
+# Set by HushhAgent.run_turn():
 with HushhContext(user_id="abc", consent_token="HCT:..."):
     # Available everywhere in this execution scope:
     ctx = HushhContext.current()
@@ -318,11 +334,34 @@ For any agent that classifies user meaning or shapes PKM structure:
 - deterministic code may validate and reject, but must not replace the agent as the semantic classifier
 - the feature must document its validator rules and live-eval phase
 
+For One Voice and Morphy AX, semantic ownership applies on every turn. One assesses
+whether the request is conversation, a current-page question, an exact visible action,
+a clarification, or recovery. The active route playbook, top redacted interaction
+layer, visible generated actions, bounded options, and pending settlement are the only
+screen context supplied. `list_app_actions` retrieves this bounded inventory; it is
+not the classifier.
+
+Deterministic policy then validates the selected generated action against route,
+interaction layer, auth, vault, consent, confirmation, and settlement contracts. It
+may normalize, reject, or retain the goal, but it cannot infer meaning with keywords,
+substitute another action, execute a hidden control, or claim success before browser
+settlement. `agent_onboarding` adjudicates only ambiguous or incomplete onboarding
+assessments and never speaks or executes.
+
+For browser actions requiring trusted activation, such as Apple or Google popup
+authentication, the manifest/action contract must declare that requirement. One still
+selects the exact provider action. The asynchronous directive settles into one exact
+provider-specific Agent Bar action, whose trusted tap revalidates context and invokes
+the mounted handler synchronously. Do not add synthetic clicks, a popup broker, a
+same-tab fallback, DOM inference, or another routing agent.
+
 Reference:
 
 - `./pkm-agent-north-star.md`
 - `./pkm-prompt-contract.md`
 - `./backend-semantic-boundary.md`
+- `../../../docs/reference/quality/morphy-agent-experience.md`
+- `../../../docs/reference/one/one-voice-runtime-architecture.md`
 
 ### Step 3: Subclass HushhAgent
 
@@ -386,15 +425,13 @@ from api.routes.my_agent import router as my_agent_router
 app.include_router(my_agent_router)
 ```
 
-### Step 7: Optionally Add to Orchestrator
+### Step 7: Regenerate and Verify One's Roster
 
-```python
-# hushh_mcp/agents/orchestrator/tools.py
-@hushh_tool(scope="agent.one.orchestrate", name="delegate_to_my_agent")
-async def delegate_to_my_agent(query: str) -> dict:
-    """Delegate to MyDomain agent."""
-    # ... forward to MyDomainAgent
-```
+Do not add a public MCP delegation tool or a second routing enum. Declare the
+agent's parent, runtime mode, authority, tools, and surface applicability in
+`agent.yaml`, then regenerate `contracts/agents/product-agent-registry.v2.json`.
+One's runtime registry consumes the generated contract; remote process or
+deployment hops use official A2A Tasks only after the pinned SDK gate passes.
 
 ---
 
@@ -404,7 +441,7 @@ The cross-surface One-led hierarchy lives in `docs/reference/one/one-agent-hiera
 
 | Agent               | Directory                    | Scopes                          | Tools                            |
 | ------------------- | ---------------------------- | ------------------------------- | -------------------------------- |
-| OneAgent            | `agents/one/` and legacy `agents/orchestrator/` | `agent.one.orchestrate` | delegate to Kai, Nav, and KYC |
+| OneAgent            | `agents/one/` with a temporary compatibility runtime in `agents/orchestrator/` | `cap.one.invoke` | task invocation only; downstream authority is attenuated |
 | KaiAgent            | `agents/kai/`                | `agent.kai.analyze`             | `perform_fundamental_analysis`, `perform_sentiment_analysis`, `perform_valuation_analysis` |
 | NavAgent            | `agents/nav/`                | `agent.nav.review`              | scope review, vault/deletion/revocation guidance |
 | KycAgent            | `agents/kyc/`                | `agent.kyc.process`             | identity workflow state, approval-gated drafts, structured PKM writeback contract |
@@ -434,16 +471,23 @@ Do not store raw email bodies, raw vault contents, broad decrypted PKM, tokens, 
 
 ## Manifest Schema
 
-Full YAML schema based on the `AgentManifest` Pydantic model:
+The complete strict schema is `AgentManifestV2` in
+`consent-protocol/hushh_mcp/hushh_adk/manifest.py`. Its principal fields are:
 
 ```yaml
-id: string                    # Unique agent identifier
+manifest_version: 2           # Required strict contract version
+id: string                    # Unique stable agent identifier
 name: string                  # Human-readable name
 version: string               # Semver (default "1.0.0")
+status: string                # experimental | active | deprecated
+owner: string                 # Owning runtime family
+parent: string | null         # One is null; specialists name their parent
 description: string           # What this agent does
 model: string                 # LLM model identifier
 system_instruction: string    # System prompt
-required_scopes: string[]     # Scopes needed to start agent
+runtime: object               # kind, factory, ADK mode, transports
+authorities: object           # invocation, data, and action authority
+required_scopes: string[]     # Internal/runtime entry scopes
 tools:
   - name: string              # Tool name
     description: string       # What the tool does
@@ -457,6 +501,15 @@ outputs:
     type: string              # Type
 ui_type: string               # "chat" | "form" | "dashboard"
 icon: string                  # Optional UI icon
+failure_states: string[]
+side_effects: object[]        # confirmations, idempotency, timeout, retries
+pkm: object                   # none/read/propose/confirmed mutation
+surfaces: object              # chat/voice/A2A/MCP/web/iOS/Android decision
+privacy: object               # context allowlist; no plaintext telemetry
+telemetry_namespace: string
+evaluations: object[]
+performance: object
+rollout: object               # kill switch, strategy, rollback
 ```
 
 ---
@@ -483,8 +536,40 @@ python scripts/verify_adk_a2a_compliance.py
 The verifier checks:
 - `X-Consent-Token` enforcement in A2A entry points.
 - Token validation using the specialist scope map, for example `agent.kai.analyze` for Kai A2A.
-- Google A2A compatibility flag and route wiring.
+- Honest preview containment and the explicit official-A2A-v1 dependency blocker.
 - Required agent -> operon data-source calls for fundamental/sentiment/valuation paths.
+
+The current pinned runtime is intentionally **not** an A2A v1 release
+candidate. An isolated dependency spike resolves `google-adk==2.4.0` with
+`a2a-sdk==1.1.0`, but importing ADK's `RemoteA2aAgent` fails because ADK
+imports `a2a.client.ClientEvent`, which A2A SDK 1.1.0 does not export. Keep
+One's endpoint marked `officialA2A: false` until a pinned ADK/A2A pair passes
+the complete Agent Card, Task, streaming, cancellation, and resume matrix.
+
+The same spike confirms that `google-adk==2.4.0` can import
+`RemoteA2aAgent` with `a2a-sdk==0.3.26`. That establishes only legacy SDK
+compatibility; it must never be treated as A2A v1 compatibility.
+
+### Local ADK A2A transport rehearsal
+
+Kai also has an opt-in ADK-native ASGI transport for local compatibility
+testing. It uses the official `to_a2a()` adapter, advertises ADK's A2A
+extension, forces the new executor implementation, and validates
+`X-Consent-Token` before ADK runs. It is not the default transport until its
+local parity and A2A v1 gates are both satisfied.
+
+```bash
+cd consent-protocol
+HUSHH_KAI_A2A_TRANSPORT=official_adk \
+HUSHH_KAI_A2A_PUBLIC_URL=http://127.0.0.1:8011 \
+uv run uvicorn server_a2a:app --host 127.0.0.1 --port 8011
+curl http://127.0.0.1:8011/.well-known/agent-card.json
+```
+
+The current default is still `HUSHH_KAI_A2A_TRANSPORT=legacy`, preserving the
+existing `python-a2a` server and caller behavior. The ADK path is an additive
+local rehearsal surface, never a compatibility alias or a reason to claim
+official A2A v1 support early.
 
 ---
 

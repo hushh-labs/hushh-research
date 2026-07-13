@@ -1,0 +1,74 @@
+{
+  "id": "morphy-ax-governance",
+  "title": "Morphy AX Governance",
+  "goal": "Evolve shared agent experience without duplicating runtime authority, weakening privacy, changing generated action authority, or regressing accuracy and latency.",
+  "owner_skill": "frontend",
+  "default_spoke": "morphy-ax",
+  "task_type": "morphy-ax-governance",
+  "affected_surfaces": [
+    "hushh-webapp/lib/morphy-ax",
+    "hushh-webapp/lib/agent/agent-runtime-context.tsx",
+    "hushh-webapp/lib/voice",
+    "consent-protocol/hushh_mcp/agents/onboarding",
+    "docs/reference/quality/morphy-agent-experience.md"
+  ],
+  "required_reads": [
+    "docs/reference/quality/morphy-agent-experience.md",
+    "docs/reference/one/one-voice-runtime-architecture.md",
+    "docs/reference/quality/frontend-ui-architecture-map.md",
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "required_commands": [
+    "cd hushh-webapp && npm run verify:morphy-ax",
+    "cd hushh-webapp && npm run typecheck",
+    "cd hushh-webapp && npm run verify:voice-gateway",
+    "cd hushh-webapp && npm run verify:design-system",
+    "cd consent-protocol && python3 -m pytest tests/test_onboarding_goal_agent.py tests/test_one_adk_agent_tree.py -q",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundle": {
+    "id": "morphy-ax-governance",
+    "commands": [
+      "cd hushh-webapp && npm run verify:morphy-ax",
+      "cd hushh-webapp && npm run typecheck",
+      "cd hushh-webapp && npm run verify:voice-gateway",
+      "cd consent-protocol && python3 -m pytest tests/test_onboarding_goal_agent.py tests/test_one_adk_agent_tree.py -q",
+      "./bin/hushh docs verify"
+    ],
+    "tests": [
+      "hushh-webapp/__tests__/morphy-ax/morphy-ax-contract.test.ts",
+      "consent-protocol/tests/test_onboarding_goal_agent.py"
+    ]
+  },
+  "deliverables": [
+    "pure Morphy AX contract and compatibility projection",
+    "typed intelligence assessment with deterministic validation",
+    "accuracy and latency benchmark evidence",
+    "updated runtime, skill, workflow, and canonical docs"
+  ],
+  "impact_fields": [
+    "Runtime authority preserved",
+    "Wire and generated-contract compatibility",
+    "Privacy/redaction impact",
+    "Accuracy corpus result",
+    "Performance benchmark result",
+    "Rollback flag",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "morphy-ax",
+    "kai-voice-governance",
+    "backend-agents-operons",
+    "frontend-design-system",
+    "quality-contracts",
+    "docs-governance"
+  ],
+  "common_failures": [
+    "adding a second provider, store, router, action registry, or voice FSM",
+    "using deterministic keyword rules as semantic intelligence",
+    "letting route playbooks or Morphy AX grant action authority",
+    "breaking the One Voice wire contract during incremental rollout",
+    "benchmarking mocks that do not exercise production derivation functions",
+    "claiming universal model accuracy instead of safe clarification outside the release corpus"
+  ]
+}

@@ -7,7 +7,7 @@ Status: canonical durable ontology for Hussh, One, Kai, Nav, KYC, and future spe
 ```mermaid
 flowchart TB
   hussh["Hussh<br/>platform and trust infrastructure"]
-  one["One<br/>top personal agent"]
+  one["One<br/>top private agent"]
   kai["Kai<br/>finance specialist"]
   nav["Nav<br/>privacy and consent guardian"]
   kyc["KYC<br/>identity workflow specialist"]
@@ -30,7 +30,7 @@ flowchart TB
 | Nav | Consent review, scope grants, vault friction, deletion, suspicious access, privacy and trust explanations | Finance analysis, market judgment, general relationship memory |
 | KYC | Identity/KYC workflow requirements, missing-document state, approval-gated drafts, structured PKM writeback | Broad email autonomy, platform identity, finance judgment, consent-policy authority |
 
-Future specialists slot below One. Do not add a second top-level personal agent unless the product ontology itself changes.
+Future specialists slot below One. Do not add a second top-level private agent unless the product ontology itself changes.
 
 ## Scaling Rule
 
@@ -129,7 +129,7 @@ Do not blur ownership by letting Kai explain vault policy, letting Nav make fina
 
 Approved founder-facing rewrites:
 
-- `Hussh is the platform and trust infrastructure. One is the personal agent.`
+- `Hussh is the platform and trust infrastructure. One is the private agent.`
 - `One listens, remembers, decides, and acts under consent.`
 - `Kai is the finance specialist One summons.`
 - `Nav is the privacy and consent guardian One summons.`

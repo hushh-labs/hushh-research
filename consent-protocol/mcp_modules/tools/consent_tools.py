@@ -25,7 +25,7 @@ from mcp_modules.config import (
     PRODUCTION_MODE,
     resolve_scope_api,
 )
-from mcp_modules.developer_context import get_developer_request_headers, get_developer_request_query
+from mcp_modules.developer_context import get_developer_api_headers, get_developer_request_headers
 from mcp_modules.transport_context import is_local_stdio_transport
 
 logger = logging.getLogger("hushh-mcp-server")
@@ -210,6 +210,20 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
     connector_public_key = str(args.get("connector_public_key") or "").strip()
     connector_key_id = str(args.get("connector_key_id") or "").strip()
     connector_wrapping_alg = str(args.get("connector_wrapping_alg") or "").strip()
+    refresh_policy = str(args.get("refresh_policy") or "snapshot").strip().lower()
+    if refresh_policy not in {"snapshot", "continuous_until_expiry"}:
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "status": "error",
+                        "error_code": "INVALID_REFRESH_POLICY",
+                        "error": "refresh_policy must be snapshot or continuous_until_expiry.",
+                    }
+                ),
+            )
+        ]
 
     # Optional priced-consent offer (the consent reverse-auction bid). Normalized
     # here and forwarded to the API; the API records it on the consent event and
@@ -291,8 +305,8 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
             )
         ]
 
-    token_query = get_developer_request_query()
-    if not token_query:
+    developer_headers = get_developer_api_headers()
+    if not developer_headers:
         logger.error("request_consent aborted: developer token missing")
         return [
             TextContent(
@@ -330,15 +344,20 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
     # attempt targeted a stale connector_key_id. Explicit args still win if
     # a caller passes its own key even on stdio. The remote/hosted transport
     # never auto-fills: third-party connectors always supply their own key.
-    if is_local_stdio_transport() and not all(
-        [connector_public_key, connector_key_id, connector_wrapping_alg]
+    is_information_scope = scope_dot.startswith("attr.")
+    if (
+        is_information_scope
+        and is_local_stdio_transport()
+        and not all([connector_public_key, connector_key_id, connector_wrapping_alg])
     ):
         local_keypair = get_or_create_local_connector_keypair()
         connector_public_key = connector_public_key or local_keypair.public_key_b64
         connector_key_id = connector_key_id or local_keypair.key_id
         connector_wrapping_alg = connector_wrapping_alg or local_keypair.wrapping_alg
 
-    if not all([connector_public_key, connector_key_id, connector_wrapping_alg]):
+    if is_information_scope and not all(
+        [connector_public_key, connector_key_id, connector_wrapping_alg]
+    ):
         return [
             TextContent(
                 type="text",
@@ -362,16 +381,23 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
         async with httpx.AsyncClient() as client:
             create_response = await client.post(
                 f"{FASTAPI_URL}/api/v1/request-consent",
-                params=token_query,
+                headers=developer_headers,
                 json={
                     "user_id": user_id,
                     "scope": scope_dot,
                     "reason": reason,
                     "expiry_hours": resolved_expiry_hours,
                     "approval_timeout_minutes": resolved_approval_timeout_minutes,
-                    "connector_public_key": connector_public_key,
-                    "connector_key_id": connector_key_id,
-                    "connector_wrapping_alg": connector_wrapping_alg,
+                    "refresh_policy": refresh_policy if is_information_scope else "snapshot",
+                    **(
+                        {
+                            "connector_public_key": connector_public_key,
+                            "connector_key_id": connector_key_id,
+                            "connector_wrapping_alg": connector_wrapping_alg,
+                        }
+                        if is_information_scope
+                        else {}
+                    ),
                     **({"offer": offer_payload} if offer_payload else {}),
                 },
                 timeout=10.0,
@@ -609,8 +635,8 @@ async def handle_check_consent_status(args: dict) -> list[TextContent]:
     logger.info("Checking consent status user=%s scope=%s", user_id, scope_str)
 
     try:
-        token_query = get_developer_request_query()
-        if not token_query:
+        developer_headers = get_developer_api_headers()
+        if not developer_headers:
             return [
                 TextContent(
                     type="text",
@@ -618,7 +644,7 @@ async def handle_check_consent_status(args: dict) -> list[TextContent]:
                         {
                             "status": "error",
                             "error": "Developer token is not configured",
-                            "hint": "Set HUSHH_DEVELOPER_TOKEN for stdio or append ?token=<developer-token> to the remote MCP URL.",
+                            "hint": "Set HUSHH_DEVELOPER_TOKEN for stdio or configure the hosted connector bearer token.",
                         }
                     ),
                 )
@@ -631,8 +657,8 @@ async def handle_check_consent_status(args: dict) -> list[TextContent]:
                     "user_id": user_id,
                     **({"scope": scope_str} if scope_str else {}),
                     **({"request_id": request_id} if request_id else {}),
-                    **token_query,
                 },
+                headers=developer_headers,
                 timeout=10.0,
             )
             status_response.raise_for_status()

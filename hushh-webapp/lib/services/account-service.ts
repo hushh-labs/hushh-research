@@ -78,7 +78,7 @@ export interface AccountEmailAliasVerificationConfirmResponse {
 
 export class AccountServiceImpl {
   /**
-   * Delete the user's account and all data.
+   * Delete the user's account and all associated information.
    * Requires VAULT_OWNER token (Unlock to Delete).
    * 
    * SECURITY: Token must be passed explicitly from useVault() hook.
@@ -143,7 +143,7 @@ export class AccountServiceImpl {
   /**
    * Reset the One account to a fresh, just-onboarded state.
    *
-   * Clears all personal data (PKM, finance, Gmail, connected systems, consents,
+   * Clears all saved personal details (PKM, finance, Gmail, connected systems, consents,
    * KYC, location, marketplace, relationships) but KEEPS the One identity: the
    * Firebase user, encrypted vault keys + unlock methods, and the actor profile.
    * The user re-runs onboarding on next login.
@@ -184,7 +184,7 @@ export class AccountServiceImpl {
   }
 
   /**
-   * Export user data.
+   * Export user information.
    */
   async exportData(vaultOwnerToken: string): Promise<AccountDataExportResult> {
     if (!vaultOwnerToken) {

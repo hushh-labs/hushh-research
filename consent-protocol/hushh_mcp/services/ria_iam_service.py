@@ -7706,7 +7706,12 @@ class RIAIAMService:
                         ),
                     )
             if updated.endswith("0"):
-                logger.warning("RIA invite accept race detected for token=%s", invite_token)
+                # Never log the raw invite bearer token (log-read = invite replay);
+                # correlate on the request id instead. (FedRAMP IA-5 / SI-11.)
+                logger.warning(
+                    "RIA invite accept race detected for request_id=%s",
+                    request["request_id"],
+                )
             return {
                 "invite_token": invite_token,
                 "request_id": request["request_id"],

@@ -30,7 +30,7 @@ export const KAI_CIRCLE_SECTION_META: Record<
   },
   needs_setup: {
     title: "Needs setup",
-    description: "People who need to open One Location once.",
+    description: "People who need to open Onepoint once.",
   },
 };
 

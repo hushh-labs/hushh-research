@@ -14,6 +14,7 @@ type SectionAccent =
   | "consent"
   | "marketplace"
   | "developers"
+  | "research"
   | "success"
   | "warning"
   | "critical"
@@ -59,9 +60,14 @@ const ACCENT_STYLES: Record<SectionAccent, {
     divider: "bg-accent/40",
   },
   developers: {
-    eyebrow: "text-rose-700 dark:text-rose-300",
-    icon: "border border-rose-500/12 bg-rose-500/[0.06] text-rose-700 shadow-[var(--shadow-xs)] dark:border-rose-400/16 dark:bg-rose-400/[0.08] dark:text-rose-200",
-    divider: "bg-rose-300/50 dark:bg-rose-400/30",
+    eyebrow: "text-[#9B651E] dark:text-[#E2B35C]",
+    icon: "border border-[#B88635]/20 bg-[#B88635]/[0.08] text-[#9B651E] shadow-[var(--shadow-xs)] dark:border-[#E2B35C]/25 dark:bg-[#E2B35C]/[0.10] dark:text-[#E2B35C]",
+    divider: "bg-[#B88635]/35 dark:bg-[#E2B35C]/30",
+  },
+  research: {
+    eyebrow: "text-[#9B651E] dark:text-[#E2B35C]",
+    icon: "border border-[#B88635]/20 bg-[#B88635]/[0.08] text-[#9B651E] shadow-[var(--shadow-xs)] dark:border-[#E2B35C]/25 dark:bg-[#E2B35C]/[0.10] dark:text-[#E2B35C]",
+    divider: "bg-[#B88635]/35 dark:bg-[#E2B35C]/30",
   },
   success: {
     eyebrow: "text-emerald-700 dark:text-emerald-300",

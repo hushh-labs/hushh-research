@@ -24,6 +24,8 @@ flowchart TD
   root --> n9
   n7["Profile Settings Design System"]
   root --> n7
+  n10["Morphy Agent Experience"]
+  root --> n10
 ```
 
 This is the north-star entrypoint for design-system rules plus verification contracts that decide whether UI and analytics behavior are trustworthy.
@@ -37,5 +39,7 @@ This is the north-star entrypoint for design-system rules plus verification cont
 - [frontend-pattern-catalog.md](./frontend-pattern-catalog.md): implementation patterns and allowed primitives.
 - [app-surface-audit-matrix.md](./app-surface-audit-matrix.md): current rollout matrix across routes.
 - [pr-impact-checklist.md](./pr-impact-checklist.md): change-impact review checklist.
+- [definition-of-done.md](./definition-of-done.md): the standing repo-wide completion bar — acceptance criteria answer "did we build it", this answers "is it ready".
+- [morphy-agent-experience.md](./morphy-agent-experience.md): internal AX snapshot, intelligence-validation boundary, presentation posture, and performance contract.
 - [pr-contributor-readiness.md](./pr-contributor-readiness.md): contributor-facing merge readiness, common blockers, maintainer patch/harvest handling, and attribution rules.
 - [analytics-verification-contract.md](./analytics-verification-contract.md): proof ladder for GA4, Firebase, BigQuery, and growth dashboard trust.

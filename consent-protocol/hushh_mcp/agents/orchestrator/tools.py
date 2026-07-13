@@ -1,7 +1,7 @@
 """
 Orchestrator Tools
 
-Delegation functions for One, the top personal agent.
+Delegation functions for One, the top private agent.
 These tools are used by the LLM to route requests to specialized agents.
 """
 
@@ -228,7 +228,7 @@ def delegate_to_kyc_agent() -> Dict[str, Any]:
     return _create_delegation_response("kyc_identity_workflow", "agent_kyc", ctx)
 
 
-@hushh_tool(scope="agent.one.orchestrate", name="delegate_to_connections_agent")
+@hushh_tool(scope="cap.one.invoke", name="delegate_to_connections_agent")
 def delegate_to_connections_agent() -> Dict[str, Any]:
     """Delegate current conversation to the trusted-connections specialist."""
     ctx = HushhContext.current()

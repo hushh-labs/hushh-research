@@ -3,7 +3,7 @@ type ResolvePasskeyRpIdOptions = {
   hostname?: string | null;
 };
 
-export const CANONICAL_NATIVE_PASSKEY_RP_ID = "kai.hushh.ai";
+export const CANONICAL_NATIVE_PASSKEY_RP_ID = "one.hushh.ai";
 
 function extractHost(input: string | null | undefined): string | null {
   if (!input) return null;

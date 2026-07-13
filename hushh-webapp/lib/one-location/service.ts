@@ -19,6 +19,7 @@ import type {
   OneLocationState,
   PlainLocationPoint,
   DriveDestination,
+  RouteEta,
 } from "@/lib/one-location/types";
 
 function authHeaders(vaultOwnerToken: string): Record<string, string> {
@@ -440,25 +441,41 @@ export class OneLocationService {
     return response.place;
   }
 
+  static async reverseGeocode(params: {
+    vaultOwnerToken: string;
+    lat: number;
+    lng: number;
+  }): Promise<{ name: string | null; formattedAddress: string | null }> {
+    const response = await apiJson<{
+      place: { name: string | null; formattedAddress: string | null };
+    }>("/api/one/location/maps/reverse-geocode", {
+      method: "POST",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({ lat: params.lat, lng: params.lng }),
+    });
+    return response.place;
+  }
+
   static async routeEta(params: {
     vaultOwnerToken: string;
     originLat: number;
     originLng: number;
     destLat: number;
     destLng: number;
-  }): Promise<{ etaSeconds: number; distanceMeters: number }> {
-    const response = await apiJson<{
-      eta: { etaSeconds: number; distanceMeters: number };
-    }>("/api/one/location/maps/route-eta", {
-      method: "POST",
-      headers: jsonAuthHeaders(params.vaultOwnerToken),
-      body: JSON.stringify({
-        originLat: params.originLat,
-        originLng: params.originLng,
-        destLat: params.destLat,
-        destLng: params.destLng,
-      }),
-    });
+  }): Promise<RouteEta> {
+    const response = await apiJson<{ eta: RouteEta }>(
+      "/api/one/location/maps/route-eta",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          originLat: params.originLat,
+          originLng: params.originLng,
+          destLat: params.destLat,
+          destLng: params.destLng,
+        }),
+      },
+    );
     return response.eta;
   }
 

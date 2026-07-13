@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 _PLACES_BASE = "https://places.googleapis.com"
 _ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
+_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 
 
 class GoogleMapsError(RuntimeError):
@@ -52,6 +53,18 @@ def _parse_duration_seconds(value: Any) -> int:
         return int(float(text))
     except (TypeError, ValueError):
         return 0
+
+
+def _classify_traffic(eta_seconds: int, static_seconds: int) -> str | None:
+    """Classify congestion from the traffic-aware vs free-flow duration ratio."""
+    if static_seconds <= 0 or eta_seconds <= 0:
+        return None
+    ratio = eta_seconds / static_seconds
+    if ratio < 1.15:
+        return "light"
+    if ratio < 1.40:
+        return "moderate"
+    return "heavy"
 
 
 class GoogleMapsService:
@@ -117,6 +130,33 @@ class GoogleMapsService:
             "longitude": float(location.get("longitude", 0.0)),
         }
 
+    async def reverse_geocode(self, *, lat: float, lng: float) -> dict[str, Any]:
+        key = _require_key()
+        async with _async_client() as client:
+            try:
+                response = await client.get(
+                    _GEOCODE_URL,
+                    params={"latlng": f"{lat},{lng}", "key": key},
+                )
+            except httpx.HTTPError as exc:
+                raise GoogleMapsError(f"Reverse geocode failed: {exc}", status_code=502) from exc
+        if response.status_code >= 400:
+            logger.warning("maps.reverse_geocode upstream %s", response.status_code)
+            raise GoogleMapsError("Reverse geocode failed.", status_code=502)
+        results = response.json().get("results") or []
+        if not results:
+            return {"name": None, "formattedAddress": None}
+        formatted = results[0].get("formatted_address") or None
+        name: str | None = None
+        for result in results:
+            types = result.get("types") or []
+            if any(t in types for t in ("point_of_interest", "establishment", "premise")):
+                components = result.get("address_components") or []
+                if components:
+                    name = components[0].get("long_name") or None
+                break
+        return {"name": name, "formattedAddress": formatted}
+
     async def route_eta(
         self,
         *,
@@ -130,6 +170,7 @@ class GoogleMapsService:
             "origin": {"location": {"latLng": {"latitude": origin_lat, "longitude": origin_lng}}},
             "destination": {"location": {"latLng": {"latitude": dest_lat, "longitude": dest_lng}}},
             "travelMode": "DRIVE",
+            "routingPreference": "TRAFFIC_AWARE",
         }
         async with _async_client() as client:
             try:
@@ -138,7 +179,7 @@ class GoogleMapsService:
                     headers={
                         "Content-Type": "application/json",
                         "X-Goog-Api-Key": key,
-                        "X-Goog-FieldMask": "routes.duration,routes.distanceMeters",
+                        "X-Goog-FieldMask": "routes.duration,routes.staticDuration,routes.distanceMeters",
                     },
                     json=body,
                 )
@@ -151,7 +192,10 @@ class GoogleMapsService:
         if not routes:
             raise GoogleMapsError("No route found.", status_code=502)
         route = routes[0]
+        eta_seconds = _parse_duration_seconds(route.get("duration"))
+        static_seconds = _parse_duration_seconds(route.get("staticDuration"))
         return {
-            "etaSeconds": _parse_duration_seconds(route.get("duration")),
+            "etaSeconds": eta_seconds,
             "distanceMeters": int(route.get("distanceMeters", 0) or 0),
+            "trafficLevel": _classify_traffic(eta_seconds, static_seconds),
         }

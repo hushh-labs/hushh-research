@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ShieldAlert, TriangleAlert, X } from "lucide-react";
+import { Shield, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { OneLocationRecipient } from "@/lib/one-location/types";
 
 export type SosPanelProps = {
@@ -18,24 +19,31 @@ export type SosPanelProps = {
   countdownSeconds?: number;
 };
 
-function initialOf(label: string): string {
+/** First name only, for the "notify Ankit, Akshat and Kushal" sentence. */
+function firstNameOf(label: string): string {
   const trimmed = label.trim();
-  return trimmed ? trimmed[0]!.toUpperCase() : "?";
+  const first = trimmed.split(/\s+/)[0];
+  return first || trimmed;
 }
 
-// Alert list cap: trusted circles can be long, so show ~4 rows then scroll.
-// max-h fits four ~48px rows (avatar h-8 + py-2 = 32 + 16) plus the 6px
-// space-y gaps (210px), leaving a sliver of the fifth to signal there's more.
-// Thin, touch-friendly scrollbar keeps it unobtrusive on mobile — mirrors the
-// People-tab pattern.
-const ALERT_LIST_SCROLL_CLASS =
-  "max-h-[224px] space-y-1.5 overflow-y-auto overscroll-contain pr-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/15 dark:[&::-webkit-scrollbar-thumb]:bg-white/20";
+/** "Ankit", "Ankit and Akshat", "Ankit, Akshat and Kushal", "… and 2 others". */
+function formatNames(names: string[]): string {
+  if (names.length === 0) return "your circle";
+  if (names.length === 1) return names[0]!;
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  const shown = names.slice(0, 3);
+  if (names.length === 3) return `${shown[0]}, ${shown[1]} and ${shown[2]}`;
+  return `${shown[0]}, ${shown[1]} and ${names.length - 2} others`;
+}
 
 /**
- * SOS panic panel for the Location Now tab. Idle: a red "TAP TO PANIC" button
- * that arms a short countdown (cancellable) before firing. Active: a
- * "LIVE LOCATION ACTIVE" banner with an "I'm safe" stop. Always shows the
- * read-only "WHO GETS ALERTED?" list. Reuses the destructive palette.
+ * SOS card for the Safety screen (Apple Blue v2 design).
+ *
+ * Behaviour is unchanged from the original panel: the primary red button arms a
+ * short, cancellable countdown before firing `onTrigger` (never fires by
+ * accident); while active it shows the "alerted" state with an "I'm safe" stop.
+ * Only the presentation is reskinned to the design — literal red values with
+ * dark variants layered on.
  */
 export function SosPanel({
   recipients,
@@ -95,119 +103,118 @@ export function SosPanel({
     if (active) cancelCountdown();
   }, [active, cancelCountdown]);
 
-  const readyCount = recipients.filter(isRecipientShareReady).length;
+  const readyRecipients = recipients.filter(isRecipientShareReady);
+  const readyCount = readyRecipients.length;
+  const names = formatNames(
+    (readyCount > 0 ? readyRecipients : recipients).map((r) =>
+      firstNameOf(recipientLabel(r)),
+    ),
+  );
 
-  return (
-    <section className="app-critical-card space-y-4 rounded-2xl p-4">
-      <header className="flex items-center gap-2">
-        <ShieldAlert className="h-5 w-5 text-destructive" aria-hidden />
-        <div>
-          <h2 className="text-base font-semibold text-foreground">SOS</h2>
-          <p className="text-xs text-muted-foreground">
-            Alert trusted contacts + share live location
-          </p>
+  // ACTIVE — the alert is live.
+  if (active) {
+    return (
+      <section className="relative overflow-hidden rounded-[18px] bg-[#fbe9e6] p-[22px] shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-[#3a1512]">
+        <div
+          className="pointer-events-none absolute right-6 top-1/2 flex h-[66px] w-[66px] -translate-y-1/2 items-center justify-center rounded-full bg-white shadow-[0_4px_16px_rgba(148,32,26,0.2)] dark:bg-white/10"
+          aria-hidden
+        >
+          <Shield className="h-7 w-7 text-[#e0342c]" strokeWidth={1.5} />
         </div>
-      </header>
-
-      {active ? (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 rounded-xl bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-destructive" />
+        <div className="relative z-[1] max-w-[210px]">
+          <div className="flex items-center gap-2">
+            <span className="h-[11px] w-[11px] rounded-full bg-[#e0342c]" />
+            <span className="text-[14px] font-bold tracking-[0.04em] text-[#d92c24] dark:text-[#ff6f66]">
+              ALERT ACTIVE
             </span>
-            LIVE LOCATION ACTIVE
-            {startedAtLabel ? (
-              <span className="ml-auto text-xs font-normal text-muted-foreground">
-                since {startedAtLabel}
-              </span>
-            ) : null}
           </div>
+          <h2 className="mt-3.5 max-w-[200px] text-[29px] font-bold leading-[1.15] tracking-[-0.4px] text-foreground">
+            Your circle has been alerted
+          </h2>
+          <p className="mt-3 text-[15px] leading-[1.5] text-black/50 dark:text-white/55">
+            Your trusted contacts have been notified and can see your live
+            location.
+          </p>
+          <div className="mt-5 flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-[#34c759]" />
+            <span className="text-[16px] font-bold text-foreground">Live now</span>
+          </div>
+          {startedAtLabel ? (
+            <p className="ml-[18px] mt-1 text-[14px] text-black/45 dark:text-white/45">
+              Started {startedAtLabel}
+            </p>
+          ) : null}
           <Button
             variant="destructive"
             onClick={onStop}
             isLoading={busy}
-            className="h-12 w-full rounded-2xl text-base font-semibold"
+            className="mt-5 h-12 w-full rounded-full text-[15px] font-semibold"
           >
             I&apos;m safe — Stop sharing
           </Button>
         </div>
-      ) : remaining !== null ? (
-        <div className="space-y-3 text-center">
-          <p className="text-sm font-medium text-destructive">
-            Alerting all trusted contacts in
-          </p>
-          <p className="text-5xl font-bold text-destructive" aria-live="assertive">
-            {remaining}
-          </p>
-          <Button
-            variant="outline"
-            onClick={cancelCountdown}
-            className="h-12 w-full rounded-2xl text-base font-semibold"
-          >
-            <X className="mr-1.5 h-4 w-4" aria-hidden />
-            Cancel
-          </Button>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <p className="text-center text-xs font-semibold uppercase tracking-wide text-destructive">
-            Emergency alert
-          </p>
-          <Button
-            variant="destructive"
-            onClick={startCountdown}
-            disabled={busy || readyCount === 0}
-            className="h-28 w-full rounded-2xl text-2xl font-bold"
-          >
-            TAP TO PANIC
-          </Button>
-          <p className="text-center text-xs text-muted-foreground">
-            One tap alerts all trusted contacts + shares your live location
-          </p>
-        </div>
-      )}
+      </section>
+    );
+  }
 
-      <div className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Who gets alerted?
+  // ARMED — countdown running, still cancellable.
+  if (remaining !== null) {
+    return (
+      <section className="rounded-[18px] bg-white p-[22px] text-center shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-white/[0.05]">
+        <p className="text-[15px] font-semibold text-[#d92c24] dark:text-[#ff6f66]">
+          Alerting {names} in
         </p>
-        {recipients.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No trusted contacts yet.
-          </p>
-        ) : (
-          <ul className={ALERT_LIST_SCROLL_CLASS}>
-            {recipients.map((r) => {
-              const ready = isRecipientShareReady(r);
-              return (
-                <li
-                  key={r.userId}
-                  className="flex items-center gap-3 rounded-xl bg-muted/40 px-3 py-2"
-                >
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-destructive/10 text-sm font-semibold text-destructive">
-                    {initialOf(recipientLabel(r))}
-                  </span>
-                  <span className="text-sm font-medium text-foreground">
-                    {recipientLabel(r)}
-                  </span>
-                  {ready ? (
-                    <span
-                      className="ml-auto h-2 w-2 rounded-full bg-emerald-500"
-                      aria-label="Ready"
-                    />
-                  ) : (
-                    <span className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground">
-                      <TriangleAlert className="h-3 w-3" aria-hidden />
-                      Not ready
-                    </span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        <p
+          className="my-2 text-6xl font-bold text-[#e0342c]"
+          aria-live="assertive"
+        >
+          {remaining}
+        </p>
+        <Button
+          variant="outline"
+          onClick={cancelCountdown}
+          className="h-12 w-full rounded-full text-[15px] font-semibold"
+        >
+          <X className="mr-1.5 h-4 w-4" aria-hidden />
+          Cancel
+        </Button>
+      </section>
+    );
+  }
+
+  // CALM — SOS ready.
+  return (
+    <section className="rounded-[18px] bg-white p-[22px] shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-white/[0.05]">
+      <div className="flex items-center gap-2">
+        <span className="h-2.5 w-2.5 rounded-full bg-[#34c759]" />
+        <span className="text-[14px] font-bold tracking-[0.04em] text-[#28a745] dark:text-[#4ade80]">
+          SOS READY
+        </span>
       </div>
+      <h2 className="mt-3 text-[26px] font-bold leading-[1.15] tracking-[-0.4px] text-foreground">
+        You&apos;re covered
+      </h2>
+      <p className="mt-2.5 text-[15px] leading-[1.5] text-black/50 dark:text-white/55">
+        Hold Alert to notify {names} with your live location. It never fires by
+        accident.
+      </p>
+      <button
+        type="button"
+        onClick={startCountdown}
+        disabled={busy || readyCount === 0}
+        className={cn(
+          "mt-[18px] flex w-full items-center justify-center gap-2 rounded-full bg-[#e0342c] py-[14px] text-[15px] font-semibold text-white transition-opacity",
+          (busy || readyCount === 0) && "opacity-50",
+        )}
+      >
+        <Shield className="h-4 w-4" strokeWidth={1.8} />
+        Open Alert
+      </button>
+      {readyCount === 0 ? (
+        <p className="mt-2.5 text-center text-[12px] text-black/45 dark:text-white/45">
+          Add a trusted contact who&apos;s ready to receive your location.
+        </p>
+      ) : null}
     </section>
   );
 }

@@ -72,7 +72,7 @@ Use the canonical product boundary:
 
 | Name | Role | Guardrail |
 | --- | --- | --- |
-| Hussh | platform and trust infrastructure | Do not describe Hussh as the user's personal agent. |
+| Hussh | platform and trust infrastructure | Do not describe Hussh as the user's private agent. |
 | One | top-level personal operating layer | Do not claim full runtime migration until repo proof exists. |
 | Kai | finance and investor specialist | Do not make Kai the whole One relationship layer. |
 | Nav | privacy, consent, and access guardian | Do not use Nav as ordinary route navigation. |
@@ -126,6 +126,14 @@ Use durable docs for stable contracts and `docs/future/` for future-state work. 
 - verification state
 
 Private Founder Wiki content may shape internal planning, but shareable artifacts must not quote private wiki body text or cite private wiki pages unless explicitly approved.
+
+## App-Facing Language
+
+Use plain, human language in product copy. Name the thing a person recognizes:
+saved details, personal information, preferences, portfolio, shared access, or
+context. Do not expose storage terminology as the default way the product speaks
+to someone. Internal schemas, API contracts, and encrypted-storage terminology
+remain precise where engineering work requires them.
 
 ## Code Review Posture
 

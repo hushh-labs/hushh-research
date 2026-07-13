@@ -147,7 +147,7 @@ export function useRiaClientWorkspaceState({
               setDetailError(
                 workspaceError instanceof Error
                   ? workspaceError.message
-                  : "Failed to load workspace data"
+                  : "Failed to load workspace information"
               );
             }
           }

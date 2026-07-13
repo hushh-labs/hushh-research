@@ -30,6 +30,33 @@ def test_decimal_to_currency_text_formats_positive_values():
     assert _decimal_to_currency_text("12.345") == "12.35"
 
 
+def test_alpaca_connect_redirect_uri_derives_from_app_frontend_origin(monkeypatch):
+    """Domain migrations should only require updating APP_FRONTEND_ORIGIN.
+
+    Regression guard for the kai.hushh.ai -> one.hushh.ai migration: the
+    Alpaca redirect URI must derive from APP_FRONTEND_ORIGIN + a relative
+    path (same as Plaid) whenever no absolute ALPACA_CONNECT_REDIRECT_URI
+    override is explicitly configured.
+    """
+    monkeypatch.delenv("ALPACA_CONNECT_REDIRECT_URI", raising=False)
+    monkeypatch.delenv("ALPACA_OAUTH_REDIRECT_URI", raising=False)
+    monkeypatch.delenv("ALPACA_CONNECT_REDIRECT_PATH", raising=False)
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://one.hushh.ai")
+
+    service = BrokerFundingService()
+    config = service._alpaca_connect_config()
+    assert config["redirect_uri"] == "https://one.hushh.ai/kai/alpaca/oauth/return"
+
+
+def test_alpaca_connect_redirect_uri_explicit_override_wins(monkeypatch):
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://one.hushh.ai")
+    monkeypatch.setenv("ALPACA_CONNECT_REDIRECT_URI", "https://custom.example.com/alpaca/return")
+
+    service = BrokerFundingService()
+    config = service._alpaca_connect_config()
+    assert config["redirect_uri"] == "https://custom.example.com/alpaca/return"
+
+
 def test_decimal_to_currency_text_rejects_invalid_values():
     with pytest.raises(FundingOrchestrationError) as bad_text:
         _decimal_to_currency_text("bad")
@@ -214,9 +241,9 @@ async def test_exchange_funding_public_token_defers_relationship_when_alpaca_unm
         language="en",
         client_name="Hushh Kai",
         webhook_url=None,
-        frontend_url="https://kai.hushh.ai",
+        frontend_url="https://one.hushh.ai",
         redirect_path="/kai/plaid/oauth/return",
-        redirect_uri="https://kai.hushh.ai/kai/plaid/oauth/return",
+        redirect_uri="https://one.hushh.ai/kai/plaid/oauth/return",
         tx_history_days=730,
         manual_entry_enabled=False,
         crypto_wallet_enabled=False,
@@ -298,7 +325,7 @@ async def test_create_alpaca_connect_link_returns_authorization_url(monkeypatch)
             "configured": True,
             "client_id": "alpaca_client",
             "client_secret": "alpaca_secret",
-            "redirect_uri": "https://kai.hushh.ai/kai/alpaca/oauth/return",
+            "redirect_uri": "https://one.hushh.ai/kai/alpaca/oauth/return",
             "authorize_url": "https://app.alpaca.markets/oauth/authorize",
             "token_url": "https://api.alpaca.markets/oauth/token",
             "account_url": "https://api.alpaca.markets/v2/account",
@@ -313,7 +340,7 @@ async def test_create_alpaca_connect_link_returns_authorization_url(monkeypatch)
         lambda **_: {
             "session_id": "alpaca_connect_123",
             "state": "alpaca_state_123",
-            "redirect_uri": "https://kai.hushh.ai/kai/alpaca/oauth/return",
+            "redirect_uri": "https://one.hushh.ai/kai/alpaca/oauth/return",
             "expires_at": "2026-04-07T00:15:00Z",
         },
     )

@@ -74,13 +74,13 @@ def test_build_push_message_for_ios_uses_explicit_apns_alert():
         platform="ios",
         data={
             "type": "consent_request",
-            "request_url": "https://uat.kai.hushh.ai/consents?tab=pending",
-            "deep_link": "https://uat.kai.hushh.ai/consents?tab=pending",
+            "request_url": "https://uat.one.hushh.ai/consents?tab=pending",
+            "deep_link": "https://uat.one.hushh.ai/consents?tab=pending",
             "notification_tag": "consent-request:test",
         },
         title="Consent request",
         body="Advisor access needs review.",
-        request_url="https://uat.kai.hushh.ai/consents?tab=pending",
+        request_url="https://uat.one.hushh.ai/consents?tab=pending",
         notification_tag="consent-request:test",
         show_alert=True,
     )
@@ -101,7 +101,7 @@ def test_build_push_message_for_ios_uses_explicit_apns_alert():
     assert message.apns.payload.aps.thread_id == "consent-request:test"
     assert (
         message.apns.payload.custom_data["request_url"]
-        == "https://uat.kai.hushh.ai/consents?tab=pending"
+        == "https://uat.one.hushh.ai/consents?tab=pending"
     )
 
 
@@ -113,13 +113,13 @@ def test_build_push_message_for_web_keeps_webpush_notification():
         platform="web",
         data={
             "type": "consent_request",
-            "request_url": "https://uat.kai.hushh.ai/consents?tab=pending",
-            "deep_link": "https://uat.kai.hushh.ai/consents?tab=pending",
+            "request_url": "https://uat.one.hushh.ai/consents?tab=pending",
+            "deep_link": "https://uat.one.hushh.ai/consents?tab=pending",
             "notification_tag": "consent-request:test",
         },
         title="Consent request",
         body="Advisor access needs review.",
-        request_url="https://uat.kai.hushh.ai/consents?tab=pending",
+        request_url="https://uat.one.hushh.ai/consents?tab=pending",
         notification_tag="consent-request:test",
         show_alert=True,
     )
@@ -130,7 +130,54 @@ def test_build_push_message_for_web_keeps_webpush_notification():
     assert message.webpush.headers == {"Urgency": "high"}
     assert message.webpush.notification.tag == "consent-request:test"
     assert message.webpush.notification.require_interaction is True
-    assert message.webpush.fcm_options.link == "https://uat.kai.hushh.ai/consents?tab=pending"
+    assert message.webpush.fcm_options.link == "https://uat.one.hushh.ai/consents?tab=pending"
+
+
+def test_location_notification_name_only_body_reaches_every_platform() -> None:
+    body = "hushh Social shared location access with you."
+    android_target = "android-device-id"
+    web_target = "web-device-id"
+    ios_target = "ios-device-id"
+
+    android = build_push_message(
+        _MessagingStub,
+        token=android_target,
+        platform="android",
+        data={"type": "location_share_created"},
+        title="Location shared",
+        body=body,
+        request_url="/one/location",
+        notification_tag="one-location-share:test",
+        show_alert=True,
+    )
+    web = build_push_message(
+        _MessagingStub,
+        token=web_target,
+        platform="web",
+        data={"type": "location_share_created"},
+        title="Location shared",
+        body=body,
+        request_url="/one/location",
+        notification_tag="one-location-share:test",
+        show_alert=True,
+    )
+    ios = build_push_message(
+        _MessagingStub,
+        token=ios_target,
+        platform="ios",
+        data={"type": "location_share_created"},
+        title="Location shared",
+        body=body,
+        request_url="/one/location",
+        notification_tag="one-location-share:test",
+        show_alert=True,
+    )
+
+    assert android.notification.body == body
+    assert web.notification.body == body
+    assert web.webpush.notification.body == body
+    assert ios.notification.body == body
+    assert ios.apns.payload.aps.alert.body == body
 
 
 def test_build_push_message_without_alert_is_data_only():
@@ -142,7 +189,7 @@ def test_build_push_message_without_alert_is_data_only():
         data={"type": "consent_resolved"},
         title="Consent updated",
         body="Request resolved.",
-        request_url="https://uat.kai.hushh.ai/consents?tab=pending",
+        request_url="https://uat.one.hushh.ai/consents?tab=pending",
         notification_tag="consent-request:test",
         show_alert=False,
     )

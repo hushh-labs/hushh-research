@@ -5,7 +5,6 @@ import json
 import logging
 import os
 from typing import Any
-from urllib.parse import parse_qs
 
 from limits import parse as parse_rate_limit
 from limits.storage import storage_from_string
@@ -59,15 +58,6 @@ def _client_ip(scope: dict[str, Any]) -> str | None:
     return None
 
 
-def _parse_query_token(scope: dict[str, Any]) -> str:
-    query_string = scope.get("query_string", b"")
-    if isinstance(query_string, bytes):
-        parsed = parse_qs(query_string.decode("utf-8"), keep_blank_values=False)
-        values = parsed.get("token") or []
-        return str(values[0]).strip() if values else ""
-    return ""
-
-
 async def _send_json(send, status_code: int, payload: dict[str, Any]) -> None:
     body = json.dumps(payload).encode("utf-8")
     headers = [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]
@@ -103,13 +93,7 @@ class AuthenticatedRemoteMCPApp:
         if bearer_header.lower().startswith("bearer "):
             bearer_token = bearer_header[7:].strip()
 
-        query_token = _parse_query_token(scope)
-
-        # Prefer the Authorization header. Tokens carried in URLs leak via
-        # Referer headers, server access logs, browser history, and CDN/proxy
-        # logs (CWE-598). Query parameters remain accepted for backward
-        # compatibility with existing MCP clients that cannot set headers.
-        raw_token = bearer_token or query_token
+        raw_token = bearer_token
 
         if not raw_token:
             await _send_json(
@@ -119,22 +103,11 @@ class AuthenticatedRemoteMCPApp:
                     "error_code": "DEVELOPER_TOKEN_REQUIRED",
                     "message": (
                         "Developer token is required for remote MCP. Pass it as "
-                        "'Authorization: Bearer <token>' (preferred) or '?token=<token>' (legacy)."
+                        "'Authorization: Bearer <token>'."
                     ),
                 },
             )
             return
-
-        if not bearer_token and query_token:
-            logger.warning(
-                "Remote MCP token received via query parameter; prefer Authorization: Bearer "
-                "header to avoid URL-leak vectors.",
-                extra={
-                    "event_type": "developer_token_query_param_use",
-                    "transport": "remote_mcp",
-                    "client_ip": _client_ip(scope) or "",
-                },
-            )
 
         principal = self._registry.authenticate_token(
             raw_token,

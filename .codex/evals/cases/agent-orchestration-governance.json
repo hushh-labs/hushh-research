@@ -1,0 +1,29 @@
+{
+  "skill_name": "agent-orchestration-governance",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "change the subagent concurrency and depth limits for repo agents",
+        "top_k": 3
+      },
+      {
+        "prompt": "update the delegation policy and handoff verification rules for custom agents",
+        "top_k": 3
+      },
+      {
+        "prompt": "tune how Codex custom agents delegate evidence lanes in this repo",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "create a brand new repo-local skill and manifest",
+        "owner": "codex-skill-authoring"
+      },
+      {
+        "prompt": "audit the security of the vault trust boundary",
+        "owner": "security-audit"
+      }
+    ]
+  }
+}

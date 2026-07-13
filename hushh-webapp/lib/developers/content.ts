@@ -134,7 +134,7 @@ export const DEVELOPER_SECTIONS: DeveloperSection[] = [
   {
     id: "consent-flow",
     label: "Consent Flow",
-    summary: "Discover, request, approve in Kai, then read approved scoped data.",
+    summary: "Discover, request, approve in Kai, then read approved scoped information.",
   },
   {
     id: "modes",
@@ -244,9 +244,9 @@ export const FAQ_ITEMS: DeveloperFaqItem[] = [
       "No. Scopes are discovered per user from the indexed Personal Knowledge Model. Always discover first, then request one of the returned scope strings.",
   },
   {
-    question: "Does developer login grant data access?",
+    question: "Does developer login grant information access?",
     answer:
-      "No. Login enables your developer workspace and app token. User data still requires a separate consent decision inside Kai.",
+      "No. Login enables your developer workspace and app token. Personal information still requires a separate consent decision inside Kai.",
   },
   {
     question: "What is the one scalable read path?",
@@ -316,7 +316,7 @@ export const DEVELOPER_SAMPLE_PAYLOADS: DeveloperSamplePayload[] = [
 }`,
   },
   {
-    title: "Sample scoped data response",
+    title: "Sample scoped information response",
     description:
       "Illustrative encrypted export shape for an approved `attr.financial.*` grant. The connector unwraps the export key and decrypts locally.",
     code: `{

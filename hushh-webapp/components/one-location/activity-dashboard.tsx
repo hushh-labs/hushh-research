@@ -40,7 +40,7 @@ function activityEventToneClassName(kind: OneLocationActivityKind): string {
     return "bg-[#eaf9ef] text-[#2dbd5a] dark:bg-emerald-400/15 dark:text-emerald-200";
   }
   if (kind === "request") {
-    return "bg-[#f7f1e8] text-[#b8894d] dark:bg-[#d4a574]/15 dark:text-[#e6b366]";
+    return "bg-[#e7f0fd] text-[#007aff] dark:bg-[#007aff]/15 dark:text-[#4a9eff]";
   }
   return "bg-[#fff3e6] text-[#ff9500] dark:bg-orange-400/15 dark:text-orange-200";
 }
@@ -128,7 +128,7 @@ export function OneLocationActivityDashboard({
       <div className={cn(activityPanelClassName, "space-y-4 p-4")}>
         <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f7f1e8] text-[#b8894d] dark:bg-[#d4a574]/15 dark:text-[#e6b366]">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#e7f0fd] text-[#007aff] dark:bg-[#007aff]/15 dark:text-[#4a9eff]">
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               ) : (
@@ -187,7 +187,7 @@ export function OneLocationActivityDashboard({
 
         {activity.buckets.length ? (
           <div
-            aria-label={`One Location activity chart for ${activityRangeLabel(
+            aria-label={`Onepoint activity chart for ${activityRangeLabel(
               range,
             )}`}
             className="min-w-0 max-w-full overflow-hidden rounded-[14px] border border-black/[0.04] bg-white/70 p-3 dark:border-white/[0.08] dark:bg-white/[0.04]"
@@ -217,7 +217,7 @@ export function OneLocationActivityDashboard({
                         ) : null}
                         {bucket.requests > 0 ? (
                           <span
-                            className="block bg-[#b8894d]"
+                            className="block bg-[#007aff]"
                             style={{ flexGrow: bucket.requests, minHeight: 3 }}
                           />
                         ) : null}
@@ -242,7 +242,7 @@ export function OneLocationActivityDashboard({
                 Shares
               </span>
               <span className="inline-flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full bg-[#b8894d]" />
+                <span className="h-2 w-2 rounded-full bg-[#007aff]" />
                 Requests
               </span>
               <span className="inline-flex items-center gap-1">

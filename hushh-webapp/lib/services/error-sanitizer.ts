@@ -73,7 +73,7 @@ function getFallbackMessage(category: ErrorCategory): string {
   const messages: Record<ErrorCategory, string> = {
     network: "Unable to reach the server. Please check your connection and try again.",
     authentication: "Your session has expired. Please sign in again.",
-    validation: "The request contained invalid data. Please check your input and try again.",
+    validation: "The request contained invalid information. Please check your input and try again.",
     permission: "You don't have permission to perform this action.",
     not_found: "The requested resource was not found.",
     conflict: "This action conflicts with your current state. Please refresh and try again.",

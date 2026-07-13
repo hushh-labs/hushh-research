@@ -1,4 +1,4 @@
-import { act, render, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -120,6 +120,35 @@ beforeEach(() => {
 });
 
 describe("global One Location notification provider", () => {
+  it("removes a legacy masked phone suffix from the rendered popup", async () => {
+    renderProvider();
+    await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledOnce());
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("fcm-message", {
+          detail: {
+            data: {
+              type: "location_share_created",
+              grant_id: "grant-legacy-phone-1",
+              owner_display_label: "hushh Social - ********8014",
+              notification_body:
+                "hushh Social - ********8014 shared location access with you.",
+            },
+          },
+        }),
+      );
+    });
+
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    const popup = mocks.toast.mock.calls[0]?.[0] as ReactNode;
+    render(<>{popup}</>);
+    expect(
+      screen.getByText("hushh Social shared location access with you."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/8014/)).not.toBeInTheDocument();
+  });
+
   it("shows one popup and records one bell item for duplicate live pushes on a non-Location route", async () => {
     renderProvider();
     await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledOnce());

@@ -6,7 +6,9 @@ import type { AppRuntimeState, VoiceToolCall } from "@/lib/voice/voice-types";
 import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 export type KaiActionRiskLevel = "low" | "medium" | "high";
-export type KaiActionExecutionPolicy = "allow_direct" | "confirm_required" | "manual_only";
+export type KaiActionExecutionPolicy =
+  "allow_direct" | "confirm_required" | "manual_only";
+export type KaiActionActivationPolicy = "none" | "trusted_activation_required";
 export type KaiActionSpeakerPersona = "one" | "kai" | "nav" | "kyc";
 export type KaiActionDelegateAgentId =
   | "one"
@@ -143,6 +145,14 @@ export type KaiActionGoal = {
   entrypoint_support: string[];
 };
 
+export type KaiActionExternalCallback = {
+  provider: "google" | "apple";
+  starts: "external_redirect_started";
+  settlement: "firebase_redirect_callback";
+  failure_behavior: "retain_goal_and_retry";
+  return_to: string;
+};
+
 export type KaiActionDefinition = {
   action_id: string;
   surface_id: string;
@@ -163,11 +173,13 @@ export type KaiActionDefinition = {
   guard_ids: string[];
   risk_level: KaiActionRiskLevel;
   execution_policy: KaiActionExecutionPolicy;
+  activation_policy: KaiActionActivationPolicy;
   execution_target: KaiActionExecutionTarget;
   control_ids: string[];
   state_exposure: string[];
   docs_references: string[];
   workflow: KaiActionWorkflow;
+  external_callback: KaiActionExternalCallback | null;
   goal: KaiActionGoal;
   expected_effects: {
     state_changes: string[];
@@ -235,16 +247,21 @@ function cleanString(value: unknown): string | null {
 }
 
 function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+  return (
+    Array.isArray(value) && value.every((entry) => typeof entry === "string")
+  );
 }
 
 function validateSpeakerPersona(value: unknown): KaiActionSpeakerPersona {
   const normalized = cleanString(value);
-  if (normalized === "kai" || normalized === "nav" || normalized === "kyc") return normalized;
+  if (normalized === "kai" || normalized === "nav" || normalized === "kyc")
+    return normalized;
   return "one";
 }
 
-function validateDelegateAgentId(value: unknown): KaiActionDelegateAgentId | null {
+function validateDelegateAgentId(
+  value: unknown,
+): KaiActionDelegateAgentId | null {
   const normalized = cleanString(value);
   if (
     normalized === "one" ||
@@ -264,7 +281,9 @@ function validateDelegateAgentId(value: unknown): KaiActionDelegateAgentId | nul
   return null;
 }
 
-function validateExecutionTarget(value: unknown): KaiActionExecutionTarget | null {
+function validateExecutionTarget(
+  value: unknown,
+): KaiActionExecutionTarget | null {
   if (!isPlainObject(value)) return null;
   const status = cleanString(value.status);
   if (status === "wired") {
@@ -307,8 +326,12 @@ function validateWorkflowStep(value: unknown): KaiActionWorkflowStep | null {
   if (!isPlainObject(value)) return null;
   const type = cleanString(value.type);
   if (!type) return null;
-  const preconditions = isStringArray(value.preconditions) ? value.preconditions : [];
-  const postconditions = isStringArray(value.postconditions) ? value.postconditions : [];
+  const preconditions = isStringArray(value.preconditions)
+    ? value.preconditions
+    : [];
+  const postconditions = isStringArray(value.postconditions)
+    ? value.postconditions
+    : [];
   const failureBehavior =
     value.failure_behavior === "continue" ? "continue" : "stop";
   const settlementTarget = isPlainObject(value.settlement_target)
@@ -393,7 +416,9 @@ function validateWorkflow(value: unknown): KaiActionWorkflow {
   };
 }
 
-function validateGoalRequiredInput(value: unknown): KaiGoalRequiredInput | null {
+function validateGoalRequiredInput(
+  value: unknown,
+): KaiGoalRequiredInput | null {
   if (!isPlainObject(value)) return null;
   const name = cleanString(value.name);
   const prompt = cleanString(value.prompt);
@@ -421,7 +446,8 @@ function validateGoalWorkflowStep(value: unknown): KaiGoalWorkflowStep | null {
     action_id: cleanString(value.action_id) || undefined,
     service: cleanString(value.service) || undefined,
     slots: isPlainObject(value.slots) ? value.slots : undefined,
-    failure_behavior: value.failure_behavior === "continue" ? "continue" : "stop",
+    failure_behavior:
+      value.failure_behavior === "continue" ? "continue" : "stop",
     settlement_target: isPlainObject(value.settlement_target)
       ? {
           route: cleanString(value.settlement_target.route) || undefined,
@@ -459,10 +485,14 @@ function validateGoal(value: unknown, actionId: string): KaiActionGoal {
   return {
     goal_id: goalId,
     required_inputs: requiredInputs,
-    input_resolvers: isStringArray(value.input_resolvers) ? value.input_resolvers : [],
+    input_resolvers: isStringArray(value.input_resolvers)
+      ? value.input_resolvers
+      : [],
     slot_schema: isPlainObject(value.slot_schema) ? value.slot_schema : {},
     workflow_steps: workflowSteps,
-    progress_contract: isPlainObject(value.progress_contract) ? value.progress_contract : {},
+    progress_contract: isPlainObject(value.progress_contract)
+      ? value.progress_contract
+      : {},
     cancellation_contract: isPlainObject(value.cancellation_contract)
       ? value.cancellation_contract
       : fallback.cancellation_contract,
@@ -475,6 +505,30 @@ function validateGoal(value: unknown, actionId: string): KaiActionGoal {
   };
 }
 
+function validateExternalCallback(
+  value: unknown,
+): KaiActionExternalCallback | null {
+  if (!isPlainObject(value)) return null;
+  if (
+    (value.provider !== "google" && value.provider !== "apple") ||
+    value.starts !== "external_redirect_started" ||
+    value.settlement !== "firebase_redirect_callback" ||
+    value.failure_behavior !== "retain_goal_and_retry"
+  ) {
+    return null;
+  }
+  const returnTo = cleanString(value.return_to);
+  return returnTo
+    ? {
+        provider: value.provider,
+        starts: value.starts,
+        settlement: value.settlement,
+        failure_behavior: value.failure_behavior,
+        return_to: returnTo,
+      }
+    : null;
+}
+
 function validateAction(value: unknown): KaiActionDefinition | null {
   if (!isPlainObject(value)) return null;
   const actionId = cleanString(value.action_id);
@@ -483,7 +537,21 @@ function validateAction(value: unknown): KaiActionDefinition | null {
   const meaning = cleanString(value.meaning);
   const riskLevel = cleanString(value.risk_level);
   const executionPolicy = cleanString(value.execution_policy);
-  if (!actionId || !surfaceId || !label || !meaning || !riskLevel || !executionPolicy) {
+  const activationPolicy = cleanString(value.activation_policy) || "none";
+  if (
+    !actionId ||
+    !surfaceId ||
+    !label ||
+    !meaning ||
+    !riskLevel ||
+    !executionPolicy
+  ) {
+    return null;
+  }
+  if (
+    activationPolicy !== "none" &&
+    activationPolicy !== "trusted_activation_required"
+  ) {
     return null;
   }
   if (!isPlainObject(value.reachability)) return null;
@@ -502,7 +570,9 @@ function validateAction(value: unknown): KaiActionDefinition | null {
     surface_id: surfaceId,
     label,
     aliases: isStringArray(value.aliases) ? value.aliases : [],
-    search_keywords: isStringArray(value.search_keywords) ? value.search_keywords : [],
+    search_keywords: isStringArray(value.search_keywords)
+      ? value.search_keywords
+      : [],
     meaning,
     speaker_persona: validateSpeakerPersona(value.speaker_persona),
     delegate_agent_id: validateDelegateAgentId(value.delegate_agent_id),
@@ -520,19 +590,27 @@ function validateAction(value: unknown): KaiActionDefinition | null {
     guard_ids: isStringArray(value.guard_ids) ? value.guard_ids : [],
     risk_level: riskLevel as KaiActionRiskLevel,
     execution_policy: executionPolicy as KaiActionExecutionPolicy,
+    activation_policy: activationPolicy as KaiActionActivationPolicy,
     execution_target: executionTarget,
     control_ids: isStringArray(value.control_ids) ? value.control_ids : [],
-    state_exposure: isStringArray(value.state_exposure) ? value.state_exposure : [],
-    docs_references: isStringArray(value.docs_references) ? value.docs_references : [],
+    state_exposure: isStringArray(value.state_exposure)
+      ? value.state_exposure
+      : [],
+    docs_references: isStringArray(value.docs_references)
+      ? value.docs_references
+      : [],
     workflow: validateWorkflow(value.workflow),
+    external_callback: validateExternalCallback(value.external_callback),
     goal: validateGoal(value.goal, actionId),
     expected_effects: {
       state_changes:
-        isPlainObject(value.expected_effects) && isStringArray(value.expected_effects.state_changes)
+        isPlainObject(value.expected_effects) &&
+        isStringArray(value.expected_effects.state_changes)
           ? value.expected_effects.state_changes
           : [],
       backend_effects:
-        isPlainObject(value.expected_effects) && Array.isArray(value.expected_effects.backend_effects)
+        isPlainObject(value.expected_effects) &&
+        Array.isArray(value.expected_effects.backend_effects)
           ? value.expected_effects.backend_effects
               .map((entry) => {
                 if (!isPlainObject(entry)) return null;
@@ -541,8 +619,8 @@ function validateAction(value: unknown): KaiActionDefinition | null {
                 if (!api || !effect) return null;
                 return { api, effect };
               })
-              .filter(
-                (entry): entry is { api: string; effect: string } => Boolean(entry)
+              .filter((entry): entry is { api: string; effect: string } =>
+                Boolean(entry),
               )
           : [],
     },
@@ -551,9 +629,10 @@ function validateAction(value: unknown): KaiActionDefinition | null {
       cleanString(value.trigger.primary) &&
       isStringArray(value.trigger.supported)
         ? {
-            primary: value.trigger.primary as KaiActionDefinition["trigger"]["primary"],
-            supported:
-              value.trigger.supported as KaiActionDefinition["trigger"]["supported"],
+            primary: value.trigger
+              .primary as KaiActionDefinition["trigger"]["primary"],
+            supported: value.trigger
+              .supported as KaiActionDefinition["trigger"]["supported"],
           }
         : {
             primary: "voice",
@@ -568,12 +647,15 @@ function validateSurface(value: unknown): KaiActionSurfaceDefinition | null {
   const surfaceId = cleanString(value.surface_id);
   const surfaceTitle = cleanString(value.surface_title);
   const contractFile = cleanString(value.contract_file);
-  if (!schemaVersion || !surfaceId || !surfaceTitle || !contractFile) return null;
+  if (!schemaVersion || !surfaceId || !surfaceTitle || !contractFile)
+    return null;
   return {
     schema_version: schemaVersion,
     surface_id: surfaceId,
     surface_title: surfaceTitle,
-    docs_references: isStringArray(value.docs_references) ? value.docs_references : [],
+    docs_references: isStringArray(value.docs_references)
+      ? value.docs_references
+      : [],
     contract_file: contractFile,
     defaults: isPlainObject(value.defaults) ? value.defaults : undefined,
   };
@@ -601,7 +683,9 @@ function validateGateway(value: unknown): KaiActionGateway {
     schema_version: schemaVersion,
     generator: cleanString(value.generator) || undefined,
     generated_at: cleanString(value.generated_at) || undefined,
-    source_contracts: isStringArray(value.source_contracts) ? value.source_contracts : undefined,
+    source_contracts: isStringArray(value.source_contracts)
+      ? value.source_contracts
+      : undefined,
     surfaces,
     actions,
   };
@@ -611,7 +695,9 @@ export const KAI_ACTION_GATEWAY = validateGateway(gatewayJson);
 export const KAI_ACTION_GATEWAY_ACTIONS = KAI_ACTION_GATEWAY.actions;
 
 const KAI_ACTION_BY_ID = new Map(
-  KAI_ACTION_GATEWAY_ACTIONS.map((action) => [action.action_id, action] as const)
+  KAI_ACTION_GATEWAY_ACTIONS.map(
+    (action) => [action.action_id, action] as const,
+  ),
 );
 
 const KAI_ACTIONS_BY_CONTROL_ID = new Map<string, KaiActionDefinition[]>();
@@ -629,7 +715,11 @@ function toPathname(value: string | null | undefined): string {
   return queryIndex >= 0 ? normalized.slice(0, queryIndex) : normalized;
 }
 
-function routeMatchesSurface(routeHref: string, surfaceHref: string, surfacePathname: string): boolean {
+function routeMatchesSurface(
+  routeHref: string,
+  surfaceHref: string,
+  surfacePathname: string,
+): boolean {
   const normalizedRoute = String(routeHref || "").trim();
   if (!normalizedRoute) return false;
   if (normalizedRoute.includes("?")) {
@@ -641,7 +731,9 @@ function routeMatchesSurface(routeHref: string, surfaceHref: string, surfacePath
   return toPathname(normalizedRoute) === surfacePathname;
 }
 
-export function getKaiActionById(actionId: string | null | undefined): KaiActionDefinition | null {
+export function getKaiActionById(
+  actionId: string | null | undefined,
+): KaiActionDefinition | null {
   const normalized = String(actionId || "").trim();
   if (!normalized) return null;
   return KAI_ACTION_BY_ID.get(normalized) || null;
@@ -664,19 +756,21 @@ export function listKaiActionsForSurface(input: {
       return true;
     }
     return action.reachability.routes.some((routeHref) =>
-      routeMatchesSurface(routeHref, href, pathname)
+      routeMatchesSurface(routeHref, href, pathname),
     );
   });
 }
 
-export function getKaiActionsForControlId(controlId: string | null | undefined): readonly KaiActionDefinition[] {
+export function getKaiActionsForControlId(
+  controlId: string | null | undefined,
+): readonly KaiActionDefinition[] {
   const normalized = cleanString(controlId);
   if (!normalized) return [];
   return KAI_ACTIONS_BY_CONTROL_ID.get(normalized) || [];
 }
 
 export function getKaiActionByKaiCommand(
-  command: KaiCommandAction
+  command: KaiCommandAction,
 ): KaiActionDefinition | null {
   for (const action of KAI_ACTION_GATEWAY_ACTIONS) {
     if (action.execution_target.status !== "wired") continue;
@@ -688,16 +782,18 @@ export function getKaiActionByKaiCommand(
 
 function voiceToolParamsMatch(
   params: Record<string, unknown> | undefined,
-  toolCall: VoiceToolCall
+  toolCall: VoiceToolCall,
 ): boolean {
   if (!params || Object.keys(params).length === 0) return true;
   const args = toolCall.args as Record<string, unknown>;
-  return Object.entries(params).every(([key, expected]) => args[key] === expected);
+  return Object.entries(params).every(
+    ([key, expected]) => args[key] === expected,
+  );
 }
 
 function isWiredVoiceToolAction(
   action: KaiActionDefinition,
-  toolName: VoiceToolCall["tool_name"]
+  toolName: VoiceToolCall["tool_name"],
 ): action is WiredKaiActionDefinition {
   return (
     action.execution_target.status === "wired" &&
@@ -706,18 +802,20 @@ function isWiredVoiceToolAction(
   );
 }
 
-export function getKaiActionByVoiceToolCall(toolCall: VoiceToolCall): KaiActionDefinition | null {
+export function getKaiActionByVoiceToolCall(
+  toolCall: VoiceToolCall,
+): KaiActionDefinition | null {
   if (toolCall.tool_name === "execute_kai_command") {
     return getKaiActionByKaiCommand(toolCall.args.command);
   }
   const candidates = KAI_ACTION_GATEWAY_ACTIONS.filter((action) =>
-    isWiredVoiceToolAction(action, toolCall.tool_name)
+    isWiredVoiceToolAction(action, toolCall.tool_name),
   );
   if (candidates.length === 0) {
     return null;
   }
   const paramMatches = candidates.filter((action) =>
-    voiceToolParamsMatch(action.execution_target.params, toolCall)
+    voiceToolParamsMatch(action.execution_target.params, toolCall),
   );
   if (paramMatches.length === 1) {
     return paramMatches[0] || null;
@@ -727,7 +825,7 @@ export function getKaiActionByVoiceToolCall(toolCall: VoiceToolCall): KaiActionD
       (action) =>
         action.execution_target.status === "wired" &&
         (!action.execution_target.params ||
-          Object.keys(action.execution_target.params).length === 0)
+          Object.keys(action.execution_target.params).length === 0),
     );
     return unparameterized.length === 1 ? unparameterized[0] || null : null;
   }
@@ -739,7 +837,7 @@ export function getKaiActionByVoiceToolCall(toolCall: VoiceToolCall): KaiActionD
 
 function boolFromSurfaceMetadata(
   surfaceMetadata: VoiceSurfaceMetadata | undefined,
-  key: string
+  key: string,
 ): boolean | undefined {
   const metadata = surfaceMetadata?.screenMetadata;
   if (!metadata || typeof metadata !== "object") return undefined;
@@ -781,11 +879,16 @@ export function evaluateKaiActionAvailability(input: {
 
   const activePersona = appRuntimeState?.persona?.active || "investor";
   const availablePersonas = new Set<Persona>(
-    (appRuntimeState?.persona?.available || [activePersona]) as Persona[]
+    (appRuntimeState?.persona?.available || [activePersona]) as Persona[],
   );
   const requiredPersonas = action.reachability.active_personas;
-  if (requiredPersonas.length > 0 && !requiredPersonas.includes(activePersona as Persona)) {
-    const targetPersona = requiredPersonas.find((persona) => availablePersonas.has(persona));
+  if (
+    requiredPersonas.length > 0 &&
+    !requiredPersonas.includes(activePersona as Persona)
+  ) {
+    const targetPersona = requiredPersonas.find((persona) =>
+      availablePersonas.has(persona),
+    );
     if (targetPersona) {
       const canSettleInactivePersona =
         Boolean(input.allowPersonaRouteSettlement) &&
@@ -805,7 +908,8 @@ export function evaluateKaiActionAvailability(input: {
       return {
         status: "blocked",
         reason:
-          requiredPersonas.includes("ria") && appRuntimeState?.persona?.ria_setup_available
+          requiredPersonas.includes("ria") &&
+          appRuntimeState?.persona?.ria_setup_available
             ? "RIA actions stay locked until you finish RIA setup."
             : requiredPersonas.includes("investor")
               ? "Switch to the Investor workspace before using Kai finance actions."
@@ -813,7 +917,8 @@ export function evaluateKaiActionAvailability(input: {
         target_persona: requiredPersonas[0] || null,
         blocked_guidance:
           action.workflow?.blocked_guidance ||
-          (requiredPersonas.includes("ria") && appRuntimeState?.persona?.ria_setup_available
+          (requiredPersonas.includes("ria") &&
+          appRuntimeState?.persona?.ria_setup_available
             ? "Complete RIA setup to unlock this workspace."
             : requiredPersonas.includes("investor")
               ? "Switch to Investor to use this Kai finance action."
@@ -834,7 +939,10 @@ export function evaluateKaiActionAvailability(input: {
         blocked_guidance: null,
       };
     }
-    if (guardId === "vault_unlocked" && appRuntimeState?.vault.unlocked !== true) {
+    if (
+      guardId === "vault_unlocked" &&
+      appRuntimeState?.vault.unlocked !== true
+    ) {
       return {
         status: "blocked",
         reason: "Unlock the vault to use this action.",
@@ -842,7 +950,10 @@ export function evaluateKaiActionAvailability(input: {
         blocked_guidance: null,
       };
     }
-    if (guardId === "portfolio_required" && appRuntimeState?.portfolio.has_portfolio_data !== true) {
+    if (
+      guardId === "portfolio_required" &&
+      appRuntimeState?.portfolio.has_portfolio_data !== true
+    ) {
       return {
         status: "blocked",
         reason: "Import your portfolio first.",
@@ -850,7 +961,10 @@ export function evaluateKaiActionAvailability(input: {
         blocked_guidance: null,
       };
     }
-    if (guardId === "analysis_idle_required" && appRuntimeState?.runtime.analysis_active === true) {
+    if (
+      guardId === "analysis_idle_required" &&
+      appRuntimeState?.runtime.analysis_active === true
+    ) {
       return {
         status: "blocked",
         reason: "Wait for the active analysis to finish first.",
@@ -858,7 +972,10 @@ export function evaluateKaiActionAvailability(input: {
         blocked_guidance: null,
       };
     }
-    if (guardId === "active_analysis_required" && appRuntimeState?.runtime.analysis_active !== true) {
+    if (
+      guardId === "active_analysis_required" &&
+      appRuntimeState?.runtime.analysis_active !== true
+    ) {
       return {
         status: "blocked",
         reason: "There is no active analysis to act on.",
@@ -868,7 +985,10 @@ export function evaluateKaiActionAvailability(input: {
     }
     if (
       guardId === "gmail_connected" &&
-      boolFromSurfaceMetadata(surfaceMetadata || undefined, "gmail_connected") === false
+      boolFromSurfaceMetadata(
+        surfaceMetadata || undefined,
+        "gmail_connected",
+      ) === false
     ) {
       return {
         status: "blocked",
@@ -879,7 +999,10 @@ export function evaluateKaiActionAvailability(input: {
     }
     if (
       guardId === "gmail_configured" &&
-      boolFromSurfaceMetadata(surfaceMetadata || undefined, "gmail_configured") === false
+      boolFromSurfaceMetadata(
+        surfaceMetadata || undefined,
+        "gmail_configured",
+      ) === false
     ) {
       return {
         status: "blocked",
@@ -909,7 +1032,11 @@ export function evaluateKaiActionAvailability(input: {
   };
 }
 
-function scoreSearchMatch(action: KaiActionDefinition, query: string, screen: string | null): number {
+function scoreSearchMatch(
+  action: KaiActionDefinition,
+  query: string,
+  screen: string | null,
+): number {
   const q = query.trim().toLowerCase();
   let score = 0;
   if (!q) {
@@ -919,8 +1046,12 @@ function scoreSearchMatch(action: KaiActionDefinition, query: string, screen: st
   }
   if (action.label.toLowerCase().includes(q)) score += 8;
   if (action.action_id.toLowerCase().includes(q)) score += 6;
-  if (action.aliases.some((alias) => alias.toLowerCase().includes(q))) score += 5;
-  if (action.search_keywords.some((keyword) => keyword.toLowerCase().includes(q))) score += 4;
+  if (action.aliases.some((alias) => alias.toLowerCase().includes(q)))
+    score += 5;
+  if (
+    action.search_keywords.some((keyword) => keyword.toLowerCase().includes(q))
+  )
+    score += 4;
   if (action.meaning.toLowerCase().includes(q)) score += 3;
   if (screen && action.reachability.screens.includes(screen)) score += 2;
   return score;

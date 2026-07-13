@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import robots from "@/app/robots";
 import sitemap from "@/app/sitemap";
+import { BLOG_POSTS } from "@/lib/research/blog";
 import {
   absoluteUrl,
   DISALLOWED_PREFIXES,
@@ -10,10 +11,13 @@ import {
 } from "@/lib/seo/site";
 
 describe("seo: sitemap", () => {
-  it("covers exactly the public allow-list routes", () => {
+  it("covers exactly the public allow-list routes and published posts", () => {
     const entries = sitemap();
     const urls = entries.map((e) => e.url).sort();
-    const expected = PUBLIC_ROUTES.map((r) => absoluteUrl(r)).sort();
+    const expected = [
+      ...PUBLIC_ROUTES.map((route) => absoluteUrl(route)),
+      ...BLOG_POSTS.map((post) => absoluteUrl(`/blog/${post.slug}`)),
+    ].sort();
     expect(urls).toEqual(expected);
   });
 

@@ -861,6 +861,10 @@ function ConsentEntryDetail({
     typeof entry?.metadata?.expiry_hours === "string"
       ? entry.metadata.expiry_hours
       : null;
+  const refreshPolicy =
+    entry?.metadata?.refresh_policy === "continuous_until_expiry"
+      ? "continuous_until_expiry"
+      : "snapshot";
   const defaultDuration = String(Number(requestedDurationHours) || 24);
   const [selectedDuration, setSelectedDuration] = useState(defaultDuration);
   useEffect(() => {
@@ -1016,6 +1020,24 @@ function ConsentEntryDetail({
               }
               stackTrailingOnMobile
             />
+            {entry.scope?.startsWith("attr.") ? (
+              <SettingsRow
+                title="Sharing updates"
+                description={
+                  refreshPolicy === "continuous_until_expiry"
+                    ? "Keep this exact scope current until expiry. Confirmed PKM changes create a fresh encrypted revision for the same approved connector key."
+                    : "Share only this approved encrypted snapshot. Later PKM changes are not sent automatically."
+                }
+                trailing={
+                  <span className="text-sm font-medium text-foreground">
+                    {refreshPolicy === "continuous_until_expiry"
+                      ? "Continuous until expiry"
+                      : "Snapshot"}
+                  </span>
+                }
+                stackTrailingOnMobile
+              />
+            ) : null}
           </>
         ) : (
           <SettingsRow
@@ -1037,7 +1059,7 @@ function ConsentEntryDetail({
         {locationHref ? (
           <SettingsRow
             title="Location sharing"
-            description="Review this location request, active access, and expiry in One Location."
+            description="Review this location request, active access, and expiry in Onepoint."
             trailing={
               <Button asChild variant="none" effect="fade" size="sm">
                 <Link href={locationHref}>Open Location</Link>
@@ -2286,7 +2308,7 @@ export function ConsentCenterPage() {
                   {showCompactRetryState ? (
                     <ApiRetryState
                       variant="compact"
-                      title="Showing saved consent data"
+                      title="Showing saved consent information"
                       description="The latest refresh failed. You can keep reviewing cached data or refresh from the page header."
                       onRetry={retryConsentCenter}
                       showRetryAction={false}

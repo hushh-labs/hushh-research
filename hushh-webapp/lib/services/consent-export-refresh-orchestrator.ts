@@ -28,7 +28,7 @@ function describeJob(job: ConsentExportRefreshJob): string {
     .replace(/^attr\./, "")
     .replace(/\.\*$/, "")
     .replace(/\*$/, "")
-    .replace(/^pkm\.read$/, "your saved data")
+    .replace(/^pkm\.read$/, "your saved information")
     .replace(/[._-]+/g, " ")
     .trim();
   return `Refreshing approved sharing for ${scopeLabel}.`;
@@ -136,10 +136,10 @@ export class ConsentExportRefreshOrchestrator {
           description: describeJob(job),
           metadata: {
             pendingJobCount: jobs.length,
-            currentConsentToken: job.consentToken,
             currentScope: job.grantedScope,
             triggerDomain: job.triggerDomain,
             triggerPaths: job.triggerPaths,
+            priorExportRevision: job.exportRevision,
           },
         });
 
@@ -167,21 +167,50 @@ export class ConsentExportRefreshOrchestrator {
             generateExportKey,
             wrapExportKeyForConnector,
           } = await import("@/lib/vault/export-encrypt");
+          const {
+            buildConsentExportAadV2,
+            buildConsentExportEnvelopeSubmissionV2,
+            canonicalConsentExportAad,
+            canonicalConsentExportJson,
+          } = await import("@/lib/consent/export-envelope-v2");
+          if (!job.exportRevision || !job.exportId || !job.grantId || !job.appId) {
+            throw new Error("Refresh envelope context is incomplete.");
+          }
+          const exportAad = await buildConsentExportAadV2({
+            appId: job.appId,
+            grantId: job.grantId,
+            machineScope: job.grantedScope,
+            scopeHandle: job.scopeHandle,
+            connectorPublicKey: job.connectorPublicKey,
+            expiresAtMs: job.expiresAtMs,
+            revision: job.exportRevision + 1,
+            exportId: job.exportId,
+          });
+          if (exportAad.recipient_key_fingerprint !== job.recipientKeyFingerprint) {
+            throw new Error("Connector key fingerprint changed; approval is required again.");
+          }
           const exportKey = await generateExportKey();
           const encrypted = await encryptForExport(
             JSON.stringify(builtExport.payload),
-            exportKey
+            exportKey,
+            { additionalData: canonicalConsentExportAad(exportAad) }
           );
+          const exportEnvelope = await buildConsentExportEnvelopeSubmissionV2({
+            aad: exportAad,
+            ciphertextBase64: encrypted.ciphertext,
+          });
           const wrappedKeyBundle = await wrapExportKeyForConnector({
             exportKeyHex: exportKey,
             connectorPublicKey: job.connectorPublicKey,
             connectorKeyId: job.connectorKeyId || undefined,
+            additionalData: canonicalConsentExportJson(exportEnvelope),
           });
 
           this.throwIfPauseRequested(params.userId);
           await ConsentExportRefreshService.uploadRefreshedExport({
             userId: params.userId,
-            consentToken: job.consentToken,
+            jobClaimId: job.jobClaimId,
+            expectedPriorRevision: job.exportRevision,
             encryptedData: encrypted.ciphertext,
             encryptedIv: encrypted.iv,
             encryptedTag: encrypted.tag,
@@ -194,6 +223,7 @@ export class ConsentExportRefreshOrchestrator {
             sourceContentRevision: builtExport.sourceContentRevision,
             sourceManifestRevision: builtExport.sourceManifestRevision,
             vaultOwnerToken: params.vaultOwnerToken,
+            exportEnvelope,
           });
           successCount += 1;
         } catch (error) {
@@ -204,7 +234,7 @@ export class ConsentExportRefreshOrchestrator {
           const message = "Could not update approved sharing.";
           await ConsentExportRefreshService.failJob({
             userId: params.userId,
-            consentToken: job.consentToken,
+            jobClaimId: job.jobClaimId,
             lastError: message,
             vaultOwnerToken: params.vaultOwnerToken,
           }).catch(() => undefined);

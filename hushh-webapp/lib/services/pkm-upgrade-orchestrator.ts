@@ -188,8 +188,8 @@ function resolveUpgradeMode(userId: string): PkmUpgradeMode {
 
 function titleForMode(mode: PkmUpgradeMode): string {
   return mode === "rehearsal_no_write"
-    ? "Checking your personal data"
-    : "Updating your personal data";
+    ? "Checking your saved details"
+    : "Updating your saved details";
 }
 
 function descriptionForStatus(
@@ -199,10 +199,10 @@ function descriptionForStatus(
 ): string {
   const domainLabel = currentDomain
     ? `${currentDomain.replace(/[_-]+/g, " ").toLowerCase()} details`
-    : "your personal data";
+    : "your saved details";
   if (mode === "rehearsal_no_write") {
     if (status === "completed") {
-      return "Your personal data is ready to review.";
+      return "Your saved details are ready to review.";
     }
     if (status === "failed") {
       return `We paused while checking ${domainLabel}.`;
@@ -213,7 +213,7 @@ function descriptionForStatus(
     return `We will continue updating ${domainLabel} after you unlock your vault.`;
   }
   if (status === "completed") {
-    return "Your personal data is up to date.";
+    return "Your saved details are up to date.";
   }
   if (status === "failed") {
     return `We paused while updating ${domainLabel}.`;
@@ -223,12 +223,12 @@ function descriptionForStatus(
 
 function failureMessage(error: unknown): string {
   if (error instanceof PkmDomainManifestError) {
-    return "We could not update your personal data right now.";
+    return "We could not update your saved details right now.";
   }
   if (error instanceof Error && error.message.trim()) {
-    return "We could not update your personal data right now.";
+    return "We could not update your saved details right now.";
   }
-  return "We could not update your personal data right now.";
+  return "We could not update your saved details right now.";
 }
 
 function failureMetadata(params: {
@@ -309,7 +309,7 @@ export class PkmUpgradeOrchestrator {
   }): void {
     AppBackgroundTaskService.completeTask(params.taskId, params.description, params.metadata ?? null);
     if (params.mode === "real") {
-      toast.success("Personal data updated", {
+      toast.success("Saved details updated", {
         description: params.description,
         id: `pkm-upgrade-complete:${params.userId}`,
       });

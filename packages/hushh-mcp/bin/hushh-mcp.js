@@ -80,6 +80,9 @@ function printRemoteConfig() {
         mcpServers: {
           "hushh-consent-remote": {
             url: promotedRemoteUrl,
+            headers: {
+              Authorization: "Bearer <developer-token>",
+            },
           },
         },
       },

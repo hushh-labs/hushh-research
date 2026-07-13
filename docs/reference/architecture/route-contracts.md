@@ -27,6 +27,19 @@ Hussh uses a code-owned route contract plus docs/runtime checks to keep the decl
 - Capacitor TypeScript, iOS, and Android plugin surfaces
 - mobile parity guidance for the visible page tree
 
+For One Voice onboarding, middleware remains route protection and static
+redirect infrastructure only. It cannot be the mutable journey planner because
+it cannot reliably observe Firebase callback settlement or browser-local UI
+state. The browser publishes the canonical redacted route state derived by
+`deriveVoiceRouteScreen`; the generated action gateway and `/api/one/[...path]`
+BFF validate and execute the permitted action. See
+[One Voice Onboarding Journey](../one/one-voice-onboarding-journey.md).
+
+Every physical page also has one required `voicePlaybook` in
+`app-route-layout.contract.json`. The surface-map and route-index generators reject
+missing, duplicate, structurally ambiguous, or action-incompatible entries. Playbooks
+are prompt posture only; generated actions and their guards remain execution authority.
+
 ## Files
 
 - Canonical app route source: `hushh-webapp/lib/navigation/routes.ts`
@@ -46,7 +59,6 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/login`
 - `/register-phone`
 - `/logout`
-- `/labs/profile-appearance`
 - `/agent`
 - `/profile`
 - `/profile/account`
@@ -136,6 +148,20 @@ Auth-only routes can still be mandatory even when they intentionally bypass the 
 - `/login`
 - `/register-phone`
 - `/logout`
+
+## Public SEO and answer-engine projection
+
+Route playbooks and public search semantics share stable route and playbook identifiers,
+not prose. `hushh-webapp/lib/seo/site.ts` owns the public index allowlist and editorial
+title/description/schema projection; a parity test requires each entry to resolve to its
+typed route playbook. Sitemap and public `WebPage`/`CollectionPage` JSON-LD are generated
+from that allowlist.
+
+Never copy runtime recovery guidance, action aliases, trust-boundary details, journey
+state, or private-route playbooks into crawler metadata. Authenticated routes and Login
+remain non-indexable. This keeps SEO/AEO aligned with the same route ontology without
+turning orchestration prompts into public content or making search markup an execution
+authority.
 
 ## When To Update Route Governance
 

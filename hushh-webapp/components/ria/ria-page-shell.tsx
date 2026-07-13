@@ -258,7 +258,7 @@ export function RiaVerificationGate({ children }: { children: ReactNode }) {
         <SectionHeader
           eyebrow="Verification required"
           title="Complete advisor verification first"
-          description="Non-verified advisors cannot access investor data. Finish the verification flow in onboarding, then come back."
+          description="Non-verified advisors cannot access investor information. Finish the verification flow in onboarding, then come back."
           icon={ShieldAlert}
         />
         <RiaSurface tone="warning" className="border-dashed">

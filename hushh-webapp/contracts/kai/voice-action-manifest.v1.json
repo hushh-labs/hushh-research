@@ -33,11 +33,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/getting-started"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.getting_started",
         "required_inputs": [],
@@ -105,11 +107,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/login"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.onboarding.continue",
         "required_inputs": [],
@@ -166,11 +170,10 @@
       ],
       "scope": {
         "routes": [
-          "/login"
+          "/getting-started"
         ],
         "screens": [
           "getting_started",
-          "login",
           "one_agents"
         ],
         "hidden_navigable": true,
@@ -181,11 +184,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/login"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.auth.sign_in_open",
         "required_inputs": [],
@@ -260,11 +265,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one/setup"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.vault.setup_open",
         "required_inputs": [],
@@ -307,6 +314,434 @@
       ]
     },
     {
+      "id": "auth.sign_in_google",
+      "label": "Continue with Google",
+      "meaning": "Uses the mounted Google provider popup handler. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; Firebase settles only after it returns a verified user session.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "sign in with google",
+        "continue with google",
+        "google sign in"
+      ],
+      "scope": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_google"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.auth.sign_in_google",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.sign_in_google",
+            "label": "Continue with Google",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "login"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "auth.sign_in_apple",
+      "label": "Continue with Apple",
+      "meaning": "Uses the mounted Apple provider popup handler. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; Firebase settles only after it returns a verified user session.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "sign in with apple",
+        "continue with apple",
+        "apple sign in"
+      ],
+      "scope": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_apple"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.auth.sign_in_apple",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.sign_in_apple",
+            "label": "Continue with Apple",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "login"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "auth.open_terms",
+      "label": "Terms",
+      "meaning": "Opens the inline Terms document on the Login screen without leaving sign-in.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "open terms",
+        "show terms",
+        "terms and conditions"
+      ],
+      "scope": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.open_terms"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.auth.open_terms",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.open_terms",
+            "label": "Terms",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "login"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "auth.open_privacy",
+      "label": "Privacy Policy",
+      "meaning": "Opens the inline Privacy Policy document on the Login screen without leaving sign-in.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "open privacy policy",
+        "show privacy policy",
+        "open privacy"
+      ],
+      "scope": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.open_privacy"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.auth.open_privacy",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.open_privacy",
+            "label": "Privacy Policy",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "login"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "auth.close_legal",
+      "label": "Close legal document",
+      "meaning": "Closes the inline legal document and returns to the Login screen.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "close terms",
+        "close privacy policy",
+        "close legal document"
+      ],
+      "scope": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.close_legal"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.auth.close_legal",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.close_legal",
+            "label": "Close legal document",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "login"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "onboarding.back_to_intro",
+      "label": "Back to welcome",
+      "meaning": "Returns from Login to One's public welcome screen through the canonical onboarding hierarchy, preserving only a valid pending destination.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "go back",
+        "back",
+        "back to welcome",
+        "return to welcome",
+        "go to welcome"
+      ],
+      "scope": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "onboarding.back_to_intro"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.onboarding.back_to_intro",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "onboarding.back_to_intro",
+            "label": "Back to welcome",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "login"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
       "id": "route.marketplace_ria_profile",
       "label": "Open Marketplace RIA Profile",
       "meaning": "Navigates to a public marketplace RIA profile route.",
@@ -335,6 +770,7 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
@@ -343,6 +779,7 @@
           "optional_ria_id": true
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.marketplace_ria_profile",
         "required_inputs": [],
@@ -419,11 +856,13 @@
       ],
       "risk_level": "high",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Creating an investor-to-RIA consent request must stay user-triggered on the marketplace profile.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.marketplace.ria.request_advisory",
         "required_inputs": [],
@@ -496,11 +935,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/ria/settings"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.marketplace.ria.manage_profile",
         "required_inputs": [],
@@ -567,11 +1008,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/marketplace"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.marketplace_browse_from_ria_profile",
         "required_inputs": [],
@@ -642,11 +1085,13 @@
       ],
       "risk_level": "medium",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "External disclosure URLs are dynamic profile state and should be opened manually.",
         "intended_handler": "router.push"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.marketplace.ria.open_public_disclosure",
         "required_inputs": [],
@@ -713,11 +1158,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one/gmail"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.profile_receipts",
         "required_inputs": [],
@@ -785,11 +1232,13 @@
       ],
       "risk_level": "medium",
       "execution_policy": "confirm_required",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Only local component handler exists (handleConnectGmail in GmailReceiptsPage).",
         "intended_handler": "handleConnectGmail"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.profile.gmail.connect",
         "required_inputs": [],
@@ -856,11 +1305,13 @@
       ],
       "risk_level": "medium",
       "execution_policy": "confirm_required",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Implemented only in local page handlers; no shared voice/action adapter yet.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.profile.gmail.sync_now",
         "required_inputs": [],
@@ -928,11 +1379,13 @@
       ],
       "risk_level": "high",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Only local component handler exists (handleDisconnectGmail in GmailReceiptsPage).",
         "intended_handler": "handleDisconnectGmail"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.profile.gmail.disconnect",
         "required_inputs": [],
@@ -997,11 +1450,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one/kai/analysis"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.kai_analysis",
         "required_inputs": [],
@@ -1067,11 +1522,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "kai_command",
         "target": "history"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.analysis_history",
         "required_inputs": [],
@@ -1139,6 +1596,7 @@
       ],
       "risk_level": "medium",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "kai_command",
@@ -1147,6 +1605,7 @@
           "requires_symbol": true
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.analysis.start_debate",
         "required_inputs": [
@@ -1256,11 +1715,13 @@
       ],
       "risk_level": "medium",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "voice_tool",
         "target": "resume_active_analysis"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.analysis.resume_active",
         "required_inputs": [],
@@ -1331,11 +1792,13 @@
       ],
       "risk_level": "high",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "voice_tool",
         "target": "cancel_active_analysis"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.analysis.cancel_active",
         "required_inputs": [],
@@ -1402,10 +1865,12 @@
       "guard_ids": [],
       "risk_level": "medium",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "dead",
         "reason": "No transcript tab trigger/content exists in app/kai/analysis/page.tsx."
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.analysis.open_transcript_tab_legacy",
         "required_inputs": [],
@@ -1477,11 +1942,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one/kyc"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.one_kyc",
         "required_inputs": [],
@@ -1552,10 +2019,12 @@
       ],
       "risk_level": "medium",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Requires opening the local verified email panel in /one/kyc."
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kyc.aliases.manage",
         "required_inputs": [],
@@ -1625,10 +2094,12 @@
       ],
       "risk_level": "medium",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Requires selected workflow context from /one/kyc."
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kyc.workflow.sync_status",
         "required_inputs": [],
@@ -1698,10 +2169,12 @@
       ],
       "risk_level": "medium",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Requires selected workflow context and user-visible draft state."
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kyc.draft.review",
         "required_inputs": [],
@@ -1771,10 +2244,12 @@
       ],
       "risk_level": "medium",
       "execution_policy": "confirm_required",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Requires selected workflow context and captured redraft instructions."
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kyc.draft.request_redraft",
         "required_inputs": [],
@@ -1845,10 +2320,12 @@
       ],
       "risk_level": "high",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Voice must not send mail until the selected workflow and explicit confirmation are wired to the same UI approval endpoint."
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kyc.draft.approve_send",
         "required_inputs": [],
@@ -1918,10 +2395,12 @@
       ],
       "risk_level": "medium",
       "execution_policy": "confirm_required",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Requires selected workflow context from /one/kyc."
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kyc.draft.reject",
         "required_inputs": [],
@@ -1993,11 +2472,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one/marketplace"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.one_marketplace",
         "required_inputs": [],
@@ -2066,11 +2547,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.one_agents",
         "required_inputs": [],
@@ -2137,11 +2620,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one/location"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.one_location",
         "required_inputs": [],
@@ -2209,11 +2694,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one/pkm"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.one_pkm",
         "required_inputs": [],
@@ -2275,6 +2762,7 @@
           "/one/setup/location",
           "/one/setup/pkm",
           "/one/setup/consent",
+          "/one/setup/marketplace",
           "/one/setup/connected-systems"
         ],
         "screens": [
@@ -2284,6 +2772,7 @@
           "one_setup_location",
           "one_setup_pkm",
           "one_setup_consent",
+          "one_setup_marketplace",
           "one_setup_connected-systems",
           "one_setup"
         ],
@@ -2295,11 +2784,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "local_handler",
         "target": "setup.capability_continue"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.setup.capability_continue",
         "required_inputs": [],
@@ -2369,11 +2860,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "local_handler",
         "target": "kai.setup.answer_horizon"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kai.setup.answer_horizon",
         "required_inputs": [
@@ -2457,11 +2950,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "local_handler",
         "target": "kai.setup.answer_drawdown"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kai.setup.answer_drawdown",
         "required_inputs": [
@@ -2545,11 +3040,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "local_handler",
         "target": "kai.setup.answer_volatility"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kai.setup.answer_volatility",
         "required_inputs": [
@@ -2606,14 +3103,14 @@
     },
     {
       "id": "kai.setup.launch_dashboard",
-      "label": "Launch Kai Dashboard",
-      "meaning": "Confirms the computed investor persona and completes Kai setup, opening portfolio import.",
+      "label": "Save Finance Preferences",
+      "meaning": "Saves Finance preferences, marks only Finance ready, and returns to the One setup hub without resolving root onboarding.",
       "speaker_persona": "kai",
       "delegate_agent_id": null,
       "aliases": [
-        "launch my dashboard",
+        "save finance preferences",
         "looks good, continue",
-        "finish kai setup"
+        "finish finance setup"
       ],
       "scope": {
         "routes": [
@@ -2633,11 +3130,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "local_handler",
         "target": "kai.setup.launch_dashboard"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.kai.setup.launch_dashboard",
         "required_inputs": [],
@@ -2647,7 +3146,7 @@
           {
             "type": "action",
             "action_id": "kai.setup.launch_dashboard",
-            "label": "Launch Kai Dashboard",
+            "label": "Save Finance Preferences",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/kai",
@@ -2681,6 +3180,81 @@
       ]
     },
     {
+      "id": "onboarding.claim_one",
+      "label": "Claim your One",
+      "meaning": "Continues from One's public welcome screen to sign in and begin setup.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "claim your one",
+        "claim my one",
+        "claim one",
+        "get started",
+        "start with one",
+        "begin with one"
+      ],
+      "scope": {
+        "routes": [
+          "/"
+        ],
+        "screens": [
+          "one_intro"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "onboarding.claim_one"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.onboarding.claim_one",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "onboarding.claim_one",
+            "label": "Claim your One",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/",
+              "screen": "one_intro"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "docs/reference/one/one-voice-onboarding-journey.md"
+      ]
+    },
+    {
       "id": "route.profile",
       "label": "Open Profile",
       "meaning": "Navigates to profile landing route.",
@@ -2705,11 +3279,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "kai_command",
         "target": "profile"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.profile",
         "required_inputs": [],
@@ -2777,11 +3353,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one/gmail"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.profile_gmail_panel",
         "required_inputs": [],
@@ -2850,11 +3428,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one/connected-systems"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.profile_connected_systems",
         "required_inputs": [],
@@ -2922,11 +3502,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/profile/support"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.profile_support_panel",
         "required_inputs": [],
@@ -2994,11 +3576,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/profile/security"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.profile_security_panel",
         "required_inputs": [],
@@ -3066,11 +3650,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one/pkm"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.profile_pkm_agent_lab",
         "required_inputs": [],
@@ -3137,11 +3723,13 @@
       ],
       "risk_level": "medium",
       "execution_policy": "confirm_required",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "submitSupportMessage is local to ProfilePage and not exported to global executor.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.profile.support.submit_message",
         "required_inputs": [],
@@ -3209,11 +3797,13 @@
       ],
       "risk_level": "high",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Only handled by local Switch in ProfilePage.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.profile.marketplace_visibility.toggle",
         "required_inputs": [],
@@ -3280,11 +3870,13 @@
       ],
       "risk_level": "high",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "handleSignOut exists only in ProfilePage and is not bound to voice/global executor.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.profile.sign_out",
         "required_inputs": [],
@@ -3354,11 +3946,13 @@
       ],
       "risk_level": "high",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Delete flow is intentionally local + guarded by dialogs and vault unlock.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.profile.delete_account",
         "required_inputs": [],
@@ -3425,15 +4019,16 @@
       ],
       "risk_level": "medium",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "voice_tool",
         "target": "capture_pkm_memory",
         "params": {
-          "mode": "preview",
-          "direct_save": false
+          "mode": "preview"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.profile.pkm.preview_capture",
         "required_inputs": [],
@@ -3499,19 +4094,17 @@
       },
       "guard_ids": [
         "vault_unlocked",
-        "manual_user_execution"
+        "manual_user_execution",
+        "explicit_user_confirmation"
       ],
       "risk_level": "medium",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
-        "status": "wired",
-        "path": "voice_tool",
-        "target": "capture_pkm_memory",
-        "params": {
-          "mode": "direct_save",
-          "direct_save": true
-        }
+        "status": "unwired",
+        "reason": "Voice may prepare the preview only. PKM persistence requires the visible review card and an owner-confirmed PkmMutationPlanV2."
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.profile.pkm.save_capture",
         "required_inputs": [],
@@ -3554,6 +4147,169 @@
       ]
     },
     {
+      "id": "phone_mandate.select_country",
+      "label": "Choose Country Code",
+      "meaning": "Selects one authored country-code option from the open phone country picker.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "choose country code",
+        "select country",
+        "use this country code"
+      ],
+      "scope": {
+        "routes": [
+          "/register-phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The country picker must be open."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "phone_mandate.select_country"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.phone_mandate.select_country",
+        "required_inputs": [
+          {
+            "name": "country",
+            "prompt": "Which visible country or country code should I choose?",
+            "required": true,
+            "slot": "country"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.select_country",
+            "label": "Choose Country Code",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/register-phone",
+              "screen": "phone_mandate"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ]
+    },
+    {
+      "id": "phone_mandate.close_country_picker",
+      "label": "Close Country Picker",
+      "meaning": "Closes the open country-code picker and returns focus to the country field.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "close country picker",
+        "close country codes",
+        "cancel country selection"
+      ],
+      "scope": {
+        "routes": [
+          "/register-phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The country picker must be open."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "phone_mandate.close_country_picker"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.phone_mandate.close_country_picker",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.close_country_picker",
+            "label": "Close Country Picker",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/register-phone",
+              "screen": "phone_mandate"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ]
+    },
+    {
       "id": "phone_mandate.submit_number",
       "label": "Submit Phone Number",
       "meaning": "Sends a verification code to the phone number the user says.",
@@ -3581,11 +4337,13 @@
       ],
       "risk_level": "medium",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "local_handler",
         "target": "phone_mandate.submit_number"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.phone_mandate.submit_number",
         "required_inputs": [
@@ -3638,7 +4396,7 @@
     {
       "id": "phone_mandate.submit_code",
       "label": "Submit Verification Code",
-      "meaning": "Confirms the verification code sent by SMS and completes phone verification. Stays user-triggered because it settles account security state.",
+      "meaning": "Confirms the six-digit SMS code after an explicit inline confirmation and completes phone verification. The code is sensitive and must never be repeated or retained.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "aliases": [
@@ -3662,18 +4420,27 @@
       },
       "guard_ids": [
         "auth_signed_in",
-        "manual_user_execution"
+        "explicit_user_confirmation"
       ],
       "risk_level": "high",
-      "execution_policy": "manual_only",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
       "execution_hint": {
-        "status": "unwired",
-        "reason": "Completing phone verification changes account security state and must stay user-triggered from the visible code field.",
-        "intended_handler": "local_handler"
+        "status": "wired",
+        "path": "local_handler",
+        "target": "phone_mandate.submit_code"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.phone_mandate.submit_code",
-        "required_inputs": [],
+        "required_inputs": [
+          {
+            "name": "verification_code",
+            "prompt": "Say or type the six-digit code. Spoken codes are processed by the voice service.",
+            "required": true,
+            "slot": "code"
+          }
+        ],
         "input_resolvers": [],
         "slot_schema": {},
         "workflow_steps": [
@@ -3742,11 +4509,13 @@
       ],
       "risk_level": "medium",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/ria/clients"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_clients",
         "required_inputs": [],
@@ -3819,11 +4588,13 @@
       ],
       "risk_level": "medium",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Client workspace routes require a dynamic investor user id from the clicked row.",
         "intended_handler": "router.push"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.clients.open_client_workspace",
         "required_inputs": [],
@@ -3893,11 +4664,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/marketplace"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_marketplace_connect",
         "required_inputs": [],
@@ -3969,11 +4742,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/ria/onboarding"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_onboarding",
         "required_inputs": [],
@@ -4047,11 +4822,13 @@
       ],
       "risk_level": "medium",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Advisor name verification depends on current form state and must be triggered from the visible onboarding control.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.onboarding.verify_name",
         "required_inputs": [],
@@ -4126,11 +4903,13 @@
       ],
       "risk_level": "high",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "RIA verification submission changes persona/profile state and must remain user-triggered on the review screen.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.onboarding.submit_verification",
         "required_inputs": [],
@@ -4205,11 +4984,13 @@
       ],
       "risk_level": "high",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Development-only RIA activation must be clicked intentionally in the onboarding UI.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.onboarding.dev_bypass_verification",
         "required_inputs": [],
@@ -4280,11 +5061,13 @@
       ],
       "risk_level": "medium",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/ria"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_home",
         "required_inputs": [],
@@ -4357,11 +5140,13 @@
       ],
       "risk_level": "medium",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Priority queue item URLs are dynamic screen state and are not safe to execute from the static gateway yet.",
         "intended_handler": "router.push"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.home.open_priority_item",
         "required_inputs": [],
@@ -4432,11 +5217,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/ria/picks"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_picks",
         "required_inputs": [],
@@ -4506,11 +5293,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/ria/picks?source=kai"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.open_source_kai",
         "required_inputs": [],
@@ -4579,11 +5368,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/ria/picks?source=my"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.open_source_my",
         "required_inputs": [],
@@ -4652,11 +5443,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/ria/picks?category=top-picks"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.open_category_top_picks",
         "required_inputs": [],
@@ -4725,11 +5518,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/ria/picks?category=avoid"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.open_category_avoid",
         "required_inputs": [],
@@ -4798,11 +5593,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/ria/picks?category=screening"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.open_category_screening",
         "required_inputs": [],
@@ -4876,11 +5673,13 @@
       ],
       "risk_level": "medium",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "The advisor package editor mutates local draft state and is not exposed as a voice tool.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.start_edit_package",
         "required_inputs": [],
@@ -4955,11 +5754,13 @@
       ],
       "risk_level": "high",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Saving advisor picks writes vault-backed PKM and API state and must stay user-triggered.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.save_package",
         "required_inputs": [],
@@ -5035,11 +5836,13 @@
       ],
       "risk_level": "high",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "CSV file selection and replacement are browser/file-system interactions and must stay manual.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.upload_csv_replace_top_picks",
         "required_inputs": [],
@@ -5114,11 +5917,13 @@
       ],
       "risk_level": "medium",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Copying the Kai package replaces local advisor draft state and must stay user-triggered.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.copy_from_kai",
         "required_inputs": [],
@@ -5190,11 +5995,13 @@
       ],
       "risk_level": "medium",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Discarding draft changes must stay user-triggered.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.discard_package_changes",
         "required_inputs": [],
@@ -5270,11 +6077,13 @@
       ],
       "risk_level": "medium",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Row-level editing requires structured manual input inside the picks editor.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.edit_rows_manual",
         "required_inputs": [],
@@ -5343,11 +6152,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/templates/ria-picks-template.csv"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.picks.download_template",
         "required_inputs": [],
@@ -5390,6 +6201,158 @@
       ]
     },
     {
+      "id": "route.ria_profile",
+      "label": "Open RIA Profile",
+      "meaning": "Opens the advisor's own RIA profile built during onboarding, with view and edit of services, fees, bio, and business location.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "open my ria profile",
+        "view advisor profile",
+        "edit my advisor profile"
+      ],
+      "scope": {
+        "routes": [
+          "/ria/profile"
+        ],
+        "screens": [
+          "ria_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA persona must be provisioned (onboarding complete) before the profile is available."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/profile"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.route.ria_profile",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_profile",
+            "label": "Open RIA Profile",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/profile",
+              "screen": "ria_profile"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/profile/page.tsx"
+      ]
+    },
+    {
+      "id": "ria.profile.edit_services",
+      "label": "Edit RIA services and fees",
+      "meaning": "Opens the profile edit panel to update services, fee structure, minimum engagement, bio, and business location.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "edit my services",
+        "update my fees",
+        "change my business location"
+      ],
+      "scope": {
+        "routes": [
+          "/ria/profile"
+        ],
+        "screens": [
+          "ria_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "ria_profile_edit_panel"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.ria.profile.edit_services",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.profile.edit_services",
+            "label": "Edit RIA services and fees",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/profile",
+              "screen": "ria_profile"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/profile/page.tsx"
+      ]
+    },
+    {
       "id": "route.ria_requests_compat",
       "label": "Open RIA Requests",
       "meaning": "Routes legacy RIA requests links to the consent center.",
@@ -5420,11 +6383,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/ria/requests"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_requests_compat",
         "required_inputs": [],
@@ -5496,11 +6461,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/ria/settings"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_settings_compat",
         "required_inputs": [],
@@ -5573,6 +6540,7 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
@@ -5583,6 +6551,7 @@
           "fallback_target": "/ria/clients"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_workspace_compat",
         "required_inputs": [],
@@ -5660,6 +6629,7 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "voice_tool",
@@ -5668,6 +6638,7 @@
           "delegate_agent_id": "agent_email"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.email.chat.turn",
         "required_inputs": [
@@ -5766,6 +6737,7 @@
       ],
       "risk_level": "medium",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "voice_tool",
@@ -5774,6 +6746,7 @@
           "delegate_agent_id": "agent_location"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.location.chat.turn",
         "required_inputs": [
@@ -5840,7 +6813,7 @@
     {
       "id": "connections.chat.turn",
       "label": "Manage Trusted Connections",
-      "meaning": "Delegates trusted-connection questions and write proposals to the Connections specialist under One.",
+      "meaning": "Delegates trusted-connection questions and write proposals to Nav's Connections subagent through the Consent Center.",
       "speaker_persona": "one",
       "delegate_agent_id": "agent_connections",
       "aliases": [
@@ -5881,6 +6854,7 @@
       ],
       "risk_level": "medium",
       "execution_policy": "confirm_required",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "voice_tool",
@@ -5889,6 +6863,7 @@
           "delegate_agent_id": "agent_connections"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.connections.chat.turn",
         "required_inputs": [
@@ -5984,6 +6959,7 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "voice_tool",
@@ -5992,6 +6968,7 @@
           "delegate_agent_id": "agent_gmail"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.gmail.chat.turn",
         "required_inputs": [
@@ -6087,6 +7064,7 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "voice_tool",
@@ -6095,6 +7073,7 @@
           "delegate_agent_id": "agent_nav"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.consent.chat.turn",
         "required_inputs": [
@@ -6188,6 +7167,7 @@
       ],
       "risk_level": "medium",
       "execution_policy": "confirm_required",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "voice_tool",
@@ -6196,6 +7176,7 @@
           "delegate_agent_id": "agent_connected_systems"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.connected_systems.chat.turn",
         "required_inputs": [
@@ -6259,7 +7240,7 @@
     {
       "id": "marketplace.information.chat.turn",
       "label": "Ask Information Marketplace",
-      "meaning": "Delegates read-only Information Marketplace questions about published data slices, listings, demand, and potential earnings.",
+      "meaning": "Delegates read-only Information Marketplace questions about published information slices, listings, demand, and potential earnings.",
       "speaker_persona": "one",
       "delegate_agent_id": "agent_personal_information",
       "aliases": [
@@ -6281,7 +7262,7 @@
         ],
         "hidden_navigable": true,
         "navigation_prerequisites": [
-          "marketplace data requires vault and marketplace readiness"
+          "marketplace information requires vault and marketplace readiness"
         ]
       },
       "guard_ids": [
@@ -6290,6 +7271,7 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "voice_tool",
@@ -6298,6 +7280,7 @@
           "delegate_agent_id": "agent_personal_information"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.marketplace.information.chat.turn",
         "required_inputs": [
@@ -6393,6 +7376,7 @@
       ],
       "risk_level": "medium",
       "execution_policy": "confirm_required",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "voice_tool",
@@ -6401,6 +7385,7 @@
           "delegate_agent_id": "agent_personal_information"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.marketplace.information.requests.turn",
         "required_inputs": [
@@ -6485,11 +7470,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "kai_command",
         "target": "consent"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.consents",
         "required_inputs": [],
@@ -6561,11 +7548,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "voice_tool",
         "target": "navigate_back"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.back",
         "required_inputs": [],
@@ -6631,11 +7620,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "kai_command",
         "target": "dashboard"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.kai_dashboard",
         "required_inputs": [],
@@ -6692,7 +7683,8 @@
           "/one/kai/import"
         ],
         "screens": [
-          "kai_portfolio_dashboard"
+          "kai_portfolio_dashboard",
+          "import"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
@@ -6700,11 +7692,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "kai_command",
         "target": "import"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.kai_import",
         "required_inputs": [],
@@ -6773,11 +7767,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one/kai/investments"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.kai_investments",
         "required_inputs": [],
@@ -6844,11 +7840,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one/kai/optimize"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.kai_optimize",
         "required_inputs": [],
@@ -6915,11 +7913,13 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "kai_command",
         "target": "home"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.kai_home",
         "required_inputs": [],
@@ -6988,11 +7988,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one/setup/finance"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.setup.open_finance",
         "required_inputs": [],
@@ -7061,11 +8063,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one/setup/gmail"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.setup.open_gmail",
         "required_inputs": [],
@@ -7133,11 +8137,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one/setup/email"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.setup.open_email",
         "required_inputs": [],
@@ -7206,11 +8212,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one/setup/location"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.setup.open_location",
         "required_inputs": [],
@@ -7253,7 +8261,7 @@
       ]
     },
     {
-      "id": "setup.open_personal_data",
+      "id": "setup.open_pkm",
       "label": "Set Up Memory",
       "meaning": "Opens the Memory (PKM) capability setup step from the setup hub.",
       "speaker_persona": "one",
@@ -7261,7 +8269,7 @@
       "aliases": [
         "set up memory",
         "open memory setup",
-        "set up personal data"
+        "set up personal information"
       ],
       "scope": {
         "routes": [
@@ -7279,24 +8287,101 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one/setup/pkm"
       },
+      "external_callback": null,
       "goal": {
-        "goal_id": "goal.setup.open_personal_data",
+        "goal_id": "goal.setup.open_pkm",
         "required_inputs": [],
         "input_resolvers": [],
         "slot_schema": {},
         "workflow_steps": [
           {
             "type": "action",
-            "action_id": "setup.open_personal_data",
+            "action_id": "setup.open_pkm",
             "label": "Set Up Memory",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/pkm",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md"
+      ]
+    },
+    {
+      "id": "setup.open_marketplace",
+      "label": "Explore Information Marketplace",
+      "meaning": "Opens the Information Marketplace explore step from the setup hub.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "explore information marketplace",
+        "open marketplace setup",
+        "set up marketplace"
+      ],
+      "scope": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/marketplace"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.setup.open_marketplace",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.open_marketplace",
+            "label": "Explore Information Marketplace",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/marketplace",
               "screen": "one_setup_hub"
             }
           }
@@ -7352,11 +8437,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one/setup/consent"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.setup.open_consent",
         "required_inputs": [],
@@ -7425,11 +8512,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/one/setup/connected-systems"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.setup.open_connected_systems",
         "required_inputs": [],
@@ -7500,11 +8589,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "local_handler",
         "target": "setup.hub_master_ack"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.setup.hub_master_ack",
         "required_inputs": [],
@@ -7580,11 +8671,13 @@
       ],
       "risk_level": "medium",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Opening a specific account detail requires a dynamic account id selected from the workspace.",
         "intended_handler": "router.push"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_client_account_detail",
         "required_inputs": [],
@@ -7629,7 +8722,7 @@
     },
     {
       "id": "ria.client_account.open_workspace_fallback",
-      "label": "Return To Client Data Explorer",
+      "label": "Return To Client Information Explorer",
       "meaning": "Navigates from an unavailable account detail route back to the client workspace explorer tab.",
       "speaker_persona": "kai",
       "delegate_agent_id": null,
@@ -7659,6 +8752,7 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
@@ -7668,6 +8762,7 @@
           "tab": "explorer"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_account.open_workspace_fallback",
         "required_inputs": [],
@@ -7677,7 +8772,7 @@
           {
             "type": "action",
             "action_id": "ria.client_account.open_workspace_fallback",
-            "label": "Return To Client Data Explorer",
+            "label": "Return To Client Information Explorer",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/ria/clients/[userId]?tab=explorer",
@@ -7742,11 +8837,13 @@
       ],
       "risk_level": "medium",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Opening a specific request detail requires a dynamic request id selected from workspace history.",
         "intended_handler": "router.push"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_client_request_detail",
         "required_inputs": [],
@@ -7821,6 +8918,7 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
@@ -7830,6 +8928,7 @@
           "tab": "access"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_request.open_access_fallback",
         "required_inputs": [],
@@ -7903,6 +9002,7 @@
       ],
       "risk_level": "medium",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
@@ -7911,6 +9011,7 @@
           "requires_client_id": true
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.route.ria_client_workspace",
         "required_inputs": [],
@@ -7986,6 +9087,7 @@
       ],
       "risk_level": "medium",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
@@ -7995,6 +9097,7 @@
           "tab": "overview"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_workspace.open_overview_tab",
         "required_inputs": [],
@@ -8068,6 +9171,7 @@
       ],
       "risk_level": "medium",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
@@ -8077,6 +9181,7 @@
           "tab": "access"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_workspace.open_access_tab",
         "required_inputs": [],
@@ -8152,6 +9257,7 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
@@ -8161,6 +9267,7 @@
           "tab": "kai"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_workspace.open_portfolio_tab",
         "required_inputs": [],
@@ -8204,8 +9311,8 @@
     },
     {
       "id": "ria.client_workspace.open_explorer_tab",
-      "label": "Show Client Data Explorer",
-      "meaning": "Switches the client workspace to the data explorer tab when client data access is ready.",
+      "label": "Show Client Information Explorer",
+      "meaning": "Switches the client workspace to the information explorer tab when client information access is ready.",
       "speaker_persona": "kai",
       "delegate_agent_id": null,
       "aliases": [
@@ -8224,7 +9331,7 @@
         "hidden_navigable": false,
         "navigation_prerequisites": [
           "Client identifier must be known.",
-          "Explorer may be locked until consent approval and data readiness."
+          "Explorer may be locked until consent approval and information readiness."
         ]
       },
       "guard_ids": [
@@ -8236,6 +9343,7 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
@@ -8245,6 +9353,7 @@
           "tab": "explorer"
         }
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_workspace.open_explorer_tab",
         "required_inputs": [],
@@ -8254,7 +9363,7 @@
           {
             "type": "action",
             "action_id": "ria.client_workspace.open_explorer_tab",
-            "label": "Show Client Data Explorer",
+            "label": "Show Client Information Explorer",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/ria/clients/[userId]?tab=explorer",
@@ -8325,11 +9434,13 @@
       ],
       "risk_level": "medium",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Opening a specific account detail requires the clicked account branch id from visible row state.",
         "intended_handler": "router.push"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_workspace.open_account_detail",
         "required_inputs": [],
@@ -8404,11 +9515,13 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
         "path": "route",
         "target": "/consents?tab=pending"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_workspace.open_access_manager",
         "required_inputs": [],
@@ -8489,11 +9602,13 @@
       ],
       "risk_level": "high",
       "execution_policy": "confirm_required",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Sending an access request uses selected scopes, account ids, and client-visible note state and must remain user-triggered.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_workspace.request_access",
         "required_inputs": [],
@@ -8571,11 +9686,13 @@
       ],
       "risk_level": "high",
       "execution_policy": "manual_only",
+      "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
         "reason": "Disconnecting a client relationship is destructive and must remain user-triggered.",
         "intended_handler": "dispatchVoiceToolCall"
       },
+      "external_callback": null,
       "goal": {
         "goal_id": "goal.ria.client_workspace.disconnect_relationship",
         "required_inputs": [],

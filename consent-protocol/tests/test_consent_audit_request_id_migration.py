@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION_NAME = "087_consent_audit_request_id_text.sql"
+MIGRATION_NAME = "093_consent_audit_request_id_text.sql"
 
 
 def test_consent_audit_request_id_migration_is_registered_at_release_head():
@@ -18,5 +18,5 @@ def test_consent_audit_request_id_migration_is_registered_at_release_head():
     assert MIGRATION_NAME in manifest["groups"]["iam"]
 
     contract = json.loads((ROOT / "db" / "contracts" / "uat_integrated_schema.json").read_text())
-    assert contract["expected_migration_version"] == 87
+    assert contract["expected_migration_version"] == 93
     assert contract["migration_version_policy"] == "exact"

@@ -161,3 +161,6 @@ ehthumbs_vista.db
 
 # Machine-local Claude project memory (path is bound to a specific local home dir)
 .claude/projects/
+
+# local scratch space - never commit (may contain credentials/keys)
+/tmp/

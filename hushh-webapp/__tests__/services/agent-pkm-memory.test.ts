@@ -185,6 +185,11 @@ describe("agent PKM memory helpers", () => {
       vaultKey: "vault_key",
       vaultOwnerToken: "vault_token",
       source: "agent_chat",
+      confirmation: {
+        confirmedByUser: true,
+        surface: "chat",
+        source: "agent_chat_review_button",
+      },
     });
 
     expect(result.saved).toBe(1);
@@ -197,5 +202,28 @@ describe("agent PKM memory helpers", () => {
       })
     );
     expect(peekAgentPkmContext({ userId: "user_1", message: "writing" })).toBeNull();
+  });
+
+  it("fails closed when owner confirmation evidence is absent", async () => {
+    const result = await addToPKM({
+      userId: "user_1",
+      cards: [
+        {
+          card_id: "card_1",
+          source_text: "remember this",
+          write_mode: "can_save",
+          target_domain: "preferences",
+          candidate_payload: { writing: { default_style: "concise" } },
+          structure_decision: { target_domain: "preferences" },
+        },
+      ],
+      sourceMessage: "remember this",
+      vaultKey: "vault_key",
+      vaultOwnerToken: "vault_token",
+    } as unknown as Parameters<typeof addToPKM>[0]);
+
+    expect(result.saved).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(pkmSavePreparedDomainMock).not.toHaveBeenCalled();
   });
 });

@@ -930,7 +930,7 @@ _KAI_VOICE_IDENTITY_CONTEXT: dict[str, Any] = {
     "assistant_role": "in_app_voice_interface",
     "role_summary": (
         "Kai is the app-level voice runtime today and Kai is the finance specialist for "
-        "investor workflows. One is the top personal agent direction approved for the "
+        "investor workflows. One is the top private agent direction approved for the "
         "relationship layer, Nav is the privacy and consent guardian, and KYC is the "
         "bounded identity workflow specialist."
     ),

@@ -33,7 +33,7 @@ export function resolveProfileRiaRegulatoryRow(params: {
     return {
       action: "wait",
       title: "Regulatory profile",
-      description: "Checking official license data.",
+      description: "Checking official license information.",
       badge: "Checking",
       disabled: true,
     };
@@ -43,7 +43,7 @@ export function resolveProfileRiaRegulatoryRow(params: {
     return {
       action: "refresh",
       title: "Regulatory profile",
-      description: "Status unavailable. Open to retry official data sync.",
+      description: "Status unavailable. Open to retry official information sync.",
       badge: "Retry",
       disabled: false,
     };
@@ -53,7 +53,7 @@ export function resolveProfileRiaRegulatoryRow(params: {
     return {
       action: "onboarding",
       title: "Regulatory profile",
-      description: "Complete onboarding before syncing official license data.",
+      description: "Complete onboarding before syncing official license information.",
       badge: "Setup",
       disabled: false,
     };
@@ -64,8 +64,8 @@ export function resolveProfileRiaRegulatoryRow(params: {
     action: "refresh",
     title: "Regulatory profile",
     description: licenseNumber
-      ? `Update license data for CRD ${licenseNumber}.`
-      : "Update official license data from your regulator.",
+      ? `Update license information for CRD ${licenseNumber}.`
+      : "Update official license information from your regulator.",
     badge: "Update",
     disabled: false,
   };

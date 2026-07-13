@@ -106,6 +106,14 @@ type AgentLabPreviewCard = {
   candidate_payload?: Record<string, unknown>;
   structure_decision?: Record<string, unknown>;
   manifest_draft?: DomainManifest | null;
+  sharing_impact?: {
+    active_recipient_count: number;
+    recipient_labels: string[];
+    enters_next_export_revision: boolean;
+    summary: string;
+    affected_grant_ids: string[];
+    affected_export_ids: string[];
+  };
 };
 
 type AgentLabResponse = {
@@ -932,6 +940,22 @@ export default function PkmAgentLabPageClient() {
           domain: targetDomain,
           vaultKey,
           vaultOwnerToken,
+          confirmation: {
+            confirmedByUser: true,
+            surface: "web",
+            source: "pkm_agent_lab_save_button",
+            sharingImpactAcknowledged: (card.sharing_impact?.active_recipient_count || 0) > 0,
+            sharingImpact: card.sharing_impact
+              ? {
+                  activeRecipientCount: card.sharing_impact.active_recipient_count,
+                  recipientLabels: card.sharing_impact.recipient_labels,
+                  entersNextExportRevision: card.sharing_impact.enters_next_export_revision,
+                  summary: card.sharing_impact.summary,
+                  affectedGrantIds: card.sharing_impact.affected_grant_ids,
+                  affectedExportIds: card.sharing_impact.affected_export_ids,
+                }
+              : undefined,
+          },
           build: async () => ({
             domainData: candidatePayload,
             summary: {
@@ -1073,7 +1097,7 @@ export default function PkmAgentLabPageClient() {
       />
       <PkmSettingsShell
         eyebrow="Profile / Privacy"
-        title="Your data"
+        title="Your saved details"
         description="See what Kai knows, manage permissions, and explore your encrypted Personal Knowledge Model."
       >
         <SurfaceInset className="space-y-4 px-4 py-4">
@@ -1243,7 +1267,7 @@ export default function PkmAgentLabPageClient() {
                 <SettingsRow
                   key={card.card_id}
                   title={`${titleize(card.target_domain || "general")} capture`}
-                  description={`${String(card.source_text || "").slice(0, 180)}${String(card.source_text || "").length > 180 ? "..." : ""}`}
+                  description={`${String(card.source_text || "").slice(0, 180)}${String(card.source_text || "").length > 180 ? "..." : ""}${card.sharing_impact?.summary ? ` ${card.sharing_impact.summary}` : ""}`}
                   trailing={
                     <Badge variant="secondary">
                       {card.write_mode === "can_save"
@@ -1495,7 +1519,7 @@ export default function PkmAgentLabPageClient() {
             >
               <SettingsRow
                 title="Open explorer"
-                description="Use the advanced explorer accordion on the main page to inspect raw manifests, ciphertext shape, and decrypted domain data."
+                description="Use the advanced explorer accordion on the main page to inspect raw manifests, ciphertext shape, and decrypted domain information."
                 leading={<SlidersHorizontal className="h-4 w-4 text-muted-foreground" />}
               />
             </SettingsGroup>

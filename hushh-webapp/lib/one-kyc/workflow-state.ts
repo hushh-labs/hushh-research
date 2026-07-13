@@ -56,9 +56,9 @@ function friendlyScopeLabel(scope: string): string {
     .map((part) => part.trim())
     .filter(Boolean)
     .filter((part) => part !== "attr" && part !== "*");
-  if (!parts.length) return "Selected data";
+  if (!parts.length) return "Selected information";
   const text = parts.join(" ").replaceAll("_", " ");
-  return `${text.charAt(0).toUpperCase()}${text.slice(1)} data`;
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)} information`;
 }
 
 export function detectedDomains(workflow: OneKycWorkflow): string[] {
@@ -68,24 +68,6 @@ export function detectedDomains(workflow: OneKycWorkflow): string[] {
   if (fromCandidates.length) return Array.from(new Set(fromCandidates));
   const metadata = workflow.metadata?.detected_domains;
   return Array.isArray(metadata) ? metadata.map(String) : [];
-}
-
-function selectedDefaultAvailableCandidates(workflow: OneKycWorkflow): OneKycScopeCandidate[] {
-  const selected = new Set(selectedScopesForWorkflow(workflow, {}));
-  if (!selected.size) return [];
-  return scopeCandidates(workflow).filter(
-    (candidate) =>
-      selected.has(candidate.scope) &&
-      candidate.visibility_posture === "default_available" &&
-      candidate.default_projection_ready === true
-  );
-}
-
-function allSelectedScopesAreDefaultAvailable(workflow: OneKycWorkflow): boolean {
-  const selected = selectedScopesForWorkflow(workflow, {});
-  if (!selected.length) return false;
-  const ready = selectedDefaultAvailableCandidates(workflow);
-  return ready.length === selected.length;
 }
 
 export function isKycClientDraftReady(workflow: OneKycWorkflow): boolean {
@@ -103,7 +85,6 @@ function metadataArray(workflow: OneKycWorkflow, key: string): unknown[] {
 
 export function hasApprovedKycWorkflowAccess(workflow: OneKycWorkflow): boolean {
   if (isKycClientDraftReady(workflow)) return true;
-  if (allSelectedScopesAreDefaultAvailable(workflow)) return true;
   const consentRequests = workflow.consent_requests || [];
   if (
     consentRequests.length > 0 &&

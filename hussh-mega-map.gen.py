@@ -66,7 +66,7 @@ LAYERS_ALL=[
  ]),
  ("INTELLIGENCE · AGENTS","AGENT","reason, debate, delegate & act inside scoped authority — never raw keys",[
    ("Hermes (Nous)","agent runtime","the runtime One runs on","one runtime, many surfaces","streaming loop + tools + MCP","powers One / Kai / Nav","appr",[1,9]),
-   ("Agent ONE","orchestrator agent","the top personal agent","one mind that coordinates","Listen·Remember·Decide·Act","routes to specialists","appr",[1]),
+   ("Agent ONE","orchestrator agent","the top private agent","one mind that coordinates","Listen·Remember·Decide·Act","routes to specialists","appr",[1]),
    ("Nav","guardian agent","privacy / consent guardian","enforce scope, reserve, deletion","validates every request + bid","blocks over-broad asks","appr",[7,12]),
    ("Kai · Google ADK","finance specialist","shipped finance agent","real investing help","ADK runtime + tools","analyze one stock","ship",[4]),
    ("AlphaAgents → broker","execution engine","debate → DecisionCard → trade","reasoned calls, not hype","3-agent debate + Renaissance","Buy/Hold/Reduce","appr",[4]),

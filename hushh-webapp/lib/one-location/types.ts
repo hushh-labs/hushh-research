@@ -342,6 +342,14 @@ export type DriveDestination = {
   placeId?: string | null;
 };
 
+export type TrafficLevel = "light" | "moderate" | "heavy";
+
+export type RouteEta = {
+  etaSeconds: number;
+  distanceMeters: number;
+  trafficLevel?: TrafficLevel | null;
+};
+
 /**
  * Drive-To payload carried INSIDE the encrypted envelope (never sent to the
  * backend in plaintext). Recipients decrypt the point and read destination +

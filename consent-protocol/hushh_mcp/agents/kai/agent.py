@@ -49,7 +49,7 @@ class KaiAgent(HushhAgent):
         )
         self.manifest = manifest
 
-    def handle_message(
+    async def handle_message(
         self, message: str, user_id: UserID, consent_token: str = ""
     ) -> Dict[str, Any]:
         """
@@ -58,10 +58,14 @@ class KaiAgent(HushhAgent):
         try:
             # Execute ADK run
             # Note: For long running analysis, we might want to stream or notify
-            response = self.run(message, user_id=user_id, consent_token=consent_token)
+            response = await self.run_turn(
+                message,
+                user_id=user_id,
+                consent_token=consent_token,
+            )
 
             return {
-                "response": response.text if hasattr(response, "text") else str(response),
+                "response": str(response),
                 "is_complete": True,
             }
 

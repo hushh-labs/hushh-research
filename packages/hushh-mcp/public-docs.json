@@ -5,10 +5,10 @@
   "tokenEnvVar": "HUSHH_DEVELOPER_TOKEN",
   "promotedEnvironment": {
     "label": "UAT",
-    "appUrl": "https://uat.kai.hushh.ai",
+    "appUrl": "https://uat.one.hushh.ai",
     "apiOrigin": "https://api.uat.hushh.ai",
     "mcpUrl": "https://api.uat.hushh.ai/mcp",
-    "remoteUrlTemplate": "https://api.uat.hushh.ai/mcp/?token=<developer-token>"
+    "remoteUrlTemplate": "https://api.uat.hushh.ai/mcp/"
   },
   "publicTools": [
     "prepare_campaign_context",
@@ -31,15 +31,15 @@
       "id": "generic-remote",
       "title": "Generic mcpServers JSON",
       "whenToUse": "your host supports HTTP MCP directly.",
-      "secretNote": "Keep the developer token machine-local and never commit host config with inline credentials.",
-      "template": "{\n  \"mcpServers\": {\n    \"hushh-consent\": {\n      \"url\": \"{{REMOTE_URL}}\"\n    }\n  }\n}"
+      "secretNote": "Keep the developer token machine-local and send it only in the Authorization header.",
+      "template": "{\n  \"mcpServers\": {\n    \"hushh-consent\": {\n      \"url\": \"{{REMOTE_URL}}\",\n      \"headers\": {\n        \"Authorization\": \"Bearer <developer-token>\"\n      }\n    }\n  }\n}"
     },
     {
       "id": "codex-remote",
       "title": "Codex remote setup",
       "whenToUse": "Codex should connect to the hosted UAT MCP endpoint directly.",
-      "secretNote": "This writes a machine-local Codex config entry that contains the full query-token URL.",
-      "template": "codex mcp add hushh_consent --url \"{{REMOTE_URL}}\""
+      "secretNote": "Configure the Authorization bearer header in the host secret store; never put the token in the URL.",
+      "template": "codex mcp add hushh_consent --url \"{{REMOTE_URL}}\" --bearer-token-env-var HUSHH_DEVELOPER_TOKEN"
     },
     {
       "id": "codex-stdio",
@@ -66,14 +66,14 @@
       "id": "cursor-vscode",
       "title": "Cursor / VS Code remote JSON",
       "whenToUse": "your editor host understands mcpServers JSON and can call remote MCP directly.",
-      "secretNote": "The URL contains the token today, so keep the config file local.",
-      "template": "{\n  \"mcpServers\": {\n    \"hushh-consent-remote\": {\n      \"url\": \"{{REMOTE_URL}}\"\n    }\n  }\n}"
+      "secretNote": "Keep the bearer token in the host secret store; query-string authentication is rejected.",
+      "template": "{\n  \"mcpServers\": {\n    \"hushh-consent-remote\": {\n      \"url\": \"{{REMOTE_URL}}\",\n      \"headers\": {\n        \"Authorization\": \"Bearer <developer-token>\"\n      }\n    }\n  }\n}"
     },
     {
       "id": "raw-remote-url",
       "title": "Raw remote MCP URL",
       "whenToUse": "your host only asks for the MCP endpoint URL.",
-      "secretNote": "Use the exact slash-safe mount shape.",
+      "secretNote": "Use the exact slash-safe mount shape and configure Authorization: Bearer <developer-token> separately.",
       "template": "{{REMOTE_URL}}"
     }
   ]

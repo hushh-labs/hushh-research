@@ -112,6 +112,12 @@ async def create_vault_keys(pool: asyncpg.Pool):
             setup_capability_ids TEXT,
             setup_capabilities_updated_at BIGINT,
             setup_state_updated_at BIGINT,
+            onboarding_journey_version INTEGER,
+            onboarding_phase TEXT,
+            onboarding_active_capability TEXT,
+            onboarding_resume_route TEXT,
+            onboarding_callback_state TEXT,
+            onboarding_journey_updated_at BIGINT,
             created_at BIGINT NOT NULL,
             updated_at BIGINT NOT NULL,
             CONSTRAINT vault_keys_placeholder_integrity_check CHECK (
@@ -182,7 +188,13 @@ async def create_vault_keys(pool: asyncpg.Pool):
           ADD COLUMN IF NOT EXISTS nav_setup_skipped_at BIGINT,
           ADD COLUMN IF NOT EXISTS setup_capability_ids TEXT,
           ADD COLUMN IF NOT EXISTS setup_capabilities_updated_at BIGINT,
-          ADD COLUMN IF NOT EXISTS setup_state_updated_at BIGINT
+          ADD COLUMN IF NOT EXISTS setup_state_updated_at BIGINT,
+          ADD COLUMN IF NOT EXISTS onboarding_journey_version INTEGER,
+          ADD COLUMN IF NOT EXISTS onboarding_phase TEXT,
+          ADD COLUMN IF NOT EXISTS onboarding_active_capability TEXT,
+          ADD COLUMN IF NOT EXISTS onboarding_resume_route TEXT,
+          ADD COLUMN IF NOT EXISTS onboarding_callback_state TEXT,
+          ADD COLUMN IF NOT EXISTS onboarding_journey_updated_at BIGINT
         """
     )
     print("✅ vault_keys ready!")

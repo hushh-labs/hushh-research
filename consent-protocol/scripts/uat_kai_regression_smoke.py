@@ -1794,7 +1794,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--push-body", default="Browser delivery validation")
     parser.add_argument(
         "--request-url",
-        default="https://uat.kai.hushh.ai/consents?tab=pending",
+        default="https://uat.one.hushh.ai/consents?tab=pending",
     )
     parser.add_argument(
         "--notification-tag",

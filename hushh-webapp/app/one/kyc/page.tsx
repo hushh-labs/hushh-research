@@ -227,7 +227,7 @@ function dataLabelForCandidate(candidate: OneKycScopeCandidate): string {
       .replaceAll("_", " ");
     return `${titleCase(pieces)} data`;
   }
-  return "Selected data";
+  return "Selected information";
 }
 
 function titleCase(value: string): string {
@@ -369,7 +369,7 @@ function OneKycWorkspace() {
     presentation: PkmSectionPreviewPresentation | null;
   }>({
     open: false,
-    title: "Shared data",
+    title: "Shared information",
     description: "Review what this request can use.",
     loading: false,
     error: null,
@@ -763,51 +763,9 @@ function OneKycWorkspace() {
             }),
           })),
         );
-        const exportedScopes = new Set(
-          exportPayloads
-            .map((item) => item.scope)
-            .filter((scope): scope is string => Boolean(scope)),
-        );
-        const selectedScopes = new Set(
-          selectedScopesForWorkflow(selected, selectedScopesByWorkflow),
-        );
-        const defaultAvailablePayloads = await Promise.all(
-          scopeCandidates(selected)
-            .filter(
-              (candidate) =>
-                selectedScopes.has(candidate.scope) &&
-                !exportedScopes.has(candidate.scope) &&
-                candidate.visibility_posture === "default_available" &&
-                candidate.default_projection_ready === true,
-            )
-            .map(async (candidate) => {
-              const parsed = parseAttrScope(candidate.scope);
-              const domain = candidate.domain || parsed?.domain;
-              if (!domain) {
-                throw new Error("One could not resolve the selected data section.");
-              }
-              const topLevelScopePath =
-                candidate.path || parsed?.topLevelScopePath || undefined;
-              const payload = await PersonalKnowledgeModelService.loadDomainData({
-                userId,
-                domain,
-                vaultKey,
-                vaultOwnerToken,
-                segmentIds: topLevelScopePath ? [topLevelScopePath] : undefined,
-              });
-              if (!payload) {
-                throw new Error("One could not load the selected saved data.");
-              }
-              return {
-                scope: candidate.scope,
-                payload,
-              };
-            }),
-        );
-        const draftPayloads: Array<{ scope?: string | null; payload: Record<string, unknown> }> = [
-          ...exportPayloads,
-          ...defaultAvailablePayloads,
-        ];
+        // Private KYC draft context is exclusively sourced from exact approved
+        // encrypted exports. Public-profile resources never authorize PKM reads.
+        const draftPayloads: Array<{ scope?: string | null; payload: Record<string, unknown> }> = exportPayloads;
         const draft = await OneKycClientZkService.buildDraft({
           workflow: selected,
           exportPayloads: draftPayloads,
@@ -1190,7 +1148,7 @@ function OneKycWorkspace() {
       );
       if (!selectedScopes.length) {
         throw new Error(
-          "Choose at least one data type before approving access.",
+          "Choose at least one information type before approving access.",
         );
       }
       const next = await OneKycService.selectScopes({
@@ -1268,7 +1226,7 @@ function OneKycWorkspace() {
           toast.success("Access approved. Preparing draft.");
         } else if (refreshed.status === "needs_documents") {
           toast.info(
-            "Access approved. More data is needed before One can draft.",
+            "Access approved. More information is needed before One can draft.",
           );
         }
       } catch (err) {
@@ -1338,7 +1296,7 @@ function OneKycWorkspace() {
         selectedScopesByWorkflow,
       );
       if (!selectedScopes.length) {
-        setError("Choose the data One should use for this reply.");
+        setError("Choose the information One should use for this reply.");
         return;
       }
       setBusy("refresh");
@@ -1358,7 +1316,7 @@ function OneKycWorkspace() {
           toast.info("Information updated. Approve access to prepare the draft.");
         }
       } catch (err) {
-        setError(oneKycErrorMessage(err, "Unable to update selected data."));
+        setError(oneKycErrorMessage(err, "Unable to update selected information."));
       } finally {
         setBusy(null);
       }
@@ -1420,12 +1378,12 @@ function OneKycWorkspace() {
       description?: string;
     }) => {
       if (!auth.userId || !vaultKey || !vaultOwnerToken) {
-        setError("Unlock your vault to preview saved data.");
+        setError("Unlock your vault to preview saved information.");
         return;
       }
       const parsed = parseAttrScope(candidate.scope);
       if (!parsed) {
-        setError("This data section could not be previewed.");
+        setError("This information section could not be previewed.");
         return;
       }
       const title = dataLabelForCandidate(candidate);
@@ -1471,7 +1429,7 @@ function OneKycWorkspace() {
           error:
             previewError instanceof Error
               ? previewError.message
-              : "Could not load saved data for this section.",
+              : "Could not load saved information for this section.",
           presentation: null,
         });
       }
@@ -1534,7 +1492,7 @@ function OneKycWorkspace() {
         <PageHeader
           eyebrow="One"
           title="Email"
-          description="Review emails that ask for your data, choose what to share, and send replies only after you approve."
+          description="Review emails that ask for your personal information, choose what to share, and send replies only after you approve."
           icon={ShieldCheck}
           accent="neutral"
           actions={
@@ -1759,7 +1717,7 @@ function OneKycWorkspace() {
                     <SettingsRow
                       icon={CheckCircle2}
                       title="Access ready"
-                      description="One can use the selected data for this reply."
+                      description="One can use the selected information for this reply."
                       trailing={<Badge variant="secondary">Approved</Badge>}
                       stackTrailingOnMobile
                     />
@@ -1936,7 +1894,7 @@ function OneKycWorkspace() {
               ) : null}
 
               {selected.status === "needs_documents" ? (
-                <SettingsGroup embedded title="Missing data">
+                <SettingsGroup embedded title="Missing information">
                   <SettingsRow
                     icon={AlertTriangle}
                     title="Additional details needed"
@@ -2140,11 +2098,11 @@ function OneKycWorkspace() {
           desktopMaxWidth="min(860px, calc(100vw - 3rem))"
         >
           {scopePreview.loading ? (
-            <SettingsGroup embedded title="Loading saved data">
+            <SettingsGroup embedded title="Loading saved information">
               <SettingsRow
                 icon={RefreshCw}
                 title="Checking your vault"
-                description="Loading the saved values for this data section."
+                description="Loading the saved values for this information section."
                 trailing={<Loader2 className="size-4 animate-spin text-muted-foreground" />}
                 stackTrailingOnMobile
               />
@@ -2153,14 +2111,14 @@ function OneKycWorkspace() {
             <SettingsGroup embedded title="Preview unavailable">
               <SettingsRow
                 icon={AlertTriangle}
-                title="Could not load saved data"
+                title="Could not load saved information"
                 description={scopePreview.error}
               />
             </SettingsGroup>
           ) : scopePreview.presentation ? (
             <PkmSectionPreview presentation={scopePreview.presentation} />
           ) : (
-            <SettingsGroup embedded title="No saved data">
+            <SettingsGroup embedded title="Nothing saved yet">
               <SettingsRow
                 icon={Eye}
                 title="Nothing to preview yet"
@@ -2396,10 +2354,10 @@ function errorMessage(value: unknown): string {
 function oneKycErrorMessage(value: unknown, fallback: string): string {
   const code = apiErrorCode(value);
   if (code === "ONE_KYC_EXPORT_SCOPE_MISMATCH") {
-    return "One is refreshing the approved data for this request. Sync again in a moment.";
+    return "One is refreshing the approved information for this request. Sync again in a moment.";
   }
   if (code === "ONE_KYC_EXPORT_NOT_CURRENT" || code === "ONE_KYC_EXPORT_UNAVAILABLE") {
-    return "The approved data is still being prepared. Sync this request again in a moment.";
+    return "The approved information is still being prepared. Sync this request again in a moment.";
   }
   return value instanceof Error && value.message ? value.message : fallback;
 }

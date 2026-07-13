@@ -58,7 +58,8 @@ export type InvestorKaiActionWiring =
   | {
       status: "unwired";
       reason: string;
-      intendedHandler?: "executeKaiCommand" | "dispatchVoiceToolCall" | "router.push" | "local_handler";
+      /** Descriptive only; execution remains blocked while status is unwired. */
+      intendedHandler?: string;
     }
   | {
       status: "dead";
@@ -140,7 +141,7 @@ function describeGuard(guardId: string): string {
     case "vault_unlocked":
       return "Vault must be unlocked.";
     case "portfolio_required":
-      return "Portfolio data must already exist.";
+      return "Portfolio information must already exist.";
     case "analysis_idle_required":
       return "Analysis must be idle first.";
     case "active_analysis_required":
@@ -171,13 +172,7 @@ function toWiring(executionTarget: KaiActionExecutionTarget): InvestorKaiActionW
     return {
       status: "unwired",
       reason: executionTarget.reason,
-      intendedHandler:
-        executionTarget.intended_handler === "executeKaiCommand" ||
-        executionTarget.intended_handler === "dispatchVoiceToolCall" ||
-        executionTarget.intended_handler === "router.push" ||
-        executionTarget.intended_handler === "local_handler"
-          ? executionTarget.intended_handler
-          : undefined,
+      intendedHandler: executionTarget.intended_handler || undefined,
     };
   }
 

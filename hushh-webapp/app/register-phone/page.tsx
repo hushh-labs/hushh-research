@@ -24,8 +24,10 @@ import {
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { shouldBypassPhoneMandateForLocalhost } from "@/lib/services/phone-mandate-service";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { resolvePostPhoneOnboardingPhase } from "@/lib/onboarding/onboarding-journey-phase";
 
 function requiresVaultUnlockForRedirect(path?: string | null): boolean {
   const normalizedPath = String(path ?? "").trim();
@@ -87,6 +89,24 @@ function PhoneMandatePageContent() {
         phoneNumber: activeUser.phoneNumber,
         phoneVerified: AccountIdentityService.hasVerifiedPhone(identity),
         hostname: window.location.hostname,
+      });
+      const setupResolved = await PreVaultUserStateService.bootstrapState(activeUser.uid, {
+        force: true,
+      })
+        .then((state) => PreVaultUserStateService.isSetupResolved(state))
+        .catch((error) => {
+          console.warn("[RegisterPhonePage] Failed to refresh setup state:", error);
+          return false;
+        });
+      await PreVaultUserStateService.syncOnboardingJourney({
+        userId: activeUser.uid,
+        // A destination is never proof that root onboarding resolved. Only the
+        // hub's durable Finish/Skip write can move the journey to completion.
+        phase: resolvePostPhoneOnboardingPhase(setupResolved),
+        activeCapability: null,
+        callbackState: "none",
+      }).catch((error) => {
+        console.warn("[RegisterPhonePage] Failed to persist phone journey settlement:", error);
       });
       router.replace(nextPath);
     },

@@ -102,6 +102,13 @@ export function VaultProvider({ children }: VaultProviderProps) {
   const [vaultOwnerToken, setVaultOwnerToken] = useState<string | null>(null);
   const [tokenExpiresAt, setTokenExpiresAt] = useState<number | null>(null);
   const lastUpgradeKickoffKeyRef = useRef<string | null>(null);
+  // Mirror of tokenExpiresAt so the app-resume listener can read the latest
+  // expiry without re-subscribing every time the token changes.
+  const tokenExpiresAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    tokenExpiresAtRef.current = tokenExpiresAt;
+  }, [tokenExpiresAt]);
+
 
   const lockVault = useCallback(() => {
     resetSessionUnlocked();
@@ -153,10 +160,61 @@ export function VaultProvider({ children }: VaultProviderProps) {
     }
   }, [user, vaultKey, lockVault]);
 
+  // App-resume expiry guard (iOS/Android + web). Proactively lock when the
+  // memory-only VAULT_OWNER token has reached its known expiry. Other backend
+  // validation failures are handled by ApiService's shared web/native response
+  // path, which requests the same fail-closed re-unlock flow.
+  useEffect(() => {
+    let removeListener: (() => void) | null = null;
+    let cancelled = false;
+
+    const relockIfTokenExpired = () => {
+      const expiresAt = tokenExpiresAtRef.current;
+      // Only act when a token exists AND is actually past expiry. A missing
+      // token means the vault is already locked (guard handles it).
+      if (expiresAt !== null && Date.now() >= expiresAt) {
+        console.warn(
+          "🔒 [VaultProvider] VAULT_OWNER token expired while backgrounded — locking to prompt re-unlock.",
+        );
+        lockVault();
+      }
+    };
+
+    if (Capacitor.isNativePlatform()) {
+      void import("@capacitor/app")
+        .then(({ App }) => App.addListener("appStateChange", ({ isActive }) => {
+          if (isActive) relockIfTokenExpired();
+        }))
+        .then((handle) => {
+          if (cancelled) {
+            void handle.remove();
+            return;
+          }
+          removeListener = () => void handle.remove();
+        })
+        .catch((error) => {
+          console.warn("[VaultProvider] Failed to register app-resume expiry guard:", error);
+        });
+    } else if (typeof document !== "undefined") {
+      const onVisible = () => {
+        if (document.visibilityState === "visible") relockIfTokenExpired();
+      };
+      document.addEventListener("visibilitychange", onVisible);
+      removeListener = () =>
+        document.removeEventListener("visibilitychange", onVisible);
+    }
+
+    return () => {
+      cancelled = true;
+      if (removeListener) removeListener();
+    };
+  }, [lockVault]);
+
   // Listen for vault-lock-requested events (e.g., when VAULT_OWNER token is revoked)
   useEffect(() => {
     const handleLockRequest = (event: Event) => {
       const customEvent = event as CustomEvent<{ reason: string }>;
+
       console.log(
         `🔒 [VaultProvider] Lock requested: ${customEvent.detail?.reason}`
       );
@@ -403,7 +461,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
 
   const getVaultOwnerToken = useCallback(() => {
     // Check expiry
-    if (tokenExpiresAt && Date.now() > tokenExpiresAt) {
+    if (tokenExpiresAt && Date.now() >= tokenExpiresAt) {
       console.warn("⚠️ VAULT_OWNER token expired");
       return null;
     }

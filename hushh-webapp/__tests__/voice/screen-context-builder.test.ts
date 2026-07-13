@@ -192,6 +192,82 @@ describe("buildStructuredScreenContext", () => {
     expect(analysisContext.ui.active_section).toBe("history");
   });
 
+  it("publishes the root claim control as the generated action available on one_intro", () => {
+    window.history.pushState({}, "", "/");
+    publishVoiceSurfaceMetadata("test_surface", {
+      screenId: "one_intro",
+      title: "Claim your One",
+      purpose: "Continue to sign in and begin setting up One.",
+      actions: [
+        {
+          id: "onboarding_claim_one",
+          actionId: "onboarding.claim_one",
+          label: "Claim your One",
+        },
+      ],
+      controls: [
+        {
+          id: "onboarding_claim_one",
+          actionId: "onboarding.claim_one",
+          label: "Claim your One",
+          type: "button",
+        },
+      ],
+    });
+
+    const snapshot = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/", "one_intro"),
+    });
+
+    expect(snapshot.route.screen).toBe("one_intro");
+    expect(snapshot.available_action_ids).toContain("onboarding.claim_one");
+    expect(snapshot.available_action_ids).not.toContain("onboarding_claim_one");
+  });
+
+  it("admits only the Login actions whose authored controls are currently visible", () => {
+    window.history.pushState({}, "", "/login");
+    publishVoiceSurfaceMetadata("test_surface", {
+      screenId: "login",
+      controls: [
+        {
+          id: "auth_terms",
+          actionId: "auth.open_terms",
+          label: "Terms",
+        },
+        {
+          id: "auth_privacy",
+          actionId: "auth.open_privacy",
+          label: "Privacy Policy",
+        },
+      ],
+    });
+
+    const closedDialog = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/login", "login"),
+    });
+    expect(closedDialog.available_action_ids).toEqual(
+      expect.arrayContaining(["auth.open_terms", "auth.open_privacy"]),
+    );
+    expect(closedDialog.available_action_ids).not.toContain("auth.close_legal");
+
+    publishVoiceSurfaceMetadata("test_surface", {
+      screenId: "login",
+      controls: [
+        {
+          id: "auth_close_legal",
+          actionId: "auth.close_legal",
+          label: "Close legal document",
+        },
+      ],
+      modalState: "legal_terms",
+    });
+    const openDialog = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/login", "login"),
+    });
+    expect(openDialog.available_action_ids).toContain("auth.close_legal");
+    expect(openDialog.available_action_ids).not.toContain("auth.open_terms");
+  });
+
   it("collects visible modules from DOM attributes", () => {
     window.history.pushState({}, "", "/profile?tab=account");
     document.body.innerHTML = `
@@ -916,6 +992,32 @@ describe("buildStructuredScreenContext", () => {
     expect(snapshot.privacy.redacted).toBe(true);
     expect(JSON.stringify(snapshot)).not.toContain("user_1");
     expect(JSON.stringify(snapshot)).not.toContain("portfolio_data_user_1");
+  });
+
+  it("carries only bounded onboarding progress into the live snapshot", () => {
+    const snapshot = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/one/setup/kai", "one_setup"),
+      onboarding: {
+        phase: "capability_setup",
+        activeCapability: "finance",
+        rootResolved: false,
+        returnRoute: "/one/setup?unsafe=ignored",
+        phoneVerified: true,
+        callbackState: "succeeded",
+        setupCapabilityIds: ["finance", "finance"],
+      },
+    });
+
+    expect(snapshot.onboarding).toEqual({
+      phase: "capability_setup",
+      active_capability: "finance",
+      root_resolved: false,
+      return_route: "/one/setup",
+      phone_verified: true,
+      callback_state: "succeeded",
+      setup_capability_ids: ["finance"],
+    });
+    expect(JSON.stringify(snapshot.onboarding)).not.toContain("unsafe");
   });
 
   it("keeps structured context shape while attaching One Voice metadata", () => {

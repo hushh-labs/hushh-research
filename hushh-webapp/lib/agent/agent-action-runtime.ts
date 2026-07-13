@@ -1,6 +1,11 @@
 import { executeKaiCommand } from "@/lib/kai/command-executor";
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
-import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
+import {
+  resolveLocalOnboardingHandler,
+  waitForLocalOnboardingHandler,
+  type LocalOnboardingActionContext,
+  type LocalOnboardingActionResult,
+} from "@/lib/agent/local-onboarding-actions";
 import { buildConnectedSystemRoute } from "@/lib/navigation/routes";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import type { Persona } from "@/lib/services/ria-service";
@@ -39,13 +44,16 @@ export type ExecuteAgentGatewayActionInput = {
   busyOperations: Record<string, boolean>;
   setAnalysisParams: (params: AnalysisParams | null) => void;
   switchPersona?: (target: Persona) => Promise<unknown>;
+  executionContext?: LocalOnboardingActionContext;
 };
 
 function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function buildResult(input: Partial<AgentActionRuntimeResult>): AgentActionRuntimeResult {
+function buildResult(
+  input: Partial<AgentActionRuntimeResult>,
+): AgentActionRuntimeResult {
   return {
     status: input.status || "failed",
     actionId: input.actionId ?? null,
@@ -60,7 +68,188 @@ function buildResult(input: Partial<AgentActionRuntimeResult>): AgentActionRunti
   };
 }
 
-function storeConnectedSystemInstruction(actionId: string, slots: Record<string, unknown>) {
+function buildLocalHandlerResult(input: {
+  actionId: string;
+  label: string;
+  routeBefore: AppRuntimeState["route"];
+  goalId: string;
+  handlerResult: LocalOnboardingActionResult;
+}): AgentActionRuntimeResult {
+  return buildResult({
+    status:
+      input.handlerResult.status === "started"
+        ? "started"
+        : input.handlerResult.status === "succeeded"
+          ? "succeeded"
+          : input.handlerResult.status === "blocked"
+            ? "blocked"
+            : "failed",
+    actionId: input.actionId,
+    label: input.label,
+    routeBefore: input.routeBefore.pathname,
+    screenBefore: input.routeBefore.screen,
+    resultSummary: input.handlerResult.summary,
+    data: { ...(input.handlerResult.data || {}), goal_id: input.goalId },
+  });
+}
+
+/**
+ * Run an action that must consume the current browser activation.
+ *
+ * This function intentionally is not async. All contract and availability
+ * checks are synchronous, and the mounted handler is invoked before the first
+ * promise boundary so Firebase can open its provider popup from the Agent Bar
+ * tap. The returned promise represents the provider's eventual settlement.
+ */
+export function executeTrustedActivationGatewayAction(
+  input: ExecuteAgentGatewayActionInput,
+): Promise<AgentActionRuntimeResult> {
+  const routeBefore = input.appRuntimeState.route;
+  const action = getKaiActionById(input.actionId);
+  if (!action) {
+    return Promise.resolve(
+      buildResult({
+        status: "invalid",
+        actionId: input.actionId,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary: "Agent could not find that action.",
+        reason: "missing_action",
+      }),
+    );
+  }
+  if (action.activation_policy !== "trusted_activation_required") {
+    return Promise.resolve(
+      buildResult({
+        status: "invalid",
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary: "That action does not use trusted browser activation.",
+        reason: "activation_policy_mismatch",
+      }),
+    );
+  }
+  const availability = evaluateKaiActionAvailability({
+    action,
+    appRuntimeState: input.appRuntimeState,
+    surfaceMetadata: input.surfaceMetadata,
+  });
+  if (availability.status !== "available") {
+    return Promise.resolve(
+      buildResult({
+        status: "blocked",
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary:
+          availability.blocked_guidance ||
+          availability.reason ||
+          "That action is not available right now.",
+        reason: availability.status,
+      }),
+    );
+  }
+  if (
+    action.execution_target.status !== "wired" ||
+    action.execution_target.path !== "local_handler"
+  ) {
+    return Promise.resolve(
+      buildResult({
+        status: "invalid",
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary: "That browser action is not wired to a mounted control.",
+        reason: "trusted_activation_target_invalid",
+      }),
+    );
+  }
+  if (
+    typeof navigator !== "undefined" &&
+    navigator.userActivation &&
+    !navigator.userActivation.isActive
+  ) {
+    return Promise.resolve(
+      buildResult({
+        status: "blocked",
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary: `Tap ${action.label} again to open the secure provider window.`,
+        reason: "trusted_activation_missing",
+      }),
+    );
+  }
+  const handler = resolveLocalOnboardingHandler(action.action_id);
+  if (!handler) {
+    return Promise.resolve(
+      buildResult({
+        status: "blocked",
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary: `${action.label} isn't mounted on this screen right now.`,
+        reason: "local_handler_not_mounted",
+      }),
+    );
+  }
+
+  try {
+    // Do not move this invocation behind an await or timer. It owns the trusted
+    // Agent Bar tap that Firebase requires to create the popup.
+    const settlement = handler(input.slots || {}, input.executionContext);
+    return Promise.resolve(settlement)
+      .then((handlerResult) =>
+        buildLocalHandlerResult({
+          actionId: action.action_id,
+          label: action.label,
+          routeBefore,
+          goalId: action.goal.goal_id,
+          handlerResult,
+        }),
+      )
+      .catch((error: unknown) =>
+        buildResult({
+          status: "failed",
+          actionId: action.action_id,
+          label: action.label,
+          routeBefore: routeBefore.pathname,
+          screenBefore: routeBefore.screen,
+          resultSummary:
+            error instanceof Error && error.message
+              ? error.message
+              : `${action.label} failed to run.`,
+          reason: "local_handler_error",
+        }),
+      );
+  } catch (error) {
+    return Promise.resolve(
+      buildResult({
+        status: "failed",
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary:
+          error instanceof Error && error.message
+            ? error.message
+            : `${action.label} failed to run.`,
+        reason: "local_handler_error",
+      }),
+    );
+  }
+}
+
+function storeConnectedSystemInstruction(
+  actionId: string,
+  slots: Record<string, unknown>,
+) {
   if (typeof window === "undefined") return null;
   const instructionId = `crm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   try {
@@ -70,7 +259,7 @@ function storeConnectedSystemInstruction(actionId: string, slots: Record<string,
         actionId,
         slots,
         createdAt: new Date().toISOString(),
-      })
+      }),
     );
     return instructionId;
   } catch {
@@ -80,7 +269,7 @@ function storeConnectedSystemInstruction(actionId: string, slots: Record<string,
 
 function patchRuntimePersonaState(
   state: AppRuntimeState,
-  targetPersona: Persona
+  targetPersona: Persona,
 ): AppRuntimeState {
   const available = new Set<Persona>([
     ...((state.persona.available || []) as Persona[]),
@@ -107,16 +296,16 @@ function canAutoSettlePersonaForAction(input: {
 }): boolean {
   return Boolean(
     input.targetPersona &&
-      input.switchPersona &&
-      input.actionPolicy === "allow_direct" &&
-      input.actionTargetStatus === "wired" &&
-      input.requiresPersonaConfirmation !== true
+    input.switchPersona &&
+    input.actionPolicy === "allow_direct" &&
+    input.actionTargetStatus === "wired" &&
+    input.requiresPersonaConfirmation !== true,
   );
 }
 
 function executeConnectedSystemAgentAction(
   input: ExecuteAgentGatewayActionInput,
-  routeBefore: AppRuntimeState["route"]
+  routeBefore: AppRuntimeState["route"],
 ): AgentActionRuntimeResult | null {
   if (!input.actionId.startsWith("connected_system.crm.")) {
     return null;
@@ -162,10 +351,13 @@ function executeConnectedSystemAgentAction(
 }
 
 export async function executeAgentGatewayAction(
-  input: ExecuteAgentGatewayActionInput
+  input: ExecuteAgentGatewayActionInput,
 ): Promise<AgentActionRuntimeResult> {
   const routeBefore = input.appRuntimeState.route;
-  const connectedSystemResult = executeConnectedSystemAgentAction(input, routeBefore);
+  const connectedSystemResult = executeConnectedSystemAgentAction(
+    input,
+    routeBefore,
+  );
   if (connectedSystemResult) {
     return connectedSystemResult;
   }
@@ -196,7 +388,8 @@ export async function executeAgentGatewayAction(
       targetPersona: initialAvailability.target_persona,
       actionPolicy: action.execution_policy,
       actionTargetStatus: action.execution_target.status,
-      requiresPersonaConfirmation: action.reachability.requires_persona_switch_confirmation,
+      requiresPersonaConfirmation:
+        action.reachability.requires_persona_switch_confirmation,
       switchPersona: input.switchPersona,
     })
   ) {
@@ -204,7 +397,7 @@ export async function executeAgentGatewayAction(
       await input.switchPersona(initialAvailability.target_persona);
       effectiveRuntimeState = patchRuntimePersonaState(
         input.appRuntimeState,
-        initialAvailability.target_persona
+        initialAvailability.target_persona,
       );
     } catch (error) {
       return buildResult({
@@ -265,12 +458,15 @@ export async function executeAgentGatewayAction(
       routeAfter: action.execution_target.target,
       screenBefore: routeBefore.screen,
       resultSummary: `${action.label} opened in Kai.`,
-      data: { target: action.execution_target.target, goal_id: action.goal.goal_id },
+      data: {
+        target: action.execution_target.target,
+        goal_id: action.goal.goal_id,
+      },
     });
   }
 
   if (action.execution_target.path === "local_handler") {
-    const handler = resolveLocalOnboardingHandler(action.action_id);
+    const handler = await waitForLocalOnboardingHandler(action.action_id);
     if (!handler) {
       return buildResult({
         status: "blocked",
@@ -283,20 +479,16 @@ export async function executeAgentGatewayAction(
       });
     }
     try {
-      const handlerResult = await handler(input.slots || {});
-      return buildResult({
-        status:
-          handlerResult.status === "succeeded"
-            ? "succeeded"
-            : handlerResult.status === "blocked"
-              ? "blocked"
-              : "failed",
+      const handlerResult = await handler(
+        input.slots || {},
+        input.executionContext,
+      );
+      return buildLocalHandlerResult({
         actionId: action.action_id,
         label: action.label,
-        routeBefore: routeBefore.pathname,
-        screenBefore: routeBefore.screen,
-        resultSummary: handlerResult.summary,
-        data: { ...(handlerResult.data || {}), goal_id: action.goal.goal_id },
+        routeBefore,
+        goalId: action.goal.goal_id,
+        handlerResult,
       });
     } catch (error) {
       return buildResult({
@@ -321,7 +513,8 @@ export async function executeAgentGatewayAction(
       label: action.label,
       routeBefore: routeBefore.pathname,
       screenBefore: routeBefore.screen,
-      resultSummary: "That action belongs to the voice runtime and is not available in Agent text yet.",
+      resultSummary:
+        "That action belongs to the voice runtime and is not available in Agent text yet.",
       reason: "voice_tool_not_available",
     });
   }

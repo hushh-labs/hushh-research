@@ -26,12 +26,13 @@ Default behavior:
 5. Ask only when ambiguity affects correctness, safety, access, or product direction.
 6. Treat tests, docs, observability, rollback, and user impact as part of the work when relevant.
 7. Never expose secrets, credentials, private keys, or sensitive internal configuration.
+8. In human-facing product, documentation, skill, and prompt prose, call One the `private agent` and prefer `information` or a specific noun (for example, records, holdings, or details). Preserve exact code, API, route, schema, protocol, and compatibility identifiers.
 
 Engineering style:
 
 1. Use explicit contracts, strong typing, small functions, early returns, flat control flow, and idempotent operations.
 2. Prefer boring proven solutions over cleverness, hidden side effects, speculative abstractions, and unnecessary dependencies.
-3. Challenge implementation choices against failure modes, security boundaries, data consistency, concurrency, rollback safety, testability, and long-term maintenance.
+3. Challenge implementation choices against failure modes, security boundaries, information consistency, concurrency, rollback safety, testability, and long-term maintenance.
 
 Verification:
 
@@ -67,11 +68,15 @@ Full playbook in `.codex/skills/repo-operations/references/branch-runtime-ops.md
 
 These are the durable architecture principles for every Hussh product agent (One, Kai, Nav, KYC, and future specialists). They govern how agents are built, delegated to, and scaled. Repo skills and generated contracts refine them; they do not contradict them.
 
-1. Dumb agents by default. A Hussh agent is a system prompt plus declared hands and tools. It holds no ambient knowledge, no privileged data access, and no memory of its own. All context flows IN per turn through consented state (session state keys, A2A task payloads, scoped encrypted exports). If an agent needs data, the data arrives through a consent-gated channel; the agent never reaches out around the trust boundary.
-2. Delegation is a wrapped function of current behavior. When One delegates to a specialist, the delegation wraps the existing dispatch contract without breaking it: same task in, same result out, with consent authority attached per hop. Delegation authority per hop is a scoped encrypted export whose domain is dynamic, identified by the data-structure agent, never a broad standing grant. Google ADK's Task API (available in ADK 2.x) is the preferred substrate for structured agent-to-agent delegation when this contract crosses process or network boundaries; do not hand-build a parallel delegation envelope.
+1. Dumb agents by default. A Hussh agent is a system prompt plus declared hands and tools. It holds no ambient knowledge, no privileged information access, and no memory of its own. All context flows IN per turn through consented state (session state keys, A2A task payloads, scoped encrypted exports). If an agent needs protected information, it arrives through a consent-gated channel; the agent never reaches out around the trust boundary.
+2. Delegation is a wrapped function of current behavior. When One delegates to a specialist, the delegation wraps the existing dispatch contract without breaking it: same task in, same result out, with consent authority attached per hop. Delegation authority per hop is a scoped encrypted export whose domain is dynamic, identified by the structure agent, never a broad standing grant. Google ADK's Task API (available in ADK 2.x) is the preferred substrate for structured agent-to-agent delegation when this contract crosses process or network boundaries; do not hand-build a parallel delegation envelope.
 3. Founder Wiki freshness contract. The Founder Wiki (authenticated MCP at `https://mcp.hushh.ai/mcp`) is a north-star evidence lane, and it can lag the repo. Agents doing product or docs work must (a) refresh the wiki MCP tool before reading, (b) treat stale wiki articles as `current_state_vs_north_star_drift`, and (c) use the wiki WRITE operations to upgrade stale articles as part of shipping the change that made them stale. Keeping the wiki current is part of the definition of done, not a follow-up.
 4. Scale-plane doctrine: Postgres now, Redis later. Cross-instance shared state (rate limits, one-time nonces, revocation fan-out, durable agent sessions) is Postgres-backed today because Postgres is the platform's only shared tier. Every such mechanism must be written behind a seam that can swap to Redis/Memorystore Pub/Sub later without contract changes, and each new mechanism notes its Redis upgrade path in code comments or the owning doc.
 5. No second decision-maker. Each interaction surface has exactly one routing authority (the generated action manifest for voice/chat; the owning workflow for engineering lanes). New intelligence slots below One as a specialist; it never becomes a parallel top-level router.
+6. Product agents and engineering agents are separate namespaces. `.codex/agents` contains read-only engineering evidence lanes; `consent-protocol/hushh_mcp/agents` contains runtime product agents. Never make one impersonate or generate the other.
+7. `AgentManifestV2` YAML is the sole authored product-agent source. Generated registries, cards, action identifiers, surface metadata, and hierarchy projections must be reproducible from it; parallel Python manifests and prompt copies are prohibited.
+8. Use ADK `chat`, `task`, and `single_turn` modes inside one runtime, official A2A Tasks across process or deployment boundaries, and MCP for consented tools and encrypted resources. Invocation authority, information authority, and action authority remain separate at every hop.
+9. Intelligence owns semantic assessment. The active route and top authored interaction layer bound that assessment; deterministic policy may validate, normalize, reject, and enforce authority, but it must not replace agent meaning with keyword or regex classification, infer DOM controls, or substitute a different action.
 
 ## Project-Wide Premise Verification Gate
 
@@ -113,6 +118,18 @@ Default response shape for repo-backed Q&A:
 5. `Smallest acceptable next PR`
 
 For non-trivial planning, questions must be research-backed instead of bare choices. Before asking, state the `Current truth`, `Recommended path`, `Risk if accepted blindly`, and the exact `Decision needed`; put the recommended option first. Do not ask the user to discover facts Codex can verify from repo, GitHub, CI, docs, runtime logs, or generated contracts.
+
+### Natural Planning Questions
+
+Every agent—parent or child—must ask natural, research-backed questions while
+planning whenever an unresolved product choice would change user experience,
+authority, consent, security, architecture, rollout, or recovery behavior.
+Questions should sound like collaborative engineering conversation, not a form:
+state the evidence and recommendation first, then ask the smallest real
+decision. During execution, inspect and act autonomously from repository truth;
+ask only when a user-owned decision or new authority is genuinely required.
+Never manufacture checkpoints or ask the user to rediscover facts the repo can
+prove.
 
 Do not write as if the project is blank. Hussh already has many shipped contracts. Codex must actively find and reuse them.
 

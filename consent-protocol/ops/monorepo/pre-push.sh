@@ -1,12 +1,17 @@
 #!/bin/sh
 # consent-protocol/ops/monorepo/pre-push.sh
-# Subtree sync guard + lint gate for consent-protocol subtree changes.
+# Fast push freshness/lint gate. Upstream subtree sync is explicit or opt-in.
 
 CHECK_ONLY=0
 if [ "${1:-}" = "--check-only" ]; then
   CHECK_ONLY=1
   shift
 fi
+
+# A normal push must not rebuild the full subtree projection. Maintainers can
+# opt in for one push, while --check-only and CI remain authoritative explicit
+# verification surfaces.
+PRE_PUSH_SYNC_CHECK="${CONSENT_PRE_PUSH_SYNC_CHECK:-0}"
 
 REMOTE="${1:-}"
 URL="${2:-}"
@@ -222,7 +227,9 @@ else
 
         CHANGED=$(git diff --name-only "$RANGE" 2>/dev/null | grep "^${SUBTREE_PREFIX}/" || true)
         if [ -n "$CHANGED" ]; then
-          should_check_subtree=1
+          if [ "$PRE_PUSH_SYNC_CHECK" = "1" ]; then
+            should_check_subtree=1
+          fi
           CP_FILES="$CP_FILES
 $CHANGED"
         fi

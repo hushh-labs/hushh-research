@@ -27,7 +27,6 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
-import { ThemeToggleLean } from "@/components/theme-toggle";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { useUnseenLocationShareCount } from "@/lib/one-location/use-unseen-location-share-count";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
@@ -271,8 +270,11 @@ export const Navbar = () => {
     agentWindowOpen ||
     portfolioImportSurfaceActive ||
     pathname?.startsWith(ROUTES.PHONE_MANDATE) ||
-    pathname?.startsWith(ROUTES.LABS_PROFILE_APPEARANCE) ||
-    pathname === ROUTES.DEVELOPERS;
+    pathname === ROUTES.DEVELOPERS ||
+    pathname === ROUTES.RESEARCH ||
+    Boolean(pathname?.startsWith(`${ROUTES.RESEARCH}/`)) ||
+    pathname === ROUTES.BLOG ||
+    Boolean(pathname?.startsWith(`${ROUTES.BLOG}/`));
 
   const navOptions = useMemo<SegmentedPillOption[]>(() => {
     const keys = resolveBottomNavOptionKeys(
@@ -372,18 +374,10 @@ export const Navbar = () => {
   }
 
   if (!isAuthenticated) {
-    return (
-      <nav
-        className="fixed right-0 top-0 z-50 flex justify-end px-4 pointer-events-none"
-        style={{
-          top: "calc(max(var(--app-safe-area-top-effective), 0.5rem))",
-        }}
-      >
-        <div ref={pillRef} className="pointer-events-auto">
-          <ThemeToggleLean size="expanded" />
-        </div>
-      </nav>
-    );
+    // On the signed-out onboarding flow the theme control is infused INSIDE the
+    // agent bar (see agent-bar.tsx), so no separate top/bottom toggle renders
+    // here. Keeping the hero completely clean.
+    return null;
   }
 
   if (navOptions.length === 0) {
@@ -483,12 +477,12 @@ export const Navbar = () => {
             className={cn(
               "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
               // Shared bottom chrome surface: flat translucent track, no
-              // route-local glass or ink override. Active state is Foundation
-              // accent foreground so the nav matches the rest of the app
-              // identity without turning the background yellow.
-              "[&_[aria-checked=true]]:text-accent-strong [&_[aria-checked=true]]:font-semibold",
-              // RIA: gold-tinted active indicator (#EFE7D6) per the mockup;
-              // otherwise the shared subtle ink indicator.
+              // route-local glass or ink override. RIA scope = gold identity
+              // (active #EFE7D6 pill + gold label); everywhere else = iOS system
+              // blue (#007aff) active tab (from main).
+              isRiaChrome
+                ? "[&_[aria-checked=true]]:text-accent-strong [&_[aria-checked=true]]:font-semibold"
+                : "[&_[aria-checked=true]]:text-[#007aff] [&_[aria-checked=true]]:font-semibold",
               isRiaChrome
                 ? "[&_[data-segment-indicator]]:bg-[color:var(--ria-nav-active)] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none"
                 : "[&_[data-segment-indicator]]:bg-black/[0.06] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-white/[0.1]",
@@ -513,7 +507,7 @@ export const Navbar = () => {
             "transition-[color,transform,background-color] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)]",
             // Hover styles behind (hover:hover) so iOS taps never latch a
             // sticky hover background on the first touch.
-            "[@media(hover:hover)]:hover:bg-black/[0.08] [@media(hover:hover)]:hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background [@media(hover:hover)]:dark:hover:bg-white/[0.1] active:scale-90 chrome-bottom-foreground",
+            "[@media(hover:hover)]:hover:bg-black/[0.08] [@media(hover:hover)]:hover:text-[#007aff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007aff]/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background [@media(hover:hover)]:dark:hover:bg-white/[0.1] active:scale-90 chrome-bottom-foreground",
           )}
           onClick={() => {
             if (busyOperations["portfolio_save"]) {

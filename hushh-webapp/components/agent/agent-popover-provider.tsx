@@ -34,7 +34,7 @@ import {
   useOneConversationSession,
   type AgentChatHandoff,
 } from "@/lib/agent/one-conversation-session";
-import { ROUTES } from "@/lib/navigation/routes";
+import { ROUTES, isFoundationPublicRoute } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 
 type AgentPopoverContextValue = {
@@ -264,9 +264,8 @@ function AgentPopoverSurface({
   const isAgentSuppressedRoute =
     isLegacyAgentRoute ||
     isPhoneMandateRoute ||
-    path.startsWith(ROUTES.LABS_PROFILE_APPEARANCE) ||
     path === ROUTES.DEVELOPERS ||
-    path === ROUTES.HOME ||
+    isFoundationPublicRoute(path) ||
     path.startsWith(ROUTES.LOGIN) ||
     path.startsWith(ROUTES.LOGOUT);
   const canShowAgent = !isAgentSuppressedRoute;

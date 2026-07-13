@@ -95,11 +95,11 @@
       "docs_references": []
     },
     {
-      "action_id": "setup.open_personal_data",
+      "action_id": "setup.open_pkm",
       "label": "Set Up Memory",
       "meaning": "Opens the Memory (PKM) capability setup step from the setup hub.",
-      "aliases": ["set up memory", "open memory setup", "set up personal data"],
-      "search_keywords": ["memory", "pkm", "setup", "personal data"],
+      "aliases": ["set up memory", "open memory setup", "set up personal information"],
+      "search_keywords": ["memory", "pkm", "setup", "personal information"],
       "reachability": {
         "routes": ["/one/setup"],
         "screens": ["one_setup_hub", "one_setup"],
@@ -111,6 +111,26 @@
       "execution_policy": "allow_direct",
       "execution_target": { "status": "wired", "path": "route", "target": "/one/setup/pkm" },
       "control_ids": ["one_setup_tile_pkm"],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "setup.open_marketplace",
+      "label": "Explore Information Marketplace",
+      "meaning": "Opens the Information Marketplace explore step from the setup hub.",
+      "aliases": ["explore information marketplace", "open marketplace setup", "set up marketplace"],
+      "search_keywords": ["information marketplace", "marketplace", "setup", "explore"],
+      "reachability": {
+        "routes": ["/one/setup"],
+        "screens": ["one_setup_hub", "one_setup"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": { "status": "wired", "path": "route", "target": "/one/setup/marketplace" },
+      "control_ids": ["one_setup_tile_marketplace"],
       "state_exposure": [],
       "docs_references": []
     },

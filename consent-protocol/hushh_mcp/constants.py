@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 from typing import Optional
 
@@ -29,38 +30,24 @@ class ConsentScope(str, Enum):
 
     # ==================== PORTFOLIO OPERATIONS ====================
     PORTFOLIO_IMPORT = "portfolio.import"
-    PORTFOLIO_ANALYZE = "portfolio.analyze"
-    PORTFOLIO_READ = "portfolio.read"
     BROKERAGE_TRANSFER_WRITE = "brokerage.transfer.write"
 
-    # ==================== CHAT HISTORY ====================
-    CHAT_HISTORY_READ = "chat.history.read"
-    CHAT_HISTORY_WRITE = "chat.history.write"
-
-    # ==================== EMBEDDINGS (Similarity Matching) ====================
-    EMBEDDING_PROFILE_READ = "embedding.profile.read"
-    EMBEDDING_PROFILE_COMPUTE = "embedding.profile.compute"
-
     # ==================== PKM OPERATIONS ====================
+    # Internal projection authorities. Never expose these through developer
+    # scope discovery or accept them from an external consent request.
     PKM_READ = "pkm.read"
     PKM_WRITE = "pkm.write"
-    PKM_METADATA = "pkm.metadata"
 
     # ==================== AGENT OPERATIONS ====================
-    AGENT_ONE_ORCHESTRATE = "agent.one.orchestrate"
+    # Invocation is control-plane authority only. It may create or resume a One
+    # task, but it never grants PKM reads, specialist data access, or mutations.
+    CAP_ONE_INVOKE = "cap.one.invoke"
 
     AGENT_KAI_ANALYZE = "agent.kai.analyze"
-    AGENT_KAI_DEBATE = "agent.kai.debate"
-    AGENT_KAI_INFER = "agent.kai.infer"
-    AGENT_KAI_CHAT = "agent.kai.chat"
-    AGENT_KAI_EXECUTE = "agent.kai.execute"
 
     AGENT_NAV_REVIEW = "agent.nav.review"
-    AGENT_NAV_REVOKE = "agent.nav.revoke"
 
     AGENT_KYC_PROCESS = "agent.kyc.process"
-    AGENT_KYC_DRAFT = "agent.kyc.draft"
-    AGENT_KYC_WRITEBACK = "agent.kyc.writeback"
     AGENT_KYC_REDRAFT_LLM = "agent.kyc.redraft.llm"
 
     # ==================== LIVE LOCATION CAPABILITIES ====================
@@ -76,20 +63,9 @@ class ConsentScope(str, Enum):
     # Capability scopes for the One Personal Information Agent — the marketplace
     # chatbot that lets an owner query, publish, and manage their own PKM data
     # slices. Workflow/action scopes, not durable attr.* PKM scopes. VIEW is
-    # read-only (list published slices + potential earnings); PUBLISH and MANAGE
-    # gate the write/consent paths (later slices).
+    # read-only; MANAGE gates owner-confirmed publication and access changes.
     CAP_PKM_MARKETPLACE_VIEW = "cap.pkm.marketplace.view"
-    CAP_PKM_MARKETPLACE_PUBLISH = "cap.pkm.marketplace.publish"
     CAP_PKM_MARKETPLACE_MANAGE = "cap.pkm.marketplace.manage"
-
-    # ==================== EXTERNAL DATA SOURCES ====================
-    # Hybrid mode - per-request consent
-    EXTERNAL_SEC_FILINGS = "external.sec.filings"
-    EXTERNAL_NEWS_API = "external.news.api"
-    EXTERNAL_MARKET_DATA = "external.market.data"
-    EXTERNAL_RENAISSANCE = "external.renaissance.data"
-
-    # Data access uses pkm.read, pkm.write, and dynamic attr.{domain}.* scopes.
 
     @classmethod
     def list(cls):
@@ -104,7 +80,25 @@ class ConsentScope(str, Enum):
         Dynamic scopes follow the pattern: attr.{domain}.{attribute}
         They are NOT defined in this enum but validated via DynamicScopeGenerator.
         """
-        return scope.startswith("attr.")
+        return bool(_DYNAMIC_SCOPE_PATTERN.fullmatch(str(scope or "").strip()))
+
+    @classmethod
+    def is_external_requestable_scope(cls, scope: str) -> bool:
+        """Return whether an external app may request ``scope``.
+
+        External information authority is always a discovered semantic branch
+        (``attr.<domain>.<scope>.*``). Exact manifest paths, broad PKM
+        authorities, and vault authority are internal projection details.
+        """
+        normalized = str(scope or "").strip()
+        return normalized == cls.CAP_ONE_INVOKE.value or bool(
+            _EXTERNAL_DYNAMIC_SCOPE_PATTERN.fullmatch(normalized)
+        )
+
+    @classmethod
+    def is_retired_scope(cls, scope: str) -> bool:
+        """Return whether ``scope`` is a historical, non-authorizing value."""
+        return str(scope or "").strip() in RETIRED_SCOPE_VALUES
 
     @classmethod
     def is_wildcard_scope(cls, scope: str) -> bool:
@@ -124,7 +118,7 @@ class ConsentScope(str, Enum):
             True if the scope is valid
         """
         # Check static scopes first
-        if scope in [s.value for s in cls]:
+        if scope in ACTIVE_RESERVED_SCOPE_VALUES:
             return True
 
         # Check dynamic scopes
@@ -200,71 +194,98 @@ class ConsentScope(str, Enum):
         """Return all operation scopes (non-attribute)."""
         return [
             cls.PORTFOLIO_IMPORT,
-            cls.PORTFOLIO_ANALYZE,
-            cls.PORTFOLIO_READ,
             cls.BROKERAGE_TRANSFER_WRITE,
-            cls.CHAT_HISTORY_READ,
-            cls.CHAT_HISTORY_WRITE,
-            cls.EMBEDDING_PROFILE_READ,
-            cls.EMBEDDING_PROFILE_COMPUTE,
             cls.PKM_READ,
             cls.PKM_WRITE,
-            cls.PKM_METADATA,
         ]
 
     @classmethod
     def agent_scopes(cls):
         """Return all agent operation scopes."""
         return [
-            cls.AGENT_ONE_ORCHESTRATE,
             cls.AGENT_KAI_ANALYZE,
-            cls.AGENT_KAI_DEBATE,
-            cls.AGENT_KAI_INFER,
-            cls.AGENT_KAI_CHAT,
-            cls.AGENT_KAI_EXECUTE,
             cls.AGENT_NAV_REVIEW,
-            cls.AGENT_NAV_REVOKE,
             cls.AGENT_KYC_PROCESS,
-            cls.AGENT_KYC_DRAFT,
-            cls.AGENT_KYC_WRITEBACK,
+            cls.AGENT_KYC_REDRAFT_LLM,
         ]
 
     @classmethod
     def capability_scopes(cls):
         """Return workflow capability scopes that are not durable attr.* PKM scopes."""
         return [
+            cls.CAP_ONE_INVOKE,
             cls.CAP_LOCATION_LIVE_SHARE,
             cls.CAP_LOCATION_LIVE_VIEW,
             cls.CAP_LOCATION_LIVE_REQUEST,
             cls.CAP_LOCATION_LIVE_REVOKE,
             cls.CAP_LOCATION_LIVE_REFER_REQUEST,
             cls.CAP_PKM_MARKETPLACE_VIEW,
-            cls.CAP_PKM_MARKETPLACE_PUBLISH,
             cls.CAP_PKM_MARKETPLACE_MANAGE,
         ]
 
     @classmethod
     def external_scopes(cls):
-        """Return all external data source scopes."""
-        return [
-            cls.EXTERNAL_SEC_FILINGS,
-            cls.EXTERNAL_NEWS_API,
-            cls.EXTERNAL_MARKET_DATA,
-            cls.EXTERNAL_RENAISSANCE,
-        ]
+        """Return reserved scopes that may be requested by external apps.
+
+        Dynamic ``attr.*`` authorities are discovered per user and therefore
+        cannot be enumerated here.
+        """
+        return [cls.CAP_ONE_INVOKE]
 
 
-# ==================== Agent Configuration ====================
+# ==================== Scope Policy v2 ====================
 
-# Port assignments for agent-to-agent communication
-AGENT_PORTS = {
-    "agent_orchestrator": 10000,
-    "agent_one": 10000,  # One top personal agent / orchestration layer
-    "agent_kai": 10005,  # Kai investment analysis agent
-    "agent_nav": 10006,  # Nav privacy and consent guardian
-    "agent_kyc": 10007,  # KYC identity workflow specialist
-    "agent_personal_information": 10008,  # One marketplace data-slice agent
-}
+SCOPE_POLICY_VERSION = 2
+
+# Slugs are deterministic, lowercase, path-safe identifiers. Compatibility
+# parsing still accepts domain-level and exact attr paths internally; the
+# external request surface is deliberately narrower and accepts one semantic
+# branch wildcard only.
+_SCOPE_SLUG = r"[a-z](?:[a-z0-9_]{0,62}[a-z0-9])?"
+_DYNAMIC_SCOPE_PATTERN = re.compile(
+    rf"attr\.{_SCOPE_SLUG}\.(?:\*|{_SCOPE_SLUG}(?:\.{_SCOPE_SLUG})*(?:\.\*)?)"
+)
+_EXTERNAL_DYNAMIC_SCOPE_PATTERN = re.compile(rf"attr\.{_SCOPE_SLUG}\.{_SCOPE_SLUG}\.\*")
+
+ACTIVE_RESERVED_SCOPE_VALUES: frozenset[str] = frozenset(scope.value for scope in ConsentScope)
+INTERNAL_ONLY_SCOPE_VALUES: frozenset[str] = frozenset(
+    {
+        ConsentScope.VAULT_OWNER.value,
+        ConsentScope.PKM_READ.value,
+        ConsentScope.PKM_WRITE.value,
+    }
+)
+EXTERNAL_REQUESTABLE_RESERVED_SCOPE_VALUES: frozenset[str] = frozenset(
+    {ConsentScope.CAP_ONE_INVOKE.value}
+)
+
+# These values remain valid historical audit text only. They are deliberately
+# absent from ConsentScope so no active enforcement path can authorize them.
+RETIRED_SCOPE_VALUES: frozenset[str] = frozenset(
+    {
+        "agent.one.orchestrate",
+        "portfolio.analyze",
+        "portfolio.read",
+        "chat.history.read",
+        "chat.history.write",
+        "embedding.profile.read",
+        "embedding.profile.compute",
+        "pkm.metadata",
+        "agent.kai.debate",
+        "agent.kai.infer",
+        "agent.kai.chat",
+        "agent.kai.execute",
+        "agent.nav.revoke",
+        "agent.kyc.draft",
+        "agent.kyc.writeback",
+        "cap.pkm.marketplace.publish",
+        "external.sec.filings",
+        "external.news.api",
+        "external.market.data",
+        "external.renaissance.data",
+    }
+)
+
 
 # ==================== Token & Link Prefixes ====================
 
@@ -332,7 +353,6 @@ __all__ = [
     "USER_ID_PREFIX",
     "DEFAULT_CONSENT_TOKEN_EXPIRY_MS",
     "DEFAULT_TRUST_LINK_EXPIRY_MS",
-    "AGENT_PORTS",
     "GEMINI_MODEL",
     "GEMINI_MODEL_FULL",
     "GEMINI_MODEL_VERTEX",

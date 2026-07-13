@@ -29,6 +29,10 @@ import { useVault } from "@/lib/vault/vault-context";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
+import {
+  PreVaultUserStateService,
+  type PreVaultUserState,
+} from "@/lib/services/pre-vault-user-state-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
@@ -39,6 +43,15 @@ import {
   buildOneVoiceContextSnapshot,
   type OneVoiceContextSnapshot,
 } from "@/lib/voice/screen-context-builder";
+import { useVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import {
+  buildMorphyAxSnapshot,
+  resolveMorphyAxPresentation,
+  toOneVoiceContextSnapshot,
+  type MorphyAxPresentationState,
+  type MorphyAxSnapshotV1,
+} from "@/lib/morphy-ax";
+import { getVoiceV2Flags } from "@/lib/voice/voice-feature-flags";
 
 // The access tier the agent should operate at. This is what drives how the
 // bar presents itself and which persona the backend should compose.
@@ -77,6 +90,12 @@ export type AgentRuntimeState = {
   screen: string;
   /** Redacted One Voice snapshot safe for realtime prompt shaping. */
   oneVoiceContextSnapshot: OneVoiceContextSnapshot;
+  /** Pure, redacted Agent Experience snapshot; never an action authority. */
+  morphyAxSnapshot: MorphyAxSnapshotV1;
+  /** Shared presentation posture derived from the existing voice FSM. */
+  morphyAxPresentation: MorphyAxPresentationState;
+  /** False keeps the compatibility path authoritative during rollout. */
+  morphyAxEnabled: boolean;
 };
 
 const AgentRuntimeStateContext = createContext<AgentRuntimeState | null>(null);
@@ -113,8 +132,24 @@ function computeHasPortfolioData(uid: string | null | undefined): boolean {
   return holdings.length > 0;
 }
 
+function resolveOnboardingPhase(params: {
+  path: string;
+  signedIn: boolean;
+  setupResolved: boolean;
+}): OneVoiceContextSnapshot["onboarding"]["phase"] {
+  if (!params.signedIn) return "anonymous_auth";
+  if (params.path === ROUTES.PHONE_MANDATE) return "phone_required";
+  if (params.path === ROUTES.ONE_SETUP) return "setup_hub";
+  if (params.path.startsWith(`${ROUTES.ONE_SETUP}/`)) return "capability_setup";
+  return params.setupResolved ? "root_completion" : "setup_hub";
+}
+
 export function AgentRuntimeStateProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  // This subscription is the runtime bridge between a route-local rendered
+  // control and One's redacted snapshot. It carries authored metadata only;
+  // no DOM inference or second action registry is involved.
+  const surfaceMetadata = useVoiceSurfaceMetadata();
   // The query string is purely client runtime metadata (it shapes the derived
   // voice route screen). We read it from window.location instead of
   // useSearchParams() so this app-wide provider does not force a CSR Suspense
@@ -206,8 +241,59 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
   const isHomeRoute = path === ROUTES.HOME;
   const onboardingActive = useMemo(() => {
     const chrome = getKaiChromeState(path);
-    return chrome.useOnboardingChrome || isHomeRoute;
+    return (
+      chrome.useOnboardingChrome ||
+      isHomeRoute ||
+      path === ROUTES.GETTING_STARTED ||
+      path === ROUTES.LOGIN ||
+      path === ROUTES.PHONE_MANDATE ||
+      path === ROUTES.ONE_SETUP ||
+      path.startsWith(`${ROUTES.ONE_SETUP}/`)
+    );
   }, [path, isHomeRoute]);
+
+  const [preVaultState, setPreVaultState] = useState<PreVaultUserState | null>(null);
+  useEffect(() => {
+    if (!uid) {
+      setPreVaultState(null);
+      return;
+    }
+    let active = true;
+    const cache = CacheService.getInstance();
+    const cacheKey = CACHE_KEYS.PRE_VAULT_BOOTSTRAP(uid);
+    const refreshFromCache = () => {
+      const cached = cache.get<PreVaultUserState>(cacheKey);
+      if (active && cached) setPreVaultState(cached);
+    };
+    void PreVaultUserStateService.bootstrapState(uid)
+      .then((state) => {
+        if (active) setPreVaultState(state);
+      })
+      .catch(() => {
+        if (active) setPreVaultState(null);
+      });
+    const unsubscribe = cache.subscribe((event) => {
+      if (event.type === "set" && event.key === cacheKey) {
+        refreshFromCache();
+        return;
+      }
+      if (
+        event.type === "clear" ||
+        (event.type === "invalidate" && event.keys.includes(cacheKey)) ||
+        (event.type === "invalidate_user" && event.userId === uid)
+      ) {
+        void PreVaultUserStateService.bootstrapState(uid)
+          .then((state) => {
+            if (active) setPreVaultState(state);
+          })
+          .catch(() => undefined);
+      }
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [uid]);
 
   // hasPortfolioData mirrors the cache-subscribed computation that previously
   // lived only inside the chat workspace, so the shared state stays in sync as
@@ -327,11 +413,40 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
 
   const value = useMemo<AgentRuntimeState>(
     () => {
-      const oneVoiceContextSnapshot = buildOneVoiceContextSnapshot({
+      const compatibilitySnapshot = buildOneVoiceContextSnapshot({
         appRuntimeState,
+        surfaceMetadata,
         state: oneVoiceState,
         lastTransition: lastVoiceTransition,
+        onboarding: {
+          phase: (path === ROUTES.GETTING_STARTED || path === ROUTES.LOGIN || path === ROUTES.PHONE_MANDATE || path.startsWith(ROUTES.ONE_SETUP))
+            ? resolveOnboardingPhase({
+                path,
+                signedIn,
+                setupResolved: PreVaultUserStateService.isSetupResolved(preVaultState),
+              })
+            : preVaultState?.onboardingPhase || resolveOnboardingPhase({
+            path,
+            signedIn,
+            setupResolved: PreVaultUserStateService.isSetupResolved(preVaultState),
+          }),
+          activeCapability: path.startsWith(`${ROUTES.ONE_SETUP}/`)
+            ? path.slice(`${ROUTES.ONE_SETUP}/`.length).split("/")[0] || null
+            : preVaultState?.onboardingActiveCapability ?? null,
+          rootResolved: PreVaultUserStateService.isSetupResolved(preVaultState),
+          returnRoute: ROUTES.ONE_SETUP,
+          phoneVerified: preVaultState?.phoneVerified ?? null,
+          callbackState: preVaultState?.onboardingCallbackState || "none",
+          setupCapabilityIds: preVaultState?.setupCapabilityIds || [],
+        },
       });
+      const morphyAxSnapshot = buildMorphyAxSnapshot(compatibilitySnapshot, {
+        signedIn,
+      });
+      const morphyAxEnabled = getVoiceV2Flags().morphyAxEnabled;
+      const oneVoiceContextSnapshot = morphyAxEnabled
+        ? toOneVoiceContextSnapshot(morphyAxSnapshot, compatibilitySnapshot)
+        : compatibilitySnapshot;
       return {
         appRuntimeState,
         tier,
@@ -341,6 +456,9 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
         activePersona,
         screen: routeInfo.screen,
         oneVoiceContextSnapshot,
+        morphyAxSnapshot,
+        morphyAxPresentation: resolveMorphyAxPresentation(oneVoiceState),
+        morphyAxEnabled,
       };
     },
     [
@@ -353,6 +471,10 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       lastVoiceTransition,
       oneVoiceState,
       routeInfo.screen,
+      path,
+      preVaultState,
+      signedIn,
+      surfaceMetadata,
     ]
   );
 

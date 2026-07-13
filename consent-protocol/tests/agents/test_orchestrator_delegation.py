@@ -11,7 +11,7 @@ from hushh_mcp.constants import ConsentScope
 
 
 def _orchestrate_token(user_id: str = "user_one") -> str:
-    return issue_token(user_id, "agent_one", ConsentScope.AGENT_ONE_ORCHESTRATE).token
+    return issue_token(user_id, "agent_one", ConsentScope.CAP_ONE_INVOKE).token
 
 
 @pytest.mark.parametrize(
@@ -41,7 +41,7 @@ def test_handle_message_denies_without_orchestrate_scope():
     bad_token = issue_token("user_one", "agent_one", ConsentScope.AGENT_KAI_ANALYZE).token
     result = get_orchestrator().handle_message("Analyze my portfolio", "user_one", bad_token)
     assert result["delegation"] is None
-    assert "orchestrate_scope_denied" in result.get("error", "")
+    assert "invoke_scope_denied" in result.get("error", "")
 
 
 def test_handle_message_delegates_finance_to_kai():

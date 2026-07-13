@@ -50,7 +50,7 @@ class OrchestratorAgent(HushhAgent):
 
     def __init__(self):
         # Load manifest
-        manifest_path = os.path.join(os.path.dirname(__file__), "agent.yaml")
+        manifest_path = os.path.join(os.path.dirname(__file__), "..", "one", "agent.yaml")
         manifest = ManifestLoader.load(manifest_path)
 
         # Initialize ADK Agent with tools. ADK 2.x requires `name` to be a
@@ -76,7 +76,7 @@ class OrchestratorAgent(HushhAgent):
         Main entry point for routing.
 
         Resolution order:
-        1. Fail-closed: require a token carrying ``agent.one.orchestrate``.
+        1. Fail-closed: require a token carrying ``cap.one.invoke``.
         2. Classify intent into a specialist domain (finance/privacy/identity).
         3. If a specialist is selected, validate the specialist-specific A2A
            consent scope before surfacing the delegation handoff.
@@ -89,21 +89,22 @@ class OrchestratorAgent(HushhAgent):
         Args:
             message: User input
             user_id: User identifier
-            consent_token: Token with `agent.one.orchestrate` for delegated work
+            consent_token: Invocation token with `cap.one.invoke`
 
         Returns:
             Dict containing response text and optional delegation info.
         """
         token = consent_token
 
-        # 1. Fail-closed orchestrate-scope gate.
-        valid, reason, _ = validate_token(token, expected_scope=ConsentScope.AGENT_ONE_ORCHESTRATE)
+        # 1. Fail-closed invocation gate. This permits task routing only; every
+        # specialist and data operation enforces its own attenuated authority.
+        valid, reason, _ = validate_token(token, expected_scope=ConsentScope.CAP_ONE_INVOKE)
         if not valid:
             logger.warning("orchestrator.access_denied reason=%s", reason)
             return {
                 "response": "I can't route that request without an active session. Please sign in and try again.",
                 "delegation": None,
-                "error": f"orchestrate_scope_denied: {reason}",
+                "error": f"invoke_scope_denied: {reason}",
             }
 
         # 2. Deterministic intent classification.
@@ -142,7 +143,7 @@ class OrchestratorAgent(HushhAgent):
         normalized = normalize_persona(persona)
         practice = "your practice" if normalized == "ria" else "your money"
         return (
-            "Hi, I'm One, your personal agent in Hussh. I can bring in finance (Kai) "
+            "Hi, I'm One, your private agent in Hussh. I can bring in finance (Kai) "
             f"for {practice}, privacy and consent (Nav), or identity (KYC) specialists "
             "when you need them. What would you like to do?"
         )

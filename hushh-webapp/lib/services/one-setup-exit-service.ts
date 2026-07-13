@@ -74,6 +74,10 @@ export function acknowledgeOneSetupExit(params: {
       skipped: params.skipped,
       completedAt,
     });
+    await PreVaultUserStateService.syncOnboardingJourney({
+      userId: params.userId,
+      phase: "root_completion",
+    });
     if (params.isVaultUnlocked && params.vaultKey && params.vaultOwnerToken) {
       await KaiProfileService.setOnboardingCompleted({
         userId: params.userId,

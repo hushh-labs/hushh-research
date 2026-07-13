@@ -285,7 +285,7 @@ def test_agent_chat_contents_use_system_instruction_boundary_and_planned_action(
     )
     current_turn_text = contents[-1].parts[0].text or ""
 
-    assert "You are One, the top personal agent" in AGENT_SYSTEM_PROMPT
+    assert "You are One, the top private agent" in AGENT_SYSTEM_PROMPT
     assert contents[0].role == "user"
     assert contents[0].parts[0].text == "Can you help with stocks?"
     assert contents[1].role == "model"

@@ -697,7 +697,10 @@ def test_no_data_access_before_approved_consent(monkeypatch):
 
     app = _build_app()
     client = TestClient(app)
-    resp = client.get("/api/consent/data", params={"consent_token": "bad_token"})
+    resp = client.get(
+        "/api/consent/data",
+        headers={"Authorization": "Bearer bad_token"},
+    )
     assert resp.status_code == 401
     assert resp.headers.get("WWW-Authenticate") == "Bearer"
     assert "Invalid token" in resp.json()["detail"]

@@ -5,10 +5,13 @@ export const ROUTE_ID_VALUES = [
   "getting_started",
   "one_setup",
   "developers",
+  "research",
+  "research_protocol",
+  "blog",
+  "blog_post",
   "login",
   "logout",
   "phone_mandate",
-  "labs_profile_appearance",
   "profile",
   "profile_account",
   "profile_account_phone",
@@ -54,6 +57,7 @@ export const ROUTE_ID_VALUES = [
   "ria_clients",
   "ria_requests",
   "ria_picks",
+  "ria_profile",
   "ria_settings",
   "ria_workspace",
   "kai_home",
@@ -79,10 +83,13 @@ export function resolveRouteId(pathname: string): RouteId {
     return "one_setup";
   }
   if (pathname === ROUTES.DEVELOPERS) return "developers";
+  if (pathname === ROUTES.RESEARCH) return "research";
+  if (pathname === ROUTES.RESEARCH_PROTOCOL) return "research_protocol";
+  if (pathname === ROUTES.BLOG) return "blog";
+  if (pathname.startsWith(`${ROUTES.BLOG}/`)) return "blog_post";
   if (pathname === ROUTES.LOGIN) return "login";
   if (pathname === ROUTES.LOGOUT) return "logout";
   if (pathname === ROUTES.PHONE_MANDATE) return "phone_mandate";
-  if (pathname === ROUTES.LABS_PROFILE_APPEARANCE) return "labs_profile_appearance";
   if (pathname === ROUTES.PROFILE) return "profile";
   if (pathname === ROUTES.PROFILE_ACCOUNT) return "profile_account";
   if (pathname === ROUTES.PROFILE_ACCOUNT_PHONE) return "profile_account_phone";
@@ -148,6 +155,7 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.RIA_CLIENTS) return "ria_clients";
   if (pathname === ROUTES.RIA_REQUESTS) return "ria_requests";
   if (pathname === ROUTES.RIA_PICKS) return "ria_picks";
+  if (pathname === ROUTES.RIA_PROFILE) return "ria_profile";
   if (pathname === ROUTES.RIA_SETTINGS) return "ria_settings";
   if (
     pathname === ROUTES.RIA_WORKSPACE ||

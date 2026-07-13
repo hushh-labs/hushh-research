@@ -220,7 +220,7 @@ function formatDomainLabel(value: string) {
 
 function portfolioViewHelper(status?: string | null) {
   if (status === "active") {
-    return "The shared portfolio and data views are ready.";
+    return "The shared portfolio and information views are ready.";
   }
   if (status === "partial") {
     return "Some access is approved, but more account coverage is still pending.";
@@ -233,7 +233,7 @@ function portfolioViewHelper(status?: string | null) {
 
 function requestTemplateLabel(template: RiaRequestScopeTemplate) {
   const value = String(template.template_name || "").trim();
-  if (!value) return "Client data";
+  if (!value) return "Client information";
   if (/kai/i.test(value)) return "Portfolio + data";
   return value;
 }
@@ -490,7 +490,7 @@ export function RiaClientWorkspace({
         detail?.investor_email ||
         detail?.investor_secondary_label ||
         detail?.investor_headline ||
-        "Client summary, portfolio, and key data stay together here."
+        "Client summary, portfolio, and key information stay together here."
       }
       nativeTest={{
         routeId: "/ria/clients/[userId]",
@@ -525,7 +525,7 @@ export function RiaClientWorkspace({
       {iamUnavailable ? (
         <RiaCompatibilityState
           title="Client workspace is unavailable in this environment"
-          description="The route is wired correctly, but this environment still needs the full IAM schema before advisor workspaces can read investor data."
+          description="The route is wired correctly, but this environment still needs the full IAM schema before advisor workspaces can read investor information."
         />
       ) : null}
 

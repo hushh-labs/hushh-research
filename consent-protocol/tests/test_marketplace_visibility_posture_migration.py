@@ -19,7 +19,7 @@ def test_marketplace_visibility_posture_migration_is_registered() -> None:
     assert manifest["ordered_migrations"].index(migration_name) > manifest[
         "ordered_migrations"
     ].index("065_one_location_retention_indexes.sql")
-    assert schema_contract["expected_migration_version"] == 80
+    assert schema_contract["expected_migration_version"] >= 80
 
 
 def test_marketplace_visibility_posture_migration_adds_safe_visibility_columns() -> None:

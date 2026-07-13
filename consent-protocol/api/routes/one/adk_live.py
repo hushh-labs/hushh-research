@@ -17,6 +17,7 @@ so ``gemini-live-client.ts`` needs only a URL change:
 
   browser -> server: {"realtimeInput": {"audio": {"data": b64, "mimeType"}}}
                      {"type": "app_context", "appContext": {...}}   (context)
+                     {"type": "action_settled", "actionSettlement": {...}}
                      {"type": "app_speech", "text": ...}            (say this)
                      {"type": "interrupt"}                          (stop talking)
   server -> browser: {"setupComplete": {}}
@@ -36,6 +37,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import secrets
 import uuid
 from typing import Any, Optional
@@ -66,8 +68,11 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_SCREEN,
     STATE_TIMEZONE,
     STATE_USER_ID,
+    STATE_VOICE_CONTEXT,
     get_one_runner,
 )
+from hushh_mcp.services.route_orchestration_index import resolve_route_orchestration_entry
+from hushh_mcp.services.voice_action_manifest import get_voice_manifest_action
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +86,7 @@ router = APIRouter(prefix="/api/one/adk", tags=["One ADK"])
 _ONBOARDING_SCREENS = frozenset(
     {
         "getting_started",
+        "one_intro",
         "login",
         "register_phone",
         "one_setup",
@@ -91,6 +97,64 @@ _ONBOARDING_SCREENS = frozenset(
 
 _INPUT_MIME_DEFAULT = "audio/pcm;rate=16000"
 _OUTPUT_MIME = "audio/pcm;rate=24000"
+_LIVE_CONTEXT_STRING_CAP = 64
+_LIVE_CONTEXT_ARRAY_CAP = 18
+_LIVE_MODULE_CAP = 10
+_LIVE_CAPABILITY_CAP = 10
+_ONBOARDING_PHASES = frozenset(
+    {
+        "anonymous_auth",
+        "phone_required",
+        "setup_hub",
+        "capability_setup",
+        "external_connector",
+        "root_completion",
+    }
+)
+_ONBOARDING_CALLBACK_STATES = frozenset({"none", "pending", "succeeded", "cancelled", "failed"})
+_ONBOARDING_CAPABILITIES = frozenset(
+    {"finance", "gmail", "email", "location", "pkm", "consent", "marketplace", "connected-systems"}
+)
+_ACTION_SETTLEMENT_STATUSES = frozenset(
+    {"succeeded", "started", "blocked", "invalid", "failed", "noop"}
+)
+_INITIAL_GREETING_IDLE_SECONDS = 1.5
+_ROUTE_PLAYBOOK_TEXT_CAP = 480
+
+
+class _InitialGreetingGate:
+    """Own one initial cue without allowing it to overtake visitor speech.
+
+    The browser sends ``voice_activity_start`` only after local speech activity
+    crosses its bounded threshold. That explicit, transcript-free signal lets
+    the relay cancel an idle cue without guessing from continuous microphone
+    frames (which include silence). The epoch makes a delayed task harmless if
+    cancellation races with its timer.
+    """
+
+    def __init__(self) -> None:
+        self._epoch = 0
+        self._visitor_activity_seen = False
+        self._greeting_sent = False
+
+    def schedule(self) -> int | None:
+        if self._visitor_activity_seen or self._greeting_sent:
+            return None
+        self._epoch += 1
+        return self._epoch
+
+    def cancel_for_visitor_activity(self) -> None:
+        self._visitor_activity_seen = True
+        self._epoch += 1
+
+    def may_send(self, epoch: int) -> bool:
+        return not self._visitor_activity_seen and not self._greeting_sent and epoch == self._epoch
+
+    def mark_sent(self, epoch: int) -> bool:
+        if not self.may_send(epoch):
+            return False
+        self._greeting_sent = True
+        return True
 
 
 class OneAdkRelaySessionResponse(BaseModel):
@@ -144,6 +208,271 @@ def _event_audio_parts(event: Any) -> list[dict[str, Any]]:
     return parts
 
 
+def _bounded_text(value: Any, limit: int = _LIVE_CONTEXT_STRING_CAP) -> str:
+    return value.strip()[:limit] if isinstance(value, str) else ""
+
+
+def _bounded_text_list(value: Any, limit: int) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        clean = _bounded_text(item)
+        if not clean or clean in seen:
+            continue
+        result.append(clean)
+        seen.add(clean)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _sanitize_route_playbook(route_entry: Any) -> dict[str, Any] | None:
+    """Read only checked-in generated guidance; never trust browser prose."""
+    if (os.getenv("HUSHH_ROUTE_PLAYBOOKS_DISABLED") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return None
+    if not isinstance(route_entry, dict):
+        return None
+    value = route_entry.get("voice_playbook")
+    if not isinstance(value, dict):
+        return None
+    proactivity = _bounded_text(value.get("proactivity"), 16)
+    return {
+        "playbook_id": _bounded_text(value.get("playbook_id"), 96),
+        "purpose": _bounded_text(value.get("purpose"), _ROUTE_PLAYBOOK_TEXT_CAP),
+        "screen": _bounded_text(value.get("screen"), 64),
+        "entry_cue": _bounded_text(value.get("entry_cue"), 240),
+        "proactivity": proactivity if proactivity in {"on_entry", "ambient"} else "ambient",
+        "primary_action_id": _bounded_text(value.get("primary_action_id"), 128) or None,
+        "completion_boundary": _bounded_text(
+            value.get("completion_boundary"), _ROUTE_PLAYBOOK_TEXT_CAP
+        ),
+        "next_route": _bounded_text(value.get("next_route"), 128) or None,
+        "return_policy": _bounded_text(value.get("return_policy"), 32),
+        "out_of_scope_behavior": _bounded_text(
+            value.get("out_of_scope_behavior"), _ROUTE_PLAYBOOK_TEXT_CAP
+        ),
+    }
+
+
+def _compose_route_context_note(context: dict[str, Any]) -> str | None:
+    """Build one bounded model note from server-resolved route intelligence."""
+    playbook = context.get("route_playbook")
+    if not isinstance(playbook, dict):
+        return None
+    if context.get("route_context_policy") == "suppress":
+        return None
+    purpose = str(playbook.get("purpose") or "Use the verified current screen.")
+    cue = str(playbook.get("entry_cue") or "")
+    primary = str(playbook.get("primary_action_id") or "")
+    proactive = playbook.get("proactivity") == "on_entry"
+    return (
+        "[App route context - not user speech] The verified current route is "
+        f"'{context.get('route_pattern') or context.get('route_family') or '/'}' "
+        f"and its purpose is: {purpose} "
+        "Generated actions and their guards remain the only execution authority. "
+        "For an explicit request matching a visible action, call list_app_actions "
+        "and run the exact returned id before any identity or greeting response. "
+        f"The preferred action reference is '{primary or 'none'}'. "
+        + (
+            f"After route settlement, orient once with this intent: {cue} "
+            if proactive and cue
+            else "Use this context silently until the person speaks. "
+        )
+        + "Never claim completion before correlated browser settlement."
+    )
+
+
+def _sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
+    """Keep only bounded, redacted UI state for tool availability decisions."""
+    cache_freshness = _bounded_text(payload.get("cache_freshness"), 32)
+    route_family = _bounded_text(payload.get("route_family"))
+    route_entry = resolve_route_orchestration_entry(route_family)
+    submitted_action_ids = [
+        action_id
+        for action_id in _bounded_text_list(
+            payload.get("available_action_ids"), _LIVE_CONTEXT_ARRAY_CAP
+        )
+        if get_voice_manifest_action(action_id) is not None
+    ]
+    interaction_layer = _sanitize_interaction_layer(
+        payload.get("interaction_layer"), submitted_action_ids
+    )
+    if interaction_layer and interaction_layer["modality"] in {"modal", "blocking"}:
+        layer_action_ids = set(interaction_layer["visible_action_ids"])
+        submitted_action_ids = [
+            action_id for action_id in submitted_action_ids if action_id in layer_action_ids
+        ]
+    return {
+        # The generated index is the server-side source of route policy.  A
+        # client may describe its current UI, but cannot invent a route
+        # instruction or route policy. Action execution remains independently
+        # guarded by the generated action gateway and surface metadata.
+        "route_family": route_family,
+        "route_pattern": route_entry.get("route_pattern")
+        if isinstance(route_entry, dict)
+        else None,
+        "route_instruction_id": route_entry.get("instruction_id")
+        if isinstance(route_entry, dict)
+        else None,
+        "route_context_policy": route_entry.get("context_policy")
+        if isinstance(route_entry, dict)
+        else "suppress",
+        "route_playbook": _sanitize_route_playbook(route_entry),
+        "persona": _bounded_text(payload.get("persona")),
+        "voice_state": _bounded_text(payload.get("voice_state"), 32),
+        "available_action_ids": submitted_action_ids,
+        "visible_modules": _bounded_text_list(payload.get("visible_modules"), _LIVE_MODULE_CAP),
+        "visible_control_ids": _bounded_text_list(
+            payload.get("visible_control_ids"), _LIVE_MODULE_CAP
+        ),
+        "interaction_layer": interaction_layer,
+        "pending_settlement": payload.get("pending_settlement") is True,
+        "cache_freshness": cache_freshness
+        if cache_freshness in {"fresh_or_stale_safe", "locked", "missing"}
+        else "missing",
+        "vault_ready": payload.get("vault_ready") is True,
+        "portfolio_ready": payload.get("portfolio_ready") is True,
+        "busy_operations": _bounded_text_list(payload.get("busy_operations"), _LIVE_MODULE_CAP),
+        "onboarding": _sanitize_onboarding_context(payload.get("onboarding")),
+    }
+
+
+def _sanitize_interaction_layer(
+    value: Any, submitted_action_ids: list[str]
+) -> dict[str, Any] | None:
+    """Keep one bounded authored layer; never let it mint app authority."""
+    if not isinstance(value, dict):
+        return None
+    layer_id = _bounded_text(value.get("layer_id"), 128)
+    kind = _bounded_text(value.get("kind"), 64)
+    modality = _bounded_text(value.get("modality"), 16)
+    lifecycle = _bounded_text(value.get("lifecycle_state"), 16)
+    continuity = _bounded_text(value.get("agent_continuity"), 16)
+    if (
+        not layer_id
+        or not kind
+        or modality not in {"nonmodal", "modal", "blocking"}
+        or lifecycle not in {"opening", "open", "closing"}
+        or continuity not in {"interactive", "ambient", "suppressed"}
+    ):
+        return None
+    submitted = set(submitted_action_ids)
+    visible_action_ids = [
+        action_id
+        for action_id in _bounded_text_list(
+            value.get("visible_action_ids"), _LIVE_CONTEXT_ARRAY_CAP
+        )
+        if action_id in submitted and get_voice_manifest_action(action_id) is not None
+    ]
+    dismissible = value.get("dismissible") is True
+    dismiss_action_id: str | None = _bounded_text(value.get("dismiss_action_id"), 128) or None
+    if (
+        not dismissible
+        or not dismiss_action_id
+        or dismiss_action_id not in visible_action_ids
+        or get_voice_manifest_action(dismiss_action_id) is None
+    ):
+        dismiss_action_id = None
+    options: list[dict[str, Any]] = []
+    raw_options = value.get("options")
+    if isinstance(raw_options, list):
+        for option in raw_options[:10]:
+            if not isinstance(option, dict):
+                continue
+            option_id = _bounded_text(option.get("id"), 64)
+            label = _bounded_text(option.get("label"), 96)
+            action_id: str | None = _bounded_text(option.get("action_id"), 128) or None
+            if not option_id or not label:
+                continue
+            if action_id and action_id not in visible_action_ids:
+                action_id = None
+            options.append(
+                {
+                    "id": option_id,
+                    "label": label,
+                    "action_id": action_id,
+                    "description": _bounded_text(option.get("description"), 160) or None,
+                }
+            )
+    return {
+        "layer_id": layer_id,
+        "kind": kind,
+        "modality": modality,
+        "lifecycle_state": lifecycle,
+        "dismissible": dismissible and dismiss_action_id is not None,
+        "dismiss_action_id": dismiss_action_id,
+        "visible_action_ids": visible_action_ids,
+        "visible_control_ids": _bounded_text_list(
+            value.get("visible_control_ids"), _LIVE_MODULE_CAP
+        ),
+        "options": options,
+        "underlying_actions_available": (
+            value.get("underlying_actions_available") is True and modality == "nonmodal"
+        ),
+        "agent_continuity": continuity,
+    }
+
+
+def _sanitize_onboarding_context(value: Any) -> dict[str, Any]:
+    """Bound anonymous/new-user guidance to non-sensitive journey metadata."""
+    payload = value if isinstance(value, dict) else {}
+    phase = _bounded_text(payload.get("phase"), 32)
+    callback_state = _bounded_text(payload.get("callback_state"), 16)
+    active_capability = _bounded_text(payload.get("active_capability"), 32)
+    return {
+        "phase": phase if phase in _ONBOARDING_PHASES else "anonymous_auth",
+        "active_capability": active_capability
+        if active_capability in _ONBOARDING_CAPABILITIES
+        else None,
+        "root_resolved": payload.get("root_resolved") is True,
+        "return_route": "/one/setup",
+        "callback_state": callback_state
+        if callback_state in _ONBOARDING_CALLBACK_STATES
+        else "none",
+        "phone_verified": payload.get("phone_verified")
+        if isinstance(payload.get("phone_verified"), bool)
+        else None,
+        "setup_capability_ids": [
+            capability
+            for capability in _bounded_text_list(
+                payload.get("setup_capability_ids"), _LIVE_CAPABILITY_CAP
+            )
+            if capability in _ONBOARDING_CAPABILITIES
+        ],
+    }
+
+
+def _sanitize_action_settlement(
+    payload: Any, issued_directives: dict[str, str]
+) -> dict[str, str] | None:
+    """Validate a browser report against an action directive from this socket."""
+    if not isinstance(payload, dict):
+        return None
+    directive_id = _bounded_text(payload.get("directiveId"), 128)
+    action_id = _bounded_text(payload.get("actionId"), 128)
+    if not directive_id or issued_directives.get(directive_id) != action_id:
+        return None
+    status_value = _bounded_text(payload.get("status"), 16)
+    if status_value not in _ACTION_SETTLEMENT_STATUSES:
+        return None
+    issued_directives.pop(directive_id, None)
+    return {
+        "directive_id": directive_id,
+        "action_id": action_id,
+        "status": status_value,
+        "summary": _bounded_text(payload.get("summary"), 320) or "The app returned no detail.",
+        "reason": _bounded_text(payload.get("reason"), 96),
+        "route_after": _bounded_text(payload.get("routeAfter"), 128),
+        "screen_after": _bounded_text(payload.get("screenAfter"), 64),
+    }
+
+
 @router.websocket("/live")
 async def one_adk_live_relay(websocket: WebSocket) -> None:
     """Bridge the browser wire protocol onto Runner.run_live."""
@@ -194,37 +523,103 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
 
     await websocket.send_text(json.dumps({"setupComplete": {}}))
 
-    # Proactive greeting: the session should never open in silence. This
-    # kickoff is app-composed (not user speech) and runs through the same
-    # single ordered event stream, so a user who starts talking immediately
-    # simply barges in over it.
-    queue.send_content(
-        genai_types.Content(
-            role="user",
-            parts=[
-                genai_types.Part(
-                    text=(
-                        "[Session start - not user speech] Greet the user right "
-                        "now in one short, warm sentence as One. Vary your "
-                        "greeting naturally between sessions; do not repeat a "
-                        "stock phrase, do not list capabilities, and do not "
-                        "ask more than one light question."
-                    )
+    # A signed-in uid means a known/returning person; no uid is a fresh,
+    # not-yet-authenticated visitor who is (or is about to be) in onboarding.
+    is_fresh_visitor = not uid
+
+    # The initial cue is screen-aware and idle-only. It is deliberately not
+    # enqueued synchronously with the first app_context because the browser's
+    # microphone follows that frame; doing so placed a visitor command behind
+    # One's greeting in LiveRequestQueue. A redacted transport activity frame
+    # now cancels the cue before it reaches the model.
+    greeting_gate = _InitialGreetingGate()
+    greeting_task: Optional[asyncio.Task[None]] = None
+
+    def _compose_greeting_prompt(screen: str, playbook: dict[str, Any] | None) -> str:
+        entry_cue = _bounded_text(playbook.get("entry_cue"), 240) if playbook else ""
+        proactive = bool(playbook and playbook.get("proactivity") == "on_entry" and entry_cue)
+        onboarding = (screen in _ONBOARDING_SCREENS) or is_fresh_visitor
+        if onboarding:
+            return (
+                "[Session start - not user speech] This is a NEW visitor who is "
+                "just arriving to get set up. You are One, their private agent: "
+                "the relationship layer where they own their context, grant "
+                "consent, and summon specialists (like Kai for finance) to get "
+                "things done. Greet them warmly in one short sentence, welcome "
+                "them in for the first time, and gently invite them to begin "
+                "getting set up. Do NOT greet them as if they were returning (no "
+                "'welcome back', no 'back again'). If a screen is known, call "
+                "list_app_actions for the current screen first and name the one "
+                "next thing they can do here; ask for what you need in the same "
+                "breath. Do not list capabilities and do not ask more than one "
+                "light question. If their next reply is a short challenge or "
+                "follow-up such as 'so what?' or 'why?', answer the value "
+                "question directly before mentioning setup. "
+                + (
+                    f"The checked-in route cue is: {entry_cue} Use that active-screen "
+                    "guidance instead of an identity-only greeting."
+                    if proactive
+                    else ""
                 )
-            ],
+            )
+        return (
+            "[Session start - not user speech] Greet the user right now in one "
+            "short, warm sentence as One. Vary your greeting naturally between "
+            "sessions; do not repeat a stock phrase, do not list capabilities, "
+            "and do not ask more than one light question."
         )
-    )
+
+    def _send_greeting(screen: str, playbook: dict[str, Any] | None, epoch: int) -> None:
+        if not greeting_gate.mark_sent(epoch):
+            return
+        queue.send_content(
+            genai_types.Content(
+                role="user",
+                parts=[genai_types.Part(text=_compose_greeting_prompt(screen, playbook))],
+            )
+        )
+
+    def _cancel_pending_greeting() -> None:
+        nonlocal greeting_task
+        if greeting_task is not None and not greeting_task.done():
+            greeting_task.cancel()
+
+    def _schedule_idle_greeting(screen: str, playbook: dict[str, Any] | None = None) -> None:
+        nonlocal greeting_task
+        _cancel_pending_greeting()
+        epoch = greeting_gate.schedule()
+        if epoch is None:
+            return
+
+        async def _send_after_idle() -> None:
+            try:
+                await asyncio.sleep(_INITIAL_GREETING_IDLE_SECONDS)
+            except asyncio.CancelledError:
+                return
+            _send_greeting(screen, playbook, epoch)
+
+        greeting_task = asyncio.create_task(_send_after_idle())
+
+    # If the browser never publishes context and the visitor remains idle, a
+    # short generic cue is still available. The first context replaces it with
+    # a screen-aware cue rather than sending two turns.
+    _schedule_idle_greeting("")
 
     # Last screen injected as model-visible context. Screen changes arrive as
     # app_context frames; sending content mid-generation PREEMPTS the model's
     # current turn on the Live API, so screen text is injected only when the
     # screen truly changed (never for the first frame; session state already
     # carries it for tools).
-    last_injected_screen: Optional[str] = None
+    last_injected_route_key: Optional[str] = None
     first_app_context_seen = False
+    # Action outcomes are accepted only when they match a directive forwarded
+    # on this same authenticated WebSocket. This keeps arbitrary browser
+    # frames from becoming model-visible completion claims.
+    issued_action_directives: dict[str, str] = {}
+    initial_context_ready = asyncio.Event()
 
     async def pump_browser_to_queue() -> None:
-        nonlocal last_injected_screen, first_app_context_seen
+        nonlocal last_injected_route_key, first_app_context_seen
         while True:
             raw = await websocket.receive_text()
             try:
@@ -247,15 +642,20 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # must be persisted through append_event (state_delta), never
                 # by mutating session.state directly.
                 state_delta: dict[str, Any] = {}
-                consent_token = context_payload.get("consent_token")
-                if isinstance(consent_token, str) and consent_token.strip():
-                    state_delta[STATE_CONSENT_TOKEN] = consent_token.strip()
+                if "consent_token" in context_payload:
+                    consent_token = context_payload.get("consent_token")
+                    state_delta[STATE_CONSENT_TOKEN] = _bounded_text(consent_token, 4096)
                 timezone_name = context_payload.get("timezone")
                 if isinstance(timezone_name, str) and timezone_name.strip():
                     state_delta[STATE_TIMEZONE] = timezone_name.strip()[:64]
                 screen_value = context_payload.get("screen")
                 if isinstance(screen_value, str) and screen_value.strip():
                     state_delta[STATE_SCREEN] = screen_value.strip()[:64]
+                # Full UI snapshots never reach the model prompt. Action tools
+                # read this bounded redacted state when deciding what can be
+                # proposed or executed on the current screen.
+                sanitized_context = _sanitize_live_context(context_payload)
+                state_delta[STATE_VOICE_CONTEXT] = sanitized_context
                 if state_delta:
                     await runner.session_service.append_event(
                         session,
@@ -265,35 +665,85 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                             actions=EventActions(state_delta=state_delta),
                         ),
                     )
+                initial_context_ready.set()
                 screen = context_payload.get("screen")
                 clean_screen = screen.strip()[:64] if isinstance(screen, str) else ""
+                is_first = not first_app_context_seen
+                if is_first:
+                    # The first context establishes the entry screen. Keep the
+                    # cue idle-only so visitor speech always owns the first
+                    # actionable turn.
+                    _schedule_idle_greeting(
+                        clean_screen,
+                        sanitized_context.get("route_playbook"),
+                    )
                 if clean_screen:
-                    is_first = not first_app_context_seen
-                    changed = clean_screen != last_injected_screen
-                    last_injected_screen = clean_screen
+                    route_key = ":".join(
+                        [
+                            str(sanitized_context.get("route_pattern") or ""),
+                            clean_screen,
+                            str(sanitized_context.get("route_instruction_id") or ""),
+                        ]
+                    )
+                    changed = route_key != last_injected_route_key
+                    last_injected_route_key = route_key
                     if changed and not is_first:
-                        if clean_screen in _ONBOARDING_SCREENS:
-                            note_text = (
-                                "[App state update - not user speech] The user is "
-                                f"now on the '{clean_screen}' screen while finishing "
-                                "account setup. Briefly name the one next thing they "
-                                "can do here, and if it needs an answer from them "
-                                "(a question, a phone number), ask for it directly "
-                                "in the same breath."
+                        note_text = _compose_route_context_note(sanitized_context)
+                        if note_text:
+                            queue.send_content(
+                                genai_types.Content(
+                                    role="user",
+                                    parts=[genai_types.Part(text=note_text)],
+                                )
                             )
-                        else:
-                            note_text = (
-                                "[App state update - not user speech] The user is "
-                                f"now on the '{clean_screen}' screen. Use this "
-                                "silently."
-                            )
-                        queue.send_content(
-                            genai_types.Content(
-                                role="user",
-                                parts=[genai_types.Part(text=note_text)],
-                            )
-                        )
                 first_app_context_seen = True
+                continue
+            if message.get("type") == "voice_activity_start":
+                # The browser emits this once after local speech activity, not
+                # on raw microphone frames. It is transport control only: no
+                # transcript, page information, or intent is trusted here.
+                greeting_gate.cancel_for_visitor_activity()
+                _cancel_pending_greeting()
+                queue.send_activity_start()
+                continue
+            if message.get("type") == "action_settled":
+                settlement = _sanitize_action_settlement(
+                    message.get("actionSettlement"), issued_action_directives
+                )
+                if settlement is None:
+                    logger.info("one_adk_live_invalid_action_settlement")
+                    continue
+                await runner.session_service.append_event(
+                    session,
+                    AdkEvent(
+                        author="user",
+                        invocation_id="action_settled",
+                        actions=EventActions(
+                            state_delta={"hussh:last_action_settlement": settlement}
+                        ),
+                    ),
+                )
+                # This is an app execution report, never user speech. The
+                # wording forces a grounded follow-up rather than a fabricated
+                # success claim and provides the next link in a chained turn.
+                queue.send_content(
+                    genai_types.Content(
+                        role="user",
+                        parts=[
+                            genai_types.Part(
+                                text=(
+                                    "[App action settlement - not user speech] "
+                                    f"Action '{settlement['action_id']}' reported "
+                                    f"status '{settlement['status']}'. Summary: "
+                                    f"{settlement['summary']}. "
+                                    "Acknowledge only this reported outcome. If it "
+                                    "was blocked or failed, explain the next safe "
+                                    "step; do not claim the action succeeded."
+                                )
+                            )
+                        ],
+                    )
+                )
                 continue
             if message.get("type") == "app_speech" or "appSpeech" in message:
                 text = message.get("text")
@@ -317,6 +767,8 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # message, NOT app-composed speech.
                 text = message.get("text")
                 if isinstance(text, str) and text.strip():
+                    greeting_gate.cancel_for_visitor_activity()
+                    _cancel_pending_greeting()
                     queue.send_content(
                         genai_types.Content(
                             role="user",
@@ -337,6 +789,15 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             queue.send_realtime(genai_types.Blob(data=base64.b64decode(data), mime_type=mime))
 
     async def pump_events_to_browser() -> None:
+        # ADK evaluates a callable system instruction when run_live opens.
+        # Wait briefly for the browser's first bounded app_context so the
+        # active server-resolved playbook is present for the first real turn.
+        # Legacy clients still start after the compatibility timeout; queued
+        # audio is retained by LiveRequestQueue during this bounded wait.
+        try:
+            await asyncio.wait_for(initial_context_ready.wait(), timeout=1.0)
+        except TimeoutError:
+            pass
         async for event in runner.run_live(
             user_id=session_user,
             session_id=session_id,
@@ -368,7 +829,18 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             delta = getattr(actions, "state_delta", None) or {}
             directive = delta.get(STATE_PENDING_DIRECTIVE)
             if isinstance(directive, dict) and directive:
-                await websocket.send_text(json.dumps({"clientDirective": directive}))
+                outgoing_directive = directive
+                payload = directive.get("payload")
+                if directive.get("kind") == "action" and isinstance(payload, dict):
+                    action_id = _bounded_text(payload.get("actionId"), 128)
+                    if action_id:
+                        directive_id = secrets.token_urlsafe(18)
+                        issued_action_directives[directive_id] = action_id
+                        outgoing_directive = {
+                            **directive,
+                            "payload": {**payload, "directiveId": directive_id},
+                        }
+                await websocket.send_text(json.dumps({"clientDirective": outgoing_directive}))
             if getattr(event, "turn_complete", False):
                 await websocket.send_text(json.dumps({"serverContent": {"turnComplete": True}}))
 
@@ -383,8 +855,10 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     finally:
-        for task in (up, down):
-            task.cancel()
+        up.cancel()
+        down.cancel()
+        if greeting_task is not None:
+            greeting_task.cancel()
         queue.close()
         try:
             await websocket.close()

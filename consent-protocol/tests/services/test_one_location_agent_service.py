@@ -11,7 +11,9 @@ from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentError,
     OneLocationAgentService,
     _contains_plaintext_location_key,
+    _identity_notification_label,
     _json_param,
+    _notification_safe_data,
     _redact_location_metadata,
 )
 
@@ -49,6 +51,33 @@ def test_plaintext_coordinate_key_detection_is_recursive() -> None:
     assert _contains_plaintext_location_key({"metadata": {"lat": 1}}) is True
     assert _contains_plaintext_location_key({"metadata": [{"address": "home"}]}) is True
     assert _contains_plaintext_location_key({"payload": "coordinate_envelope"}) is False
+
+
+def test_notification_identity_label_never_falls_back_to_phone() -> None:
+    assert (
+        _identity_notification_label(
+            {"display_name": "hushh Social", "phone_number": "+91 99999 98014"}
+        )
+        == "hushh Social"
+    )
+    assert (
+        _identity_notification_label({"display_name": "", "phone_number": "+91 99999 98014"})
+        == "A trusted person"
+    )
+
+
+def test_notification_transport_data_excludes_phone_fields() -> None:
+    assert _notification_safe_data(
+        {
+            "grant_id": "grant-1",
+            "owner_display_label": "hushh Social",
+            "owner_masked_phone": "*******8014",
+            "phone_number": "+91 99999 98014",
+        }
+    ) == {
+        "grant_id": "grant-1",
+        "owner_display_label": "hushh Social",
+    }
 
 
 def test_duration_bounds_are_v1_limited() -> None:
@@ -257,6 +286,7 @@ class FourUserMemoryService(OneLocationAgentService):
 
     def _send_metadata_notification(self, **kwargs) -> None:
         assert _contains_plaintext_location_key(kwargs.get("data") or {}) is False
+        kwargs["data"] = _notification_safe_data(kwargs.get("data") or {})
         self.notifications.append(kwargs)
 
     def _active_key(self, user_id: str, key_id: str | None = None) -> dict | None:
@@ -1602,6 +1632,15 @@ def test_four_user_location_workflow_contract() -> None:
         recipient_key_id=f"key-{user_b}",
         duration_hours=1,
     )
+    share_notification = next(
+        item
+        for item in service.notifications
+        if item["notification_type"] == "location_share_created"
+        and (item.get("data") or {}).get("grant_id") == grant_b["id"]
+    )
+    assert share_notification["body"] == "User A shared location access with you."
+    assert "phone" not in json.dumps(share_notification).lower()
+    assert "0001" not in json.dumps(share_notification)
     service.store_encrypted_envelope(
         owner_user_id=user_a,
         grant_id=grant_b["id"],

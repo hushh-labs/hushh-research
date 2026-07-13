@@ -52,11 +52,11 @@ export const KAI_LEGAL_DOCUMENTS: Record<KaiLegalDocumentType, KaiLegalDocument>
   privacy: {
     title: "Privacy Policy",
     summary:
-      "This policy reflects the current documented privacy architecture: BYOK encryption, consent-first access, and user-controlled data handling.",
+      "This policy reflects the current documented privacy architecture: BYOK encryption, consent-first access, and user-controlled information handling.",
     updatedAt: "February 2026",
     sections: [
       {
-        title: "Data Ownership & Encryption",
+        title: "Information Ownership & Encryption",
         points: [
           "Hussh uses BYOK: encryption keys stay with the user, and servers store ciphertext only.",
           "Personal Knowledge Model storage is encrypted (AES-256-GCM) and decrypted on the client.",
@@ -66,7 +66,7 @@ export const KAI_LEGAL_DOCUMENTS: Record<KaiLegalDocumentType, KaiLegalDocument>
       {
         title: "Consent-First Access",
         points: [
-          "All protected data access requires a consent token; signed-in identity alone is not sufficient.",
+          "All protected information access requires a consent token; signed-in identity alone is not sufficient.",
           "Vault-owner flows are consent-gated and all consent operations are auditable.",
         ],
       },
@@ -74,8 +74,8 @@ export const KAI_LEGAL_DOCUMENTS: Record<KaiLegalDocumentType, KaiLegalDocument>
         title: "Privacy Commitments",
         points: [
           "Privacy by default is a core product goal, including on-device processing support.",
-          "Data minimization and transparency are explicit compliance targets in current docs.",
-          "Users have documented right-to-know and right-to-delete expectations for stored data history.",
+          "Information minimization and transparency are explicit compliance targets in current docs.",
+          "Users have documented right-to-know and right-to-delete expectations for stored information history.",
         ],
       },
       {

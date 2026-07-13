@@ -1,8 +1,8 @@
 """Read model for the One Personal Information Agent (marketplace).
 
-The Personal Information Agent is the marketplace chatbot: it answers what the
-owner has published as `default_available` PKM slices and what those slices are
-worth. This service is the single, truthful read source for those questions.
+The Personal Information Agent is the marketplace chatbot: it answers which
+owner-published public-profile resources are active and what their safe summaries
+are worth. This service is the single, truthful read source for those questions.
 
 Consent safety: it reads ONLY the owner's own scope-registry metadata (labels,
 sensitivity tier, attribute count, visibility posture) and the safe summary
@@ -194,9 +194,7 @@ class MarketplaceInformationService:
         }
 
     async def list_published_slices(self, *, user_id: str) -> list[dict[str, Any]]:
-        """Every scope the owner has set to `default_available` (published), across
-        all their domains. Coordinate/value-free — labels and public metadata only.
-        """
+        """Active owner-published public profiles, without projection plaintext."""
         index = await self._pkm.get_index_v2(user_id)
         if index is None:
             return []
@@ -206,9 +204,18 @@ class MarketplaceInformationService:
             manifest = await self._pkm.get_domain_manifest(user_id, domain)
             if not manifest:
                 continue
-            for entry in manifest.get("scope_registry") or []:
-                if entry.get("visibility_posture") != "default_available":
-                    continue
+            active = await self._pkm.list_public_profile_projections(user_id=user_id, domain=domain)
+            for projection in active:
+                entry = next(
+                    (
+                        candidate
+                        for candidate in (manifest.get("scope_registry") or [])
+                        if candidate.get("scope_handle") == projection.get("scope_handle")
+                        or (candidate.get("summary_projection") or {}).get("top_level_scope_path")
+                        == projection.get("top_level_scope_path")
+                    ),
+                    {},
+                )
                 published.append(
                     {
                         "domain": entry.get("domain") or domain,
@@ -218,6 +225,7 @@ class MarketplaceInformationService:
                         "sensitivityTier": entry.get("sensitivity_tier"),
                         "scopeKind": entry.get("scope_kind"),
                         "attributeCount": _attribute_count(entry),
+                        "publicProfileHandle": projection.get("public_profile_handle"),
                     }
                 )
         return published
@@ -244,9 +252,14 @@ class MarketplaceInformationService:
             manifest = await self._pkm.get_domain_manifest(user_id, domain)
             if not manifest:
                 continue
+            active = await self._pkm.list_public_profile_projections(user_id=user_id, domain=domain)
+            active_paths = {str(item.get("top_level_scope_path") or "") for item in active}
             for entry in manifest.get("scope_registry") or []:
-                if entry.get("visibility_posture") == "default_available":
-                    continue  # already published
+                entry_path = str(
+                    (entry.get("summary_projection") or {}).get("top_level_scope_path") or ""
+                )
+                if entry_path in active_paths:
+                    continue  # already published as a public profile
                 label = entry.get("scope_label") or "Data slice"
                 if label.strip().lower() in _STRUCTURAL_LABELS:
                     continue

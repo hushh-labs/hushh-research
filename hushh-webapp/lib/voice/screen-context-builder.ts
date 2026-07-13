@@ -7,9 +7,17 @@ import type {
   VoiceSurfaceControlDefinition,
   VoiceSurfaceSectionDefinition,
 } from "@/lib/voice/voice-types";
-import { getKaiActionById, getKaiActionsForControlId } from "@/lib/voice/kai-action-gateway";
+import {
+  getKaiActionById,
+  getKaiActionsForControlId,
+} from "@/lib/voice/kai-action-gateway";
 import { listInvestorKaiActionsForSurface } from "@/lib/voice/investor-kai-action-registry";
-import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import {
+  getVoiceSurfaceMetadata,
+  type VoiceInteractionLayerV1,
+  type VoiceSurfaceMetadata,
+} from "@/lib/voice/voice-surface-metadata";
+import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import type {
   OneVoiceTransition,
   OneVoiceUiState,
@@ -52,7 +60,7 @@ export type ArrayDimensionCapResult<T> = {
 
 export function enforceArrayDimensionCap<T>(
   incomingDataList: readonly T[] | null | undefined,
-  maximumDimensionCap = STRUCTURED_CONTEXT_ARRAY_CAP
+  maximumDimensionCap = STRUCTURED_CONTEXT_ARRAY_CAP,
 ): ArrayDimensionCapResult<T> {
   if (!Array.isArray(incomingDataList)) {
     return {
@@ -161,10 +169,32 @@ export type StructuredScreenContext = {
     }>;
     active_control_id?: string | null;
     last_interacted_control_id?: string | null;
+    interaction_layer?: StructuredVoiceInteractionLayer | null;
   };
   one_voice_context?: OneVoiceContextSnapshot;
   screen_metadata: Record<string, unknown>;
 };
+
+export type OneVoiceInteractionLayerSnapshot = {
+  layer_id: string;
+  kind: string;
+  modality: VoiceInteractionLayerV1["modality"];
+  lifecycle_state: VoiceInteractionLayerV1["lifecycle"];
+  dismissible: boolean;
+  dismiss_action_id?: string | null;
+  visible_action_ids: string[];
+  visible_control_ids: string[];
+  options: Array<{
+    id: string;
+    label: string;
+    action_id?: string | null;
+    description?: string | null;
+  }>;
+  underlying_actions_available: boolean;
+  agent_continuity: VoiceInteractionLayerV1["agentContinuity"];
+};
+
+export type StructuredVoiceInteractionLayer = OneVoiceInteractionLayerSnapshot;
 
 export type OneVoiceContextSnapshot = {
   schema_version: "one_voice_context.v1";
@@ -178,19 +208,23 @@ export type OneVoiceContextSnapshot = {
   };
   route: {
     screen: string;
+    playbook_id: string;
     subview?: string | null;
     route_family: string;
     nav_stack: string[];
   };
   ui: {
     visible_modules: string[];
+    visible_control_ids: string[];
     active_section?: string | null;
     active_tab?: string | null;
     selected_entity_present: boolean;
     modal_state?: string | null;
     focused_widget?: string | null;
+    interaction_layer?: StructuredVoiceInteractionLayer | null;
   };
   available_action_ids: string[];
+  pending_settlement: boolean;
   cache: {
     vault_ready: boolean;
     portfolio_ready: boolean;
@@ -201,6 +235,21 @@ export type OneVoiceContextSnapshot = {
     active: string;
     primary_nav: string;
     available: string[];
+  };
+  onboarding: {
+    phase:
+      | "anonymous_auth"
+      | "phone_required"
+      | "setup_hub"
+      | "capability_setup"
+      | "external_connector"
+      | "root_completion";
+    active_capability?: string | null;
+    root_resolved: boolean;
+    return_route: string;
+    phone_verified?: boolean | null;
+    callback_state: "none" | "pending" | "succeeded" | "cancelled" | "failed";
+    setup_capability_ids: string[];
   };
   voice: {
     state: OneVoiceUiState;
@@ -218,6 +267,33 @@ export type OneVoiceContextSnapshot = {
     excludes: string[];
   };
 };
+
+function mapInteractionLayer(
+  layer: VoiceInteractionLayerV1 | null | undefined,
+): OneVoiceInteractionLayerSnapshot | null {
+  if (!layer) return null;
+  return {
+    layer_id: layer.id,
+    kind: layer.kind,
+    modality: layer.modality,
+    lifecycle_state: layer.lifecycle,
+    dismissible: layer.dismissible,
+    dismiss_action_id: layer.dismissActionId || null,
+    visible_action_ids: enforceArrayDimensionCap(layer.visibleActionIds).items,
+    visible_control_ids: enforceArrayDimensionCap(layer.visibleControlIds)
+      .items,
+    options: enforceArrayDimensionCap(
+      layer.options.map((option) => ({
+        id: option.id,
+        label: option.label,
+        action_id: option.actionId || null,
+        description: option.description || null,
+      })),
+    ).items,
+    underlying_actions_available: !layer.blocksUnderlyingActions,
+    agent_continuity: layer.agentContinuity,
+  };
+}
 
 function domSafeQueryText(selector: string): string | null {
   if (typeof document === "undefined") return null;
@@ -316,7 +392,8 @@ function readStringArray(value: unknown): string[] {
  */
 function prioritizeAvailableActionIds(
   candidateIds: string[],
-  screen: string | null
+  screen: string | null,
+  includeGlobalNavigation = true,
 ): string[] {
   const deduped: string[] = [];
   const seen = new Set<string>();
@@ -348,7 +425,7 @@ function prioritizeAvailableActionIds(
       "of",
       ranked.length,
       "for screen",
-      screen
+      screen,
     );
   }
   // Screen-ranked segment first (original cap), then the reserved global
@@ -356,6 +433,7 @@ function prioritizeAvailableActionIds(
   // combined list stays within AVAILABLE_ACTION_IDS_CAP, which the backend
   // accepts (Pydantic max_length is kept in sync).
   const screenSegment = enforceArrayDimensionCap(ranked).items;
+  if (!includeGlobalNavigation) return screenSegment;
   const combined = [...screenSegment];
   for (const navId of GLOBAL_NAV_ACTION_IDS) {
     if (combined.length >= AVAILABLE_ACTION_IDS_CAP) break;
@@ -383,7 +461,7 @@ function mapSections(sections: VoiceSurfaceSectionDefinition[] | undefined) {
           title: section.title,
           purpose: section.purpose || null,
           summary: section.summary || null,
-        }))
+        })),
       ).items
     : [];
 }
@@ -400,7 +478,7 @@ function mapActions(actions: VoiceSurfaceActionDefinition[] | undefined) {
           voice_aliases: Array.isArray(action.voiceAliases)
             ? enforceArrayDimensionCap(action.voiceAliases).items
             : undefined,
-        }))
+        })),
       ).items
     : [];
 }
@@ -423,12 +501,14 @@ function mapControls(controls: VoiceSurfaceControlDefinition[] | undefined) {
           voice_aliases: Array.isArray(control.voiceAliases)
             ? enforceArrayDimensionCap(control.voiceAliases).items
             : undefined,
-        }))
+        })),
       ).items
     : [];
 }
 
-function mapConcepts(concepts: Array<VoiceSurfaceConceptDefinition | string> | undefined) {
+function mapConcepts(
+  concepts: Array<VoiceSurfaceConceptDefinition | string> | undefined,
+) {
   return Array.isArray(concepts)
     ? enforceArrayDimensionCap(
         concepts.map((concept) =>
@@ -448,8 +528,8 @@ function mapConcepts(concepts: Array<VoiceSurfaceConceptDefinition | string> | u
                 aliases: Array.isArray(concept.aliases)
                   ? enforceArrayDimensionCap(concept.aliases).items
                   : undefined,
-              }
-        )
+              },
+        ),
       ).items
     : [];
 }
@@ -457,12 +537,15 @@ function mapConcepts(concepts: Array<VoiceSurfaceConceptDefinition | string> | u
 export function buildStructuredScreenContext(args: {
   appRuntimeState?: AppRuntimeState;
   voiceContext?: Record<string, unknown>;
+  /** The subscribed page-owned inventory when running inside React. */
+  surfaceMetadata?: VoiceSurfaceMetadata | null;
 }): StructuredScreenContext {
   const app = args.appRuntimeState;
   const rawContext = args.voiceContext || {};
-  const publishedSurface = getVoiceSurfaceMetadata();
+  const publishedSurface = args.surfaceMetadata ?? getVoiceSurfaceMetadata();
 
-  const pathname = app?.route.pathname || String(rawContext.route || "").trim() || "";
+  const pathname =
+    app?.route.pathname || String(rawContext.route || "").trim() || "";
   const screen = app?.route.screen || "unknown";
   const subview = app?.route.subview || null;
 
@@ -470,24 +553,30 @@ export function buildStructuredScreenContext(args: {
   const explicitPageTitle = publishedSurface?.title || null;
   const activeSection =
     publishedSurface?.activeSection ||
-    (typeof rawContext.active_section === "string" && rawContext.active_section.trim()) ||
+    (typeof rawContext.active_section === "string" &&
+      rawContext.active_section.trim()) ||
     readUrlSearchParam("section") ||
     null;
   const activeTab =
     publishedSurface?.activeTab ||
-    (typeof rawContext.active_tab === "string" && rawContext.active_tab.trim()) ||
+    (typeof rawContext.active_tab === "string" &&
+      rawContext.active_tab.trim()) ||
     readUrlSearchParam("tab") ||
     null;
   const selectedEntity =
     publishedSurface?.selectedEntity ||
-    (typeof rawContext.selected_entity === "string" && rawContext.selected_entity.trim()) ||
-    (typeof rawContext.current_ticker === "string" && rawContext.current_ticker.trim()) ||
+    (typeof rawContext.selected_entity === "string" &&
+      rawContext.selected_entity.trim()) ||
+    (typeof rawContext.current_ticker === "string" &&
+      rawContext.current_ticker.trim()) ||
     app?.runtime.analysis_ticker ||
     null;
   const explicitVisibleModules = uniqueStrings([
     ...(publishedSurface?.visibleModules || []),
-    ...((publishedSurface?.sections || []).map((section) => section.title)),
-    ...(Array.isArray(rawContext.visible_modules) ? rawContext.visible_modules : []),
+    ...(publishedSurface?.sections || []).map((section) => section.title),
+    ...(Array.isArray(rawContext.visible_modules)
+      ? rawContext.visible_modules
+      : []),
   ]);
   const visibleModules = uniqueStrings([
     ...explicitVisibleModules,
@@ -495,22 +584,28 @@ export function buildStructuredScreenContext(args: {
   ]);
   const activeFilters = uniqueStrings([
     ...(publishedSurface?.activeFilters || []),
-    ...(Array.isArray(rawContext.active_filters) ? rawContext.active_filters : []),
+    ...(Array.isArray(rawContext.active_filters)
+      ? rawContext.active_filters
+      : []),
   ]);
   const selectedObjects = uniqueStrings([
     ...(publishedSurface?.selectedObjects || []),
-    ...(Array.isArray(rawContext.selected_objects) ? rawContext.selected_objects : []),
+    ...(Array.isArray(rawContext.selected_objects)
+      ? rawContext.selected_objects
+      : []),
   ]);
   const surfaceBusyOperations = uniqueStrings([
     ...(publishedSurface?.busyOperations || []),
-    ...(Array.isArray(rawContext.busy_operations) ? rawContext.busy_operations : []),
+    ...(Array.isArray(rawContext.busy_operations)
+      ? rawContext.busy_operations
+      : []),
   ]);
 
   const navStack = uniqueStrings(
     pathname
       .split("/")
       .filter(Boolean)
-      .map((segment) => `/${segment}`)
+      .map((segment) => `/${segment}`),
   );
 
   const busyOps = Array.isArray(app?.runtime.busy_operations)
@@ -521,30 +616,50 @@ export function buildStructuredScreenContext(args: {
     href: pathname,
     pathname,
   });
+  const activeInteractionLayer = publishedSurface?.interactionLayer || null;
+  const underlyingActionsAvailable =
+    !activeInteractionLayer || !activeInteractionLayer.blocksUnderlyingActions;
+  const publishedActionIds = uniqueStrings([
+    ...(publishedSurface?.controls || [])
+      .map((control) => control.actionId || null)
+      .filter((actionId): actionId is string => Boolean(actionId)),
+    ...(publishedSurface?.actions || [])
+      .map((action) => action.actionId || action.id)
+      .filter((actionId): actionId is string => Boolean(actionId)),
+  ]);
+  // A mounted surface with a declared inventory is authoritative for what is
+  // executable now. Route contracts are the fallback only for pages that do
+  // not publish their own controls. This keeps modal-only actions unavailable
+  // until their matching control is actually visible.
+  const currentRouteActionIds = publishedActionIds.length
+    ? []
+    : routeActions.map((action) => action.id);
   const derivedControlActionIds = uniqueStrings([
-    ...getKaiActionsForControlId(publishedSurface?.activeControlId).map((action) => action.action_id),
+    ...getKaiActionsForControlId(publishedSurface?.activeControlId).map(
+      (action) => action.action_id,
+    ),
     ...getKaiActionsForControlId(publishedSurface?.lastInteractedControlId).map(
-      (action) => action.action_id
+      (action) => action.action_id,
     ),
   ]);
   const availableActions = uniqueStrings([
-    ...routeActions.map((action) => action.label),
-    ...((publishedSurface?.actions || []).map((action) => action.label)),
+    ...(underlyingActionsAvailable
+      ? routeActions.map((action) => action.label)
+      : []),
+    ...(publishedSurface?.actions || []).map((action) => action.label),
     ...(publishedSurface?.availableActions || []),
-    ...(Array.isArray(rawContext.available_actions) ? rawContext.available_actions : []),
+    ...(Array.isArray(rawContext.available_actions)
+      ? rawContext.available_actions
+      : []),
   ]);
   const availableActionIds = prioritizeAvailableActionIds(
     [
-      ...routeActions.map((action) => action.id),
+      ...currentRouteActionIds,
       ...derivedControlActionIds,
-      ...((publishedSurface?.controls || [])
-        .map((control) => control.actionId || null)
-        .filter((actionId): actionId is string => Boolean(actionId))),
-      ...((publishedSurface?.actions || [])
-        .flatMap((action) => [action.actionId || null, action.id])
-        .filter((actionId): actionId is string => Boolean(actionId))),
+      ...publishedActionIds,
     ],
-    screen
+    screen,
+    underlyingActionsAvailable,
   );
   const screenMetadata = {
     ...readObject(rawContext.screen_metadata),
@@ -567,15 +682,20 @@ export function buildStructuredScreenContext(args: {
       active_tab: activeTab,
       modal_state:
         publishedSurface?.modalState ||
-        (typeof rawContext.modal_state === "string" && rawContext.modal_state.trim()) || null,
+        (typeof rawContext.modal_state === "string" &&
+          rawContext.modal_state.trim()) ||
+        null,
       focused_widget:
         publishedSurface?.focusedWidget ||
-        (typeof rawContext.focused_widget === "string" && rawContext.focused_widget.trim()) ||
+        (typeof rawContext.focused_widget === "string" &&
+          rawContext.focused_widget.trim()) ||
         null,
       active_filters: activeFilters,
       search_query:
         publishedSurface?.searchQuery ||
-        (typeof rawContext.search_query === "string" && rawContext.search_query.trim()) || null,
+        (typeof rawContext.search_query === "string" &&
+          rawContext.search_query.trim()) ||
+        null,
       selected_objects: selectedObjects,
       available_actions: availableActions,
     },
@@ -593,8 +713,11 @@ export function buildStructuredScreenContext(args: {
     },
     persona: {
       active: app?.persona?.active || "investor",
-      primary_nav: app?.persona?.primary_nav || app?.persona?.active || "investor",
-      available: Array.isArray(app?.persona?.available) ? [...app.persona.available] : ["investor"],
+      primary_nav:
+        app?.persona?.primary_nav || app?.persona?.active || "investor",
+      available: Array.isArray(app?.persona?.available)
+        ? [...app.persona.available]
+        : ["investor"],
       transition_target: app?.persona?.transition_target || null,
       ria_switch_available: Boolean(app?.persona?.ria_switch_available),
       ria_setup_available: Boolean(app?.persona?.ria_setup_available),
@@ -614,7 +737,9 @@ export function buildStructuredScreenContext(args: {
       controls: mapControls(publishedSurface?.controls),
       concepts: mapConcepts(publishedSurface?.concepts),
       active_control_id: publishedSurface?.activeControlId || null,
-      last_interacted_control_id: publishedSurface?.lastInteractedControlId || null,
+      last_interacted_control_id:
+        publishedSurface?.lastInteractedControlId || null,
+      interaction_layer: mapInteractionLayer(activeInteractionLayer),
     },
     screen_metadata: screenMetadata,
   };
@@ -623,21 +748,34 @@ export function buildStructuredScreenContext(args: {
 export function buildOneVoiceContextSnapshot(args: {
   appRuntimeState?: AppRuntimeState;
   voiceContext?: Record<string, unknown>;
+  surfaceMetadata?: VoiceSurfaceMetadata | null;
   structuredContext?: StructuredScreenContext;
   state?: OneVoiceUiState;
   lastTransition?: OneVoiceTransition | null;
+  onboarding?: {
+    phase: OneVoiceContextSnapshot["onboarding"]["phase"];
+    activeCapability?: string | null;
+    rootResolved?: boolean;
+    returnRoute?: string | null;
+    phoneVerified?: boolean | null;
+    callbackState?: OneVoiceContextSnapshot["onboarding"]["callback_state"];
+    setupCapabilityIds?: readonly string[];
+  };
 }): OneVoiceContextSnapshot {
   const structured =
     args.structuredContext ||
     buildStructuredScreenContext({
       appRuntimeState: args.appRuntimeState,
       voiceContext: args.voiceContext,
+      surfaceMetadata: args.surfaceMetadata,
     });
   const app = args.appRuntimeState;
-  const availableActionIds = readStringArray(
-    structured.screen_metadata.available_action_ids
+  const publishedAvailableActionIds = readStringArray(
+    structured.screen_metadata.available_action_ids,
   );
-  const vaultReady = Boolean(structured.vault.unlocked && structured.vault.token_valid);
+  const vaultReady = Boolean(
+    structured.vault.unlocked && structured.vault.token_valid,
+  );
   const portfolioReady = Boolean(app?.portfolio.has_portfolio_data);
   const freshness = vaultReady
     ? portfolioReady || structured.ui.visible_modules.length > 0
@@ -645,13 +783,39 @@ export function buildOneVoiceContextSnapshot(args: {
       : "missing"
     : "locked";
   const routeFamily = sanitizeRouteFamily(structured.route.pathname);
-  const navStack = uniqueStrings(structured.route.nav_stack.map(sanitizeRouteFamily));
+  const routeLayout = resolveAppRouteLayout(routeFamily);
+  const routePlaybook = routeLayout.voicePlaybook;
+  const publishedInteractionLayer =
+    structured.surface.interaction_layer ?? null;
+  const interactionLayerAllowed = Boolean(
+    !publishedInteractionLayer ||
+    routeLayout.interactionLayerPolicy.allowedFamilies.includes(
+      publishedInteractionLayer.kind,
+    ),
+  );
+  const activeInteractionLayer = interactionLayerAllowed
+    ? publishedInteractionLayer
+    : null;
+  // An unapproved layer fails closed: its controls cannot become executable
+  // merely because a component published them on the wrong route.
+  const availableActionIds = interactionLayerAllowed
+    ? publishedAvailableActionIds
+    : [];
+  const visibleControlIds = interactionLayerAllowed
+    ? uniqueStrings(
+        structured.surface.controls.map((control) => control.id || ""),
+      )
+    : [];
+  const navStack = uniqueStrings(
+    structured.route.nav_stack.map(sanitizeRouteFamily),
+  );
   const transitionSeq = args.lastTransition?.transitionSeq ?? 0;
   const routeRevision = stableRevision([
     routeFamily,
     structured.route.screen,
     structured.route.subview ?? null,
     navStack,
+    routePlaybook.playbookId,
   ]);
   const uiRevision = stableRevision([
     structured.ui.visible_modules,
@@ -661,6 +825,8 @@ export function buildOneVoiceContextSnapshot(args: {
     structured.ui.modal_state ?? null,
     structured.ui.focused_widget ?? null,
     availableActionIds,
+    visibleControlIds,
+    activeInteractionLayer,
   ]);
   const cacheRevision = stableRevision([
     vaultReady,
@@ -674,6 +840,19 @@ export function buildOneVoiceContextSnapshot(args: {
     structured.persona.available,
   ]);
   const voiceRevision = transitionSeq;
+  const onboarding = {
+    phase: args.onboarding?.phase ?? "anonymous_auth",
+    active_capability: args.onboarding?.activeCapability ?? null,
+    root_resolved: args.onboarding?.rootResolved === true,
+    return_route: sanitizeRouteFamily(
+      args.onboarding?.returnRoute || "/one/setup",
+    ),
+    phone_verified: args.onboarding?.phoneVerified ?? null,
+    callback_state: args.onboarding?.callbackState ?? "none",
+    setup_capability_ids: uniqueStrings([
+      ...(args.onboarding?.setupCapabilityIds || []),
+    ]),
+  };
 
   return {
     schema_version: "one_voice_context.v1",
@@ -683,6 +862,7 @@ export function buildOneVoiceContextSnapshot(args: {
       cacheRevision,
       personaRevision,
       voiceRevision,
+      onboarding,
     ])}`,
     revisions: {
       route: routeRevision,
@@ -693,19 +873,24 @@ export function buildOneVoiceContextSnapshot(args: {
     },
     route: {
       screen: structured.route.screen,
+      playbook_id: routePlaybook.playbookId,
       subview: structured.route.subview ?? null,
       route_family: routeFamily,
       nav_stack: navStack,
     },
     ui: {
       visible_modules: structured.ui.visible_modules,
+      visible_control_ids: visibleControlIds,
       active_section: structured.ui.active_section ?? null,
       active_tab: structured.ui.active_tab ?? null,
       selected_entity_present: Boolean(structured.ui.selected_entity),
       modal_state: structured.ui.modal_state ?? null,
       focused_widget: structured.ui.focused_widget ?? null,
+      interaction_layer: activeInteractionLayer,
     },
     available_action_ids: availableActionIds,
+    pending_settlement:
+      args.state === "acting" || args.state === "navigation_settling",
     cache: {
       vault_ready: vaultReady,
       portfolio_ready: portfolioReady,
@@ -717,6 +902,7 @@ export function buildOneVoiceContextSnapshot(args: {
       primary_nav: structured.persona.primary_nav,
       available: structured.persona.available,
     },
+    onboarding,
     voice: {
       state: args.state ?? "idle",
       transition_seq: transitionSeq,

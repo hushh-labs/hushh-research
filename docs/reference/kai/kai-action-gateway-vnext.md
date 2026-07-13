@@ -51,7 +51,9 @@ The action system is split into four deliberate layers.
 
 Each voice-capable or search-capable Kai surface owns a colocated `.voice-action-contract.json` file next to the feature surface.
 
-Current generated coverage includes 24 source contracts, 24 surfaces, and 95 actions. Source contracts:
+Current generated coverage includes 31 source contracts, 31 surfaces, and 116 actions. Source contracts:
+
+- [page.voice-action-contract.json](../../../hushh-webapp/app/login/page.voice-action-contract.json) — Login-local Google and Apple popup actions shared with the visible provider buttons. Generic sign-in remains a provider-choice interaction.
 
 - [page.voice-action-contract.json](../../../hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/one/page.voice-action-contract.json)
@@ -88,6 +90,12 @@ The generator in [generate-kai-action-gateway.mjs](../../../hushh-webapp/scripts
 
 The gateway is the shared semantic authority.
 The manifest is a generated compatibility artifact for consumers that still read the neutral manifest shape.
+
+The companion [route orchestration index](../../../contracts/kai/one-route-orchestration-index.v1.json)
+joins this gateway to every physical app route. The route-layout contract owns one
+bounded `voicePlaybook` per route; local action contracts continue to own actions,
+trust boundaries, and delegation policy. The joined output is guidance/discovery metadata only and
+does not grant consent or alter TrustLink signatures.
 
 ### 3. Runtime adapter layer
 
@@ -151,6 +159,39 @@ Optional but recommended action fields:
 - `expected_effects`
 - `workflow`
 - `goal`
+- `external_callback` for a provider action whose completion occurs after a
+  full-page external redirect. It declares the provider, `external_redirect_started`,
+  `firebase_redirect_callback`, `retain_goal_and_retry`, and the canonical return route.
+- `trusted_activation_required` for a desktop-web action that must begin inside a
+  browser-trusted tap, such as a Firebase provider popup. One may select the action,
+  but an asynchronous directive must settle into the exact provider-specific Agent Bar
+  action instead of synthesizing activation or changing authentication mode.
+
+`external_callback` does not grant provider authority. It tells One that the original
+directive ends at redirect launch and that a later browser callback, never the launch,
+is the authentication success boundary.
+
+`trusted_activation_required` does not authorize execution either. The trusted tap
+must revalidate the current route, top interaction layer, visible control, guards, and
+attempt correlation, then call the mounted handler synchronously before asynchronous
+work begins.
+
+## Active interaction-layer parity
+
+Runtime publishers are authored as `route`, `chrome`, or `interaction_layer`. The
+route contract remains the physical-screen source; the top open layer provides the
+effective action inventory:
+
+- modal and blocking layers replace underlying actions
+- nonmodal layers retain only explicitly permitted route actions
+- nested layers restore their parent inventory when they close
+- nondismissible layers never receive an invented close action
+
+Every executable layer control must name a generated `action_id`, stable `control_id`,
+and mounted handler. A layer-specific dismiss or cancel action is preferable to a
+global close command because its meaning and settlement remain explicit. Generated
+parity joins gateway, manifest, frontend/native surface map, interaction-layer
+coverage, and route-orchestration index in that order.
 
 ## Goal Metadata
 
@@ -299,6 +340,12 @@ That means the same action contract controls:
 
 Contributors should wire UI controls with stable `control_ids` so both screen context and action suggestions resolve through the same action id.
 
+Runtime visibility is top-layer-aware. A generated action can exist without being
+available on the current turn; hidden route controls must not remain in the active
+inventory behind a modal or blocking layer. One assesses meaning against the bounded
+inventory, and deterministic policy rejects stale or wrong-layer action ids rather
+than substituting a nearby action.
+
 ## Durable Memory Policy
 
 One Voice/Kai compatibility memory follows the Cryptographic Primitives north star:
@@ -329,6 +376,11 @@ When adding a new One Voice or Kai-specialist capability that should be discover
 6. Run the generator.
 7. Run the gateway verifier.
 8. Update targeted tests when capability semantics change.
+
+For interaction layers, also publish the authored role and lifecycle, expose only the
+top effective actions, and verify focus restoration plus success-after-settlement. For
+`trusted_activation_required` actions, verify both semantic provider selection and the
+provider-specific trusted-tap continuation.
 
 If a feature ships without a local contract:
 

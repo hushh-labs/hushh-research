@@ -152,19 +152,39 @@ def test_ria_verified_status_helper_matches_expected_statuses():
     assert RIAIAMService._is_verified_ria_status("submitted") is False
 
 
-def test_regulated_runtime_guard_requires_iapd_in_production(monkeypatch):
+def test_regulated_runtime_guard_requires_a_provider_in_production(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.delenv("IAPD_VERIFY_BASE_URL", raising=False)
     monkeypatch.delenv("IAPD_VERIFY_API_KEY", raising=False)
+    monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_URL", raising=False)
+    monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", raising=False)
     monkeypatch.setenv("ADVISORY_VERIFICATION_BYPASS_ENABLED", "false")
     monkeypatch.setenv("BROKER_VERIFICATION_BYPASS_ENABLED", "false")
 
     try:
         validate_regulated_runtime_configuration()
     except RuntimeError as exc:
-        assert "IAPD_VERIFY_BASE_URL" in str(exc)
+        assert "advisory verification provider must be configured" in str(exc)
     else:
-        raise AssertionError("Expected production runtime guard to require IAPD config")
+        raise AssertionError(
+            "Expected production runtime guard to require an advisory verification provider"
+        )
+
+
+def test_regulated_runtime_guard_accepts_ria_intelligence_only(monkeypatch):
+    # RIA intelligence is the provider actually used today (UAT verifies through
+    # it); the guard must accept it without IAPD configured.
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("IAPD_VERIFY_BASE_URL", raising=False)
+    monkeypatch.delenv("IAPD_VERIFY_API_KEY", raising=False)
+    monkeypatch.setenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", "https://ria-intel.example.com")
+    monkeypatch.setenv("ADVISORY_VERIFICATION_BYPASS_ENABLED", "false")
+    monkeypatch.setenv("RIA_DEV_BYPASS_ENABLED", "false")
+    monkeypatch.setenv("BROKER_VERIFICATION_BYPASS_ENABLED", "false")
+    monkeypatch.delenv("RIA_DEV_ALLOWLIST", raising=False)
+
+    # Should not raise: a configured advisory provider is present.
+    validate_regulated_runtime_configuration()
 
 
 def test_regulated_runtime_guard_rejects_prod_bypass(monkeypatch):

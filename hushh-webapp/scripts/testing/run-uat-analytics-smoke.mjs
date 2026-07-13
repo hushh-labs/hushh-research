@@ -19,7 +19,7 @@ const repoRoot = path.resolve(webDir, "..");
 const appOrigin = (
   sanitizeConfiguredValue(process.env.UAT_ANALYTICS_SMOKE_ORIGIN) ||
   sanitizeConfiguredValue(process.env.HUSHH_UAT_APP_ORIGIN) ||
-  "https://uat.kai.hushh.ai"
+  "https://uat.one.hushh.ai"
 ).replace(/\/$/, "");
 const expectedMeasurementId =
   sanitizeConfiguredValue(process.env.UAT_ANALYTICS_SMOKE_EXPECTED_MEASUREMENT_ID) ||

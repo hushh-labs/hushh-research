@@ -8,6 +8,51 @@ from fastapi.testclient import TestClient
 from api.routes import pkm, pkm_routes_shared
 
 
+def _confirmed_mutation_plan_payload(
+    *,
+    recipient_labels: list[str] | None = None,
+    affected_grant_ids: list[str] | None = None,
+    affected_export_ids: list[str] | None = None,
+) -> dict:
+    labels = recipient_labels or []
+    plan_id = "pkm_plan_route_test_001"
+    return {
+        "version": 2,
+        "plan_id": plan_id,
+        "operation": "create",
+        "target_scope_handle": "pending_scope_route_001",
+        "proposed_domain": "financial",
+        "proposed_scope": "portfolio",
+        "friendly_domain_name": "Financial",
+        "friendly_scope_name": "Portfolio",
+        "confidence": 1.0,
+        "explanation": "The owner reviewed this encrypted PKM write.",
+        "affected_grant_ids": affected_grant_ids or [],
+        "affected_export_ids": affected_export_ids or [],
+        "sharing_impact": {
+            "active_recipient_count": len(labels),
+            "recipient_labels": labels,
+            "enters_next_export_revision": bool(labels),
+            "summary": (
+                "This change affects approved recipients."
+                if labels
+                else "No active recipients are affected."
+            ),
+        },
+        "confirmation_receipt": {
+            "version": 2,
+            "receipt_id": "pkm_receipt_route_test_001",
+            "plan_id": plan_id,
+            "confirmed_by_user_id": "user_123",
+            "confirmed_at": datetime.now(timezone.utc).isoformat(),
+            "surface": "web",
+            "displayed_domain": "financial",
+            "displayed_scope": "portfolio",
+            "sharing_impact_acknowledged": bool(labels),
+        },
+    }
+
+
 def _build_app() -> FastAPI:
     app = FastAPI()
     app.include_router(pkm_routes_shared.router)
@@ -77,6 +122,109 @@ def test_store_domain_forwards_upgrade_context(monkeypatch):
             "projection_version": 1,
             "payload": {"decisions": []},
         }
+    ]
+
+
+def test_store_domain_rejects_stale_sharing_impact(monkeypatch):
+    class _FakePkmService:
+        async def get_mutation_sharing_impact(self, **_kwargs):
+            return {
+                "active_recipient_count": 1,
+                "recipient_labels": ["Hushh Technologies"],
+                "enters_next_export_revision": True,
+                "summary": "This change affects Hushh Technologies.",
+                "affected_grant_ids": ["grant_current"],
+                "affected_export_ids": ["grant_current:revision:4"],
+            }
+
+        async def store_domain_data(self, **_kwargs):
+            raise AssertionError("A stale confirmation must never reach storage")
+
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/pkm/store-domain",
+        json={
+            "user_id": "user_123",
+            "domain": "financial",
+            "encrypted_blob": {
+                "ciphertext": "cipher",
+                "iv": "iv",
+                "tag": "tag",
+                "algorithm": "aes-256-gcm",
+            },
+            "summary": {"holdings_count": 2},
+            "mutation_plan": _confirmed_mutation_plan_payload(),
+        },
+    )
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["code"] == "PKM_SHARING_IMPACT_CHANGED"
+    assert detail["sharing_impact"]["recipient_labels"] == ["Hushh Technologies"]
+
+
+def test_agent_lab_preview_is_enriched_with_current_sharing_impact(monkeypatch):
+    class _FakeAgentLabService:
+        async def generate_structure_preview(self, **_kwargs):
+            return {
+                "agent_id": "pkm_structure",
+                "agent_name": "PKM Structure",
+                "model": "deterministic-test",
+                "used_fallback": False,
+                "candidate_payload": {"portfolio": {"ticker": "AAPL"}},
+                "structure_decision": {
+                    "action": "create_domain",
+                    "target_domain": "financial",
+                },
+                "write_mode": "confirm_first",
+                "preview_cards": [
+                    {
+                        "write_mode": "confirm_first",
+                        "target_domain": "financial",
+                        "primary_json_path": "portfolio.holdings",
+                        "manifest_draft": {
+                            "domain": "financial",
+                            "top_level_scope_paths": ["portfolio"],
+                        },
+                    }
+                ],
+                "preview_summary": {"card_count": 1},
+            }
+
+    class _FakePkmService:
+        async def get_mutation_sharing_impact(self, **kwargs):
+            assert kwargs == {
+                "user_id": "user_123",
+                "domain": "financial",
+                "scope_path": "portfolio",
+            }
+            return {
+                "active_recipient_count": 1,
+                "recipient_labels": ["Hushh Technologies"],
+                "enters_next_export_revision": True,
+                "summary": "This change affects Hushh Technologies.",
+                "affected_grant_ids": ["grant_current"],
+                "affected_export_ids": ["grant_current:revision:4"],
+            }
+
+    app = FastAPI()
+    app.include_router(pkm.router)
+    app.dependency_overrides[pkm.require_vault_owner_token] = lambda: {"user_id": "user_123"}
+    monkeypatch.setattr(pkm, "get_pkm_agent_lab_service", lambda: _FakeAgentLabService())
+    monkeypatch.setattr(pkm, "get_pkm_service", lambda: _FakePkmService())
+
+    response = TestClient(app).post(
+        "/api/pkm/agent-lab/structure",
+        json={"user_id": "user_123", "message": "Save AAPL in my portfolio"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["preview_summary"]["active_recipient_count"] == 1
+    assert payload["preview_cards"][0]["sharing_impact"]["recipient_labels"] == [
+        "Hushh Technologies"
     ]
 
 

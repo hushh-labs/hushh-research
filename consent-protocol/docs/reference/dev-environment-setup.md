@@ -46,7 +46,7 @@ the governed operator service account. Current live facts:
 | **Deployed services** | `consent-protocol` + `hushh-webapp` live and healthy (first deploy 2026-07-10, `deploy-env=dev`, public invoker enabled — note: org-fresh projects drop the `--allow-unauthenticated` binding silently; re-add `allUsers` → `roles/run.invoker` if a new service 403s) |
 | Schedulers | full UAT parity: `one-email-kyc-retention-purge-dev` (daily 09:37 PT), `marketplace-investor-replenisher-every-8h`, `obs-supabase-data-health-every-30m` (+ their Cloud Run jobs and invoker SAs) |
 | Database | full UAT data replica (102 tables, parity-verified) |
-| Domain | `dev.kai.hushh.ai` mapped to `hushh-webapp` + DNS CNAME live; origin flipped in secrets/workflow; TLS cert provisioning in flight |
+| Domain | `dev.one.hushh.ai` mapped to `hushh-webapp` + DNS CNAME live; origin flipped in secrets/workflow; TLS cert provisioning in flight |
 | Doctor status | 0 failures, 1 warning (TLS cert provisioning — self-resolving) |
 
 Known parity notes:
@@ -65,7 +65,7 @@ The dev environment splits infrastructure identity from runtime identity on purp
 | --- | --- | --- |
 | GCP project | `hushh-pda-dev` | isolation from UAT |
 | Cloud SQL instance | `hushh-pda-dev:us-central1:hushh-dev-pg` | own database |
-| Frontend origin | `https://dev.kai.hushh.ai` | own domain |
+| Frontend origin | `https://dev.one.hushh.ai` | own domain |
 | Deploy labels / provenance | `deploy-env=dev`, `deploy-source=deploy-dev` | auditability |
 | Runtime identity | `ENVIRONMENT=uat`, `NEXT_PUBLIC_APP_ENV=uat` | exact UAT behavior parity |
 
@@ -170,7 +170,7 @@ Then override the values that must differ in dev:
 | Secret | Dev value |
 | --- | --- |
 | `DB_USER` / `DB_PASSWORD` | the new dev Cloud SQL credentials |
-| `APP_FRONTEND_ORIGIN` | `https://dev.kai.hushh.ai` |
+| `APP_FRONTEND_ORIGIN` | `https://dev.one.hushh.ai` |
 | `BACKEND_URL` | dev backend Cloud Run URL (set after the first deploy) |
 | `GMAIL_OAUTH_REDIRECT_URI` | dev origin redirect (only if Gmail receipts should run in dev) |
 
@@ -186,7 +186,7 @@ Notes:
   (`scripts/ops/sync_backend_runtime_secrets.py --environment uat`,
   `scripts/ops/sync_frontend_runtime_secrets.py --environment dev`) maintains
   `BACKEND_RUNTIME_CONFIG_JSON`, CORS, passkey RP ids
-  (`localhost,127.0.0.1,kai.hushh.ai,dev.kai.hushh.ai`), and analytics ids on every
+  (`localhost,127.0.0.1,one.hushh.ai,dev.one.hushh.ai`), and analytics ids on every
   deploy — do not hand-maintain those.
 - Verify parity when done:
 
@@ -233,8 +233,8 @@ with the same governed actor list as UAT, enforced by
 
 ```bash
 gcloud beta run domain-mappings create --service hushh-webapp \
-  --domain dev.kai.hushh.ai --region us-central1 --project hushh-pda-dev
-# then add the DNS records it prints to the kai.hushh.ai zone
+  --domain dev.one.hushh.ai --region us-central1 --project hushh-pda-dev
+# then add the DNS records it prints to the one.hushh.ai zone
 ```
 
 Until the domain is live you can leave `APP_FRONTEND_ORIGIN` pointing at the frontend
@@ -292,6 +292,36 @@ Ongoing schedulers to replicate (after first deploy):
   `deploy/observability/`); the doctor reports them as warnings until then.
 - Do NOT schedule One Email watch renewal in dev — watch ownership stays with UAT
   (see divergences above).
+
+## Phase 6c — GCP-native auto-deploy lane (Cloud Build triggers)
+
+Complementing the governed `Deploy to Dev` workflow, dev can auto-deploy on every
+push to `main` using Cloud Build triggers inside `hushh-pda-dev` — no GitHub
+Actions dispatch required. This is the "commit and it ships to dev" lane:
+
+```bash
+bash scripts/ops/setup_dev_cloudbuild_triggers.sh
+```
+
+- **One-time human prerequisite:** the Cloud Build GitHub (2nd gen) host
+  connection + repository link for `hushh-labs/hushh-research`, authorized in the
+  console (the script detects it and prints exact instructions if missing).
+- `dev-backend-autodeploy` fires on `main` pushes touching `consent-protocol/**`
+  and runs `deploy/dev.autodeploy.backend.cloudbuild.yaml`: DB migrations + the
+  `dev_minimum_schema.json` floor guard first, then the shared
+  `deploy/backend.cloudbuild.yaml` (same substitution set as the workflow),
+  then a provenance + health probe.
+- `dev-frontend-autodeploy` fires on `main` pushes touching `hushh-webapp/**`
+  and runs the shared `deploy/frontend.cloudbuild.yaml` directly with dev
+  substitutions.
+- Path filters replicate the workflow's auto-scope; `deploy-source` label is
+  `cloudbuild-trigger` so revisions remain attributable per lane.
+- **Gate honesty:** this lane keeps main-only + migrations + schema floor +
+  health probe. It does NOT replicate the Actions lane's green-check SHA
+  assertion, secret sync, parity/semantic verification, or auto-rollback. A
+  `main` commit deploys immediately — possibly before its Post-Merge Smoke
+  finishes. Dev is disposable by design; the fully-gated path remains the
+  `Deploy to Dev` workflow. Never point triggers like these at UAT/production.
 
 ## Contributor usage once dev is live
 

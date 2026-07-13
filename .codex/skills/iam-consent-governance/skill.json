@@ -26,7 +26,8 @@
     "docs/reference/iam/architecture.md",
     "docs/reference/iam/consent-scope-catalog.md",
     "docs/reference/iam/agent-delegation-boundary.md",
-    "docs/reference/iam/validation-checklist.md"
+    "docs/reference/iam/validation-checklist.md",
+    ".codex/skills/iam-consent-governance/references/anti-rationalization.md"
   ],
   "required_commands": [
     "cd consent-protocol && python3 -m pytest tests/test_granular_scopes.py -q",

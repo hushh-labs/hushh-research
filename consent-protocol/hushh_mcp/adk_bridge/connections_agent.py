@@ -16,7 +16,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from hushh_mcp.adk_bridge.contract import A2ADirective, A2ATask, SpecialistTurnResult
+from hushh_mcp.adk_bridge.contract import (
+    A2ADirective,
+    A2ATask,
+    SpecialistTurnResult,
+    require_attenuated_authority,
+)
 
 DELEGATED_MODEL = "one+connections"
 
@@ -31,6 +36,7 @@ class ConnectionsAgentA2A:
             self._service = ConnectionsChatService()
 
     async def handle(self, task: A2ATask) -> SpecialistTurnResult:
+        require_attenuated_authority(task, information=True, action=True)
         selection_result: dict | None = None
         dr = task.delegate_result
         if isinstance(dr, dict) and str(dr.get("kind")) == "selection":

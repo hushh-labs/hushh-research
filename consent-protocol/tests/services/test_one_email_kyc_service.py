@@ -11,6 +11,14 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from hushh_mcp.consent.export_envelope import (
+    ConsentExportAadV2,
+    ConsentExportEnvelopeSubmissionV2,
+    canonical_aad_bytes,
+    canonical_envelope_submission_bytes,
+    ciphertext_digest_from_base64,
+    digest_bytes,
+)
 from hushh_mcp.consent.scope_helpers import scope_matches
 from hushh_mcp.services.one_email_kyc_service import (
     OneEmailKycConfig,
@@ -52,7 +60,36 @@ def _encrypted_export(
     plaintext = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     export_key = os.urandom(32)
     export_iv = os.urandom(12)
-    export_ciphertext = AESGCM(export_key).encrypt(export_iv, plaintext, None)
+    connector_public_raw = _CONNECTOR_PRIVATE.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    aad = ConsentExportAadV2(
+        app_id="one-kyc-app",
+        grant_id="req_one_kyc",
+        export_id="123e4567-e89b-12d3-a456-426614174000",
+        revision=export_revision,
+        machine_scope=scope,
+        scope_handle="s_one_kyc_demo",
+        recipient_key_fingerprint=digest_bytes(connector_public_raw),
+        expires_at_ms=1_800_000_000_000,
+    )
+    export_ciphertext = AESGCM(export_key).encrypt(
+        export_iv,
+        plaintext,
+        canonical_aad_bytes(aad),
+    )
+    ciphertext_b64 = _b64(export_ciphertext[:-16])
+    ciphertext_sha256, ciphertext_bytes = ciphertext_digest_from_base64(
+        base64.b64encode(export_ciphertext[:-16]).decode()
+    )
+    envelope = ConsentExportEnvelopeSubmissionV2(
+        export_id=aad.export_id,
+        aad=aad,
+        aad_sha256=digest_bytes(canonical_aad_bytes(aad)),
+        ciphertext_sha256=ciphertext_sha256,
+        ciphertext_bytes=ciphertext_bytes,
+    )
 
     sender_private = X25519PrivateKey.generate()
     connector_public = X25519PublicKey.from_public_bytes(
@@ -63,14 +100,18 @@ def _encrypted_export(
     digest.update(shared_secret)
     wrapping_key = digest.finalize()
     wrapped_iv = os.urandom(12)
-    wrapped = AESGCM(wrapping_key).encrypt(wrapped_iv, export_key, None)
+    wrapped = AESGCM(wrapping_key).encrypt(
+        wrapped_iv,
+        export_key,
+        canonical_envelope_submission_bytes(envelope),
+    )
     sender_public = sender_private.public_key().public_bytes(
         encoding=serialization.Encoding.Raw,
         format=serialization.PublicFormat.Raw,
     )
     return {
         "scope": scope,
-        "encrypted_data": _b64(export_ciphertext[:-16]),
+        "encrypted_data": ciphertext_b64,
         "iv": _b64(export_iv),
         "tag": _b64(export_ciphertext[-16:]),
         "wrapped_key_bundle": {
@@ -87,6 +128,17 @@ def _encrypted_export(
         "export_generated_at": datetime(2026, 4, 28, tzinfo=timezone.utc),
         "refresh_status": "current",
         "is_strict_zero_knowledge": True,
+        "envelope_version": 2,
+        "export_id": envelope.export_id,
+        "grant_id": aad.grant_id,
+        "app_id": aad.app_id,
+        "scope_handle": aad.scope_handle,
+        "recipient_key_fingerprint": aad.recipient_key_fingerprint,
+        "payload_algorithm": aad.payload_algorithm,
+        "envelope_aad": aad.model_dump(mode="json"),
+        "envelope_aad_sha256": envelope.aad_sha256,
+        "ciphertext_sha256": envelope.ciphertext_sha256,
+        "ciphertext_bytes": envelope.ciphertext_bytes,
     }
 
 
@@ -725,7 +777,7 @@ async def test_duplicate_message_repairs_legacy_consent_url():
         "metadata": {
             "source": "one_email_kyc_v1",
             "consent_request_url": (
-                "https://uat.kai.hushh.ai/profile?tab=privacy&sheet=consents"
+                "https://uat.one.hushh.ai/profile?tab=privacy&sheet=consents"
                 f"&consentView=pending&requestId={request_id}"
             ),
         },
@@ -1559,7 +1611,7 @@ async def test_select_scopes_reuses_existing_email_agent_grant_for_draft_readine
 
 
 @pytest.mark.asyncio
-async def test_select_scopes_marks_default_available_projection_ready_without_consent():
+async def test_select_scopes_never_uses_public_projection_as_private_data_consent():
     db = _FakeDb()
     consent_db = _FakeConsentDb()
     service = _service(db, consent_db)
@@ -1589,20 +1641,11 @@ async def test_select_scopes_marks_default_available_projection_ready_without_co
         selected_scopes=["attr.financial.portfolio.*"],
     )
 
-    assert selected["status"] == "waiting_on_user"
-    assert selected["draft_status"] == "ready"
-    assert selected["consent_request_id"] is None
-    assert selected["metadata"]["reused_default_available_projection"] is True
-    assert selected["metadata"]["default_available_scopes"] == ["attr.financial.portfolio.*"]
-    assert selected["metadata"]["consent_requests"] == []
-    assert selected["metadata"]["consent_statuses"] == [
-        {
-            "scope": "attr.financial.portfolio.*",
-            "action": "DEFAULT_AVAILABLE",
-            "visibility_posture": "default_available",
-        }
-    ]
-    assert consent_db.events == []
+    assert selected["status"] == "needs_scope"
+    assert selected["draft_status"] != "ready"
+    assert selected["metadata"].get("reused_default_available_projection") is not True
+    assert selected["metadata"].get("default_available_scopes") is None
+    assert [event["action"] for event in consent_db.events] == ["REQUESTED"]
 
 
 @pytest.mark.asyncio

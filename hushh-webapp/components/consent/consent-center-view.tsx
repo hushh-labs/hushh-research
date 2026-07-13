@@ -173,7 +173,7 @@ function entrySupportingCopy(entry: ConsentCenterEntry) {
   if (entry.scope_description) return entry.scope_description;
   if (entry.kind === "invite") return "Pre-consent handshake before the investor reviews access.";
   if (entry.kind === "outgoing_request") return "Request created from your advisor relationship flow.";
-  if (entry.kind === "incoming_request") return "Approval is required before any protected data can be accessed.";
+  if (entry.kind === "incoming_request") return "Approval is required before any protected information can be accessed.";
   return entry.scope || "Consent workflow event";
 }
 
@@ -1252,7 +1252,7 @@ export function ConsentCenterView({
             surfaceView === "pending"
               ? actor === "ria"
                 ? "Outgoing requests and invite handshakes that still need investor action."
-                : "Requests that still need an investor decision before data access can proceed."
+                : "Requests that still need an investor decision before information access can proceed."
               : surfaceView === "active"
                 ? "Access that is currently live under the consent ledger."
                 : "Historical approvals, denials, revokes, and expired access records."

@@ -324,7 +324,8 @@ async function classifyVaultOwnerAuthFailure(
       return {
         shouldLockVault:
           normalized.includes("token has been revoked") ||
-          normalized.includes("invalid token"),
+          normalized.includes("invalid token") ||
+          normalized.includes("token validation failed"),
         reason,
       };
     }
@@ -334,7 +335,8 @@ async function classifyVaultOwnerAuthFailure(
     return {
       shouldLockVault:
         normalized.includes("token has been revoked") ||
-        normalized.includes("invalid token"),
+        normalized.includes("invalid token") ||
+        normalized.includes("token validation failed"),
       reason: raw || null,
     };
   } catch {
@@ -419,6 +421,22 @@ async function apiFetch(
         detail: { reason, path },
       })
     );
+  };
+
+  const handleVaultOwnerAuthFailure = async (response: Response) => {
+    if (
+      (response.status !== 401 && response.status !== 403) ||
+      !getAuthorizationBearer().startsWith("HCT:")
+    ) {
+      return;
+    }
+
+    const failure = await classifyVaultOwnerAuthFailure(response.clone());
+    if (failure.shouldLockVault) {
+      dispatchVaultLockRequested(
+        failure.reason || "Vault access token is no longer valid"
+      );
+    }
   };
 
   const retryWithFreshFirebaseToken = async (): Promise<Response | null> => {
@@ -567,6 +585,7 @@ async function apiFetch(
 
       const nativeResponse = await CapacitorHttp.request(request);
       const response = toResponse(nativeResponse);
+      await handleVaultOwnerAuthFailure(response);
       recordApiRequestMetric(response.status);
       return response;
     }
@@ -576,14 +595,7 @@ async function apiFetch(
       credentials: "include",
       headers: mergedHeaders,
     });
-    if ((response.status === 401 || response.status === 403) && getAuthorizationBearer().startsWith("HCT:")) {
-      const failure = await classifyVaultOwnerAuthFailure(response.clone());
-      if (failure.shouldLockVault) {
-        dispatchVaultLockRequested(
-          failure.reason || "Vault access token is no longer valid"
-        );
-      }
-    }
+    await handleVaultOwnerAuthFailure(response);
     if (response.status === 401 && !(await responseLooksLikeAuthServiceUnavailable(response))) {
       const retryResponse = await retryWithFreshFirebaseToken();
       if (retryResponse) {
@@ -1881,6 +1893,7 @@ export class ApiService {
     sourceContentRevision?: number;
     sourceManifestRevision?: number;
     durationHours?: number;
+    exportEnvelope?: import("@/lib/consent/export-envelope-v2").ConsentExportEnvelopeSubmissionV2;
   }): Promise<Response> {
     const requestId = data.requestId || data.token;
     const vaultOwnerToken = data.vaultOwnerToken;
@@ -1921,6 +1934,7 @@ export class ApiService {
           sourceContentRevision: data.sourceContentRevision,
           sourceManifestRevision: data.sourceManifestRevision,
           durationHours: data.durationHours,
+          exportEnvelope: data.exportEnvelope,
           vaultOwnerToken,
         });
 
@@ -1966,6 +1980,7 @@ export class ApiService {
         sourceContentRevision: data.sourceContentRevision,
         sourceManifestRevision: data.sourceManifestRevision,
         durationHours: data.durationHours,
+        exportEnvelope: data.exportEnvelope,
       }),
     });
     trackEvent("consent_action_result", {

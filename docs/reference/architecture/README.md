@@ -33,6 +33,7 @@ Brand and compatibility rules live in [../operations/brand-and-compatibility-con
 - [founder-language-matrix.md](./founder-language-matrix.md): canonical founder-term to implementation-term mapping and audit checklist.
 - [api-contracts.md](./api-contracts.md): API surface and proxy/backend contracts.
 - [route-contracts.md](./route-contracts.md): app route inventory and parity governance.
+- [schema-migration-discipline.md](./schema-migration-discipline.md): expand/contract rules for Postgres schema changes — additive first, destructive last and alone, tested down paths.
 - [../one/README.md](../one/README.md): current One-owned product contracts, including One Voice.
 - [../one/one-agent-hierarchy.md](../one/one-agent-hierarchy.md): current One-led app agent hierarchy from product surface through A2A specialists, operons, services, and consent boundaries.
 - [one-email-kyc.md](./one-email-kyc.md): current One-led KYC mailbox, consent, draft, send, and PKM writeback contract.

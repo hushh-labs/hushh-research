@@ -1083,7 +1083,7 @@ function OnboardingRouteActions() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete account?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently deletes your account and associated data.
+              This permanently deletes your account and associated information.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

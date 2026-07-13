@@ -11,7 +11,7 @@ import {
 import { Button, morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { formatCents } from "@/lib/services/slice-pricing-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
-import { applySlicePosture } from "@/lib/personal-knowledge-model/slice-publishing";
+import { publishPublicProfileForPermission } from "@/lib/personal-knowledge-model/slice-publishing";
 import {
   OneOpportunityService,
   type OpportunitySignal,
@@ -331,9 +331,9 @@ export function OpportunityNudgeStack({
           true,
         );
         if (!previousManifest) {
-          throw new Error("Couldn't load your data to publish this section.");
+          throw new Error("Couldn't load your saved details to publish this section.");
         }
-        await applySlicePosture({
+        await publishPublicProfileForPermission({
           userId,
           domain: signal.domain,
           domainTitle: signal.metadata?.domainTitle ?? signal.domain,
@@ -343,15 +343,10 @@ export function OpportunityNudgeStack({
             description: null,
             topLevelScopePath,
           },
-          nextPosture: "default_available",
-          previousManifest,
           vaultKey,
           vaultOwnerToken,
           source: "opportunity_nudge",
-          // The card IS the owner's explicit consent to publish; forward it so the
-          // backend can expose restricted-tier personal data (structural keys are
-          // still hard-blocked server-side).
-          ownerConsentOverride: true,
+          manifestVersion: previousManifest.manifest_version,
         });
         // Record the transition so this signal stops resurfacing. Best-effort —
         // the publish already succeeded, so don't fail the flow if this hiccups.

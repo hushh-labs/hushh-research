@@ -25,9 +25,6 @@ class LlmAgent:
     def __init__(self, **kwargs):
         pass
 
-    def run(self, **kwargs):
-        pass
-
 
 class HushhAgent(LlmAgent):
     """
@@ -68,7 +65,7 @@ class HushhAgent(LlmAgent):
             system_instruction=system_prompt,  # ADK uses 'system_instruction' not 'prompt'
         )
 
-    def run(
+    def run_legacy(
         self,
         prompt: str,
         user_id: str,
@@ -78,7 +75,11 @@ class HushhAgent(LlmAgent):
         """
         Secure Execution Entry Point.
 
-        Replaces standard .run() with one that requires Auth.
+        Validate the legacy debate-agent boundary.
+
+        This compatibility base has no model loop. Real Google ADK execution
+        belongs to ``hushh_mcp.hushh_adk.core.HushhAgent.run_turn``; calling a
+        removed pseudo-``LlmAgent.run(input=...)`` path is never allowed.
         """
         logger.info("🤖 Agent '%s' invoked (user=[redacted])", self.hushh_name)
 
@@ -102,19 +103,12 @@ class HushhAgent(LlmAgent):
             logger.warning(error_msg)
             raise PermissionError(error_msg)
 
-        # 2. Context Injection
-        # We start a context block. All tools called by the LLM within super().run()
-        # will be able to access this context via HushhContext.current()
-
         with HushhContext(
             user_id=user_id,
             consent_token=consent_token,
             vault_keys=vault_keys or {},
         ):
-            try:
-                # 3. Delegate to ADK LlmAgent with proper parameter passing
-                response = super().run(input=prompt)
-                return response
-            except Exception as e:
-                logger.error(f"💥 Agent Failure: {str(e)}")
-                raise e
+            raise RuntimeError(
+                "Legacy agent base has no model execution loop; use a concrete operon "
+                "or the ADK run_turn boundary."
+            )

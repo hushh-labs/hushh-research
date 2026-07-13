@@ -21,7 +21,7 @@ import os
 import re
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth, verify_user_id_match
 from hushh_mcp.consent.token import validate_token_with_db
@@ -181,6 +181,14 @@ class VaultBootstrapStateResponse(BaseModel):
     setupCapabilityIds: list[str] = []
     setupCapabilitiesUpdatedAt: int | None = None
     setupStateUpdatedAt: int | None = None
+    # Redacted, resumable onboarding goal. It deliberately contains no voice
+    # transcript, credentials, or page content.
+    onboardingJourneyVersion: int | None = None
+    onboardingPhase: str | None = None
+    onboardingActiveCapability: str | None = None
+    onboardingResumeRoute: str | None = None
+    onboardingCallbackState: str | None = None
+    onboardingJourneyUpdatedAt: int | None = None
     # Verified-phone claim folded in from the cached actor-identity shadow so a
     # single session-bootstrap call resolves both vault presence and the phone
     # mandate. None means "unknown" (e.g. shadow lookup failed); the client then
@@ -197,6 +205,11 @@ class VaultPreStateUpdateRequest(BaseModel):
     navSetupSkippedAt: int | None = None
     # Replace the stored setup capability set. None leaves it unchanged.
     setupCapabilityIds: list[str] | None = None
+    onboardingJourneyVersion: int | None = Field(default=None, ge=1, le=1)
+    onboardingPhase: str | None = Field(default=None, max_length=32)
+    onboardingActiveCapability: str | None = Field(default=None, max_length=32)
+    onboardingResumeRoute: str | None = Field(default=None, max_length=128)
+    onboardingCallbackState: str | None = Field(default=None, max_length=16)
 
 
 class VaultGetRequest(BaseModel):
@@ -367,6 +380,12 @@ async def vault_bootstrap_state(
             setupCapabilityIds=state.get("setupCapabilityIds") or [],
             setupCapabilitiesUpdatedAt=state.get("setupCapabilitiesUpdatedAt"),
             setupStateUpdatedAt=state.get("setupStateUpdatedAt"),
+            onboardingJourneyVersion=state.get("onboardingJourneyVersion"),
+            onboardingPhase=state.get("onboardingPhase"),
+            onboardingActiveCapability=state.get("onboardingActiveCapability"),
+            onboardingResumeRoute=state.get("onboardingResumeRoute"),
+            onboardingCallbackState=state.get("onboardingCallbackState"),
+            onboardingJourneyUpdatedAt=state.get("onboardingJourneyUpdatedAt"),
             phoneVerified=phone_verified,
         )
     except ValueError:
@@ -399,6 +418,11 @@ async def vault_pre_vault_state(
             nav_setup_completed_at=request.navSetupCompletedAt,
             nav_setup_skipped_at=request.navSetupSkippedAt,
             setup_capability_ids=request.setupCapabilityIds,
+            onboarding_journey_version=request.onboardingJourneyVersion,
+            onboarding_phase=request.onboardingPhase,
+            onboarding_active_capability=request.onboardingActiveCapability,
+            onboarding_resume_route=request.onboardingResumeRoute,
+            onboarding_callback_state=request.onboardingCallbackState,
         )
         has_vault = await service.check_vault_exists(user_id, ensure_entry=False)
 
@@ -417,6 +441,12 @@ async def vault_pre_vault_state(
             setupCapabilityIds=state.get("setupCapabilityIds") or [],
             setupCapabilitiesUpdatedAt=state.get("setupCapabilitiesUpdatedAt"),
             setupStateUpdatedAt=state.get("setupStateUpdatedAt"),
+            onboardingJourneyVersion=state.get("onboardingJourneyVersion"),
+            onboardingPhase=state.get("onboardingPhase"),
+            onboardingActiveCapability=state.get("onboardingActiveCapability"),
+            onboardingResumeRoute=state.get("onboardingResumeRoute"),
+            onboardingCallbackState=state.get("onboardingCallbackState"),
+            onboardingJourneyUpdatedAt=state.get("onboardingJourneyUpdatedAt"),
         )
     except ValueError:
         raise HTTPException(

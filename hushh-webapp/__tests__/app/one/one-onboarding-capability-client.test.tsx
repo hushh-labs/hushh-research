@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   setOnboardingCompleted: vi.fn(),
   markSeen: vi.fn(),
   syncSetupCapabilities: vi.fn(),
+  syncOnboardingJourney: vi.fn(),
   markExplored: vi.fn(),
   loadExploredIds: vi.fn(),
 }));
@@ -55,6 +56,7 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: {
     syncKaiSetupState: mocks.syncKaiSetupState,
     syncSetupCapabilities: mocks.syncSetupCapabilities,
+    syncOnboardingJourney: mocks.syncOnboardingJourney,
   },
 }));
 
@@ -94,6 +96,7 @@ describe("OneOnboardingCapabilityClient — Continue forwarding", () => {
     mocks.loadExploredIds.mockResolvedValue([]);
     mocks.markExplored.mockResolvedValue(undefined);
     mocks.syncSetupCapabilities.mockResolvedValue(undefined);
+    mocks.syncOnboardingJourney.mockResolvedValue(undefined);
   });
 
   it("forwards into a hard-gated surface with ?from=/one/setup and does NOT resolve the master gate (location)", async () => {

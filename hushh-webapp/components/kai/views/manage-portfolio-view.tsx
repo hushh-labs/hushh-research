@@ -357,6 +357,11 @@ export function ManagePortfolioView() {
         domain: "financial",
         vaultKey,
         vaultOwnerToken: vaultOwnerToken || undefined,
+        confirmation: {
+          confirmedByUser: true,
+          surface: "web",
+          source: "kai_manage_portfolio_save",
+        },
         build: (context) => {
           const existingFinancial =
             (context.currentDomainData as Record<string, unknown> | null) ?? {};

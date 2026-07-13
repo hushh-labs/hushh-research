@@ -35,7 +35,11 @@ function resolveApprovedPaths(
   scope: string,
   manifest: {
     externalizable_paths?: string[];
-    paths?: Array<{ json_path?: string }>;
+    paths?: Array<{
+      json_path?: string;
+      path_type?: string;
+      exposure_eligibility?: boolean;
+    }>;
     manifest_version?: number;
   } | null
 ): string[] {
@@ -47,15 +51,21 @@ function resolveApprovedPaths(
     return manifest?.externalizable_paths || [];
   }
 
-  const manifestPaths = (manifest?.paths || [])
-    .map((entry) => entry.json_path)
-    .filter((path): path is string => typeof path === "string" && path.length > 0);
-
-  if (!parsed.isWildcard) {
-    return [parsed.path];
-  }
-
-  return manifestPaths.filter(
+  const allowedLeafPaths = new Set(
+    (manifest?.paths || [])
+      .filter(
+        (entry) =>
+          entry.path_type === "leaf" &&
+          entry.exposure_eligibility !== false &&
+          typeof entry.json_path === "string"
+      )
+      .map((entry) => String(entry.json_path))
+  );
+  const externalizablePaths = (manifest?.externalizable_paths || []).filter(
+    (path): path is string =>
+      typeof path === "string" && path.length > 0 && allowedLeafPaths.has(path)
+  );
+  return externalizablePaths.filter(
     (path) => path === parsed.path || path.startsWith(`${parsed.path}.`)
   );
 }
@@ -108,7 +118,7 @@ function mergeSegmentIds(...groups: Array<string[] | null | undefined>): string[
 function assertShareablePayload(scope: string, payload: Record<string, unknown>): void {
   if (hasShareableValue(payload)) return;
   throw new ConsentExportNoDataError(
-    `No shareable data was found for ${scope.replace(/^attr\./, "").replace(/\.\*$/, "").replaceAll(".", " ")}.`
+    `No shareable information was found for ${scope.replace(/^attr\./, "").replace(/\.\*$/, "").replaceAll(".", " ")}.`
   );
 }
 
@@ -196,7 +206,7 @@ export async function buildConsentExportForScope(params: {
   }
   if (!encryptedDomainBlob) {
     throw new ConsentExportNoDataError(
-      `No approved PKM data is available for ${parsedScope.domain.replaceAll("_", " ")}.`
+      `No approved PKM information is available for ${parsedScope.domain.replaceAll("_", " ")}.`
     );
   }
 
@@ -208,6 +218,7 @@ export async function buildConsentExportForScope(params: {
       domain: parsedScope.domain,
       scope: params.scope,
       domainData,
+      approvedPaths,
     }),
     __export_metadata: {
       scope: params.scope,

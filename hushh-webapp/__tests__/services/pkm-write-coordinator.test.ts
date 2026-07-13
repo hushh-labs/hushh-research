@@ -73,6 +73,7 @@ vi.mock("@/lib/cache/cache-sync-service", () => ({
 }));
 
 vi.mock("@/lib/personal-knowledge-model/upgrade-contracts", () => ({
+  CURRENT_PKM_CONTRACT_VERSION: "5.0.0",
   CURRENT_READABLE_SUMMARY_VERSION: 1,
   currentDomainContractVersion: vi.fn(() => 2),
 }));
@@ -88,6 +89,11 @@ const BASE_PARAMS = {
   domain: "food",
   vaultKey: "vault-key-write-1",
   vaultOwnerToken: "vault-owner-token-write-1",
+  confirmation: {
+    confirmedByUser: true as const,
+    surface: "web" as const,
+    source: "pkm_write_coordinator_test",
+  },
 };
 
 function stubNoUpgradeNeeded() {

@@ -166,6 +166,11 @@ export class KycWorkflowPkmService {
       domain: KYC_WORKFLOW_PKM_DOMAIN,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
+      confirmation: {
+        confirmedByUser: true,
+        surface: "web",
+        source: "kyc_workflow_owner_action",
+      },
       build: (context) => {
         const existing = this.readWorkflowArtifact(context.currentDomainData).artifact;
         const merged = mergeKycWorkflowArtifact(artifact, existing);
