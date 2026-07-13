@@ -4395,6 +4395,7 @@ export function OneLocationAgentPageContent({
             recipientKeyId: recipient.keyId,
             durationHours: durationHoursNum,
             reason: pickupMessage,
+            shareKind: "pick_me_up",
           });
           // Anchor the grant to the fixed-pickup session BEFORE publishing so a
           // mid-publish failure can't leave a created grant drifting to live GPS
