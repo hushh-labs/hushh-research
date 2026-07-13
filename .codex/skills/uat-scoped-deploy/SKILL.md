@@ -55,7 +55,7 @@ Non-owned surfaces:
 
 1. Classify the intended scope from changed paths and user request: `frontend`, `backend`, or `all`.
 2. Use `scope=frontend` for UI/auth-route-only changes and `scope=backend` for protocol/API-only changes.
-3. For an admin-authored change, land the PR through the required merge queue; admin authority never permits a direct `main` push or self-approval bypass.
+3. Use the merge queue for the ordinary PR path. For an explicitly authorized admin landing, use the documented direct-main admin preflight, require all PR checks to be green, then merge the exact reviewed head with `gh pr merge --admin --merge --match-head-commit <sha>`; `--admin` bypasses the queue and is never a substitute for verification.
 4. Wait for `Main Post-Merge Smoke` to succeed for the landed `main` SHA, then trigger UAT with that exact SHA. Keep merge, smoke, and UAT deploy as separate evidence.
 5. Watch the GitHub run until terminal success or a concrete blocker; confirm skipped lanes from run steps.
 6. Before Cloud Run `describe`, run the evidence helper to discover the actual project/region tuple.
