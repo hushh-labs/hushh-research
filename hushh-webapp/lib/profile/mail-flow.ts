@@ -16,10 +16,7 @@ export type GmailSyncFeedback =
   | { kind: "message"; message: string };
 
 export type GmailConnectionPresentationState =
-  | "loading"
-  | "not_configured"
-  | "disconnected"
-  | GmailConnectionState;
+  "loading" | "not_configured" | "disconnected" | GmailConnectionState;
 
 export type GmailConnectionAction = "connect" | "disconnect" | "sync" | null;
 
@@ -37,6 +34,29 @@ export interface GmailStatusSummary {
   title: string;
   detail: string;
   helper: string | null;
+}
+
+/**
+ * Consumer-facing explanation shared by the disconnected and active-scan
+ * states. Receipt emails represent purchase interactions, so they are a
+ * clearer signal of brand affinity than a generic mailbox summary.
+ */
+export const GMAIL_RECEIPT_SIGNAL_EXPLANATION =
+  "Receipt emails capture purchase interactions. Once connected, One uses the receipts it finds to understand the brands you care about and prepare a private shopping summary.";
+
+export function describeGmailReceiptScanProgress(params: {
+  scanned: number;
+  matched: number;
+}): string {
+  const scanned = Math.max(0, Math.trunc(params.scanned));
+  const matched = Math.max(0, Math.trunc(params.matched));
+  const scannedLabel = `${scanned} email${scanned === 1 ? "" : "s"} checked`;
+  const matchedLabel =
+    matched > 0
+      ? `${matched} receipt${matched === 1 ? "" : "s"} matched so far.`
+      : "Looking for receipt emails now.";
+
+  return `${scannedLabel}. ${matchedLabel} Receipt-based purchase interactions help One understand the brands you care about.`;
 }
 
 const GMAIL_OAUTH_RETURN_STATUS_KEY = "profile_gmail_oauth_return_status";
@@ -347,7 +367,7 @@ export function resolveGmailStatusSummary(options: {
   return {
     tone: "neutral",
     title: "Gmail not connected",
-    detail: "Connect once to sync receipt emails.",
+    detail: `Connect Gmail to start. ${GMAIL_RECEIPT_SIGNAL_EXPLANATION}`,
     helper: null,
   };
 }

@@ -1,8 +1,9 @@
 "use client";
 
-import Link from "next/link";
-import { CheckCircle2, Pencil, ShieldCheck, Sparkles } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, ChevronUp, Pencil, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { RiaAiActionPill, RiaChip } from "@/components/ria/ui/ria-primitives";
 
 interface OnboardingStepReviewProps {
   advisorName: string;
@@ -34,27 +35,28 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-[24px] border border-border/60 bg-card/80 shadow-[0_12px_34px_rgba(15,23,42,0.06)] backdrop-blur dark:bg-card/55 dark:shadow-none">
-      <div className="flex min-h-[46px] items-center justify-between gap-3 border-b border-border/50 px-4 sm:px-5">
-        <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+    <section className="overflow-hidden rounded-[22px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)] shadow-[0_8px_24px_rgba(62,48,30,0.05)]">
+      <div className="flex items-center justify-between gap-3 px-[18px] pb-[11px] pt-[15px]">
+        <span className="text-[13px] font-bold uppercase tracking-[2px] text-[color:var(--ria-gold)]">
           {label}
         </span>
         <button
           type="button"
           onClick={onEdit}
-          className="inline-flex min-h-8 items-center gap-1.5 rounded-full bg-muted/60 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
+          className="inline-flex h-8 items-center gap-1.5 rounded-[16px] border px-3 text-[13px] font-semibold transition-opacity hover:opacity-80"
+          style={{
+            background: "var(--ria-selected-tint)",
+            borderColor: "#E8E0D3",
+            color: "var(--ria-gold-deep)",
+          }}
         >
-          <Pencil className="h-3 w-3" />
+          <Pencil className="h-3.5 w-3.5" strokeWidth={1.9} />
           Edit
         </button>
       </div>
-      <div>{children}</div>
+      <div className="px-[18px] pb-2">{children}</div>
     </section>
   );
-}
-
-function Divider() {
-  return <div className="ml-4 h-px bg-border/50 sm:ml-5" />;
 }
 
 function ReviewRow({
@@ -66,14 +68,16 @@ function ReviewRow({
 }) {
   const hasValue = Boolean(value?.trim());
   return (
-    <div className="flex min-h-[44px] items-center gap-4 px-4 py-2 sm:px-5">
-      <span className="shrink-0 text-[15px] text-muted-foreground">
+    <div className="flex min-h-[44px] items-center justify-between gap-4 border-t border-[color:var(--ria-divider-inner)] py-[9px] first:border-t-0">
+      <span className="shrink-0 text-[15px] text-[color:var(--ria-muted)]">
         {label}
       </span>
       <span
         className={cn(
-          "ml-auto min-w-0 max-w-[68%] break-words text-right text-[15px] leading-6",
-          hasValue ? "text-foreground" : "text-muted-foreground/50",
+          "ml-auto min-w-0 max-w-[68%] break-words text-right text-[15px] font-medium leading-6",
+          hasValue
+            ? "text-[color:var(--ria-ink)]"
+            : "text-[color:var(--ria-faint)]",
         )}
       >
         {hasValue ? value : "Not provided"}
@@ -82,34 +86,74 @@ function ReviewRow({
   );
 }
 
-function ChipList({ items }: { items: string[] }) {
-  if (items.length === 0) {
-    return (
-      <span className="text-[15px] text-muted-foreground/50">Not provided</span>
-    );
-  }
+function ChipRow({ label, items }: { label: string; items: string[] }) {
   return (
-    <div className="flex flex-wrap justify-end gap-1.5">
-      {items.map((item) => (
-        <span
-          key={item}
-          className="rounded-full border border-border/60 bg-muted/45 px-2.5 py-1 text-xs font-medium text-foreground"
-        >
-          {item}
-        </span>
-      ))}
+    <div className="flex min-h-[44px] items-start justify-between gap-4 border-t border-[color:var(--ria-divider-inner)] py-[10px] first:border-t-0">
+      <span className="shrink-0 pt-0.5 text-[15px] text-[color:var(--ria-muted)]">
+        {label}
+      </span>
+      <div className="ml-auto min-w-0 max-w-[68%]">
+        {items.length === 0 ? (
+          <span className="text-[15px] text-[color:var(--ria-faint)]">
+            Not provided
+          </span>
+        ) : (
+          <div className="flex flex-wrap justify-end gap-1.5">
+            {items.map((item) => (
+              <RiaChip key={item} variant="outline">
+                {item}
+              </RiaChip>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-function ChipRow({ label, items }: { label: string; items: string[] }) {
+function BioReviewRow({ bio }: { bio: string }) {
+  const [open, setOpen] = useState(false);
+  const hasValue = Boolean(bio?.trim());
   return (
-    <div className="flex min-h-[44px] items-start gap-4 px-4 py-3 sm:px-5">
-      <span className="shrink-0 text-[15px] text-muted-foreground">
-        {label}
+    <div className="flex items-start justify-between gap-4 border-t border-[color:var(--ria-divider-inner)] py-[11px]">
+      <span className="shrink-0 pt-px text-[15px] text-[color:var(--ria-muted)]">
+        Bio
       </span>
-      <div className="ml-auto min-w-0 max-w-[68%]">
-        <ChipList items={items} />
+      <div className="ml-auto flex min-w-0 flex-1 flex-col items-end">
+        {hasValue ? (
+          <p
+            className={cn(
+              "text-right text-[14px] leading-[1.5] text-[color:var(--ria-ink)]",
+              !open && "line-clamp-3",
+            )}
+          >
+            {bio}
+          </p>
+        ) : (
+          <span className="text-[15px] text-[color:var(--ria-faint)]">
+            Not provided
+          </span>
+        )}
+        {hasValue ? (
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            className="mt-[7px] flex items-center justify-center"
+            aria-label={open ? "Collapse bio" : "Expand bio"}
+          >
+            {open ? (
+              <ChevronUp
+                className="h-[18px] w-[18px] text-[color:var(--ria-gold)]"
+                strokeWidth={2}
+              />
+            ) : (
+              <ChevronDown
+                className="h-[18px] w-[18px] text-[color:var(--ria-gold)]"
+                strokeWidth={2}
+              />
+            )}
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -130,92 +174,63 @@ export function OnboardingStepReview({
   pinZip,
   areaLocality,
   fullStreetAddress,
-  advisoryAccessReady,
   onEditSection,
   onAskKaiUpdateAnything,
 }: OnboardingStepReviewProps) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-[14px]">
       <SectionCard label="Licence" onEdit={() => onEditSection("license")}>
         <ReviewRow label="Advisor" value={advisorName} />
-        <Divider />
         <ReviewRow label="Firm" value={firmName} />
-        <Divider />
         <ReviewRow label="CRD" value={crdNumber} />
-        <Divider />
         <ReviewRow
           label="Regulator"
           value={
             regulator ? `${regulator} - ${regulatorStatus || "Unknown"}` : null
           }
         />
-        <Divider />
         <ChipRow label="Certifications" items={certifications} />
       </SectionCard>
 
       <SectionCard label="Services" onEdit={() => onEditSection("services")}>
-        <ChipRow label="Services" items={servicesOffered} />
-        <Divider />
-        <ChipRow label="Fees" items={feeStructure} />
-        <Divider />
+        <ReviewRow label="Services" value={servicesOffered.join(", ")} />
+        <ReviewRow label="Fees" value={feeStructure.join(", ")} />
         <ReviewRow label="Min Engagement" value={minEngagementAmount} />
-        <Divider />
-        <ReviewRow label="Bio" value={bio} />
+        <BioReviewRow bio={bio} />
       </SectionCard>
 
       <SectionCard label="Location" onEdit={() => onEditSection("services")}>
         <ReviewRow label="Address" value={fullStreetAddress} />
-        <Divider />
         <ReviewRow label="Area" value={areaLocality} />
-        <Divider />
         <ReviewRow label="City" value={city} />
-        <Divider />
         <ReviewRow label="Pin / ZIP" value={pinZip} />
       </SectionCard>
 
-      {advisoryAccessReady ? (
-        <div className="rounded-[22px] border border-emerald-500/25 bg-emerald-500/10 p-4">
-          <div className="flex items-start gap-3">
-            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-            <div className="space-y-2">
-              <p className="text-[15px] font-medium text-emerald-800 dark:text-emerald-200">
-                Verification passed. Your RIA workspace is ready.
-              </p>
-              <div className="flex flex-wrap items-center gap-3">
-                <Link
-                  href="/ria"
-                  className="text-sm font-medium text-emerald-700 underline underline-offset-2 dark:text-emerald-300"
-                >
-                  Open RIA Home
-                </Link>
-                <Link
-                  href="/ria/clients"
-                  className="text-sm font-medium text-emerald-700 underline underline-offset-2 dark:text-emerald-300"
-                >
-                  Open Clients
-                </Link>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="flex items-start gap-3 rounded-[22px] border border-amber-500/25 bg-amber-500/10 p-4">
-          <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
-          <p className="text-[15px] leading-6 text-amber-900 dark:text-amber-100">
-            Profile goes live as Pending Verification immediately. Full verified
-            badge will be unlocked after completing Phase 2 onboarding.
-          </p>
-        </div>
-      )}
-
-      <button
-        type="button"
-        onClick={onAskKaiUpdateAnything}
-        className="inline-flex min-h-9 items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3.5 text-sm font-medium text-primary transition-colors hover:bg-primary/15"
+      {/* Canonical onboarding state: profile goes live as Pending Verification;
+          the verified badge is a separate later layer (design shows gold). */}
+      <div
+        className="flex items-start gap-3 rounded-[18px] border p-4"
+        style={{
+          background: "rgba(201,139,46,0.08)",
+          borderColor: "rgba(201,139,46,0.3)",
+        }}
       >
-        <Sparkles className="h-3.5 w-3.5" />
+        <ShieldCheck
+          className="mt-0.5 h-[22px] w-[22px] shrink-0 text-[color:var(--ria-gold)]"
+          strokeWidth={1.7}
+        />
+        <span
+          className="text-[13.5px] font-medium leading-[1.45]"
+          style={{ color: "var(--ria-amber-note)" }}
+        >
+          Goes live as Pending Verification now. The verified badge unlocks after
+          Phase 2 onboarding.
+        </span>
+      </div>
+
+      <RiaAiActionPill onClick={onAskKaiUpdateAnything}>
         Ask Kai to update anything
-      </button>
+      </RiaAiActionPill>
     </div>
   );
 }

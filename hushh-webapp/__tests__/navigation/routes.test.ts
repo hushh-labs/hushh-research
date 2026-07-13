@@ -22,14 +22,17 @@ import {
   buildProfileRoute,
   resolveProfileRouteState,
 } from "@/lib/navigation/profile-routes";
-import { getRouteScope, routePersonaForScope } from "@/lib/navigation/route-scope";
-
-
+import {
+  getRouteScope,
+  routePersonaForScope,
+} from "@/lib/navigation/route-scope";
 
 describe("navigation routes", () => {
   it("returns Login to the canonical welcome parent without accepting an external redirect", () => {
     expect(buildWelcomeRoute()).toBe(ROUTES.HOME);
-    expect(buildWelcomeRoute(ROUTES.ONE_SETUP)).toBe("/?redirect=%2Fone%2Fsetup");
+    expect(buildWelcomeRoute(ROUTES.ONE_SETUP)).toBe(
+      "/?redirect=%2Fone%2Fsetup",
+    );
     expect(buildWelcomeRoute("https://example.com")).toBe(ROUTES.HOME);
     expect(buildWelcomeRoute("//example.com")).toBe(ROUTES.HOME);
   });
@@ -42,15 +45,15 @@ describe("navigation routes", () => {
     });
 
     expect(buildProfileRoute({ panel: "account" })).toBe("/profile/account");
-    expect(
-      buildProfileRoute({ panel: "account", detail: "phone" }),
-    ).toBe("/profile/account/phone");
+    expect(buildProfileRoute({ panel: "account", detail: "phone" })).toBe(
+      "/profile/account/phone",
+    );
     expect(
       buildProfileRoute({ panel: "preferences", detail: "kai-preferences" }),
     ).toBe("/profile/preferences/kai");
-    expect(
-      buildProfileRoute({ panel: "security", detail: "vault" }),
-    ).toBe("/profile/security/vault");
+    expect(buildProfileRoute({ panel: "security", detail: "vault" })).toBe(
+      "/profile/security/vault",
+    );
     expect(
       buildProfileRoute({ panel: "my-data", detail: "domain:finance" }),
     ).toBe("/profile/my-data/domain?key=finance");
@@ -107,24 +110,24 @@ describe("navigation routes", () => {
 
   it("preserves query parameter integrity for ria workspace tabs", () => {
     expect(buildRiaClientWorkspaceRoute("client-123", { tab: "kai" })).toBe(
-      "/ria/clients/client-123?tab=kai"
+      "/ria/clients/client-123?tab=kai",
     );
 
     expect(buildRiaClientWorkspaceRoute("client 123", { tab: "access" })).toBe(
-      "/ria/clients/client%20123?tab=access"
+      "/ria/clients/client%20123?tab=access",
     );
   });
 
   it("preserves encoded route segments for ria account and request routes", () => {
     expect(buildRiaClientAccountRoute("client 123", "acct 456")).toBe(
-      "/ria/clients/client%20123/accounts/acct%20456"
+      "/ria/clients/client%20123/accounts/acct%20456",
     );
 
     expect(buildRiaClientRequestRoute("client 123", "request 789")).toBe(
-      "/ria/clients/client%20123/requests/request%20789"
+      "/ria/clients/client%20123/requests/request%20789",
     );
   });
-    it("preserves public route classification stability", () => {
+  it("preserves public route classification stability", () => {
     expect(isPublicRoute("/")).toBe(true);
     expect(isPublicRoute("/developers")).toBe(true);
     expect(isPublicRoute("/login")).toBe(true);
@@ -153,21 +156,25 @@ describe("navigation routes", () => {
   });
 
   it("builds the kai setup wizard route with query parameters", () => {
-    expect(buildOneSetupKaiRoute()).toBe("/one/setup/kai");
-    expect(buildOneSetupKaiRoute({ from: "/one" })).toBe("/one/setup/kai?from=%2Fone");
+    expect(buildOneSetupKaiRoute()).toBe("/one/setup/finance");
+    expect(buildOneSetupKaiRoute({ from: "/one" })).toBe(
+      "/one/setup/finance?from=%2Fone",
+    );
   });
 
   it("treats the /one/setup hub as the canonical setup surface", () => {
     // The setup hub is the root setup surface; the wizard is a sub-step.
     expect(isOneSetupRoute("/one/setup")).toBe(true);
-    expect(isOneSetupRoute("/one/setup/finance")).toBe(true);
-    expect(isOneSetupRoute("/one/setup/kai")).toBe(true);
+    expect(isOneSetupRoute("/one/setup/finance")).toBe(false);
+    expect(isOneSetupRoute("/one/setup/kai")).toBe(false);
     expect(isOneSetupRoute("/one/onboarding")).toBe(false);
     expect(isOneSetupRoute("/one")).toBe(false);
 
-    // The wizard predicate ONLY matches the canonical /one/setup/kai surface.
+    // The wizard predicate matches the canonical Finance setup surface.
+    expect(isOneSetupWizardRoute("/one/setup/finance")).toBe(true);
+    expect(isOneSetupWizardRoute("/one/setup/finance/import")).toBe(true);
     expect(isOneSetupWizardRoute("/one/setup/kai")).toBe(true);
-    expect(isOneSetupWizardRoute("/one/setup/kai/complete")).toBe(true);
+    expect(isOneSetupWizardRoute("/one/setup/kai/complete")).toBe(false);
     expect(isOneSetupWizardRoute("/one/setup")).toBe(false);
     // A per-capability step is NOT the wizard (so resolved users are not bounced).
     expect(isOneSetupWizardRoute("/one/setup/gmail")).toBe(false);
@@ -188,14 +195,20 @@ describe("navigation routes", () => {
     );
 
     // Known capabilities match.
-    expect(isOneSetupCapabilityRoute("/one/setup/finance")).toBe(true);
     expect(isOneSetupCapabilityRoute("/one/setup/gmail")).toBe(true);
-    expect(isOneSetupCapabilityRoute("/one/setup/email")).toBe(true);
     expect(isOneSetupCapabilityRoute("/one/setup/location")).toBe(true);
-    expect(isOneSetupCapabilityRoute("/one/setup/pkm")).toBe(true);
-    expect(isOneSetupCapabilityRoute("/one/setup/consent")).toBe(true);
-    expect(isOneSetupCapabilityRoute("/one/setup/marketplace")).toBe(true);
-    expect(isOneSetupCapabilityRoute("/one/setup/connected-systems")).toBe(true);
+    expect(isOneSetupCapabilityRoute("/one/setup/email")).toBe(true);
+    expect(isOneSetupCapabilityRoute("/one/setup/finance")).toBe(true);
+    expect(isOneSetupCapabilityRoute("/one/setup/ria")).toBe(true);
+    expect(isOneSetupCapabilityRoute("/one/setup/connected-systems")).toBe(
+      true,
+    );
+
+    // Retired setup-only ids remain ordinary product surfaces, not account
+    // setup routes.
+    expect(isOneSetupCapabilityRoute("/one/setup/pkm")).toBe(false);
+    expect(isOneSetupCapabilityRoute("/one/setup/consent")).toBe(false);
+    expect(isOneSetupCapabilityRoute("/one/setup/marketplace")).toBe(false);
 
     // Unknown segments and the bare hub/wizard are NOT capability routes.
     expect(isOneSetupCapabilityRoute("/one/setup")).toBe(false);
@@ -208,32 +221,30 @@ describe("navigation routes", () => {
     // Finance forwards into the investor-preferences WIZARD (questionnaire ->
     // persona -> portfolio import), not straight to the dashboard, so the
     // first-time finance journey is never orphaned from its setup steps.
-    expect(resolveCapabilityHandoffTarget("finance")).toBe(ROUTES.ONE_SETUP_KAI);
+    expect(resolveCapabilityHandoffTarget("finance")).toBe(ROUTES.KAI_HOME);
     expect(resolveCapabilityHandoffTarget("email")).toBe(ROUTES.ONE_KYC);
-    expect(resolveCapabilityHandoffTarget("location")).toBe(ROUTES.ONE_LOCATION);
-    expect(resolveCapabilityHandoffTarget("pkm")).toBe(ROUTES.PKM);
-    expect(resolveCapabilityHandoffTarget("consent")).toBe(`${ROUTES.CONSENTS}?tab=pending`);
+    expect(resolveCapabilityHandoffTarget("location")).toBe(
+      ROUTES.ONE_LOCATION,
+    );
+    expect(resolveCapabilityHandoffTarget("ria")).toBe(ROUTES.RIA_ONBOARDING);
     expect(resolveCapabilityHandoffTarget("connected-systems")).toBe(
       ROUTES.CONNECTED_SYSTEMS,
+    );
+    expect(resolveCapabilityHandoffTarget("pkm")).toBe(ROUTES.ONE_SETUP);
+    expect(resolveCapabilityHandoffTarget("consent")).toBe(ROUTES.ONE_SETUP);
+    expect(resolveCapabilityHandoffTarget("marketplace")).toBe(
+      ROUTES.ONE_SETUP,
     );
     expect(resolveCapabilityHandoffTarget("nope")).toBe(ROUTES.ONE_SETUP);
   });
 
-  it("identifies hard-gated capability handoff targets (for the ?from=setup guard allow-through)", () => {
-    // Hard-gated `/one/*` product surfaces: the guard must allow a
-    // setup-originated (`?from=setup`) entry through without the master gate.
-    expect(isCapabilityHandoffTarget(ROUTES.GMAIL)).toBe(true);
-    expect(isCapabilityHandoffTarget(ROUTES.ONE_KYC)).toBe(true);
-    expect(isCapabilityHandoffTarget(ROUTES.ONE_LOCATION)).toBe(true);
-    expect(isCapabilityHandoffTarget(ROUTES.PKM)).toBe(true);
-    expect(isCapabilityHandoffTarget(ROUTES.CONNECTED_SYSTEMS)).toBe(true);
-    // Excluded: the finance wizard is a setup surface (already allow-listed),
-    // consent lives off `/one/*` (not gated at all), and arbitrary routes and
-    // the hub itself must NOT be treated as gated capability entries.
-    expect(isCapabilityHandoffTarget(ROUTES.ONE_SETUP_KAI)).toBe(false);
-    expect(isCapabilityHandoffTarget(`${ROUTES.CONSENTS}?tab=pending`)).toBe(
-      false,
-    );
+  it("does not admit normal product routes while root setup is unresolved", () => {
+    expect(isCapabilityHandoffTarget(ROUTES.GMAIL)).toBe(false);
+    expect(isCapabilityHandoffTarget(ROUTES.ONE_KYC)).toBe(false);
+    expect(isCapabilityHandoffTarget(ROUTES.ONE_LOCATION)).toBe(false);
+    expect(isCapabilityHandoffTarget(ROUTES.CONNECTED_SYSTEMS)).toBe(false);
+    expect(isCapabilityHandoffTarget(ROUTES.ONE_SETUP_FINANCE)).toBe(false);
+    expect(isCapabilityHandoffTarget(ROUTES.RIA_ONBOARDING)).toBe(false);
     expect(isCapabilityHandoffTarget(ROUTES.CONSENTS)).toBe(false);
     expect(isCapabilityHandoffTarget(ROUTES.ONE_SETUP)).toBe(false);
     expect(isCapabilityHandoffTarget(ROUTES.ONE_HOME)).toBe(false);

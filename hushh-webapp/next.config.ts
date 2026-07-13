@@ -27,7 +27,6 @@ const config: NextConfig = {
   // 'standalone' is REQUIRED for Docker/Cloud Run builds to reduce image size
   output: isCapacitorBuild ? "export" : "standalone",
 
-
   // Trailing slash is important for static export routing
   trailingSlash: isCapacitorBuild,
 
@@ -57,16 +56,28 @@ const config: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: false,
   productionBrowserSourceMaps: false,
+  // Source maps are already disabled for production browser bundles. Keep the
+  // prerender phase bounded too; Next enables these by default and they add no
+  // value to the separately typechecked/linted release lane.
+  enablePrerenderSourceMaps: false,
   // Strip console.* from production client bundles (keep error/warn for triage).
   // No effect on dev or on the server runtime.
   compiler: {
-    removeConsole: isCapacitorBuild
-      ? false
-      : { exclude: ["error", "warn"] },
+    removeConsole: isCapacitorBuild ? false : { exclude: ["error", "warn"] },
   },
   experimental: {
+    // Bound page collection and the explicit webpack fallback. The default
+    // Next 16 Turbopack build avoids the webpack server compiler that exceeded
+    // 25 GB RSS on this app; two workers preserve useful post-compile parallelism.
+    cpus: 2,
+    memoryBasedWorkersCount: false,
+    workerThreads: false,
+    webpackBuildWorker: true,
+    parallelServerCompiles: false,
+    parallelServerBuildTraces: false,
     optimizePackageImports: ["@phosphor-icons/react", "lucide-react"],
     preloadEntriesOnStart: false,
+    serverSourceMaps: false,
     serverComponentsHmrCache: true,
     webpackMemoryOptimizations: true,
   },

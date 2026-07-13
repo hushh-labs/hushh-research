@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => {
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.replace }),
   useSearchParams: () => new URLSearchParams(),
+  usePathname: () => "/ria/picks",
 }));
 
 vi.mock("sonner", () => ({
@@ -59,9 +60,15 @@ vi.mock("@/lib/cache/use-stale-resource", () => ({
 }));
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
-  AppPageShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  AppPageHeaderRegion: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  AppPageContentRegion: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  AppPageShell: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  AppPageHeaderRegion: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  AppPageContentRegion: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
 }));
 
 vi.mock("@/components/app-ui/page-sections", () => ({
@@ -109,16 +116,27 @@ vi.mock("@/components/app-ui/data-table", () => ({
       <span>{searchPlaceholder}</span>
       <span>{data.length}</span>
       {data.map((row, index) => (
-        <div key={index}>{String(row.ticker || row.title || row.company_name || index)}</div>
+        <div key={index}>
+          {String(row.ticker || row.title || row.company_name || index)}
+        </div>
       ))}
     </div>
   ),
 }));
 
 vi.mock("@/components/app-ui/surfaces", () => ({
-  SurfaceCard: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
-  SurfaceCardContent: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
-  SurfaceInset: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+  SurfaceCard: ({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+  SurfaceCardContent: ({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+  SurfaceInset: ({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
 }));
 
 vi.mock("@/components/profile/settings-ui", () => ({
@@ -240,7 +258,9 @@ vi.mock("@/components/ui/textarea", () => ({
     value?: string;
     onChange?: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
     placeholder?: string;
-  }) => <textarea value={value} onChange={onChange} placeholder={placeholder} />,
+  }) => (
+    <textarea value={value} onChange={onChange} placeholder={placeholder} />
+  ),
 }));
 
 vi.mock("@/lib/morphy-ux/button", async () => {
@@ -429,7 +449,9 @@ describe("RiaPicksPage", () => {
     expect(screen.getByRole("link", { name: /^template$/i })).toBeTruthy();
     expect(screen.queryByText("List source")).toBeNull();
     expect(
-      screen.queryByText(/manage the advisor package that linked investors inherit/i)
+      screen.queryByText(
+        /manage the advisor package that linked investors inherit/i,
+      ),
     ).toBeNull();
   });
 
@@ -438,16 +460,28 @@ describe("RiaPicksPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /my list/i }));
 
-    expect(await screen.findByText("Build your live advisor package")).toBeTruthy();
+    expect(
+      await screen.findByText("Build your live advisor package"),
+    ).toBeTruthy();
     expect(screen.getByRole("button", { name: /^edit$/i })).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /copy from kai/i })).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: /^upload$/i })).toHaveLength(1);
-    expect(screen.getAllByRole("link", { name: /^template$/i })).toHaveLength(1);
+    expect(
+      screen.getAllByRole("button", { name: /copy from kai/i }),
+    ).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /^upload$/i })).toHaveLength(
+      1,
+    );
+    expect(screen.getAllByRole("link", { name: /^template$/i })).toHaveLength(
+      1,
+    );
     fireEvent.click(screen.getByRole("button", { name: /^upload$/i }));
 
     expect(screen.getByText("Upload a top-picks CSV")).toBeTruthy();
-    expect(screen.getByRole("link", { name: /download template/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /upload and replace top picks/i })).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: /download template/i }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /upload and replace top picks/i }),
+    ).toBeTruthy();
   });
 
   it("copies Kai into the draft editor before save", async () => {
@@ -459,7 +493,11 @@ describe("RiaPicksPage", () => {
 
     expect(mocks.riaService.savePickPackage).not.toHaveBeenCalled();
     expect(mocks.riaService.importPickCsv).not.toHaveBeenCalled();
-    expect(await screen.findByText("SEC-backed tickers only. Company and sector map from the maintained symbol master.")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "SEC-backed tickers only. Company and sector map from the maintained symbol master.",
+      ),
+    ).toBeTruthy();
     expect(screen.getByRole("button", { name: /^save$/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /discard/i })).toBeTruthy();
   });
@@ -482,7 +520,8 @@ describe("RiaPicksPage", () => {
           section: "investable_requirements",
           rule_index: 0,
           title: "Positive free cash flow",
-          detail: "The business must already convert demand into durable free cash flow.",
+          detail:
+            "The business must already convert demand into durable free cash flow.",
           value_text: "> 0",
         },
       ],
@@ -494,14 +533,25 @@ describe("RiaPicksPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /my list/i }));
     fireEvent.click(screen.getByRole("button", { name: /copy from kai/i }));
 
-    expect(await screen.findByText("SEC-backed tickers only. Company and sector map from the maintained symbol master.")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "SEC-backed tickers only. Company and sector map from the maintained symbol master.",
+      ),
+    ).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /^avoid$/i }));
-    expect(screen.getAllByText(/valuation remains disconnected from our discipline/i).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/valuation remains disconnected from our discipline/i)
+        .length,
+    ).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: /^screening$/i }));
-    expect(await screen.findByDisplayValue("Positive free cash flow")).toBeTruthy();
-    expect(screen.getAllByText(/convert demand into durable free cash flow/i).length).toBeGreaterThan(0);
+    expect(
+      await screen.findByDisplayValue("Positive free cash flow"),
+    ).toBeTruthy();
+    expect(
+      screen.getAllByText(/convert demand into durable free cash flow/i).length,
+    ).toBeGreaterThan(0);
   });
 
   it("lets My list save in-app edits through the validated upload flow", async () => {
@@ -527,7 +577,7 @@ describe("RiaPicksPage", () => {
             package_note: null,
           },
         },
-      })
+      }),
     );
 
     render(<RiaPicksPage />);
@@ -535,12 +585,20 @@ describe("RiaPicksPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /my list/i }));
     fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
 
-    expect(await screen.findByText("SEC-backed tickers only. Company and sector map from the maintained symbol master.")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "SEC-backed tickers only. Company and sector map from the maintained symbol master.",
+      ),
+    ).toBeTruthy();
     fireEvent.change(
-      screen.getAllByPlaceholderText("Why this name belongs in the live debate universe")[0]!,
+      screen.getAllByPlaceholderText(
+        "Why this name belongs in the live debate universe",
+      )[0]!,
       {
-        target: { value: "Compounding AI infrastructure demand with advisor overlay" },
-      }
+        target: {
+          value: "Compounding AI infrastructure demand with advisor overlay",
+        },
+      },
     );
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
@@ -558,10 +616,11 @@ describe("RiaPicksPage", () => {
               company_name: "NVIDIA Corporation",
               sector: "Technology",
               tier: "ACE",
-              investment_thesis: "Compounding AI infrastructure demand with advisor overlay",
+              investment_thesis:
+                "Compounding AI infrastructure demand with advisor overlay",
             }),
           ]),
-        })
+        }),
       );
     });
   });

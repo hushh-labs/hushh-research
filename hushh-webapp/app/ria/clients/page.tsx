@@ -30,6 +30,7 @@ import {
   type RiaClientListResponse,
 } from "@/lib/services/ria-service";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { RIA_TONE_BADGE } from "@/lib/ria/ria-tone";
 import { cn } from "@/lib/utils";
 import { RiaCompatibilityState, RiaVerificationGate } from "@/components/ria/ria-page-shell";
 
@@ -40,11 +41,11 @@ type ClientListItem = RiaClientAccess & {
 function statusBadgeClass(status?: string | null) {
   switch (status) {
     case "approved":
-      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+      return RIA_TONE_BADGE.success;
     case "request_pending":
-      return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+      return RIA_TONE_BADGE.attention;
     default:
-      return "border-border/70 bg-background/80 text-muted-foreground";
+      return RIA_TONE_BADGE.neutral;
   }
 }
 
@@ -246,7 +247,7 @@ export default function RiaClientsPage() {
                   )}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[color:var(--foundation-accent-surface)] text-[color:var(--ria-gold)]">
                       <UserRound className="h-4 w-4" />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -255,7 +256,7 @@ export default function RiaClientsPage() {
                           {client.investor_display_name || client.investor_user_id || "Investor"}
                         </p>
                         {client.isTestProfile ? (
-                          <span className="shrink-0 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">
+                          <span className="shrink-0 rounded-full border border-[color:var(--foundation-accent-border)] bg-[color:var(--foundation-accent-surface)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[color:var(--ria-gold)]">
                             Test
                           </span>
                         ) : null}

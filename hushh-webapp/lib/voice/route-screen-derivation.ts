@@ -44,12 +44,32 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === "/register-phone") {
     return { screen: "register_phone", subview: null };
   }
-  if (
-    normalizedPath === ROUTES.ONE_SETUP ||
-    normalizedPath.startsWith(`${ROUTES.ONE_SETUP}/`)
-  ) {
-    const rest = normalizedPath.slice(ROUTES.ONE_SETUP.length).split("/").filter(Boolean)[0];
-    return { screen: "one_setup", subview: rest || null };
+  if (normalizedPath === ROUTES.ONE_SETUP) {
+    return { screen: "one_setup_hub", subview: null };
+  }
+  if (normalizedPath === ROUTES.ONE_SETUP_GMAIL) {
+    return { screen: "one_setup_gmail", subview: null };
+  }
+  if (normalizedPath === ROUTES.ONE_SETUP_LOCATION) {
+    return { screen: "one_setup_location", subview: null };
+  }
+  if (normalizedPath === ROUTES.ONE_SETUP_EMAIL) {
+    return { screen: "one_setup_email", subview: null };
+  }
+  if (normalizedPath === ROUTES.ONE_SETUP_FINANCE) {
+    return { screen: "one_setup_finance", subview: null };
+  }
+  if (normalizedPath === ROUTES.ONE_SETUP_FINANCE_IMPORT) {
+    return { screen: "one_setup_finance_import", subview: null };
+  }
+  if (normalizedPath === ROUTES.ONE_SETUP_RIA) {
+    return { screen: "one_setup_ria", subview: null };
+  }
+  if (normalizedPath === ROUTES.ONE_SETUP_CONNECTED_SYSTEMS) {
+    return { screen: "one_setup_connected_systems", subview: null };
+  }
+  if (normalizedPath === ROUTES.ONE_SETUP_KAI) {
+    return { screen: "one_setup_finance", subview: "legacy" };
   }
   if (
     normalizedPath === ROUTES.KAI_HOME ||

@@ -1,4 +1,5 @@
 import {
+  Briefcase,
   ChartNoAxesCombined,
   Database,
   FolderSearch,
@@ -12,6 +13,15 @@ import {
 
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { ROUTES } from "@/lib/navigation/routes";
+import {
+  ONE_SETUP_CAPABILITY_IDS,
+  type OneSetupCapabilityId,
+} from "@/lib/onboarding/setup-capability-ids";
+
+export {
+  ONE_SETUP_CAPABILITY_IDS,
+  type OneSetupCapabilityId,
+} from "@/lib/onboarding/setup-capability-ids";
 
 /**
  * SHARED ONE CAPABILITY CATALOG — single source of truth.
@@ -42,10 +52,10 @@ export type OneCapabilityGroup = "workflow" | "memory" | "access";
 
 export interface OneCapability {
   id: string;
-  /** Stable generated action identity for opening this setup tile. */
-  setupActionId: `setup.open_${string}`;
-  /** Stable DOM/action-contract correlation id for the setup tile. */
-  setupControlId: `one_setup_tile_${string}`;
+  /** Stable generated action identity when this capability is in onboarding. */
+  setupActionId?: `setup.open_${string}`;
+  /** Stable control correlation id when this capability is in onboarding. */
+  setupControlId?: `one_setup_tile_${string}`;
   /**
    * Backend agent lane this tile is bound to, or null when the tile is a
    * pure access/preview surface with no agent behind it (consent center,
@@ -111,6 +121,22 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     requiresVault: true,
   },
   {
+    id: "ria",
+    setupActionId: "setup.open_ria",
+    setupControlId: "one_setup_tile_ria",
+    // RIA setup is an account/persona workflow owned by the existing RIA
+    // onboarding route. It is not a separate product-agent delegation lane.
+    agentId: null,
+    title: "RIA",
+    description: "Advisor verification, profile, clients, and requests.",
+    previewLabel: "Advisor profile & verification",
+    href: ROUTES.RIA_ONBOARDING,
+    icon: Briefcase,
+    tone: "ria",
+    group: "workflow",
+    requiresVault: true,
+  },
+  {
     id: "gmail",
     setupActionId: "setup.open_gmail",
     setupControlId: "one_setup_tile_gmail",
@@ -153,8 +179,6 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "pkm",
-    setupActionId: "setup.open_pkm",
-    setupControlId: "one_setup_tile_pkm",
     agentId: "agent_personal_information",
     title: "Memory",
     description: "Saved knowledge and context you can review.",
@@ -166,8 +190,6 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "consent",
-    setupActionId: "setup.open_consent",
-    setupControlId: "one_setup_tile_consent",
     // Nav owns the consent center: approvals, revocations, and the
     // Connections tab (trusted connections are Nav's domain too).
     agentId: "agent_nav",
@@ -181,12 +203,11 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "marketplace",
-    setupActionId: "setup.open_marketplace",
-    setupControlId: "one_setup_tile_marketplace",
     // Preview surface only today; no roster agent behind it.
     agentId: null,
     title: "Information Marketplace",
-    description: "Preview priced slices of your personal information you could publish.",
+    description:
+      "Preview priced slices of your personal information you could publish.",
     previewLabel: "Priced information slices",
     href: ROUTES.ONE_MARKETPLACE,
     icon: Store,
@@ -209,6 +230,37 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
 ] as const;
 
+/**
+ * The setup journey is intentionally narrower than the full One dashboard.
+ * This order is product-authored and must not be re-ranked by status: people
+ * should always see the same calm sequence while individual rows update.
+ *
+ * Memory, Consent, and Information Marketplace remain available in One; they
+ * are not account-setup requirements.
+ */
+export type OneSetupCapability = OneCapability & {
+  id: OneSetupCapabilityId;
+  setupActionId: `setup.open_${string}`;
+  setupControlId: `one_setup_tile_${string}`;
+};
+
+function requireOneCapability(id: OneSetupCapabilityId): OneSetupCapability {
+  const capability = ONE_CAPABILITIES.find((candidate) => candidate.id === id);
+  if (!capability?.setupActionId || !capability.setupControlId) {
+    throw new Error(`Missing One setup capability: ${id}`);
+  }
+  return capability as OneSetupCapability;
+}
+
+export const ONE_SETUP_CAPABILITIES: readonly OneSetupCapability[] =
+  ONE_SETUP_CAPABILITY_IDS.map(requireOneCapability);
+
+export function getOneSetupCapability(
+  id: string,
+): OneSetupCapability | undefined {
+  return ONE_SETUP_CAPABILITIES.find((capability) => capability.id === id);
+}
+
 /** Lookup a capability by id. */
 export function getOneCapability(id: string): OneCapability | undefined {
   return ONE_CAPABILITIES.find((c) => c.id === id);
@@ -228,7 +280,10 @@ export function getOneCapability(id: string): OneCapability | undefined {
  */
 // Class strings are written out in full (not built from a hex variable) so
 // Tailwind's static content scanner can find and generate each utility.
-export const ONE_CAPABILITY_ICON_CLASS_BY_TONE: Record<OneCapabilityTone, string> = {
+export const ONE_CAPABILITY_ICON_CLASS_BY_TONE: Record<
+  OneCapabilityTone,
+  string
+> = {
   // One color guidelines — soft premium palette (see the "One — Color
   // Guidelines" spec). Each tone maps to its named token.
   // Finance: Lavender Mist.

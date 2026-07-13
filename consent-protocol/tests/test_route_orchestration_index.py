@@ -4,14 +4,14 @@ from hushh_mcp.services.route_orchestration_index import (
 )
 
 
-def test_resolves_parameterized_next_route_pattern_for_concrete_paths() -> None:
+def test_resolves_static_finance_setup_route() -> None:
     entry = resolve_route_orchestration_entry("/one/setup/finance")
 
     assert entry is not None
-    assert entry["route_pattern"] == "/one/setup/[capability]"
-    assert entry["instruction_id"] == "route.one.setup.capability"
-    assert entry["voice_playbook"]["primary_action_id"] == "setup.capability_continue"
-    assert "setup.capability_continue" in entry["action_ids"]
+    assert entry["route_pattern"] == "/one/setup/finance"
+    assert entry["instruction_id"] == "route.one.setup.finance"
+    assert entry["voice_playbook"]["primary_action_id"] == "kai.setup.answer_horizon"
+    assert "kai.setup.answer_horizon" in entry["action_ids"]
     assert is_one_delegate_admitted("/one/setup/finance", "agent_kai") is False
 
 

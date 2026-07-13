@@ -33,7 +33,10 @@ import {
   PreVaultUserStateService,
   type PreVaultUserState,
 } from "@/lib/services/pre-vault-user-state-service";
-import { ROUTES } from "@/lib/navigation/routes";
+import {
+  resolveOnboardingCapabilityForRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
@@ -52,6 +55,7 @@ import {
   type MorphyAxSnapshotV1,
 } from "@/lib/morphy-ax";
 import { getVoiceV2Flags } from "@/lib/voice/voice-feature-flags";
+import { useLocalOnboardingHandlerRevision } from "@/lib/agent/local-onboarding-actions";
 
 // The access tier the agent should operate at. This is what drives how the
 // bar presents itself and which persona the backend should compose.
@@ -150,6 +154,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
   // control and One's redacted snapshot. It carries authored metadata only;
   // no DOM inference or second action registry is involved.
   const surfaceMetadata = useVoiceSurfaceMetadata();
+  const localHandlerRevision = useLocalOnboardingHandlerRevision();
   // The query string is purely client runtime metadata (it shapes the derived
   // voice route screen). We read it from window.location instead of
   // useSearchParams() so this app-wide provider does not force a CSR Suspense
@@ -413,6 +418,9 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
 
   const value = useMemo<AgentRuntimeState>(
     () => {
+      // Handler mount/unmount is part of executable surface coherence even
+      // when no other snapshot input changes.
+      void localHandlerRevision;
       const compatibilitySnapshot = buildOneVoiceContextSnapshot({
         appRuntimeState,
         surfaceMetadata,
@@ -430,15 +438,17 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
             signedIn,
             setupResolved: PreVaultUserStateService.isSetupResolved(preVaultState),
           }),
-          activeCapability: path.startsWith(`${ROUTES.ONE_SETUP}/`)
-            ? path.slice(`${ROUTES.ONE_SETUP}/`.length).split("/")[0] || null
-            : preVaultState?.onboardingActiveCapability ?? null,
+          activeCapability:
+            resolveOnboardingCapabilityForRoute(path) ??
+            preVaultState?.onboardingActiveCapability ??
+            null,
           rootResolved: PreVaultUserStateService.isSetupResolved(preVaultState),
           returnRoute: ROUTES.ONE_SETUP,
           phoneVerified: preVaultState?.phoneVerified ?? null,
           callbackState: preVaultState?.onboardingCallbackState || "none",
           setupCapabilityIds: preVaultState?.setupCapabilityIds || [],
         },
+        requireMountedLocalHandlers: true,
       });
       const morphyAxSnapshot = buildMorphyAxSnapshot(compatibilitySnapshot, {
         signedIn,
@@ -475,6 +485,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       preVaultState,
       signedIn,
       surfaceMetadata,
+      localHandlerRevision,
     ]
   );
 

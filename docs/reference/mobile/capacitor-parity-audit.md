@@ -57,7 +57,7 @@ Current policy keeps the full visible app surface in scope, including:
 
 Current inventory policy:
 
-- 78 routes are native-required and must pass on iOS and Android.
+- 85 routes are native-required and must pass on iOS and Android.
 - 6 routes are explicit web-only exclusions: `/developers`, `/profile/pkm-agent-lab`, `/blog`, `/blog/[slug]`, `/research`, and `/research/protocol`.
 - New parity exceptions are not accepted unless this document and the route inventory change in the same PR.
 

@@ -18,6 +18,7 @@ import {
 import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
 import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { VaultService } from "@/lib/services/vault-service";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { useVault } from "@/lib/vault/vault-context";
 
 type ResumeStage = "loading" | "resuming" | "redirecting" | "error";
@@ -27,6 +28,35 @@ function formatErrorMessage(error: unknown): string {
     return error.message;
   }
   return "Plaid OAuth could not be completed.";
+}
+
+async function settleOnboardingPlaidAttempt(params: {
+  userId: string;
+  attemptId?: string;
+  outcome: "succeeded" | "cancelled" | "failed";
+}): Promise<boolean> {
+  if (!params.attemptId) return false;
+  const journey = await PreVaultUserStateService.bootstrapState(params.userId, {
+    force: true,
+  }).catch(() => null);
+  const matches = Boolean(
+    journey &&
+      !PreVaultUserStateService.isSetupResolved(journey) &&
+      journey.onboardingPhase === "external_connector" &&
+      journey.onboardingActiveCapability === "finance" &&
+      journey.onboardingCallbackState === "pending" &&
+      journey.onboardingCallbackAttemptId === params.attemptId,
+  );
+  if (!matches || !journey) return false;
+  await PreVaultUserStateService.syncOnboardingJourney({
+    userId: params.userId,
+    phase: params.outcome === "succeeded" ? "capability_setup" : "external_connector",
+    activeCapability: "finance",
+    callbackState: params.outcome,
+    expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
+    expectedCallbackAttemptId: params.attemptId,
+  });
+  return true;
 }
 
 export default function KaiPlaidOauthReturnPage() {
@@ -119,7 +149,12 @@ export default function KaiPlaidOauthReturnPage() {
                       resumeSessionId: session.resumeSessionId,
                     })
               )
-                .then(() => {
+                .then(async () => {
+                  await settleOnboardingPlaidAttempt({
+                    userId: user.uid,
+                    attemptId: session.onboardingAttemptId,
+                    outcome: "succeeded",
+                  });
                   clearPlaidOAuthResumeSession();
                   finish(resolve);
                 })
@@ -136,18 +171,27 @@ export default function KaiPlaidOauthReturnPage() {
                   handler.destroy?.();
                 });
             },
-            onExit: (exitError: Record<string, unknown> | null) => {
-              handler.destroy?.();
-              clearPlaidOAuthResumeSession();
-              if (exitError && typeof exitError === "object") {
-                const detail =
-                  typeof exitError.error_message === "string"
-                    ? exitError.error_message
-                    : "Plaid Link closed with an error.";
-                finish(() => reject(new Error(detail)));
-                return;
-              }
-              finish(resolve);
+          onExit: (exitError: Record<string, unknown> | null) => {
+            handler.destroy?.();
+            void settleOnboardingPlaidAttempt({
+              userId: user.uid,
+              attemptId: session.onboardingAttemptId,
+              outcome:
+                exitError && typeof exitError === "object" ? "failed" : "cancelled",
+            })
+              .catch(() => undefined)
+              .finally(() => {
+                clearPlaidOAuthResumeSession();
+                if (exitError && typeof exitError === "object") {
+                  const detail =
+                    typeof exitError.error_message === "string"
+                      ? exitError.error_message
+                      : "Plaid Link closed with an error.";
+                  finish(() => reject(new Error(detail)));
+                  return;
+                }
+                finish(resolve);
+              });
             },
           });
 
@@ -158,6 +202,11 @@ export default function KaiPlaidOauthReturnPage() {
         router.replace(session.returnPath || ROUTES.KAI_DASHBOARD);
       } catch (resumeError) {
         clearPlaidOAuthResumeSession();
+        await settleOnboardingPlaidAttempt({
+          userId: user.uid,
+          attemptId: session.onboardingAttemptId,
+          outcome: "failed",
+        }).catch(() => undefined);
         setStage("error");
         setError(formatErrorMessage(resumeError));
       }

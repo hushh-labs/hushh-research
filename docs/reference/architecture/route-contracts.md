@@ -84,6 +84,8 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/profile/gmail/oauth/return`
 - `/consents`
 - `/one/setup`
+- `/one/setup/finance`
+- `/one/setup/finance/import`
 - `/one/setup/kai`
 - `/one/setup/[capability]`
 - `/one/kyc`

@@ -71,7 +71,8 @@
     "090_public_profile_projection_foundation.sql",
     "091_public_profile_projection_cutover.sql",
     "092_one_onboarding_journey_v1.sql",
-    "093_consent_audit_request_id_text.sql"
+    "093_consent_audit_request_id_text.sql",
+    "094_one_onboarding_callback_attempt_v1.sql"
   ],
   "groups": {
     "iam": [
@@ -111,7 +112,8 @@
       "073_crm_registry_mulesoft_simplify.sql",
       "087_scope_policy_v2.sql",
       "092_one_onboarding_journey_v1.sql",
-      "093_consent_audit_request_id_text.sql"
+      "093_consent_audit_request_id_text.sql",
+      "094_one_onboarding_callback_attempt_v1.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

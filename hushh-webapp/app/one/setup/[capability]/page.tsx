@@ -1,5 +1,5 @@
 import { OneOnboardingCapabilityClient } from "@/app/one/setup/[capability]/one-onboarding-capability-client";
-import { ONE_CAPABILITIES } from "@/lib/onboarding/one-capabilities";
+import { ONE_SETUP_CAPABILITIES } from "@/lib/onboarding/one-capabilities";
 
 /**
  * Static params for the per-capability setup step. Capacitor builds with
@@ -8,7 +8,11 @@ import { ONE_CAPABILITIES } from "@/lib/onboarding/one-capabilities";
  * gracefully at runtime (the client redirects to `/one/setup`).
  */
 export function generateStaticParams() {
-  return ONE_CAPABILITIES.map((capability) => ({ capability: capability.id }));
+  // Gmail is a real setup workspace, not a generic handoff. Its physical
+  // static route owns its page, playbook, and completion boundary.
+  return ONE_SETUP_CAPABILITIES.filter(
+    (capability) => capability.id !== "gmail",
+  ).map((capability) => ({ capability: capability.id }));
 }
 
 export default async function OneOnboardingCapabilityPage({

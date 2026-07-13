@@ -188,6 +188,10 @@ class VaultBootstrapStateResponse(BaseModel):
     onboardingActiveCapability: str | None = None
     onboardingResumeRoute: str | None = None
     onboardingCallbackState: str | None = None
+    # Opaque browser-generated correlation id for an external connector
+    # attempt. This is deliberately not an OAuth state/code/token and cannot
+    # identify an account outside the current authenticated journey.
+    onboardingCallbackAttemptId: str | None = None
     onboardingJourneyUpdatedAt: int | None = None
     # Verified-phone claim folded in from the cached actor-identity shadow so a
     # single session-bootstrap call resolves both vault presence and the phone
@@ -210,6 +214,12 @@ class VaultPreStateUpdateRequest(BaseModel):
     onboardingActiveCapability: str | None = Field(default=None, max_length=32)
     onboardingResumeRoute: str | None = Field(default=None, max_length=128)
     onboardingCallbackState: str | None = Field(default=None, max_length=16)
+    onboardingCallbackAttemptId: str | None = Field(default=None, max_length=96)
+    # Optional optimistic-concurrency guard for resumable setup transitions.
+    expectedOnboardingJourneyUpdatedAt: int | None = None
+    # Callback settlement must match the durable external attempt as well as
+    # the observed revision, so an old callback cannot settle a replacement.
+    expectedOnboardingCallbackAttemptId: str | None = Field(default=None, max_length=96)
 
 
 class VaultGetRequest(BaseModel):
@@ -385,10 +395,19 @@ async def vault_bootstrap_state(
             onboardingActiveCapability=state.get("onboardingActiveCapability"),
             onboardingResumeRoute=state.get("onboardingResumeRoute"),
             onboardingCallbackState=state.get("onboardingCallbackState"),
+            onboardingCallbackAttemptId=state.get("onboardingCallbackAttemptId"),
             onboardingJourneyUpdatedAt=state.get("onboardingJourneyUpdatedAt"),
             phoneVerified=phone_verified,
         )
-    except ValueError:
+    except ValueError as exc:
+        if str(exc) == "stale onboarding journey":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "Setup changed in another session.",
+                    "code": "STALE_ONBOARDING_JOURNEY",
+                },
+            )
         raise HTTPException(
             status_code=400, detail={"error": "Validation error", "code": "VAULT_VALIDATION_ERROR"}
         )
@@ -423,6 +442,9 @@ async def vault_pre_vault_state(
             onboarding_active_capability=request.onboardingActiveCapability,
             onboarding_resume_route=request.onboardingResumeRoute,
             onboarding_callback_state=request.onboardingCallbackState,
+            onboarding_callback_attempt_id=request.onboardingCallbackAttemptId,
+            expected_onboarding_journey_updated_at=request.expectedOnboardingJourneyUpdatedAt,
+            expected_onboarding_callback_attempt_id=request.expectedOnboardingCallbackAttemptId,
         )
         has_vault = await service.check_vault_exists(user_id, ensure_entry=False)
 
@@ -446,9 +468,18 @@ async def vault_pre_vault_state(
             onboardingActiveCapability=state.get("onboardingActiveCapability"),
             onboardingResumeRoute=state.get("onboardingResumeRoute"),
             onboardingCallbackState=state.get("onboardingCallbackState"),
+            onboardingCallbackAttemptId=state.get("onboardingCallbackAttemptId"),
             onboardingJourneyUpdatedAt=state.get("onboardingJourneyUpdatedAt"),
         )
-    except ValueError:
+    except ValueError as exc:
+        if str(exc) == "stale onboarding journey":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "Setup changed in another session.",
+                    "code": "STALE_ONBOARDING_JOURNEY",
+                },
+            )
         raise HTTPException(
             status_code=400, detail={"error": "Validation error", "code": "VAULT_VALIDATION_ERROR"}
         )

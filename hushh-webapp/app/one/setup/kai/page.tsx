@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
@@ -10,9 +10,16 @@ import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { KaiPersonaScreen } from "@/components/kai/onboarding/KaiPersonaScreen";
 import { KaiPreferencesWizard } from "@/components/kai/onboarding/KaiPreferencesWizard";
 import { KaiInviteHandshake } from "@/components/kai/onboarding/kai-invite-handshake";
+import {
+  SetupCapabilityLoading,
+  SetupCapabilityTerminalFooter,
+  useSetupCapabilityCoordinator,
+} from "@/components/onboarding/setup/setup-capability-coordinator";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
-import { CapabilityTourService } from "@/lib/services/capability-tour-service";
+import {
+  usePublishVoiceSurfaceMetadata,
+  type VoiceSurfacePublisherRole,
+} from "@/lib/voice/voice-surface-metadata";
 import {
   KaiProfileService,
   computeRiskScore,
@@ -98,8 +105,13 @@ function SetupKaiStageRegion({ children }: { children: ReactNode }) {
   );
 }
 
-function KaiOnboardingPageContent() {
+function KaiOnboardingPageContent({
+  voicePublisherRole = "route",
+}: {
+  voicePublisherRole?: VoiceSurfacePublisherRole;
+}) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const nativeTestConfig = useNativeTestConfig();
   const { user, loading: authLoading } = useAuth();
@@ -119,11 +131,20 @@ function KaiOnboardingPageContent() {
     () => normalizeInternalRouteHref(searchParams.get("from")),
     [searchParams],
   );
+  const isStaticFinanceSetupRoute = pathname === ROUTES.ONE_SETUP_FINANCE;
+  const financeSetupCoordinator = useSetupCapabilityCoordinator({
+    capabilityId: "finance",
+    isOperationallyReady: false,
+    finishActionId: "setup.finish_finance",
+    skipActionId: "setup.skip_finance",
+    enabled: isStaticFinanceSetupRoute,
+    screenId: "one_setup_finance",
+  });
   // Intentional re-entry: a user who has ALREADY resolved the setup gate but
   // deliberately reopens this wizard (tapping the Finance tile, which forwards
   // with a `from` marker, or an explicit `edit=1`) must land ON the
   // questionnaire to review/edit their answers, NOT be bounced to the `/one/setup`
-  // hub. Without this, finance "Unlock & continue" dead-loops back to the hub.
+  // hub. Without this, Finance setup dead-loops back to the hub.
   // First-run gating (unresolved users) is unchanged.
   const wizardReentryRequested = useMemo(
     () => onboardingFromHref !== null || searchParams.get("edit") === "1",
@@ -191,7 +212,7 @@ function KaiOnboardingPageContent() {
           // Otherwise the canonical surface is the `/one/setup` capability hub,
           // so we redirect there instead of showing the legacy entry hub.
           if (
-            (!onboardingResolved && pending) ||
+            (!onboardingResolved && (pending || isStaticFinanceSetupRoute)) ||
             wizardReentryRequested ||
             preserveOnboardingAuditRoute
           ) {
@@ -274,6 +295,7 @@ function KaiOnboardingPageContent() {
     onboardingSelfHref,
     onboardingFromHref,
     wizardReentryRequested,
+    isStaticFinanceSetupRoute,
   ]);
 
   const wizardAnswers: WizardAnswers = useMemo(() => {
@@ -303,27 +325,41 @@ function KaiOnboardingPageContent() {
 
     try {
       setSaving(true);
-      // Preferences were persisted by the preceding wizard stage. Finishing
-      // Finance marks this capability only; root setup remains hub-owned so a
-      // person can continue through the rest of One's onboarding deliberately.
-      await CapabilityTourService.markExplored(user.uid, "finance");
-      const explored = await CapabilityTourService.loadExploredIds(user.uid);
-      await PreVaultUserStateService.syncSetupCapabilities(user.uid, explored);
+      // Preferences are only the first Finance checkpoint. Continue into the
+      // existing portfolio-source choice; the explicit terminal Finance step
+      // marks the capability complete after Plaid, statement, or "later" settles.
+      const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
+        force: true,
+      });
+      if (journey.onboardingActiveCapability !== "finance") {
+        router.replace(ROUTES.ONE_SETUP);
+        return {
+          status: "blocked" as const,
+          summary: "Finance is no longer the active setup. Returning to setup.",
+          routeAfter: ROUTES.ONE_SETUP,
+        };
+      }
       await PreVaultUserStateService.syncOnboardingJourney({
         userId: user.uid,
-        phase: "setup_hub",
+        phase: "capability_setup",
+        activeCapability: "finance",
+        callbackState: "none",
+        expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
       });
-      toast.success("Finance preferences saved. Back to your setup checklist.");
+      toast.success("Finance preferences saved. Choose how to add your portfolio.");
       setOnboardingRequiredCookie(true);
-      setOnboardingFlowActiveCookie(false);
+      setOnboardingFlowActiveCookie(true);
       trackEvent("onboarding_step_completed", {
         action: "preferences",
         result: "success",
       });
-      router.replace(buildOneSetupRoute({ from: onboardingFromHref }));
+      router.replace(
+        ROUTES.ONE_SETUP_FINANCE_IMPORT,
+      );
       return {
-        status: "succeeded" as const,
-        summary: "Finance preferences saved. Returning to setup.",
+        status: "started" as const,
+        summary: "Finance preferences saved. Choose Plaid, a statement, or later.",
+        routeAfter: ROUTES.ONE_SETUP_FINANCE_IMPORT,
       };
     } catch (error) {
       console.error("[OneOnboardingPage] Failed to finalize onboarding:", error);
@@ -342,7 +378,7 @@ function KaiOnboardingPageContent() {
   };
 
   // Voice parity: "launch my dashboard" drives the exact same completion
-  // flow as tapping the persona screen's Launch dashboard button. Registered
+  // flow as tapping the persona screen's Continue Finance Setup button. Registered
   // unconditionally (not just while stage === "persona") to satisfy Rules of
   // Hooks; the handler itself is a no-op unless a user session exists.
   useLocalOnboardingActionHandler("kai.setup.launch_dashboard", async () => {
@@ -354,7 +390,6 @@ function KaiOnboardingPageContent() {
     }
     return handleLaunchDashboard();
   });
-
   // Publish the screen id the generated action contract expects
   // (kai_setup_wizard) so voice grounding and reachability checks resolve
   // against the same screen the wizard/persona actions declare, overriding
@@ -362,7 +397,7 @@ function KaiOnboardingPageContent() {
   usePublishVoiceSurfaceMetadata(
     stage === "wizard" || stage === "persona"
       ? {
-          screenId: "kai_setup_wizard",
+          screenId: "one_setup_finance",
           title: "Kai investor preferences",
           purpose:
             stage === "wizard"
@@ -394,18 +429,19 @@ function KaiOnboardingPageContent() {
                   {
                     id: "launch_dashboard",
                     actionId: "kai.setup.launch_dashboard",
-                    label: "Finish Finance Setup",
-                    purpose: "Save finance preferences and return to setup.",
+                    label: "Continue Finance Setup",
+                    purpose: "Save preferences and choose a portfolio source.",
                   },
                 ],
         }
-      : null
+      : null,
+    { role: voicePublisherRole },
   );
 
-  if (authLoading) {
+  if (authLoading || (isStaticFinanceSetupRoute && !financeSetupCoordinator.isReady)) {
     return (
       <SetupKaiStageRegion>
-        <HushhLoader label="Loading onboarding..." variant="inline" />
+        <SetupCapabilityLoading label="Preparing Finance setup…" />
       </SetupKaiStageRegion>
     );
   }
@@ -511,6 +547,13 @@ function KaiOnboardingPageContent() {
           onEditAnswers={() => setStage("wizard")}
           onLaunchDashboard={handleLaunchDashboard}
         />
+        {isStaticFinanceSetupRoute ? (
+          <SetupCapabilityTerminalFooter
+            capabilityId="finance"
+            isOperationallyReady={false}
+            coordinator={financeSetupCoordinator}
+          />
+        ) : null}
       </>
     );
   }
@@ -528,13 +571,15 @@ function KaiOnboardingPageContent() {
         layout="page"
         initialStep={0}
         initialAnswers={wizardAnswers}
-        // Backing out of the investor-preferences sub-step returns to the One
-        // setup hub at /one/setup so the user resumes the main onboarding. It
-        // must NOT mark the root onboarding skipped: only the hub-level "Not now"
-        // control does that. (The wizard's own intra-step Skip control is
-        // intentionally not wired here so a sub-step can't satisfy/skip the root
-        // flow.)
-        onBack={() => router.replace(buildOneSetupRoute({ from: onboardingFromHref }))}
+        // Back returns to the hub but retains the active task. Only the
+        // explicit terminal Skip action may clear it.
+        onBack={() => {
+          if (user && isStaticFinanceSetupRoute) {
+            router.replace(ROUTES.ONE_SETUP);
+            return;
+          }
+          router.replace(buildOneSetupRoute({ from: onboardingFromHref }));
+        }}
         onAnswersChange={(nextAnswers) => {
         if (source !== "pre_vault") return;
         const score = computeRiskScore(nextAnswers as PreVaultOnboardingAnswers);
@@ -563,7 +608,7 @@ function KaiOnboardingPageContent() {
 
           if (source === "vault") {
             if (!vaultKey || !vaultOwnerToken) {
-              toast.error("Unlock your vault to continue.");
+              toast.error("Set up or open your private vault to continue.");
               return;
             }
 
@@ -602,11 +647,22 @@ function KaiOnboardingPageContent() {
         }
         }}
       />
+      {isStaticFinanceSetupRoute ? (
+        <SetupCapabilityTerminalFooter
+          capabilityId="finance"
+          isOperationallyReady={false}
+          coordinator={financeSetupCoordinator}
+        />
+      ) : null}
     </>
   );
 }
 
-export default function KaiOnboardingPage() {
+export default function KaiOnboardingPage({
+  voicePublisherRole = "route",
+}: {
+  voicePublisherRole?: VoiceSurfacePublisherRole;
+} = {}) {
   return (
     <Suspense
       fallback={
@@ -615,7 +671,7 @@ export default function KaiOnboardingPage() {
         </SetupKaiStageRegion>
       }
     >
-      <KaiOnboardingPageContent />
+      <KaiOnboardingPageContent voicePublisherRole={voicePublisherRole} />
     </Suspense>
   );
 }
