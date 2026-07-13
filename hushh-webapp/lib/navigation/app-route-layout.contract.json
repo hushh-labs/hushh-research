@@ -77,7 +77,7 @@
     "voicePlaybook": {
       "playbookId": "route.one.setup",
       "purpose": "Help the person choose, resume, skip, or finish one setup capability.",
-      "screen": "one_setup",
+      "screen": "one_setup_hub",
       "entryCue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
       "proactivity": "on_entry",
       "primaryActionId": "setup.open_gmail",
@@ -1124,7 +1124,7 @@
   {
     "route": "/kai/onboarding",
     "mode": "redirect",
-    "exemptionReason": "Compatibility redirect route only launches the canonical /one/setup/kai flow.",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/setup/finance flow.",
     "voicePlaybook": {
       "playbookId": "route.kai.onboarding",
       "purpose": "Help the person understand and use the onboarding screen through its generated controls.",
@@ -1151,7 +1151,7 @@
   {
     "route": "/one/kai/onboarding",
     "mode": "redirect",
-    "exemptionReason": "Compatibility redirect route only launches the canonical /one/setup/kai flow.",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/setup/finance flow.",
     "voicePlaybook": {
       "playbookId": "route.one.kai.onboarding",
       "purpose": "Help the person understand and use the onboarding screen through its generated controls.",
@@ -1177,16 +1177,16 @@
   },
   {
     "route": "/one/setup/kai",
-    "mode": "flow",
-    "exemptionReason": "Fullscreen setup wizard owns its own shell and safe-area spacing.",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility route redirects to the canonical /one/setup/finance workspace.",
     "voicePlaybook": {
       "playbookId": "route.one.setup.kai",
       "purpose": "Collect Finance preferences and return to the setup hub without resolving root onboarding.",
-      "screen": "one_setup",
-      "entryCue": "Answer the visible Finance question to continue.",
-      "proactivity": "on_entry",
-      "primaryActionId": "kai.setup.answer_horizon",
-      "happyPathActionIds": ["kai.setup.answer_horizon"],
+      "screen": "one_setup_finance",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": ["investment_horizon"],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1196,17 +1196,17 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Finance setup completes only after preferences are saved and the hub route settles.",
-      "nextRoute": "/one/setup",
-      "returnPolicy": "return_to_hub",
+      "completionBoundary": "The compatibility route has no executable actions.",
+      "nextRoute": "/one/setup/finance",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
-    "route": "/one/setup/[capability]",
+    "route": "/one/setup/gmail",
     "mode": "standard",
     "shellVerification": {
-      "file": "components/onboarding/setup/onboarding-capability-step.tsx",
+      "file": "components/gmail/gmail-receipts-page.tsx",
       "includes": [
         "AppPageShell",
         "AppPageHeaderRegion",
@@ -1215,13 +1215,100 @@
       ]
     },
     "voicePlaybook": {
-      "playbookId": "route.one.setup.capability",
-      "purpose": "Explain the active setup capability and advance only its visible next step.",
-      "screen": "one_setup",
-      "entryCue": "Say ‘Continue’ when you are ready for the next step.",
+      "playbookId": "route.one.setup.gmail",
+      "purpose": "Connect Gmail, review the receipt signal it creates, then finish this capability and return to setup.",
+      "screen": "one_setup_gmail",
+      "entryCue": "Connect Gmail to review receipt emails and the brands they help One understand.",
       "proactivity": "on_entry",
-      "primaryActionId": "setup.capability_continue",
-      "happyPathActionIds": ["setup.capability_continue"],
+      "primaryActionId": "setup.connect_gmail",
+      "happyPathActionIds": ["setup.connect_gmail", "setup.finish_gmail", "setup.skip_gmail"],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Keep Gmail setup available and return to the current setup screen.",
+        "failed": "Explain that Gmail setup is still incomplete and offer a safe retry.",
+        "timeout": "Keep the Gmail goal active and offer one safe retry.",
+        "callbackError": "Return to Gmail setup and show the connector recovery state without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Gmail setup completes only after the connector reports a verified connection and the setup hub route settles.",
+      "nextRoute": "/one/setup",
+      "returnPolicy": "return_to_hub",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/setup/location",
+    "mode": "standard",
+    "shellVerification": { "file": "app/one/setup/location/page.tsx", "includes": ["OneLocationAgentPage", "SetupCapabilityTerminalFooter"] },
+    "voicePlaybook": {
+      "playbookId": "route.one.setup.location", "purpose": "Request device location permission, then explicitly finish or skip Location setup.", "screen": "one_setup_location", "entryCue": "Allow Location when you are ready, or say skip Location setup.", "proactivity": "on_entry", "primaryActionId": "setup.skip_location", "happyPathActionIds": ["setup.skip_location", "setup.finish_location"], "requiredInputs": [],
+      "recoveries": { "blocked": "Explain the current guard and retain the goal.", "cancelled": "Keep Location setup open and preserve the active goal.", "failed": "Explain that permission is still needed before finishing.", "timeout": "Retain the goal and offer a safe retry.", "callbackError": "Use the verified current route and its generated actions only.", "routeMismatch": "Use the verified current route and its generated actions only." },
+      "completionBoundary": "Location setup finishes only after device permission is granted and the hub route settles.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/setup/email",
+    "mode": "standard",
+    "shellVerification": { "file": "app/one/setup/email/page.tsx", "includes": ["OneKycPage", "SetupCapabilityTerminalFooter"] },
+    "voicePlaybook": {
+      "playbookId": "route.one.setup.email", "purpose": "Set up the verified email identity and connector One uses to draft with you.", "screen": "one_setup_email", "entryCue": "Set up your verified email identity, or say skip KYC setup.", "proactivity": "on_entry", "primaryActionId": "setup.skip_email", "happyPathActionIds": ["setup.skip_email", "setup.finish_email"], "requiredInputs": [],
+      "recoveries": { "blocked": "Explain the current guard and retain the goal.", "cancelled": "Keep KYC setup open and preserve the active goal.", "failed": "Explain what remains to set up without claiming completion.", "timeout": "Retain the goal and offer a safe retry.", "callbackError": "Use the verified current route and its generated actions only.", "routeMismatch": "Use the verified current route and its generated actions only." },
+      "completionBoundary": "KYC setup finishes only after a verified email identity and client connector are ready.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/setup/finance",
+    "mode": "flow",
+    "exemptionReason": "Finance preferences use the existing full-height wizard inside the setup route.",
+    "voicePlaybook": {
+      "playbookId": "route.one.setup.finance", "purpose": "Collect Finance preferences before choosing Plaid, a statement, or a later source choice.", "screen": "one_setup_finance", "entryCue": "Answer the visible Finance question to continue.", "proactivity": "on_entry", "primaryActionId": "kai.setup.answer_horizon", "happyPathActionIds": ["kai.setup.answer_horizon", "kai.setup.answer_drawdown", "kai.setup.answer_volatility", "kai.setup.launch_dashboard", "setup.skip_finance"], "requiredInputs": ["investment_horizon"],
+      "recoveries": { "blocked": "Explain the current guard and retain the goal.", "cancelled": "Keep Finance setup open and preserve the active goal.", "failed": "Explain that Finance setup is still incomplete and offer a safe retry.", "timeout": "Retain the goal and offer a safe retry.", "callbackError": "Return to Finance setup without claiming success.", "routeMismatch": "Use the verified current route and its generated actions only." },
+      "completionBoundary": "Preferences advance to the Finance source choice; only the import route can make Finance ready.", "nextRoute": "/one/setup/finance/import", "returnPolicy": "navigate", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/setup/finance/import",
+    "mode": "flow",
+    "exemptionReason": "Finance source selection uses the existing import flow inside the setup route.",
+    "voicePlaybook": {
+      "playbookId": "route.one.setup.finance.import", "purpose": "Choose Plaid, a statement, or a later source choice for Finance setup.", "screen": "one_setup_finance_import", "entryCue": "Choose how you want to add a portfolio, or set it up later.", "proactivity": "on_entry", "primaryActionId": "setup.skip_finance", "happyPathActionIds": ["setup.finish_finance", "setup.skip_finance"], "requiredInputs": [],
+      "recoveries": { "blocked": "Explain the current guard and retain the goal.", "cancelled": "Keep Finance setup open and preserve the active goal.", "failed": "Explain that a source still needs to settle before finishing.", "timeout": "Retain the goal and offer a safe retry.", "callbackError": "Return to Finance setup without claiming success.", "routeMismatch": "Use the verified current route and its generated actions only." },
+      "completionBoundary": "Finance finishes only after a verified Plaid connection, statement save, or explicit later choice and hub settlement.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/setup/ria",
+    "mode": "flow",
+    "exemptionReason": "RIA onboarding retains its existing full-screen verification flow inside the setup route.",
+    "voicePlaybook": {
+      "playbookId": "route.one.setup.ria", "purpose": "Submit an RIA profile, then explicitly finish or skip its setup.", "screen": "one_setup_ria", "entryCue": "Complete your RIA profile when ready, or say skip RIA setup.", "proactivity": "on_entry", "primaryActionId": "setup.skip_ria", "happyPathActionIds": ["setup.skip_ria", "setup.finish_ria"], "requiredInputs": [],
+      "recoveries": { "blocked": "Explain the current guard and retain the goal.", "cancelled": "Keep RIA setup open and preserve the active goal.", "failed": "Explain that the profile has not been accepted yet.", "timeout": "Retain the goal and offer a safe retry.", "callbackError": "Return to RIA setup without claiming success.", "routeMismatch": "Use the verified current route and its generated actions only." },
+      "completionBoundary": "RIA setup finishes only after a non-rejected profile submission and hub settlement.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/setup/connected-systems",
+    "mode": "standard",
+    "shellVerification": { "file": "app/one/setup/connected-systems/page.tsx", "includes": ["ConnectedSystemsPanel", "SetupCapabilityTerminalFooter"] },
+    "voicePlaybook": {
+      "playbookId": "route.one.setup.connected.systems", "purpose": "Link an active CRM record before explicitly finishing or skipping setup.", "screen": "one_setup_connected_systems", "entryCue": "Choose a CRM to find or create your record, or say skip linking setup.", "proactivity": "on_entry", "primaryActionId": "setup.skip_connected_systems", "happyPathActionIds": ["setup.skip_connected_systems", "setup.finish_connected_systems"], "requiredInputs": [],
+      "recoveries": { "blocked": "Explain the current guard and retain the goal.", "cancelled": "Keep linked systems setup open and preserve the active goal.", "failed": "Explain that an active record binding is needed before finishing.", "timeout": "Retain the goal and offer a safe retry.", "callbackError": "Return to linked systems setup without claiming success.", "routeMismatch": "Use the verified current route and its generated actions only." },
+      "completionBoundary": "Linked systems setup finishes only after an active CRM record binding and hub settlement.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/setup/[capability]",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility-only route redirects known legacy capability paths to static setup workspaces.",
+    "voicePlaybook": {
+      "playbookId": "route.one.setup.capability",
+      "purpose": "Compatibility redirect only; it exposes no executable setup actions.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1231,7 +1318,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "The step settles after its local handler opens the capability destination.",
+      "completionBoundary": "The compatibility redirect has no completion authority.",
       "nextRoute": "/one/setup",
       "returnPolicy": "return_to_hub",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1452,10 +1539,10 @@
       "playbookId": "route.one.kai.portfolio",
       "purpose": "Help the person understand and use the portfolio screen through its generated controls.",
       "screen": "kai_portfolio_dashboard",
-      "entryCue": "You can say “Open Portfolio Dashboard” to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.kai_dashboard",
-      "happyPathActionIds": ["route.kai_dashboard"],
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",

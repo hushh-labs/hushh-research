@@ -221,6 +221,7 @@ class VaultKeysService:
             ),
             "onboardingResumeRoute": row.get("onboarding_resume_route"),
             "onboardingCallbackState": row.get("onboarding_callback_state"),
+            "onboardingCallbackAttemptId": row.get("onboarding_callback_attempt_id"),
             "onboardingJourneyUpdatedAt": cls._normalize_int_ms_or_none(
                 row.get("onboarding_journey_updated_at")
             ),
@@ -278,7 +279,7 @@ class VaultKeysService:
                 "nav_setup_completed_at,nav_setup_skipped_at,"
                 "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,"
                 "onboarding_journey_version,onboarding_phase,onboarding_active_capability,"
-                "onboarding_resume_route,onboarding_callback_state,onboarding_journey_updated_at,"
+                "onboarding_resume_route,onboarding_callback_state,onboarding_callback_attempt_id,onboarding_journey_updated_at,"
                 "created_at,updated_at"
             )
             .eq("user_id", user_id_clean)
@@ -313,7 +314,7 @@ class VaultKeysService:
                         "nav_setup_completed_at,nav_setup_skipped_at,"
                         "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,"
                         "onboarding_journey_version,onboarding_phase,onboarding_active_capability,"
-                        "onboarding_resume_route,onboarding_callback_state,onboarding_journey_updated_at,"
+                        "onboarding_resume_route,onboarding_callback_state,onboarding_callback_attempt_id,onboarding_journey_updated_at,"
                         "created_at,updated_at"
                     )
                     .eq("user_id", user_id_clean)
@@ -355,7 +356,7 @@ class VaultKeysService:
                 "nav_setup_completed_at,nav_setup_skipped_at,"
                 "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,"
                 "onboarding_journey_version,onboarding_phase,onboarding_active_capability,"
-                "onboarding_resume_route,onboarding_callback_state,onboarding_journey_updated_at,"
+                "onboarding_resume_route,onboarding_callback_state,onboarding_callback_attempt_id,onboarding_journey_updated_at,"
                 "created_at,updated_at"
             )
             .eq("user_id", user_id_clean)
@@ -394,6 +395,7 @@ class VaultKeysService:
             "onboardingActiveCapability": state["onboardingActiveCapability"],
             "onboardingResumeRoute": state["onboardingResumeRoute"],
             "onboardingCallbackState": state["onboardingCallbackState"],
+            "onboardingCallbackAttemptId": state["onboardingCallbackAttemptId"],
             "onboardingJourneyUpdatedAt": state["onboardingJourneyUpdatedAt"],
         }
 
@@ -412,6 +414,9 @@ class VaultKeysService:
         onboarding_active_capability: Optional[str] = None,
         onboarding_resume_route: Optional[str] = None,
         onboarding_callback_state: Optional[str] = None,
+        onboarding_callback_attempt_id: Optional[str] = None,
+        expected_onboarding_journey_updated_at: Optional[int] = None,
+        expected_onboarding_callback_attempt_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         return await run_in_threadpool(
             self._update_pre_vault_state_sync,
@@ -427,6 +432,9 @@ class VaultKeysService:
             onboarding_active_capability,
             onboarding_resume_route,
             onboarding_callback_state,
+            onboarding_callback_attempt_id,
+            expected_onboarding_journey_updated_at,
+            expected_onboarding_callback_attempt_id,
         )
 
     def _update_pre_vault_state_sync(
@@ -443,6 +451,9 @@ class VaultKeysService:
         onboarding_active_capability: Optional[str] = None,
         onboarding_resume_route: Optional[str] = None,
         onboarding_callback_state: Optional[str] = None,
+        onboarding_callback_attempt_id: Optional[str] = None,
+        expected_onboarding_journey_updated_at: Optional[int] = None,
+        expected_onboarding_callback_attempt_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Persist DB-first setup markers (capability setup + nav tour) with basic
@@ -505,6 +516,7 @@ class VaultKeysService:
             onboarding_active_capability,
             onboarding_resume_route,
             onboarding_callback_state,
+            onboarding_callback_attempt_id,
         )
         if any(value is not None for value in onboarding_values):
             allowed_phases = {
@@ -530,6 +542,11 @@ class VaultKeysService:
                 and onboarding_callback_state not in allowed_callbacks
             ):
                 raise ValueError("invalid onboarding callback state")
+            if (
+                onboarding_callback_attempt_id is not None
+                and not onboarding_callback_attempt_id.strip()
+            ):
+                raise ValueError("invalid onboarding callback attempt")
             if onboarding_resume_route is not None and onboarding_resume_route != "/one/setup":
                 raise ValueError("onboarding resume route must be /one/setup")
             update_payload.update(
@@ -541,16 +558,39 @@ class VaultKeysService:
                     ),
                     "onboarding_resume_route": onboarding_resume_route or "/one/setup",
                     "onboarding_callback_state": onboarding_callback_state or "none",
+                    # Keep the most recent opaque attempt id while a capability
+                    # progresses after its callback. A new external attempt
+                    # explicitly replaces it; ordinary hub/capability writes
+                    # cannot accidentally erase the correlation before a stale
+                    # callback is rejected.
+                    "onboarding_callback_attempt_id": (
+                        onboarding_callback_attempt_id
+                        if onboarding_callback_attempt_id is not None
+                        else current["onboardingCallbackAttemptId"]
+                    ),
                     "onboarding_journey_updated_at": now_ms,
                 }
             )
-        updated = (
-            supabase.table("vault_keys")
-            .update(update_payload)
-            .eq("user_id", user_id_clean)
-            .execute()
+        update_query = (
+            supabase.table("vault_keys").update(update_payload).eq("user_id", user_id_clean)
         )
+        if expected_onboarding_journey_updated_at is not None:
+            update_query = update_query.eq(
+                "onboarding_journey_updated_at",
+                expected_onboarding_journey_updated_at,
+            )
+        if expected_onboarding_callback_attempt_id is not None:
+            update_query = update_query.eq(
+                "onboarding_callback_attempt_id",
+                expected_onboarding_callback_attempt_id,
+            )
+        updated = update_query.execute()
         if not updated.data:
+            if (
+                expected_onboarding_journey_updated_at is not None
+                or expected_onboarding_callback_attempt_id is not None
+            ):
+                raise ValueError("stale onboarding journey")
             raise RuntimeError("Failed to update pre-vault state")
         return self._serialize_user_entry(updated.data[0])
 

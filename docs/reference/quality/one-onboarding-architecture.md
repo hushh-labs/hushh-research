@@ -5,8 +5,8 @@ gated, reset, resumed, and skipped across the app.
 
 > Naming: the account‑level flow and its surfaces are now called **setup**
 > (formerly "onboarding"). The canonical routes are `/one/setup` (hub),
-> `/one/setup/kai` (Kai investor‑profile wizard), and `/one/setup/<capability>`
-> (per‑capability steps). Persisted state uses `setup_*` / `nav_setup_*`
+> `/one/setup/finance` (Finance preferences), and static
+> `/one/setup/<capability>` workspaces. Persisted state uses `setup_*` / `nav_setup_*`
 > columns and the `hushh_setup_*` cookies. Some internal symbol names still
 > read `onboarding` for back‑compat; the user‑facing surface and routes are
 > "setup".
@@ -20,42 +20,40 @@ gated, reset, resumed, and skipped across the app.
 
 ## Visual Map
 
-The end‑to‑end curated setup journey, from the hub through a per‑capability
-step into the capability's real workspace and back through an explicit terminal
-acknowledgement. Vault‑backed capabilities introduce the private vault at the first
-operation that actually needs encrypted persistence; provider caches and workflow
-state are not PKM memory by implication.
+The end‑to‑end setup journey stays inside static setup workspaces. Feature bodies
+are reused there; adapters own only journey state, voice publication, logical
+return to the hub, and the terminal footer. Vault‑backed capabilities introduce
+the private vault at the first operation that needs encrypted persistence.
 
 ```mermaid
 flowchart TD
-  Hub["/one/setup (hub)\ntiles + live status\nmaster Skip/Continue"]
-  Step["/one/setup/&lt;capability&gt; (step)\nintro or terminal acknowledgement\nCTA: Set up / Finish setup"]
-  Wizard["/one/setup/kai (wizard)\nquestionnaire -> persona"]
-  Import["/one/kai/import\nportfolio upload + Plaid"]
-  Finish["/one/setup/&lt;capability&gt;?finish=1\nFinish capability setup"]
-  Dest["capability workspace\n(/one/gmail, /one/location, /one/kyc,\n/ria/onboarding, /one/connected-systems)"]
+  Hub["/one/setup (hub)\ntiles + live status\nmaster Skip setup / Finish setup"]
+  Gmail["/one/setup/gmail (workspace)\nConnect, review receipt signals, Finish Gmail setup"]
+  Static["/one/setup/location | email | ria | connected-systems\nreused feature workspace + terminal footer"]
+  Wizard["/one/setup/finance (wizard)\nquestionnaire -> persona"]
+  Import["/one/setup/finance/import\nPlaid, statement, or set up later"]
 
-  Hub -->|tap a tile| Step
-  Step -->|finance: forward with ?from=| Wizard
-  Wizard --> Import --> Finish
-  Step -->|other caps| Dest --> Finish
-  Finish --> Hub
-  Step -->|Back| Hub
-  Hub -->|Skip 0 done / Continue 1..n done| Dash
+  Hub -->|Connect Gmail| Gmail
+  Gmail -->|verified connection + Finish Gmail setup| Hub
+  Hub -->|choose capability| Static
+  Hub -->|Finance| Wizard --> Import
+  Static -->|verified Finish or Skip| Hub
+  Import -->|verified Finish or Skip| Hub
+  Hub -->|Skip setup 0 done / Finish setup 1..n done| Dash
 ```
 
 The setup catalog is a deliberate subset of the broader One capability catalog
 (single source of truth:
 [`lib/onboarding/one-capabilities.ts`](../../../hushh-webapp/lib/onboarding/one-capabilities.ts)):
 
-| Order | Setup step | Kind | Destination | Vault |
-| --- | --- | --- | --- | --- |
-| 1 | Connect Gmail | connector | `/one/gmail` | `requiresVault` |
-| 2 | Set up location | workflow | `/one/location` | `requiresVault` |
-| 3 | Let One draft for you | workflow | `/one/kyc` | `requiresVault` |
-| 4 | Set up your finances | wizard | `/one/setup/kai` → `/one/kai/import` | `requiresVault` |
-| 5 | Set up RIA | advisor verification | `/ria/onboarding` | `requiresVault` |
-| 6 | Link your tools | CRM registry and profile setup | `/one/connected-systems` | `requiresVault` |
+| Order | Setup step            | Kind                           | Destination                          | Vault           |
+| ----- | --------------------- | ------------------------------ | ------------------------------------ | --------------- |
+| 1     | Connect Gmail         | connector                      | `/one/setup/gmail`                   | `requiresVault` |
+| 2     | Set up location       | workflow                       | `/one/setup/location`                | `requiresVault` |
+| 3     | Let One draft for you | workflow                       | `/one/setup/email`                   | `requiresVault` |
+| 4     | Set up your finances  | wizard                         | `/one/setup/finance` → `/finance/import` | `requiresVault` |
+| 5     | Set up RIA            | advisor verification           | `/one/setup/ria`                     | `requiresVault` |
+| 6     | Link your record      | CRM registry and profile setup | `/one/setup/connected-systems`       | `requiresVault` |
 
 The hub keeps this authored order within two explicit sections: **Remaining**
 first, then **Complete**. The Complete section is absent until at least one
@@ -82,10 +80,8 @@ acknowledgement. A connector or preferences record without that acknowledgement 
 ```mermaid
 flowchart TD
   One["One setup (ROOT)\n/one/setup\nonce per account"]
-  Kai["Kai investor profile (SUB)\n/one/setup/kai"]
-  Cap["Per‑capability setup (SUB)\n/one/setup/<capability>"]
-  Ria["Advisor verification (SUB)\n/ria/onboarding"]
-  Kyc["Identity verification (SUB)\n/one/kyc"]
+  Kai["Finance preferences (SUB)\n/one/setup/finance"]
+  Cap["Static capability setup (SUB)\n/one/setup/<capability>"]
   One --> Kai
   One --> Cap
   One --> Ria
@@ -98,30 +94,25 @@ Guards, reset flows, chrome, and this doc all read from that registry so the
 shape can never silently drift. **Never hand‑roll setup gating outside the
 registry — add or extend an `OnboardingDefinition` instead.**
 
-| Flow | Tier | Route | Reset scope | Resumable | Skippable |
-| --- | --- | --- | --- | --- | --- |
-| One (setup hub) | `root` | `/one/setup` | `account` | yes | yes |
-| Kai investor profile | `sub` | `/one/setup/kai` | `surface` | yes | yes |
-| Per‑capability setup | `sub` | `/one/setup/<capability>` | `surface` | yes | yes |
-| Advisor verification (RIA) | `sub` | `/ria/onboarding` | `surface` | yes | no |
-| Identity verification (KYC) | `sub` | `/one/kyc` | `surface` | no | no |
+| Flow                        | Tier   | Route                     | Reset scope | Resumable | Skippable |
+| --------------------------- | ------ | ------------------------- | ----------- | --------- | --------- |
+| One (setup hub)             | `root` | `/one/setup`              | `account`   | yes       | yes       |
+| Finance preferences         | `sub`  | `/one/setup/finance`      | `surface`   | yes       | yes       |
+| Static capability setup     | `sub`  | `/one/setup/<capability>` | `surface`   | yes       | yes       |
 
 Note on routes: `/one/setup` is the hub and resolves the **master** account
-gate via its own Skip (when 0 capabilities are set up) / Continue (when 1..n are
-set up) buttons. `/one/setup/kai` is the standalone Kai investor‑profile
-wizard. `/one/setup/<capability>` steps are reached by first‑clicking a
-capability tile; they record only that capability's signal and never write the
-master account gate. Legacy `/one/onboarding` is removed (404); the legacy
-`/kai/onboarding` and `/one/kai/onboarding` deep links 307‑redirect to
-`/one/setup/kai`. `routes.ts` keeps `KAI_SETUP` pointing at `/one/setup/kai`
-and the `isOneSetup*` predicates as canonical; older `*Onboarding*` symbol
-names that remain are back‑compat aliases.
+gate via its own Skip setup (when 0 capabilities are set up) / Finish setup (when 1..n are
+set up) buttons. `/one/setup/finance` is the Finance preferences wizard and
+`/one/setup/finance/import` selects its source. Every other first-run
+capability has its own static setup route. The legacy `/one/setup/[capability]`
+and `/one/setup/kai` routes are redirect-only compatibility paths with no
+completion authority or executable controls.
 
 ## 2. Who gates onboarding (and who does not)
 
 - `proxy.ts` (Next 16 — **not** `middleware.ts`) does **not** gate setup.
-  It only performs legacy route redirects (`/one/onboarding` family →
-  `/one/setup/kai`) and passes everything else through. It cannot read the
+  It only performs static compatibility redirects and passes everything else
+  through. It cannot read the
   client setup cookies, by design.
 - The authenticated app-wide `OnboardingJourneyGuard`
   (`components/onboarding/onboarding-journey-guard.tsx`) is authoritative for
@@ -167,60 +158,64 @@ See the note in
 
 The master account gate is resolved on the **hub**
 [`components/onboarding/setup/one-setup-hub.tsx`](../../../hushh-webapp/components/onboarding/setup/one-setup-hub.tsx)
-via its own ack button: **Skip** when 0 capabilities are set up, **Continue**
+via its own shared bottom action: **Skip setup** when 0 capabilities are set up, **Finish setup**
 when 1..n are. Both write the authoritative store first and **await** the
 server pre‑vault sync before navigating (so the gate is server‑authoritative
 the instant the user leaves — this closed a prior fire‑and‑forget race), then
 redirect. The shared top-bar Back action never acknowledges root setup. Skip marks the flow "satisfied for now": the user is not bounced
-back, but the flow can be re‑run. The Kai wizard at
-[`app/one/setup/kai/page.tsx`](../../../hushh-webapp/app/one/setup/kai/page.tsx)
-and per‑capability steps at
-[`app/one/setup/[capability]/page.tsx`](../../../hushh-webapp/app/one/setup/%5Bcapability%5D/page.tsx)
-record their own surface signal only; per‑capability steps never write the
-master account gate. Root acknowledgement never writes Finance completion into the
-Kai profile.
+back, but the flow can be re-run. Static setup adapters at
+`app/one/setup/{gmail,location,email,finance,ria,connected-systems}` record
+only their own capability signal; none can write the master account gate.
+Root acknowledgement never writes Finance completion into the Kai profile.
 
-### Per‑capability step → workspace handoff
+### Static capability workspaces
 
-Tapping a hub tile opens the shared per‑capability step
-[`components/onboarding/setup/onboarding-capability-step.tsx`](../../../hushh-webapp/components/onboarding/setup/onboarding-capability-step.tsx).
-The step is presentational and **collects nothing** — it renders pre‑vault and
-forwards to the capability's real workspace via
-`resolveCapabilityHandoffTarget` (declared in
-[`lib/navigation/routes.ts`](../../../hushh-webapp/lib/navigation/routes.ts)).
+Every first-run capability is an explicit physical setup route. The shared
+`useSetupCapabilityCoordinator` claims or switches the active capability,
+returns stale/unknown work to the hub, and owns only durable terminal
+settlement. Feature bodies retain all existing business, consent, vault,
+connector, and native behavior. The dynamic `[capability]` route is
+compatibility-only and redirects known old links; `?finish=1` has no meaning.
 
-The step renders a normal `AppPageShell`, so `/one/setup/[capability]` is a
-**`standard`** route in
-[`lib/navigation/app-route-layout.contract.json`](../../../hushh-webapp/lib/navigation/app-route-layout.contract.json)
-— it inherits the app shell's top spacer (`--app-top-content-offset`, which
-folds in `env(safe-area-inset-top)`) so its content always clears the top app
-bar on notched devices. Only the self‑padding fullscreen wizard at
-`/one/setup/kai` is a `flow` route. This is the layout‑level safe‑area
-guarantee: step screens never hand‑roll top padding.
-
-- **Finance** forwards to the investor‑preferences **wizard**
-  (`/one/setup/kai`), not straight to the dashboard, so the questionnaire →
-  persona → portfolio‑import journey is never orphaned. The forward appends a
-  `?from=` marker for deterministic back navigation and intentional re-entry.
-  Admission still comes only from the durable active-capability record. The wizard
-  renders pre‑filled from the saved profile / pre‑vault draft so the person can
-  review or edit their answers.
-- **Vault‑aware CTA**: capabilities flagged `requiresVault` in the catalog
-  ([`lib/onboarding/one-capabilities.ts`](../../../hushh-webapp/lib/onboarding/one-capabilities.ts))
-  use **Set up** language. The step still forwards; the destination owns the
-  actual private-vault prompt at the first encrypted read or write. This replaces
-  the prior misleading "nothing to set up" copy on `email` and `location`,
-  which are real vault‑gated workspaces, not explore‑only tabs.
-- **Terminal acknowledgement**: every capability returns through
-  `/one/setup/<capability>?finish=1`. Only **Finish `<capability>` setup** adds
-  it to the durable completed set and clears the active goal. Backing out clears
-  the goal without claiming completion.
+- **Gmail** reuses `GmailReceiptsPage`; its finish predicate is a verified
+  connector.
+- **Location** reuses the location workspace; it becomes finishable after
+  device permission. The first share remains optional.
+- **KYC** reuses the email workspace; it becomes finishable after a verified
+  identity and initialized client connector. Sending a draft remains optional.
+- **Finance** uses `/one/setup/finance` for preferences and
+  `/one/setup/finance/import` for Plaid, statement, or an explicit later
+  choice. Preferences alone never finish Finance.
+- **RIA** reuses the advisor flow and becomes finishable only after a
+  non-rejected profile submission.
+- **Linked Systems** reuses the CRM panel and becomes finishable only after an
+  active record binding. Merely viewing the list is not completion.
+- **Shared terminal presentation**: every verified capability finish uses
+  `SetupCompletionFooter`: one full-width bottom action above the Agent Bar,
+  using the canonical app bottom inset for safe areas and keyboard-resized
+  native viewports. An unfinished capability publishes a visible **Skip
+  `<capability>` setup** action that returns to the hub without adding a
+  completed capability; once its verified goal is reached, that action becomes
+  **Finish `<capability>` setup** and records completion before the same return.
+  It keeps the same busy state, control metadata, and settled return-to-hub
+  policy. It never presents Finish while input or a connector callback is still
+  pending.
 - **Finance source boundary**: the three preference questions are not completion.
-  Finance continues to `/one/kai/import`, where the person chooses Plaid,
+  Finance continues to `/one/setup/finance/import`, where the person chooses Plaid,
   statement upload, or later, and only then reaches **Finish Finance setup**.
-- **Gmail boundary**: OAuth success retains active Gmail state and reaches
-  **Finish Gmail setup**. Shopping-summary PKM persistence is an explicit action;
-  Gmail does not auto-save inferred memory.
+- **Gmail boundary**: OAuth success retains active Gmail state and reaches the
+  completion-ready Gmail setup route. Until Gmail reports a verified connection,
+  its shared bottom action is **Skip Gmail setup**; the verified connection
+  swaps it to **Finish Gmail setup**. OAuth success alone never records
+capability completion. Shopping-summary PKM persistence is an explicit action;
+Gmail does not auto-save inferred memory.
+- **External callback correlation**: Gmail and Plaid begin a fresh opaque
+  attempt identifier only after the durable journey accepts `pending`. A
+  callback may change setup state only when both that identifier and the
+  observed journey revision still match. The record contains no OAuth code,
+  provider token, email address, voice turn, or private page content. A stale
+  callback may complete its provider operation, but it cannot claim onboarding
+  progress or replace a newer setup goal.
 - **RIA boundary**: setup-originated advisor onboarding retains the active RIA
   goal and returns to **Finish RIA setup** after successful profile submission.
 - **Link your tools boundary**: the live CRM registry is the source for available
@@ -268,9 +263,9 @@ gate, and a satisfied One gate never force‑completes a sub‑onboarding.
 
 ## 6. Voice/UI parity
 
-Every tap‑only control on the pre‑auth and setup surfaces (`/getting-started`
-→ `/login`, `/register-phone`, the `/one/setup` hub, per‑capability steps,
-the Kai preferences wizard) has a matching governed `action_id` in the
+Every tap-only control on the pre-auth and setup surfaces (`/getting-started`
+→ `/login`, `/register-phone`, the `/one/setup` hub, static capability
+workspaces, and the Finance preferences/import flow) has a matching governed `action_id` in the
 generated gateway (`contracts/kai/kai-action-gateway.vnext.json`), authored
 via colocated `*.voice-action-contract.json` files next to each surface and
 regenerated with `npm run build:voice-gateway`. One's ADK agent tree treats
@@ -289,10 +284,9 @@ When adding a new setup screen or control:
    a master ack) with no direct route, use `"local_handler"` and register a
    handler via `useLocalOnboardingActionHandler`
    (`hushh-webapp/lib/agent/local-onboarding-actions.ts`).
-3. Set `reachability.screens` to BOTH the route‑derived screen id
-   (`deriveVoiceRouteScreen()` in `route-screen-derivation.ts`) and any
-   custom `screenId` the surface publishes via `usePublishVoiceSurfaceMetadata`
-   - the wire value sent to the backend as `hushh:screen` is always the
-   route‑derived one.
+3. Set `reachability.screens` to the exact route-derived static screen id
+   (`deriveVoiceRouteScreen()` in `route-screen-derivation.ts`). The browser
+   publishes only mounted visible action IDs; a nonempty list is an exact
+   backend prompt allowlist, not a ranking hint.
 4. Regenerate and verify: `npm run build:voice-gateway && npm run
-   verify:voice-gateway`.
+verify:voice-gateway`.

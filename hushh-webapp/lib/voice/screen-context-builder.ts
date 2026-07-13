@@ -660,7 +660,10 @@ export function buildStructuredScreenContext(args: {
       ...publishedActionIds,
     ],
     screen,
-    underlyingActionsAvailable,
+    // A mounted authored inventory is the current interaction authority.
+    // Do not append global navigation behind an active setup terminal, dialog,
+    // or other visible control; that would let a voice turn escape the page.
+    underlyingActionsAvailable && publishedActionIds.length === 0,
   );
   const screenMetadata = {
     ...readObject(rawContext.screen_metadata),

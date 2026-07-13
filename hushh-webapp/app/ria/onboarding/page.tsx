@@ -15,7 +15,6 @@ import { OnboardingStepReview } from "@/components/ria/onboarding/onboarding-ste
 import { useAuth } from "@/hooks/use-auth";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import {
-  buildOneSetupCapabilityFinishRoute,
   normalizeInternalRouteHref,
   ROUTES,
 } from "@/lib/navigation/routes";
@@ -144,7 +143,13 @@ function buildVerifiedLicensePrefillPatch(
   };
 }
 
-export default function RiaOnboardingPage() {
+export default function RiaOnboardingPage({
+  setupMode = false,
+  onSetupReadinessChange,
+}: {
+  setupMode?: boolean;
+  onSetupReadinessChange?: (ready: boolean) => void;
+} = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, phoneNumber } = useAuth();
@@ -162,6 +167,7 @@ export default function RiaOnboardingPage() {
   // A generic ?step= is also honoured.
   const editParam = searchParams?.get("edit") ?? null;
   const setupOrigin =
+    setupMode ||
     normalizeInternalRouteHref(searchParams?.get("from")) === ROUTES.ONE_SETUP;
   const stepParam = searchParams?.get("step") ?? null;
   const reinitiateIntent = (searchParams?.get("reinitiate") ?? null) === "1";
@@ -687,11 +693,15 @@ export default function RiaOnboardingPage() {
     // A verified advisor normally can't re-submit — but on a re-initiate they
     // MUST, so the idempotent submitOnboarding re-runs and updates the profile.
     if (advisoryAccessReady && !reinitiateIntent) {
-      router.push(
-        setupOrigin
-          ? buildOneSetupCapabilityFinishRoute("ria")
-          : ROUTES.RIA_HOME,
-      );
+      if (setupOrigin) {
+        if (setupMode) {
+          onSetupReadinessChange?.(true);
+        } else {
+          router.replace(ROUTES.ONE_SETUP_RIA);
+        }
+        return;
+      }
+      router.push(ROUTES.RIA_HOME);
       return;
     }
 
@@ -805,11 +815,15 @@ export default function RiaOnboardingPage() {
         // A setup-originated journey always settles through its explicit
         // capability terminal before returning to the setup hub. Ordinary RIA
         // onboarding keeps its established profile destination.
-        router.replace(
-          setupOrigin
-            ? buildOneSetupCapabilityFinishRoute("ria")
-            : ROUTES.RIA_PROFILE,
-        );
+        if (setupOrigin) {
+          if (setupMode) {
+            onSetupReadinessChange?.(true);
+          } else {
+            router.replace(ROUTES.ONE_SETUP_RIA);
+          }
+        } else {
+          router.replace(ROUTES.RIA_PROFILE);
+        }
       }
     } catch (submitError) {
       if (isIAMSchemaNotReadyError(submitError)) {

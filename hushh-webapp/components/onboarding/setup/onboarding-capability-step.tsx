@@ -11,6 +11,7 @@ import {
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button } from "@/components/ui/button";
+import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
 import { getOneSetupCapability } from "@/lib/onboarding/one-capabilities";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
@@ -40,6 +41,8 @@ export interface OnboardingCapabilityStepProps {
   onPrimary: () => void;
   /** Invoked by the back affordance. The page returns to the setup hub. */
   onBack: () => void;
+  /** Explicitly leaves an unfinished setup without recording completion. */
+  onSkip: () => void;
   /** Disables the CTA while the page resolves the gate. */
   busy?: boolean;
   /**
@@ -56,6 +59,7 @@ export function OnboardingCapabilityStep({
   capabilityId,
   onPrimary,
   onBack,
+  onSkip,
   busy = false,
   needsVaultUnlock = false,
   completion = false,
@@ -86,6 +90,7 @@ export function OnboardingCapabilityStep({
     : isExploreOnly
       ? finishActionLabel
       : setupActionLabel;
+  const skipActionLabel = `Skip ${capability?.title || "this"} setup`;
   const subline = completion
     ? "Finish only when you are comfortable with this setup."
     : isExploreOnly
@@ -116,8 +121,11 @@ export function OnboardingCapabilityStep({
             },
             {
               id: "back",
-              label: "Back to setup",
-              purpose: "Return to the setup home.",
+              actionId: completion ? undefined : "setup.capability_skip",
+              label: completion ? "Back to setup" : skipActionLabel,
+              purpose: completion
+                ? "Return to the setup home."
+                : "Return to the setup home without recording this capability as complete.",
             },
           ],
         }
@@ -136,11 +144,17 @@ export function OnboardingCapabilityStep({
     onPrimary();
   }
 
+  function handleSkip() {
+    if (busy || acted) return;
+    setActed(true);
+    onSkip();
+  }
+
   return (
     <AppPageShell
       as="main"
       width="content"
-      className="space-y-4 px-4 py-4 pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:px-6"
+      className="space-y-4 px-4 py-4 pb-[calc(var(--app-bottom-inset)+1.5rem)] sm:px-6"
       nativeTest={{
         routeId: "/one/setup/[capability]",
         marker: "native-route-one-setup-capability",
@@ -203,17 +217,43 @@ export function OnboardingCapabilityStep({
               : null}
           </SettingsGroup>
 
-          <Button
-            type="button"
-            size="lg"
-            className="h-12 w-full rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
-            onClick={handlePrimary}
-            disabled={busy || acted}
-            data-testid="one-setup-capability-primary"
-            data-voice-control-id="one_setup_capability_primary"
-          >
-            {ctaLabel}
-          </Button>
+          {completion ? (
+            <SetupCompletionFooter
+              label={ctaLabel}
+              onComplete={handlePrimary}
+              busy={busy || acted}
+              controlId="one_setup_capability_primary"
+              testId="one-setup-capability-primary"
+              purpose="finishes this capability and returns to setup."
+            />
+          ) : (
+            <>
+              <Button
+                type="button"
+                size="lg"
+                className="h-12 w-full rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+                onClick={handlePrimary}
+                disabled={busy || acted}
+                data-testid="one-setup-capability-primary"
+                data-voice-control-id="one_setup_capability_primary"
+                data-voice-action-id="setup.capability_continue"
+              >
+                {ctaLabel}
+              </Button>
+              <SetupCompletionFooter
+                label={skipActionLabel}
+                onComplete={handleSkip}
+                busy={busy || acted}
+                controlId="one_setup_capability_skip"
+                actionId="setup.capability_skip"
+                testId="one-setup-capability-skip"
+                purpose="returns to setup without recording this capability as complete."
+                supportingText="You can return to this setup whenever you are ready."
+                variant="none"
+                effect="fade"
+              />
+            </>
+          )}
         </div>
       </AppPageContentRegion>
     </AppPageShell>

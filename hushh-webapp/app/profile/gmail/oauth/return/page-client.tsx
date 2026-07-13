@@ -11,7 +11,6 @@ import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
 import {
-  buildOneSetupCapabilityFinishRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
 import {
@@ -34,6 +33,43 @@ function resolveErrorMessage(error: unknown): string {
     return error.message;
   }
   return "Gmail connection could not be completed.";
+}
+
+function matchesPendingGmailSetupAttempt(
+  journey: Awaited<ReturnType<typeof PreVaultUserStateService.bootstrapState>> | null,
+  intent: ReturnType<typeof readOnboardingConnectorIntent>,
+): boolean {
+  return Boolean(
+    journey &&
+      intent &&
+      !PreVaultUserStateService.isSetupResolved(journey) &&
+      journey.onboardingPhase === "external_connector" &&
+      journey.onboardingActiveCapability === "gmail" &&
+      journey.onboardingCallbackState === "pending" &&
+      journey.onboardingCallbackAttemptId === intent.correlationId,
+  );
+}
+
+async function settleGmailSetupAttempt(params: {
+  userId: string;
+  intent: NonNullable<ReturnType<typeof readOnboardingConnectorIntent>>;
+  phase: "external_connector" | "capability_setup";
+  callbackState: "cancelled" | "failed" | "succeeded";
+}): Promise<boolean> {
+  const journey = await PreVaultUserStateService.bootstrapState(params.userId, {
+    force: true,
+  }).catch(() => null);
+  if (!matchesPendingGmailSetupAttempt(journey, params.intent)) return false;
+  if (!journey) return false;
+  await PreVaultUserStateService.syncOnboardingJourney({
+    userId: params.userId,
+    phase: params.phase,
+    activeCapability: "gmail",
+    callbackState: params.callbackState,
+    expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
+    expectedCallbackAttemptId: params.intent.correlationId,
+  });
+  return true;
 }
 
 export default function ProfileGmailOAuthReturnPageClient({
@@ -78,18 +114,16 @@ export default function ProfileGmailOAuthReturnPageClient({
         user.uid,
         { force: true },
       ).catch(() => null);
-      const shouldReturnToSetup = Boolean(
-        onboardingIntent ||
-        (durableJourney &&
-          !PreVaultUserStateService.isSetupResolved(durableJourney) &&
-          durableJourney.onboardingActiveCapability === "gmail"),
+      const shouldReturnToSetup = matchesPendingGmailSetupAttempt(
+        durableJourney,
+        onboardingIntent,
       );
       setReturnToSetup(shouldReturnToSetup);
       if (!shouldReturnToSetup) return;
-      await PreVaultUserStateService.syncOnboardingJourney({
+      await settleGmailSetupAttempt({
         userId: user.uid,
+        intent: onboardingIntent!,
         phase: "external_connector",
-        activeCapability: "gmail",
         callbackState,
       }).catch((persistError) => {
         console.warn(
@@ -140,11 +174,9 @@ export default function ProfileGmailOAuthReturnPageClient({
         user.uid,
         { force: true },
       ).catch(() => null);
-      const shouldReturnToSetup = Boolean(
-        onboardingIntent ||
-        (durableJourney &&
-          !PreVaultUserStateService.isSetupResolved(durableJourney) &&
-          durableJourney.onboardingActiveCapability === "gmail"),
+      const shouldReturnToSetup = matchesPendingGmailSetupAttempt(
+        durableJourney,
+        onboardingIntent,
       );
       setReturnToSetup(shouldReturnToSetup);
       try {
@@ -171,11 +203,11 @@ export default function ProfileGmailOAuthReturnPageClient({
         stashProfileGmailReturnStatus(status);
 
         setStage("redirecting");
-        if (shouldReturnToSetup) {
-          await PreVaultUserStateService.syncOnboardingJourney({
+        if (shouldReturnToSetup && onboardingIntent) {
+          const settled = await settleGmailSetupAttempt({
             userId: user.uid,
+            intent: onboardingIntent,
             phase: "capability_setup",
-            activeCapability: "gmail",
             callbackState: "succeeded",
           }).catch((error) => {
             // Connector success is authoritative even if the resumable journey
@@ -185,9 +217,10 @@ export default function ProfileGmailOAuthReturnPageClient({
               "[GmailOAuthReturn] Failed to persist setup return:",
               error,
             );
+            return false;
           });
           clearOnboardingConnectorIntent();
-          router.replace(buildOneSetupCapabilityFinishRoute("gmail"));
+          router.replace(settled ? ROUTES.ONE_SETUP_GMAIL : buildProfileGmailReturnPath());
         } else {
           router.replace(buildProfileGmailReturnPath());
         }
@@ -208,20 +241,21 @@ export default function ProfileGmailOAuthReturnPageClient({
               });
               stashProfileGmailReturnStatus(status);
               setStage("redirecting");
-              if (shouldReturnToSetup) {
-                await PreVaultUserStateService.syncOnboardingJourney({
+              if (shouldReturnToSetup && onboardingIntent) {
+                const settled = await settleGmailSetupAttempt({
                   userId: user.uid,
+                  intent: onboardingIntent,
                   phase: "capability_setup",
-                  activeCapability: "gmail",
                   callbackState: "succeeded",
                 }).catch((error) => {
                   console.warn(
                     "[GmailOAuthReturn] Failed to persist replay return:",
                     error,
                   );
+                  return false;
                 });
                 clearOnboardingConnectorIntent();
-                router.replace(buildOneSetupCapabilityFinishRoute("gmail"));
+                router.replace(settled ? ROUTES.ONE_SETUP_GMAIL : buildProfileGmailReturnPath());
               } else {
                 router.replace(buildProfileGmailReturnPath());
               }
@@ -233,11 +267,11 @@ export default function ProfileGmailOAuthReturnPageClient({
         }
         setStage("error");
         setError(resolveErrorMessage(completeError));
-        if (shouldReturnToSetup) {
-          await PreVaultUserStateService.syncOnboardingJourney({
+        if (shouldReturnToSetup && onboardingIntent) {
+          await settleGmailSetupAttempt({
             userId: user.uid,
+            intent: onboardingIntent,
             phase: "external_connector",
-            activeCapability: "gmail",
             callbackState: "failed",
           }).catch(() => undefined);
           clearOnboardingConnectorIntent();

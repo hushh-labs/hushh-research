@@ -1748,7 +1748,11 @@ function OneLocationOnboardingFlow({
   );
 }
 
-function OneLocationAgentPageContent() {
+export function OneLocationAgentPageContent({
+  onSetupReadinessChange,
+}: {
+  onSetupReadinessChange?: (ready: boolean) => void;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const auth = useRequireAuth();
@@ -1760,6 +1764,11 @@ function OneLocationAgentPageContent() {
   const [state, setState] = useState<OneLocationState | null>(null);
   const [permission, setPermission] =
     useState<HushhLocationPermissionState | null>(null);
+  useEffect(() => {
+    onSetupReadinessChange?.(
+      permission?.state === "granted" && !isLocationServicesDisabled(permission),
+    );
+  }, [onSetupReadinessChange, permission]);
   const [busy, setBusy] = useState<BusyState>(null);
   // Per-grant revoke tracking so "Stop sharing" only spins on the specific
   // active-share card the user tapped, not every active share at once.
@@ -6278,10 +6287,14 @@ function OneLocationAgentPageContent() {
   );
 }
 
-export default function OneLocationAgentPage() {
+export default function OneLocationAgentPage({
+  onSetupReadinessChange,
+}: {
+  onSetupReadinessChange?: (ready: boolean) => void;
+} = {}) {
   return (
     <VaultLockGuard>
-      <OneLocationAgentPageContent />
+      <OneLocationAgentPageContent onSetupReadinessChange={onSetupReadinessChange} />
     </VaultLockGuard>
   );
 }

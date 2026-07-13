@@ -40,12 +40,49 @@ export type ExecuteAgentGatewayActionInput = {
   router: RouterLike;
   appRuntimeState: AppRuntimeState;
   surfaceMetadata?: VoiceSurfaceMetadata | null;
+  /** Exact redacted snapshot inventory. An empty array fails closed. */
+  allowedActionIds?: readonly string[] | null;
   hasPortfolioData: boolean;
   busyOperations: Record<string, boolean>;
   setAnalysisParams: (params: AnalysisParams | null) => void;
   switchPersona?: (target: Persona) => Promise<unknown>;
   executionContext?: LocalOnboardingActionContext;
 };
+
+function hasPublishedActionInventory(
+  surfaceMetadata: VoiceSurfaceMetadata | null | undefined,
+): string[] {
+  const actionIds = [
+    ...(surfaceMetadata?.actions || []).map((action) =>
+      String(action.actionId || action.id || "").trim(),
+    ),
+    ...(surfaceMetadata?.controls || []).map((control) =>
+      String(control.actionId || "").trim(),
+    ),
+  ].filter(Boolean);
+  return Array.from(new Set(actionIds));
+}
+
+function isActionInActiveInventory(
+  input: ExecuteAgentGatewayActionInput,
+): boolean {
+  if (input.allowedActionIds) {
+    return input.allowedActionIds.includes(input.actionId);
+  }
+  const published = hasPublishedActionInventory(input.surfaceMetadata);
+  return published.length === 0 || published.includes(input.actionId);
+}
+
+function unavailableOnActiveSurfaceResult(input: ExecuteAgentGatewayActionInput) {
+  return buildResult({
+    status: "blocked",
+    actionId: input.actionId,
+    routeBefore: input.appRuntimeState.route.pathname,
+    screenBefore: input.appRuntimeState.route.screen,
+    resultSummary: "That action is not available on this screen.",
+    reason: "action_not_in_active_inventory",
+  });
+}
 
 function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -107,6 +144,9 @@ export function executeTrustedActivationGatewayAction(
   input: ExecuteAgentGatewayActionInput,
 ): Promise<AgentActionRuntimeResult> {
   const routeBefore = input.appRuntimeState.route;
+  if (!isActionInActiveInventory(input)) {
+    return Promise.resolve(unavailableOnActiveSurfaceResult(input));
+  }
   const action = getKaiActionById(input.actionId);
   if (!action) {
     return Promise.resolve(
@@ -356,6 +396,9 @@ export async function executeAgentGatewayAction(
   input: ExecuteAgentGatewayActionInput,
 ): Promise<AgentActionRuntimeResult> {
   const routeBefore = input.appRuntimeState.route;
+  if (!isActionInActiveInventory(input)) {
+    return unavailableOnActiveSurfaceResult(input);
+  }
   const connectedSystemResult = executeConnectedSystemAgentAction(
     input,
     routeBefore,

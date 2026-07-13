@@ -37,4 +37,15 @@ describe("/register-phone safe-area shell contract", () => {
     expect(source).toContain("setOnboardingFlowActiveCookie(false)");
     expect(source).not.toContain("Delete account");
   });
+
+  it("uses the same quiet One mark as the home route without a decorative badge", () => {
+    const source = readFileSync(
+      join(process.cwd(), "app/register-phone/page.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("🤫");
+    expect(source).not.toContain("one-quiet-emoji.png");
+    expect(source).not.toContain("rounded-[22px]");
+  });
 });

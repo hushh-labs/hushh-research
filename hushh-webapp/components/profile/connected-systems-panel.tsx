@@ -64,6 +64,10 @@ type ConnectedSystemsPanelProps = {
     email?: string | null;
     phone?: string | null;
   };
+  /** Setup adapter hook; normal workspaces leave this undefined. */
+  onSetupReadinessChange?: (ready: boolean) => void;
+  /** Keeps a setup list inside its static setup workspace. */
+  setupRouteBase?: string | null;
 };
 
 export type ConnectedSystemAgentInstruction = {
@@ -628,6 +632,8 @@ export function ConnectedSystemsPanel({
   systemId,
   agentInstruction,
   profile,
+  onSetupReadinessChange,
+  setupRouteBase,
 }: ConnectedSystemsPanelProps) {
   const router = useRouter();
   const [systems, setSystems] = useState<ConnectedSystemSummary[]>([]);
@@ -689,6 +695,9 @@ export function ConnectedSystemsPanel({
   const crmRecords = useMemo(() => extractRecords(readResult), [readResult]);
   const hasReadback = Boolean(readResult);
   const activeBinding = binding?.status === "active" ? binding : null;
+  useEffect(() => {
+    onSetupReadinessChange?.(Boolean(activeBinding));
+  }, [activeBinding, onSetupReadinessChange]);
   const schemaFieldSet = useMemo(
     () => new Set(supportedFields),
     [supportedFields],
@@ -1632,7 +1641,11 @@ export function ConnectedSystemsPanel({
             ]}
             searchPlaceholder="Search CRM systems"
             onRowClick={(system) =>
-              router.push(buildConnectedSystemRoute(system.systemId))
+              router.push(
+                setupRouteBase
+                  ? `${setupRouteBase}?system=${encodeURIComponent(system.systemId)}`
+                  : buildConnectedSystemRoute(system.systemId),
+              )
             }
             initialPageSize={8}
           />

@@ -33,7 +33,10 @@ import {
   PreVaultUserStateService,
   type PreVaultUserState,
 } from "@/lib/services/pre-vault-user-state-service";
-import { ROUTES } from "@/lib/navigation/routes";
+import {
+  resolveOnboardingCapabilityForRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
@@ -435,9 +438,10 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
             signedIn,
             setupResolved: PreVaultUserStateService.isSetupResolved(preVaultState),
           }),
-          activeCapability: path.startsWith(`${ROUTES.ONE_SETUP}/`)
-            ? path.slice(`${ROUTES.ONE_SETUP}/`.length).split("/")[0] || null
-            : preVaultState?.onboardingActiveCapability ?? null,
+          activeCapability:
+            resolveOnboardingCapabilityForRoute(path) ??
+            preVaultState?.onboardingActiveCapability ??
+            null,
           rootResolved: PreVaultUserStateService.isSetupResolved(preVaultState),
           returnRoute: ROUTES.ONE_SETUP,
           phoneVerified: preVaultState?.phoneVerified ?? null,

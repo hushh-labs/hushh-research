@@ -14,6 +14,7 @@ import { DataTable } from "@/components/app-ui/data-table";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import GmailChatPanel from "@/components/gmail/gmail-chat-panel";
 import GmailNudgesSection from "@/components/gmail/gmail-nudges-section";
+import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +34,7 @@ import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { useAuth } from "@/hooks/use-auth";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
+  describeGmailReceiptScanProgress,
   resolveGmailStatusSummary,
   resolveGmailSyncFeedback,
   sanitizeGmailUserMessage,
@@ -62,15 +64,18 @@ import {
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import {
-  beginOnboardingConnectorIntent,
   clearOnboardingConnectorIntent,
+  createOnboardingConnectorIntent,
+  persistOnboardingConnectorIntent,
 } from "@/lib/onboarding/onboarding-connector-intent";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
+  type VoiceSurfacePublisherRole,
 } from "@/lib/voice/voice-surface-metadata";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 
 function formatDate(value?: string | null): string {
   if (!value) return "—";
@@ -283,7 +288,33 @@ function isReceiptMemoryWatermarkCurrent(
   );
 }
 
-export default function ProfileReceiptsPage() {
+export type GmailReceiptsPageProps = {
+  /**
+   * The setup variant shares this feature surface while keeping task recovery
+   * inside `/one/setup/gmail`. The normal workspace remains `/one/gmail`.
+   */
+  journeyVariant?: "workspace" | "onboarding";
+  /** Reports the verified connector state to the setup route owner. */
+  onConnectionStateChange?: (isConnected: boolean) => void;
+  /** Settles the verified connector goal and records Gmail as complete. */
+  onFinishSetup?: () => void;
+  finishingSetup?: boolean;
+  /** Leaves the setup workspace without marking Gmail complete. */
+  onSkipSetup?: () => void;
+  skippingSetup?: boolean;
+  /** Static setup keeps route authority while this feature contributes controls. */
+  voicePublisherRole?: VoiceSurfacePublisherRole;
+};
+
+export default function GmailReceiptsPage({
+  journeyVariant = "workspace",
+  onConnectionStateChange,
+  onFinishSetup,
+  finishingSetup = false,
+  onSkipSetup,
+  skippingSetup = false,
+  voicePublisherRole = "route",
+}: GmailReceiptsPageProps) {
   const { user, loading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
 
@@ -395,7 +426,8 @@ export default function ProfileReceiptsPage() {
     userId: user?.uid || null,
     enabled: Boolean(user?.uid) && !loading,
     idTokenProvider: user?.getIdToken ? () => user.getIdToken() : null,
-    routeHref: ROUTES.GMAIL,
+    routeHref:
+      journeyVariant === "onboarding" ? ROUTES.ONE_SETUP_GMAIL : ROUTES.GMAIL,
     refreshKey: user?.uid || "",
     onSyncComplete: async (status) => {
       await loadReceipts(1, {
@@ -457,6 +489,10 @@ export default function ProfileReceiptsPage() {
   const isPassiveBackfillState =
     connectorState === "connected_backfill_running";
 
+  useEffect(() => {
+    onConnectionStateChange?.(isConnected);
+  }, [isConnected, onConnectionStateChange]);
+
   const handleConnectGmail = useCallback(async () => {
     if (!user?.uid) return;
 
@@ -493,16 +529,19 @@ export default function ProfileReceiptsPage() {
       }
 
       if (fromSetup) {
+        const intent = createOnboardingConnectorIntent("gmail");
         await PreVaultUserStateService.syncOnboardingJourney({
           userId: user.uid,
           phase: "external_connector",
           activeCapability: "gmail",
           callbackState: "pending",
+          callbackAttemptId: intent.correlationId,
+          expectedJourneyUpdatedAt: journey?.onboardingJourneyUpdatedAt,
         });
         // Write the browser correlation marker only after the durable journey
         // accepted the pending transition. A failed write must not cause an
         // unrelated callback to be mistaken for onboarding later.
-        beginOnboardingConnectorIntent("gmail");
+        persistOnboardingConnectorIntent(intent);
       }
 
       assignWindowLocation(payload.authorize_url);
@@ -521,6 +560,26 @@ export default function ProfileReceiptsPage() {
       setGmailActionBusy(null);
     }
   }, [user]);
+
+  useLocalOnboardingActionHandler("setup.connect_gmail", async () => {
+    if (journeyVariant !== "onboarding") {
+      return {
+        status: "blocked",
+        summary: "Open Gmail setup before connecting Gmail.",
+      };
+    }
+    if (gmailActionBusy !== null) {
+      return {
+        status: "blocked",
+        summary: "Gmail connection is already being prepared.",
+      };
+    }
+    await handleConnectGmail();
+    return {
+      status: "started",
+      summary: "Opening Gmail connection. Finish setup after it verifies.",
+    };
+  });
 
   const handleDisconnectGmail = useCallback(async () => {
     if (!user?.uid) return;
@@ -588,16 +647,11 @@ export default function ProfileReceiptsPage() {
   );
   const latestRunMetrics = useMemo(() => {
     if (!gmail.syncRun) return null;
-    const extractionSuccessPercent = Math.round(
-      (gmail.syncRun.extraction_success_rate || 0) * 100,
-    );
     return {
       listed: gmail.syncRun.listed_count || 0,
       filtered: gmail.syncRun.filtered_count || 0,
       synced: gmail.syncRun.synced_count || 0,
       extracted: gmail.syncRun.extracted_count || 0,
-      duplicates: gmail.syncRun.duplicates_dropped || 0,
-      extractionSuccessPercent,
     };
   }, [gmail.syncRun]);
   const {
@@ -627,6 +681,10 @@ export default function ProfileReceiptsPage() {
     connectorState === "connected_backfill_running" ||
     connectorState === "syncing";
   const hasStaleBackgroundSync = gmail.isStale && isSyncingState;
+  // A zero is meaningful only after Gmail is connected and a scan can have
+  // completed. Before then it reads like a result rather than an unavailable
+  // source. Saved receipts remain countable after a deliberate disconnect.
+  const shouldShowReceiptCount = isConnected || hasStoredReceipts;
   const canBuildReceiptMemoryPreview =
     Boolean(user?.uid) &&
     hasSealedReceiptAccess &&
@@ -690,48 +748,92 @@ export default function ProfileReceiptsPage() {
       visibleModules.push("Shopping summary");
     }
 
-    const availableActions = [
-      ...(isConnected ? ["Sync receipts"] : [primaryActionLabel]),
-      ...(hasMore ? ["Load older receipts"] : []),
-    ];
     const controls = [
-      {
-        id: "sync_gmail_receipts",
-        label: "Sync receipts",
-        purpose: "starts or refreshes Gmail receipt sync.",
-        actionId: "profile.gmail.sync_now",
-        role: "button",
-        voiceAliases: ["sync gmail", "sync receipts"],
-      },
-      {
-        id: "open_gmail_connector",
-        label: primaryActionLabel,
-        purpose:
-          "starts Gmail connection or reconnection from this receipts page.",
-        role: "button",
-        voiceAliases: ["connect gmail", "open gmail connector", "open gmail"],
-      },
-      {
-        id: "disconnect_gmail",
-        label: "Disconnect Gmail",
-        purpose:
-          "disconnects Gmail sync while keeping already saved receipts available.",
-        role: "button",
-        voiceAliases: ["disconnect gmail", "turn off gmail sync"],
-      },
-      {
-        id: "load_older_receipts",
-        label: "Load older receipts",
-        purpose: "loads older stored receipt records from the receipts list.",
-        role: "button",
-        voiceAliases: ["load older receipts"],
-      },
+      ...(isConnected
+        ? [
+            {
+              id: "sync_gmail_receipts",
+              label: "Sync receipts",
+              purpose: "starts or refreshes Gmail receipt sync.",
+              actionId: "profile.gmail.sync_now",
+              role: "button",
+              voiceAliases: ["sync gmail", "sync receipts"],
+            },
+            {
+              id: "disconnect_gmail",
+              label: "Disconnect Gmail",
+              purpose:
+                "disconnects Gmail sync while keeping already saved receipts available.",
+              role: "button",
+              voiceAliases: ["disconnect gmail", "turn off gmail sync"],
+            },
+          ]
+        : [
+            {
+              id: "open_gmail_connector",
+              label: primaryActionLabel,
+              purpose:
+                "starts Gmail connection or reconnection from this receipts page.",
+              actionId:
+                journeyVariant === "onboarding"
+                  ? "setup.connect_gmail"
+                  : null,
+              role: "button",
+              voiceAliases: [
+                "connect gmail",
+                "open gmail connector",
+                "open gmail",
+              ],
+            },
+          ]),
+      ...(journeyVariant === "onboarding" && onFinishSetup && onSkipSetup
+        ? isConnected
+          ? [
+              {
+                id: "finish_gmail_setup",
+                label: "Finish Gmail setup",
+                purpose:
+                  "records the verified Gmail connection and returns to setup.",
+                actionId: "setup.finish_gmail",
+                role: "button",
+                voiceAliases: ["finish gmail setup", "finish gmail"],
+              },
+            ]
+          : gmailActionBusy === null
+            ? [
+                {
+                  id: "skip_gmail_setup",
+                  label: "Skip Gmail setup",
+                  purpose:
+                    "returns to setup without marking Gmail as complete.",
+                  actionId: "setup.skip_gmail",
+                  role: "button",
+                  voiceAliases: ["skip gmail setup", "skip gmail", "not now"],
+                },
+              ]
+            : []
+        : []),
+      ...(hasMore
+        ? [
+            {
+              id: "load_older_receipts",
+              label: "Load older receipts",
+              purpose:
+                "loads older stored receipt records from the receipts list.",
+              role: "button",
+              voiceAliases: ["load older receipts"],
+            },
+          ]
+        : []),
     ];
+    const availableActions = controls.map((control) => control.label);
     const surfaceDefinition = {
-      screenId: "gmail",
+      screenId: journeyVariant === "onboarding" ? "one_setup_gmail" : "gmail",
       title: "Receipts",
       purpose:
-        "This page shows your Gmail receipts, lets you sync new ones, and automatically saves a private shopping summary to memory.",
+        journeyVariant === "onboarding"
+          ? "Connect Gmail, review receipt-based purchase signals, then explicitly finish Gmail setup."
+          : "This page shows your Gmail receipts, lets you sync new ones, and lets you choose when to save a private shopping summary.",
       sections: [
         {
           id: "receipt_status",
@@ -743,7 +845,7 @@ export default function ProfileReceiptsPage() {
           id: "receipt_insights",
           title: "Shopping summary",
           purpose:
-            "This section creates and automatically saves a private shopping summary from your receipts.",
+            "This section prepares a private shopping summary from your receipts for you to review and save explicitly.",
         },
         {
           id: "stored_receipts",
@@ -870,6 +972,9 @@ export default function ProfileReceiptsPage() {
     showVaultUnlock,
     syncing,
     total,
+    journeyVariant,
+    onFinishSetup,
+    onSkipSetup,
   ]);
 
   const requestVaultUnlock = useCallback(() => {
@@ -911,7 +1016,9 @@ export default function ProfileReceiptsPage() {
     [isVaultUnlocked, user, vaultOwnerToken],
   );
 
-  usePublishVoiceSurfaceMetadata(receiptsVoiceSurfaceMetadata);
+  usePublishVoiceSurfaceMetadata(receiptsVoiceSurfaceMetadata, {
+    role: voicePublisherRole,
+  });
 
   useEffect(() => {
     if (
@@ -1062,18 +1169,22 @@ export default function ProfileReceiptsPage() {
       as="div"
       width="reading"
       className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
-      nativeTest={{
-        routeId: "/one/gmail",
-        marker: "native-route-gmail",
-        authState: user ? "authenticated" : "pending",
-        dataState: loadingReceipts
-          ? "loading"
-          : !isConnected
-            ? "unavailable-valid"
-            : receipts.length > 0
-              ? "loaded"
-              : "empty-valid",
-      }}
+      nativeTest={
+        journeyVariant === "workspace"
+          ? {
+              routeId: ROUTES.GMAIL,
+              marker: "native-route-gmail",
+              authState: user ? "authenticated" : "pending",
+              dataState: loadingReceipts
+                ? "loading"
+                : !isConnected
+                  ? "unavailable-valid"
+                  : receipts.length > 0
+                    ? "loaded"
+                    : "empty-valid",
+            }
+          : undefined
+      }
     >
       <AppPageHeaderRegion>
         <PageHeader
@@ -1139,16 +1250,21 @@ export default function ProfileReceiptsPage() {
                   </p>
                 ) : null}
               </div>
-              <Badge variant="secondary">
-                {total} receipt{total === 1 ? "" : "s"}
-              </Badge>
+              {shouldShowReceiptCount ? (
+                <Badge variant="secondary">
+                  {total} receipt{total === 1 ? "" : "s"}
+                </Badge>
+              ) : null}
             </div>
 
             {isSyncingState && latestRunMetrics && !isPassiveBackfillState ? (
               <div className="space-y-2">
                 <Progress value={progressPercent} className="h-2" />
                 <p className="text-xs text-muted-foreground">
-                  We’re still fetching your recent purchases in the background.
+                  {describeGmailReceiptScanProgress({
+                    scanned: latestRunMetrics.listed,
+                    matched: latestRunMetrics.filtered,
+                  })}
                 </p>
               </div>
             ) : null}
@@ -1165,6 +1281,11 @@ export default function ProfileReceiptsPage() {
                   disabled={gmailActionBusy !== null}
                   className="h-12 w-full px-8 text-base shadow-lg sm:w-auto sm:min-w-[260px]"
                   data-voice-control-id="open_gmail_connector"
+                  data-voice-action-id={
+                    journeyVariant === "onboarding"
+                      ? "setup.connect_gmail"
+                      : undefined
+                  }
                   data-voice-label={primaryActionLabel}
                   data-voice-purpose="starts Gmail connection or reconnection from this receipts page."
                 >
@@ -1193,6 +1314,31 @@ export default function ProfileReceiptsPage() {
               </div>
             ) : null}
           </SurfaceInset>
+
+          {journeyVariant === "onboarding" && onFinishSetup && onSkipSetup ? (
+            <SetupCompletionFooter
+              label={isConnected ? "Finish Gmail setup" : "Skip Gmail setup"}
+              onComplete={isConnected ? onFinishSetup : onSkipSetup}
+              busy={isConnected ? finishingSetup : skippingSetup}
+              disabled={gmailActionBusy !== null}
+              controlId={
+                isConnected ? "finish_gmail_setup" : "skip_gmail_setup"
+              }
+              actionId={isConnected ? "setup.finish_gmail" : "setup.skip_gmail"}
+              purpose={
+                isConnected
+                  ? "records verified Gmail connection and returns to setup."
+                  : "returns to setup without recording Gmail as complete."
+              }
+              variant={isConnected ? "blue-gradient" : "none"}
+              effect={isConnected ? "fill" : "fade"}
+              supportingText={
+                isConnected
+                  ? undefined
+                  : "You can connect Gmail from setup whenever you are ready."
+              }
+            />
+          ) : null}
 
           {isConnected ? (
             <GmailChatPanel vaultOwnerToken={vaultOwnerToken} />
@@ -1323,31 +1469,28 @@ export default function ProfileReceiptsPage() {
 
           {isSyncingState && gmail.syncRun ? (
             <SurfaceInset className="space-y-1 px-4 py-3 text-sm">
-              <p className="font-medium text-foreground">Latest sync</p>
+              <p className="font-medium text-foreground">Latest scan</p>
               <p className="text-muted-foreground">
-                Run: {gmail.syncRun.run_id}
-              </p>
-              <p className="text-muted-foreground">
-                Status: {gmail.syncRun.status}
-              </p>
-              <p className="text-muted-foreground">
-                Synced {gmail.syncRun.synced_count} / Filtered{" "}
-                {gmail.syncRun.filtered_count} / Extracted{" "}
-                {gmail.syncRun.extracted_count}
+                Receipt emails capture purchase interactions, helping One
+                understand the brands you care about.
               </p>
               {latestRunMetrics ? (
                 <div className="space-y-2 pt-1">
                   <Progress value={progressPercent} className="h-2" />
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-3">
-                    <span>Scanned: {latestRunMetrics.listed}</span>
-                    <span>Matched: {latestRunMetrics.filtered}</span>
-                    <span>Stored: {latestRunMetrics.synced}</span>
-                    <span>Extracted: {latestRunMetrics.extracted}</span>
-                    <span>Duplicates: {latestRunMetrics.duplicates}</span>
+                    <span>Emails checked: {latestRunMetrics.listed}</span>
+                    <span>Receipt matches: {latestRunMetrics.filtered}</span>
+                    <span>Saved receipts: {latestRunMetrics.synced}</span>
                     <span>
-                      Extract %: {latestRunMetrics.extractionSuccessPercent}%
+                      Details recognized: {latestRunMetrics.extracted}
                     </span>
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    {describeGmailReceiptScanProgress({
+                      scanned: latestRunMetrics.listed,
+                      matched: latestRunMetrics.filtered,
+                    })}
+                  </p>
                 </div>
               ) : null}
               {gmail.syncRun.error_message ? (

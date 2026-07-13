@@ -182,8 +182,8 @@
     },
     {
       "action_id": "setup.hub_master_ack",
-      "label": "Finish Setup For Now",
-      "meaning": "Resolves the master setup gate: Skip when nothing is set up yet, or Continue once at least one capability is ready, then opens One's home.",
+      "label": "Skip or finish setup",
+      "meaning": "Resolves the master setup gate: Skip setup when nothing is set up yet, or Finish setup once at least one capability is ready, then opens One's home.",
       "aliases": [
         "skip setup",
         "i'm done setting up",

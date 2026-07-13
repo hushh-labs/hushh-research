@@ -502,78 +502,91 @@ function mergeMetadataArrays<T extends { id: string }>(
 function mergeVoiceSurfaceMetadata(
   base: VoiceSurfaceMetadata | null,
   overlay: VoiceSurfaceMetadata | null,
-  options: { overlayFirst?: boolean } = {},
+  options: { overlayFirst?: boolean; preserveBaseIdentity?: boolean } = {},
 ): VoiceSurfaceMetadata | null {
   if (!base) return overlay;
   if (!overlay) return base;
   const overlayFirst = options.overlayFirst === true;
+  // A route publisher owns screen identity. Chrome can enrich the active
+  // surface but cannot relabel it to the feature body's normal product screen;
+  // otherwise a static setup adapter can accidentally publish an off-route
+  // action inventory after a child rerender.
+  const effectiveOverlay = options.preserveBaseIdentity
+    ? {
+        ...overlay,
+        screenId: base.screenId,
+        title: base.title || overlay.title,
+        purpose: base.purpose || overlay.purpose,
+        primaryEntity: base.primaryEntity || overlay.primaryEntity,
+      }
+    : overlay;
   const surfaceDefinition = normalizeSurfaceDefinition({
-    screenId: overlay.screenId || base.screenId,
-    title: overlay.title || base.title,
-    purpose: overlay.purpose || base.purpose,
-    primaryEntity: overlay.primaryEntity || base.primaryEntity,
+    screenId: effectiveOverlay.screenId || base.screenId,
+    title: effectiveOverlay.title || base.title,
+    purpose: effectiveOverlay.purpose || base.purpose,
+    primaryEntity: effectiveOverlay.primaryEntity || base.primaryEntity,
     sections: mergeMetadataArrays(
       base.sections,
-      overlay.sections,
+      effectiveOverlay.sections,
       overlayFirst,
     ),
-    actions: mergeMetadataArrays(base.actions, overlay.actions, overlayFirst),
+    actions: mergeMetadataArrays(base.actions, effectiveOverlay.actions, overlayFirst),
     controls: mergeMetadataArrays(
       base.controls,
-      overlay.controls,
+      effectiveOverlay.controls,
       overlayFirst,
     ),
     concepts: uniqueConcepts(
       (overlayFirst
-        ? [...(overlay.concepts || []), ...(base.concepts || [])]
-        : [...(base.concepts || []), ...(overlay.concepts || [])]
+        ? [...(effectiveOverlay.concepts || []), ...(base.concepts || [])]
+        : [...(base.concepts || []), ...(effectiveOverlay.concepts || [])]
       )
         .map(normalizeConceptDefinition)
         .filter((concept): concept is VoiceSurfaceConceptDefinition =>
           Boolean(concept),
         ),
     ),
-    activeControlId: overlay.activeControlId || base.activeControlId,
+    activeControlId: effectiveOverlay.activeControlId || base.activeControlId,
     lastInteractedControlId:
-      overlay.lastInteractedControlId || base.lastInteractedControlId,
+      effectiveOverlay.lastInteractedControlId || base.lastInteractedControlId,
   });
   return normalizeSurfaceMetadata({
     ...base,
-    ...overlay,
+    ...effectiveOverlay,
     surfaceDefinition,
     visibleModules: uniqueStrings(
       overlayFirst
-        ? [...(overlay.visibleModules || []), ...(base.visibleModules || [])]
-        : [...(base.visibleModules || []), ...(overlay.visibleModules || [])],
+        ? [...(effectiveOverlay.visibleModules || []), ...(base.visibleModules || [])]
+        : [...(base.visibleModules || []), ...(effectiveOverlay.visibleModules || [])],
     ),
     activeFilters: uniqueStrings([
       ...(base.activeFilters || []),
-      ...(overlay.activeFilters || []),
+      ...(effectiveOverlay.activeFilters || []),
     ]),
     selectedObjects: uniqueStrings([
       ...(base.selectedObjects || []),
-      ...(overlay.selectedObjects || []),
+      ...(effectiveOverlay.selectedObjects || []),
     ]),
     availableActions: uniqueStrings(
       overlayFirst
         ? [
-            ...(overlay.availableActions || []),
+            ...(effectiveOverlay.availableActions || []),
             ...(base.availableActions || []),
           ]
         : [
             ...(base.availableActions || []),
-            ...(overlay.availableActions || []),
+            ...(effectiveOverlay.availableActions || []),
           ],
     ),
     busyOperations: uniqueStrings([
       ...(base.busyOperations || []),
-      ...(overlay.busyOperations || []),
+      ...(effectiveOverlay.busyOperations || []),
     ]),
     screenMetadata: {
       ...(base.screenMetadata || {}),
-      ...(overlay.screenMetadata || {}),
+      ...(effectiveOverlay.screenMetadata || {}),
     },
-    interactionLayer: overlay.interactionLayer || base.interactionLayer || null,
+    interactionLayer: effectiveOverlay.interactionLayer || base.interactionLayer || null,
   });
 }
 
@@ -641,7 +654,9 @@ function composePublishedMetadata(): VoiceSurfaceMetadata | null {
   entries
     .filter((entry) => entry.role === "chrome" && entry.metadata)
     .forEach((entry) => {
-      composed = mergeVoiceSurfaceMetadata(composed, entry.metadata);
+      composed = mergeVoiceSurfaceMetadata(composed, entry.metadata, {
+        preserveBaseIdentity: true,
+      });
     });
   const layerEntry = [...entries]
     .reverse()

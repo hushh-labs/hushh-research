@@ -45,6 +45,8 @@ export type PreVaultUserState = {
   onboardingResumeRoute: "/one/setup" | null;
   onboardingCallbackState:
     "none" | "pending" | "succeeded" | "cancelled" | "failed" | null;
+  /** Opaque external-connector attempt correlation; never an OAuth artifact. */
+  onboardingCallbackAttemptId: string | null;
   onboardingJourneyUpdatedAt: number | null;
   // Verified-phone claim folded in from the backend bootstrap call. null means
   // "unknown" (older backend, or shadow lookup failed) so callers fall back to
@@ -66,6 +68,9 @@ type PreVaultStateUpdatePayload = {
   onboardingActiveCapability?: string | null;
   onboardingResumeRoute?: "/one/setup";
   onboardingCallbackState?: PreVaultUserState["onboardingCallbackState"];
+  onboardingCallbackAttemptId?: string;
+  expectedOnboardingJourneyUpdatedAt?: number | null;
+  expectedOnboardingCallbackAttemptId?: string;
 };
 
 const bootstrapInflight = new Map<string, Promise<PreVaultUserState>>();
@@ -138,6 +143,9 @@ function normalizeResponse(
     onboardingCallbackState: normalizeCallbackState(
       payload.onboardingCallbackState,
     ),
+    onboardingCallbackAttemptId: normalizeCallbackAttemptId(
+      payload.onboardingCallbackAttemptId,
+    ),
     onboardingJourneyUpdatedAt: toMillis(payload.onboardingJourneyUpdatedAt),
     phoneVerified: toNullableBool(payload.phoneVerified),
   };
@@ -166,6 +174,12 @@ function normalizeCallbackState(
   )
     ? (value as NonNullable<PreVaultUserState["onboardingCallbackState"]>)
     : null;
+}
+
+function normalizeCallbackAttemptId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 && trimmed.length <= 96 ? trimmed : null;
 }
 
 function resolvePreVaultPath(
@@ -301,6 +315,9 @@ export class PreVaultUserStateService {
     phase: NonNullable<PreVaultUserState["onboardingPhase"]>;
     activeCapability?: string | null;
     callbackState?: NonNullable<PreVaultUserState["onboardingCallbackState"]>;
+    callbackAttemptId?: string;
+    expectedJourneyUpdatedAt?: number | null;
+    expectedCallbackAttemptId?: string;
   }): Promise<PreVaultUserState> {
     return this.updatePreVaultState(params.userId, {
       onboardingJourneyVersion: 1,
@@ -308,6 +325,40 @@ export class PreVaultUserStateService {
       onboardingActiveCapability: params.activeCapability ?? null,
       onboardingResumeRoute: "/one/setup",
       onboardingCallbackState: params.callbackState ?? "none",
+      ...(params.callbackAttemptId
+        ? { onboardingCallbackAttemptId: params.callbackAttemptId }
+        : {}),
+      expectedOnboardingJourneyUpdatedAt:
+        params.expectedJourneyUpdatedAt ?? undefined,
+      ...(params.expectedCallbackAttemptId
+        ? { expectedOnboardingCallbackAttemptId: params.expectedCallbackAttemptId }
+        : {}),
+    });
+  }
+
+  /** Atomically settles the active setup goal against the observed journey. */
+  static async settleOnboardingCapability(params: {
+    userId: string;
+    capabilityId: string;
+    completedCapabilityIds?: readonly string[];
+    expectedJourneyUpdatedAt: number | null;
+    callbackState: NonNullable<PreVaultUserState["onboardingCallbackState"]>;
+    expectedCallbackAttemptId?: string;
+  }): Promise<PreVaultUserState> {
+    return this.updatePreVaultState(params.userId, {
+      ...(params.completedCapabilityIds
+        ? { setupCapabilityIds: toStringArray([...params.completedCapabilityIds]) }
+        : {}),
+      onboardingJourneyVersion: 1,
+      onboardingPhase: "setup_hub",
+      onboardingActiveCapability: null,
+      onboardingResumeRoute: "/one/setup",
+      onboardingCallbackState: params.callbackState,
+      expectedOnboardingJourneyUpdatedAt:
+        params.expectedJourneyUpdatedAt ?? undefined,
+      ...(params.expectedCallbackAttemptId
+        ? { expectedOnboardingCallbackAttemptId: params.expectedCallbackAttemptId }
+        : {}),
     });
   }
 

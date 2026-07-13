@@ -75,17 +75,19 @@ describe("One route orchestration index", () => {
     });
   });
 
-  it("joins the shared dynamic setup route to its concrete action contract", () => {
-    const capability = index.routes.find(
+  it("keeps the dynamic compatibility route transitional and attributes Finance to its static contract", () => {
+    const compatibility = index.routes.find(
       (entry) => entry.route_pattern === "/one/setup/[capability]",
     );
-    expect(capability?.orchestration_class).toBe("interactive");
-    expect(capability?.action_ids).toEqual(["setup.capability_continue"]);
-    expect(capability?.voice_playbook.primary_action_id).toBe(
-      "setup.capability_continue",
+    expect(compatibility?.orchestration_class).toBe("transitional");
+    expect(compatibility?.action_ids).toEqual([]);
+
+    const finance = index.routes.find(
+      (entry) => entry.route_pattern === "/one/setup/finance",
     );
-    expect(capability?.voice_contract_file).toContain(
-      "one-onboarding-capability-step.voice-action-contract.json",
+    expect(finance?.canonical_screen).toBe("one_setup_finance");
+    expect(finance?.voice_contract_file).toContain(
+      "app/one/setup/kai/page.voice-action-contract.json",
     );
   });
 

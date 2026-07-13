@@ -40,6 +40,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "one_intro",
       "voice_contract_file": "app/page.voice-action-contract.json",
       "action_ids": [
         "onboarding.claim_one"
@@ -84,6 +85,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "app",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -126,6 +128,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "app",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -168,6 +171,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "app",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -210,6 +214,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "app",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -254,18 +259,15 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "connected_systems",
       "voice_contract_file": null,
-      "action_ids": [
-        "connected_systems.chat.turn"
-      ],
-      "action_coverage": "inherited",
+      "action_ids": [],
+      "action_coverage": "none",
       "delegation_policy": {
-        "mode": "one_action_gate",
-        "allowed_delegate_agent_ids": [
-          "agent_connected_systems"
-        ]
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "vault",
+      "trust_boundary": "none",
       "native_surface_id": "native-route-connected-systems"
     },
     {
@@ -300,6 +302,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "app",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -344,6 +347,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "consents",
       "voice_contract_file": null,
       "action_ids": [
         "connections.chat.turn",
@@ -394,6 +398,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "app",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -436,6 +441,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "getting_started",
       "voice_contract_file": "app/getting-started/page.voice-action-contract.json",
       "action_ids": [
         "auth.sign_in_open",
@@ -483,6 +489,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "gmail",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -525,6 +532,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai_market",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -567,6 +575,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -609,6 +618,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai_analysis",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -651,6 +661,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai_portfolio_dashboard",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -693,6 +704,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai_portfolio_dashboard",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -735,6 +747,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai_funding_trade",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -777,6 +790,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "import",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -819,6 +833,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai_investments",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -861,6 +876,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -903,6 +919,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai_optimize",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -945,6 +962,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -987,6 +1005,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai_portfolio_dashboard",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -1033,6 +1052,7 @@
           "legal_document"
         ]
       },
+      "canonical_screen": "login",
       "voice_contract_file": "app/login/page.voice-action-contract.json",
       "action_ids": [
         "auth.close_legal",
@@ -1082,6 +1102,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "logout",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -1126,6 +1147,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "marketplace",
       "voice_contract_file": null,
       "action_ids": [
         "route.marketplace_browse_from_ria_profile",
@@ -1173,18 +1195,15 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "marketplace",
       "voice_contract_file": null,
-      "action_ids": [
-        "connections.chat.turn"
-      ],
-      "action_coverage": "inherited",
+      "action_ids": [],
+      "action_coverage": "none",
       "delegation_policy": {
-        "mode": "one_action_gate",
-        "allowed_delegate_agent_ids": [
-          "agent_connections"
-        ]
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "vault",
+      "trust_boundary": "none",
       "native_surface_id": "native-route-consents"
     },
     {
@@ -1219,6 +1238,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "marketplace",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -1263,6 +1283,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "marketplace_ria_profile",
       "voice_contract_file": "app/marketplace/ria/page-client.voice-action-contract.json",
       "action_ids": [
         "marketplace.ria.manage_profile",
@@ -1311,6 +1332,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "one_agents",
       "voice_contract_file": "app/one/page.voice-action-contract.json",
       "action_ids": [
         "connected_systems.chat.turn",
@@ -1375,6 +1397,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "connected_systems",
       "voice_contract_file": null,
       "action_ids": [
         "route.profile_connected_systems"
@@ -1419,6 +1442,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "app",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -1463,6 +1487,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "gmail",
       "voice_contract_file": "app/one/gmail/page.voice-action-contract.json",
       "action_ids": [
         "email.chat.turn",
@@ -1515,6 +1540,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai_market",
       "voice_contract_file": null,
       "action_ids": [
         "route.back",
@@ -1560,6 +1586,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -1604,6 +1631,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai_analysis",
       "voice_contract_file": "app/one/kai/analysis/page.voice-action-contract.json",
       "action_ids": [
         "analysis.cancel_active",
@@ -1653,6 +1681,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai_funding_trade",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -1697,6 +1726,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "import",
       "voice_contract_file": null,
       "action_ids": [
         "route.kai_import"
@@ -1743,6 +1773,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai_investments",
       "voice_contract_file": null,
       "action_ids": [
         "route.kai_investments"
@@ -1787,6 +1818,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -1831,6 +1863,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai_optimize",
       "voice_contract_file": null,
       "action_ids": [
         "route.kai_optimize"
@@ -1875,6 +1908,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -1889,19 +1923,17 @@
       "route_pattern": "/one/kai/portfolio",
       "page_file": "app/one/kai/portfolio/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.one.kai.portfolio",
-      "context_policy": "publish",
+      "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.kai.portfolio",
         "purpose": "Help the person understand and use the portfolio screen through its generated controls.",
         "screen": "kai_portfolio_dashboard",
-        "entry_cue": "You can say “Open Portfolio Dashboard” to use the primary control on this screen.",
-        "proactivity": "on_entry",
-        "primary_action_id": "route.kai_dashboard",
-        "happy_path_action_ids": [
-          "route.kai_dashboard"
-        ],
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -1919,11 +1951,10 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "kai_portfolio_dashboard",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.kai_dashboard"
-      ],
-      "action_coverage": "inherited",
+      "action_ids": [],
+      "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
@@ -1965,6 +1996,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "one_kyc",
       "voice_contract_file": "app/one/kyc/page.voice-action-contract.json",
       "action_ids": [
         "route.one_kyc"
@@ -2013,6 +2045,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "one_location",
       "voice_contract_file": null,
       "action_ids": [
         "location.chat.turn",
@@ -2060,6 +2093,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "app",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2102,6 +2136,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "app",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2146,6 +2181,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "one_marketplace",
       "voice_contract_file": "app/one/marketplace/page.voice-action-contract.json",
       "action_ids": [
         "marketplace.information.chat.turn",
@@ -2196,6 +2232,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "pkm",
       "voice_contract_file": null,
       "action_ids": [
         "route.one_pkm",
@@ -2219,7 +2256,7 @@
       "voice_playbook": {
         "playbook_id": "route.one.setup",
         "purpose": "Help the person choose, resume, skip, or finish one setup capability.",
-        "screen": "one_setup",
+        "screen": "one_setup_hub",
         "entry_cue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
         "proactivity": "on_entry",
         "primary_action_id": "setup.open_gmail",
@@ -2249,6 +2286,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "one_setup_hub",
       "voice_contract_file": null,
       "action_ids": [
         "setup.hub_master_ack",
@@ -2257,8 +2295,7 @@
         "setup.open_finance",
         "setup.open_gmail",
         "setup.open_location",
-        "setup.open_ria",
-        "vault.setup_open"
+        "setup.open_ria"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -2271,20 +2308,18 @@
     {
       "route_pattern": "/one/setup/[capability]",
       "page_file": "app/one/setup/[capability]/page.tsx",
-      "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
       "instruction_id": "route.one.setup.capability",
-      "context_policy": "publish",
+      "context_policy": "suppress",
       "voice_playbook": {
         "playbook_id": "route.one.setup.capability",
-        "purpose": "Explain the active setup capability and advance only its visible next step.",
-        "screen": "one_setup",
-        "entry_cue": "Say ‘Continue’ when you are ready for the next step.",
-        "proactivity": "on_entry",
-        "primary_action_id": "setup.capability_continue",
-        "happy_path_action_ids": [
-          "setup.capability_continue"
-        ],
+        "purpose": "Compatibility redirect only; it exposes no executable setup actions.",
+        "screen": "app",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -2294,7 +2329,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "The step settles after its local handler opens the capability destination.",
+        "completion_boundary": "The compatibility redirect has no completion authority.",
         "next_route": "/one/setup",
         "return_policy": "return_to_hub",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2302,9 +2337,263 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "voice_contract_file": "app/one/setup/[capability]/one-onboarding-capability-step.voice-action-contract.json",
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/one/setup/connected-systems",
+      "page_file": "app/one/setup/connected-systems/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.setup.connected.systems",
+      "context_policy": "publish",
+      "voice_playbook": {
+        "playbook_id": "route.one.setup.connected.systems",
+        "purpose": "Link an active CRM record before explicitly finishing or skipping setup.",
+        "screen": "one_setup_connected_systems",
+        "entry_cue": "Choose a CRM to find or create your record, or say skip linking setup.",
+        "proactivity": "on_entry",
+        "primary_action_id": "setup.skip_connected_systems",
+        "happy_path_action_ids": [
+          "setup.skip_connected_systems",
+          "setup.finish_connected_systems"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Keep linked systems setup open and preserve the active goal.",
+          "failed": "Explain that an active record binding is needed before finishing.",
+          "timeout": "Retain the goal and offer a safe retry.",
+          "callback_error": "Return to linked systems setup without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Linked systems setup finishes only after an active CRM record binding and hub settlement.",
+        "next_route": "/one/setup",
+        "return_policy": "return_to_hub",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "one_setup_connected_systems",
+      "voice_contract_file": "app/one/setup/connected-systems/page.voice-action-contract.json",
       "action_ids": [
-        "setup.capability_continue"
+        "setup.finish_connected_systems",
+        "setup.skip_connected_systems"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/one/setup/email",
+      "page_file": "app/one/setup/email/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.setup.email",
+      "context_policy": "publish",
+      "voice_playbook": {
+        "playbook_id": "route.one.setup.email",
+        "purpose": "Set up the verified email identity and connector One uses to draft with you.",
+        "screen": "one_setup_email",
+        "entry_cue": "Set up your verified email identity, or say skip KYC setup.",
+        "proactivity": "on_entry",
+        "primary_action_id": "setup.skip_email",
+        "happy_path_action_ids": [
+          "setup.skip_email",
+          "setup.finish_email"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Keep KYC setup open and preserve the active goal.",
+          "failed": "Explain what remains to set up without claiming completion.",
+          "timeout": "Retain the goal and offer a safe retry.",
+          "callback_error": "Use the verified current route and its generated actions only.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "KYC setup finishes only after a verified email identity and client connector are ready.",
+        "next_route": "/one/setup",
+        "return_policy": "return_to_hub",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "one_setup_email",
+      "voice_contract_file": "app/one/setup/email/page.voice-action-contract.json",
+      "action_ids": [
+        "setup.finish_email",
+        "setup.skip_email"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/one/setup/finance",
+      "page_file": "app/one/setup/finance/page.tsx",
+      "route_mode": "flow",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.setup.finance",
+      "context_policy": "publish",
+      "voice_playbook": {
+        "playbook_id": "route.one.setup.finance",
+        "purpose": "Collect Finance preferences before choosing Plaid, a statement, or a later source choice.",
+        "screen": "one_setup_finance",
+        "entry_cue": "Answer the visible Finance question to continue.",
+        "proactivity": "on_entry",
+        "primary_action_id": "kai.setup.answer_horizon",
+        "happy_path_action_ids": [
+          "kai.setup.answer_horizon",
+          "kai.setup.answer_drawdown",
+          "kai.setup.answer_volatility",
+          "kai.setup.launch_dashboard",
+          "setup.skip_finance"
+        ],
+        "required_inputs": [
+          "investment_horizon"
+        ],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Keep Finance setup open and preserve the active goal.",
+          "failed": "Explain that Finance setup is still incomplete and offer a safe retry.",
+          "timeout": "Retain the goal and offer a safe retry.",
+          "callback_error": "Return to Finance setup without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Preferences advance to the Finance source choice; only the import route can make Finance ready.",
+        "next_route": "/one/setup/finance/import",
+        "return_policy": "navigate",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "one_setup_finance",
+      "voice_contract_file": "app/one/setup/kai/page.voice-action-contract.json",
+      "action_ids": [
+        "kai.setup.answer_drawdown",
+        "kai.setup.answer_horizon",
+        "kai.setup.answer_volatility",
+        "kai.setup.launch_dashboard",
+        "setup.skip_finance"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/one/setup/finance/import",
+      "page_file": "app/one/setup/finance/import/page.tsx",
+      "route_mode": "flow",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.setup.finance.import",
+      "context_policy": "publish",
+      "voice_playbook": {
+        "playbook_id": "route.one.setup.finance.import",
+        "purpose": "Choose Plaid, a statement, or a later source choice for Finance setup.",
+        "screen": "one_setup_finance_import",
+        "entry_cue": "Choose how you want to add a portfolio, or set it up later.",
+        "proactivity": "on_entry",
+        "primary_action_id": "setup.skip_finance",
+        "happy_path_action_ids": [
+          "setup.finish_finance",
+          "setup.skip_finance"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Keep Finance setup open and preserve the active goal.",
+          "failed": "Explain that a source still needs to settle before finishing.",
+          "timeout": "Retain the goal and offer a safe retry.",
+          "callback_error": "Return to Finance setup without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Finance finishes only after a verified Plaid connection, statement save, or explicit later choice and hub settlement.",
+        "next_route": "/one/setup",
+        "return_policy": "return_to_hub",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "one_setup_finance_import",
+      "voice_contract_file": "app/one/setup/finance/import/page.voice-action-contract.json",
+      "action_ids": [
+        "setup.finish_finance",
+        "setup.skip_finance"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/one/setup/gmail",
+      "page_file": "app/one/setup/gmail/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.setup.gmail",
+      "context_policy": "publish",
+      "voice_playbook": {
+        "playbook_id": "route.one.setup.gmail",
+        "purpose": "Connect Gmail, review the receipt signal it creates, then finish this capability and return to setup.",
+        "screen": "one_setup_gmail",
+        "entry_cue": "Connect Gmail to review receipt emails and the brands they help One understand.",
+        "proactivity": "on_entry",
+        "primary_action_id": "setup.connect_gmail",
+        "happy_path_action_ids": [
+          "setup.connect_gmail",
+          "setup.finish_gmail",
+          "setup.skip_gmail"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Keep Gmail setup available and return to the current setup screen.",
+          "failed": "Explain that Gmail setup is still incomplete and offer a safe retry.",
+          "timeout": "Keep the Gmail goal active and offer one safe retry.",
+          "callback_error": "Return to Gmail setup and show the connector recovery state without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Gmail setup completes only after the connector reports a verified connection and the setup hub route settles.",
+        "next_route": "/one/setup",
+        "return_policy": "return_to_hub",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "one_setup_gmail",
+      "voice_contract_file": "app/one/setup/gmail/page.voice-action-contract.json",
+      "action_ids": [
+        "setup.connect_gmail",
+        "setup.finish_gmail",
+        "setup.skip_gmail"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -2317,20 +2606,18 @@
     {
       "route_pattern": "/one/setup/kai",
       "page_file": "app/one/setup/kai/page.tsx",
-      "route_mode": "flow",
-      "orchestration_class": "interactive",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
       "instruction_id": "route.one.setup.kai",
-      "context_policy": "publish",
+      "context_policy": "suppress",
       "voice_playbook": {
         "playbook_id": "route.one.setup.kai",
         "purpose": "Collect Finance preferences and return to the setup hub without resolving root onboarding.",
-        "screen": "one_setup",
-        "entry_cue": "Answer the visible Finance question to continue.",
-        "proactivity": "on_entry",
-        "primary_action_id": "kai.setup.answer_horizon",
-        "happy_path_action_ids": [
-          "kai.setup.answer_horizon"
-        ],
+        "screen": "one_setup_finance",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
         "required_inputs": [
           "investment_horizon"
         ],
@@ -2342,7 +2629,53 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Finance setup completes only after preferences are saved and the hub route settles.",
+        "completion_boundary": "The compatibility route has no executable actions.",
+        "next_route": "/one/setup/finance",
+        "return_policy": "navigate",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "one_setup_finance",
+      "voice_contract_file": "app/one/setup/kai/page.voice-action-contract.json",
+      "action_ids": [],
+      "action_coverage": "local",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-one-setup-kai"
+    },
+    {
+      "route_pattern": "/one/setup/location",
+      "page_file": "app/one/setup/location/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.setup.location",
+      "context_policy": "publish",
+      "voice_playbook": {
+        "playbook_id": "route.one.setup.location",
+        "purpose": "Request device location permission, then explicitly finish or skip Location setup.",
+        "screen": "one_setup_location",
+        "entry_cue": "Allow Location when you are ready, or say skip Location setup.",
+        "proactivity": "on_entry",
+        "primary_action_id": "setup.skip_location",
+        "happy_path_action_ids": [
+          "setup.skip_location",
+          "setup.finish_location"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Keep Location setup open and preserve the active goal.",
+          "failed": "Explain that permission is still needed before finishing.",
+          "timeout": "Retain the goal and offer a safe retry.",
+          "callback_error": "Use the verified current route and its generated actions only.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Location setup finishes only after device permission is granted and the hub route settles.",
         "next_route": "/one/setup",
         "return_policy": "return_to_hub",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2350,12 +2683,11 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "voice_contract_file": "app/one/setup/kai/page.voice-action-contract.json",
+      "canonical_screen": "one_setup_location",
+      "voice_contract_file": "app/one/setup/location/page.voice-action-contract.json",
       "action_ids": [
-        "kai.setup.answer_drawdown",
-        "kai.setup.answer_horizon",
-        "kai.setup.answer_volatility",
-        "kai.setup.launch_dashboard"
+        "setup.finish_location",
+        "setup.skip_location"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -2363,7 +2695,56 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": "native-route-one-setup-kai"
+      "native_surface_id": null
+    },
+    {
+      "route_pattern": "/one/setup/ria",
+      "page_file": "app/one/setup/ria/page.tsx",
+      "route_mode": "flow",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.setup.ria",
+      "context_policy": "publish",
+      "voice_playbook": {
+        "playbook_id": "route.one.setup.ria",
+        "purpose": "Submit an RIA profile, then explicitly finish or skip its setup.",
+        "screen": "one_setup_ria",
+        "entry_cue": "Complete your RIA profile when ready, or say skip RIA setup.",
+        "proactivity": "on_entry",
+        "primary_action_id": "setup.skip_ria",
+        "happy_path_action_ids": [
+          "setup.skip_ria",
+          "setup.finish_ria"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Keep RIA setup open and preserve the active goal.",
+          "failed": "Explain that the profile has not been accepted yet.",
+          "timeout": "Retain the goal and offer a safe retry.",
+          "callback_error": "Return to RIA setup without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "RIA setup finishes only after a non-rejected profile submission and hub settlement.",
+        "next_route": "/one/setup",
+        "return_policy": "return_to_hub",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "one_setup_ria",
+      "voice_contract_file": "app/one/setup/ria/page.voice-action-contract.json",
+      "action_ids": [
+        "setup.finish_ria",
+        "setup.skip_ria"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": null
     },
     {
       "route_pattern": "/pkm",
@@ -2397,6 +2778,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "pkm",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2439,6 +2821,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "app",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2483,6 +2866,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_account",
       "voice_contract_file": "app/profile/page.voice-action-contract.json",
       "action_ids": [
         "route.back",
@@ -2534,6 +2918,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_privacy",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2576,6 +2961,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_privacy",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2618,6 +3004,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_account",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2660,6 +3047,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_account",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2702,6 +3090,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "connected_systems",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2744,6 +3133,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_gmail_panel",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2786,6 +3176,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_gmail_panel",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2828,6 +3219,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_gmail_panel",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2870,6 +3262,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_account",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2912,6 +3305,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_my_data",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2954,6 +3348,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_my_data",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -2996,6 +3391,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "pkm",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -3040,6 +3436,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_pkm_agent_lab",
       "voice_contract_file": "app/profile/pkm-agent-lab/page-client.voice-action-contract.json",
       "action_ids": [
         "profile.pkm.preview_capture"
@@ -3084,6 +3481,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_preferences",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -3126,6 +3524,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_preferences",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -3168,6 +3567,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_preferences",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -3210,6 +3610,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "gmail",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -3254,6 +3655,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_security_panel",
       "voice_contract_file": null,
       "action_ids": [
         "route.profile_security_panel"
@@ -3298,6 +3700,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_security_panel",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -3340,6 +3743,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_security_panel",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -3384,6 +3788,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_support_panel",
       "voice_contract_file": null,
       "action_ids": [
         "route.profile_support_panel"
@@ -3428,6 +3833,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_support_panel",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -3470,6 +3876,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "profile_support_panel",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -3518,6 +3925,7 @@
           "country_picker"
         ]
       },
+      "canonical_screen": "register_phone",
       "voice_contract_file": "app/register-phone/page.voice-action-contract.json",
       "action_ids": [
         "phone_mandate.close_country_picker",
@@ -3565,6 +3973,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "app",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -3607,6 +4016,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "app",
       "voice_contract_file": null,
       "action_ids": [],
       "action_coverage": "none",
@@ -3651,6 +4061,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "ria_home",
       "voice_contract_file": "app/ria/page.voice-action-contract.json",
       "action_ids": [
         "route.ria_home"
@@ -3697,6 +4108,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "ria_clients",
       "voice_contract_file": "app/ria/clients/page.voice-action-contract.json",
       "action_ids": [
         "route.ria_clients",
@@ -3744,6 +4156,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "ria_client_workspace",
       "voice_contract_file": null,
       "action_ids": [
         "ria.client_workspace.open_overview_tab",
@@ -3791,6 +4204,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "ria_client_account_detail",
       "voice_contract_file": null,
       "action_ids": [
         "ria.client_account.open_workspace_fallback"
@@ -3837,6 +4251,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "ria_client_request_detail",
       "voice_contract_file": null,
       "action_ids": [
         "ria.client_request.open_access_fallback"
@@ -3883,6 +4298,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "ria_onboarding",
       "voice_contract_file": "app/ria/onboarding/page.voice-action-contract.json",
       "action_ids": [
         "route.ria_onboarding"
@@ -3929,6 +4345,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "ria_picks",
       "voice_contract_file": "app/ria/picks/page.voice-action-contract.json",
       "action_ids": [
         "ria.picks.download_template",
@@ -3981,6 +4398,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "ria_profile",
       "voice_contract_file": "app/ria/profile/page.voice-action-contract.json",
       "action_ids": [
         "ria.profile.edit_services",
@@ -4026,16 +4444,15 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "ria_requests",
       "voice_contract_file": "app/ria/requests/page.voice-action-contract.json",
-      "action_ids": [
-        "route.ria_requests_compat"
-      ],
-      "action_coverage": "inherited",
+      "action_ids": [],
+      "action_coverage": "local",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "consent",
+      "trust_boundary": "none",
       "native_surface_id": "native-route-consents"
     },
     {
@@ -4070,17 +4487,15 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "ria_settings",
       "voice_contract_file": "app/ria/settings/page.voice-action-contract.json",
-      "action_ids": [
-        "marketplace.ria.manage_profile",
-        "route.ria_settings_compat"
-      ],
-      "action_coverage": "inherited",
+      "action_ids": [],
+      "action_coverage": "local",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "auth",
+      "trust_boundary": "none",
       "native_surface_id": "native-route-profile"
     },
     {
@@ -4115,16 +4530,15 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
+      "canonical_screen": "ria_workspace",
       "voice_contract_file": "app/ria/workspace/page.voice-action-contract.json",
-      "action_ids": [
-        "route.ria_workspace_compat"
-      ],
-      "action_coverage": "inherited",
+      "action_ids": [],
+      "action_coverage": "local",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "auth",
+      "trust_boundary": "none",
       "native_surface_id": "native-route-ria-clients"
     }
   ]

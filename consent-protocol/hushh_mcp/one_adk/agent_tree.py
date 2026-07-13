@@ -564,11 +564,21 @@ async def _specialist_turn(
 
 
 async def open_screen(screen: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Navigate the app to a screen. Valid screens: home, setup, finance, ria,
-    gmail, email, location, personal_data, consent, marketplace,
-    connected_systems, profile. Works from anywhere in the app. Use 'setup' to
-    take the user back to the account setup hub to continue onboarding other
-    capabilities after finishing one."""
+    """Legacy non-live navigation helper.
+
+    Live One sessions must use a generated action currently published by the
+    browser. Keeping this compatibility tool fail-closed in a live session
+    prevents it from bypassing route, setup, and visible-control authority.
+    """
+    voice_context = tool_context.state.get(STATE_VOICE_CONTEXT)
+    if isinstance(voice_context, dict) and voice_context.get("route_family"):
+        return {
+            "status": "action_required",
+            "message": (
+                "Use one of the generated actions available on the current screen; "
+                "I cannot navigate around its controls directly."
+            ),
+        }
     key = str(screen or "").strip().lower().replace("-", "_").replace(" ", "_")
     route = APP_ROUTES.get(key)
     if not route:
@@ -591,11 +601,7 @@ async def open_screen(screen: str, tool_context: ToolContext) -> dict[str, Any]:
         # notes in adk_live.py). Nudging here means One offers a next step
         # after every screen it opens, not only after onboarding-tagged
         # screen changes.
-        "next_step": (
-            f"Once you land on {key.replace('_', ' ')}, briefly say what the "
-            "person can do here and, if there's an obvious next action, offer "
-            "it before waiting for them to ask."
-        ),
+        "next_step": "Wait for route settlement before describing the next step.",
     }
 
 

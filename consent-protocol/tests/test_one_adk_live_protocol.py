@@ -52,9 +52,10 @@ def test_live_context_keeps_only_bounded_redacted_ui_fields():
         "route_instruction_id": "route.one.kai",
         "route_context_policy": "publish",
         "route_playbook": context["route_playbook"],
+        "screen": "kai_market",
         "persona": "investor",
         "voice_state": "listening",
-        "available_action_ids": ["analysis.start"],
+        "available_action_ids": [],
         "visible_modules": ["Portfolio"],
         "visible_control_ids": [],
         "interaction_layer": None,
@@ -116,7 +117,7 @@ def test_live_context_keeps_only_generated_actions_from_the_top_modal_layer():
     }
 
 
-def test_live_context_derives_dynamic_route_policy_and_rejects_client_policy_fields():
+def test_live_context_derives_static_route_policy_and_rejects_client_policy_fields():
     context = _sanitize_live_context(
         {
             "route_family": "/one/setup/finance",
@@ -125,10 +126,24 @@ def test_live_context_derives_dynamic_route_policy_and_rejects_client_policy_fie
         }
     )
 
-    assert context["route_pattern"] == "/one/setup/[capability]"
-    assert context["route_instruction_id"] == "route.one.setup.capability"
+    assert context["route_pattern"] == "/one/setup/finance"
+    assert context["route_instruction_id"] == "route.one.setup.finance"
     assert context["route_context_policy"] == "publish"
-    assert context["route_playbook"]["primary_action_id"] == "setup.capability_continue"
+    assert context["screen"] == "one_setup_finance"
+    assert context["route_playbook"]["primary_action_id"] == "kai.setup.answer_horizon"
+
+
+def test_live_context_intersects_actions_and_screen_with_generated_route_policy():
+    context = _sanitize_live_context(
+        {
+            "route_family": "/one/setup/gmail",
+            "screen": "profile",
+            "available_action_ids": ["route.profile", "setup.connect_gmail"],
+        }
+    )
+
+    assert context["screen"] == "one_setup_gmail"
+    assert context["available_action_ids"] == ["setup.connect_gmail"]
 
 
 def test_route_note_prioritizes_visible_actions_without_granting_authority():

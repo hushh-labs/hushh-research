@@ -342,6 +342,19 @@ class TestOpenScreen:
         assert STATE_PENDING_DIRECTIVE not in state
         assert "valid_screens" in result
 
+    @pytest.mark.asyncio
+    async def test_refuses_legacy_navigation_during_a_live_setup_session(self):
+        state = {
+            STATE_VOICE_CONTEXT: {
+                "route_family": "/one/setup/gmail",
+                "available_action_ids": ["setup.connect_gmail"],
+            }
+        }
+        result = await open_screen("profile", _tool_context(state))
+
+        assert result["status"] == "action_required"
+        assert STATE_PENDING_DIRECTIVE not in state
+
 
 class TestRunAppAction:
     def test_state_keys_stay_in_sync_with_agent_tree(self):

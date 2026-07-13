@@ -165,6 +165,7 @@ export async function waitForLocalOnboardingHandler(
 export function useLocalOnboardingActionHandler(
   actionId: string,
   handler: LocalOnboardingActionHandler,
+  options: { enabled?: boolean } = {},
 ) {
   const ownerIdRef = useRef(
     `local_action_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
@@ -179,6 +180,7 @@ export function useLocalOnboardingActionHandler(
   });
 
   useEffect(() => {
+    if (options.enabled === false) return;
     const stableHandler: LocalOnboardingActionHandler = (slots, context) =>
       handlerRef.current(slots, context);
     const ownerId = ownerIdRef.current;
@@ -186,5 +188,5 @@ export function useLocalOnboardingActionHandler(
     return () => {
       unregisterMountedLocalActionHandler(actionId, ownerId);
     };
-  }, [actionId]);
+  }, [actionId, options.enabled]);
 }

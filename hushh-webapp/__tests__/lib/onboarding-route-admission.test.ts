@@ -9,7 +9,7 @@ import {
 
 describe("onboarding route admission", () => {
   it("keeps every capability inside its own bounded route family", () => {
-    expect(isCapabilityOnboardingRoute("finance", "/one/kai/import")).toBe(
+    expect(isCapabilityOnboardingRoute("finance", "/one/setup/finance/import")).toBe(
       true,
     );
     expect(
@@ -23,12 +23,12 @@ describe("onboarding route admission", () => {
   });
 
   it("maps physical capability routes back to the correct terminal step", () => {
-    expect(resolveOnboardingCapabilityForRoute("/one/gmail")).toBe("gmail");
-    expect(resolveOnboardingCapabilityForRoute("/one/kyc")).toBe("email");
-    expect(resolveOnboardingCapabilityForRoute("/ria/onboarding")).toBe("ria");
+    expect(resolveOnboardingCapabilityForRoute("/one/setup/gmail")).toBe("gmail");
+    expect(resolveOnboardingCapabilityForRoute("/one/setup/email")).toBe("email");
+    expect(resolveOnboardingCapabilityForRoute("/one/setup/ria")).toBe("ria");
     expect(resolveOnboardingCapabilityForRoute("/consents")).toBeNull();
     expect(buildOneSetupCapabilityFinishRoute("finance")).toBe(
-      "/one/setup/finance?finish=1",
+      "/one/setup/finance",
     );
   });
 

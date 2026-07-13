@@ -21,8 +21,8 @@
       "aliases": ["less than 3 years", "3 to 7 years", "more than 7 years"],
       "search_keywords": ["horizon", "how long", "invested"],
       "reachability": {
-        "routes": ["/one/setup/kai"],
-        "screens": ["kai_setup_wizard", "one_setup"],
+        "routes": ["/one/setup/finance"],
+        "screens": ["one_setup_finance"],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
@@ -56,8 +56,8 @@
       "aliases": ["reduce investments", "stay invested", "buy more"],
       "search_keywords": ["drawdown", "drop", "reaction"],
       "reachability": {
-        "routes": ["/one/setup/kai"],
-        "screens": ["kai_setup_wizard", "one_setup"],
+        "routes": ["/one/setup/finance"],
+        "screens": ["one_setup_finance"],
         "hidden_navigable": false,
         "navigation_prerequisites": ["Investment horizon must already be answered."]
       },
@@ -91,8 +91,8 @@
       "aliases": ["smaller steadier returns", "moderate ups and downs", "larger swings"],
       "search_keywords": ["volatility", "comfort", "swings"],
       "reachability": {
-        "routes": ["/one/setup/kai"],
-        "screens": ["kai_setup_wizard", "one_setup"],
+        "routes": ["/one/setup/finance"],
+        "screens": ["one_setup_finance"],
         "hidden_navigable": false,
         "navigation_prerequisites": ["Drawdown response must already be answered."]
       },
@@ -126,8 +126,8 @@
       "aliases": ["save finance preferences", "looks good, continue", "finish finance setup"],
       "search_keywords": ["save", "finance", "preferences", "finish", "persona"],
       "reachability": {
-        "routes": ["/one/setup/kai"],
-        "screens": ["kai_setup_wizard", "one_setup"],
+        "routes": ["/one/setup/finance"],
+        "screens": ["one_setup_finance"],
         "hidden_navigable": false,
         "navigation_prerequisites": ["All three preference questions must be answered."]
       },

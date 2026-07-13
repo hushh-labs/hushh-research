@@ -1,5 +1,5 @@
 import gateway from "@/contracts/kai/kai-action-gateway.vnext.json";
-import capabilityStepContract from "@/app/one/setup/[capability]/one-onboarding-capability-step.voice-action-contract.json";
+import gmailSetupContract from "@/app/one/setup/gmail/page.voice-action-contract.json";
 import hubContract from "@/components/onboarding/setup/one-setup-hub.voice-action-contract.json";
 import routeLayoutContract from "@/lib/navigation/app-route-layout.contract.json";
 import {
@@ -75,20 +75,14 @@ describe("setup catalog voice parity", () => {
       "setup.hub_master_ack",
     ]);
 
-    const capabilityAction = capabilityStepContract.actions.find(
-      (action) => action.action_id === "setup.capability_continue",
+    const connectAction = gmailSetupContract.actions.find(
+      (action) => action.action_id === "setup.connect_gmail",
     );
-    expect(capabilityAction?.reachability.routes).toEqual(
-      ONE_SETUP_CAPABILITY_IDS.map(buildOneSetupCapabilityRoute),
-    );
-    expect(capabilityAction?.reachability.routes).not.toContain(
-      "/one/setup/pkm",
-    );
-    expect(capabilityAction?.reachability.routes).not.toContain(
-      "/one/setup/consent",
-    );
-    expect(capabilityAction?.reachability.routes).not.toContain(
-      "/one/setup/marketplace",
-    );
+    expect(connectAction?.reachability.routes).toEqual(["/one/setup/gmail"]);
+    expect(connectAction?.control_ids).toContain("open_gmail_connector");
+    expect(connectAction?.execution_target).toMatchObject({
+      status: "wired",
+      path: "local_handler",
+    });
   });
 });

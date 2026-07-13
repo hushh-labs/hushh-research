@@ -46,7 +46,7 @@
  * app page rendered with onboarding chrome and no bottom navigation.
  */
 .setupShell {
-  padding-bottom: calc(var(--app-safe-area-bottom-effective, 0px) + 6.75rem);
+  padding-bottom: calc(var(--app-bottom-inset) + 1.5rem);
 }
 
 .flatChecklist [data-slot="settings-group-shell"] {
@@ -85,7 +85,7 @@
 
 @media (min-width: 640px) {
   .setupShell {
-    padding-bottom: calc(var(--app-safe-area-bottom-effective, 0px) + 5rem);
+    padding-bottom: calc(var(--app-bottom-inset) + 1.5rem);
   }
 
   .setupHeader :global(h1),

@@ -119,7 +119,7 @@ describe("OneDashboardPage", () => {
 
     // Resolver-driven consumer labels (plain language, no system nouns).
     expect(screen.getByText("Set up")).toBeTruthy(); // finance not-started
-    expect(screen.getAllByText("Connect to set up")).toHaveLength(2); // gmail + connected
+    expect(screen.queryByText("Connect to set up")).toBeNull();
     // email + location are real vault-gated workflows (not explore-only), so a
     // completed status reads "Ready", not "Explored".
     expect(screen.getAllByText("Ready")).toHaveLength(2); // email + location completed

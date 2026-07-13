@@ -348,10 +348,10 @@ describe("top shell breadcrumbs", () => {
     fromHub.set("from", "/one/setup");
 
     const expected = new Map([
-      ["/one/kyc", "/one/setup/email?finish=1"],
-      ["/one/location", "/one/setup/location?finish=1"],
-      ["/one/gmail", "/one/setup/gmail?finish=1"],
-      ["/one/connected-systems", "/one/setup/connected-systems?finish=1"],
+      ["/one/kyc", "/one/setup"],
+      ["/one/location", "/one/setup"],
+      ["/one/gmail", "/one/setup"],
+      ["/one/connected-systems", "/one/setup"],
     ]);
     for (const [path, backHref] of expected) {
       expect(resolveTopShellBreadcrumb(path, fromHub)?.backHref).toBe(backHref);

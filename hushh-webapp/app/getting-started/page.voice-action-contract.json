@@ -42,7 +42,7 @@
           "login",
           "one_setup"
         ],
-        "hidden_navigable": true,
+        "hidden_navigable": false,
         "navigation_prerequisites": [
           "None; the welcome carousel is public."
         ]
@@ -124,7 +124,7 @@
           "getting_started",
           "one_agents"
         ],
-        "hidden_navigable": true,
+        "hidden_navigable": false,
         "navigation_prerequisites": [
           "None; sign-in is reachable from any anonymous screen."
         ]
@@ -168,7 +168,7 @@
           "one_setup",
           "one_agents"
         ],
-        "hidden_navigable": true,
+        "hidden_navigable": false,
         "navigation_prerequisites": [
           "Requires a signed-in session before vault setup can begin."
         ]

@@ -913,8 +913,9 @@ describe("ProfileReceiptsPage", () => {
       screen.getByRole("heading", { name: /gmail not connected/i }),
     ).toBeTruthy();
     expect(
-      screen.getByText(/connect once to sync receipt emails/i),
+      screen.getByText(/receipt emails capture purchase interactions/i),
     ).toBeTruthy();
+    expect(screen.queryByText("0 receipts")).toBeNull();
     expect(
       screen.getAllByRole("button", { name: /connect gmail/i }),
     ).toHaveLength(1);

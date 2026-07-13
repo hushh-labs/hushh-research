@@ -1,5 +1,5 @@
 import {
-  buildOneSetupCapabilityFinishRoute,
+  buildOneSetupCapabilityRoute,
   normalizeInternalRouteHref,
   resolveOnboardingCapabilityForRoute,
   ROUTES,
@@ -85,7 +85,7 @@ function resolveCapabilitySetupBackHref(
   if (originHref !== ROUTES.ONE_SETUP) return originHref;
   const capabilityId = resolveOnboardingCapabilityForRoute(pathname);
   return capabilityId
-    ? buildOneSetupCapabilityFinishRoute(capabilityId)
+    ? buildOneSetupCapabilityRoute(capabilityId)
     : ROUTES.ONE_SETUP;
 }
 

@@ -378,13 +378,11 @@ export function AgentBar() {
         // One's tools decided this (single decision-maker); the client only
         // executes through the same governed gateway the app uses.
         if (event.directive.kind === "navigate") {
-          const route =
-            typeof event.directive.payload?.route === "string"
-              ? event.directive.payload.route
-              : null;
-          if (route && route.startsWith("/")) {
-            router.push(route);
-          }
+          // Direct navigation directives predate generated action contracts.
+          // Do not let a legacy ADK tool bypass the active route's verified
+          // control inventory; every live route transition now enters through
+          // an `action` directive and executeAgentGatewayAction.
+          console.warn("[AgentBar] Rejected legacy direct navigation directive.");
           return;
         }
         if (event.directive.kind === "action") {
@@ -476,6 +474,9 @@ export function AgentBar() {
                   router,
                   appRuntimeState: runtimeState,
                   surfaceMetadata: getVoiceSurfaceMetadata(),
+                  allowedActionIds:
+                    runtime?.oneVoiceContextSnapshot.available_action_ids ??
+                    null,
                   hasPortfolioData:
                     runtimeState.portfolio.has_portfolio_data ||
                     runtime?.oneVoiceContextSnapshot.cache.portfolio_ready ===
@@ -662,6 +663,8 @@ export function AgentBar() {
         router,
         appRuntimeState: runtimeState,
         surfaceMetadata: getVoiceSurfaceMetadata(),
+        allowedActionIds:
+          runtime?.oneVoiceContextSnapshot.available_action_ids ?? null,
         hasPortfolioData:
           runtimeState.portfolio.has_portfolio_data ||
           runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,

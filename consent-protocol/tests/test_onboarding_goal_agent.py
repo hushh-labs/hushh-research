@@ -96,6 +96,93 @@ def test_finance_capability_returns_to_hub_without_resolving_root() -> None:
     assert goal.permitted_action_ids == ["kai.setup.launch_dashboard"]
 
 
+def test_gmail_finish_requires_the_visible_verified_finish_action() -> None:
+    goal = resolve_onboarding_goal(
+        OnboardingJourneyContext(
+            phase="capability_setup",
+            authenticated=True,
+            active_capability="gmail",
+            available_action_ids=["setup.finish_gmail"],
+            assessment=OnboardingAssessmentV1(
+                intent="execute_visible_action",
+                candidate_action_id="setup.finish_gmail",
+            ),
+        )
+    )
+
+    assert goal.selected_action_id == "setup.finish_gmail"
+    assert goal.return_to_hub is True
+    assert goal.resolves_root is False
+
+
+def test_capability_skip_is_admitted_only_when_the_visible_skip_action_is_published() -> None:
+    goal = resolve_onboarding_goal(
+        OnboardingJourneyContext(
+            phase="capability_setup",
+            authenticated=True,
+            active_capability="gmail",
+            available_action_ids=["setup.skip_gmail"],
+            assessment=OnboardingAssessmentV1(
+                intent="execute_visible_action",
+                candidate_action_id="setup.skip_gmail",
+            ),
+        )
+    )
+
+    assert goal.selected_action_id == "setup.skip_gmail"
+    assert goal.return_to_hub is True
+    assert goal.resolves_root is False
+
+
+def test_static_capability_terminal_actions_are_admitted_only_when_visible() -> None:
+    terminal_actions = [
+        "setup.finish_location",
+        "setup.skip_email",
+        "setup.finish_finance",
+        "setup.skip_ria",
+        "setup.finish_connected_systems",
+    ]
+    for capability_id, action_id in zip(
+        ["location", "email", "finance", "ria", "connected-systems"],
+        terminal_actions,
+        strict=True,
+    ):
+        goal = resolve_onboarding_goal(
+            OnboardingJourneyContext(
+                phase="capability_setup",
+                authenticated=True,
+                active_capability=capability_id,
+                available_action_ids=[action_id],
+                assessment=OnboardingAssessmentV1(
+                    intent="execute_visible_action",
+                    candidate_action_id=action_id,
+                ),
+            )
+        )
+        assert goal.selected_action_id == action_id
+        assert goal.return_to_hub is True
+        assert goal.resolves_root is False
+
+
+def test_static_terminal_action_for_a_different_active_capability_is_rejected() -> None:
+    goal = resolve_onboarding_goal(
+        OnboardingJourneyContext(
+            phase="capability_setup",
+            authenticated=True,
+            active_capability="gmail",
+            available_action_ids=["setup.finish_location"],
+            assessment=OnboardingAssessmentV1(
+                intent="execute_visible_action",
+                candidate_action_id="setup.finish_location",
+            ),
+        )
+    )
+
+    assert goal.selected_action_id is None
+    assert goal.assessment_status == "rejected"
+    assert goal.reason_code == "action_not_available_on_screen"
+
+
 def test_root_resolution_overrides_stale_capability_context() -> None:
     goal = resolve_onboarding_goal(
         OnboardingJourneyContext(

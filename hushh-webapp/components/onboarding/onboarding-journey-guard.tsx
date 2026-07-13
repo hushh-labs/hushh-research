@@ -7,7 +7,6 @@ import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
 import {
-  buildOneSetupCapabilityFinishRoute,
   buildOneSetupRoute,
   isCapabilityOnboardingRoute,
   isOnboardingAdmissionExemptRoute,
@@ -90,22 +89,8 @@ export function OnboardingJourneyGuard({
           return;
         }
 
-        // Returning to the hub while a capability is still active must pass
-        // through that capability's explicit terminal acknowledgement. This
-        // catches route-local back controls as well as the shared top bar.
-        if (
-          pathname === ROUTES.ONE_SETUP &&
-          state.onboardingActiveCapability
-        ) {
-          setRedirecting(true);
-          router.replace(
-            buildOneSetupCapabilityFinishRoute(
-              state.onboardingActiveCapability,
-            ),
-          );
-          return;
-        }
-
+        // The hub is always a safe return point. An active capability remains
+        // resumable there until its own explicit Finish or Skip settles it.
         if (setupSurface) {
           setChecking(false);
           return;

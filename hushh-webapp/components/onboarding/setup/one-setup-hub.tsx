@@ -10,8 +10,8 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
-import { Button } from "@/components/ui/button";
 import { CapabilitySetupTile } from "@/components/onboarding/setup/capability-setup-tile";
+import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -87,12 +87,12 @@ export function OneSetupHub() {
   const remaining = total - done;
   const allReady = total > 0 && remaining === 0;
   // The MASTER setup acknowledgement is owned by this single hub control:
-  //   - 0 capabilities done  -> "Skip"     (master skip-resolved)
-  //   - 1..n capabilities done -> "Continue" (master completed, not skipped)
+  //   - 0 capabilities done  -> "Skip setup"   (master skip-resolved)
+  //   - 1..n capabilities done -> "Finish setup" (master completed, not skipped)
   // Computed here (ahead of the voice metadata publish below, which needs the
   // label) rather than only near `handleMasterAck`.
   const masterSkipped = done === 0;
-  const masterActionLabel = masterSkipped ? "Skip" : "Continue";
+  const masterActionLabel = masterSkipped ? "Skip setup" : "Finish setup";
 
   // Publish screen context so the onboarding guide can describe the hub and
   // navigate the person to any capability they ask for.
@@ -118,7 +118,7 @@ export function OneSetupHub() {
         label: masterActionLabel,
         purpose: masterSkipped
           ? "Skip setup for now and go home."
-          : "Finish for now and go home.",
+          : "Finish setup for now and go home.",
       },
     ],
   });
@@ -156,7 +156,7 @@ export function OneSetupHub() {
         status: "succeeded" as const,
         summary: masterSkipped
           ? "Skipped setup for now."
-          : "Setup acknowledged. Opening home.",
+          : "Finished setup for now. Opening home.",
         routeAfter: completionTarget,
       };
     } catch (error) {
@@ -171,8 +171,8 @@ export function OneSetupHub() {
     }
   };
 
-  // Voice parity: "skip setup" / "continue to home" drive the same master
-  // acknowledgement as tapping the hub's Skip/Continue button.
+  // Voice parity: "skip setup" / "finish setup" drive the same master
+  // acknowledgement as the visible shared terminal action.
   useLocalOnboardingActionHandler("setup.hub_master_ack", async () => {
     return handleMasterAck();
   });
@@ -201,27 +201,6 @@ export function OneSetupHub() {
           description={summary}
           accent="neutral"
           className={styles.setupHeader}
-          actions={
-            <Button
-              type="button"
-              variant={masterSkipped ? "ghost" : "default"}
-              size="sm"
-              disabled={dismissing}
-              onClick={() => void handleMasterAck()}
-              data-testid="one-setup-master-ack"
-              data-voice-control-id="one-setup-master-ack"
-              className={cn(
-                "rounded-full type-subhead font-medium",
-                "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-                "active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100",
-                masterSkipped
-                  ? "text-primary hover:bg-primary/10"
-                  : "!bg-primary !text-primary-foreground hover:!bg-primary/90",
-              )}
-            >
-              {masterActionLabel}
-            </Button>
-          }
         />
       </AppPageHeaderRegion>
 
@@ -295,6 +274,26 @@ export function OneSetupHub() {
             </SettingsGroup>
           ) : null}
         </div>
+        <SetupCompletionFooter
+          label={masterActionLabel}
+          onComplete={() => void handleMasterAck()}
+          busy={dismissing}
+          controlId="one-setup-master-ack"
+          actionId="setup.hub_master_ack"
+          testId="one-setup-master-ack"
+          purpose={
+            masterSkipped
+              ? "Skip the remaining setup for now and go home."
+              : "Finish setup for now and go home."
+          }
+          supportingText={
+            masterSkipped
+              ? "You can set up these capabilities any time."
+              : "Your completed setup stays in place. You can add more any time."
+          }
+          variant={masterSkipped ? "none" : "blue-gradient"}
+          effect={masterSkipped ? "fade" : "fill"}
+        />
       </AppPageContentRegion>
     </AppPageShell>
   );

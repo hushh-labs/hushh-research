@@ -157,8 +157,8 @@ export function AuthStep({
     Boolean(nativeTestConfig.vaultPassphrase);
   const preserveOnboardingAuditRoute =
     nativeTestConfig.enabled &&
-    nativeTestConfig.expectedRoute === ROUTES.ONE_SETUP_KAI &&
-    redirectPath === ROUTES.ONE_SETUP_KAI;
+    nativeTestConfig.expectedRoute === ROUTES.ONE_SETUP_FINANCE &&
+    redirectPath === ROUTES.ONE_SETUP_FINANCE;
   const growthJourney = useMemo(
     () => resolveGrowthJourneyForPath(redirectPath),
     [redirectPath],
@@ -356,9 +356,9 @@ export function AuthStep({
         if (preserveOnboardingAuditRoute) {
           setOnboardingRequiredCookie(false);
           setOnboardingFlowActiveCookie(false);
-          router.push(ROUTES.ONE_SETUP_KAI);
-          lastResolvedNavigationPathRef.current = ROUTES.ONE_SETUP_KAI;
-          return ROUTES.ONE_SETUP_KAI;
+          router.push(ROUTES.ONE_SETUP_FINANCE);
+          lastResolvedNavigationPathRef.current = ROUTES.ONE_SETUP_FINANCE;
+          return ROUTES.ONE_SETUP_FINANCE;
         }
         const resolvedIdToken =
           idToken ||
@@ -403,7 +403,7 @@ export function AuthStep({
         const fallbackPath = targetPath || ROUTES.KAI_HOME;
         const safeFallbackPath =
           fallbackPath === ROUTES.ONE_SETUP ||
-          fallbackPath === ROUTES.ONE_SETUP_KAI ||
+          fallbackPath === ROUTES.ONE_SETUP_FINANCE ||
           fallbackPath === ROUTES.KAI_IMPORT
             ? ROUTES.KAI_HOME
             : fallbackPath;

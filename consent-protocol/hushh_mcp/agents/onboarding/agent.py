@@ -44,7 +44,18 @@ _PHASE_ACTIONS = {
         "setup.open_connected_systems",
     },
     "capability_setup": {
-        "setup.capability_continue",
+        "setup.finish_gmail",
+        "setup.skip_gmail",
+        "setup.finish_location",
+        "setup.skip_location",
+        "setup.finish_email",
+        "setup.skip_email",
+        "setup.finish_finance",
+        "setup.skip_finance",
+        "setup.finish_ria",
+        "setup.skip_ria",
+        "setup.finish_connected_systems",
+        "setup.skip_connected_systems",
         "kai.setup.answer_horizon",
         "kai.setup.answer_drawdown",
         "kai.setup.answer_volatility",
@@ -52,6 +63,28 @@ _PHASE_ACTIONS = {
     },
     "external_connector": set(),
     "root_completion": set(),
+}
+_CAPABILITY_TERMINAL_ACTIONS = {
+    "gmail": {
+        "setup.connect_gmail",
+        "setup.finish_gmail",
+        "setup.skip_gmail",
+    },
+    "location": {"setup.finish_location", "setup.skip_location"},
+    "email": {"setup.finish_email", "setup.skip_email"},
+    "finance": {
+        "setup.finish_finance",
+        "setup.skip_finance",
+        "kai.setup.answer_horizon",
+        "kai.setup.answer_drawdown",
+        "kai.setup.answer_volatility",
+        "kai.setup.launch_dashboard",
+    },
+    "ria": {"setup.finish_ria", "setup.skip_ria"},
+    "connected-systems": {
+        "setup.finish_connected_systems",
+        "setup.skip_connected_systems",
+    },
 }
 
 
@@ -161,6 +194,11 @@ def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal
         phase = "capability_setup"
 
     allowed = _PHASE_ACTIONS[phase]
+    if phase == "capability_setup" and context.active_capability:
+        # The active capability is redacted route state, not an inferred intent.
+        # It narrows terminal authority before the available visible-action
+        # intersection below, so a stale sibling action fails closed.
+        allowed = _CAPABILITY_TERMINAL_ACTIONS.get(context.active_capability, set())
     permitted = [action_id for action_id in context.available_action_ids if action_id in allowed]
     assessment = context.assessment
     candidate = assessment.candidate_action_id
