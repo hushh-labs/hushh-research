@@ -5,6 +5,7 @@ import type { LucideIcon } from "lucide-react";
 import { BriefcaseBusiness, ShieldAlert, ShieldCheck, TriangleAlert } from "lucide-react";
 
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { RIA_COPY } from "@/lib/ria/ria-screen-copy";
 
 import {
   AppPageContentRegion,
@@ -256,15 +257,14 @@ export function RiaVerificationGate({ children }: { children: ReactNode }) {
     return (
       <section className="space-y-3">
         <SectionHeader
-          eyebrow="Verification required"
-          title="Complete advisor verification first"
-          description="Non-verified advisors cannot access investor information. Finish the verification flow in onboarding, then come back."
+          eyebrow={RIA_COPY.clients.verifyGate.eyebrow}
+          title={RIA_COPY.clients.verifyGate.title}
+          description={RIA_COPY.clients.verifyGate.description}
           icon={ShieldAlert}
         />
         <RiaSurface tone="warning" className="border-dashed">
           <p className="text-sm leading-6 text-muted-foreground">
-            Investor data, client workspaces, and consent requests are locked until
-            regulatory verification is complete.
+            {RIA_COPY.clients.verifyGate.body}
           </p>
         </RiaSurface>
       </section>

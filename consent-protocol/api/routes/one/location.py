@@ -51,6 +51,7 @@ class CreateGrantRequest(_CamelModel):
     recipient_key_id: str | None = Field(default=None, alias="recipientKeyId", max_length=160)
     duration_hours: float = Field(alias="durationHours", gt=0, le=24)
     reason: str | None = Field(default=None, max_length=300)
+    share_kind: str | None = Field(default=None, alias="shareKind", max_length=40)
 
 
 class StoreEnvelopeRequest(_CamelModel):
@@ -443,6 +444,7 @@ async def create_location_grant(
                 recipient_key_id=payload.recipient_key_id,
                 duration_hours=payload.duration_hours,
                 reason=payload.reason,
+                share_kind=payload.share_kind,
                 enforce_connection=True,
             )
         }
