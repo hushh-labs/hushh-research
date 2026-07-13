@@ -19,6 +19,10 @@ function readJson(filePath) {
   return JSON.parse(read(filePath));
 }
 
+function toPosixPath(filePath) {
+  return filePath.split(path.sep).join("/");
+}
+
 function routeValuesFromRoutesTs(source) {
   return [
     ...new Set(
@@ -31,10 +35,12 @@ function routeValuesFromRoutesTs(source) {
 
 function routeValuesFromAppPages() {
   return walkFiles(path.join(appRoot, "app"), (filePath) =>
-    filePath.endsWith("/page.tsx"),
+    toPosixPath(filePath).endsWith("/page.tsx"),
   )
     .map((filePath) => {
-      const relative = path.relative(path.join(appRoot, "app"), filePath);
+      const relative = toPosixPath(
+        path.relative(path.join(appRoot, "app"), filePath),
+      );
       const route = relative.replace(/(?:^|\/)page\.tsx$/, "");
       return route ? `/${route}` : "/";
     })
@@ -78,9 +84,11 @@ function routeToVoiceContractFile(route) {
 }
 
 function apiTemplateFromRouteFile(filePath) {
-  const relative = path.relative(path.join(appRoot, "app/api"), filePath);
+  const relative = toPosixPath(
+    path.relative(path.join(appRoot, "app/api"), filePath),
+  );
   const withoutRoute = relative.replace(/\/route\.ts$/, "");
-  const parts = withoutRoute.split(path.sep).map((part) => {
+  const parts = withoutRoute.split("/").map((part) => {
     const catchAll = part.match(/^\[\.\.\.(.+)\]$/);
     if (catchAll) return `{${catchAll[1]}*}`;
     const dynamic = part.match(/^\[(.+)\]$/);
@@ -396,11 +404,11 @@ function buildSurfaceMap() {
     (inventory.routes || []).map((route) => [route.route, route]),
   );
   const apiRoutes = walkFiles(path.join(appRoot, "app/api"), (filePath) =>
-    filePath.endsWith("/route.ts"),
+    toPosixPath(filePath).endsWith("/route.ts"),
   )
     .map((filePath) => ({
       template: apiTemplateFromRouteFile(filePath),
-      file: path.relative(appRoot, filePath),
+      file: toPosixPath(path.relative(appRoot, filePath)),
     }))
     .sort((left, right) => left.template.localeCompare(right.template));
 

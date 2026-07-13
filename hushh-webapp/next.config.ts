@@ -30,12 +30,11 @@ const config: NextConfig = {
   // Trailing slash is important for static export routing
   trailingSlash: isCapacitorBuild,
 
-  // Page Extensions Strategy for Mobile Build
-  // Mobile static export still needs TS resolution for App Router internals.
-  // `cap:build` applies the app-page-only build-path filter that keeps web-only
-  // app/api route handlers out of Capacitor bundles.
+  // Capacitor only needs authored React routes. Keeping `.ts` out of the page
+  // extension set excludes web-only App Router handlers such as app/api/**/route.ts
+  // from the static export without relying on Next's selective build-path mode.
   pageExtensions: isCapacitorBuild
-    ? ["tsx", "ts"] // Mobile: Include TypeScript app-loader resolution.
+    ? ["tsx", "cap"] // Keep two entries: Next 16 mis-serializes singleton extension arrays.
     : ["tsx", "ts", "jsx", "js"], // Web: Include everything
 
   images: {
