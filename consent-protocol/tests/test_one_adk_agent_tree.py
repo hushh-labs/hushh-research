@@ -14,6 +14,7 @@ Contract under test:
 
 from __future__ import annotations
 
+import inspect
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -33,6 +34,8 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_CONSENT_TOKEN,
     STATE_PENDING_DIRECTIVE,
     STATE_USER_ID,
+    STATE_VOICE_CONTEXT,
+    _one_runtime_instruction,
     _specialist_turn,
     build_one_root_agent,
     get_one_runner,
@@ -73,8 +76,44 @@ class TestAgentTreeShape:
     def test_identity_instruction_answers_name_question(self):
         assert "I'm One" in ONE_IDENTITY_INSTRUCTION
         assert "Never call yourself Kai" in ONE_IDENTITY_INSTRUCTION
+        assert "Visible controls take priority over introductions" in ONE_IDENTITY_INSTRUCTION
+        assert "list_app_actions" in ONE_IDENTITY_INSTRUCTION
+        assert "correlated app action settlement" in ONE_IDENTITY_INSTRUCTION
         assert "Conversation comes before workflow" in ONE_IDENTITY_INSTRUCTION
         assert "so what?" in ONE_IDENTITY_INSTRUCTION
+
+    def test_runtime_instruction_injects_only_the_active_route_playbook(self):
+        instruction = _one_runtime_instruction(
+            SimpleNamespace(
+                state={
+                    STATE_VOICE_CONTEXT: {
+                        "route_playbook": {
+                            "purpose": "Welcome the person on the current root screen.",
+                            "entry_cue": "Say Claim your One.",
+                            "primary_action_id": "onboarding.claim_one",
+                            "completion_boundary": "Wait for browser settlement.",
+                            "out_of_scope_behavior": "Answer naturally.",
+                        }
+                    }
+                }
+            )
+        )
+
+        assert ONE_IDENTITY_INSTRUCTION in instruction
+        assert "onboarding.claim_one" in instruction
+        assert "ACTIVE ROUTE PLAYBOOK" in instruction
+
+    def test_onboarding_tool_accepts_typed_assessment_not_raw_request(self):
+        signature = inspect.signature(_tree.resolve_onboarding_goal)
+        assert "request" not in signature.parameters
+        assert {
+            "intent",
+            "candidate_action_id",
+            "provider",
+            "missing_input",
+            "ambiguous",
+            "confidence",
+        } <= set(signature.parameters)
 
     def test_runner_is_singleton(self):
         assert get_one_runner() is get_one_runner()
@@ -284,6 +323,28 @@ class TestRunAppAction:
         }
         result = await run_app_action("analysis.start", {"symbol": "NVDA"}, _tool_context(state))
         assert result["status"] == "action_unavailable"
+        assert _STATE_PENDING_DIRECTIVE not in state
+
+    @pytest.mark.asyncio
+    async def test_root_claim_is_available_only_on_the_public_intro_screen(self):
+        state = {
+            _STATE_SCREEN: "one_intro",
+            "hussh:voice_context": {
+                "available_action_ids": ["onboarding.claim_one"],
+            },
+        }
+        result = await run_app_action("onboarding.claim_one", {}, _tool_context(state))
+        assert result["status"] == "ok"
+        assert state[_STATE_PENDING_DIRECTIVE]["payload"]["actionId"] == "onboarding.claim_one"
+
+        state = {
+            _STATE_SCREEN: "login",
+            "hussh:voice_context": {
+                "available_action_ids": ["onboarding.claim_one"],
+            },
+        }
+        result = await run_app_action("onboarding.claim_one", {}, _tool_context(state))
+        assert result["status"] == "wrong_screen"
         assert _STATE_PENDING_DIRECTIVE not in state
 
     @pytest.mark.asyncio

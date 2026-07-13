@@ -76,5 +76,6 @@ Project skills live under `.codex/skills/`:
 4. `frontend-surface-placement`
 5. `frontend-native-surface-mapper`
 6. `frontend-cache-coherence`
+7. `morphy-ax`
 
 These skills must stay aligned with the docs and verification commands in this quality section.

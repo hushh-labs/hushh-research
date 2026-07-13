@@ -33,4 +33,22 @@ When subtree coordination is required:
 - keep the commands small and explicit
 - avoid turning upstream sync into repo-wide onboarding complexity
 
+Normal `git push` does not run the expensive upstream subtree projection. It
+still checks branch freshness and runs the fast protocol lint gate when
+protocol files changed. Maintainers choose either explicit verification:
+
+```bash
+./bin/hushh protocol check-sync
+```
+
+or opt in for a single push:
+
+```bash
+CONSENT_PRE_PUSH_SYNC_CHECK=1 git push
+```
+
+CI keeps the advisory upstream-sync check as the shared evidence lane. Actual
+`sync` and `push` operations remain explicit maintainer commands and are never
+performed by the pre-push hook.
+
 The older, more detailed subtree notes may still exist temporarily during cleanup, but this page is the canonical ownership boundary.

@@ -9,7 +9,9 @@ def test_resolves_parameterized_next_route_pattern_for_concrete_paths() -> None:
 
     assert entry is not None
     assert entry["route_pattern"] == "/one/setup/[capability]"
-    assert entry["instruction_id"] == "route.one.setup.capability."
+    assert entry["instruction_id"] == "route.one.setup.capability"
+    assert entry["voice_playbook"]["primary_action_id"] == "setup.capability_continue"
+    assert "setup.capability_continue" in entry["action_ids"]
     assert is_one_delegate_admitted("/one/setup/finance", "agent_kai") is False
 
 

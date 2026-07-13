@@ -15,7 +15,7 @@
     {
       "action_id": "auth.sign_in_google",
       "label": "Continue with Google",
-      "meaning": "Starts Google sign-in for the person already on the One sign-in screen.",
+      "meaning": "Uses the visible Google provider flow, with correlated redirect recovery only when the browser blocks a voice-triggered popup, and settles only after Firebase returns a user session.",
       "aliases": ["sign in with google", "continue with google", "google sign in"],
       "search_keywords": ["google", "sign in", "login", "authenticate"],
       "reachability": {
@@ -46,7 +46,7 @@
     {
       "action_id": "auth.sign_in_apple",
       "label": "Continue with Apple",
-      "meaning": "Starts Apple sign-in for the person already on the One sign-in screen.",
+      "meaning": "Uses the visible Apple provider flow, with correlated redirect recovery only when the browser blocks a voice-triggered popup, and settles only after Firebase returns a user session.",
       "aliases": ["sign in with apple", "continue with apple", "apple sign in"],
       "search_keywords": ["apple", "sign in", "login", "authenticate"],
       "reachability": {

@@ -69,7 +69,8 @@
           "/one/kai/import"
         ],
         "screens": [
-          "kai_portfolio_dashboard"
+          "kai_portfolio_dashboard",
+          "import"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": []

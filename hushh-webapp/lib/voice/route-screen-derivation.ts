@@ -26,7 +26,10 @@ export function deriveVoiceRouteScreen(
   if (!normalizedPath) {
     return { screen: "unknown", subview: null };
   }
-  if (normalizedPath === ROUTES.HOME || normalizedPath === ROUTES.ONE_HOME) {
+  if (normalizedPath === ROUTES.HOME) {
+    return { screen: "one_intro", subview: null };
+  }
+  if (normalizedPath === ROUTES.ONE_HOME) {
     return { screen: "one_agents", subview: null };
   }
   if (normalizedPath === ROUTES.GETTING_STARTED) {
@@ -104,6 +107,12 @@ export function deriveVoiceRouteScreen(
   }
   if (normalizedPath === ROUTES.RIA_HOME) {
     return { screen: "ria_home", subview: query.get("tab") || null };
+  }
+  if (normalizedPath === ROUTES.RIA_ONBOARDING) {
+    return { screen: "ria_onboarding", subview: query.get("step") || null };
+  }
+  if (normalizedPath === ROUTES.RIA_PROFILE) {
+    return { screen: "ria_profile", subview: query.get("tab") || null };
   }
   if (normalizedPath === ROUTES.RIA_CLIENTS) {
     return { screen: "ria_clients", subview: query.get("tab") || null };

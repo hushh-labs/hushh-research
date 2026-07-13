@@ -222,6 +222,7 @@ Operational note:
 - `Upstream Sync` and `Main Freshness Gate` are different surfaces.
 - `Upstream Sync` must summarize the actual `consent-protocol/` subtree state from `scripts/ci/subtree-sync-check.sh`.
 - `Main Freshness Gate` only describes branch currency relative to `main`.
+- Local pre-push keeps upstream sync opt-in for shipping speed. Use `./bin/hushh protocol check-sync` or `CONSENT_PRE_PUSH_SYNC_CHECK=1 git push`; CI remains the shared advisory evidence lane.
 
 ## Live GitHub Enforcement
 

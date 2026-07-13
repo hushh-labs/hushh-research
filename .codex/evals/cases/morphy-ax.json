@@ -1,0 +1,29 @@
+{
+  "skill_name": "morphy-ax",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "add a shared Morphy AX snapshot for voice chat onboarding and ambient agent presentation",
+        "top_k": 3
+      },
+      {
+        "prompt": "benchmark agent experience assessment accuracy without adding another runtime store",
+        "top_k": 3
+      },
+      {
+        "prompt": "preserve the One Voice wire contract while migrating shared agent presentation state",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "change the generated voice action gateway and author a new action contract",
+        "owner": "kai-voice-governance"
+      },
+      {
+        "prompt": "create a reusable visual card primitive in the design system",
+        "owner": "frontend-design-system"
+      }
+    ]
+  }
+}

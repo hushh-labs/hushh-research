@@ -3,6 +3,17 @@ import { describe, expect, it } from "vitest";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 
 describe("deriveVoiceRouteScreen", () => {
+  it("keeps the public One introduction distinct from authenticated One", () => {
+    expect(deriveVoiceRouteScreen("/")).toEqual({
+      screen: "one_intro",
+      subview: null,
+    });
+    expect(deriveVoiceRouteScreen("/one")).toEqual({
+      screen: "one_agents",
+      subview: null,
+    });
+  });
+
   it("maps the One Agents dashboard to an explicit voice screen", () => {
     expect(deriveVoiceRouteScreen("/one")).toEqual({
       screen: "one_agents",
@@ -136,6 +147,14 @@ describe("deriveVoiceRouteScreen", () => {
   });
 
   it("maps RIA roster, workspace, and detail routes to specific voice screens", () => {
+    expect(deriveVoiceRouteScreen("/ria/onboarding")).toEqual({
+      screen: "ria_onboarding",
+      subview: null,
+    });
+    expect(deriveVoiceRouteScreen("/ria/profile", "tab=services")).toEqual({
+      screen: "ria_profile",
+      subview: "services",
+    });
     expect(deriveVoiceRouteScreen("/ria/clients")).toEqual({
       screen: "ria_clients",
       subview: null,

@@ -31,6 +31,7 @@ export type VoiceV2Flags = {
   groundedActionResolutionEnabled: boolean;
   groundedActionPolicyEnforcementEnabled: boolean;
   groundedActionExecutionEnabled: boolean;
+  morphyAxEnabled: boolean;
 };
 
 export function getVoiceV2Flags(): VoiceV2Flags {
@@ -63,6 +64,10 @@ export function getVoiceV2Flags(): VoiceV2Flags {
     groundedActionExecutionEnabled: resolveFlag(
       process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_EXECUTION_ENABLED,
       groundedActionResolutionEnabled,
+    ),
+    morphyAxEnabled: resolveFlag(
+      process.env.NEXT_PUBLIC_MORPHY_AX_ENABLED,
+      false,
     ),
   };
 }

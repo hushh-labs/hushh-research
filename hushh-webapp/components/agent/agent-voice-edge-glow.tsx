@@ -19,6 +19,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
+import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import { cn } from "@/lib/utils";
 
 // Per-status color mixes. Each mix is a FULL spectrum walked once around the
@@ -106,6 +107,7 @@ const ANIM_NAME: Record<PoolDef["anim"], string> = {
 };
 
 export function AgentVoiceEdgeGlow() {
+  const runtime = useAgentRuntimeStateOptional();
   const active = useAgentVoiceState((s) => s.active);
   const status = useAgentVoiceState((s) => s.status);
   const level = useAgentVoiceState((s) => s.level);
@@ -170,6 +172,7 @@ export function AgentVoiceEdgeGlow() {
     <div
       aria-hidden
       data-voice-status={status}
+      data-morphy-ax-presentation={runtime?.morphyAxPresentation ?? "idle"}
       data-testid="one-voice-edge-glow"
       className={cn(
         "pointer-events-none fixed inset-0 z-[117] overflow-hidden",

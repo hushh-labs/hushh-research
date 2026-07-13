@@ -153,4 +153,39 @@ describe("executeAgentGatewayAction", () => {
       unregisterLocalOnboardingHandler("auth.sign_in_google", handler);
     }
   });
+
+  it("settles the root claim action through its local handler", async () => {
+    const router = { push: vi.fn() };
+    const handler = vi.fn().mockResolvedValue({
+      status: "started",
+      summary: "Opening sign-in.",
+    });
+    registerLocalOnboardingHandler("onboarding.claim_one", handler);
+
+    try {
+      const result = await executeAgentGatewayAction({
+        actionId: "onboarding.claim_one",
+        slots: {},
+        userId: "",
+        router,
+        appRuntimeState: runtimeState({
+          auth: { signed_in: false, user_id: null },
+          vault: { unlocked: false, token_available: false, token_valid: false },
+          route: { pathname: "/", screen: "one_intro", subview: null },
+        }),
+        hasPortfolioData: false,
+        busyOperations: {},
+        setAnalysisParams: vi.fn(),
+      });
+
+      expect(handler).toHaveBeenCalledWith({}, undefined);
+      expect(result).toMatchObject({
+        status: "started",
+        actionId: "onboarding.claim_one",
+        resultSummary: "Opening sign-in.",
+      });
+    } finally {
+      unregisterLocalOnboardingHandler("onboarding.claim_one", handler);
+    }
+  });
 });

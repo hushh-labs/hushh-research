@@ -196,6 +196,7 @@ export function OnboardingCapabilityStep({
             onClick={handlePrimary}
             disabled={busy || acted}
             data-testid="one-setup-capability-primary"
+            data-voice-control-id="one_setup_capability_primary"
           >
             {ctaLabel}
           </Button>

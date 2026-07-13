@@ -58,6 +58,9 @@ function routeToVoiceContractFile(route) {
   const candidates = [
     `${base}/page.voice-action-contract.json`,
     `${base}/page-client.voice-action-contract.json`,
+    ...(route === "/one/setup/[capability]"
+      ? [`${base}/one-onboarding-capability-step.voice-action-contract.json`]
+      : []),
   ].filter((candidate) => fs.existsSync(path.join(appRoot, candidate)));
   if (candidates.length > 1) {
     throw new Error(`Ambiguous voice action contracts for ${route}: ${candidates.join(", ")}`);
@@ -261,9 +264,56 @@ const routeOverrides = {
   },
 };
 
+function validateVoicePlaybook(route, value) {
+  const requiredStrings = [
+    "playbookId",
+    "purpose",
+    "screen",
+    "completionBoundary",
+    "outOfScopeBehavior",
+  ];
+  for (const field of requiredStrings) {
+    if (typeof value?.[field] !== "string" || !value[field].trim()) {
+      throw new Error(`Route ${route} voicePlaybook.${field} is required`);
+    }
+  }
+  if (!/^[a-z0-9._-]{3,96}$/.test(value.playbookId)) {
+    throw new Error(`Route ${route} has an invalid voicePlaybook.playbookId`);
+  }
+  if (!["on_entry", "ambient"].includes(value.proactivity)) {
+    throw new Error(`Route ${route} has invalid voicePlaybook.proactivity`);
+  }
+  if (!["stay", "navigate", "external_callback", "return_to_hub", "resolve_root"].includes(value.returnPolicy)) {
+    throw new Error(`Route ${route} has invalid voicePlaybook.returnPolicy`);
+  }
+  if (!Array.isArray(value.happyPathActionIds) || !Array.isArray(value.requiredInputs)) {
+    throw new Error(`Route ${route} playbook action/input collections must be arrays`);
+  }
+  for (const recovery of ["blocked", "cancelled", "failed", "timeout", "callbackError", "routeMismatch"]) {
+    if (typeof value.recoveries?.[recovery] !== "string" || !value.recoveries[recovery].trim()) {
+      throw new Error(`Route ${route} voicePlaybook.recoveries.${recovery} is required`);
+    }
+  }
+  if (value.proactivity === "on_entry" && !String(value.entryCue || "").trim()) {
+    throw new Error(`Route ${route} proactive playbook requires an entryCue`);
+  }
+  return value;
+}
+
 function buildSurfaceMap() {
   const routeContract = readJson(path.join(appRoot, "lib/navigation/app-route-layout.contract.json"));
   const contractByRoute = new Map((routeContract || []).map((entry) => [entry.route, entry]));
+  if (contractByRoute.size !== (routeContract || []).length) {
+    throw new Error("app-route-layout.contract.json contains duplicate routes");
+  }
+  const structuralPatterns = new Set();
+  for (const entry of routeContract || []) {
+    const structural = String(entry.route).replace(/\[[^\]]+\]/g, "[]");
+    if (structuralPatterns.has(structural)) {
+      throw new Error(`Ambiguous dynamic route layout pattern: ${structural}`);
+    }
+    structuralPatterns.add(structural);
+  }
   const routes = [
     ...new Set([
       ...routeValuesFromRoutesTs(read(path.join(appRoot, "lib/navigation/routes.ts"))),
@@ -301,6 +351,14 @@ function buildSurfaceMap() {
       const pageFile = routeToPageFile(route);
       const voiceContractFile = routeToVoiceContractFile(route);
       const routeContractEntry = contractByRoute.get(route) || null;
+      if (!routeContractEntry) {
+        throw new Error(`Route ${route} is missing from app-route-layout.contract.json`);
+      }
+      const voicePlaybook = routeContractEntry.voicePlaybook;
+      if (!voicePlaybook || typeof voicePlaybook !== "object") {
+        throw new Error(`Route ${route} is missing its required voicePlaybook`);
+      }
+      validateVoicePlaybook(route, voicePlaybook);
       return {
         route,
         page_file: pageFile,
@@ -311,6 +369,28 @@ function buildSurfaceMap() {
               exemption_reason: routeContractEntry.exemptionReason || null,
               shell_verification_file: routeContractEntry.shellVerification?.file || null,
               shell_verification_includes: routeContractEntry.shellVerification?.includes || [],
+              voice_playbook: {
+                playbook_id: voicePlaybook.playbookId,
+                purpose: voicePlaybook.purpose,
+                screen: voicePlaybook.screen,
+                entry_cue: voicePlaybook.entryCue,
+                proactivity: voicePlaybook.proactivity,
+                primary_action_id: voicePlaybook.primaryActionId || null,
+                happy_path_action_ids: voicePlaybook.happyPathActionIds || [],
+                required_inputs: voicePlaybook.requiredInputs || [],
+                recoveries: {
+                  blocked: voicePlaybook.recoveries?.blocked || "",
+                  cancelled: voicePlaybook.recoveries?.cancelled || "",
+                  failed: voicePlaybook.recoveries?.failed || "",
+                  timeout: voicePlaybook.recoveries?.timeout || "",
+                  callback_error: voicePlaybook.recoveries?.callbackError || "",
+                  route_mismatch: voicePlaybook.recoveries?.routeMismatch || "",
+                },
+                completion_boundary: voicePlaybook.completionBoundary,
+                next_route: voicePlaybook.nextRoute || null,
+                return_policy: voicePlaybook.returnPolicy,
+                out_of_scope_behavior: voicePlaybook.outOfScopeBehavior,
+              },
             }
           : null,
         native: inventoryByRoute.get(route) || null,

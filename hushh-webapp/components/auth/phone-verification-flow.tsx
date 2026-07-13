@@ -68,6 +68,12 @@ type PhoneVerificationFlowProps = {
 };
 
 type VerificationStep = "phone" | "code" | "linked";
+type StartVerificationOutcome =
+  | "code_sent"
+  | "auto_verified"
+  | "already_linked"
+  | "invalid"
+  | "failed";
 
 function getCountryOptionLabel(option: {
   label: string;
@@ -252,11 +258,11 @@ export function PhoneVerificationFlow({
   }, []);
 
   const handleStartVerification = useCallback(
-    async (resendCode = false, phoneNumberOverride?: string) => {
+    async (resendCode = false, phoneNumberOverride?: string): Promise<StartVerificationOutcome> => {
       const normalizedPhone = (phoneNumberOverride ?? normalizedPhoneInput).trim();
       if (!E164_PHONE_PATTERN.test(normalizedPhone)) {
         morphyToast.error("Enter a valid country code and phone number.");
-        return;
+        return "invalid";
       }
 
       if (currentPhoneNumber && normalizedPhone === currentPhoneNumber) {
@@ -266,7 +272,7 @@ export function PhoneVerificationFlow({
         });
         morphyToast.success("This phone number is already linked to your account.");
         await onCompleted();
-        return;
+        return "already_linked";
       }
 
       setBusy(true);
@@ -285,7 +291,7 @@ export function PhoneVerificationFlow({
             mode === "replace" ? "Phone number updated." : "Phone number verified."
           );
           await onCompleted(result.user ?? undefined);
-          return;
+          return "auto_verified";
         }
 
         setSubmittedPhoneNumber(normalizedPhone);
@@ -293,6 +299,7 @@ export function PhoneVerificationFlow({
         morphyToast.success(
           resendCode ? "A new verification code has been sent." : "Verification code sent."
         );
+        return "code_sent";
       } catch (error) {
         console.error("[PhoneVerificationFlow] Failed to start verification:", error);
         trackEvent("phone_verification_started", {
@@ -302,6 +309,7 @@ export function PhoneVerificationFlow({
         morphyToast.error(
           error instanceof Error ? error.message : "Failed to send verification code."
         );
+        return "failed";
       } finally {
         setBusy(false);
       }
@@ -314,10 +322,10 @@ export function PhoneVerificationFlow({
   // tapping the Send code button. The phone number is passed directly to
   // `handleStartVerification` (not read back from `normalizedPhoneInput`)
   // because the field-state updates below are async and would not be visible
-  // yet on this same tick. The confirmation-code step
-  // (`phone_mandate.submit_code`) stays `manual_only`/unwired by contract
-  // (see `app/register-phone/page.voice-action-contract.json`), so no
-  // handler is registered for it here.
+  // yet on this same tick. The confirmation-code action uses the same
+  // verification operation as the typed form, but only after the voice
+  // surface receives an explicit inline confirmation. Its sensitive slot is
+  // kept transient and is never rendered or repeated in the settlement.
   useLocalOnboardingActionHandler("phone_mandate.submit_number", async (slots) => {
     const rawPhoneNumber = String(slots.phoneNumber ?? "").trim();
     if (!rawPhoneNumber) {
@@ -333,8 +341,17 @@ export function PhoneVerificationFlow({
     const fields = derivePhoneFields(candidate);
     setSelectedCountry(fields.countryValue);
     setLocalPhoneNumber(fields.localPhoneNumber);
-    await handleStartVerification(false, candidate);
-    return { status: "succeeded", summary: "Verification code sent." };
+    const outcome = await handleStartVerification(false, candidate);
+    if (outcome === "failed") {
+      return { status: "failed", summary: "The verification code could not be sent." };
+    }
+    if (outcome === "invalid") {
+      return { status: "blocked", summary: "That phone number could not be verified." };
+    }
+    return {
+      status: "succeeded",
+      summary: outcome === "code_sent" ? "Verification code sent." : "Phone verified.",
+    };
   });
 
   const handleConfirmVerification = useCallback(async () => {
@@ -366,6 +383,30 @@ export function PhoneVerificationFlow({
       setBusy(false);
     }
   }, [confirmVerification, mode, onCompleted, verificationCode]);
+
+  useLocalOnboardingActionHandler("phone_mandate.submit_code", async (slots) => {
+    const code = String(slots.code ?? slots.verificationCode ?? "").replace(/\D/g, "").slice(0, 6);
+    if (step !== "code") {
+      return { status: "blocked", summary: "Send a verification code first." };
+    }
+    if (code.length !== 6) {
+      return { status: "blocked", summary: "Please provide the six-digit verification code." };
+    }
+    setVerificationCode(code);
+    setBusy(true);
+    try {
+      const verifiedUser = await confirmVerification(code);
+      trackEvent("phone_verification_completed", { action: mode, result: "success" });
+      await onCompleted(verifiedUser);
+      return { status: "succeeded", summary: "Phone verified. Continuing setup." };
+    } catch (error) {
+      console.error("[PhoneVerificationFlow] Voice code verification failed:", error);
+      trackEvent("phone_verification_completed", { action: mode, result: "error" });
+      return { status: "failed", summary: "That code could not be verified." };
+    } finally {
+      setBusy(false);
+    }
+  });
 
   if (step === "linked") {
     return (
@@ -462,6 +503,7 @@ export function PhoneVerificationFlow({
               <InputGroup className={FLOW_CONTROL_SHELL_CLASS_NAME}>
                 <InputGroupInput
                   id="phone-flow-number"
+                  data-voice-control-id="phone-flow-number"
                   type="tel"
                   inputMode="tel"
                   autoComplete="tel-national"
@@ -519,6 +561,9 @@ export function PhoneVerificationFlow({
                 <span className="font-semibold text-foreground">{submittedPhoneNumber}</span>.
                 Enter it to continue.
               </p>
+              <p className="mt-1 text-[12px] leading-[1.35] text-black/45 dark:text-white/50">
+                You can type the code or say it to One. Spoken codes are processed by the voice service and are not retained by Hussh.
+              </p>
             </div>
           </div>
 
@@ -550,6 +595,7 @@ export function PhoneVerificationFlow({
               </div>
               <input
                 id="phone-flow-code"
+                data-voice-control-id="phone-flow-code"
                 type="text"
                 inputMode="numeric"
                 autoComplete="one-time-code"

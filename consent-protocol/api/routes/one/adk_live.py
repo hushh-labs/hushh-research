@@ -37,6 +37,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import secrets
 import uuid
 from typing import Any, Optional
@@ -71,6 +72,7 @@ from hushh_mcp.one_adk.agent_tree import (
     get_one_runner,
 )
 from hushh_mcp.services.route_orchestration_index import resolve_route_orchestration_entry
+from hushh_mcp.services.voice_action_manifest import get_voice_manifest_action
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +86,7 @@ router = APIRouter(prefix="/api/one/adk", tags=["One ADK"])
 _ONBOARDING_SCREENS = frozenset(
     {
         "getting_started",
+        "one_intro",
         "login",
         "register_phone",
         "one_setup",
@@ -115,6 +118,43 @@ _ONBOARDING_CAPABILITIES = frozenset(
 _ACTION_SETTLEMENT_STATUSES = frozenset(
     {"succeeded", "started", "blocked", "invalid", "failed", "noop"}
 )
+_INITIAL_GREETING_IDLE_SECONDS = 1.5
+_ROUTE_PLAYBOOK_TEXT_CAP = 480
+
+
+class _InitialGreetingGate:
+    """Own one initial cue without allowing it to overtake visitor speech.
+
+    The browser sends ``voice_activity_start`` only after local speech activity
+    crosses its bounded threshold. That explicit, transcript-free signal lets
+    the relay cancel an idle cue without guessing from continuous microphone
+    frames (which include silence). The epoch makes a delayed task harmless if
+    cancellation races with its timer.
+    """
+
+    def __init__(self) -> None:
+        self._epoch = 0
+        self._visitor_activity_seen = False
+        self._greeting_sent = False
+
+    def schedule(self) -> int | None:
+        if self._visitor_activity_seen or self._greeting_sent:
+            return None
+        self._epoch += 1
+        return self._epoch
+
+    def cancel_for_visitor_activity(self) -> None:
+        self._visitor_activity_seen = True
+        self._epoch += 1
+
+    def may_send(self, epoch: int) -> bool:
+        return not self._visitor_activity_seen and not self._greeting_sent and epoch == self._epoch
+
+    def mark_sent(self, epoch: int) -> bool:
+        if not self.may_send(epoch):
+            return False
+        self._greeting_sent = True
+        return True
 
 
 class OneAdkRelaySessionResponse(BaseModel):
@@ -188,14 +228,78 @@ def _bounded_text_list(value: Any, limit: int) -> list[str]:
     return result
 
 
+def _sanitize_route_playbook(route_entry: Any) -> dict[str, Any] | None:
+    """Read only checked-in generated guidance; never trust browser prose."""
+    if (os.getenv("HUSHH_ROUTE_PLAYBOOKS_DISABLED") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return None
+    if not isinstance(route_entry, dict):
+        return None
+    value = route_entry.get("voice_playbook")
+    if not isinstance(value, dict):
+        return None
+    proactivity = _bounded_text(value.get("proactivity"), 16)
+    return {
+        "playbook_id": _bounded_text(value.get("playbook_id"), 96),
+        "purpose": _bounded_text(value.get("purpose"), _ROUTE_PLAYBOOK_TEXT_CAP),
+        "screen": _bounded_text(value.get("screen"), 64),
+        "entry_cue": _bounded_text(value.get("entry_cue"), 240),
+        "proactivity": proactivity if proactivity in {"on_entry", "ambient"} else "ambient",
+        "primary_action_id": _bounded_text(value.get("primary_action_id"), 128) or None,
+        "completion_boundary": _bounded_text(
+            value.get("completion_boundary"), _ROUTE_PLAYBOOK_TEXT_CAP
+        ),
+        "next_route": _bounded_text(value.get("next_route"), 128) or None,
+        "return_policy": _bounded_text(value.get("return_policy"), 32),
+        "out_of_scope_behavior": _bounded_text(
+            value.get("out_of_scope_behavior"), _ROUTE_PLAYBOOK_TEXT_CAP
+        ),
+    }
+
+
+def _compose_route_context_note(context: dict[str, Any]) -> str | None:
+    """Build one bounded model note from server-resolved route intelligence."""
+    playbook = context.get("route_playbook")
+    if not isinstance(playbook, dict):
+        return None
+    if context.get("route_context_policy") == "suppress":
+        return None
+    purpose = str(playbook.get("purpose") or "Use the verified current screen.")
+    cue = str(playbook.get("entry_cue") or "")
+    primary = str(playbook.get("primary_action_id") or "")
+    proactive = playbook.get("proactivity") == "on_entry"
+    return (
+        "[App route context - not user speech] The verified current route is "
+        f"'{context.get('route_pattern') or context.get('route_family') or '/'}' "
+        f"and its purpose is: {purpose} "
+        "Generated actions and their guards remain the only execution authority. "
+        "For an explicit request matching a visible action, call list_app_actions "
+        "and run the exact returned id before any identity or greeting response. "
+        f"The preferred action reference is '{primary or 'none'}'. "
+        + (
+            f"After route settlement, orient once with this intent: {cue} "
+            if proactive and cue
+            else "Use this context silently until the person speaks. "
+        )
+        + "Never claim completion before correlated browser settlement."
+    )
+
+
 def _sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
     """Keep only bounded, redacted UI state for tool availability decisions."""
     cache_freshness = _bounded_text(payload.get("cache_freshness"), 32)
     route_family = _bounded_text(payload.get("route_family"))
     route_entry = resolve_route_orchestration_entry(route_family)
-    submitted_action_ids = _bounded_text_list(
-        payload.get("available_action_ids"), _LIVE_CONTEXT_ARRAY_CAP
-    )
+    submitted_action_ids = [
+        action_id
+        for action_id in _bounded_text_list(
+            payload.get("available_action_ids"), _LIVE_CONTEXT_ARRAY_CAP
+        )
+        if get_voice_manifest_action(action_id) is not None
+    ]
     return {
         # The generated index is the server-side source of route policy.  A
         # client may describe its current UI, but cannot invent a route
@@ -211,10 +315,15 @@ def _sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
         "route_context_policy": route_entry.get("context_policy")
         if isinstance(route_entry, dict)
         else "suppress",
+        "route_playbook": _sanitize_route_playbook(route_entry),
         "persona": _bounded_text(payload.get("persona")),
         "voice_state": _bounded_text(payload.get("voice_state"), 32),
         "available_action_ids": submitted_action_ids,
         "visible_modules": _bounded_text_list(payload.get("visible_modules"), _LIVE_MODULE_CAP),
+        "visible_control_ids": _bounded_text_list(
+            payload.get("visible_control_ids"), _LIVE_MODULE_CAP
+        ),
+        "pending_settlement": payload.get("pending_settlement") is True,
         "cache_freshness": cache_freshness
         if cache_freshness in {"fresh_or_stale_safe", "locked", "missing"}
         else "missing",
@@ -333,19 +442,17 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     # not-yet-authenticated visitor who is (or is about to be) in onboarding.
     is_fresh_visitor = not uid
 
-    # Proactive greeting: the session should never open in silence, but the
-    # greeting must be SCREEN-AWARE (a fresh visitor on the onboarding root
-    # should be welcomed in and guided into setup, never greeted as if they
-    # were "back again"). The browser sends the current screen in its first
-    # app_context frame right after setupComplete, so the greeting is DEFERRED
-    # until that frame arrives and then composed with the screen. A short
-    # fallback timer still greets if no app_context ever lands, so the session
-    # never opens silently. This kickoff is app-composed (not user speech) and
-    # rides the same single ordered event stream, so a user who starts talking
-    # immediately simply barges in over it.
-    greeting_sent = False
+    # The initial cue is screen-aware and idle-only. It is deliberately not
+    # enqueued synchronously with the first app_context because the browser's
+    # microphone follows that frame; doing so placed a visitor command behind
+    # One's greeting in LiveRequestQueue. A redacted transport activity frame
+    # now cancels the cue before it reaches the model.
+    greeting_gate = _InitialGreetingGate()
+    greeting_task: Optional[asyncio.Task[None]] = None
 
-    def _compose_greeting_prompt(screen: str) -> str:
+    def _compose_greeting_prompt(screen: str, playbook: dict[str, Any] | None) -> str:
+        entry_cue = _bounded_text(playbook.get("entry_cue"), 240) if playbook else ""
+        proactive = bool(playbook and playbook.get("proactivity") == "on_entry" and entry_cue)
         onboarding = (screen in _ONBOARDING_SCREENS) or is_fresh_visitor
         if onboarding:
             return (
@@ -362,7 +469,13 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 "breath. Do not list capabilities and do not ask more than one "
                 "light question. If their next reply is a short challenge or "
                 "follow-up such as 'so what?' or 'why?', answer the value "
-                "question directly before mentioning setup."
+                "question directly before mentioning setup. "
+                + (
+                    f"The checked-in route cue is: {entry_cue} Use that active-screen "
+                    "guidance instead of an identity-only greeting."
+                    if proactive
+                    else ""
+                )
             )
         return (
             "[Session start - not user speech] Greet the user right now in one "
@@ -371,40 +484,57 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             "and do not ask more than one light question."
         )
 
-    def _send_greeting(screen: str) -> None:
-        nonlocal greeting_sent
-        if greeting_sent:
+    def _send_greeting(screen: str, playbook: dict[str, Any] | None, epoch: int) -> None:
+        if not greeting_gate.mark_sent(epoch):
             return
-        greeting_sent = True
         queue.send_content(
             genai_types.Content(
                 role="user",
-                parts=[genai_types.Part(text=_compose_greeting_prompt(screen))],
+                parts=[genai_types.Part(text=_compose_greeting_prompt(screen, playbook))],
             )
         )
 
-    async def _greet_if_no_context() -> None:
-        # Fallback: the browser always sends an app_context frame, but if one
-        # never arrives the session must still open with a spoken greeting.
-        await asyncio.sleep(1.5)
-        _send_greeting("")
+    def _cancel_pending_greeting() -> None:
+        nonlocal greeting_task
+        if greeting_task is not None and not greeting_task.done():
+            greeting_task.cancel()
 
-    greeting_fallback_task = asyncio.create_task(_greet_if_no_context())
+    def _schedule_idle_greeting(screen: str, playbook: dict[str, Any] | None = None) -> None:
+        nonlocal greeting_task
+        _cancel_pending_greeting()
+        epoch = greeting_gate.schedule()
+        if epoch is None:
+            return
+
+        async def _send_after_idle() -> None:
+            try:
+                await asyncio.sleep(_INITIAL_GREETING_IDLE_SECONDS)
+            except asyncio.CancelledError:
+                return
+            _send_greeting(screen, playbook, epoch)
+
+        greeting_task = asyncio.create_task(_send_after_idle())
+
+    # If the browser never publishes context and the visitor remains idle, a
+    # short generic cue is still available. The first context replaces it with
+    # a screen-aware cue rather than sending two turns.
+    _schedule_idle_greeting("")
 
     # Last screen injected as model-visible context. Screen changes arrive as
     # app_context frames; sending content mid-generation PREEMPTS the model's
     # current turn on the Live API, so screen text is injected only when the
     # screen truly changed (never for the first frame; session state already
     # carries it for tools).
-    last_injected_screen: Optional[str] = None
+    last_injected_route_key: Optional[str] = None
     first_app_context_seen = False
     # Action outcomes are accepted only when they match a directive forwarded
     # on this same authenticated WebSocket. This keeps arbitrary browser
     # frames from becoming model-visible completion claims.
     issued_action_directives: dict[str, str] = {}
+    initial_context_ready = asyncio.Event()
 
     async def pump_browser_to_queue() -> None:
-        nonlocal last_injected_screen, first_app_context_seen
+        nonlocal last_injected_route_key, first_app_context_seen
         while True:
             raw = await websocket.receive_text()
             try:
@@ -439,7 +569,8 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # Full UI snapshots never reach the model prompt. Action tools
                 # read this bounded redacted state when deciding what can be
                 # proposed or executed on the current screen.
-                state_delta[STATE_VOICE_CONTEXT] = _sanitize_live_context(context_payload)
+                sanitized_context = _sanitize_live_context(context_payload)
+                state_delta[STATE_VOICE_CONTEXT] = sanitized_context
                 if state_delta:
                     await runner.session_service.append_event(
                         session,
@@ -449,44 +580,46 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                             actions=EventActions(state_delta=state_delta),
                         ),
                     )
+                initial_context_ready.set()
                 screen = context_payload.get("screen")
                 clean_screen = screen.strip()[:64] if isinstance(screen, str) else ""
                 is_first = not first_app_context_seen
-                if is_first and not greeting_sent:
-                    # First context frame carries the entry screen: cancel the
-                    # silent-open fallback and greet with the screen in hand so
-                    # a fresh visitor is welcomed in and guided into setup.
-                    greeting_fallback_task.cancel()
-                    _send_greeting(clean_screen)
+                if is_first:
+                    # The first context establishes the entry screen. Keep the
+                    # cue idle-only so visitor speech always owns the first
+                    # actionable turn.
+                    _schedule_idle_greeting(
+                        clean_screen,
+                        sanitized_context.get("route_playbook"),
+                    )
                 if clean_screen:
-                    changed = clean_screen != last_injected_screen
-                    last_injected_screen = clean_screen
+                    route_key = ":".join(
+                        [
+                            str(sanitized_context.get("route_pattern") or ""),
+                            clean_screen,
+                            str(sanitized_context.get("route_instruction_id") or ""),
+                        ]
+                    )
+                    changed = route_key != last_injected_route_key
+                    last_injected_route_key = route_key
                     if changed and not is_first:
-                        if clean_screen in _ONBOARDING_SCREENS:
-                            note_text = (
-                                "[App state update - not user speech] The user is "
-                                f"now on the '{clean_screen}' screen while finishing "
-                                "account setup. Only offer what is actually "
-                                "available ON THIS screen: call list_app_actions "
-                                "for the current screen first, then briefly name "
-                                "the one next thing they can do here. If that step "
-                                "needs an answer from them, ask for it directly in "
-                                "the same breath. Do not bring up steps that belong "
-                                "to other screens."
+                        note_text = _compose_route_context_note(sanitized_context)
+                        if note_text:
+                            queue.send_content(
+                                genai_types.Content(
+                                    role="user",
+                                    parts=[genai_types.Part(text=note_text)],
+                                )
                             )
-                        else:
-                            note_text = (
-                                "[App state update - not user speech] The user is "
-                                f"now on the '{clean_screen}' screen. Use this "
-                                "silently."
-                            )
-                        queue.send_content(
-                            genai_types.Content(
-                                role="user",
-                                parts=[genai_types.Part(text=note_text)],
-                            )
-                        )
                 first_app_context_seen = True
+                continue
+            if message.get("type") == "voice_activity_start":
+                # The browser emits this once after local speech activity, not
+                # on raw microphone frames. It is transport control only: no
+                # transcript, page information, or intent is trusted here.
+                greeting_gate.cancel_for_visitor_activity()
+                _cancel_pending_greeting()
+                queue.send_activity_start()
                 continue
             if message.get("type") == "action_settled":
                 settlement = _sanitize_action_settlement(
@@ -549,6 +682,8 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # message, NOT app-composed speech.
                 text = message.get("text")
                 if isinstance(text, str) and text.strip():
+                    greeting_gate.cancel_for_visitor_activity()
+                    _cancel_pending_greeting()
                     queue.send_content(
                         genai_types.Content(
                             role="user",
@@ -569,6 +704,15 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             queue.send_realtime(genai_types.Blob(data=base64.b64decode(data), mime_type=mime))
 
     async def pump_events_to_browser() -> None:
+        # ADK evaluates a callable system instruction when run_live opens.
+        # Wait briefly for the browser's first bounded app_context so the
+        # active server-resolved playbook is present for the first real turn.
+        # Legacy clients still start after the compatibility timeout; queued
+        # audio is retained by LiveRequestQueue during this bounded wait.
+        try:
+            await asyncio.wait_for(initial_context_ready.wait(), timeout=1.0)
+        except TimeoutError:
+            pass
         async for event in runner.run_live(
             user_id=session_user,
             session_id=session_id,
@@ -626,8 +770,10 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     finally:
-        for task in (up, down, greeting_fallback_task):
-            task.cancel()
+        up.cancel()
+        down.cancel()
+        if greeting_task is not None:
+            greeting_task.cancel()
         queue.close()
         try:
             await websocket.close()

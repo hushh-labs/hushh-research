@@ -43,6 +43,14 @@ import {
   buildOneVoiceContextSnapshot,
   type OneVoiceContextSnapshot,
 } from "@/lib/voice/screen-context-builder";
+import {
+  buildMorphyAxSnapshot,
+  resolveMorphyAxPresentation,
+  toOneVoiceContextSnapshot,
+  type MorphyAxPresentationState,
+  type MorphyAxSnapshotV1,
+} from "@/lib/morphy-ax";
+import { getVoiceV2Flags } from "@/lib/voice/voice-feature-flags";
 
 // The access tier the agent should operate at. This is what drives how the
 // bar presents itself and which persona the backend should compose.
@@ -81,6 +89,12 @@ export type AgentRuntimeState = {
   screen: string;
   /** Redacted One Voice snapshot safe for realtime prompt shaping. */
   oneVoiceContextSnapshot: OneVoiceContextSnapshot;
+  /** Pure, redacted Agent Experience snapshot; never an action authority. */
+  morphyAxSnapshot: MorphyAxSnapshotV1;
+  /** Shared presentation posture derived from the existing voice FSM. */
+  morphyAxPresentation: MorphyAxPresentationState;
+  /** False keeps the compatibility path authoritative during rollout. */
+  morphyAxEnabled: boolean;
 };
 
 const AgentRuntimeStateContext = createContext<AgentRuntimeState | null>(null);
@@ -240,6 +254,12 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       return;
     }
     let active = true;
+    const cache = CacheService.getInstance();
+    const cacheKey = CACHE_KEYS.PRE_VAULT_BOOTSTRAP(uid);
+    const refreshFromCache = () => {
+      const cached = cache.get<PreVaultUserState>(cacheKey);
+      if (active && cached) setPreVaultState(cached);
+    };
     void PreVaultUserStateService.bootstrapState(uid)
       .then((state) => {
         if (active) setPreVaultState(state);
@@ -247,8 +267,26 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       .catch(() => {
         if (active) setPreVaultState(null);
       });
+    const unsubscribe = cache.subscribe((event) => {
+      if (event.type === "set" && event.key === cacheKey) {
+        refreshFromCache();
+        return;
+      }
+      if (
+        event.type === "clear" ||
+        (event.type === "invalidate" && event.keys.includes(cacheKey)) ||
+        (event.type === "invalidate_user" && event.userId === uid)
+      ) {
+        void PreVaultUserStateService.bootstrapState(uid)
+          .then((state) => {
+            if (active) setPreVaultState(state);
+          })
+          .catch(() => undefined);
+      }
+    });
     return () => {
       active = false;
+      unsubscribe();
     };
   }, [uid]);
 
@@ -370,7 +408,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
 
   const value = useMemo<AgentRuntimeState>(
     () => {
-      const oneVoiceContextSnapshot = buildOneVoiceContextSnapshot({
+      const compatibilitySnapshot = buildOneVoiceContextSnapshot({
         appRuntimeState,
         state: oneVoiceState,
         lastTransition: lastVoiceTransition,
@@ -396,6 +434,13 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
           setupCapabilityIds: preVaultState?.setupCapabilityIds || [],
         },
       });
+      const morphyAxSnapshot = buildMorphyAxSnapshot(compatibilitySnapshot, {
+        signedIn,
+      });
+      const morphyAxEnabled = getVoiceV2Flags().morphyAxEnabled;
+      const oneVoiceContextSnapshot = morphyAxEnabled
+        ? toOneVoiceContextSnapshot(morphyAxSnapshot, compatibilitySnapshot)
+        : compatibilitySnapshot;
       return {
         appRuntimeState,
         tier,
@@ -405,6 +450,9 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
         activePersona,
         screen: routeInfo.screen,
         oneVoiceContextSnapshot,
+        morphyAxSnapshot,
+        morphyAxPresentation: resolveMorphyAxPresentation(oneVoiceState),
+        morphyAxEnabled,
       };
     },
     [

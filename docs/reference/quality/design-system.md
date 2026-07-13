@@ -127,8 +127,11 @@ Project-local UI skills live in `.codex/skills/`:
 3. `frontend-architecture`
 4. `frontend-surface-placement`
 5. `frontend-native-surface-mapper`
+6. `morphy-ax`
 
 These skills must stay aligned with this document, `frontend-ui-architecture-map.md`, and the runtime verification commands.
+
+Morphy UX owns reusable visual primitives. The narrower `morphy-ax` spoke owns pure redacted agent-state derivation and compatibility; see [Morphy Agent Experience](./morphy-agent-experience.md).
 
 ## Settings Surfaces
 The Profile page is the canonical settings implementation for the app.

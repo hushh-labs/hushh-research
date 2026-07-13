@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useCallback } from "react";
 import { HushhWordmark } from "@/components/app-ui/hushh-wordmark";
 import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 /* ────────────────────────────────────────────────────────────
  * Welcome ("/"). A restrained, Foundation-warm canvas carries one centered
@@ -22,6 +25,49 @@ export function IntroStep({
 }: {
   onLogin?: () => void;
 }) {
+  const claimOne = useCallback(() => {
+    if (!onLogin) {
+      return {
+        status: "blocked" as const,
+        summary: "Sign-in is not available yet. Please wait a moment and try again.",
+      };
+    }
+    // Voice and tap intentionally share this one navigation path so a valid
+    // post-sign-in redirect is preserved instead of rebuilt by the voice layer.
+    onLogin();
+    return {
+      status: "started" as const,
+      summary: "Opening sign-in.",
+    };
+  }, [onLogin]);
+
+  useLocalOnboardingActionHandler("onboarding.claim_one", claimOne);
+  usePublishVoiceSurfaceMetadata({
+    screenId: "one_intro",
+    title: "Claim your One",
+    purpose:
+      "This is One's public welcome screen. The person can claim their private agent and continue to sign in.",
+    actions: [
+      {
+        id: "onboarding_claim_one",
+        actionId: "onboarding.claim_one",
+        label: "Claim your One",
+        purpose: "Continue to sign in and begin setting up One.",
+        voiceAliases: ["claim your one", "claim one", "get started", "start with one"],
+      },
+    ],
+    controls: [
+      {
+        id: "onboarding_claim_one",
+        actionId: "onboarding.claim_one",
+        label: "Claim your One",
+        type: "button",
+        purpose: "Continue to sign in and begin setting up One.",
+        voiceAliases: ["claim your one", "claim one", "get started", "start with one"],
+      },
+    ],
+  });
+
   return (
     <main className="relative flex min-h-[100dvh] w-full flex-col overflow-hidden">
       <OnboardingHeroBackground />
@@ -109,7 +155,10 @@ export function IntroStep({
             size="lg"
             fullWidth
             showRipple
-            onClick={onLogin}
+            onClick={() => {
+              void claimOne();
+            }}
+            data-voice-control-id="onboarding_claim_one"
             // Theme-matching surface (same contract as the login provider
             // buttons): light button in light mode, dark button in dark
             // mode, definition from a hairline border + soft shadow instead

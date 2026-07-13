@@ -94,6 +94,7 @@ REQUIRED_WORKFLOWS = [
     "subtree-upstream-governance",
     "hushh-consent-mcp-ops",
     "mcp-surface-change",
+    "morphy-ax-governance",
     "security-posture-maintenance",
 ]
 PATH_PREFIXES = (

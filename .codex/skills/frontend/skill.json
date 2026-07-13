@@ -21,7 +21,8 @@
     "bug-triage",
     "docs-sync",
     "frontend-native-surface-map",
-    "frontend-cache-coherence"
+    "frontend-cache-coherence",
+    "morphy-ax-governance"
   ],
   "required_reads": [
     "docs/reference/quality/frontend-ui-architecture-map.md",
@@ -55,6 +56,7 @@
     "frontend-architecture",
     "frontend-surface-placement",
     "frontend-cache-coherence",
+    "morphy-ax",
     "mobile-native",
     "repo-context"
   ],
@@ -63,6 +65,7 @@
     "frontend-architecture",
     "frontend-surface-placement",
     "frontend-cache-coherence",
+    "morphy-ax",
     "mobile-native",
     "backend-api-contracts",
     "quality-contracts"

@@ -18,7 +18,6 @@ import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
 import {
   useLocalOnboardingActionHandler,
-  type LocalOnboardingActionContext,
 } from "@/lib/agent/local-onboarding-actions";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
@@ -66,6 +65,15 @@ function isAuthCancel(error: unknown): boolean {
       ? String((error as { code?: unknown }).code ?? "")
       : "";
   return AUTH_CANCEL_CODES.has(code);
+}
+
+function isAuthPopupBlocked(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      String((error as { code?: unknown }).code ?? "") === "auth/popup-blocked",
+  );
 }
 
 function authErrorMessage(error: unknown): string {
@@ -511,8 +519,10 @@ export function AuthStep({
     user,
   ]);
 
-  const handleGoogleLogin = async () => {
-    if (pendingProvider) return;
+  const handleGoogleLogin = async (voiceDirectiveId?: string | null) => {
+    if (pendingProvider) {
+      return { status: "blocked" as const, summary: "A sign-in window is already open." };
+    }
     setPendingProvider("google");
     trackEvent("auth_started", {
       action: "google",
@@ -544,6 +554,7 @@ export function AuthStep({
           await authenticatedUser.getIdToken(),
           authenticatedUser.phoneNumber
         );
+        return { status: "succeeded" as const, summary: "Google sign-in completed." };
       } else {
         debugError("[AuthStep] No user returned from signInWithGoogle");
         trackEvent("auth_failed", {
@@ -554,8 +565,21 @@ export function AuthStep({
         morphyToast.error("Sign-in completed but no user session was returned.", {
           description: "Please try again.",
         });
+        return { status: "failed" as const, summary: "Google did not return a user session." };
       }
     } catch (err: any) {
+      if (voiceDirectiveId !== undefined && isAuthPopupBlocked(err)) {
+        trackEvent("auth_started", { action: "google" });
+        await AuthService.startGoogleSignInForVoice({
+          directiveId: voiceDirectiveId,
+          returnTo: ROUTES.LOGIN,
+          resumeTarget: redirectPath || ROUTES.ONE_SETUP,
+        });
+        return {
+          status: "started" as const,
+          summary: "Google sign-in opened in this browser.",
+        };
+      }
       debugError("[AuthStep] Google login failed", err);
       trackEvent("auth_failed", {
         action: "google",
@@ -567,13 +591,19 @@ export function AuthStep({
           description: authErrorMessage(err),
         });
       }
+      return {
+        status: isAuthCancel(err) ? "blocked" as const : "failed" as const,
+        summary: isAuthCancel(err) ? "Google sign-in was cancelled." : authErrorMessage(err),
+      };
     } finally {
       setPendingProvider(null);
     }
   };
 
-  const handleAppleLogin = async () => {
-    if (pendingProvider) return;
+  const handleAppleLogin = async (voiceDirectiveId?: string | null) => {
+    if (pendingProvider) {
+      return { status: "blocked" as const, summary: "A sign-in window is already open." };
+    }
     setPendingProvider("apple");
     trackEvent("auth_started", {
       action: "apple",
@@ -605,6 +635,7 @@ export function AuthStep({
           await authenticatedUser.getIdToken(),
           authenticatedUser.phoneNumber
         );
+        return { status: "succeeded" as const, summary: "Apple sign-in completed." };
       } else {
         debugError("[AuthStep] No user returned from signInWithApple");
         trackEvent("auth_failed", {
@@ -615,8 +646,21 @@ export function AuthStep({
         morphyToast.error("Sign-in completed but no user session was returned.", {
           description: "Please try again.",
         });
+        return { status: "failed" as const, summary: "Apple did not return a user session." };
       }
     } catch (err: any) {
+      if (voiceDirectiveId !== undefined && isAuthPopupBlocked(err)) {
+        trackEvent("auth_started", { action: "apple" });
+        await AuthService.startAppleSignInForVoice({
+          directiveId: voiceDirectiveId,
+          returnTo: ROUTES.LOGIN,
+          resumeTarget: redirectPath || ROUTES.ONE_SETUP,
+        });
+        return {
+          status: "started" as const,
+          summary: "Apple sign-in opened in this browser.",
+        };
+      }
       debugError("[AuthStep] Apple login failed", err);
       trackEvent("auth_failed", {
         action: "apple",
@@ -628,76 +672,24 @@ export function AuthStep({
           description: authErrorMessage(err),
         });
       }
-    } finally {
-      setPendingProvider(null);
-    }
-  };
-
-  const startVoiceProviderLogin = async (
-    provider: "google" | "apple",
-    context?: LocalOnboardingActionContext
-  ) => {
-    if (pendingProvider) {
-      return { status: "blocked" as const, summary: "A sign-in window is already open." };
-    }
-    setPendingProvider(provider);
-    trackEvent("auth_started", { action: provider });
-    try {
-      const authResult =
-        provider === "google"
-          ? await AuthService.startGoogleSignInForVoice({
-              directiveId: context?.directiveId || null,
-              returnTo: `${window.location.pathname}${window.location.search}`,
-              resumeTarget: redirectPath,
-            })
-          : await AuthService.startAppleSignInForVoice({
-              directiveId: context?.directiveId || null,
-              returnTo: `${window.location.pathname}${window.location.search}`,
-              resumeTarget: redirectPath,
-            });
-
-      // Browser redirect starts navigation and settles through getRedirectResult
-      // on return. Native sign-in completes in-process and can use the same
-      // post-auth route resolution as the visible provider buttons.
-      if (!authResult?.user) {
-        return {
-          status: "started" as const,
-          summary: `Opening ${provider === "google" ? "Google" : "Apple"} sign-in.`,
-        };
-      }
-      setNativeUser(authResult.user);
-      await resolveAndNavigate(
-        authResult.user.uid,
-        authResult.idToken || (await authResult.user.getIdToken()),
-        authResult.user.phoneNumber
-      );
       return {
-        status: "succeeded" as const,
-        summary: "Sign-in completed. Continuing your setup.",
-      };
-    } catch (error) {
-      trackEvent("auth_failed", {
-        action: provider,
-        result: "error",
-        error_class: "auth_failed",
-      });
-      return {
-        status: "failed" as const,
-        summary:
-          error instanceof Error && error.message
-            ? error.message
-            : `Could not start ${provider === "google" ? "Google" : "Apple"} sign-in.`,
+        status: isAuthCancel(err) ? "blocked" as const : "failed" as const,
+        summary: isAuthCancel(err) ? "Apple sign-in was cancelled." : authErrorMessage(err),
       };
     } finally {
       setPendingProvider(null);
     }
   };
 
+  // Voice first uses the exact same popup path as tap. Browsers may reject a
+  // WebSocket-delivered directive because it has no transient user activation;
+  // only that explicit failure falls back to the correlated redirect/resume
+  // path handled by the callback effect above.
   useLocalOnboardingActionHandler("auth.sign_in_google", async (_slots, context) =>
-    startVoiceProviderLogin("google", context)
+    handleGoogleLogin(context?.directiveId ?? null),
   );
   useLocalOnboardingActionHandler("auth.sign_in_apple", async (_slots, context) =>
-    startVoiceProviderLogin("apple", context)
+    handleAppleLogin(context?.directiveId ?? null),
   );
 
   if (authLoading || user) {
@@ -710,13 +702,13 @@ export function AuthStep({
           id: "google",
           label: "Continue with Google",
           icon: <GoogleIcon />,
-          onClick: handleGoogleLogin,
+          onClick: () => handleGoogleLogin(),
         },
         {
           id: "apple",
           label: "Continue with Apple",
           icon: <AppleIcon />,
-          onClick: handleAppleLogin,
+          onClick: () => handleAppleLogin(),
         },
       ]
     : [
@@ -724,13 +716,13 @@ export function AuthStep({
           id: "apple",
           label: "Continue with Apple",
           icon: <AppleIcon />,
-          onClick: handleAppleLogin,
+          onClick: () => handleAppleLogin(),
         },
         {
           id: "google",
           label: "Continue with Google",
           icon: <GoogleIcon />,
-          onClick: handleGoogleLogin,
+          onClick: () => handleGoogleLogin(),
         },
       ];
 
@@ -819,8 +811,11 @@ export function AuthStep({
                 key={option.id}
                 label={option.label}
                 icon={option.icon}
-                onClick={option.onClick}
+                onClick={() => {
+                  void option.onClick();
+                }}
                 disabled={pendingProvider !== null}
+                voiceControlId={`auth_${option.id}`}
                 className={option.id === "apple" ? APPLE_BTN_CLASS : GOOGLE_BTN_CLASS}
               />
             ))}
