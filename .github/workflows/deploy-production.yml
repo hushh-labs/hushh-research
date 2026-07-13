@@ -160,7 +160,7 @@ jobs:
           backend_revision="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --region="${{ env.GCP_REGION }}" \
-            --format='value(status.latestReadyRevisionName)' 2>/dev/null || true)"
+            --format='value(status.traffic[0].revisionName)' 2>/dev/null || true)"
           backend_url="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --region="${{ env.GCP_REGION }}" \
@@ -168,7 +168,7 @@ jobs:
           frontend_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --region="${{ env.GCP_REGION }}" \
-            --format='value(status.latestReadyRevisionName)' 2>/dev/null || true)"
+            --format='value(status.traffic[0].revisionName)' 2>/dev/null || true)"
           frontend_url="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --region="${{ env.GCP_REGION }}" \
@@ -177,8 +177,12 @@ jobs:
           echo "backend_url=${backend_url}" >> "$GITHUB_OUTPUT"
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
           echo "frontend_url=${frontend_url}" >> "$GITHUB_OUTPUT"
-          echo "Predeploy backend ready revision: ${backend_revision:-none}"
-          echo "Predeploy frontend ready revision: ${frontend_revision:-none}"
+          # Rollback target is the revision currently SERVING traffic (status.traffic),
+          # not latestReadyRevisionName - the latest Ready revision can be a newer,
+          # broken-but-Ready revision (e.g. a crash-looped one left behind by a prior
+          # failed deploy), which would make auto-rollback revert to the broken one.
+          echo "Predeploy backend serving revision: ${backend_revision:-none}"
+          echo "Predeploy frontend serving revision: ${frontend_revision:-none}"
 
       - name: Set up Python + uv runtime
         uses: ./consent-protocol/.github/actions/setup-python-uv
@@ -256,9 +260,16 @@ jobs:
             --region="${{ env.GCP_REGION }}" \
             --format=json)"
 
-          DB_HOST="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_HOST") | .value' | tail -n 1)"
-          DB_PORT="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_PORT") | .value' | tail -n 1)"
-          DB_NAME="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_NAME") | .value' | tail -n 1)"
+          # DB host/port/name come from the deployed service when present, but newer
+          # revisions no longer expose DB_HOST as a plain env var (it moved into the
+          # runtime config JSON), so the template scrape can return empty. Fall back to
+          # the canonical prod DB host used by the secret-sync step above so the gate
+          # does not break just because a prior failed revision changed the env shape.
+          # `// empty` guards against jq emitting the literal string "null".
+          DB_HOST="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_HOST") | .value // empty' | tail -n 1)"
+          DB_PORT="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_PORT") | .value // empty' | tail -n 1)"
+          DB_NAME="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_NAME") | .value // empty' | tail -n 1)"
+          DB_HOST="${DB_HOST:-aws-1-us-east-1.pooler.supabase.com}"
 
           DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${{ env.GCP_PROJECT_ID }}")"
           DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${{ env.GCP_PROJECT_ID }}")"
