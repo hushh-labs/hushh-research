@@ -54,6 +54,7 @@ import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { RIA_COPY } from "@/lib/ria/ria-screen-copy";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   isIAMSchemaNotReadyError,
@@ -148,18 +149,18 @@ const DEFAULT_AVOID_CATEGORIES = [
 const SCREENING_SECTIONS: Array<{ key: ScreeningSectionKey; label: string; blurb: string }> = [
   {
     key: "investable_requirements",
-    label: "Investable requirements",
-    blurb: "Non-negotiables that a company must satisfy before it can enter the live debate universe.",
+    label: RIA_COPY.picks.screening.investable.title,
+    blurb: RIA_COPY.picks.screening.investable.description,
   },
   {
     key: "automatic_avoid_triggers",
-    label: "Automatic avoid triggers",
-    blurb: "Hard stops and fast-fail signals that should move a name out of consideration.",
+    label: RIA_COPY.picks.screening.avoidTriggers.title,
+    blurb: RIA_COPY.picks.screening.avoidTriggers.description,
   },
   {
     key: "the_math",
-    label: "The math",
-    blurb: "Repeatable thresholds, scorecards, and quantified hurdles the debate engine should carry into review.",
+    label: RIA_COPY.picks.screening.math.title,
+    blurb: RIA_COPY.picks.screening.math.description,
   },
 ];
 
@@ -443,12 +444,10 @@ function EmptyMyListState() {
     <SurfaceCard data-testid="ria-picks-active">
       <SurfaceCardContent className="p-6">
         <h3 className="text-base font-semibold tracking-tight text-foreground">
-          Build your live advisor package
+          {RIA_COPY.picks.emptyMyList.title}
         </h3>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-          Your linked investors will consume this package in Kai&apos;s debate flow. Start from
-          Kai&apos;s current universe, use the editor above to shape your tiers and thesis, or
-          upload a CSV that replaces top picks while keeping the same validation standards.
+          {RIA_COPY.picks.emptyMyList.description}
         </p>
       </SurfaceCardContent>
     </SurfaceCard>
@@ -2274,9 +2273,9 @@ export default function RiaPicksPage() {
     >
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow="Picks"
-          title="Stock universe"
-          description="Switch between Kai's reference package and your live advisor package without losing the avoid or screening context that feeds linked-investor debates."
+          eyebrow={RIA_COPY.picks.eyebrow}
+          title={RIA_COPY.picks.title}
+          description={RIA_COPY.picks.description}
           icon={FileSpreadsheet}
           accent="ria"
         />
@@ -2391,7 +2390,7 @@ export default function RiaPicksPage() {
                 </div>
                 {!isVaultUnlocked ? (
                   <p className="px-1 text-center text-xs text-muted-foreground">
-                    Unlock the vault to edit or publish your advisor package.
+                    {RIA_COPY.picks.unlockRail}
                   </p>
                 ) : null}
               </SurfaceCardContent>
@@ -2561,10 +2560,9 @@ export default function RiaPicksPage() {
               {source === "my" && !editing && myAvoidRows.length === 0 ? (
                 <SurfaceCard>
                   <SurfaceCardContent className="p-5">
-                    <p className="text-sm font-semibold text-foreground">Avoid list is empty</p>
+                    <p className="text-sm font-semibold text-foreground">{RIA_COPY.picks.avoidEmpty.title}</p>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Add names you want Kai to treat as hard or soft exclusions before the linked
-                      investor debate begins.
+                      {RIA_COPY.picks.avoidEmpty.description}
                     </p>
                   </SurfaceCardContent>
                 </SurfaceCard>

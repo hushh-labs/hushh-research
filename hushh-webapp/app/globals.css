@@ -3422,6 +3422,48 @@ body[data-persona-surface="ria"] [data-surface-tone] {
   border-color: var(--app-card-border-standard) !important;
 }
 
+/* Page/section header subtitle: the shared PageHeader clamps the description to
+   one line (line-clamp-1), which truncated the old verbose RIA copy to "…". The
+   copy is now crisp, so let it read fully inside the RIA scope only. */
+body[data-persona-surface="ria"] [data-slot="page-header-description"],
+body[data-persona-surface="ria"] [data-slot="section-header-description"] {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+body[data-persona-surface="ria"] [data-testid="ria-picks-active"] input[type="search"] {
+  min-height: 48px;
+  border: 1px solid var(--ria-divider-outer);
+  border-radius: 16px;
+  background: var(--card);
+  color: var(--ria-ink);
+  box-shadow: none;
+}
+
+body[data-persona-surface="ria"] [data-testid="ria-picks-active"] input[type="search"]::placeholder {
+  color: var(--ria-faint);
+}
+
+body[data-persona-surface="ria"] [data-testid="ria-picks-active"] [data-slot="surface-data-table-shell"] {
+  border-color: var(--ria-divider-outer);
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: var(--app-card-shadow-standard);
+}
+
+body[data-persona-surface="ria"] [data-testid="ria-picks-active"] [data-slot="surface-data-table-shell"] thead {
+  background: color-mix(in oklab, var(--ria-canvas) 88%, white);
+}
+
+body[data-persona-surface="ria"] [data-testid="ria-picks-active"] [data-slot="surface-data-table-shell"] th {
+  color: var(--ria-sublabel);
+}
+
+body[data-persona-surface="ria"] [data-testid="ria-picks-active"] [data-slot="surface-data-table-shell"] td {
+  border-color: var(--ria-divider-inner);
+}
+
 /* RIA primitive helper classes (composed by onboarding + surface restyles). */
 body[data-persona-surface="ria"] .ria-eyebrow {
   font-size: 13px;
