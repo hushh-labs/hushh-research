@@ -169,6 +169,11 @@ import {
   addRecentDestination,
   loadRecentDestinations,
 } from "@/lib/one-location/drive-recents";
+import {
+  loadPersistedDriveSession,
+  restoreDriveSession,
+  saveDriveSession,
+} from "@/lib/one-location/drive-session-store";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
@@ -2765,6 +2770,26 @@ export function OneLocationAgentPageContent({
     [],
   );
 
+  // Rehydrate the drive/ETA session after a refresh/remount. `driveSessionRef`
+  // is in-memory, so without this the watch loop would resume publishing points
+  // WITHOUT the ETA payload after a reload (position keeps updating, ETA drops).
+  // Restore it from durable storage for still-active owner grants; only when the
+  // ref is empty (never clobber a live session).
+  useEffect(() => {
+    if (!auth.userId || driveSessionRef.current) return;
+    const activeIds = new Set(activeOwnerGrants.map((grant) => grant.id));
+    if (activeIds.size === 0) return;
+    let cancelled = false;
+    void loadPersistedDriveSession(auth.userId).then((persisted) => {
+      if (cancelled || driveSessionRef.current) return;
+      const restored = restoreDriveSession(persisted, activeIds);
+      if (restored) driveSessionRef.current = restored;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.userId, activeOwnerGrants]);
+
   const resetShareComposer = useCallback(() => {
     suppressAutoRecipientSelectionRef.current = true;
     setSelectedRecipientId("");
@@ -4311,6 +4336,17 @@ export function OneLocationAgentPageContent({
           lastEtaPoint: point,
           lastEtaAt: Date.now(),
         };
+        // Persist the session so the live ETA survives a refresh/remount — the
+        // watch loop rehydrates it on mount and keeps attaching the ETA payload.
+        if (auth.userId) {
+          void saveDriveSession(auth.userId, {
+            grantIds: [...grantIds],
+            destination,
+            etaSeconds,
+            distanceMeters,
+            etaComputedAt,
+          });
+        }
 
         if (auth.userId) {
           await addRecentDestination(auth.userId, destination);
@@ -4562,6 +4598,17 @@ export function OneLocationAgentPageContent({
           lastEtaPoint: point,
           lastEtaAt: Date.now(),
         };
+        // Persist the session so the live ETA survives a refresh/remount — the
+        // watch loop rehydrates it on mount and keeps attaching the ETA payload.
+        if (auth.userId) {
+          void saveDriveSession(auth.userId, {
+            grantIds: [...grantIds],
+            destination,
+            etaSeconds,
+            distanceMeters,
+            etaComputedAt,
+          });
+        }
 
         if (auth.userId) {
           await addRecentDestination(auth.userId, destination);
