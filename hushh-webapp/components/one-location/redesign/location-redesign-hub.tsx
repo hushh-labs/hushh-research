@@ -73,11 +73,13 @@ import { SharingStatusCard } from "./sharing-status-card";
 import {
   ActiveShareCard,
   DeviceReadinessCard,
+  PickupEnRouteCard,
   RequestCard,
   SharedWithMeCard,
   TemporaryLinkCard,
   TrustedPersonCard,
 } from "./cards";
+import { driveEtaText } from "@/app/one/location/drive-eta";
 import {
   DurationSelector,
   LocationTypeSelector,
@@ -95,6 +97,7 @@ import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { DriveToFlow } from "./drive-to-flow";
 import { PickMeUpFlow } from "./pick-me-up-flow";
 import { SafeArrivalFlow } from "./safe-arrival-flow";
+import { deriveEnRouteHelpers } from "./pickup-enroute";
 
 
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
@@ -211,6 +214,10 @@ export type LocationHubViewModel = {
     message?: string,
     pickupPoint?: { latitude: number; longitude: number; label?: string },
   ) => void;
+
+  /* "I'm on my way" — helper reverse share: creates a drive-style grant back to
+     the requester so they can watch the helper approach their pickup point. */
+  onImOnMyWay: (grant: OneLocationGrant) => void;
 
   /* Safe Arrival (quick action) — outbound: share your live journey + ETA to a
      destination until you arrive, framed for peace-of-mind. Reuses the same
@@ -562,6 +569,18 @@ function NowHub({
   // surface the Device readiness card at the very TOP so the user immediately
   // sees how to fix it, instead of it sitting in the middle of the page.
   const readinessBlocked = vm.readiness.tone === "blocked";
+
+  // Derive helpers who are en route to pick up this user.
+  // Condition: a received grant with shareKind === "pickup_enroute" that has a
+  // decrypted live point AND for whom the current user has an active outbound
+  // "pick_me_up" grant (i.e. the mutual-share pair is complete).
+  const enRouteHelpers = deriveEnRouteHelpers({
+    receivedGrants: vm.receivedGrants,
+    // activeOwnerGrants is pre-filtered to status === "active" by the vm.
+    activeOwnerGrants: vm.activeOwnerGrants,
+    decryptedPoints: vm.decryptedPoints,
+    labelFor: vm.grantOwnerLabel,
+  });
   const deviceReadinessCard = (
     <SectionCard title="Device readiness">
       <DeviceReadinessCard
@@ -594,6 +613,20 @@ function NowHub({
   return (
     <div className="space-y-5">
       {readinessBlocked ? deviceReadinessCard : null}
+
+      {/* En-route helpers: show one card per helper who tapped "I'm on my way".
+          Each card shows the helper's name, live ETA, map, and a cancel button
+          that revokes the requester's outbound pick_me_up grant. */}
+      {enRouteHelpers.map(({ key, helperName, point, etaSeconds, outboundGrantId }) => (
+        <PickupEnRouteCard
+          key={key}
+          helperName={helperName}
+          etaText={driveEtaText(etaSeconds)}
+          onCancel={() => vm.onStopGrant(outboundGrantId)}
+        >
+          {vm.renderMapPreview(point, false)}
+        </PickupEnRouteCard>
+      ))}
 
       <SharingStatusCard
         isSharing={hasActiveShare}
@@ -1340,6 +1373,11 @@ function InboxHub({
               const point = vm.decryptedPoints[grant.id];
               const previewExpanded =
                 Boolean(point) && !collapsedGrantIds.has(grant.id);
+              const enRoute = vm.activeOwnerGrants.some(
+                (g) =>
+                  g.shareKind === "pickup_enroute" &&
+                  g.recipientUserId === grant.ownerUserId,
+              );
               return (
                 <SharedWithMeCard
                   key={grant.id}
@@ -1355,6 +1393,10 @@ function InboxHub({
                   onView={() => onExpandGrant(grant)}
                   onDismiss={() => onCollapseGrant(grant.id)}
                   viewBusy={vm.busy === "view"}
+                  message={grant.shareMessage ?? undefined}
+                  isPickup={grant.shareKind === "pick_me_up"}
+                  onImOnMyWay={() => vm.onImOnMyWay(grant)}
+                  enRoute={enRoute}
                 >
                   {previewExpanded && point
                     ? vm.renderMapPreview(point, true)

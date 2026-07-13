@@ -1523,7 +1523,8 @@ class OneLocationAgentService:
         # was selected without metadata (some callers), default to a plain share.
         metadata = _loads_json(row.get("metadata"))
         reason = metadata.get("reason") if isinstance(metadata, dict) else None
-        share_kind = _classify_share_kind(reason)
+        stored_kind = metadata.get("share_kind") if isinstance(metadata, dict) else None
+        share_kind = stored_kind or _classify_share_kind(reason)
         share_message = _visible_share_message(reason)
         return {
             "id": str(row.get("id") or ""),
@@ -2671,6 +2672,7 @@ class OneLocationAgentService:
         recipient_key_id: str | None,
         duration_hours: float,
         reason: str | None = None,
+        share_kind: str | None = None,
         require_recipient_phone_verified: bool = True,
         enforce_connection: bool = False,
     ) -> dict[str, Any]:
@@ -2701,6 +2703,7 @@ class OneLocationAgentService:
             recipient_key_id=recipient_key_id,
             require_phone_verified=require_recipient_phone_verified,
         )
+        resolved_kind = share_kind or _classify_share_kind(reason)
         owner_identity = self._identity_row(owner_user_id)
         owner_label = _identity_notification_label(owner_identity)
         key_id = str(recipient.get("key_id") or "")
@@ -2747,6 +2750,7 @@ class OneLocationAgentService:
                 "metadata_json": _json_param(
                     {
                         "reason": reason or "owner_approved",
+                        "share_kind": resolved_kind,
                         "capability_token": capability["token"],
                         "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
                     }
@@ -2777,17 +2781,26 @@ class OneLocationAgentService:
         # copy, and a plain share keeps the neutral line. Internal markers
         # ("owner_approved" / "request_approved" / "sos_panic") are never shown
         # as a raw message.
-        share_kind = _classify_share_kind(reason)
         share_message = _visible_share_message(reason)
-        if share_kind == "sos":
+        if resolved_kind == "sos":
             notification_title = "SOS alert"
             notification_body = (
                 f"{owner_label} triggered an SOS and is sharing live location with you."
             )
-        elif share_kind == "drive_to":
+        elif resolved_kind == "drive_to":
             notification_title = "Drive shared"
             notification_body = f"{owner_label} started sharing their drive and live ETA with you."
-        elif share_kind == "check_in":
+        elif resolved_kind == "pick_me_up":
+            notification_title = "Pickup requested"
+            notification_body = (
+                f"{owner_label}: {share_message}"
+                if share_message
+                else f"{owner_label} is requesting a pickup."
+            )
+        elif resolved_kind == "pickup_enroute":
+            notification_title = "Drive shared"
+            notification_body = f"{owner_label} started sharing their drive and live ETA with you."
+        elif resolved_kind == "check_in":
             notification_title = "Check-in shared"
             notification_body = (
                 f"{owner_label}: {share_message}"
@@ -2819,7 +2832,7 @@ class OneLocationAgentService:
                     "owner_display_label": owner_label,
                     "duration_hours": str(duration),
                     "expires_at": grant.get("expiresAt"),
-                    "share_kind": share_kind,
+                    "share_kind": resolved_kind,
                     **({"share_message": share_message} if share_message else {}),
                 },
             )

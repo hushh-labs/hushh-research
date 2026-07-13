@@ -31,6 +31,7 @@ import {
 } from "@/lib/services/ria-service";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { RIA_TONE_BADGE } from "@/lib/ria/ria-tone";
+import { RIA_COPY } from "@/lib/ria/ria-screen-copy";
 import { cn } from "@/lib/utils";
 import { RiaCompatibilityState, RiaVerificationGate } from "@/components/ria/ria-page-shell";
 
@@ -159,8 +160,8 @@ export default function RiaClientsPage() {
           }}
         />
         <RiaCompatibilityState
-          title="Complete RIA onboarding"
-          description="Finish onboarding to access the client roster."
+          title={RIA_COPY.clients.setupGate.title}
+          description={RIA_COPY.clients.setupGate.description}
         />
       </>
     );
@@ -184,10 +185,10 @@ export default function RiaClientsPage() {
     >
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow="Clients"
+          eyebrow={RIA_COPY.clients.eyebrow}
           title={
             <span className="inline-flex flex-wrap items-center gap-2">
-              Client roster
+              {RIA_COPY.clients.title}
               {clientItems.length > 0 ? (
                 <Badge variant="secondary" className="text-[10px]">
                   {clientItems.length}
@@ -195,7 +196,7 @@ export default function RiaClientsPage() {
               ) : null}
             </span>
           }
-          description="Open dedicated client workspaces for relationship status, access management, Kai parity, and the structured explorer."
+          description={RIA_COPY.clients.description}
           icon={UserRound}
           accent="ria"
         />
@@ -206,17 +207,17 @@ export default function RiaClientsPage() {
         <div className="flex flex-col gap-8">
           <SettingsGroup
             embedded
-            title="Connected investors"
-            description="Open a client once and keep relationship state, access, Kai parity, and the explorer in the same workspace."
+            title={RIA_COPY.clients.section.title}
+            description={RIA_COPY.clients.section.description}
           >
             {clientsResource.loading ? (
               <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Loading clients...
+                {RIA_COPY.clients.loading}
               </div>
             ) : clientItems.length === 0 ? (
               <div className="space-y-3 px-4 py-8 text-center">
-                <p className="text-sm text-muted-foreground">No connected investors yet.</p>
+                <p className="text-sm text-muted-foreground">{RIA_COPY.clients.empty}</p>
                 <Button
                   variant="none"
                   effect="fade"
@@ -224,7 +225,7 @@ export default function RiaClientsPage() {
                   data-voice-control-id="ria_clients_browse_marketplace"
                   onClick={() => router.push(ROUTES.MARKETPLACE)}
                 >
-                  Browse the marketplace
+                  {RIA_COPY.clients.browse}
                 </Button>
               </div>
             ) : (

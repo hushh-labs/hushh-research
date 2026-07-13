@@ -76,7 +76,7 @@ import {
 } from "@/lib/flows/delete-account";
 import { VaultService } from "@/lib/services/vault-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { ROUTES } from "@/lib/navigation/routes";
+import { ROUTES, isRiaRoute } from "@/lib/navigation/routes";
 import { DebateTaskCenter } from "@/components/app-ui/debate-task-center";
 import { AgentSectionDropdown } from "@/components/app-ui/agent-section-dropdown";
 import { getAgentSection } from "@/lib/navigation/agent-sections";
@@ -500,12 +500,12 @@ export function TopAppBar({ className }: TopAppBarProps) {
   const isRiaOnboardingScope =
     normalizedPathname === ROUTES.RIA_ONBOARDING ||
     normalizedPathname.startsWith(`${ROUTES.RIA_ONBOARDING}/`);
-  // RIA sub-agent header: 🤫 One (left) + center "RIA ⌄" cluster, per the
-  // onboarding design. During setup the route can load before the persona state
-  // flips to RIA, so include /ria/onboarding explicitly while keeping other RIA
-  // routes persona-gated.
+  // RIA sub-agent header is route-scoped, not persona-scoped. A user can return
+  // to /one while activePersona remains "ria"; the /one launcher must still
+  // show the canonical Agents dropdown from build 48.
   const isRiaScope =
-    (activePersona === "ria" || isRiaOnboardingScope) && !topShellBreadcrumb;
+    (isRiaRoute(normalizedPathname) || isRiaOnboardingScope) &&
+    !topShellBreadcrumb;
   const showKaiTabs = topShellMetrics.hasTabs;
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(
     null,
