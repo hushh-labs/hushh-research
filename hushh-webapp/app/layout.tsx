@@ -1,5 +1,6 @@
 import { NetworkStatusBanner } from "@/components/system/network-status-banner";
 import { JsonLd } from "@/components/seo/json-ld";
+import { ThemeProvider } from "@/components/theme-provider";
 import { buildOrganizationGraph } from "@/lib/seo/structured-data";
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
@@ -20,7 +21,13 @@ export const metadata: Metadata = {
   title: "Hussh One | Your Private Agent",
   description:
     "Private AI agents with consent at the core. Your information, your control.",
-  keywords: ["AI agents", "private AI", "Hussh One", "consent-first", "privacy"],
+  keywords: [
+    "AI agents",
+    "private AI",
+    "Hussh One",
+    "consent-first",
+    "privacy",
+  ],
   authors: [{ name: "Hussh Labs" }],
   icons: {
     icon: [
@@ -120,10 +127,17 @@ export default function RootLayout({
           />
         ) : null}
       </head>
-      <RootLayoutClient fontClasses="">
-        <NetworkStatusBanner />
-        {children}
-      </RootLayoutClient>
+      <body
+        suppressHydrationWarning
+        className="font-sans antialiased min-h-[100dvh] flex flex-col overflow-x-hidden"
+      >
+        <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+          <RootLayoutClient fontClasses="">
+            <NetworkStatusBanner />
+            {children}
+          </RootLayoutClient>
+        </ThemeProvider>
+      </body>
     </html>
   );
 }

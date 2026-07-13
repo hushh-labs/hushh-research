@@ -49,8 +49,9 @@ physical route has exactly one bounded, authored `voicePlaybook` in the route-la
 contract: purpose, canonical screen, entry cue, primary generated action reference,
 happy-path references, recovery posture, completion boundary, and return policy. The
 generated index joins that guidance to action coverage and specialist admission.
-Only the server-resolved active playbook reaches a live session; the browser cannot
-submit prompt text or widen its action set.
+Only the server-resolved active playbook and its bounded generated active-action
+inventory reach a live session; the browser cannot submit prompt text or widen
+its action set.
 
 Morphy AX consumes this verified state as a pure redacted presentation and
 assessment-policy layer. It does not choose actions, create a second voice state
@@ -63,6 +64,37 @@ and the action gateway remains the only executable-action authority. Before
 One dispatches an internal A2A specialist, the backend checks the redacted
 current route against this index; scoped consent remains the authority gate,
 and TrustLink validation remains separate for delegation paths that use it.
+
+### Native tools and MCP tools
+
+One uses two deliberately separate tool planes:
+
+1. **Native, local tools** are the latency-critical plane. `list_app_actions`,
+   `run_app_action`, route navigation, onboarding resolution, and correlated
+   browser settlement stay as bounded ADK function tools over generated
+   contracts. A visible control never becomes an MCP-discovered tool, and an
+   MCP server can never decide the current route, infer a DOM control, or
+   report a browser action as complete.
+2. **MCP tools** are the consented external-capability plane. A specialist may
+   consume a small, manifest-owned MCP tool allowlist only after its route,
+   auth, vault, consent, scope, and delegation gates pass. One stays the only
+   conversational owner and receives a typed specialist result; it does not
+   receive a broad remote tool catalogue or owner credentials.
+
+This follows ADK's `McpToolset` model: MCP schemas are discovered and adapted
+into ADK tools, and calls are proxied to the MCP server. That discovery and its
+stateful connection lifecycle are intentionally outside the live root turn.
+For Cloud Run, external MCP integrations use authenticated Streamable HTTP,
+bounded connection/request timeouts, circuit breakers, telemetry, and a
+strict tool filter. Stdio MCP is development-only. A restored process must
+re-establish an MCP connection before use; no stale connection or cached tool
+catalogue grants authority. On any connection, consent, or tool failure, the
+specialist returns a typed recoverable result and One retains the active goal.
+
+The source boundary is [ADK MCP tools](https://adk.dev/tools-custom/mcp-tools/):
+its connection-management, tool-filtering, lifecycle, and Cloud Run guidance
+is adopted here without turning MCP into a route-awareness or browser-control
+protocol.
 
 ### Public welcome and first-turn priority
 
@@ -86,6 +118,23 @@ Interactive route entry cues are debounced by the verified route/playbook key. A
 visitor speech-activity frame cancels any pending cue before retained audio reaches
 ADK. Confirmation-required voice directives use an inline ambient card; slots remain
 transient and hidden, and confirm/cancel both report a correlated settlement.
+
+### Active interaction layers
+
+The browser publishes authored route, chrome, and interaction-layer inventories into
+the existing runtime context. `VoiceInteractionLayerV1` describes only the top dialog,
+popover, sheet, menu, confirmation, or bounded option surface: modality, lifecycle,
+dismissibility, generated actions, control ids, bounded options, focus return,
+underlying-action policy, and Agent continuity. It does not contain prompt text or
+private page information.
+
+The server receives only the composed, bounded active inventory. Modal and blocking
+layers hide route actions; nonmodal layers retain only route actions the author
+explicitly permits. One gives the top layer priority during its normal semantic
+assessment, then the generated gateway validates the exact selected action. Closing a
+layer uses its mounted generated handler and settles only after removal, focus return,
+and context revision. No DOM inference, global synthetic Escape, keyword router, or
+second action registry is involved.
 
 One's voice runtime is Google ADK's `Runner.run_live` over Vertex AI. The
 browser is an audio pump and directive executor; every decision (conversation
@@ -217,6 +266,16 @@ This closes the live chain as:
 
 `One plan → governed directive → browser guard/execution → correlated settlement → grounded next turn`.
 
+Desktop-web provider actions may require `trusted_activation_required`. One still
+selects the exact Apple or Google generated action in its current ADK turn, but an
+asynchronous directive does not carry browser transient activation. The blocked
+directive produces one provider-specific Agent Bar action; its trusted tap invokes the
+mounted Firebase popup handler synchronously and preserves the live session. Popup
+success is correlated only after Firebase returns a verified user and token. The
+browser-owned popup is not an in-app interaction layer, and popup close, cancellation,
+focus recovery, retry, SDK failure, and stale completion report typed settlements
+without reloading Login or allowing an old attempt to mutate a newer one.
+
 ## Onboarding and Proactive Prompting
 
 Guiding a new user through account setup is an ordinary `run_app_action`/
@@ -287,7 +346,8 @@ fork a second agent tree for chat.
 `OneVoiceContextSnapshot` stays intentionally lossy:
 
 - keeps screen id, route family, visible modules, available action ids,
-  cache posture, vault readiness, portfolio readiness, persona, voice state
+  cache posture, vault readiness, portfolio readiness, persona, voice state,
+  and the top redacted interaction-layer posture
 - redacts user ids, vault keys, raw PKM, transcript history, private
   documents, and raw cache keys
 
@@ -298,6 +358,12 @@ tools only: `run_app_action` and `list_app_actions` use the supplied action ids
 to avoid proposing controls that are not available on the current surface.
 Raw snapshot fields never enter a model prompt. Screen changes alone surface to
 the model as bracketed non-speech user content.
+
+Only the active playbook, top-layer inventory, visible generated actions and bounded
+options, and pending-settlement posture are composed into One's runtime instruction.
+`list_app_actions` is retrieval over generated contracts, not semantic authority;
+intelligence assesses meaning and deterministic policy validates route, layer, auth,
+vault, consent, confirmation, and settlement boundaries.
 
 ## Verification
 

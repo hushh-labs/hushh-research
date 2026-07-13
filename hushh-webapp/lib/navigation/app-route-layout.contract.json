@@ -10,9 +10,7 @@
       "entryCue": "Say ‘Claim your One’ whenever you are ready.",
       "proactivity": "on_entry",
       "primaryActionId": "onboarding.claim_one",
-      "happyPathActionIds": [
-        "onboarding.claim_one"
-      ],
+      "happyPathActionIds": ["onboarding.claim_one"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -48,9 +46,7 @@
       "entryCue": "You can say “Open Agents” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_agents",
-      "happyPathActionIds": [
-        "route.one_agents"
-      ],
+      "happyPathActionIds": ["route.one_agents"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -85,9 +81,7 @@
       "entryCue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
       "proactivity": "on_entry",
       "primaryActionId": "setup.open_finance",
-      "happyPathActionIds": [
-        "setup.open_finance"
-      ],
+      "happyPathActionIds": ["setup.open_finance"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -142,11 +136,7 @@
     "mode": "standard",
     "shellVerification": {
       "file": "components/agent/agent-screen.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageContentRegion",
-        "AgentChatWorkspace"
-      ]
+      "includes": ["AppPageShell", "AppPageContentRegion", "AgentChatWorkspace"]
     },
     "voicePlaybook": {
       "playbookId": "route.agent",
@@ -174,6 +164,9 @@
   {
     "route": "/login",
     "mode": "hidden",
+    "interactionLayerPolicy": {
+      "allowedFamilies": ["legal_document"]
+    },
     "exemptionReason": "Auth-only route intentionally bypasses the signed-in app shell.",
     "voicePlaybook": {
       "playbookId": "route.login",
@@ -182,9 +175,7 @@
       "entryCue": "Say ‘Continue with Google’ or ‘Continue with Apple’.",
       "proactivity": "on_entry",
       "primaryActionId": "auth.sign_in_google",
-      "happyPathActionIds": [
-        "auth.sign_in_google"
-      ],
+      "happyPathActionIds": ["auth.sign_in_google"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -246,9 +237,7 @@
       "entryCue": "You can say “Open Email” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_kyc",
-      "happyPathActionIds": [
-        "route.one_kyc"
-      ],
+      "happyPathActionIds": ["route.one_kyc"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -283,9 +272,7 @@
       "entryCue": "You can say “Open Location” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_location",
-      "happyPathActionIds": [
-        "route.one_location"
-      ],
+      "happyPathActionIds": ["route.one_location"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -402,9 +389,7 @@
       "entryCue": "You can say “Open Receipts Page” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_receipts",
-      "happyPathActionIds": [
-        "route.profile_receipts"
-      ],
+      "happyPathActionIds": ["route.profile_receipts"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -467,9 +452,7 @@
       "entryCue": "You can say “Open Memory” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_pkm",
-      "happyPathActionIds": [
-        "route.one_pkm"
-      ],
+      "happyPathActionIds": ["route.one_pkm"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -505,9 +488,7 @@
       "entryCue": "You can say “Open Information Marketplace” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_marketplace",
-      "happyPathActionIds": [
-        "route.one_marketplace"
-      ],
+      "happyPathActionIds": ["route.one_marketplace"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -535,9 +516,7 @@
       "proactivity": "ambient",
       "primaryActionId": null,
       "happyPathActionIds": [],
-      "requiredInputs": [
-        "utterance"
-      ],
+      "requiredInputs": ["utterance"],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
         "cancelled": "Respect the cancellation and retain a safe next step.",
@@ -599,9 +578,7 @@
       "entryCue": "You can say “Open Connected Systems Panel” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_connected_systems",
-      "happyPathActionIds": [
-        "route.profile_connected_systems"
-      ],
+      "happyPathActionIds": ["route.profile_connected_systems"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -683,6 +660,9 @@
   {
     "route": "/register-phone",
     "mode": "hidden",
+    "interactionLayerPolicy": {
+      "allowedFamilies": ["country_picker"]
+    },
     "exemptionReason": "Mandatory post-login phone verification flow intentionally bypasses the signed-in app shell.",
     "voicePlaybook": {
       "playbookId": "route.register.phone",
@@ -691,12 +671,8 @@
       "entryCue": "Say your phone number including country code, or type it below.",
       "proactivity": "on_entry",
       "primaryActionId": "phone_mandate.submit_number",
-      "happyPathActionIds": [
-        "phone_mandate.submit_number"
-      ],
-      "requiredInputs": [
-        "phone_number"
-      ],
+      "happyPathActionIds": ["phone_mandate.submit_number"],
+      "requiredInputs": ["phone_number"],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
         "cancelled": "Respect the cancellation and retain a safe next step.",
@@ -757,9 +733,7 @@
       "entryCue": "You can say “Open RIA Requests” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_requests_compat",
-      "happyPathActionIds": [
-        "route.ria_requests_compat"
-      ],
+      "happyPathActionIds": ["route.ria_requests_compat"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -821,9 +795,7 @@
       "entryCue": "You can say “Open Market Home” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.kai_home",
-      "happyPathActionIds": [
-        "route.kai_home"
-      ],
+      "happyPathActionIds": ["route.kai_home"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -885,9 +857,7 @@
       "entryCue": "You can say “Open Analysis Surface” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.kai_analysis",
-      "happyPathActionIds": [
-        "route.kai_analysis"
-      ],
+      "happyPathActionIds": ["route.kai_analysis"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -936,9 +906,7 @@
     "exemptionReason": "Compatibility redirect route only launches the canonical analysis entry.",
     "shellVerification": {
       "file": "app/kai/dashboard/analysis/page.tsx",
-      "includes": [
-        "AppPageShell"
-      ]
+      "includes": ["AppPageShell"]
     },
     "voicePlaybook": {
       "playbookId": "route.kai.dashboard.analysis",
@@ -996,10 +964,7 @@
     "exemptionReason": "Fullscreen import flow uses FullscreenFlowShell instead of standard AppPageShell.",
     "shellVerification": {
       "file": "app/one/kai/import/page.tsx",
-      "includes": [
-        "FullscreenFlowShell",
-        "KaiFlow"
-      ]
+      "includes": ["FullscreenFlowShell", "KaiFlow"]
     },
     "voicePlaybook": {
       "playbookId": "route.one.kai.import",
@@ -1008,9 +973,7 @@
       "entryCue": "You can say “Open Portfolio Import” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.kai_import",
-      "happyPathActionIds": [
-        "route.kai_import"
-      ],
+      "happyPathActionIds": ["route.kai_import"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1072,9 +1035,7 @@
       "entryCue": "You can say “Open Investments Surface” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.kai_investments",
-      "happyPathActionIds": [
-        "route.kai_investments"
-      ],
+      "happyPathActionIds": ["route.kai_investments"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1217,12 +1178,8 @@
       "entryCue": "Answer the visible Finance question to continue.",
       "proactivity": "on_entry",
       "primaryActionId": "kai.setup.answer_horizon",
-      "happyPathActionIds": [
-        "kai.setup.answer_horizon"
-      ],
-      "requiredInputs": [
-        "investment_horizon"
-      ],
+      "happyPathActionIds": ["kai.setup.answer_horizon"],
+      "requiredInputs": ["investment_horizon"],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
         "cancelled": "Respect the cancellation and retain a safe next step.",
@@ -1256,9 +1213,7 @@
       "entryCue": "Say ‘Continue’ when you are ready for the next step.",
       "proactivity": "on_entry",
       "primaryActionId": "setup.capability_continue",
-      "happyPathActionIds": [
-        "setup.capability_continue"
-      ],
+      "happyPathActionIds": ["setup.capability_continue"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1321,9 +1276,7 @@
       "entryCue": "You can say “Open Optimize Surface” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.kai_optimize",
-      "happyPathActionIds": [
-        "route.kai_optimize"
-      ],
+      "happyPathActionIds": ["route.kai_optimize"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1371,10 +1324,7 @@
     "mode": "standard",
     "shellVerification": {
       "file": "app/one/kai/plaid/oauth/return/page.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageContentRegion"
-      ]
+      "includes": ["AppPageShell", "AppPageContentRegion"]
     },
     "voicePlaybook": {
       "playbookId": "route.one.kai.plaid.oauth.return",
@@ -1431,10 +1381,7 @@
     "mode": "standard",
     "shellVerification": {
       "file": "app/one/kai/alpaca/oauth/return/page.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageContentRegion"
-      ]
+      "includes": ["AppPageShell", "AppPageContentRegion"]
     },
     "voicePlaybook": {
       "playbookId": "route.one.kai.alpaca.oauth.return",
@@ -1491,10 +1438,7 @@
     "mode": "standard",
     "shellVerification": {
       "file": "app/one/kai/portfolio/page.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageContentRegion"
-      ]
+      "includes": ["AppPageShell", "AppPageContentRegion"]
     },
     "voicePlaybook": {
       "playbookId": "route.one.kai.portfolio",
@@ -1503,9 +1447,7 @@
       "entryCue": "You can say “Open Portfolio Dashboard” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.kai_dashboard",
-      "happyPathActionIds": [
-        "route.kai_dashboard"
-      ],
+      "happyPathActionIds": ["route.kai_dashboard"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1540,9 +1482,7 @@
       "entryCue": "You can say “Continue Browsing Marketplace” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.marketplace_browse_from_ria_profile",
-      "happyPathActionIds": [
-        "route.marketplace_browse_from_ria_profile"
-      ],
+      "happyPathActionIds": ["route.marketplace_browse_from_ria_profile"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1577,9 +1517,7 @@
       "entryCue": "You can say “Open Marketplace RIA Profile” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.marketplace_ria_profile",
-      "happyPathActionIds": [
-        "route.marketplace_ria_profile"
-      ],
+      "happyPathActionIds": ["route.marketplace_ria_profile"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1607,9 +1545,7 @@
       "proactivity": "ambient",
       "primaryActionId": null,
       "happyPathActionIds": [],
-      "requiredInputs": [
-        "utterance"
-      ],
+      "requiredInputs": ["utterance"],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
         "cancelled": "Respect the cancellation and retain a safe next step.",
@@ -1698,9 +1634,7 @@
       "entryCue": "You can say “Open Profile” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile",
-      "happyPathActionIds": [
-        "route.profile"
-      ],
+      "happyPathActionIds": ["route.profile"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1916,9 +1850,7 @@
       "entryCue": "You can say “Open Vault Security Panel” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_security_panel",
-      "happyPathActionIds": [
-        "route.profile_security_panel"
-      ],
+      "happyPathActionIds": ["route.profile_security_panel"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2287,9 +2219,7 @@
       "entryCue": "You can say “Open Support Panel” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_support_panel",
-      "happyPathActionIds": [
-        "route.profile_support_panel"
-      ],
+      "happyPathActionIds": ["route.profile_support_panel"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2382,11 +2312,7 @@
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/gmail/oauth/return/page-client.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageContentRegion",
-        "HushhLoader"
-      ]
+      "includes": ["AppPageShell", "AppPageContentRegion", "HushhLoader"]
     },
     "voicePlaybook": {
       "playbookId": "route.profile.gmail.oauth.return",
@@ -2485,9 +2411,7 @@
       "entryCue": "You can say “Generate PKM capture preview” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "profile.pkm.preview_capture",
-      "happyPathActionIds": [
-        "profile.pkm.preview_capture"
-      ],
+      "happyPathActionIds": ["profile.pkm.preview_capture"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2522,9 +2446,7 @@
       "entryCue": "You can say “Open RIA Home” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_home",
-      "happyPathActionIds": [
-        "route.ria_home"
-      ],
+      "happyPathActionIds": ["route.ria_home"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2559,9 +2481,7 @@
       "entryCue": "You can say “Open RIA Clients” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_clients",
-      "happyPathActionIds": [
-        "route.ria_clients"
-      ],
+      "happyPathActionIds": ["route.ria_clients"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2596,9 +2516,7 @@
       "entryCue": "You can say “Open RIA Client Workspace” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_client_workspace",
-      "happyPathActionIds": [
-        "route.ria_client_workspace"
-      ],
+      "happyPathActionIds": ["route.ria_client_workspace"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2633,9 +2551,7 @@
       "entryCue": "You can say “Return To Client Information Explorer” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "ria.client_account.open_workspace_fallback",
-      "happyPathActionIds": [
-        "ria.client_account.open_workspace_fallback"
-      ],
+      "happyPathActionIds": ["ria.client_account.open_workspace_fallback"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2670,9 +2586,7 @@
       "entryCue": "You can say “Return To Client Access” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "ria.client_request.open_access_fallback",
-      "happyPathActionIds": [
-        "ria.client_request.open_access_fallback"
-      ],
+      "happyPathActionIds": ["ria.client_request.open_access_fallback"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2694,10 +2608,7 @@
     "exemptionReason": "RIA onboarding is a five-step fullscreen setup flow that owns its own compact content rhythm.",
     "shellVerification": {
       "file": "app/ria/onboarding/page.tsx",
-      "includes": [
-        "FullscreenFlowShell",
-        "OnboardingShell"
-      ]
+      "includes": ["FullscreenFlowShell", "OnboardingShell"]
     },
     "voicePlaybook": {
       "playbookId": "route.ria.onboarding",
@@ -2706,9 +2617,7 @@
       "entryCue": "You can say “Open RIA Onboarding” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_onboarding",
-      "happyPathActionIds": [
-        "route.ria_onboarding"
-      ],
+      "happyPathActionIds": ["route.ria_onboarding"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2743,9 +2652,7 @@
       "entryCue": "You can say “Open RIA Picks” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_picks",
-      "happyPathActionIds": [
-        "route.ria_picks"
-      ],
+      "happyPathActionIds": ["route.ria_picks"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2961,9 +2868,7 @@
       "entryCue": "You can say “Open RIA Profile” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_profile",
-      "happyPathActionIds": [
-        "route.ria_profile"
-      ],
+      "happyPathActionIds": ["route.ria_profile"],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",

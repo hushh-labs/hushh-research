@@ -63,12 +63,27 @@ low-risk visible control, One uses the generated action search and exact
 action runner immediately, without reintroducing itself or asking for a
 redundant confirmation. It reports only the browser-observed settlement.
 
-On Login, voice and tap first call the same Firebase popup functions. If the browser
-rejects a voice-triggered popup because the directive lacks transient user activation,
-voice alone falls back to the correlated Firebase redirect/resume path. Native retains
-its native provider path. Generic “sign in” asks which provider; it does not claim
-completion or silently select one. Cancellation, popup/redirect failure, missing user,
-timeout, and route mismatch retain the goal and report the next safe instruction.
+On Login, tapping a visible provider button calls its Firebase popup synchronously.
+One's semantic assessment maps an explicit voice request to that same exact generated
+provider action, but an asynchronous voice directive cannot manufacture browser
+activation. The directive therefore settles as `trusted_activation_required` and the
+Agent Bar presents one provider-specific action: **Continue with Apple** or **Continue
+with Google**. That trusted tap invokes the mounted handler before any asynchronous
+work and keeps the live session in the app. There is no synthetic click, blank popup
+broker, or same-tab redirect fallback. Native retains its native provider path.
+
+The popup attempt is correlated to the initiating directive and validated resume
+route. Only a verified Firebase user and token can settle success. Cancellation, SDK
+failure, popup close, focus return while Firebase is still settling, missing user,
+timeout, and stale completion retain the goal and restore a usable Login surface. A
+new attempt cannot be cleared or completed by an older promise. Generic “sign in” asks
+which provider; it never selects one silently.
+
+Login legal documents are authored interaction layers. While Terms or Privacy is open,
+the layer's generated close action and visible controls outrank Apple, Google, and
+route-back actions. One may interpret “close this” naturally, but it can execute only
+the active layer's exact generated action. Close success waits for committed layer
+removal, focus restoration, and the refreshed surface revision.
 
 The phone code action is confirmation-required. A spoken code is processed by the
 configured voice provider, held only in transient client memory, hidden from the
@@ -95,8 +110,9 @@ the browser journey suite is expanded.
 
 ## Verification matrix
 
-- explicit Google/Apple from Login tries the visible button's popup path and uses correlated redirect recovery only when browser activation blocks it; generic sign-in requests a provider
-- cancelled or failed provider flows retain the existing goal and post-auth route
+- explicit Google/Apple from Login selects the exact provider action and requests one provider-specific trusted tap; generic sign-in requests a provider
+- popup success, cancellation, close/retry, focus recovery, SDK failure, and stale completion preserve the existing goal and post-auth route correctly
+- Terms/Privacy expose only their active-layer action inventory and close through visible, keyboard, outside-interaction, and voice paths
 - Login → phone → hub → capability → terminal/explicit hub return reaches One home only through explicit hub completion
 - Finance completion returns to the hub and cannot resolve root setup
 - redacted relay context and directive settlement are correlated; One cannot state success before settlement

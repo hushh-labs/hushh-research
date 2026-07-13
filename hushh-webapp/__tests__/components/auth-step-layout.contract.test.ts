@@ -4,6 +4,17 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("AuthStep layout contract", () => {
+  it("returns to the canonical onboarding parent instead of browser history", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/onboarding/AuthStep.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("buildWelcomeRoute");
+    expect(source).toContain("router.replace(");
+    expect(source).not.toContain("router.back()");
+  });
+
   it("keeps the login controls centered without page scroll on mobile viewports", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/AuthStep.tsx"),

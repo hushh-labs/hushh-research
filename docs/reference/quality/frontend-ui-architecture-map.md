@@ -10,6 +10,7 @@ Canonical visual owner: [Quality and Design System Index](./README.md). Use that
 |---|---|---|---|
 | Stock primitives | `hushh-webapp/components/ui/*` | Registry-backed baseline controls | Keep overwrite-safe. No app semantics here. |
 | Morphy UX | `hushh-webapp/lib/morphy-ux/*` | Standalone design-system root | Own tokens, primitive surface shells, motion, and reusable interaction layers. Do not pull in feature or app-ui code. |
+| Morphy AX | `hushh-webapp/lib/morphy-ax/*` | Pure redacted Agent Experience derivation | Composes authored route, chrome, and interaction-layer state. It never owns visuals, routing, actions, or a second store. |
 | App surfaces | `hushh-webapp/components/app-ui/*` | Hussh shell chrome and semantic shared compositions | Own shell, settings, page chrome, and semantic wrappers built on Morphy primitives. |
 | Feature composition | `hushh-webapp/components/<feature>/*`, `hushh-webapp/app/**` | Route-level composition and feature behavior | Reuse stock or app-ui primitives before inventing new surfaces. |
 | Labs | `hushh-webapp/app/labs/*`, `hushh-webapp/components/labs/*`, `hushh-webapp/lib/labs/*` | Experimental visual exploration | Never import directly into production Kai routes without graduation. |
@@ -55,6 +56,21 @@ Reference implementations:
    - shared product-level composition
 4. Do not create feature-local one-off primitives when a shared semantic surface should exist.
 5. Do not create route-local outer width shells when `AppPageShell` or `FullscreenFlowShell` should own the container.
+
+## Agent-aware interaction layers
+
+1. Dialogs, popovers, sheets, menus, and bounded option surfaces keep their visual and
+   accessibility behavior in Morphy UX or app-ui composition.
+2. A voice-supported surface publishes authored metadata with role `route`, `chrome`,
+   or `interaction_layer`; it never relies on DOM discovery.
+3. `VoiceInteractionLayerV1` is redacted behavior metadata, not a visual primitive.
+4. Modal and blocking layers hide underlying actions. Nonmodal layers retain only
+   explicitly permitted route controls.
+5. Each dismissible layer maps its visible close/cancel control to an exact generated
+   action and mounted handler. Settlement follows committed close and focus return.
+6. Legal and informational layers may keep Agent Bar interactive above their scrim;
+   credential, OTP, vault, and destructive layers make it ambient or suppress it.
+7. Browser-owned provider popups are external attempts, not interaction layers.
 
 ## Labs Graduation Rule
 

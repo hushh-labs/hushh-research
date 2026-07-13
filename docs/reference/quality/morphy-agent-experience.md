@@ -8,7 +8,10 @@ Canonical visual owner: [Quality and Design System Index](README.md). Morphy UX 
 
 ```mermaid
 flowchart LR
-  sources["Verified runtime state"] --> ax["Morphy AX snapshot"]
+  route["Route publisher"] --> compose["Top-layer composition"]
+  chrome["Chrome publisher"] --> compose
+  layer["Interaction-layer publisher"] --> compose
+  compose --> ax["Morphy AX snapshot"]
   one["One semantic assessment"] --> policy["Deterministic validation"]
   ax --> policy
   policy --> gateway["Generated action gateway"]
@@ -36,13 +39,46 @@ Morphy AX must never introduce another provider, store, router, voice state mach
 | Dimension | Bounded content |
 | --- | --- |
 | Access | signed-in posture, vault readiness, active persona |
-| Context | canonical screen, route family, active playbook, visible modules and controls, onboarding posture |
+| Context | canonical screen, route family, active playbook, top interaction layer, visible modules and controls, onboarding posture |
 | Tools | currently available generated action identifiers |
 | Orchestration | pending settlement, voice lifecycle posture, bounded busy operations |
 
 Privacy is explicit: the snapshot is redacted and excludes raw voice turns, OTP values, credentials, OAuth material, vault material, private page content, and action slots. The snapshot is derived synchronously and performs no network or model call.
 
 During rollout, `toOneVoiceContextSnapshot` preserves the existing `one_voice_context.v1` wire shape. Disabling `NEXT_PUBLIC_MORPHY_AX_ENABLED` keeps the pre-existing compatibility path authoritative.
+
+## Active-layer contract
+
+The existing voice-surface publisher accepts authored publishers in three roles:
+
+- `route` owns the physical page and its ordinary visible controls.
+- `chrome` owns persistent shell controls such as Agent Bar.
+- `interaction_layer` owns a dialog, popover, sheet, menu, or bounded option list above the route.
+
+These roles share `AgentRuntimeStateProvider`; they are not another provider, store,
+router, action registry, or DOM observer. Each publisher has an owner-scoped lease, so
+a stale unmount cannot clear or replace a newer publisher. Route revision changes
+remove leases that no longer belong to the verified route.
+
+`VoiceInteractionLayerV1` is the redacted interaction-layer contract. It carries a
+stable layer id and kind, modality (`nonmodal`, `modal`, or `blocking`), lifecycle,
+dismissibility, an exact generated dismiss/cancel action when one exists, visible
+generated actions and control ids, bounded authored options, return-focus control,
+underlying-action policy, and Agent continuity (`interactive`, `ambient`, or
+`suppressed`). It never carries free-form prompt text, private page information,
+credentials, OAuth material, or vault material.
+
+The composer exposes the top open layer:
+
+- a modal or blocking layer replaces underlying route actions
+- a nonmodal layer ranks its actions first and retains only explicitly allowed route actions
+- nested confirmation outranks its parent; closing it restores the parent, then the route
+- a nondismissible layer publishes no invented close action
+
+Dismissal is an authored generated action backed by its mounted handler. Morphy AX
+does not synthesize clicks or Escape events. Success is settled only after React has
+committed the layer removal, focus has returned to the authored control, and the new
+surface revision has been published.
 
 ## Intelligence and deterministic policy
 
@@ -57,6 +93,30 @@ Semantic meaning must come from intelligence. One's current ADK turn produces a 
 Deterministic code must not classify meaning from keyword or regex rules, substitute a different action, create a capability, or claim completion. `agent_onboarding` is the bounded policy adjudicator beneath One; it receives One's typed assessment plus redacted journey facts and has no information, action, credential, or speaking authority.
 
 With Morphy AX enabled, Agent Bar validates One's typed action directive against the active snapshot before entering the existing generated gateway. A confirmation-required assessment remains a distinct decision and can only enter the inline confirmation path; it is never collapsed into direct execution.
+
+Top-layer precedence is part of that validation: One semantically assesses the turn
+against the bounded active playbook, top layer, visible actions, and pending
+settlement. Deterministic policy then rejects stale, hidden, wrong-layer, or
+unauthorized actions without substituting a different action. `list_app_actions`
+retrieves bounded generated contracts; it is not the semantic classifier.
+
+## Trusted browser activation
+
+Desktop web provider authentication remains popup-first so One's live session and
+the current app screen stay present. Direct button activation calls Firebase's popup
+path synchronously. A voice directive cannot manufacture the browser's transient user
+activation, so `trusted_activation_required` provider actions settle into one exact,
+provider-specific Agent Bar action. Tapping **Continue with Apple** or **Continue with
+Google** synchronously validates and invokes the already-mounted generated handler
+before any asynchronous work. There is no synthetic click, blank broker window, or
+same-tab redirect fallback.
+
+The popup is browser-owned, not an in-app interaction layer. Its typed attempt record
+contains only the attempt id, provider, initiator, directive correlation, validated
+resume route, phase, and settlement. Popup success requires a Firebase user and token
+before the journey advances. Cancellation, focus return while Firebase is settling,
+SDK failure, retry, and stale completion remain recoverable and cannot let an older
+attempt overwrite a newer attempt.
 
 ## Presentation contract
 
@@ -77,6 +137,8 @@ Release gates are measurable:
 - snapshot and policy p95 at or below 5 ms and p99 at or below 10 ms over 10,000 warmed evaluations
 - presentation projection p95 at or below 2 ms
 - no additional network call, model call, or live-session recreation for a clear visible action
+- no hidden underlying action exposure while a modal or blocking layer is active
+- provider popup recovery restores a usable Login surface without a page refresh
 
 Open-ended language outside the release corpus is not described as universally perfect. When meaning is unresolved, One asks one natural clarification and preserves the active goal.
 
@@ -88,4 +150,9 @@ SEO and answer-engine content remains server-authored through canonical Next.js 
 
 ## Verification
 
-Use the `morphy-ax-governance` workflow. At minimum, run the Morphy AX contract/benchmark tests, shared runtime-context tests, frontend typecheck, generated voice verification, backend onboarding-policy tests, design-system verification, and documentation verification. Browser proof is required for route continuity, inline confirmation, responsive presentation, and provider callback recovery.
+Use the `morphy-ax-governance` workflow. At minimum, run the Morphy AX
+contract/benchmark tests, shared runtime-context tests, frontend typecheck, generated
+voice verification, backend onboarding-policy tests, design-system verification, and
+documentation verification. Browser proof is required for route continuity, nested
+layer ordering/restoration, focus return, Agent continuity, trusted-activation popup
+launch, popup close/retry, and success-after-settlement.

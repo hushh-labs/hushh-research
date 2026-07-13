@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { executeAgentGatewayAction } from "@/lib/agent/agent-action-runtime";
+import {
+  executeAgentGatewayAction,
+  executeTrustedActivationGatewayAction,
+} from "@/lib/agent/agent-action-runtime";
 import {
   registerLocalOnboardingHandler,
   unregisterLocalOnboardingHandler,
@@ -8,7 +11,9 @@ import {
 import { ROUTES } from "@/lib/navigation/routes";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 
-function runtimeState(overrides: Partial<AppRuntimeState> = {}): AppRuntimeState {
+function runtimeState(
+  overrides: Partial<AppRuntimeState> = {},
+): AppRuntimeState {
   return {
     auth: {
       signed_in: true,
@@ -74,13 +79,16 @@ describe("executeAgentGatewayAction", () => {
     });
 
     expect(setAnalysisParams).toHaveBeenCalledWith(null);
-    expect(router.push).toHaveBeenCalledWith(`${ROUTES.KAI_ANALYSIS}?ticker=NVDA`);
+    expect(router.push).toHaveBeenCalledWith(
+      `${ROUTES.KAI_ANALYSIS}?ticker=NVDA`,
+    );
     expect(result).toMatchObject({
       status: "started",
       actionId: "analysis.start",
       routeAfter: `${ROUTES.KAI_ANALYSIS}?ticker=NVDA`,
       screenAfter: "kai_analysis",
-      resultSummary: "Opened the NVDA comparison preview before starting the debate.",
+      resultSummary:
+        "Opened the NVDA comparison preview before starting the debate.",
     });
   });
 
@@ -115,7 +123,9 @@ describe("executeAgentGatewayAction", () => {
     });
 
     expect(switchPersona).toHaveBeenCalledWith("investor");
-    expect(router.push).toHaveBeenCalledWith(`${ROUTES.KAI_ANALYSIS}?ticker=TSLA`);
+    expect(router.push).toHaveBeenCalledWith(
+      `${ROUTES.KAI_ANALYSIS}?ticker=TSLA`,
+    );
     expect(result).toMatchObject({
       status: "started",
       actionId: "analysis.start",
@@ -147,10 +157,61 @@ describe("executeAgentGatewayAction", () => {
         setAnalysisParams: vi.fn(),
       });
 
-      expect(handler).toHaveBeenCalledWith({}, { directiveId: "directive-123" });
-      expect(result).toMatchObject({ status: "started", actionId: "auth.sign_in_google" });
+      expect(handler).toHaveBeenCalledWith(
+        {},
+        { directiveId: "directive-123" },
+      );
+      expect(result).toMatchObject({
+        status: "started",
+        actionId: "auth.sign_in_google",
+      });
     } finally {
       unregisterLocalOnboardingHandler("auth.sign_in_google", handler);
+    }
+  });
+
+  it("invokes a trusted provider handler synchronously from the confirming tap", async () => {
+    const router = { push: vi.fn() };
+    let invoked = false;
+    let settle:
+      ((value: { status: "started"; summary: string }) => void) | null = null;
+    const handler = vi.fn(() => {
+      invoked = true;
+      return new Promise<{ status: "started"; summary: string }>((resolve) => {
+        settle = resolve;
+      });
+    });
+    registerLocalOnboardingHandler("auth.sign_in_apple", handler);
+
+    try {
+      const resultPromise = executeTrustedActivationGatewayAction({
+        actionId: "auth.sign_in_apple",
+        slots: {},
+        executionContext: { directiveId: "directive-apple" },
+        userId: "",
+        router,
+        appRuntimeState: runtimeState({
+          auth: { signed_in: false, user_id: null },
+          vault: {
+            unlocked: false,
+            token_available: false,
+            token_valid: false,
+          },
+          route: { pathname: "/login", screen: "login", subview: null },
+        }),
+        hasPortfolioData: false,
+        busyOperations: {},
+        setAnalysisParams: vi.fn(),
+      });
+
+      expect(invoked).toBe(true);
+      settle?.({ status: "started", summary: "Apple popup opened." });
+      await expect(resultPromise).resolves.toMatchObject({
+        status: "started",
+        actionId: "auth.sign_in_apple",
+      });
+    } finally {
+      unregisterLocalOnboardingHandler("auth.sign_in_apple", handler);
     }
   });
 
@@ -170,7 +231,11 @@ describe("executeAgentGatewayAction", () => {
         router,
         appRuntimeState: runtimeState({
           auth: { signed_in: false, user_id: null },
-          vault: { unlocked: false, token_available: false, token_valid: false },
+          vault: {
+            unlocked: false,
+            token_available: false,
+            token_valid: false,
+          },
           route: { pathname: "/", screen: "one_intro", subview: null },
         }),
         hasPortfolioData: false,

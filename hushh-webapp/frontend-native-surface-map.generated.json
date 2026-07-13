@@ -287,6 +287,9 @@
         "exemption_reason": "Anonymous auth-split entry route redirects signed-in users to /one and intentionally does not own the signed-in dashboard shell.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.intro",
           "purpose": "Welcome a new person and help them claim their private agent.",
@@ -352,6 +355,9 @@
           "AppPageContentRegion",
           "AgentChatWorkspace"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.agent",
           "purpose": "Help the person understand and use the agent screen through its generated controls.",
@@ -411,6 +417,9 @@
         "exemption_reason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.blog",
           "purpose": "Help the person understand and use the blog screen through its generated controls.",
@@ -460,6 +469,9 @@
         "exemption_reason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.blog.slug",
           "purpose": "Help the person understand and use the blog screen through its generated controls.",
@@ -509,6 +521,9 @@
         "exemption_reason": "Standalone people-connection route intentionally bypasses the signed-in app shell while still exposing its own native test beacon.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.connect",
           "purpose": "Help the person understand and use the connect screen through its generated controls.",
@@ -568,6 +583,9 @@
         "exemption_reason": "Compatibility redirect route only launches the canonical /one/connected-systems surface.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.connected.systems",
           "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
@@ -652,6 +670,9 @@
         "exemption_reason": "Compatibility redirect route only launches the canonical /one/connected-systems/[systemId] surface.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.connected.systems.systemid",
           "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
@@ -703,6 +724,9 @@
           "AppPageContentRegion",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.consents",
           "purpose": "Help the person understand and use the consents screen through its generated controls.",
@@ -766,6 +790,9 @@
           "AppPageHeaderRegion",
           "AppPageContentRegion"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.developers",
           "purpose": "Help the person understand and use the developers screen through its generated controls.",
@@ -815,6 +842,9 @@
         "exemption_reason": "Anonymous pre-auth intro route intentionally bypasses the signed-in app shell, matching the root and login entry routes.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.getting.started",
           "purpose": "Help the person understand and use the getting started screen through its generated controls.",
@@ -877,6 +907,9 @@
         "exemption_reason": "Compatibility redirect route only launches the canonical /one/gmail surface.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.gmail",
           "purpose": "Help the person understand and use the gmail screen through its generated controls.",
@@ -966,6 +999,9 @@
         "exemption_reason": "Compatibility redirect route only launches the canonical /one/kai market surface.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.kai",
           "purpose": "Help the person understand and use the kai screen through its generated controls.",
@@ -1024,6 +1060,9 @@
         "exemption_reason": "Compatibility redirect route only launches the canonical /one/kai/alpaca/oauth/return surface.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.kai.alpaca.oauth.return",
           "purpose": "Help the person understand and use the return screen through its generated controls.",
@@ -1083,6 +1122,9 @@
         "exemption_reason": "Compatibility redirect route only launches the canonical /one/kai/analysis surface.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.kai.analysis",
           "purpose": "Help the person understand and use the analysis screen through its generated controls.",
@@ -1141,6 +1183,9 @@
         "exemption_reason": "Compatibility redirect route only launches the canonical portfolio/dashboard entry.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.kai.dashboard",
           "purpose": "Help the person understand and use the dashboard screen through its generated controls.",
@@ -1201,6 +1246,9 @@
         "shell_verification_includes": [
           "AppPageShell"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.kai.dashboard.analysis",
           "purpose": "Help the person understand and use the analysis screen through its generated controls.",
@@ -1259,6 +1307,9 @@
         "exemption_reason": "Compatibility redirect route only launches the canonical /one/kai/funding-trade surface.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.kai.funding.trade",
           "purpose": "Help the person understand and use the funding trade screen through its generated controls.",
@@ -1318,6 +1369,9 @@
         "exemption_reason": "Compatibility redirect route only launches the canonical /one/kai/import flow.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.kai.import",
           "purpose": "Help the person understand and use the import screen through its generated controls.",
@@ -1376,6 +1430,9 @@
         "exemption_reason": "Compatibility redirect route only launches the canonical /one/kai/investments surface.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.kai.investments",
           "purpose": "Help the person understand and use the investments screen through its generated controls.",
@@ -1434,6 +1491,9 @@
         "exemption_reason": "Compatibility redirect route only launches the canonical /one/setup/kai flow.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.kai.onboarding",
           "purpose": "Help the person understand and use the onboarding screen through its generated controls.",
@@ -1492,6 +1552,9 @@
         "exemption_reason": "Compatibility redirect route only launches the canonical /one/kai/optimize surface.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.kai.optimize",
           "purpose": "Help the person understand and use the optimize screen through its generated controls.",
@@ -1552,6 +1615,9 @@
         "exemption_reason": "Compatibility redirect route only launches the canonical /one/kai/plaid/oauth/return surface.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.kai.plaid.oauth.return",
           "purpose": "Help the person understand and use the return screen through its generated controls.",
@@ -1611,6 +1677,9 @@
         "exemption_reason": "Compatibility redirect route only launches the canonical /one/kai/portfolio surface.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.kai.portfolio",
           "purpose": "Help the person understand and use the portfolio screen through its generated controls.",
@@ -1669,6 +1738,11 @@
         "exemption_reason": "Auth-only route intentionally bypasses the signed-in app shell.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": [
+            "legal_document"
+          ]
+        },
         "voice_playbook": {
           "playbook_id": "route.login",
           "purpose": "Let the person choose Google or Apple and begin the matching sign-in flow.",
@@ -1711,12 +1785,16 @@
         "page_header": false,
         "settings_ui": false,
         "shared_loader": true,
-        "back_button_pattern": "route-local-check-required"
+        "back_button_pattern": "shared-shell"
       },
       "voice_action_contract_file": "app/login/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "auth.close_legal",
+        "auth.open_privacy",
+        "auth.open_terms",
         "auth.sign_in_apple",
-        "auth.sign_in_google"
+        "auth.sign_in_google",
+        "onboarding.back_to_intro"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
@@ -1731,6 +1809,9 @@
         "exemption_reason": "Logout route is a transitional auth screen, not a standard content page.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.logout",
           "purpose": "Help the person understand and use the logout screen through its generated controls.",
@@ -1793,6 +1874,9 @@
           "AppPageContentRegion",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.marketplace",
           "purpose": "Help the person understand and use the marketplace screen through its generated controls.",
@@ -1854,6 +1938,9 @@
         "exemption_reason": "Legacy connection route now deep-links into the canonical /consents access manager.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.marketplace.connections",
           "purpose": "Help the person understand and use the connections screen through its generated controls.",
@@ -1914,6 +2001,9 @@
         "exemption_reason": "Legacy portfolio explorer route now deep-links into the dedicated /ria/clients/[userId] workspace.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.marketplace.connections.portfolio",
           "purpose": "Help the person understand and use the portfolio screen through its generated controls.",
@@ -1979,6 +2069,9 @@
           "AppPageContentRegion",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.marketplace.ria",
           "purpose": "Help the person understand and use the ria screen through its generated controls.",
@@ -2051,6 +2144,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.home",
           "purpose": "Help the person understand and use the one screen through its generated controls.",
@@ -2120,6 +2216,9 @@
           "PageHeader",
           "ConnectedSystemsPanel"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.connected.systems",
           "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
@@ -2187,6 +2286,9 @@
           "PageHeader",
           "ConnectedSystemsPanel"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.connected.systems.systemid",
           "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
@@ -2239,6 +2341,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.gmail",
           "purpose": "Help the person understand and use the gmail screen through its generated controls.",
@@ -2310,6 +2415,9 @@
           "SurfaceStack",
           "SectionHeader"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.kai",
           "purpose": "Help the person understand and use the kai screen through its generated controls.",
@@ -2372,6 +2480,9 @@
           "AppPageShell",
           "AppPageContentRegion"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.kai.alpaca.oauth.return",
           "purpose": "Help the person understand and use the return screen through its generated controls.",
@@ -2435,6 +2546,9 @@
           "AppPageContentRegion",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.kai.analysis",
           "purpose": "Help the person understand and use the analysis screen through its generated controls.",
@@ -2506,6 +2620,9 @@
           "AppPageContentRegion",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.kai.funding.trade",
           "purpose": "Help the person understand and use the funding trade screen through its generated controls.",
@@ -2567,6 +2684,9 @@
           "FullscreenFlowShell",
           "KaiFlow"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.kai.import",
           "purpose": "Help the person understand and use the import screen through its generated controls.",
@@ -2631,6 +2751,9 @@
           "AppPageContentRegion",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.kai.investments",
           "purpose": "Help the person understand and use the investments screen through its generated controls.",
@@ -2690,6 +2813,9 @@
         "exemption_reason": "Compatibility redirect route only launches the canonical /one/setup/kai flow.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.kai.onboarding",
           "purpose": "Help the person understand and use the onboarding screen through its generated controls.",
@@ -2754,6 +2880,9 @@
           "SurfaceStack",
           "PageHeader"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.kai.optimize",
           "purpose": "Help the person understand and use the optimize screen through its generated controls.",
@@ -2818,6 +2947,9 @@
           "AppPageShell",
           "AppPageContentRegion"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.kai.plaid.oauth.return",
           "purpose": "Help the person understand and use the return screen through its generated controls.",
@@ -2879,6 +3011,9 @@
           "AppPageShell",
           "AppPageContentRegion"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.kai.portfolio",
           "purpose": "Help the person understand and use the portfolio screen through its generated controls.",
@@ -2943,6 +3078,9 @@
           "AppPageContentRegion",
           "PageHeader"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.kyc",
           "purpose": "Help the person understand and use the kyc screen through its generated controls.",
@@ -3071,6 +3209,9 @@
           "AppPageContentRegion",
           "PageHeader"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.location",
           "purpose": "Help the person understand and use the location screen through its generated controls.",
@@ -3132,6 +3273,9 @@
         "exemption_reason": "Public one-location circle invite route is a standalone external-acceptance form outside the signed-in app shell.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.location.invite.token",
           "purpose": "Help the person understand and use the invite screen through its generated controls.",
@@ -3178,6 +3322,9 @@
         "exemption_reason": "Public one-location invite route is a standalone external-request form outside the signed-in app shell.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.location.request.token",
           "purpose": "Help the person understand and use the request screen through its generated controls.",
@@ -3230,6 +3377,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.marketplace",
           "purpose": "Help the person understand and use the marketplace screen through its generated controls.",
@@ -3299,6 +3449,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.pkm",
           "purpose": "Help the person understand and use the pkm screen through its generated controls.",
@@ -3365,6 +3518,9 @@
           "AppPageContentRegion",
           "PageHeader"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.setup",
           "purpose": "Help the person choose, resume, skip, or finish one setup capability.",
@@ -3429,6 +3585,9 @@
           "AppPageContentRegion",
           "PageHeader"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.setup.capability",
           "purpose": "Explain the active setup capability and advance only its visible next step.",
@@ -3479,6 +3638,9 @@
         "exemption_reason": "Fullscreen setup wizard owns its own shell and safe-area spacing.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.one.setup.kai",
           "purpose": "Collect Finance preferences and return to the setup hub without resolving root onboarding.",
@@ -3545,6 +3707,9 @@
         "exemption_reason": "Compatibility redirect route only launches the canonical /one/pkm surface.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.pkm",
           "purpose": "Help the person understand and use the pkm screen through its generated controls.",
@@ -3638,6 +3803,9 @@
         "exemption_reason": "Public shared portfolio view uses chrome-free layout for external recipients.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.portfolio.shared",
           "purpose": "Help the person understand and use the shared screen through its generated controls.",
@@ -3703,6 +3871,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile",
           "purpose": "Help the person understand and use the profile screen through its generated controls.",
@@ -3779,6 +3950,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.access",
           "purpose": "Help the person understand and use the access screen through its generated controls.",
@@ -3842,6 +4016,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.access.connection",
           "purpose": "Help the person understand and use the connection screen through its generated controls.",
@@ -3905,6 +4082,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.account",
           "purpose": "Help the person understand and use the account screen through its generated controls.",
@@ -3968,6 +4148,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.account.phone",
           "purpose": "Help the person understand and use the phone screen through its generated controls.",
@@ -4031,6 +4214,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.connected.systems",
           "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
@@ -4088,6 +4274,9 @@
         "exemption_reason": "Compatibility redirect route forwards to canonical /one/gmail.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.gmail",
           "purpose": "Help the person understand and use the gmail screen through its generated controls.",
@@ -4145,6 +4334,9 @@
         "exemption_reason": "Compatibility redirect route forwards to canonical /one/gmail.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.gmail.actions",
           "purpose": "Help the person understand and use the actions screen through its generated controls.",
@@ -4202,6 +4394,9 @@
         "exemption_reason": "Compatibility redirect route forwards to canonical /one/gmail.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.gmail.connection",
           "purpose": "Help the person understand and use the connection screen through its generated controls.",
@@ -4263,6 +4458,9 @@
           "AppPageContentRegion",
           "HushhLoader"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.gmail.oauth.return",
           "purpose": "Help the person understand and use the return screen through its generated controls.",
@@ -4327,6 +4525,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.my.data",
           "purpose": "Help the person understand and use the personal information screen through its generated controls.",
@@ -4390,6 +4591,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.my.data.domain",
           "purpose": "Help the person understand and use the domain screen through its generated controls.",
@@ -4447,6 +4651,9 @@
         "exemption_reason": "Compatibility redirect route forwards to canonical /pkm.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.pkm",
           "purpose": "Help the person understand and use the pkm screen through its generated controls.",
@@ -4511,6 +4718,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.pkm.agent.lab",
           "purpose": "Help the person understand and use the pkm agent lab screen through its generated controls.",
@@ -4571,6 +4781,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.preferences",
           "purpose": "Help the person understand and use the preferences screen through its generated controls.",
@@ -4634,6 +4847,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.preferences.device",
           "purpose": "Help the person understand and use the device screen through its generated controls.",
@@ -4697,6 +4913,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.preferences.kai",
           "purpose": "Help the person understand and use the kai screen through its generated controls.",
@@ -4754,6 +4973,9 @@
         "exemption_reason": "Compatibility redirect route forwards to canonical /gmail.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.receipts",
           "purpose": "Help the person understand and use the receipts screen through its generated controls.",
@@ -4820,6 +5042,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.security",
           "purpose": "Help the person understand and use the security screen through its generated controls.",
@@ -4885,6 +5110,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.security.session",
           "purpose": "Help the person understand and use the session screen through its generated controls.",
@@ -4948,6 +5176,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.security.vault",
           "purpose": "Help the person understand and use the vault screen through its generated controls.",
@@ -5011,6 +5242,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.support",
           "purpose": "Help the person understand and use the support screen through its generated controls.",
@@ -5076,6 +5310,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.support.compose",
           "purpose": "Help the person understand and use the compose screen through its generated controls.",
@@ -5139,6 +5376,9 @@
           "PageHeader",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.profile.support.routing",
           "purpose": "Help the person understand and use the routing screen through its generated controls.",
@@ -5196,6 +5436,11 @@
         "exemption_reason": "Mandatory post-login phone verification flow intentionally bypasses the signed-in app shell.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": [
+            "country_picker"
+          ]
+        },
         "voice_playbook": {
           "playbook_id": "route.register.phone",
           "purpose": "Verify the signed-in person’s phone before setup continues.",
@@ -5244,6 +5489,8 @@
       },
       "voice_action_contract_file": "app/register-phone/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "phone_mandate.close_country_picker",
+        "phone_mandate.select_country",
         "phone_mandate.submit_code",
         "phone_mandate.submit_number"
       ],
@@ -5260,6 +5507,9 @@
         "exemption_reason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.research",
           "purpose": "Help the person understand and use the research screen through its generated controls.",
@@ -5309,6 +5559,9 @@
         "exemption_reason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.research.protocol",
           "purpose": "Help the person understand and use the protocol screen through its generated controls.",
@@ -5363,6 +5616,9 @@
           "AppPageContentRegion",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.ria",
           "purpose": "Help the person understand and use the ria screen through its generated controls.",
@@ -5431,6 +5687,9 @@
           "AppPageContentRegion",
           "PageHeader"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.ria.clients",
           "purpose": "Help the person understand and use the clients screen through its generated controls.",
@@ -5501,6 +5760,9 @@
           "AppPageContentRegion",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.ria.clients.userid",
           "purpose": "Help the person understand and use the clients screen through its generated controls.",
@@ -5554,6 +5816,9 @@
           "AppPageContentRegion",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.ria.clients.userid.accounts.accountid",
           "purpose": "Help the person understand and use the accounts screen through its generated controls.",
@@ -5607,6 +5872,9 @@
           "AppPageContentRegion",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.ria.clients.userid.requests.requestid",
           "purpose": "Help the person understand and use the requests screen through its generated controls.",
@@ -5658,6 +5926,9 @@
           "FullscreenFlowShell",
           "OnboardingShell"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.ria.onboarding",
           "purpose": "Help the person understand and use the onboarding screen through its generated controls.",
@@ -5728,6 +5999,9 @@
           "AppPageContentRegion",
           "SurfaceStack"
         ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.ria.picks",
           "purpose": "Help the person understand and use the picks screen through its generated controls.",
@@ -5802,6 +6076,9 @@
         "exemption_reason": "RIA profile uses its existing focused settings surface outside the standard app-page shell.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.ria.profile",
           "purpose": "Help the person understand and use the profile screen through its generated controls.",
@@ -5865,6 +6142,9 @@
         "exemption_reason": "Compatibility alias routes into the shared consent workspace.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.ria.requests",
           "purpose": "Help the person understand and use the requests screen through its generated controls.",
@@ -5924,6 +6204,9 @@
         "exemption_reason": "Compatibility alias routes into the canonical profile/settings surface.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.ria.settings",
           "purpose": "Help the person understand and use the settings screen through its generated controls.",
@@ -5983,6 +6266,9 @@
         "exemption_reason": "Compatibility alias now redirects into the dedicated /ria/clients/[userId] client workspace.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
         "voice_playbook": {
           "playbook_id": "route.ria.workspace",
           "purpose": "Help the person understand and use the workspace screen through its generated controls.",

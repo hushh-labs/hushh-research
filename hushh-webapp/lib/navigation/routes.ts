@@ -109,6 +109,20 @@ export function buildPhoneMandateRoute(redirect?: string | null) {
   return withQuery(ROUTES.PHONE_MANDATE, { redirect });
 }
 
+/**
+ * Returns to the public One introduction without relying on browser history.
+ *
+ * Login is a child of the anonymous onboarding journey, not of whichever
+ * route happened to send a person to sign-in. Preserve a verified intended
+ * destination so claiming One again continues the same journey, while a
+ * missing or unsafe value resolves to the canonical root route.
+ */
+export function buildWelcomeRoute(redirect?: string | null) {
+  return withQuery(ROUTES.HOME, {
+    redirect: normalizeInternalRouteHref(redirect),
+  });
+}
+
 export function normalizeInternalRouteHref(value: string | null | undefined): string | null {
   const href = String(value ?? "").trim();
   if (!href) return null;

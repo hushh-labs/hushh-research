@@ -119,6 +119,70 @@ describe("Morphy AX contract", () => {
     });
   });
 
+  it("enforces the authored top-layer action boundary", () => {
+    const baseline = voiceFixture();
+    baseline.ui.interaction_layer = {
+      layer_id: "login_terms",
+      kind: "legal",
+      modality: "modal",
+      lifecycle_state: "open",
+      dismissible: true,
+      dismiss_action_id: "auth.close_legal",
+      visible_action_ids: ["auth.close_legal"],
+      visible_control_ids: ["auth_close_legal"],
+      options: [],
+      underlying_actions_available: false,
+      agent_continuity: "interactive",
+    };
+    baseline.available_action_ids = [
+      "auth.close_legal",
+      "onboarding.claim_one",
+    ];
+    const snapshot = buildMorphyAxSnapshot(baseline);
+
+    expect(
+      validateMorphyAxAssessment(
+        assessment({ candidate_action_id: "auth.close_legal" }),
+        snapshot,
+      ),
+    ).toEqual({ status: "permitted", action_id: "auth.close_legal" });
+    expect(validateMorphyAxAssessment(assessment(), snapshot)).toEqual({
+      status: "rejected",
+      reason: "action_hidden_by_active_layer",
+    });
+    expect(toOneVoiceContextSnapshot(snapshot, baseline)).toEqual(baseline);
+  });
+
+  it("rejects execution while the active layer is not ready or suppresses One", () => {
+    const baseline = voiceFixture();
+    baseline.ui.interaction_layer = {
+      layer_id: "vault_unlock",
+      kind: "credential",
+      modality: "blocking",
+      lifecycle_state: "opening",
+      dismissible: false,
+      dismiss_action_id: null,
+      visible_action_ids: ["onboarding.claim_one"],
+      visible_control_ids: ["vault_unlock"],
+      options: [],
+      underlying_actions_available: false,
+      agent_continuity: "ambient",
+    };
+    let snapshot = buildMorphyAxSnapshot(baseline);
+    expect(validateMorphyAxAssessment(assessment(), snapshot)).toEqual({
+      status: "rejected",
+      reason: "interaction_layer_not_ready",
+    });
+
+    baseline.ui.interaction_layer.lifecycle_state = "open";
+    baseline.ui.interaction_layer.agent_continuity = "suppressed";
+    snapshot = buildMorphyAxSnapshot(baseline);
+    expect(validateMorphyAxAssessment(assessment(), snapshot)).toEqual({
+      status: "rejected",
+      reason: "agent_suppressed_by_active_layer",
+    });
+  });
+
   it("clarifies ambiguity and never converts conversation into an action", () => {
     const snapshot = buildMorphyAxSnapshot(voiceFixture());
     expect(

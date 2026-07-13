@@ -67,6 +67,9 @@ def _normalize_action_entry(raw: Any) -> dict[str, Any] | None:
     execution_policy = str(
         risk.get("execution_policy") or raw.get("execution_policy") or "allow_direct"
     ).strip()
+    activation_policy = str(raw.get("activation_policy") or "none").strip()
+    if activation_policy not in {"none", "trusted_activation_required"}:
+        activation_policy = "none"
     expected_effects = (
         raw.get("expected_effects") if isinstance(raw.get("expected_effects"), dict) else {}
     )
@@ -104,6 +107,7 @@ def _normalize_action_entry(raw: Any) -> dict[str, Any] | None:
         "risk": {
             "execution_policy": execution_policy or "allow_direct",
         },
+        "activation_policy": activation_policy,
         "completion_mode": completion_mode or "none",
         "expected_effects": expected_effects,
         "background_behavior": background_behavior,

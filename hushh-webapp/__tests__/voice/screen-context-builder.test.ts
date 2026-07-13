@@ -224,6 +224,50 @@ describe("buildStructuredScreenContext", () => {
     expect(snapshot.available_action_ids).not.toContain("onboarding_claim_one");
   });
 
+  it("admits only the Login actions whose authored controls are currently visible", () => {
+    window.history.pushState({}, "", "/login");
+    publishVoiceSurfaceMetadata("test_surface", {
+      screenId: "login",
+      controls: [
+        {
+          id: "auth_terms",
+          actionId: "auth.open_terms",
+          label: "Terms",
+        },
+        {
+          id: "auth_privacy",
+          actionId: "auth.open_privacy",
+          label: "Privacy Policy",
+        },
+      ],
+    });
+
+    const closedDialog = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/login", "login"),
+    });
+    expect(closedDialog.available_action_ids).toEqual(
+      expect.arrayContaining(["auth.open_terms", "auth.open_privacy"]),
+    );
+    expect(closedDialog.available_action_ids).not.toContain("auth.close_legal");
+
+    publishVoiceSurfaceMetadata("test_surface", {
+      screenId: "login",
+      controls: [
+        {
+          id: "auth_close_legal",
+          actionId: "auth.close_legal",
+          label: "Close legal document",
+        },
+      ],
+      modalState: "legal_terms",
+    });
+    const openDialog = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/login", "login"),
+    });
+    expect(openDialog.available_action_ids).toContain("auth.close_legal");
+    expect(openDialog.available_action_ids).not.toContain("auth.open_terms");
+  });
+
   it("collects visible modules from DOM attributes", () => {
     window.history.pushState({}, "", "/profile?tab=account");
     document.body.innerHTML = `

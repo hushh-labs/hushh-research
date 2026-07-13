@@ -15,6 +15,76 @@
   },
   "actions": [
     {
+      "action_id": "phone_mandate.select_country",
+      "label": "Choose Country Code",
+      "meaning": "Selects one authored country-code option from the open phone country picker.",
+      "aliases": [
+        "choose country code",
+        "select country",
+        "use this country code"
+      ],
+      "search_keywords": ["country", "dial code", "phone"],
+      "reachability": {
+        "routes": ["/register-phone"],
+        "screens": ["phone_mandate", "register_phone"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": ["The country picker must be open."]
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "phone_mandate.select_country"
+      },
+      "control_ids": ["phone-flow-country"],
+      "state_exposure": ["selected country code"],
+      "docs_references": [
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
+      "goal": {
+        "required_inputs": [
+          {
+            "name": "country",
+            "prompt": "Which visible country or country code should I choose?",
+            "required": true,
+            "slot": "country"
+          }
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.close_country_picker",
+      "label": "Close Country Picker",
+      "meaning": "Closes the open country-code picker and returns focus to the country field.",
+      "aliases": [
+        "close country picker",
+        "close country codes",
+        "cancel country selection"
+      ],
+      "search_keywords": ["close", "cancel", "country"],
+      "reachability": {
+        "routes": ["/register-phone"],
+        "screens": ["phone_mandate", "register_phone"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": ["The country picker must be open."]
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "phone_mandate.close_country_picker"
+      },
+      "control_ids": ["phone-flow-country"],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ]
+    },
+    {
       "action_id": "phone_mandate.submit_number",
       "label": "Submit Phone Number",
       "meaning": "Sends a verification code to the phone number the user says.",
@@ -41,7 +111,9 @@
       },
       "control_ids": ["phone-flow-number"],
       "state_exposure": ["masked phone number"],
-      "docs_references": ["hushh-webapp/components/auth/phone-verification-flow.tsx"],
+      "docs_references": [
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
       "goal": {
         "required_inputs": [
           {
@@ -68,7 +140,9 @@
         "routes": ["/register-phone"],
         "screens": ["phone_mandate", "register_phone"],
         "hidden_navigable": false,
-        "navigation_prerequisites": ["A verification code must already be sent."]
+        "navigation_prerequisites": [
+          "A verification code must already be sent."
+        ]
       },
       "guard_ids": ["auth_signed_in", "explicit_user_confirmation"],
       "risk_level": "high",
@@ -80,7 +154,9 @@
       },
       "control_ids": ["phone-flow-code"],
       "state_exposure": ["verification step"],
-      "docs_references": ["hushh-webapp/components/auth/phone-verification-flow.tsx"],
+      "docs_references": [
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
       "goal": {
         "required_inputs": [
           {

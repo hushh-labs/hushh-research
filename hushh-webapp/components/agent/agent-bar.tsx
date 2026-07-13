@@ -26,7 +26,10 @@ import { useTheme } from "next-themes";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
 import { useAuth } from "@/hooks/use-auth";
-import { executeAgentGatewayAction } from "@/lib/agent/agent-action-runtime";
+import {
+  executeAgentGatewayAction,
+  executeTrustedActivationGatewayAction,
+} from "@/lib/agent/agent-action-runtime";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { ApiService } from "@/lib/services/api-service";
@@ -50,6 +53,7 @@ import { useVault } from "@/lib/vault/vault-context";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { createRealtimeVoiceTransport } from "@/lib/voice/one-voice-transport-factory";
+import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
 import type {
   OneVoiceSessionEvent,
   RealtimeVoiceTransport,
@@ -101,6 +105,19 @@ const AGENT_BAR_HINTS: ReadonlyArray<{ prefix: string; hint: string }> = [
 ];
 
 const AGENT_BAR_DEFAULT_HINT = "Ask your agent anything";
+
+function actionableContextKey(context: OneVoiceContextSnapshot): string {
+  // Excludes only voice revision/presentation state. Every remaining piece
+  // participates in tool availability, route policy, or recovery posture.
+  return JSON.stringify({
+    route: context.revisions.route,
+    ui: context.revisions.ui,
+    cache: context.revisions.cache,
+    persona: context.revisions.persona,
+    onboarding: context.onboarding,
+    pendingSettlement: context.pending_settlement,
+  });
+}
 
 function resolveAgentBarHint(pathname: string | null): string {
   if (!pathname) return AGENT_BAR_DEFAULT_HINT;
@@ -156,11 +173,8 @@ export function AgentBar() {
   // session has been silent for AGENT_BAR_VOICE_IDLE_TIMEOUT_MS and is closed
   // automatically so an ambient/onboarding session never lingers open.
   const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Last SCREEN pushed into the live session. Deduping on snapshot_id was a
-  // bug: snapshot_id churns with every voice state transition (voiceRevision
-  // Keep action availability and onboarding progress current without pushing
-  // on every voice-state transition. The relay persists same-screen updates
-  // silently; only a changed screen becomes model-visible content.
+  // Last actionable context pushed into the live session. Do not dedupe on
+  // snapshot_id: it intentionally changes on every voice-state transition.
   const lastPushedContextRef = useRef<string | null>(null);
   // Tracks whether the active session ended with an error, so the bar can keep
   // showing the error status (instead of snapping shut) until it is dismissed.
@@ -542,7 +556,7 @@ export function AgentBar() {
   }, [abandonPendingConfirmation, clearVoiceIdleTimer, resetVoice]);
 
   const settlePendingConfirmation = useCallback(
-    async (confirmed: boolean) => {
+    (confirmed: boolean) => {
       const pending = pendingConfirmationRef.current;
       if (!pending) return;
       pendingConfirmationRef.current = null;
@@ -570,45 +584,62 @@ export function AgentBar() {
         return;
       }
       setVoiceStatus("thinking", "Confirming");
-      try {
-        const result = await executeAgentGatewayAction({
-          actionId: pending.actionId,
-          slots: pending.slots,
-          userId: user?.uid ?? "",
-          router,
-          appRuntimeState: runtimeState,
-          surfaceMetadata: getVoiceSurfaceMetadata(),
-          hasPortfolioData:
-            runtimeState.portfolio.has_portfolio_data ||
-            runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
-          busyOperations,
-          setAnalysisParams,
-          switchPersona,
-          executionContext: { directiveId: pending.directiveId },
-        });
-        liveClientRef.current?.reportActionSettlement?.({
-          directiveId: pending.directiveId,
-          actionId: pending.actionId,
-          status: result.status,
-          summary: result.resultSummary,
-          reason: result.reason,
-          routeAfter: result.routeAfter,
-          screenAfter: result.screenAfter,
-        });
-      } catch {
-        liveClientRef.current?.reportActionSettlement?.({
-          directiveId: pending.directiveId,
-          actionId: pending.actionId,
-          status: "failed",
-          summary: "The app could not complete the confirmed action.",
-          reason: "client_execution_failed",
-        });
+      const action = getKaiActionById(pending.actionId);
+      const execute =
+        action?.activation_policy === "trusted_activation_required"
+          ? executeTrustedActivationGatewayAction
+          : executeAgentGatewayAction;
+      if (action?.activation_policy === "trusted_activation_required") {
+        clearVoiceIdleTimer();
       }
+      // For trusted-activation actions this call synchronously invokes the
+      // mounted popup handler before the first promise boundary. Do not move it
+      // inside an async wrapper or timer.
+      const settlement = execute({
+        actionId: pending.actionId,
+        slots: pending.slots,
+        userId: user?.uid ?? "",
+        router,
+        appRuntimeState: runtimeState,
+        surfaceMetadata: getVoiceSurfaceMetadata(),
+        hasPortfolioData:
+          runtimeState.portfolio.has_portfolio_data ||
+          runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
+        busyOperations,
+        setAnalysisParams,
+        switchPersona,
+        executionContext: { directiveId: pending.directiveId },
+      });
+      void settlement
+        .then((result) => {
+          scheduleVoiceIdleTimer();
+          liveClientRef.current?.reportActionSettlement?.({
+            directiveId: pending.directiveId,
+            actionId: pending.actionId,
+            status: result.status,
+            summary: result.resultSummary,
+            reason: result.reason,
+            routeAfter: result.routeAfter,
+            screenAfter: result.screenAfter,
+          });
+        })
+        .catch(() => {
+          scheduleVoiceIdleTimer();
+          liveClientRef.current?.reportActionSettlement?.({
+            directiveId: pending.directiveId,
+            actionId: pending.actionId,
+            status: "failed",
+            summary: "The app could not complete the confirmed action.",
+            reason: "client_execution_failed",
+          });
+        });
     },
     [
       busyOperations,
+      clearVoiceIdleTimer,
       router,
       runtime,
+      scheduleVoiceIdleTimer,
       setAnalysisParams,
       setVoiceStatus,
       switchPersona,
@@ -660,7 +691,7 @@ export function AgentBar() {
     liveClientRef.current = client;
     // The client pushes the starting snapshot as app_context on setupComplete.
     lastPushedContextRef.current = context
-      ? `${context.revisions.route}:${context.revisions.ui}:${JSON.stringify(context.onboarding)}`
+      ? actionableContextKey(context)
       : null;
     void client.start({
       context,
@@ -693,7 +724,7 @@ export function AgentBar() {
     const context = runtime?.oneVoiceContextSnapshot;
     const client = liveClientRef.current;
     if (!context || !client?.updateContext) return;
-    const contextKey = `${context.revisions.route}:${context.revisions.ui}:${JSON.stringify(context.onboarding)}`;
+    const contextKey = actionableContextKey(context);
     if (lastPushedContextRef.current === contextKey) return;
     if (client.updateContext(context)) {
       lastPushedContextRef.current = contextKey;
@@ -907,7 +938,9 @@ export function AgentBar() {
     path === ROUTES.AGENT ||
     // "/login" keeps the bar (signed-out onboarding greeter, parity with "/");
     // only the logout transition unmounts it.
-    path.startsWith(ROUTES.LOGOUT);
+    path.startsWith(ROUTES.LOGOUT) ||
+    runtime?.oneVoiceContextSnapshot.ui.interaction_layer?.agent_continuity ===
+      "suppressed";
 
   if (unmountBar) {
     return null;
@@ -917,6 +950,19 @@ export function AgentBar() {
   // and non-interactive. When the window finishes closing it eases back in over
   // the same envelope instead of popping in from a fresh mount.
   const barHidden = Boolean(agentWindowActive);
+  const activeInteractionLayer =
+    runtime?.oneVoiceContextSnapshot.ui.interaction_layer ?? null;
+  const barAmbient = activeInteractionLayer?.agent_continuity === "ambient";
+  const elevatedForInteractionLayer = Boolean(
+    pendingConfirmation ||
+    activeInteractionLayer?.agent_continuity === "interactive",
+  );
+  const pendingAction = pendingConfirmation
+    ? getKaiActionById(pendingConfirmation.actionId)
+    : null;
+  const pendingActionNeedsTrustedActivation =
+    pendingAction?.activation_policy === "trusted_activation_required";
+  const pendingActionLabel = pendingAction?.label || "Continue this action";
 
   // In the error state, prefer the specific reason (e.g. mic blocked, no device)
   // over the generic "Voice error" so the user knows how to recover.
@@ -1105,7 +1151,10 @@ export function AgentBar() {
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 z-[118] flex flex-col items-center gap-3 px-4 transform-gpu"
+      className={cn(
+        "pointer-events-none fixed inset-x-0 flex flex-col items-center gap-3 px-4 transform-gpu",
+        elevatedForInteractionLayer ? "z-[540]" : "z-[118]",
+      )}
       style={
         {
           // Sit just above the visible bottom nav and ride the same scroll-hide
@@ -1145,29 +1194,32 @@ export function AgentBar() {
           className="pointer-events-auto w-full max-w-[min(calc(100vw-3rem),392px)] rounded-3xl border border-black/10 bg-white/95 p-4 text-[#1d1d1f] shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#1c1c1e]/95 dark:text-[#f5f5f7]"
         >
           <p className="text-[13px] font-medium text-muted-foreground">
-            One is ready to
+            {pendingActionNeedsTrustedActivation
+              ? "Continue securely with"
+              : "One is ready to"}
           </p>
-          <p className="mt-1 text-[16px] font-semibold">
-            {getKaiActionById(pendingConfirmation.actionId)?.label ||
-              "Continue this action"}
-          </p>
+          <p className="mt-1 text-[16px] font-semibold">{pendingActionLabel}</p>
           <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-            Sensitive values are hidden. Nothing runs until you confirm.
+            {pendingActionNeedsTrustedActivation
+              ? "This tap opens the provider window and keeps One active here."
+              : "Sensitive values are hidden. Nothing runs until you confirm."}
           </p>
           <div className="mt-4 grid grid-cols-2 gap-2">
             <button
               type="button"
-              onClick={() => void settlePendingConfirmation(false)}
+              onClick={() => settlePendingConfirmation(false)}
               className="h-10 rounded-full bg-black/[0.05] text-[14px] font-semibold dark:bg-white/[0.08]"
             >
               Cancel
             </button>
             <button
               type="button"
-              onClick={() => void settlePendingConfirmation(true)}
+              onClick={() => settlePendingConfirmation(true)}
               className="h-10 rounded-full bg-primary text-[14px] font-semibold text-primary-foreground"
             >
-              Confirm
+              {pendingActionNeedsTrustedActivation
+                ? pendingActionLabel
+                : "Confirm"}
             </button>
           </div>
         </div>
@@ -1203,6 +1255,7 @@ export function AgentBar() {
           barHidden
             ? "pointer-events-none translate-y-1 scale-[0.98] opacity-0"
             : "translate-y-0 scale-100 opacity-100",
+          barAmbient && "pointer-events-none opacity-70",
         )}
       >
         {/* Aurora rim only while a live conversation is active, so motion

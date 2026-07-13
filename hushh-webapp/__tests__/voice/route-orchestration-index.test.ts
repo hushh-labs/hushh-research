@@ -7,20 +7,39 @@ describe("One route orchestration index", () => {
   it("covers each physical route exactly once with bounded metadata", () => {
     expect(index.schema_version).toBe("one.route_orchestration_index.v2");
     expect(index.routes.length).toBeGreaterThan(0);
-    expect(new Set(index.routes.map((entry) => entry.route_pattern)).size).toBe(index.routes.length);
-    expect(index.routes.every((entry) => entry.instruction_id && entry.context_policy)).toBe(true);
-    expect(index.routes.every((entry) => entry.voice_playbook?.playbook_id)).toBe(true);
+    expect(new Set(index.routes.map((entry) => entry.route_pattern)).size).toBe(
+      index.routes.length,
+    );
+    expect(
+      index.routes.every(
+        (entry) => entry.instruction_id && entry.context_policy,
+      ),
+    ).toBe(true);
+    expect(
+      index.routes.every((entry) => entry.voice_playbook?.playbook_id),
+    ).toBe(true);
   });
 
   it("keeps generic sign-in off Login while retaining explicit provider actions", () => {
-    const login = index.routes.find((entry) => entry.route_pattern === "/login");
-    expect(login?.action_ids).toEqual(["auth.sign_in_apple", "auth.sign_in_google"]);
+    const login = index.routes.find(
+      (entry) => entry.route_pattern === "/login",
+    );
+    expect(login?.action_ids).toEqual([
+      "auth.close_legal",
+      "auth.open_privacy",
+      "auth.open_terms",
+      "auth.sign_in_apple",
+      "auth.sign_in_google",
+      "onboarding.back_to_intro",
+    ]);
   });
 
   it("keeps every generated executable route action aligned with a canonical screen", () => {
     const mismatches: string[] = [];
     for (const route of index.routes) {
-      const canonicalScreen = deriveVoiceRouteScreen(route.route_pattern).screen;
+      const canonicalScreen = deriveVoiceRouteScreen(
+        route.route_pattern,
+      ).screen;
       for (const actionId of route.action_ids) {
         const action = getKaiActionById(actionId);
         const routeIsTheActionSurface =
@@ -33,7 +52,7 @@ describe("One route orchestration index", () => {
         }
         if (!action.reachability.screens.includes(canonicalScreen)) {
           mismatches.push(
-            `${route.route_pattern}: ${actionId} lacks canonical screen ${canonicalScreen}`
+            `${route.route_pattern}: ${actionId} lacks canonical screen ${canonicalScreen}`,
           );
         }
       }
@@ -58,19 +77,25 @@ describe("One route orchestration index", () => {
 
   it("joins the shared dynamic setup route to its concrete action contract", () => {
     const capability = index.routes.find(
-      (entry) => entry.route_pattern === "/one/setup/[capability]"
+      (entry) => entry.route_pattern === "/one/setup/[capability]",
     );
     expect(capability?.orchestration_class).toBe("interactive");
     expect(capability?.action_ids).toEqual(["setup.capability_continue"]);
-    expect(capability?.voice_playbook.primary_action_id).toBe("setup.capability_continue");
+    expect(capability?.voice_playbook.primary_action_id).toBe(
+      "setup.capability_continue",
+    );
     expect(capability?.voice_contract_file).toContain(
-      "one-onboarding-capability-step.voice-action-contract.json"
+      "one-onboarding-capability-step.voice-action-contract.json",
     );
   });
 
   it("admits Location delegation only from its declared route", () => {
-    const location = index.routes.find((entry) => entry.route_pattern === "/one/location");
-    const profile = index.routes.find((entry) => entry.route_pattern === "/profile");
+    const location = index.routes.find(
+      (entry) => entry.route_pattern === "/one/location",
+    );
+    const profile = index.routes.find(
+      (entry) => entry.route_pattern === "/profile",
+    );
     expect(location?.delegation_policy).toEqual({
       mode: "one_action_gate",
       allowed_delegate_agent_ids: ["agent_location"],

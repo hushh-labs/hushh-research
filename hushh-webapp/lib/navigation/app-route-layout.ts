@@ -9,11 +9,7 @@ export interface AppRouteShellVerification {
 
 export type AppRouteVoiceProactivity = "on_entry" | "ambient";
 export type AppRouteVoiceReturnPolicy =
-  | "stay"
-  | "navigate"
-  | "external_callback"
-  | "return_to_hub"
-  | "resolve_root";
+  "stay" | "navigate" | "external_callback" | "return_to_hub" | "resolve_root";
 
 export interface AppRouteVoicePlaybook {
   playbookId: string;
@@ -38,21 +34,37 @@ export interface AppRouteVoicePlaybook {
   outOfScopeBehavior: string;
 }
 
+export interface AppRouteInteractionLayerPolicy {
+  /** Empty means this route publishes no authored interaction layers yet. */
+  allowedFamilies: readonly string[];
+}
+
 export interface AppRouteLayoutContractEntry {
   route: string;
   mode: AppRouteLayoutMode;
   voicePlaybook: AppRouteVoicePlaybook;
+  interactionLayerPolicy: AppRouteInteractionLayerPolicy;
   shellVerification?: AppRouteShellVerification;
   exemptionReason?: string;
   pageTopLocalOffset?: string;
 }
 
-export const APP_ROUTE_LAYOUT_CONTRACT =
-  contractEntries as readonly AppRouteLayoutContractEntry[];
+const NO_INTERACTION_LAYERS: AppRouteInteractionLayerPolicy = {
+  allowedFamilies: [],
+};
+
+export const APP_ROUTE_LAYOUT_CONTRACT = contractEntries.map((entry) => ({
+  ...entry,
+  interactionLayerPolicy:
+    "interactionLayerPolicy" in entry && entry.interactionLayerPolicy
+      ? entry.interactionLayerPolicy
+      : NO_INTERACTION_LAYERS,
+})) as readonly AppRouteLayoutContractEntry[];
 
 const DEFAULT_ROUTE_LAYOUT: AppRouteLayoutContractEntry = {
   route: "*",
   mode: "standard",
+  interactionLayerPolicy: NO_INTERACTION_LAYERS,
   voicePlaybook: {
     playbookId: "route.unknown",
     purpose: "Remain conversational without proposing unavailable controls.",
@@ -68,7 +80,8 @@ const DEFAULT_ROUTE_LAYOUT: AppRouteLayoutContractEntry = {
       failed: "Acknowledge the failure without claiming completion.",
       timeout: "Retain the goal and offer a safe retry.",
       callbackError: "Retain the goal and explain the callback failed.",
-      routeMismatch: "Use the verified current route before offering an action.",
+      routeMismatch:
+        "Use the verified current route before offering an action.",
     },
     completionBoundary: "No action completes without browser settlement.",
     nextRoute: null,
@@ -105,13 +118,21 @@ function matchRoutePattern(pathname: string, routePattern: string): boolean {
   });
 }
 
-export function resolveAppRouteLayout(pathname: string): AppRouteLayoutContractEntry {
+export function resolveAppRouteLayout(
+  pathname: string,
+): AppRouteLayoutContractEntry {
   const normalized = normalizePathname(pathname);
-  return APP_ROUTE_LAYOUT_CONTRACT.find((entry) => entry.route === normalized) ??
-    APP_ROUTE_LAYOUT_CONTRACT.find((entry) => matchRoutePattern(normalized, entry.route)) ??
-    DEFAULT_ROUTE_LAYOUT;
+  return (
+    APP_ROUTE_LAYOUT_CONTRACT.find((entry) => entry.route === normalized) ??
+    APP_ROUTE_LAYOUT_CONTRACT.find((entry) =>
+      matchRoutePattern(normalized, entry.route),
+    ) ??
+    DEFAULT_ROUTE_LAYOUT
+  );
 }
 
-export function resolveAppRouteLayoutMode(pathname: string): AppRouteLayoutMode {
+export function resolveAppRouteLayoutMode(
+  pathname: string,
+): AppRouteLayoutMode {
   return resolveAppRouteLayout(pathname).mode;
 }

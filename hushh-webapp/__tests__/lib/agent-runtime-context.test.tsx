@@ -7,6 +7,10 @@ import {
   useAgentRuntimeState,
   type AgentRuntimeState,
 } from "@/lib/agent/agent-runtime-context";
+import {
+  clearVoiceSurfaceMetadata,
+  publishVoiceSurfaceMetadata,
+} from "@/lib/voice/voice-surface-metadata";
 
 let mockPathname = "/profile";
 const cacheMocks = vi.hoisted(() => ({
@@ -85,6 +89,7 @@ describe("AgentRuntimeStateProvider", () => {
     window.history.replaceState({}, "", "/profile");
     cacheMocks.values.clear();
     cacheMocks.listeners.clear();
+    clearVoiceSurfaceMetadata("login_surface");
   });
 
   it("updates shared runtime context for query-only route changes", async () => {
@@ -149,6 +154,40 @@ describe("AgentRuntimeStateProvider", () => {
       expect(onboarding?.active_capability).toBe("gmail");
       expect(onboarding?.callback_state).toBe("pending");
       expect(onboarding?.setup_capability_ids).toEqual(["gmail"]);
+    });
+  });
+
+  it("rebuilds One's snapshot when a page publishes a new visible action", async () => {
+    mockPathname = "/login";
+    window.history.replaceState({}, "", "/login");
+    const seen: AgentRuntimeState[] = [];
+    render(
+      <AgentRuntimeStateProvider>
+        <Probe onValue={(value) => seen.push(value)} />
+      </AgentRuntimeStateProvider>
+    );
+
+    await waitFor(() => expect(seen.at(-1)?.screen).toBe("login"));
+    act(() => {
+      publishVoiceSurfaceMetadata("login_surface", {
+        screenId: "login",
+        controls: [
+          {
+            id: "auth_terms",
+            actionId: "auth.open_terms",
+            label: "Terms",
+          },
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      expect(seen.at(-1)?.oneVoiceContextSnapshot.available_action_ids).toContain(
+        "auth.open_terms",
+      );
+      expect(seen.at(-1)?.oneVoiceContextSnapshot.ui.visible_control_ids).toContain(
+        "auth_terms",
+      );
     });
   });
 });

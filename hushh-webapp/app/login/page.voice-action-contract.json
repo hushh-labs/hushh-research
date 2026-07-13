@@ -15,7 +15,7 @@
     {
       "action_id": "auth.sign_in_google",
       "label": "Continue with Google",
-      "meaning": "Uses the visible Google provider flow, with correlated redirect recovery only when the browser blocks a voice-triggered popup, and settles only after Firebase returns a user session.",
+      "meaning": "Uses the mounted Google provider popup handler. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; Firebase settles only after it returns a verified user session.",
       "aliases": ["sign in with google", "continue with google", "google sign in"],
       "search_keywords": ["google", "sign in", "login", "authenticate"],
       "reachability": {
@@ -27,17 +27,11 @@
       "guard_ids": [],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
         "target": "auth.sign_in_google"
-      },
-      "external_callback": {
-        "provider": "google",
-        "starts": "external_redirect_started",
-        "settlement": "firebase_redirect_callback",
-        "failure_behavior": "retain_goal_and_retry",
-        "return_to": "/one/setup"
       },
       "control_ids": ["auth_google"],
       "state_exposure": [],
@@ -46,9 +40,34 @@
     {
       "action_id": "auth.sign_in_apple",
       "label": "Continue with Apple",
-      "meaning": "Uses the visible Apple provider flow, with correlated redirect recovery only when the browser blocks a voice-triggered popup, and settles only after Firebase returns a user session.",
+      "meaning": "Uses the mounted Apple provider popup handler. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; Firebase settles only after it returns a verified user session.",
       "aliases": ["sign in with apple", "continue with apple", "apple sign in"],
       "search_keywords": ["apple", "sign in", "login", "authenticate"],
+      "reachability": {
+        "routes": ["/login"],
+        "screens": ["login"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_apple"
+      },
+      "control_ids": ["auth_apple"],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "auth.open_terms",
+      "label": "Terms",
+      "meaning": "Opens the inline Terms document on the Login screen without leaving sign-in.",
+      "aliases": ["open terms", "show terms", "terms and conditions"],
+      "search_keywords": ["terms", "legal", "conditions"],
       "reachability": {
         "routes": ["/login"],
         "screens": ["login"],
@@ -61,16 +80,81 @@
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
-        "target": "auth.sign_in_apple"
+        "target": "auth.open_terms"
       },
-      "external_callback": {
-        "provider": "apple",
-        "starts": "external_redirect_started",
-        "settlement": "firebase_redirect_callback",
-        "failure_behavior": "retain_goal_and_retry",
-        "return_to": "/one/setup"
+      "control_ids": ["auth_terms"],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "auth.open_privacy",
+      "label": "Privacy Policy",
+      "meaning": "Opens the inline Privacy Policy document on the Login screen without leaving sign-in.",
+      "aliases": ["open privacy policy", "show privacy policy", "open privacy"],
+      "search_keywords": ["privacy", "policy", "legal"],
+      "reachability": {
+        "routes": ["/login"],
+        "screens": ["login"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
       },
-      "control_ids": ["auth_apple"],
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.open_privacy"
+      },
+      "control_ids": ["auth_privacy"],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "auth.close_legal",
+      "label": "Close legal document",
+      "meaning": "Closes the inline legal document and returns to the Login screen.",
+      "aliases": ["close terms", "close privacy policy", "close legal document"],
+      "search_keywords": ["close", "terms", "privacy", "legal"],
+      "reachability": {
+        "routes": ["/login"],
+        "screens": ["login"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.close_legal"
+      },
+      "control_ids": ["auth_close_legal"],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "onboarding.back_to_intro",
+      "label": "Back to welcome",
+      "meaning": "Returns from Login to One's public welcome screen through the canonical onboarding hierarchy, preserving only a valid pending destination.",
+      "aliases": ["go back", "back", "back to welcome", "return to welcome", "go to welcome"],
+      "search_keywords": ["back", "welcome", "return", "onboarding"],
+      "reachability": {
+        "routes": ["/login"],
+        "screens": ["login"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "onboarding.back_to_intro"
+      },
+      "control_ids": ["auth_back"],
       "state_exposure": [],
       "docs_references": []
     }

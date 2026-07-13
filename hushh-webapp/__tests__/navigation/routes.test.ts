@@ -6,6 +6,7 @@ import {
   buildRiaClientWorkspaceRoute,
   buildOneSetupKaiRoute,
   buildOneSetupCapabilityRoute,
+  buildWelcomeRoute,
   isCapabilityHandoffTarget,
   isOneSetupCapabilityRoute,
   isOneSetupSurfaceRoute,
@@ -26,6 +27,13 @@ import { getRouteScope, routePersonaForScope } from "@/lib/navigation/route-scop
 
 
 describe("navigation routes", () => {
+  it("returns Login to the canonical welcome parent without accepting an external redirect", () => {
+    expect(buildWelcomeRoute()).toBe(ROUTES.HOME);
+    expect(buildWelcomeRoute(ROUTES.ONE_SETUP)).toBe("/?redirect=%2Fone%2Fsetup");
+    expect(buildWelcomeRoute("https://example.com")).toBe(ROUTES.HOME);
+    expect(buildWelcomeRoute("//example.com")).toBe(ROUTES.HOME);
+  });
+
   it("builds canonical nested profile routes while preserving transient query state", () => {
     const transient = new URLSearchParams({
       unlock_vault: "1",

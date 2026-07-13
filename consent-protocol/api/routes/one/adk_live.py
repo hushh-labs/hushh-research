@@ -300,6 +300,14 @@ def _sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
         )
         if get_voice_manifest_action(action_id) is not None
     ]
+    interaction_layer = _sanitize_interaction_layer(
+        payload.get("interaction_layer"), submitted_action_ids
+    )
+    if interaction_layer and interaction_layer["modality"] in {"modal", "blocking"}:
+        layer_action_ids = set(interaction_layer["visible_action_ids"])
+        submitted_action_ids = [
+            action_id for action_id in submitted_action_ids if action_id in layer_action_ids
+        ]
     return {
         # The generated index is the server-side source of route policy.  A
         # client may describe its current UI, but cannot invent a route
@@ -323,6 +331,7 @@ def _sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
         "visible_control_ids": _bounded_text_list(
             payload.get("visible_control_ids"), _LIVE_MODULE_CAP
         ),
+        "interaction_layer": interaction_layer,
         "pending_settlement": payload.get("pending_settlement") is True,
         "cache_freshness": cache_freshness
         if cache_freshness in {"fresh_or_stale_safe", "locked", "missing"}
@@ -331,6 +340,81 @@ def _sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
         "portfolio_ready": payload.get("portfolio_ready") is True,
         "busy_operations": _bounded_text_list(payload.get("busy_operations"), _LIVE_MODULE_CAP),
         "onboarding": _sanitize_onboarding_context(payload.get("onboarding")),
+    }
+
+
+def _sanitize_interaction_layer(
+    value: Any, submitted_action_ids: list[str]
+) -> dict[str, Any] | None:
+    """Keep one bounded authored layer; never let it mint app authority."""
+    if not isinstance(value, dict):
+        return None
+    layer_id = _bounded_text(value.get("layer_id"), 128)
+    kind = _bounded_text(value.get("kind"), 64)
+    modality = _bounded_text(value.get("modality"), 16)
+    lifecycle = _bounded_text(value.get("lifecycle_state"), 16)
+    continuity = _bounded_text(value.get("agent_continuity"), 16)
+    if (
+        not layer_id
+        or not kind
+        or modality not in {"nonmodal", "modal", "blocking"}
+        or lifecycle not in {"opening", "open", "closing"}
+        or continuity not in {"interactive", "ambient", "suppressed"}
+    ):
+        return None
+    submitted = set(submitted_action_ids)
+    visible_action_ids = [
+        action_id
+        for action_id in _bounded_text_list(
+            value.get("visible_action_ids"), _LIVE_CONTEXT_ARRAY_CAP
+        )
+        if action_id in submitted and get_voice_manifest_action(action_id) is not None
+    ]
+    dismissible = value.get("dismissible") is True
+    dismiss_action_id = _bounded_text(value.get("dismiss_action_id"), 128)
+    if (
+        not dismissible
+        or dismiss_action_id not in visible_action_ids
+        or get_voice_manifest_action(dismiss_action_id) is None
+    ):
+        dismiss_action_id = None
+    options: list[dict[str, Any]] = []
+    raw_options = value.get("options")
+    if isinstance(raw_options, list):
+        for option in raw_options[:10]:
+            if not isinstance(option, dict):
+                continue
+            option_id = _bounded_text(option.get("id"), 64)
+            label = _bounded_text(option.get("label"), 96)
+            action_id = _bounded_text(option.get("action_id"), 128)
+            if not option_id or not label:
+                continue
+            if action_id and action_id not in visible_action_ids:
+                action_id = None
+            options.append(
+                {
+                    "id": option_id,
+                    "label": label,
+                    "action_id": action_id,
+                    "description": _bounded_text(option.get("description"), 160) or None,
+                }
+            )
+    return {
+        "layer_id": layer_id,
+        "kind": kind,
+        "modality": modality,
+        "lifecycle_state": lifecycle,
+        "dismissible": dismissible and dismiss_action_id is not None,
+        "dismiss_action_id": dismiss_action_id,
+        "visible_action_ids": visible_action_ids,
+        "visible_control_ids": _bounded_text_list(
+            value.get("visible_control_ids"), _LIVE_MODULE_CAP
+        ),
+        "options": options,
+        "underlying_actions_available": (
+            value.get("underlying_actions_available") is True and modality == "nonmodal"
+        ),
+        "agent_continuity": continuity,
     }
 
 
