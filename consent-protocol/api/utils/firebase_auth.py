@@ -36,7 +36,13 @@ def verify_firebase_bearer(authorization: Optional[str]) -> str:
 
     try:
         firebase_app = get_firebase_auth_app()
-        decoded = firebase_auth.verify_id_token(id_token, app=firebase_app)
+        # check_revoked=True rejects tokens from disabled accounts or sessions
+        # that were force-revoked (e.g. remote sign-out / device loss), instead of
+        # honoring them until natural ~1h expiry. The revoked/disabled cases are
+        # already handled in the except block below.
+        decoded = firebase_auth.verify_id_token(
+            id_token, app=firebase_app, check_revoked=True
+        )
         uid = decoded.get("uid")
         if not isinstance(uid, str) or not uid:
             raise HTTPException(status_code=401, detail="Invalid Firebase ID token")

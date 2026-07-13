@@ -74,4 +74,4 @@ app = WSGIMiddleware(flask_app) if isinstance(flask_app, Flask) else flask_app
 
 if __name__ == "__main__":
     logger.info("Starting Kai A2A Server on Port 8001 (WSGI/ASGI)...")
-    uvicorn.run(app, host="0.0.0.0", port=8001)  # noqa: S104
+    uvicorn.run(app, host="0.0.0.0", port=8001)  # noqa: S104  # nosec B104 - dev-only __main__ run; prod serves via gunicorn in a Cloud Run container

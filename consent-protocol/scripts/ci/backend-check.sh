@@ -14,7 +14,7 @@ bash scripts/sync_runtime_requirements.sh --check
 
 uv run ruff check .
 uv run mypy --config-file pyproject.toml --ignore-missing-imports
-uv run bandit -r hushh_mcp/ api/ -c pyproject.toml -ll
+uv run bandit -r hushh_mcp/ api/ server.py mcp_server.py mcp_remote.py server_a2a.py -c pyproject.toml -ll
 
 if [ -f scripts/run-test-ci.sh ]; then
   bash scripts/run-test-ci.sh
