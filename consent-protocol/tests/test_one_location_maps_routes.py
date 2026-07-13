@@ -52,6 +52,21 @@ def test_route_eta_route(client, monkeypatch):
     assert data["eta"]["trafficLevel"] == "light"
 
 
+def test_reverse_geocode_route(client, monkeypatch):
+    async def fake(self, *, lat, lng):
+        return {"name": "Central Library", "formattedAddress": "476 5th Ave"}
+
+    monkeypatch.setattr(gms.GoogleMapsService, "reverse_geocode", fake)
+    res = client.post(
+        "/api/one/location/maps/reverse-geocode",
+        json={"lat": 40.75, "lng": -73.98},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["place"]["name"] == "Central Library"
+    assert data["place"]["formattedAddress"] == "476 5th Ave"
+
+
 def test_maps_unconfigured_returns_503(client, monkeypatch):
     async def fake(self, input_text, *, session_token=None):
         raise gms.GoogleMapsError("no key", status_code=503)

@@ -130,3 +130,44 @@ async def test_upstream_error_maps_to_502(monkeypatch):
     with pytest.raises(gms.GoogleMapsError) as excinfo:
         await svc.route_eta(origin_lat=1, origin_lng=1, dest_lat=2, dest_lng=2)
     assert excinfo.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_reverse_geocode_parses_name_and_address(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "latlng=" in str(request.url)
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "formatted_address": "476 5th Ave, New York, NY 10018, USA",
+                        "types": ["point_of_interest", "establishment"],
+                        "address_components": [
+                            {"long_name": "Central Library", "types": ["point_of_interest"]}
+                        ],
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+    svc = gms.GoogleMapsService()
+    out = await svc.reverse_geocode(lat=40.75, lng=-73.98)
+    assert out == {
+        "name": "Central Library",
+        "formattedAddress": "476 5th Ave, New York, NY 10018, USA",
+    }
+
+
+@pytest.mark.asyncio
+async def test_reverse_geocode_empty_results_returns_nulls(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"results": []})
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+    svc = gms.GoogleMapsService()
+    out = await svc.reverse_geocode(lat=1.0, lng=2.0)
+    assert out == {"name": None, "formattedAddress": None}
