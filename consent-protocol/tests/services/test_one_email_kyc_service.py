@@ -5,6 +5,7 @@ import json
 import os
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from cryptography.hazmat.primitives import hashes, serialization
@@ -49,6 +50,123 @@ _CONNECTOR_PUBLIC_B64 = _b64(
         format=serialization.PublicFormat.Raw,
     )
 )
+
+# ---------------------------------------------------------------------------
+# Proposal stubs for mocking classify_kyc_request (Pass 1 LLM routing)
+# ---------------------------------------------------------------------------
+
+_EMPTY_PROPOSAL = {
+    "classification": "kyc",
+    "requested_items": [],
+    "primary_domains": [],
+    "confidence": 0.9,
+    "reasoning": "test default (empty items — any scope selection is valid)",
+}
+_IDENTITY_PROPOSAL = {
+    "classification": "kyc",
+    "requested_items": [
+        {
+            "label": "Identity",
+            "domain": "identity",
+            "scope": "attr.identity.*",
+            "rationale": "KYC identity check",
+        }
+    ],
+    "primary_domains": ["identity"],
+    "confidence": 0.9,
+    "reasoning": "identity request",
+}
+_FINANCIAL_PROPOSAL = {
+    "classification": "financial",
+    "requested_items": [
+        {
+            "label": "Financial",
+            "domain": "financial",
+            "scope": "attr.financial.*",
+            "rationale": "financial data request",
+        }
+    ],
+    "primary_domains": ["financial"],
+    "confidence": 0.9,
+    "reasoning": "financial request",
+}
+_MULTI_PROPOSAL = {
+    "classification": "kyc_financial",
+    "requested_items": [
+        {
+            "label": "Identity",
+            "domain": "identity",
+            "scope": "attr.identity.*",
+            "rationale": "KYC identity check",
+        },
+        {
+            "label": "Financial",
+            "domain": "financial",
+            "scope": "attr.financial.*",
+            "rationale": "financial data request",
+        },
+    ],
+    "primary_domains": ["identity", "financial"],
+    "confidence": 0.9,
+    "reasoning": "kyc + financial request",
+}
+_TRAVEL_PROPOSAL = {
+    "classification": "kyc",
+    "requested_items": [
+        {
+            "label": "Travel Preferences",
+            "domain": "travel",
+            "scope": "attr.travel.*",
+            "rationale": "travel data request",
+        }
+    ],
+    "primary_domains": ["travel"],
+    "confidence": 0.9,
+    "reasoning": "travel data request",
+}
+_SEAT_PREF_PROPOSAL = {
+    "classification": "kyc",
+    "requested_items": [
+        {
+            "label": "Seat Preferences",
+            "domain": "travel",
+            "scope": "attr.travel.seat_preferences.*",
+            "rationale": "seat preference request",
+        }
+    ],
+    "primary_domains": ["travel"],
+    "confidence": 0.9,
+    "reasoning": "seat preference request",
+}
+_MOBILITY_CABIN_PROPOSAL = {
+    "classification": "kyc",
+    "requested_items": [
+        {
+            "label": "Cabin Comfort",
+            "domain": "mobility",
+            "scope": "attr.mobility.cabin_comfort.*",
+            "rationale": "cabin comfort preference request",
+        }
+    ],
+    "primary_domains": ["mobility"],
+    "confidence": 0.9,
+    "reasoning": "cabin comfort request",
+}
+_PORTFOLIO_PROPOSAL = {
+    "classification": "financial",
+    "requested_items": [
+        {
+            "label": "Portfolio",
+            "domain": "financial",
+            "scope": "attr.financial.portfolio.*",
+            "rationale": "financial portfolio request",
+        }
+    ],
+    "primary_domains": ["financial"],
+    "confidence": 0.9,
+    "reasoning": "portfolio request",
+}
+_PKM_INDEX_EMPTY = {"available_domains": [], "domain_summaries": {}, "computed_tags": []}
 
 
 def _encrypted_export(
@@ -423,6 +541,11 @@ def _service(db: _FakeDb, consent_db: _FakeConsentDb) -> OneEmailKycService:
         strict_client_zk_enabled=True,
         configured=True,
     )
+    # Mock LLM routing so tests never hit real Gemini or the PKM database.
+    # The default empty proposal allows select_scopes with any scope (no candidate
+    # validation). Tests that need specific candidate_scopes override this per-test.
+    service.classify_kyc_request = AsyncMock(return_value=_EMPTY_PROPOSAL)
+    service._load_pkm_index_for_user = AsyncMock(return_value=_PKM_INDEX_EMPTY)
     return service
 
 
@@ -626,6 +749,8 @@ async def test_process_message_creates_scoped_kyc_consent_without_storing_raw_bo
     db = _FakeDb()
     consent_db = _FakeConsentDb()
     service = _service(db, consent_db)
+    # Identity proposal so that candidate_scopes is set and select_scopes validates correctly.
+    service.classify_kyc_request = AsyncMock(return_value=_IDENTITY_PROPOSAL)
     raw_body_marker = "SECRET_RAW_BODY_MARKER"
 
     result = await service._process_message(
@@ -640,12 +765,15 @@ async def test_process_message_creates_scoped_kyc_consent_without_storing_raw_bo
     )
 
     workflow = result["workflow"]
-    assert workflow["status"] == "needs_scope"
+    # Pass 1 routing lands the workflow in needs_confirm with the LLM proposal stored.
+    assert workflow["status"] == "needs_confirm"
     assert workflow["requested_scope"] == "attr.identity.*"
     assert workflow["consent_request_id"] is None
     assert workflow["metadata"]["scope_selection_required"] is True
     assert workflow["metadata"]["candidate_scopes"][0]["scope"] == "attr.identity.*"
-    assert workflow["required_fields"] == ["full_name", "date_of_birth", "address"]
+    assert workflow["metadata"]["kyc_proposal"]["classification"] == "kyc"
+    # required_fields is empty at intake; it is populated at confirm time (Task 4).
+    assert workflow["required_fields"] == []
     assert consent_db.events == []
     assert raw_body_marker not in json.dumps(db.workflows, default=str)
 
@@ -871,7 +999,7 @@ async def test_process_message_matches_verified_sender_alias_without_relay_infer
     )
 
     assert result["workflow"]["user_id"] == "user_123"
-    assert result["workflow"]["status"] == "needs_scope"
+    assert result["workflow"]["status"] == "needs_confirm"
     assert result["workflow"]["metadata"]["identity_match_source"] == "sender"
     assert result["workflow"]["metadata"]["identity_matched_by"] == "actor_verified_email_alias"
     assert result["workflow"]["consent_request_id"] is None
@@ -935,6 +1063,8 @@ async def test_process_message_prefers_verified_sender_identity_over_copied_reci
     )
     consent_db = _FakeConsentDb()
     service = _service(db, consent_db)
+    # Use a financial proposal so that candidate_scopes includes attr.financial.*.
+    service.classify_kyc_request = AsyncMock(return_value=_FINANCIAL_PROPOSAL)
 
     result = await service._process_message(
         _message(
@@ -949,7 +1079,8 @@ async def test_process_message_prefers_verified_sender_identity_over_copied_reci
 
     workflow = result["workflow"]
     assert workflow["user_id"] == "gmail_user"
-    assert workflow["status"] == "needs_scope"
+    # Pass 1 routing lands in needs_confirm with financial proposal.
+    assert workflow["status"] == "needs_confirm"
     assert workflow["metadata"]["identity_match_source"] == "sender"
     assert workflow["metadata"]["identity_matched_by"] == "actor_identity_cache"
     assert workflow["metadata"]["reply_thread"]["reply_all_to"] == ["kushaltrivedi1711@gmail.com"]
@@ -989,6 +1120,8 @@ async def test_process_message_accepts_verified_sender_direct_to_one_with_copied
     )
     consent_db = _FakeConsentDb()
     service = _service(db, consent_db)
+    # Use a financial proposal so candidate_scopes includes a financial scope.
+    service.classify_kyc_request = AsyncMock(return_value=_FINANCIAL_PROPOSAL)
 
     result = await service._process_message(
         _message(
@@ -1002,7 +1135,8 @@ async def test_process_message_accepts_verified_sender_direct_to_one_with_copied
     )
 
     workflow = result["workflow"]
-    assert workflow["status"] == "needs_scope"
+    # Pass 1 routing lands in needs_confirm.
+    assert workflow["status"] == "needs_confirm"
     assert workflow["user_id"] == "sender_user"
     assert workflow["metadata"]["identity_match_source"] == "sender"
     assert workflow["metadata"]["reply_thread"]["reply_all_to"] == ["kushaltrivedi1711@gmail.com"]
@@ -1042,7 +1176,7 @@ async def test_sync_recent_messages_catches_up_verified_sender_mail_without_webh
     assert result["scanned_count"] == 1
     assert result["matched_count"] == 1
     assert result["workflows"][0]["user_id"] == "sender_user"
-    assert result["workflows"][0]["status"] == "needs_scope"
+    assert result["workflows"][0]["status"] == "needs_confirm"
 
 
 @pytest.mark.asyncio
@@ -1070,30 +1204,21 @@ async def test_first_history_notification_catches_up_recent_messages_instead_of_
 
     assert result["reason"] == "history_primed_recent_catchup"
     assert result["handled"] is True
-    assert result["results"][0]["workflow"]["status"] == "needs_scope"
+    assert result["results"][0]["workflow"]["status"] == "needs_confirm"
 
 
 @pytest.mark.asyncio
 async def test_process_message_matches_dynamic_available_scope_for_email_helper_request():
+    """LLM Pass 1 routing identifies the correct scope for a natural-language request.
+
+    Formerly tested keyword-based dynamic scope detection; now verifies that the LLM
+    proposal drives candidate_scopes and that select_scopes can proceed from the result.
+    """
     db = _FakeDb()
     consent_db = _FakeConsentDb()
     service = _service(db, consent_db)
-
-    async def available_entries(user_id: str):
-        assert user_id == "user_123"
-        return [
-            {
-                "scope": "attr.travel.*",
-                "domain": "travel",
-                "path": None,
-                "wildcard": True,
-                "label": "Travel Preferences",
-                "consumer_visible": True,
-                "internal_only": False,
-            }
-        ]
-
-    service._available_one_email_scope_entries = available_entries  # type: ignore[method-assign]
+    # Travel proposal — mimics LLM routing the email to the travel domain.
+    service.classify_kyc_request = AsyncMock(return_value=_TRAVEL_PROPOSAL)
 
     result = await service._process_message(
         _message(
@@ -1104,11 +1229,12 @@ async def test_process_message_matches_dynamic_available_scope_for_email_helper_
     )
 
     workflow = result["workflow"]
-    assert workflow["status"] == "needs_scope"
+    # Pass 1 routing lands in needs_confirm with the LLM-derived proposal.
+    assert workflow["status"] == "needs_confirm"
     assert workflow["requested_scope"] == "attr.travel.*"
-    assert workflow["metadata"]["classification"] == "dynamic_disclosure"
-    assert workflow["metadata"]["dynamic_scope_detection"] is True
-    assert workflow["required_fields"] == ["favorite_locations"]
+    assert workflow["metadata"]["classification"] == "kyc"
+    # required_fields is empty at intake; computed at confirm time (Task 4).
+    assert workflow["required_fields"] == []
     assert [item["scope"] for item in workflow["metadata"]["candidate_scopes"]] == ["attr.travel.*"]
 
     selected = await service.select_scopes(
@@ -1305,23 +1431,8 @@ async def test_dynamic_scope_detection_derives_required_field_from_scope_metadat
     )
     consent_db = _FakeConsentDb()
     service = _service(db, consent_db)
-
-    async def available_entries(user_id: str):
-        assert user_id == "sender_user"
-        return [
-            {
-                "scope": "attr.mobility.cabin_comfort.*",
-                "domain": "mobility",
-                "path": "cabin_comfort",
-                "wildcard": True,
-                "label": "Cabin Comfort",
-                "consumer_visible": True,
-                "internal_only": False,
-                "source_kind": "pkm_manifests.top_level_scope_paths",
-            }
-        ]
-
-    service._available_one_email_scope_entries = available_entries  # type: ignore[method-assign]
+    # Mobility cabin-comfort proposal — the LLM identifies the correct scope from context.
+    service.classify_kyc_request = AsyncMock(return_value=_MOBILITY_CABIN_PROPOSAL)
 
     result = await service._process_message(
         _message(
@@ -1338,8 +1449,11 @@ async def test_dynamic_scope_detection_derives_required_field_from_scope_metadat
     assert workflow["user_id"] == "sender_user"
     assert workflow["metadata"]["identity_match_source"] == "sender"
     assert workflow["requested_scope"] == "attr.mobility.cabin_comfort.*"
-    assert workflow["required_fields"] == ["cabin_comfort"]
-    assert workflow["metadata"]["candidate_scopes"][0]["path"] == "cabin_comfort"
+    # required_fields is populated at confirm time (Task 4), not at intake.
+    assert workflow["required_fields"] == []
+    # candidate_scopes from LLM proposal use {scope, domain, label, description, reason}
+    # (no "path" key — path comes from scope metadata at confirm time).
+    assert workflow["metadata"]["candidate_scopes"][0]["scope"] == "attr.mobility.cabin_comfort.*"
     assert workflow["metadata"]["reply_thread"]["reply_all_to"] == ["kushaltrivedi1711@gmail.com"]
     assert workflow["metadata"]["reply_thread"]["reply_all_cc"] == ["ankit@hushh.ai"]
 
@@ -1349,22 +1463,7 @@ async def test_process_message_does_not_treat_email_subject_as_requested_email_f
     db = _FakeDb()
     consent_db = _FakeConsentDb()
     service = _service(db, consent_db)
-
-    async def available_entries(user_id: str):
-        assert user_id == "user_123"
-        return [
-            {
-                "scope": "attr.travel.seat_preferences.*",
-                "domain": "travel",
-                "path": "seat_preferences",
-                "wildcard": True,
-                "label": "Seat Preferences",
-                "consumer_visible": True,
-                "internal_only": False,
-            }
-        ]
-
-    service._available_one_email_scope_entries = available_entries  # type: ignore[method-assign]
+    service.classify_kyc_request = AsyncMock(return_value=_SEAT_PREF_PROPOSAL)
 
     result = await service._process_message(
         _message(
@@ -1376,7 +1475,8 @@ async def test_process_message_does_not_treat_email_subject_as_requested_email_f
 
     workflow = result["workflow"]
     assert workflow["requested_scope"] == "attr.travel.seat_preferences.*"
-    assert workflow["required_fields"] == ["seat_preferences"]
+    # required_fields is populated at confirm time (Task 4), not at intake.
+    assert workflow["required_fields"] == []
     assert "email" not in workflow["required_fields"]
 
 
@@ -1385,31 +1485,7 @@ async def test_reply_classification_ignores_quoted_prior_thread_text():
     db = _FakeDb()
     consent_db = _FakeConsentDb()
     service = _service(db, consent_db)
-
-    async def available_entries(user_id: str):
-        assert user_id == "user_123"
-        return [
-            {
-                "scope": "attr.shopping.*",
-                "domain": "shopping",
-                "path": None,
-                "wildcard": True,
-                "label": "Shopping Domain",
-                "consumer_visible": True,
-                "internal_only": False,
-            },
-            {
-                "scope": "attr.travel.seat_preferences.*",
-                "domain": "travel",
-                "path": "seat_preferences",
-                "wildcard": True,
-                "label": "Seat Preferences",
-                "consumer_visible": True,
-                "internal_only": False,
-            },
-        ]
-
-    service._available_one_email_scope_entries = available_entries  # type: ignore[method-assign]
+    service.classify_kyc_request = AsyncMock(return_value=_SEAT_PREF_PROPOSAL)
 
     result = await service._process_message(
         _message(
@@ -1425,7 +1501,8 @@ async def test_reply_classification_ignores_quoted_prior_thread_text():
 
     workflow = result["workflow"]
     assert workflow["requested_scope"] == "attr.travel.seat_preferences.*"
-    assert workflow["required_fields"] == ["seat_preferences"]
+    # required_fields is populated at confirm time (Task 4), not at intake.
+    assert workflow["required_fields"] == []
     assert workflow["metadata"]["quoted_reply_text_stripped"] is True
     assert [item["scope"] for item in workflow["metadata"]["candidate_scopes"]] == [
         "attr.travel.seat_preferences.*"
@@ -1437,6 +1514,7 @@ async def test_select_scopes_creates_bundled_multi_scope_consent_requests():
     db = _FakeDb()
     consent_db = _FakeConsentDb()
     service = _service(db, consent_db)
+    service.classify_kyc_request = AsyncMock(return_value=_MULTI_PROPOSAL)
 
     result = await service._process_message(
         _message(
@@ -1571,6 +1649,7 @@ async def test_select_scopes_reuses_existing_email_agent_grant_for_draft_readine
     db = _FakeDb()
     consent_db = _FakeConsentDb()
     service = _service(db, consent_db)
+    service.classify_kyc_request = AsyncMock(return_value=_PORTFOLIO_PROPOSAL)
     result = await service._process_message(
         _message(
             subject="Portfolio request",
@@ -1579,7 +1658,7 @@ async def test_select_scopes_reuses_existing_email_agent_grant_for_draft_readine
         history_id="102existing",
     )
     workflow = result["workflow"]
-    assert workflow["status"] == "needs_scope"
+    assert workflow["status"] == "needs_confirm"
 
     consent_db.active_tokens.append(
         {
@@ -1653,6 +1732,7 @@ async def test_refresh_sibling_email_reuses_scope_granted_from_another_workflow(
     db = _FakeDb()
     consent_db = _FakeConsentDb()
     service = _service(db, consent_db)
+    service.classify_kyc_request = AsyncMock(return_value=_PORTFOLIO_PROPOSAL)
 
     workflows = []
     for index in range(3):

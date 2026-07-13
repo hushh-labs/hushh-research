@@ -103,11 +103,13 @@ _MAX_WORKFLOW_PAGE_LIMIT = 100
 _MAX_RECENT_MAIL_SYNC_LIMIT = 25
 _DEFAULT_RECENT_MAIL_SYNC_LIMIT = 12
 _DEFAULT_RECENT_MAIL_LOOKBACK_DAYS = 7
+_KYC_ROUTING_CONFIDENCE_FLOOR = 0.5
 _SENSITIVE_WORKFLOW_METADATA_KEYS = frozenset(
     {"access_token", "consent_token", "token", "token_id"}
 )
 _KYC_WORKFLOW_STATES = {
     "needs_client_connector",
+    "needs_confirm",
     "needs_scope",
     "needs_documents",
     "drafting",
@@ -1120,10 +1122,15 @@ class OneEmailKycService:
     """Processes broker KYC emails addressed to One."""
 
     def __init__(
-        self, *, db: Any | None = None, consent_db: ConsentDBService | None = None
+        self,
+        *,
+        db: Any | None = None,
+        consent_db: ConsentDBService | None = None,
+        pkm_service: Any | None = None,
     ) -> None:
         self._db = db
         self._consent_db = consent_db
+        self._pkm = pkm_service
         self._config: OneEmailKycConfig | None = None
         self._sessions: dict[tuple[str, ...], AuthorizedSession] = {}
 
@@ -1138,6 +1145,16 @@ class OneEmailKycService:
         if self._consent_db is None:
             self._consent_db = ConsentDBService()
         return self._consent_db
+
+    @property
+    def pkm(self) -> Any:
+        if self._pkm is None:
+            from hushh_mcp.services.personal_knowledge_model_service import (
+                PersonalKnowledgeModelService,
+            )
+
+            self._pkm = PersonalKnowledgeModelService()
+        return self._pkm
 
     @property
     def config(self) -> OneEmailKycConfig:
@@ -1862,14 +1879,6 @@ class OneEmailKycService:
         if sender_email == mailbox:
             return {"handled": False, "reason": "self_sent_message", "message_id": gmail_message_id}
 
-        is_kyc = self._looks_like_kyc(subject=subject, body=body_text)
-        is_financial = self._looks_like_financial_request(subject=subject, body=body_text)
-        scope_candidates = self._detect_scope_candidates(
-            subject=subject,
-            body=body_text,
-            include_fallback=False,
-        )
-        candidate_scopes = [candidate["scope"] for candidate in scope_candidates]
         has_attachments = _has_attachments(message)
         sender_user_match = self._match_verified_user([sender_email] if sender_email else [])
         user_match = {
@@ -1894,25 +1903,12 @@ class OneEmailKycService:
                 "body_sha256": body_hash,
                 "request_body_sha256": request_body_hash,
                 "quoted_reply_text_stripped": body_text != raw_body_text,
-                "classification": (
-                    "kyc_financial"
-                    if is_kyc and is_financial
-                    else "kyc"
-                    if is_kyc
-                    else "financial"
-                    if is_financial
-                    else "unsupported"
-                ),
                 "request_summary": "One text-only disclosure request",
                 "one_agent_id": _ONE_AGENT_ID,
                 "nav_agent_id": _NAV_AGENT_ID,
                 "kyc_agent_id": _KYC_AGENT_ID,
                 "identity_match_source": user_match.get("matched_from"),
                 "identity_matched_by": user_match.get("matched_by"),
-                "detected_domains": sorted(
-                    {str(candidate.get("domain")) for candidate in scope_candidates}
-                ),
-                "candidate_scopes": scope_candidates,
                 "scope_selection_required": True,
                 "selected_scopes": [],
                 "text_only_intake_v1": True,
@@ -1943,66 +1939,73 @@ class OneEmailKycService:
             )
             return {"handled": True, "workflow": workflow, "blocked": True}
 
-        dynamic_scope_candidates = await self._detect_available_scope_candidates(
-            user_id=user_match["user_id"],
+        # Pass 1: LLM routing — runs after sender match so we have user_id for PKM index.
+        pkm_index = await self._load_pkm_index_for_user(user_match["user_id"])
+        proposal = await self.classify_kyc_request(
             subject=subject,
             body=body_text,
+            pkm_index=pkm_index,
         )
-        scope_candidates = _dedupe_scope_candidates([*scope_candidates, *dynamic_scope_candidates])
-        if not scope_candidates and (is_kyc or is_financial):
-            scope_candidates = self._detect_scope_candidates(
-                subject=subject,
-                body=body_text,
-                include_fallback=True,
-            )
-        candidate_scopes = [candidate["scope"] for candidate in scope_candidates]
+
+        # Build candidate_scopes from the proposal's requested_items so the existing
+        # select_scopes / consent path (Task 4) can still validate against them.
+        candidate_scopes_list = [
+            {
+                "scope": item["scope"],
+                "domain": item["domain"],
+                "label": item["label"],
+                "description": item.get("rationale", ""),
+                "reason": item.get("rationale", ""),
+            }
+            for item in (proposal.get("requested_items") or [])
+            if item.get("scope")
+        ]
+        classification = proposal.get("classification") or "unsupported"
+        primary_domains = proposal.get("primary_domains") or []
+
         common["metadata"].update(
             {
-                "classification": (
-                    "kyc_financial"
-                    if is_kyc and is_financial
-                    else "kyc"
-                    if is_kyc
-                    else "financial"
-                    if is_financial
-                    else "dynamic_disclosure"
-                    if dynamic_scope_candidates
-                    else "unsupported"
-                ),
-                "detected_domains": sorted(
-                    {str(candidate.get("domain")) for candidate in scope_candidates}
-                ),
-                "candidate_scopes": scope_candidates,
-                "dynamic_scope_detection": bool(dynamic_scope_candidates),
+                "classification": classification,
+                "detected_domains": sorted(primary_domains),
+                "candidate_scopes": candidate_scopes_list,
+                "kyc_proposal": proposal,
             }
         )
 
-        if not scope_candidates:
+        # Fallback or unsupported → block immediately; operator must review manually.
+        if proposal.get("fallback") or classification == "unsupported":
             workflow = self._insert_workflow(
                 **common,
                 status="blocked",
                 required_fields=[],
                 requested_scope=None,
-                last_error_code="unsupported_email_task",
+                last_error_code="kyc_routing_unavailable",
                 last_error_message=(
-                    "One could not match this email to any available shareable scope."
+                    "One could not determine what this request needs. Review manually."
                 ),
             )
             return {"handled": True, "workflow": workflow, "blocked": True}
 
-        required_fields = self._effective_required_fields_for_candidates(
-            extracted_fields=self._extract_required_fields(subject=subject, body=body_text),
-            candidates=scope_candidates,
+        # Low confidence → flag but still route to needs_confirm for human review.
+        confidence = float(proposal.get("confidence") or 0.0)
+        if confidence < _KYC_ROUTING_CONFIDENCE_FLOOR:
+            common["metadata"]["kyc_low_confidence"] = True
+
+        first_scope = (
+            candidate_scopes_list[0]["scope"]
+            if candidate_scopes_list
+            else self.config.default_kyc_scope
         )
+
+        # Connector gate — store proposal metadata even while waiting so the workflow
+        # can advance to needs_confirm once the connector is registered.
         connector = self._get_active_client_connector(user_match.get("user_id"))
         if not connector:
             workflow = self._insert_workflow(
                 **common,
                 status="needs_client_connector",
-                required_fields=required_fields,
-                requested_scope=candidate_scopes[0]
-                if candidate_scopes
-                else self.config.default_kyc_scope,
+                required_fields=[],
+                requested_scope=first_scope,
                 last_error_code="kyc_client_connector_missing",
                 last_error_message=(
                     "Unlock the KYC workspace once so One can register a client-held connector key."
@@ -2021,11 +2024,9 @@ class OneEmailKycService:
         }
         workflow = self._insert_workflow(
             **workflow_common,
-            status="needs_scope",
-            required_fields=required_fields,
-            requested_scope=candidate_scopes[0]
-            if candidate_scopes
-            else self.config.default_kyc_scope,
+            status="needs_confirm",
+            required_fields=[],
+            requested_scope=first_scope,
             last_error_code=None,
             last_error_message=None,
         )
@@ -2034,6 +2035,22 @@ class OneEmailKycService:
     # ------------------------------------------------------------------
     # LLM helpers — Pass 1 routing
     # ------------------------------------------------------------------
+
+    async def _load_pkm_index_for_user(self, user_id: str) -> dict[str, Any]:
+        """Fetch the sanitized PKM discovery index (domains + summaries, NO values).
+
+        Returns a dict with available_domains, domain_summaries, and computed_tags.
+        If the user has no PKM index yet, returns empty collections so Pass 1 routing
+        can still operate (it will classify from the email content alone).
+        """
+        index = await self.pkm.get_index_v2(user_id)
+        if index is None:
+            return {"available_domains": [], "domain_summaries": {}, "computed_tags": []}
+        return {
+            "available_domains": index.available_domains,
+            "domain_summaries": index.domain_summaries,
+            "computed_tags": index.computed_tags,
+        }
 
     async def _llm_generate_structured(
         self,
@@ -3033,7 +3050,7 @@ class OneEmailKycService:
             )
             if ready_from_existing_grants:
                 return ready_from_existing_grants
-        if workflow["status"] in {"needs_client_connector", "needs_scope"}:
+        if workflow["status"] in {"needs_client_connector", "needs_scope", "needs_confirm"}:
             workflow = await self._ensure_consent_request(workflow)
         should_revalidate_ready_draft = (
             workflow["status"] == "waiting_on_user"
