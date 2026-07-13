@@ -27,7 +27,7 @@ env:
   GCP_REGION: us-central1
   BACKEND_SERVICE: consent-protocol
   FRONTEND_SERVICE: hushh-webapp
-  APP_FRONTEND_ORIGIN: https://uat.kai.hushh.ai
+  APP_FRONTEND_ORIGIN: https://uat.one.hushh.ai
   UAT_CLOUDSQL_INSTANCE: hushh-pda-uat:us-central1:hushh-uat-pg
   UAT_DB_UNIX_SOCKET: /cloudsql/hushh-pda-uat:us-central1:hushh-uat-pg
   CLOUD_RUN_REVISION_RETENTION: "10"
@@ -202,7 +202,7 @@ jobs:
             --crm-registry-db-enabled "true" \
             --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}" \
             --obs-data-stale-ratio-threshold "0.25" \
-            --passkey-allowed-rp-ids "localhost,127.0.0.1,kai.hushh.ai,uat.kai.hushh.ai" \
+            --passkey-allowed-rp-ids "localhost,127.0.0.1,one.hushh.ai,uat.one.hushh.ai" \
             --plaid-env "production" \
             --plaid-client-name "Hushh Kai" \
             --plaid-country-codes "US" \
