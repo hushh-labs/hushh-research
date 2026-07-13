@@ -73,11 +73,13 @@ import { SharingStatusCard } from "./sharing-status-card";
 import {
   ActiveShareCard,
   DeviceReadinessCard,
+  PickupEnRouteCard,
   RequestCard,
   SharedWithMeCard,
   TemporaryLinkCard,
   TrustedPersonCard,
 } from "./cards";
+import { driveEtaText } from "@/app/one/location/drive-eta";
 import {
   DurationSelector,
   LocationTypeSelector,
@@ -566,6 +568,35 @@ function NowHub({
   // surface the Device readiness card at the very TOP so the user immediately
   // sees how to fix it, instead of it sitting in the middle of the page.
   const readinessBlocked = vm.readiness.tone === "blocked";
+
+  // Derive helpers who are en route to pick up this user.
+  // Condition: a received grant with shareKind === "pickup_enroute" that has a
+  // decrypted live point AND for whom the current user has an active outbound
+  // "pick_me_up" grant (i.e. the mutual-share pair is complete).
+  const enRouteHelpers = vm.receivedGrants
+    .filter(
+      (g) =>
+        g.shareKind === "pickup_enroute" &&
+        Boolean(vm.decryptedPoints[g.id]),
+    )
+    .flatMap((receivedGrant) => {
+      const outboundGrant = vm.activeOwnerGrants.find(
+        (g) =>
+          g.shareKind === "pick_me_up" &&
+          g.recipientUserId === receivedGrant.ownerUserId,
+      );
+      if (!outboundGrant) return [];
+      const point = vm.decryptedPoints[receivedGrant.id]!;
+      return [
+        {
+          key: receivedGrant.id,
+          helperName: vm.grantOwnerLabel(receivedGrant),
+          point,
+          etaSeconds: point.drive?.etaSeconds ?? null,
+          outboundGrantId: outboundGrant.id,
+        },
+      ];
+    });
   const deviceReadinessCard = (
     <SectionCard title="Device readiness">
       <DeviceReadinessCard
@@ -598,6 +629,20 @@ function NowHub({
   return (
     <div className="space-y-5">
       {readinessBlocked ? deviceReadinessCard : null}
+
+      {/* En-route helpers: show one card per helper who tapped "I'm on my way".
+          Each card shows the helper's name, live ETA, map, and a cancel button
+          that revokes the requester's outbound pick_me_up grant. */}
+      {enRouteHelpers.map(({ key, helperName, point, etaSeconds, outboundGrantId }) => (
+        <PickupEnRouteCard
+          key={key}
+          helperName={helperName}
+          etaText={driveEtaText(etaSeconds)}
+          onCancel={() => vm.onStopGrant(outboundGrantId)}
+        >
+          {vm.renderMapPreview(point, false)}
+        </PickupEnRouteCard>
+      ))}
 
       <SharingStatusCard
         isSharing={hasActiveShare}
