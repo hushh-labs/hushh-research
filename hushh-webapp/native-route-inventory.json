@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-06-17",
-  "total_routes": 84,
-  "native_required_routes": 78,
+  "total_routes": 91,
+  "native_required_routes": 85,
   "excluded_routes": 6,
   "routes": [
     {
@@ -50,6 +50,100 @@
       "expectedAuth": "authenticated",
       "allowedDataStates": [
         "loaded"
+      ]
+    },
+    {
+      "route": "/one/setup/finance",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Ffinance",
+      "expectedMarker": "native-route-one-setup-kai",
+      "expectedRoute": "/one/setup/finance",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/one/setup/finance/import",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Ffinance%2Fimport",
+      "expectedMarker": "native-route-one-setup-kai",
+      "expectedRoute": "/one/setup/finance/import",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/one/setup/gmail",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fgmail",
+      "expectedMarker": "native-route-gmail",
+      "expectedRoute": "/one/setup/gmail",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/setup/location",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Flocation",
+      "expectedMarker": "native-route-one-location",
+      "expectedRoute": "/one/setup/location",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/setup/email",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Femail",
+      "expectedMarker": "native-route-one-kyc",
+      "expectedRoute": "/one/setup/email",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/setup/ria",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fria",
+      "expectedMarker": "native-route-ria-onboarding",
+      "expectedRoute": "/one/setup/ria",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/setup/connected-systems",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fconnected-systems",
+      "expectedMarker": "native-route-connected-systems",
+      "expectedRoute": "/one/setup/connected-systems",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
       ]
     },
     {
