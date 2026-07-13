@@ -247,6 +247,10 @@ export function SharedWithMeCard({
   viewBusy,
   previewExpanded,
   children,
+  message,
+  isPickup,
+  onImOnMyWay,
+  enRoute,
 }: {
   name: string;
   statusLine: string;
@@ -257,6 +261,10 @@ export function SharedWithMeCard({
   viewBusy?: boolean;
   previewExpanded?: boolean;
   children?: ReactNode;
+  message?: string;
+  isPickup?: boolean;
+  onImOnMyWay?: () => void;
+  enRoute?: boolean;
 }) {
   const canOpenMap = Boolean(previewExpanded && mapHref);
   const canDismissPreview = Boolean(previewExpanded && onDismiss);
@@ -275,6 +283,22 @@ export function SharedWithMeCard({
       </div>
       {metaLine ? <p className={MUTED_TEXT}>{metaLine}</p> : null}
       {children}
+      {message ? (
+        <p className={cn(MUTED_TEXT, "text-sm")}>{message}</p>
+      ) : null}
+      {isPickup && onImOnMyWay && !enRoute ? (
+        <Button
+          onClick={onImOnMyWay}
+          className="h-9 w-full rounded-full bg-[#007aff] text-sm font-semibold text-white hover:bg-[#007aff]/90"
+        >
+          I&apos;m on my way
+        </Button>
+      ) : null}
+      {isPickup && enRoute ? (
+        <p className={cn(MUTED_TEXT, "text-center text-sm")}>
+          En route — sharing your location
+        </p>
+      ) : null}
       <div
         className={cn(
           "grid gap-2",

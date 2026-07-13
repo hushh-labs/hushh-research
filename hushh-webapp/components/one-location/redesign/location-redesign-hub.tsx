@@ -1344,6 +1344,11 @@ function InboxHub({
               const point = vm.decryptedPoints[grant.id];
               const previewExpanded =
                 Boolean(point) && !collapsedGrantIds.has(grant.id);
+              const enRoute = vm.activeOwnerGrants.some(
+                (g) =>
+                  g.shareKind === "pickup_enroute" &&
+                  g.recipientUserId === grant.ownerUserId,
+              );
               return (
                 <SharedWithMeCard
                   key={grant.id}
@@ -1359,6 +1364,10 @@ function InboxHub({
                   onView={() => onExpandGrant(grant)}
                   onDismiss={() => onCollapseGrant(grant.id)}
                   viewBusy={vm.busy === "view"}
+                  message={grant.shareMessage ?? undefined}
+                  isPickup={grant.shareKind === "pick_me_up"}
+                  onImOnMyWay={() => vm.onImOnMyWay(grant)}
+                  enRoute={enRoute}
                 >
                   {previewExpanded && point
                     ? vm.renderMapPreview(point, true)
