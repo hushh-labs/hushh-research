@@ -227,6 +227,39 @@ _SCOPE_MATCH_STOPWORDS = frozenset(
     }
 )
 
+_KYC_ROUTING_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "classification": {
+            "type": "STRING",
+            "enum": ["kyc", "kyc_financial", "financial", "unsupported"],
+        },
+        "requested_items": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "label": {"type": "STRING"},
+                    "domain": {"type": "STRING"},
+                    "scope": {"type": "STRING"},
+                    "rationale": {"type": "STRING"},
+                },
+                "required": ["label", "domain", "scope", "rationale"],
+            },
+        },
+        "primary_domains": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "confidence": {"type": "NUMBER"},
+        "reasoning": {"type": "STRING"},
+    },
+    "required": [
+        "classification",
+        "requested_items",
+        "primary_domains",
+        "confidence",
+        "reasoning",
+    ],
+}
+
 
 def _runtime_environment() -> str:
     return (
@@ -1997,6 +2030,82 @@ class OneEmailKycService:
             last_error_message=None,
         )
         return {"handled": True, "workflow": workflow, "blocked": False}
+
+    # ------------------------------------------------------------------
+    # LLM helpers — Pass 1 routing
+    # ------------------------------------------------------------------
+
+    async def _llm_generate_structured(
+        self,
+        *,
+        prompt: str,
+        response_schema: dict[str, Any],
+        timeout_seconds: float = 30.0,
+    ) -> dict[str, Any] | None:
+        """Run a structured (JSON-schema) Gemini call on the shared kai client.
+
+        Returns the parsed dict, or None on unavailability/parse failure so
+        callers fail closed.
+        """
+        if not _require_gemini_ready():
+            return None
+        client = _gemini_client if _gemini_client is not None else _kai_llm._gemini_client
+        model_name = _gemini_model_name or _kai_llm._gemini_model_name
+        types_mod = _genai_types if _genai_types is not None else _kai_llm.types
+        if client is None or types_mod is None:
+            return None
+        config = types_mod.GenerateContentConfig(
+            temperature=KAI_LLM_TEMPERATURE,
+            max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
+            response_mime_type="application/json",
+            response_schema=response_schema,
+            automatic_function_calling=types_mod.AutomaticFunctionCallingConfig(disable=True),
+        )
+
+        def _invoke() -> Any:
+            return client.models.generate_content(model=model_name, contents=prompt, config=config)
+
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(None, _invoke)
+        parsed = response.parsed if isinstance(getattr(response, "parsed", None), dict) else None
+        if parsed is None:
+            try:
+                parsed = json.loads((getattr(response, "text", None) or "").strip() or "{}")
+            except json.JSONDecodeError:
+                return None
+        return parsed if isinstance(parsed, dict) else None
+
+    async def classify_kyc_request(
+        self, *, subject: str, body: str, pkm_index: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Pass 1 — route the request to the correct PKM domain + fields.
+
+        Sends the request text and the SANITIZED pkm_index (domain names +
+        summaries, NO raw values) to Gemini. Never sees real data. Replaces the
+        keyword detectors (_looks_like_kyc / _detect_scope_candidates /
+        _extract_required_fields).
+        """
+        if not _require_gemini_ready():
+            return _gemini_unavailable_payload("Gemini unavailable for KYC routing")
+        prompt = (
+            "You classify an inbound email that requests personal data, and map it "
+            "to the correct domain(s) in the user's personal knowledge model.\n"
+            "Decide WHAT DATA is being requested, not which keywords appear. "
+            "Example: 'provide your information to confirm a hotel booking' is a "
+            "request for IDENTITY data (name, address), NOT travel itinerary data.\n\n"
+            f"Available domains and summaries (NO values):\n{json.dumps(pkm_index)}\n\n"
+            f"Email subject: {_truncate(subject, 500)}\n"
+            f"Email body: {_truncate(body, 4000)}\n\n"
+            "Return the routing JSON. For each requested item, pick the single most "
+            "appropriate domain and scope. Set confidence 0..1. If the email does not "
+            "request personal data, set classification='unsupported' and requested_items=[]."
+        )
+        result = await self._llm_generate_structured(
+            prompt=prompt, response_schema=_KYC_ROUTING_SCHEMA
+        )
+        if result is None:
+            return _gemini_unavailable_payload("KYC routing produced no parseable result")
+        return result
 
     def _looks_like_kyc(self, *, subject: str, body: str) -> bool:
         haystack = f"{subject}\n{body}".lower()
