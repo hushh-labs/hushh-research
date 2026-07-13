@@ -139,6 +139,8 @@ def test_route_note_prioritizes_visible_actions_without_granting_authority():
 
     assert note is not None
     assert "onboarding.claim_one" in note
+    assert "currently visible generated action ids" in note
+    assert "current top interaction layer" in note
     assert "before any identity or greeting response" in note
     assert "only execution authority" in note
 

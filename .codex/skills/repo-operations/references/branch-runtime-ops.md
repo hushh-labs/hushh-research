@@ -147,8 +147,8 @@ Notes:
 2. Backend (`./bin/hushh backend --mode local --reload`) runs uvicorn on `:8000`
    (ENVIRONMENT=development for local). Confirm: `Uvicorn running on
    http://127.0.0.1:8000` and `Application startup complete`.
-3. Frontend (`./bin/hushh web --mode local`) runs `npm run dev` (Next.js) on
-   `:3000`.
+3. Frontend (`./bin/hushh web --mode local`) runs bounded-memory webpack on
+   `:3000`; reserve `-- --turbopack` for attended profiling sessions.
 
 To confirm all three are healthy in-session: `./bin/hushh doctor --mode local`,
 `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/docs` (expect 200),

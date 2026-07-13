@@ -2247,13 +2247,11 @@
       "action_ids": [
         "setup.hub_master_ack",
         "setup.open_connected_systems",
-        "setup.open_consent",
         "setup.open_email",
         "setup.open_finance",
         "setup.open_gmail",
         "setup.open_location",
-        "setup.open_marketplace",
-        "setup.open_pkm",
+        "setup.open_ria",
         "vault.setup_open"
       ],
       "action_coverage": "inherited",

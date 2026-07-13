@@ -16,20 +16,37 @@
   "actions": [
     {
       "action_id": "setup.capability_continue",
-      "label": "Continue Capability Setup",
-      "meaning": "Advances past the current capability setup step to its next destination (workspace, wizard, or explore acknowledgement). Applies to whichever capability route is currently open.",
-      "aliases": ["continue", "unlock and continue", "got it", "next"],
-      "search_keywords": ["continue", "next", "got it", "unlock"],
+      "label": "Continue or Finish Capability Setup",
+      "meaning": "Starts the current capability setup, or finishes it when the terminal acknowledgement is visible. Applies only to the capability route currently open.",
+      "aliases": [
+        "continue",
+        "set it up",
+        "finish setup",
+        "finish gmail setup",
+        "finish location setup",
+        "finish email setup",
+        "finish finance setup",
+        "finish ria setup",
+        "finish tools setup",
+        "got it",
+        "next"
+      ],
+      "search_keywords": ["continue", "next", "set up", "finish", "got it"],
       "reachability": {
-        "routes": ["/one/setup/finance", "/one/setup/gmail", "/one/setup/email", "/one/setup/location", "/one/setup/pkm", "/one/setup/consent", "/one/setup/marketplace", "/one/setup/connected-systems"],
+        "routes": [
+          "/one/setup/gmail",
+          "/one/setup/location",
+          "/one/setup/email",
+          "/one/setup/finance",
+          "/one/setup/ria",
+          "/one/setup/connected-systems"
+        ],
         "screens": [
-          "one_setup_finance",
           "one_setup_gmail",
-          "one_setup_email",
           "one_setup_location",
-          "one_setup_pkm",
-          "one_setup_consent",
-          "one_setup_marketplace",
+          "one_setup_email",
+          "one_setup_finance",
+          "one_setup_ria",
           "one_setup_connected-systems",
           "one_setup"
         ],
@@ -45,7 +62,10 @@
         "target": "setup.capability_continue"
       },
       "control_ids": ["one_setup_capability_primary"],
-      "state_exposure": ["capability seen/explored signal"],
+      "state_exposure": [
+        "active capability id",
+        "capability terminal acknowledgement"
+      ],
       "docs_references": [
         "hushh-webapp/app/one/setup/[capability]/one-onboarding-capability-client.tsx"
       ]

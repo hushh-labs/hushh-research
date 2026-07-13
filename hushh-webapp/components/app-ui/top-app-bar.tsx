@@ -79,7 +79,6 @@ import {
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ROUTES } from "@/lib/navigation/routes";
-import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
 import { DebateTaskCenter } from "@/components/app-ui/debate-task-center";
 import { AgentSectionDropdown } from "@/components/app-ui/agent-section-dropdown";
 import { getAgentSection } from "@/lib/navigation/agent-sections";
@@ -142,7 +141,7 @@ function getTopBarTitle(
     pathname === ROUTES.ONE_SETUP ||
     pathname.startsWith(`${ROUTES.ONE_SETUP}/`)
   ) {
-    return { label: "Set up One", interactive: false as const };
+    return null;
   }
 
   if (
@@ -348,7 +347,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, user } = useAuth();
-  const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
+  const { isVaultUnlocked } = useVault();
   const { activePersona, riaCapability, riaEntryRoute, switchPersona } =
     usePersonaState();
   const pathname = usePathname();
@@ -675,28 +674,6 @@ export function TopAppBar({ className }: TopAppBarProps) {
                       variant="icon"
                       aria-label="Go back"
                       onClick={() => {
-                        if (normalizedPathname === ROUTES.ONE_SETUP) {
-                          if (!user?.uid) {
-                            router.push(ROUTES.ONE_HOME);
-                            return;
-                          }
-
-                          const setupExitSync = acknowledgeOneSetupExit({
-                            userId: user.uid,
-                            skipped: false,
-                            isVaultUnlocked,
-                            vaultKey,
-                            vaultOwnerToken,
-                          });
-                          router.push(ROUTES.ONE_HOME);
-                          void setupExitSync.catch((error: unknown) => {
-                            console.warn(
-                              "[TopAppBar] Failed to persist setup back acknowledgement:",
-                              error,
-                            );
-                          });
-                          return;
-                        }
                         // Profile query-panels (`/profile?panel=…&detail=…`) are
                         // a same-pathname, query-only nav. The profile page closes
                         // its panels only via router.replace(.., { scroll: false })

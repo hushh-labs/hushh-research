@@ -124,6 +124,7 @@ export function AuthStep({
   const { user, loading: authLoading, setNativeUser } = useAuth();
   const { registerSteps, completeStep, reset } = useStepProgress();
   const lastNavigationKeyRef = useRef<string | null>(null);
+  const lastResolvedNavigationPathRef = useRef<string | null>(null);
   const autoReviewerLoginStartedRef = useRef(false);
   const [nativeReviewerVisible, setNativeReviewerVisible] = useState(
     nativeTestConfig.autoReviewerLogin,
@@ -326,6 +327,10 @@ export function AuthStep({
     return {
       status: "started" as const,
       summary: "Returning to One's welcome screen.",
+      routeAfter: buildWelcomeRoute(
+        redirectPath === ROUTES.HOME ? null : redirectPath,
+      ),
+      screenAfter: "one_intro",
     };
   }, [activeLegalDoc, closeLegalDoc, providerBusy, redirectPath, router]);
 
@@ -343,7 +348,7 @@ export function AuthStep({
       const targetPath = resumeTarget || redirectPath;
       const navigationKey = `${userId}:${targetPath || ROUTES.KAI_HOME}`;
       if (lastNavigationKeyRef.current === navigationKey) {
-        return;
+        return lastResolvedNavigationPathRef.current;
       }
       lastNavigationKeyRef.current = navigationKey;
 
@@ -352,7 +357,8 @@ export function AuthStep({
           setOnboardingRequiredCookie(false);
           setOnboardingFlowActiveCookie(false);
           router.push(ROUTES.ONE_SETUP_KAI);
-          return;
+          lastResolvedNavigationPathRef.current = ROUTES.ONE_SETUP_KAI;
+          return ROUTES.ONE_SETUP_KAI;
         }
         const resolvedIdToken =
           idToken ||
@@ -390,6 +396,8 @@ export function AuthStep({
         setOnboardingRequiredCookie(nextPath === ROUTES.ONE_SETUP);
         setOnboardingFlowActiveCookie(nextPath === ROUTES.KAI_IMPORT);
         router.push(nextPath);
+        lastResolvedNavigationPathRef.current = nextPath;
+        return nextPath;
       } catch (error) {
         console.warn("[AuthStep] Failed to resolve post-auth route:", error);
         const fallbackPath = targetPath || ROUTES.KAI_HOME;
@@ -402,6 +410,8 @@ export function AuthStep({
         setOnboardingRequiredCookie(safeFallbackPath === ROUTES.ONE_SETUP);
         setOnboardingFlowActiveCookie(safeFallbackPath === ROUTES.KAI_IMPORT);
         router.push(safeFallbackPath);
+        lastResolvedNavigationPathRef.current = safeFallbackPath;
+        return safeFallbackPath;
       }
     },
     [preserveOnboardingAuditRoute, redirectPath, router, user],
@@ -694,7 +704,7 @@ export function AuthStep({
             });
           }
           setNativeUser(authenticatedUser);
-          await resolveAndNavigate(
+          const routeAfter = await resolveAndNavigate(
             authenticatedUser.uid,
             idToken,
             authenticatedUser.phoneNumber,
@@ -703,6 +713,7 @@ export function AuthStep({
           return {
             status: "succeeded" as const,
             summary: `${provider === "apple" ? "Apple" : "Google"} sign-in completed.`,
+            routeAfter,
           };
         })
         .catch((error: unknown) => {

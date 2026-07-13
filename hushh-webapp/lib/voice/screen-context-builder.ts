@@ -18,6 +18,7 @@ import {
   type VoiceSurfaceMetadata,
 } from "@/lib/voice/voice-surface-metadata";
 import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
+import { hasMountedLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 import type {
   OneVoiceTransition,
   OneVoiceUiState,
@@ -761,13 +762,16 @@ export function buildOneVoiceContextSnapshot(args: {
     callbackState?: OneVoiceContextSnapshot["onboarding"]["callback_state"];
     setupCapabilityIds?: readonly string[];
   };
+  requireMountedLocalHandlers?: boolean;
 }): OneVoiceContextSnapshot {
+  const publishedSurface =
+    args.surfaceMetadata ?? getVoiceSurfaceMetadata();
   const structured =
     args.structuredContext ||
     buildStructuredScreenContext({
       appRuntimeState: args.appRuntimeState,
       voiceContext: args.voiceContext,
-      surfaceMetadata: args.surfaceMetadata,
+      surfaceMetadata: publishedSurface,
     });
   const app = args.appRuntimeState;
   const publishedAvailableActionIds = readStringArray(
@@ -782,7 +786,9 @@ export function buildOneVoiceContextSnapshot(args: {
       ? "fresh_or_stale_safe"
       : "missing"
     : "locked";
-  const routeFamily = sanitizeRouteFamily(structured.route.pathname);
+  const routeFamily = sanitizeRouteFamily(
+    args.appRuntimeState?.route.pathname || structured.route.pathname,
+  );
   const routeLayout = resolveAppRouteLayout(routeFamily);
   const routePlaybook = routeLayout.voicePlaybook;
   const publishedInteractionLayer =
@@ -798,10 +804,28 @@ export function buildOneVoiceContextSnapshot(args: {
     : null;
   // An unapproved layer fails closed: its controls cannot become executable
   // merely because a component published them on the wrong route.
-  const availableActionIds = interactionLayerAllowed
+  const publisherRouteFamily = publishedSurface?.publisherRouteKey
+    ? sanitizeRouteFamily(publishedSurface.publisherRouteKey)
+    : null;
+  const routeSurfaceCoherent =
+    publisherRouteFamily === null || publisherRouteFamily === routeFamily;
+  const availableBeforeHandlerCheck =
+    interactionLayerAllowed && routeSurfaceCoherent
     ? publishedAvailableActionIds
     : [];
-  const visibleControlIds = interactionLayerAllowed
+      const availableActionIds = args.requireMountedLocalHandlers
+    ? availableBeforeHandlerCheck.filter((actionId) => {
+        const action = getKaiActionById(actionId);
+        if (!action || action.execution_target.status !== "wired") {
+          return false;
+        }
+        return (
+          action.execution_target.path !== "local_handler" ||
+          hasMountedLocalOnboardingHandler(actionId)
+        );
+      })
+    : availableBeforeHandlerCheck;
+  const visibleControlIds = interactionLayerAllowed && routeSurfaceCoherent
     ? uniqueStrings(
         structured.surface.controls.map((control) => control.id || ""),
       )

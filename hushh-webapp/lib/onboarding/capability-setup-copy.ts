@@ -1,4 +1,7 @@
-import { ONE_CAPABILITIES, type OneCapability } from "@/lib/onboarding/one-capabilities";
+import {
+  ONE_SETUP_CAPABILITIES,
+  type OneCapability,
+} from "@/lib/onboarding/one-capabilities";
 import { buildOneSetupCapabilityRoute } from "@/lib/navigation/routes";
 
 /**
@@ -69,7 +72,7 @@ const SETUP_COPY_BY_ID: Record<
     ],
   },
   gmail: {
-    setupTitle: "Bring in your receipts",
+    setupTitle: "Connect Gmail",
     setupBlurb:
       "Connect Gmail so One can keep a private memory of your purchases and pull up any receipt in seconds.",
     setupBullets: [
@@ -89,13 +92,23 @@ const SETUP_COPY_BY_ID: Record<
     ],
   },
   location: {
-    setupTitle: "Add live location",
+    setupTitle: "Set up location",
     setupBlurb:
       "Share location when it helps so One can offer local context and referrals. You stay in control.",
     setupBullets: [
       "Share your location only when it actually helps.",
       "One adds local context and referrals around you.",
       "Turn sharing off whenever you want.",
+    ],
+  },
+  ria: {
+    setupTitle: "Set up RIA",
+    setupBlurb:
+      "Create and verify your advisor profile so One can open the right professional workspace for you.",
+    setupBullets: [
+      "Verify your advisor or firm credentials.",
+      "Choose the services you offer and review your profile.",
+      "Submit only when the profile is accurate.",
     ],
   },
   pkm: {
@@ -124,11 +137,11 @@ const SETUP_COPY_BY_ID: Record<
   "connected-systems": {
     setupTitle: "Link your tools",
     setupBlurb:
-      "Connect the systems you already use so One can read and update them with your approval.",
+      "Review the CRM systems available to your account and choose where One should find or create your profile.",
     setupBullets: [
-      "Link the tools you already use.",
-      "One reads and updates them only with your approval.",
-      "Disconnect any tool whenever you want.",
+      "See every CRM system currently available to your account.",
+      "Check whether your profile already exists before creating one.",
+      "One creates or updates a profile only after your approval.",
     ],
   },
 };
@@ -151,11 +164,13 @@ function toSetupCopy(cap: OneCapability): CapabilitySetupCopy {
   };
 }
 
-/** Ordered setup copy for every One capability, mirroring the catalog order. */
+/** Ordered setup copy for the authored onboarding sequence only. */
 export const CAPABILITY_SETUP_COPY: readonly CapabilitySetupCopy[] =
-  ONE_CAPABILITIES.map(toSetupCopy);
+  ONE_SETUP_CAPABILITIES.map(toSetupCopy);
 
 /** Lookup setup copy by capability id. */
-export function getCapabilitySetupCopy(id: string): CapabilitySetupCopy | undefined {
+export function getCapabilitySetupCopy(
+  id: string,
+): CapabilitySetupCopy | undefined {
   return CAPABILITY_SETUP_COPY.find((c) => c.id === id);
 }

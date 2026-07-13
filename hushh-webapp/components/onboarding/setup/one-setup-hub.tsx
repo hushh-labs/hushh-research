@@ -23,12 +23,13 @@ import {
   type CapabilitySetupCopy,
 } from "@/lib/onboarding/capability-setup-copy";
 import {
-  getOneCapability,
+  getOneSetupCapability,
   type OneCapabilityTone,
 } from "@/lib/onboarding/one-capabilities";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { useCapabilitySetupStates } from "@/lib/onboarding/use-capability-setup-states";
+import { groupSetupCapabilities } from "@/lib/onboarding/setup-capability-order";
 import {
   isCapabilitySetupActionable,
   isCapabilitySetupComplete,
@@ -42,14 +43,13 @@ import { cn } from "@/lib/utils";
  * It is the calm home for "what's left to set up". It opts into the expensive
  * resolver enrichment (`enrichVault` + `enrichOauth`) so every tile shows an
  * honest state (Ready, Set up, N to review) or an honest blocked reason
- * ("Unlock to set up", "Connect to set up") instead of guessing.
+ * ("Set up vault", "Connect to set up") instead of guessing.
  *
  * LAYOUT (Card Depth Model + recompose-by-breakpoint)
  * - Lives inside the normal app shell (`standard` chrome) so a person who has
  *   finished onboarding can still browse here without being trapped in a flow.
- * - A single grouped inset list (SettingsGroup) of full-width setup rows in
- *   actionable-first order. The shell itself owns the scroll; the header region
- *   stays put.
+ * - Remaining and Complete inset lists preserve the authored product order.
+ *   The shell itself owns the scroll; the header region stays put.
  * - One owns the voice: "Set up One", plain language, no system nouns.
  */
 export function OneSetupHub() {
@@ -69,13 +69,21 @@ export function OneSetupHub() {
   const completionTarget = returnTo || ROUTES.ONE_HOME;
 
   const items = useMemo(() => buildSetupItems(byId), [byId]);
+  const groupedItems = groupSetupCapabilities(items, (item) =>
+    isCapabilitySetupComplete(item.status),
+  );
+  const remainingItems = groupedItems.remaining;
+  const completeItems = groupedItems.complete;
+  const visibleItems = groupedItems.visible;
 
   const total = items.length;
   // "Ready" counts only GENUINELY set-up capabilities (completed/skipped). A
   // tile that still needs a connection or an unlock (blocked/unknown) is NOT
   // ready, even though it is not directly tappable-into-setup — so we never
   // count it as done. Everything that is not complete is "left to set up".
-  const done = items.filter((item) => isCapabilitySetupComplete(item.status)).length;
+  const done = items.filter((item) =>
+    isCapabilitySetupComplete(item.status),
+  ).length;
   const remaining = total - done;
   const allReady = total > 0 && remaining === 0;
   // The MASTER setup acknowledgement is owned by this single hub control:
@@ -94,11 +102,15 @@ export function OneSetupHub() {
     purpose:
       "This is your setup home. Each tile is one thing One can do for you. Set up the ones you want and skip the rest.",
     actions: [
-      ...CAPABILITY_SETUP_COPY.map((cap) => ({
-        id: cap.id,
-        actionId: getOneCapability(cap.id)?.setupActionId,
-        label: cap.title,
-        purpose: cap.setupBlurb,
+      ...visibleItems.map((item) => ({
+        id: item.id,
+        actionId: getOneSetupCapability(item.id)?.setupActionId,
+        label: item.copy.setupTitle,
+        purpose: `${item.copy.setupBlurb} ${
+          isCapabilitySetupComplete(item.status)
+            ? "This setup is complete."
+            : "This setup is still remaining."
+        }`,
       })),
       {
         id: "master_ack",
@@ -117,11 +129,14 @@ export function OneSetupHub() {
   // the server pre-vault gate (authoritative for the gate and
   // PostAuthRouteService); when the vault is unlocked we also flip the vault
   // profile so the unlocked path agrees. Both are awaited before navigating
-  // so the gate is consistent on the very next route resolve. Failures stay
-  // fail-open (we still navigate home).
+  // so the gate is consistent on the very next route resolve. Failures remain
+  // on the hub and preserve the unresolved journey.
   const handleMasterAck = async () => {
     if (dismissing) {
-      return { status: "blocked" as const, summary: "Setup is already being finished." };
+      return {
+        status: "blocked" as const,
+        summary: "Setup is already being finished.",
+      };
     }
     if (!user?.uid) {
       router.push(completionTarget);
@@ -139,13 +154,17 @@ export function OneSetupHub() {
       router.push(completionTarget);
       return {
         status: "succeeded" as const,
-        summary: masterSkipped ? "Skipped setup for now." : "Setup acknowledged. Opening home.",
+        summary: masterSkipped
+          ? "Skipped setup for now."
+          : "Setup acknowledged. Opening home.",
+        routeAfter: completionTarget,
       };
     } catch (error) {
       console.warn("[OneSetupHub] Failed to resolve master setup gate:", error);
       return {
         status: "failed" as const,
-        summary: "Setup could not be finished yet. You are still on the setup hub.",
+        summary:
+          "Setup could not be finished yet. You are still on the setup hub.",
       };
     } finally {
       setDismissing(false);
@@ -168,7 +187,7 @@ export function OneSetupHub() {
     <AppPageShell
       as="main"
       width="standard"
-      className="relative isolate pb-[calc(var(--app-safe-area-bottom-effective,0px)+2.5rem)]"
+      className={cn("relative isolate", styles.setupShell)}
       nativeTest={{
         routeId: "/one/setup",
         marker: "native-route-one-setup",
@@ -217,27 +236,60 @@ export function OneSetupHub() {
             aria-label={`${done} of ${total} set up`}
           >
             {Array.from({ length: total }).map((_, index) => (
-              <span key={index} data-filled={index < done ? "true" : undefined} />
+              <span
+                key={index}
+                data-filled={index < done ? "true" : undefined}
+              />
             ))}
           </div>
         ) : null}
         <div className={styles.flatChecklist}>
-          <SettingsGroup testId="one-setup-capabilities" separatorInset>
-            {items.map((item) => (
-              <CapabilitySetupTile
-                key={item.id}
-                title={item.copy.setupTitle}
-                description={item.copy.setupBlurb}
-                href={item.copy.href}
-                voiceControlId={item.voiceControlId}
-                icon={item.icon}
-                tone={item.tone}
-                status={item.status}
-                isExploreOnly={item.isExploreOnly}
-                isCurrent={item.isCurrent}
-              />
-            ))}
-          </SettingsGroup>
+          {remainingItems.length > 0 ? (
+            <SettingsGroup
+              title="Remaining"
+              testId="one-setup-capabilities-remaining"
+              separatorInset
+            >
+              {remainingItems.map((item) => (
+                <CapabilitySetupTile
+                  key={item.id}
+                  capabilityId={item.id}
+                  title={item.copy.setupTitle}
+                  description={item.copy.setupBlurb}
+                  href={item.copy.href}
+                  voiceControlId={item.voiceControlId}
+                  icon={item.icon}
+                  tone={item.tone}
+                  status={item.status}
+                  isExploreOnly={item.isExploreOnly}
+                  isCurrent={item.isCurrent}
+                />
+              ))}
+            </SettingsGroup>
+          ) : null}
+          {completeItems.length > 0 ? (
+            <SettingsGroup
+              title="Complete"
+              testId="one-setup-capabilities-complete"
+              separatorInset
+            >
+              {completeItems.map((item) => (
+                <CapabilitySetupTile
+                  key={item.id}
+                  capabilityId={item.id}
+                  title={item.copy.setupTitle}
+                  description={item.copy.setupBlurb}
+                  href={item.copy.href}
+                  voiceControlId={item.voiceControlId}
+                  icon={item.icon}
+                  tone={item.tone}
+                  status={item.status}
+                  isExploreOnly={item.isExploreOnly}
+                  isCurrent={false}
+                />
+              ))}
+            </SettingsGroup>
+          ) : null}
         </div>
       </AppPageContentRegion>
     </AppPageShell>
@@ -256,14 +308,12 @@ interface SetupItem {
   isCurrent: boolean;
 }
 
-function buildSetupItems(
-  byId: Record<string, CapabilityStatus>,
-): SetupItem[] {
-  // Order: still-actionable capabilities first (so the next thing to do is at
-  // the top), completed/ready ones after. Stable within each bucket by catalog
-  // order so the list never jumps around between renders.
+function buildSetupItems(byId: Record<string, CapabilityStatus>): SetupItem[] {
+  // Preserve product order inside each state section. A completed item moves
+  // once from Remaining to Complete, then remains stable there; this keeps the
+  // visual list and the published voice-action order correlated.
   const enriched = CAPABILITY_SETUP_COPY.flatMap((copy) => {
-    const capability = getOneCapability(copy.id);
+    const capability = getOneSetupCapability(copy.id);
     if (!capability) return [];
     const status: CapabilityStatus = byId[copy.id] ?? {
       id: copy.id,
@@ -286,14 +336,10 @@ function buildSetupItems(
     ];
   });
 
-  const ordered = [
-    ...enriched.filter((item) => item.isActionable),
-    ...enriched.filter((item) => !item.isActionable),
-  ];
+  const firstActionableId =
+    enriched.find((item) => item.isActionable)?.id ?? null;
 
-  const firstActionableId = ordered.find((item) => item.isActionable)?.id ?? null;
-
-  return ordered.map((item) => ({
+  return enriched.map((item) => ({
     ...item,
     isCurrent: item.id === firstActionableId,
   }));

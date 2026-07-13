@@ -742,6 +742,12 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   }
 
   updateContext(context: OneVoiceContextSnapshot): boolean {
+    if (!this.setupComplete) {
+      // Keep the newest route snapshot while the socket is opening. Otherwise
+      // setupComplete would publish the stale screen captured by start().
+      this.startContext = context;
+      return true;
+    }
     return this.sendAppContext({
       screen: context.route.screen,
       route_family: context.route.route_family,

@@ -80,8 +80,16 @@
       "screen": "one_setup",
       "entryCue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
       "proactivity": "on_entry",
-      "primaryActionId": "setup.open_finance",
-      "happyPathActionIds": ["setup.open_finance"],
+      "primaryActionId": "setup.open_gmail",
+      "happyPathActionIds": [
+        "setup.open_gmail",
+        "setup.open_location",
+        "setup.open_email",
+        "setup.open_finance",
+        "setup.open_ria",
+        "setup.open_connected_systems",
+        "setup.hub_master_ack"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",

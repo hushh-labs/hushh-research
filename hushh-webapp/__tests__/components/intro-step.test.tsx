@@ -46,7 +46,12 @@ describe("IntroStep voice contract", () => {
     const handler = resolveLocalOnboardingHandler("onboarding.claim_one");
     const result = await handler?.({});
     expect(onLogin).toHaveBeenCalledTimes(2);
-    expect(result).toEqual({ status: "started", summary: "Opening sign-in." });
+    expect(result).toEqual({
+      status: "started",
+      summary: "Opening sign-in.",
+      routeAfter: "/login",
+      screenAfter: "login",
+    });
   });
 
   it("uses the standardized root quiet mark between the private-agent line and One", () => {

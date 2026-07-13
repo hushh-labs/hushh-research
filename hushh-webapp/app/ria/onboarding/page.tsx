@@ -14,7 +14,11 @@ import { OnboardingStepServices } from "@/components/ria/onboarding/onboarding-s
 import { OnboardingStepReview } from "@/components/ria/onboarding/onboarding-step-review";
 import { useAuth } from "@/hooks/use-auth";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import { ROUTES } from "@/lib/navigation/routes";
+import {
+  buildOneSetupCapabilityFinishRoute,
+  normalizeInternalRouteHref,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import {
   buildRiaOnboardingSteps,
   canContinueRiaOnboardingStep,
@@ -157,6 +161,8 @@ export default function RiaOnboardingPage() {
   //   ?reinitiate=1   → re-run the whole 5-step wizard (start at welcome)
   // A generic ?step= is also honoured.
   const editParam = searchParams?.get("edit") ?? null;
+  const setupOrigin =
+    normalizeInternalRouteHref(searchParams?.get("from")) === ROUTES.ONE_SETUP;
   const stepParam = searchParams?.get("step") ?? null;
   const reinitiateIntent = (searchParams?.get("reinitiate") ?? null) === "1";
   const requestedStepId: RiaOnboardingStepId | null =
@@ -197,7 +203,9 @@ export default function RiaOnboardingPage() {
   // fresh advisor who completes onboarding in-session is not hijacked mid-flow.
   const onboardingEntryHandledRef = useRef(false);
   // Mirror the current edit-intent step for use inside the mount-only loader.
-  const requestedStepIdRef = useRef<RiaOnboardingStepId | null>(requestedStepId);
+  const requestedStepIdRef = useRef<RiaOnboardingStepId | null>(
+    requestedStepId,
+  );
   requestedStepIdRef.current = requestedStepId;
   // Mirror the reinitiate intent for use inside the mount-only loader.
   const reinitiateIntentRef = useRef(reinitiateIntent);
@@ -365,13 +373,7 @@ export default function RiaOnboardingPage() {
     if (riaCapability === "switch") {
       router.replace(ROUTES.RIA_PROFILE);
     }
-  }, [
-    hasEditIntent,
-    personaLoading,
-    personaRefreshing,
-    riaCapability,
-    router,
-  ]);
+  }, [hasEditIntent, personaLoading, personaRefreshing, riaCapability, router]);
 
   useEffect(() => {
     if (!user || !draftReady || iamUnavailable || !shouldPersistDraft) return;
@@ -685,7 +687,11 @@ export default function RiaOnboardingPage() {
     // A verified advisor normally can't re-submit — but on a re-initiate they
     // MUST, so the idempotent submitOnboarding re-runs and updates the profile.
     if (advisoryAccessReady && !reinitiateIntent) {
-      router.push(ROUTES.RIA_HOME);
+      router.push(
+        setupOrigin
+          ? buildOneSetupCapabilityFinishRoute("ria")
+          : ROUTES.RIA_HOME,
+      );
       return;
     }
 
@@ -796,8 +802,14 @@ export default function RiaOnboardingPage() {
       if (advisoryOutcome === "rejected") {
         moveToStep("review");
       } else {
-        // Onboarding is complete — leave the wizard for the advisor's profile.
-        router.replace(ROUTES.RIA_PROFILE);
+        // A setup-originated journey always settles through its explicit
+        // capability terminal before returning to the setup hub. Ordinary RIA
+        // onboarding keeps its established profile destination.
+        router.replace(
+          setupOrigin
+            ? buildOneSetupCapabilityFinishRoute("ria")
+            : ROUTES.RIA_PROFILE,
+        );
       }
     } catch (submitError) {
       if (isIAMSchemaNotReadyError(submitError)) {

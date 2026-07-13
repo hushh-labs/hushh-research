@@ -6,7 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
-import { OneOnboardingGuard } from "@/components/kai/onboarding/kai-onboarding-guard";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { useAuth } from "@/hooks/use-auth";
 import { isPublicRoute } from "@/lib/navigation/routes";
@@ -16,7 +15,8 @@ import { isPublicRoute } from "@/lib/navigation/routes";
  * `/one/*` routes.
  *
  * Most One surfaces are private and must stay behind VaultLockGuard +
- * PhoneMandateGuard + OneOnboardingGuard. However, a small set of One routes
+ * PhoneMandateGuard. Root setup admission is applied once app-wide by
+ * OnboardingJourneyGuard. However, a small set of One routes
  * are intentionally public - notably shared temporary location links at
  * `/one/location/request/[token]`. Anyone who receives such a link must be
  * able to open it and view the shared live location WITHOUT signing in or
@@ -28,11 +28,8 @@ import { isPublicRoute } from "@/lib/navigation/routes";
  * does not redirect anonymous visitors of public links to /login.
  *
  * Guard order for private routes: authentication/vault -> phone mandate ->
- * root setup gate. OneOnboardingGuard hard-gates the whole /one/* surface:
- * a user who has not resolved the root setup flow can only reach
- * /one/setup and its sub-routes (the guard allows those through); everything
- * else redirects to /one/setup until the gate is satisfied. It sits INSIDE the
- * public-route bypass so anonymous visitors of public links are never gated.
+ * root setup gate. The app-wide guard handles that decision after Firebase
+ * identity settles, including non-One route families.
  */
 /**
  * Routes that stay signed-in-gated but skip the hard vault wall. The CRM
@@ -86,18 +83,14 @@ export function OneAuthGate({ children }: { children: ReactNode }) {
   if (isSoftVaultRoute(pathname ?? "")) {
     return (
       <SignedInGate>
-        <PhoneMandateGuard>
-          <OneOnboardingGuard>{children}</OneOnboardingGuard>
-        </PhoneMandateGuard>
+        <PhoneMandateGuard>{children}</PhoneMandateGuard>
       </SignedInGate>
     );
   }
 
   return (
     <VaultLockGuard>
-      <PhoneMandateGuard>
-        <OneOnboardingGuard>{children}</OneOnboardingGuard>
-      </PhoneMandateGuard>
+      <PhoneMandateGuard>{children}</PhoneMandateGuard>
     </VaultLockGuard>
   );
 }

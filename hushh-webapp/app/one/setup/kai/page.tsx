@@ -12,7 +12,6 @@ import { KaiPreferencesWizard } from "@/components/kai/onboarding/KaiPreferences
 import { KaiInviteHandshake } from "@/components/kai/onboarding/kai-invite-handshake";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
-import { CapabilityTourService } from "@/lib/services/capability-tour-service";
 import {
   KaiProfileService,
   computeRiskScore,
@@ -35,6 +34,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import {
+  buildOneSetupCapabilityFinishRoute,
   buildOneSetupKaiRoute,
   buildOneSetupRoute,
   normalizeInternalRouteHref,
@@ -123,7 +123,7 @@ function KaiOnboardingPageContent() {
   // deliberately reopens this wizard (tapping the Finance tile, which forwards
   // with a `from` marker, or an explicit `edit=1`) must land ON the
   // questionnaire to review/edit their answers, NOT be bounced to the `/one/setup`
-  // hub. Without this, finance "Unlock & continue" dead-loops back to the hub.
+  // hub. Without this, Finance setup dead-loops back to the hub.
   // First-run gating (unresolved users) is unchanged.
   const wizardReentryRequested = useMemo(
     () => onboardingFromHref !== null || searchParams.get("edit") === "1",
@@ -303,27 +303,32 @@ function KaiOnboardingPageContent() {
 
     try {
       setSaving(true);
-      // Preferences were persisted by the preceding wizard stage. Finishing
-      // Finance marks this capability only; root setup remains hub-owned so a
-      // person can continue through the rest of One's onboarding deliberately.
-      await CapabilityTourService.markExplored(user.uid, "finance");
-      const explored = await CapabilityTourService.loadExploredIds(user.uid);
-      await PreVaultUserStateService.syncSetupCapabilities(user.uid, explored);
+      // Preferences are only the first Finance checkpoint. Continue into the
+      // existing portfolio-source choice; the explicit terminal Finance step
+      // marks the capability complete after Plaid, statement, or "later" settles.
       await PreVaultUserStateService.syncOnboardingJourney({
         userId: user.uid,
-        phase: "setup_hub",
+        phase: "capability_setup",
+        activeCapability: "finance",
       });
-      toast.success("Finance preferences saved. Back to your setup checklist.");
+      toast.success("Finance preferences saved. Choose how to add your portfolio.");
       setOnboardingRequiredCookie(true);
-      setOnboardingFlowActiveCookie(false);
+      setOnboardingFlowActiveCookie(true);
       trackEvent("onboarding_step_completed", {
         action: "preferences",
         result: "success",
       });
-      router.replace(buildOneSetupRoute({ from: onboardingFromHref }));
+      router.replace(
+        `${ROUTES.KAI_IMPORT}?from=${encodeURIComponent(
+          buildOneSetupCapabilityFinishRoute("finance"),
+        )}`,
+      );
       return {
-        status: "succeeded" as const,
-        summary: "Finance preferences saved. Returning to setup.",
+        status: "started" as const,
+        summary: "Finance preferences saved. Choose Plaid, a statement, or later.",
+        routeAfter: `${ROUTES.KAI_IMPORT}?from=${encodeURIComponent(
+          buildOneSetupCapabilityFinishRoute("finance"),
+        )}`,
       };
     } catch (error) {
       console.error("[OneOnboardingPage] Failed to finalize onboarding:", error);
@@ -342,7 +347,7 @@ function KaiOnboardingPageContent() {
   };
 
   // Voice parity: "launch my dashboard" drives the exact same completion
-  // flow as tapping the persona screen's Launch dashboard button. Registered
+  // flow as tapping the persona screen's Continue Finance Setup button. Registered
   // unconditionally (not just while stage === "persona") to satisfy Rules of
   // Hooks; the handler itself is a no-op unless a user session exists.
   useLocalOnboardingActionHandler("kai.setup.launch_dashboard", async () => {
@@ -394,8 +399,8 @@ function KaiOnboardingPageContent() {
                   {
                     id: "launch_dashboard",
                     actionId: "kai.setup.launch_dashboard",
-                    label: "Finish Finance Setup",
-                    purpose: "Save finance preferences and return to setup.",
+                    label: "Continue Finance Setup",
+                    purpose: "Save preferences and choose a portfolio source.",
                   },
                 ],
         }
@@ -563,7 +568,7 @@ function KaiOnboardingPageContent() {
 
           if (source === "vault") {
             if (!vaultKey || !vaultOwnerToken) {
-              toast.error("Unlock your vault to continue.");
+              toast.error("Set up or open your private vault to continue.");
               return;
             }
 

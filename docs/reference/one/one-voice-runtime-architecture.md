@@ -136,6 +136,13 @@ layer uses its mounted generated handler and settles only after removal, focus r
 and context revision. No DOM inference, global synthetic Escape, keyword router, or
 second action registry is involved.
 
+Route inventories are pathname-leased. The client projects zero available actions when
+the verified runtime pathname has changed but the old publisher has not yet unmounted.
+Agent Bar waits for the destination route and its new authored publisher before
+reporting a successful navigation settlement. Same-route visible-action or top-layer
+changes are included in the relay's bounded route-context revision, so One receives the
+new inventory without a page refresh or Live-session restart.
+
 One's voice runtime is Google ADK's `Runner.run_live` over Vertex AI. The
 browser is an audio pump and directive executor; every decision (conversation
 vs tool call vs navigation vs specialist delegation) is made inside One's
@@ -289,13 +296,14 @@ phone number) instead of only describing it.
 
 Every previously tap-only onboarding control has a governed `action_id` so
 voice has full parity with tapping: `setup.open_finance`/`...gmail`/`...email`/
-`...location`/`...personal_data`/`...consent`/`...connected_systems` (hub
+`...location`/`...pkm`/`...marketplace`/`...consent`/`...connected_systems` (hub
 tiles), `setup.hub_master_ack` (master Skip/Continue), `setup.capability_continue`
 (per-capability Continue), `kai.setup.answer_horizon`/`...answer_drawdown`/
 `...answer_volatility` (wizard questions, each carrying a real spoken
 `goal.required_inputs` prompt) and `kai.setup.launch_dashboard`, plus
-`phone_mandate.submit_number` (`phone_mandate.submit_code` stays
-`manual_only`, security-sensitive). Actions that change in-place component
+`phone_mandate.submit_number` and confirmation-required
+`phone_mandate.submit_code`. Spoken OTP values remain transient, redacted, and are never
+repeated. Actions that change in-place component
 state rather than navigating use a fourth `execution_target.path`,
 `local_handler`: the owning component registers a small handler on mount via
 `useLocalOnboardingActionHandler` (`hushh-webapp/lib/agent/local-onboarding-actions.ts`,

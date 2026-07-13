@@ -1,6 +1,5 @@
 "use client";
 
-import { KaiProfileService } from "@/lib/services/kai-profile-service";
 import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
@@ -78,13 +77,7 @@ export function acknowledgeOneSetupExit(params: {
       userId: params.userId,
       phase: "root_completion",
     });
-    if (params.isVaultUnlocked && params.vaultKey && params.vaultOwnerToken) {
-      await KaiProfileService.setOnboardingCompleted({
-        userId: params.userId,
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
-        skippedPreferences: params.skipped,
-      });
-    }
+    // Root completion must not mutate the Finance profile. Finance has its own
+    // terminal capability acknowledgement and setupCapabilityIds signal.
   })();
 }

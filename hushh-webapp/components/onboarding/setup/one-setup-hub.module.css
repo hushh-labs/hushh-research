@@ -33,6 +33,22 @@
 }
 
 /* Flat editorial checklist — drop the grouped-card chrome, keep inset hairlines. */
+.flatChecklist {
+  display: grid;
+  gap: 1rem;
+}
+
+/*
+ * The onboarding Agent Bar is fixed above the safe area and intentionally does
+ * not participate in page layout. Reserve enough scroll tail for the final
+ * setup row to clear the full pill plus its visual gap. This belongs to the
+ * route shell (not the global Agent Bar), because setup is the only standard
+ * app page rendered with onboarding chrome and no bottom navigation.
+ */
+.setupShell {
+  padding-bottom: calc(var(--app-safe-area-bottom-effective, 0px) + 6.75rem);
+}
+
 .flatChecklist [data-slot="settings-group-shell"] {
   --settings-group-radius: 0px;
   border: 0;
@@ -68,6 +84,10 @@
 }
 
 @media (min-width: 640px) {
+  .setupShell {
+    padding-bottom: calc(var(--app-safe-area-bottom-effective, 0px) + 5rem);
+  }
+
   .setupHeader :global(h1),
   .stepHeader :global(h1) {
     font-size: 1.95rem !important;

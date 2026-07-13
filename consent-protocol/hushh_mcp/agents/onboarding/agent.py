@@ -11,6 +11,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from hushh_mcp.onboarding_contract import (
+    SETUP_CAPABILITY_IDS,
+    SETUP_CAPABILITY_ORDER,
+)
+
 _PHASES = (
     "anonymous_auth",
     "phone_required",
@@ -19,16 +24,6 @@ _PHASES = (
     "external_connector",
     "root_completion",
 )
-_CAPABILITIES = {
-    "finance",
-    "gmail",
-    "email",
-    "location",
-    "pkm",
-    "consent",
-    "marketplace",
-    "connected-systems",
-}
 _PHASE_ACTIONS = {
     "anonymous_auth": {
         "onboarding.claim_one",
@@ -41,13 +36,11 @@ _PHASE_ACTIONS = {
     },
     "setup_hub": {
         "setup.hub_master_ack",
-        "setup.open_finance",
         "setup.open_gmail",
-        "setup.open_email",
         "setup.open_location",
-        "setup.open_pkm",
-        "setup.open_consent",
-        "setup.open_marketplace",
+        "setup.open_email",
+        "setup.open_finance",
+        "setup.open_ria",
         "setup.open_connected_systems",
     },
     "capability_setup": {
@@ -121,6 +114,8 @@ class OnboardingGoal(BaseModel):
     phase: str
     next_route: str
     permitted_action_ids: list[str]
+    setup_completed_ids: list[str] = Field(default_factory=list)
+    setup_remaining_ids: list[str] = Field(default_factory=list)
     selected_action_id: str | None = None
     missing_input: str | None = None
     expected_settlement: Literal[
@@ -143,6 +138,15 @@ def build_onboarding_specialist():
 def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal:
     """Resolve the next allowed onboarding move without side effects."""
     phase = context.phase
+    completed_set = set(context.setup_capability_ids)
+    setup_progress = {
+        "setup_completed_ids": [
+            capability for capability in SETUP_CAPABILITY_ORDER if capability in completed_set
+        ],
+        "setup_remaining_ids": [
+            capability for capability in SETUP_CAPABILITY_ORDER if capability not in completed_set
+        ],
+    }
     if context.root_resolved:
         phase = "root_completion"
     elif not context.authenticated:
@@ -152,7 +156,7 @@ def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal
     elif (
         context.phase == "capability_setup"
         and context.active_capability
-        and context.active_capability in _CAPABILITIES
+        and context.active_capability in SETUP_CAPABILITY_IDS
     ):
         phase = "capability_setup"
 
@@ -202,6 +206,7 @@ def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal
     if phase == "anonymous_auth":
         if context.screen == "one_intro" and selected == "onboarding.claim_one":
             return OnboardingGoal(
+                **setup_progress,
                 phase=phase,
                 next_route="/login",
                 permitted_action_ids=permitted,
@@ -215,6 +220,7 @@ def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal
                 reason_code=reason_code,
             )
         return OnboardingGoal(
+            **setup_progress,
             phase=phase,
             next_route="/login",
             permitted_action_ids=permitted,
@@ -229,6 +235,7 @@ def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal
         )
     if phase == "phone_required":
         return OnboardingGoal(
+            **setup_progress,
             phase=phase,
             next_route="/register-phone",
             permitted_action_ids=permitted,
@@ -243,6 +250,7 @@ def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal
         )
     if phase == "capability_setup":
         return OnboardingGoal(
+            **setup_progress,
             phase=phase,
             next_route="/one/setup",
             permitted_action_ids=permitted,
@@ -257,6 +265,7 @@ def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal
         )
     if phase == "setup_hub":
         return OnboardingGoal(
+            **setup_progress,
             phase=phase,
             next_route="/one/setup",
             permitted_action_ids=permitted,
@@ -272,6 +281,7 @@ def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal
     if phase == "external_connector":
         callback_failed = context.callback_state in {"cancelled", "failed"}
         return OnboardingGoal(
+            **setup_progress,
             phase=phase,
             next_route="/one/setup",
             permitted_action_ids=[],
@@ -284,6 +294,7 @@ def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal
             reason_code=reason_code,
         )
     return OnboardingGoal(
+        **setup_progress,
         phase=phase,
         next_route="/one",
         permitted_action_ids=[],

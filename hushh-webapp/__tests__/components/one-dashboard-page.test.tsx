@@ -74,11 +74,13 @@ describe("OneDashboardPage", () => {
     const fromOne = `from=${ROUTES.ONE_HOME}`;
     // The finance tile is publicly named "Finance"; Kai stays internal.
     const financeLink = screen.getByRole("link", { name: "Open Finance" });
-    expect(financeLink.getAttribute("href")).toBe(`${ROUTES.KAI_HOME}?${fromOne}`);
+    expect(financeLink.getAttribute("href")).toBe(
+      `${ROUTES.KAI_HOME}?${fromOne}`,
+    );
     expect(financeLink.className).not.toContain("translate");
-    expect(
-      screen.getByTestId("one-agent-tile-finance").style.width,
-    ).toBe("5.75rem");
+    expect(screen.getByTestId("one-agent-tile-finance").style.width).toBe(
+      "5.75rem",
+    );
     // Each tile's icon chip carries its own brand tone (bug fix: the icon
     // component previously ignored the tone prop entirely and rendered every
     // tile with the same neutral chip).
@@ -104,14 +106,10 @@ describe("OneDashboardPage", () => {
       screen.getByRole("link", { name: "Open Onepoint" }).getAttribute("href"),
     ).toBe(`${ROUTES.ONE_LOCATION}?${fromOne}`);
     expect(
-      screen
-        .getByRole("link", { name: "Open Memory" })
-        .getAttribute("href"),
+      screen.getByRole("link", { name: "Open Memory" }).getAttribute("href"),
     ).toBe(`${ROUTES.PKM}?${fromOne}`);
     expect(
-      screen
-        .getByRole("link", { name: "Open Consent" })
-        .getAttribute("href"),
+      screen.getByRole("link", { name: "Open Consent" }).getAttribute("href"),
     ).toBe(`/consents?tab=pending&${fromOne}`);
     expect(
       screen
@@ -125,7 +123,7 @@ describe("OneDashboardPage", () => {
     // email + location are real vault-gated workflows (not explore-only), so a
     // completed status reads "Ready", not "Explored".
     expect(screen.getAllByText("Ready")).toHaveLength(2); // email + location completed
-    expect(screen.getByText("Unlock to view")).toBeTruthy(); // pkm vault-gated
+    expect(screen.getByText("Set up vault")).toBeTruthy(); // pkm vault-gated
     expect(screen.getByText("2 to review")).toBeTruthy(); // consent attention
     expect(screen.queryByText("2 consents pending")).toBeNull(); // top shield owns count
     expect(
@@ -133,9 +131,7 @@ describe("OneDashboardPage", () => {
     ).toBe("Receipt sync and purchase-memory review.");
     // All 8 capabilities plus the standalone RIA agent tile render as
     // tappable launcher links (grid mirrors the top-bar switcher roster).
-    expect(
-      container.querySelectorAll('a[aria-label^="Open "]').length,
-    ).toBe(9);
+    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(9);
     expect(screen.queryByRole("link", { name: "Open One Agent" })).toBeNull();
   });
 

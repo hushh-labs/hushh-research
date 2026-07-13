@@ -21,6 +21,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
+  searchParamsGet: vi.fn(),
   user: { uid: "user_1" } as { uid: string } | null,
   vault: {
     vaultKey: null as string | null,
@@ -32,12 +33,14 @@ const mocks = vi.hoisted(() => ({
   markSeen: vi.fn(),
   syncSetupCapabilities: vi.fn(),
   syncOnboardingJourney: vi.fn(),
+  bootstrapState: vi.fn(),
   markExplored: vi.fn(),
   loadExploredIds: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.replace }),
+  useSearchParams: () => ({ get: mocks.searchParamsGet }),
 }));
 
 vi.mock("@/lib/firebase/auth-context", () => ({
@@ -57,6 +60,7 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
     syncKaiSetupState: mocks.syncKaiSetupState,
     syncSetupCapabilities: mocks.syncSetupCapabilities,
     syncOnboardingJourney: mocks.syncOnboardingJourney,
+    bootstrapState: mocks.bootstrapState,
   },
 }));
 
@@ -97,6 +101,8 @@ describe("OneOnboardingCapabilityClient — Continue forwarding", () => {
     mocks.markExplored.mockResolvedValue(undefined);
     mocks.syncSetupCapabilities.mockResolvedValue(undefined);
     mocks.syncOnboardingJourney.mockResolvedValue(undefined);
+    mocks.bootstrapState.mockResolvedValue({ setupCapabilityIds: [] });
+    mocks.searchParamsGet.mockReturnValue(null);
   });
 
   it("forwards into a hard-gated surface with ?from=/one/setup and does NOT resolve the master gate (location)", async () => {
@@ -152,19 +158,62 @@ describe("OneOnboardingCapabilityClient — Continue forwarding", () => {
     expect(mocks.syncKaiSetupState).not.toHaveBeenCalled();
   });
 
-  it("forwards off /one/* (consent) with the hub origin so back retraces to the hub", async () => {
-    render(<OneOnboardingCapabilityClient capabilityId="consent" />);
+  it("forwards RIA setup with the hub origin so completion returns to its terminal", async () => {
+    render(<OneOnboardingCapabilityClient capabilityId="ria" />);
 
     fireEvent.click(screen.getByTestId("one-setup-capability-primary"));
 
     await waitFor(() => {
-      // Consent lives off /one/* (not guarded) but still carries ?from=/one/setup
-      // (appended with & since the href already has ?tab=pending) so its top-bar
-      // back returns to the hub — "jaise aaya waise wapas".
       expect(mocks.replace).toHaveBeenCalledWith(
-        "/consents?tab=pending&from=/one/setup",
+        "/ria/onboarding?from=/one/setup",
       );
     });
     expect(mocks.syncKaiSetupState).not.toHaveBeenCalled();
+  });
+
+  it("records completion only from the explicit capability finish screen", async () => {
+    mocks.searchParamsGet.mockImplementation((key: string) =>
+      key === "finish" ? "1" : null,
+    );
+    mocks.loadExploredIds.mockResolvedValue(["gmail"]);
+    mocks.bootstrapState.mockResolvedValue({
+      setupCapabilityIds: [],
+      onboardingActiveCapability: "gmail",
+    });
+
+    render(<OneOnboardingCapabilityClient capabilityId="gmail" />);
+    fireEvent.click(screen.getByTestId("one-setup-capability-primary"));
+
+    await waitFor(() => {
+      expect(mocks.syncSetupCapabilities).toHaveBeenCalledWith("user_1", [
+        "gmail",
+      ]);
+      expect(mocks.syncOnboardingJourney).toHaveBeenCalledWith({
+        userId: "user_1",
+        phase: "setup_hub",
+        activeCapability: null,
+      });
+      expect(mocks.replace).toHaveBeenCalledWith("/one/setup");
+    });
+  });
+
+  it("rejects a stale or manually-addressed finish route", async () => {
+    mocks.searchParamsGet.mockImplementation((key: string) =>
+      key === "finish" ? "1" : null,
+    );
+    mocks.bootstrapState.mockResolvedValue({
+      setupCapabilityIds: [],
+      onboardingActiveCapability: "finance",
+    });
+
+    render(<OneOnboardingCapabilityClient capabilityId="gmail" />);
+    fireEvent.click(screen.getByTestId("one-setup-capability-primary"));
+
+    await waitFor(() => {
+      expect(mocks.replace).toHaveBeenCalledWith("/one/setup");
+    });
+    expect(mocks.markExplored).not.toHaveBeenCalled();
+    expect(mocks.syncSetupCapabilities).not.toHaveBeenCalled();
+    expect(mocks.syncOnboardingJourney).not.toHaveBeenCalled();
   });
 });

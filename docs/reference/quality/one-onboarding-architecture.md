@@ -21,45 +21,52 @@ gated, reset, resumed, and skipped across the app.
 ## Visual Map
 
 The end‑to‑end curated setup journey, from the hub through a per‑capability
-step into the capability's real workspace. Vault‑backed capabilities collect
-nothing at the step (they render pre‑vault) and forward to a destination that
-owns its own unlock prompt; the step only sets the honest "you'll unlock next"
-expectation.
+step into the capability's real workspace and back through an explicit terminal
+acknowledgement. Vault‑backed capabilities introduce the private vault at the first
+operation that actually needs encrypted persistence; provider caches and workflow
+state are not PKM memory by implication.
 
 ```mermaid
 flowchart TD
   Hub["/one/setup (hub)\ntiles + live status\nmaster Skip/Continue"]
-  Step["/one/setup/&lt;capability&gt; (step)\nintro only, collects nothing\nCTA: Continue / Unlock & continue / Got it"]
+  Step["/one/setup/&lt;capability&gt; (step)\nintro or terminal acknowledgement\nCTA: Set up / Finish setup"]
   Wizard["/one/setup/kai (wizard)\nquestionnaire -> persona"]
   Import["/one/kai/import\nportfolio upload + Plaid"]
-  Dash["/one/kai (dashboard)"]
-  Dest["capability workspace\n(/one/gmail, /one/kyc,\n/one/location, /one/pkm,\n/consents, /one/connected-systems)"]
+  Finish["/one/setup/&lt;capability&gt;?finish=1\nFinish capability setup"]
+  Dest["capability workspace\n(/one/gmail, /one/location, /one/kyc,\n/ria/onboarding, /one/connected-systems)"]
 
   Hub -->|tap a tile| Step
   Step -->|finance: forward with ?from=| Wizard
-  Wizard --> Import --> Dash
-  Step -->|other caps| Dest
+  Wizard --> Import --> Finish
+  Step -->|other caps| Dest --> Finish
+  Finish --> Hub
   Step -->|Back| Hub
   Hub -->|Skip 0 done / Continue 1..n done| Dash
 ```
 
-Capability classification (single source of truth:
+The setup catalog is a deliberate subset of the broader One capability catalog
+(single source of truth:
 [`lib/onboarding/one-capabilities.ts`](../../../hushh-webapp/lib/onboarding/one-capabilities.ts)):
 
-| Capability | Kind | Destination | Vault |
-| --- | --- | --- | --- |
-| Finance | wizard | `/one/setup/kai` → `/one/kai/import` | `requiresVault` |
-| Gmail | OAuth | `/one/gmail` | `requiresVault` |
-| Email | workflow | `/one/kyc` | `requiresVault` |
-| Location | workflow | `/one/location` | `requiresVault` |
-| Personal Data | workflow | `/one/pkm` | `requiresVault` |
-| Consent | explore‑only | `/consents?tab=pending` | none |
-| Connected Systems | OAuth | `/one/connected-systems` | `requiresVault` |
+| Order | Setup step | Kind | Destination | Vault |
+| --- | --- | --- | --- | --- |
+| 1 | Connect Gmail | connector | `/one/gmail` | `requiresVault` |
+| 2 | Set up location | workflow | `/one/location` | `requiresVault` |
+| 3 | Let One draft for you | workflow | `/one/kyc` | `requiresVault` |
+| 4 | Set up your finances | wizard | `/one/setup/kai` → `/one/kai/import` | `requiresVault` |
+| 5 | Set up RIA | advisor verification | `/ria/onboarding` | `requiresVault` |
+| 6 | Link your tools | CRM registry and profile setup | `/one/connected-systems` | `requiresVault` |
 
-Only **Consent** is explore‑only (it collects nothing and is "set up"
-by looking once). Every other capability is a real workspace that reads
-vault‑backed data, so a `completed` status reads "Ready" (not "Explored") and a
-locked vault surfaces an honest "Unlock to see" / "Unlock & continue".
+The hub keeps this authored order within two explicit sections: **Remaining**
+first, then **Complete**. The Complete section is absent until at least one
+capability reaches its durable terminal acknowledgement; completed rows move to
+that bottom section without re-ranking either section. Setup rows reuse the same
+capability icon, Gmail mark, and tone colors as the `/one` dashboard. Memory,
+Consent, and Information Marketplace remain available in One,
+but are not onboarding requirements and are not published as setup-hub actions.
+The setup screen reports `completed` only after the capability's durable terminal
+acknowledgement. A connector or preferences record without that acknowledgement is
+`in-progress`, never a fabricated Ready state.
 
 ## 1. The hierarchy
 
@@ -107,24 +114,30 @@ names that remain are back‑compat aliases.
   It only performs legacy route redirects (`/one/onboarding` family →
   `/one/setup/kai`) and passes everything else through. It cannot read the
   client setup cookies, by design.
-- Client guards are authoritative: `OneOnboardingGuard`
-  (`components/kai/onboarding/kai-onboarding-guard.tsx`), `VaultLockGuard`, and
-  `PostAuthRouteService` read the **stores**, not stale cookies, to decide
-  whether to send the user to setup.
+- The authenticated app-wide `OnboardingJourneyGuard`
+  (`components/onboarding/onboarding-journey-guard.tsx`) is authoritative for
+  unfinished root setup. It verifies the durable pre-vault row and admits only
+  the active capability's authored route family. Query parameters are navigation
+  history, not admission authority. `VaultLockGuard` and `PostAuthRouteService`
+  retain their narrower vault and post-auth responsibilities.
+- Pre-vault mutations invalidate the shared BFF bootstrap cache for that user.
+  A route transition therefore cannot keep enforcing an old journey snapshot
+  until the cache TTL expires.
 
 ## 3. State stores, in trust order
 
-The One root resolves completion from these stores; the first that answers wins:
+The One root resolves completion from one durable authority plus local mirrors:
 
 1. **Server pre‑vault state** (`PreVaultUserStateService`) — authoritative for
    users with no vault or a locked vault. `setupCompleted === true` (persisted
    as the `setup_completed` column) means the One gate is satisfied.
-2. **Vault profile** (`KaiProfileService`) — authoritative once the vault is
-   unlocked.
-3. **Local Preferences + localStorage** (`PreVaultOnboardingService`) —
+2. **Local Preferences + localStorage** (`PreVaultOnboardingService`) —
    offline / native bridge; mirrored up to the server when connectivity returns.
-4. **Session hint** (`sessionStorage`) — per‑tab fast‑path cache only; never
+3. **Session hint** (`sessionStorage`) — per‑tab fast‑path cache only; never
    authoritative.
+
+The encrypted Kai profile describes Finance preferences. It does not resolve root
+setup and does not prove Finance reached its portfolio-source and terminal finish.
 
 ### Cookies: `hushh_setup_*`
 
@@ -149,13 +162,14 @@ via its own ack button: **Skip** when 0 capabilities are set up, **Continue**
 when 1..n are. Both write the authoritative store first and **await** the
 server pre‑vault sync before navigating (so the gate is server‑authoritative
 the instant the user leaves — this closed a prior fire‑and‑forget race), then
-redirect. Skip marks the flow "satisfied for now": the user is not bounced
+redirect. The shared top-bar Back action never acknowledges root setup. Skip marks the flow "satisfied for now": the user is not bounced
 back, but the flow can be re‑run. The Kai wizard at
 [`app/one/setup/kai/page.tsx`](../../../hushh-webapp/app/one/setup/kai/page.tsx)
 and per‑capability steps at
 [`app/one/setup/[capability]/page.tsx`](../../../hushh-webapp/app/one/setup/%5Bcapability%5D/page.tsx)
 record their own surface signal only; per‑capability steps never write the
-master account gate.
+master account gate. Root acknowledgement never writes Finance completion into the
+Kai profile.
 
 ### Per‑capability step → workspace handoff
 
@@ -178,21 +192,35 @@ guarantee: step screens never hand‑roll top padding.
 - **Finance** forwards to the investor‑preferences **wizard**
   (`/one/setup/kai`), not straight to the dashboard, so the questionnaire →
   persona → portfolio‑import journey is never orphaned. The forward appends a
-  `?from=` marker so an already‑resolved user's visit is treated as an
-  **intentional re‑entry**. Both the guard (`OneOnboardingGuard`) and the wizard
-  page's own load effect honor this marker: without it, a resolved user tapping
-  Finance dead‑looped back to `/one/setup` because the wizard page redirected
-  resolved users to the hub. With it, the wizard renders pre‑filled from the
-  saved profile / pre‑vault draft so the person can review or edit their answers.
+  `?from=` marker for deterministic back navigation and intentional re-entry.
+  Admission still comes only from the durable active-capability record. The wizard
+  renders pre‑filled from the saved profile / pre‑vault draft so the person can
+  review or edit their answers.
 - **Vault‑aware CTA**: capabilities flagged `requiresVault` in the catalog
   ([`lib/onboarding/one-capabilities.ts`](../../../hushh-webapp/lib/onboarding/one-capabilities.ts))
-  whose vault is currently locked show **"Unlock & continue"** with a
-  "you'll unlock your vault next" subline. The step still forwards; the
-  destination guard owns the actual unlock prompt. The honest framing replaces
+  use **Set up** language. The step still forwards; the destination owns the
+  actual private-vault prompt at the first encrypted read or write. This replaces
   the prior misleading "nothing to set up" copy on `email` and `location`,
   which are real vault‑gated workspaces, not explore‑only tabs.
-- **Explore‑only** capabilities (only Consent) keep the "Got it" CTA;
-  they are "set up" by looking once.
+- **Terminal acknowledgement**: every capability returns through
+  `/one/setup/<capability>?finish=1`. Only **Finish `<capability>` setup** adds
+  it to the durable completed set and clears the active goal. Backing out clears
+  the goal without claiming completion.
+- **Finance source boundary**: the three preference questions are not completion.
+  Finance continues to `/one/kai/import`, where the person chooses Plaid,
+  statement upload, or later, and only then reaches **Finish Finance setup**.
+- **Gmail boundary**: OAuth success retains active Gmail state and reaches
+  **Finish Gmail setup**. Shopping-summary PKM persistence is an explicit action;
+  Gmail does not auto-save inferred memory.
+- **RIA boundary**: setup-originated advisor onboarding retains the active RIA
+  goal and returns to **Finish RIA setup** after successful profile submission.
+- **Link your tools boundary**: the live CRM registry is the source for available
+  systems. Each row states whether profile creation is supported; One never
+  invents a CRM or offers profile creation for a read-only system.
+- **Agent progress context**: the onboarding specialist filters the durable
+  completed ids against the six-item setup catalog and returns ordered
+  `setup_completed_ids` and `setup_remaining_ids`. Stale ids from broader One
+  surfaces cannot enter the setup action set.
 
 ### Reset / come back to onboarding
 

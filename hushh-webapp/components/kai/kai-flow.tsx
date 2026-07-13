@@ -36,7 +36,12 @@ import { consumeCanonicalKaiStream } from "@/lib/streaming/kai-stream-client";
 import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { setOnboardingFlowActiveCookie } from "@/lib/services/onboarding-route-cookie";
-import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildKaiAnalysisPreviewRoute,
+  buildOneSetupCapabilityFinishRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { KAI_PORTFOLIO_IMPORT_IDLE_TIMEOUT_MS } from "@/lib/services/kai-import-stream-config";
 import type { LiveHoldingPreview } from "@/lib/kai/import/live-holdings-preview";
@@ -629,6 +634,23 @@ export function KaiFlow({
     lastInteractedControlId: lastVoiceControlId,
   } = useVoiceSurfaceControlTracking();
   const [plaidStatus, setPlaidStatus] = useState<PlaidPortfolioStatusResponse | null>(null);
+
+  const finishFinanceSetupIfActive = useCallback(async (): Promise<boolean> => {
+    if (mode !== "import") return false;
+    const journey = await PreVaultUserStateService.bootstrapState(userId, {
+      force: true,
+    }).catch(() => null);
+    if (
+      !journey ||
+      PreVaultUserStateService.isSetupResolved(journey) ||
+      journey.onboardingActiveCapability !== "finance"
+    ) {
+      return false;
+    }
+    setOnboardingFlowActiveCookie(false);
+    router.push(buildOneSetupCapabilityFinishRoute("finance"));
+    return true;
+  }, [mode, router, userId]);
   const {
     data: financialResource,
     loading: financialResourceLoading,
@@ -1597,7 +1619,7 @@ export function KaiFlow({
         setResumeImportAfterVault(false);
         setVaultDialogOpen(true);
         setError(null);
-        toast.info("Create or unlock your Vault to import portfolio.");
+        toast.info("Set up or open your private vault to import a portfolio.");
         return;
       }
 
@@ -2820,8 +2842,9 @@ export function KaiFlow({
     setState("reviewing");
   }, [flowData.parsedPortfolio]);
 
-  const handleBackToDashboardFromImport = useCallback(() => {
+  const handleBackToDashboardFromImport = useCallback(async () => {
     if (mode === "import") {
+      if (await finishFinanceSetupIfActive()) return;
       setOnboardingFlowActiveCookie(false);
       router.push(ROUTES.KAI_DASHBOARD);
       return;
@@ -2831,7 +2854,7 @@ export function KaiFlow({
     } else {
       setState("import_required");
     }
-  }, [flowData.portfolioData, mode, router]);
+  }, [finishFinanceSetupIfActive, flowData.portfolioData, mode, router]);
 
   // Handle save complete from review screen
   const handleSaveComplete = useCallback(async (savedData: ReviewPortfolioData) => {
@@ -2901,17 +2924,19 @@ export function KaiFlow({
     });
 
     if (mode === "import") {
+      if (await finishFinanceSetupIfActive()) return;
       setOnboardingFlowActiveCookie(false);
       router.push(ROUTES.KAI_DASHBOARD);
       return;
     }
 
     setState("dashboard");
-  }, [mode, router, userId, setPortfolioData]);
+  }, [finishFinanceSetupIfActive, mode, router, userId, setPortfolioData]);
 
   // Handle skip import - preserve existing data if available
-  const handleSkipImport = useCallback(() => {
+  const handleSkipImport = useCallback(async () => {
     if (mode === "import") {
+      if (await finishFinanceSetupIfActive()) return;
       setOnboardingFlowActiveCookie(false);
       router.push(ROUTES.KAI_HOME);
       return;
@@ -2923,9 +2948,16 @@ export function KaiFlow({
     if (!flowData.portfolioData) {
       setFlowData({ hasFinancialData: false });
     }
-  }, [flowData.portfolioData, mode, router]);
+  }, [finishFinanceSetupIfActive, flowData.portfolioData, mode, router]);
 
   const handleConnectPlaid = useCallback(async () => {
+    if (!vaultKey || !effectiveVaultOwnerToken) {
+      setPendingPlaidConnection(true);
+      setResumePlaidAfterVault(false);
+      setVaultDialogOpen(true);
+      toast.info("Set up your private vault to connect your portfolio.");
+      return;
+    }
     setIsConnectingPlaid(true);
     try {
       const redirectUri = resolvePlaidRedirectUri();
@@ -2988,10 +3020,13 @@ export function KaiFlow({
                   setPendingPlaidConnection(true);
                   setResumePlaidAfterVault(false);
                   setVaultDialogOpen(true);
-                  toast.info("Create or unlock your Vault to save Plaid details.");
+                  toast.info("Set up or open your private vault to save Plaid details.");
                 } else if (mode === "import") {
-                  setOnboardingFlowActiveCookie(false);
-                  router.push(ROUTES.KAI_DASHBOARD);
+                  void finishFinanceSetupIfActive().then((handled) => {
+                    if (handled) return;
+                    setOnboardingFlowActiveCookie(false);
+                    router.push(ROUTES.KAI_DASHBOARD);
+                  });
                 } else {
                   setState("dashboard");
                 }
@@ -3039,6 +3074,7 @@ export function KaiFlow({
     }
   }, [
     effectiveVaultOwnerToken,
+    finishFinanceSetupIfActive,
     loadPlaidStatusSnapshot,
     mode,
     router,
@@ -3051,27 +3087,15 @@ export function KaiFlow({
     if (!vaultKey || !effectiveVaultOwnerToken) return;
     setResumePlaidAfterVault(false);
     setPendingPlaidConnection(false);
-    void (async () => {
-      const status = await loadPlaidStatusSnapshot();
-      if (!status) {
-        toast.error("Could not save Plaid details to Vault. Please retry.");
-        return;
-      }
-      toast.success("Plaid details saved to Vault.");
-      if (mode === "import") {
-        setOnboardingFlowActiveCookie(false);
-        router.push(ROUTES.KAI_DASHBOARD);
-      } else {
-        setState("dashboard");
-      }
-    })();
+    // Vault setup happened before Plaid opened, so restart the exact authored
+    // provider action now that its prerequisites are satisfied. Merely loading
+    // status here left first-time users stranded before Link ever appeared.
+    void handleConnectPlaid();
   }, [
     resumePlaidAfterVault,
     vaultKey,
     effectiveVaultOwnerToken,
-    loadPlaidStatusSnapshot,
-    mode,
-    router,
+    handleConnectPlaid,
   ]);
 
   // Handle re-import (upload new statement)
@@ -3139,7 +3163,7 @@ export function KaiFlow({
   // Route new analysis starts through the comparison preview first.
   const handleAnalyzeStock = useCallback((symbol: string, _options?: AnalysisLaunchOptions) => {
     if (!symbol || !effectiveVaultOwnerToken) {
-      toast.error("Please unlock your Vault first.");
+      toast.error("Set up or open your private vault first.");
       return;
     }
     useKaiSession.getState().setAnalysisParams(null);
@@ -3312,13 +3336,13 @@ export function KaiFlow({
           onOpenChange={setVaultDialogOpen}
           title={
             pendingPlaidConnection
-              ? "Create or unlock Vault to save Plaid details"
-              : "Create or unlock Vault to import portfolio"
+              ? "Set up your private vault for Plaid"
+              : "Set up your private vault for Finance"
           }
           description={
             pendingPlaidConnection
-              ? "Your brokerage is connected. Create or unlock your Vault to save the Plaid portfolio details in your PKM."
-              : "You need to create or unlock your Vault before importing your statement."
+              ? "Open your private vault so One can save the Plaid portfolio details you approved."
+              : "Set up or open your private vault before importing your statement."
           }
           enableGeneratedDefault={!preferPassphraseUnlockForAutomation()}
           onSuccess={() => {

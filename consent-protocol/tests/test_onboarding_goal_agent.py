@@ -143,13 +143,11 @@ def test_stale_capability_does_not_override_the_setup_hub_phase() -> None:
 
 def test_setup_hub_admits_every_catalog_action() -> None:
     actions = [
-        "setup.open_finance",
         "setup.open_gmail",
-        "setup.open_email",
         "setup.open_location",
-        "setup.open_pkm",
-        "setup.open_consent",
-        "setup.open_marketplace",
+        "setup.open_email",
+        "setup.open_finance",
+        "setup.open_ria",
         "setup.open_connected_systems",
     ]
     goal = resolve_onboarding_goal(
@@ -168,16 +166,16 @@ def test_intelligence_assessment_admits_only_current_visible_action() -> None:
         OnboardingJourneyContext(
             phase="setup_hub",
             authenticated=True,
-            available_action_ids=["setup.open_pkm"],
+            available_action_ids=["setup.open_ria"],
             assessment=OnboardingAssessmentV1(
                 intent="execute_visible_action",
-                candidate_action_id="setup.open_pkm",
+                candidate_action_id="setup.open_ria",
                 confidence=0.97,
             ),
         )
     )
 
-    assert goal.selected_action_id == "setup.open_pkm"
+    assert goal.selected_action_id == "setup.open_ria"
     assert goal.assessment_status == "admitted"
 
 
@@ -186,7 +184,7 @@ def test_wrong_screen_intelligence_assessment_fails_closed() -> None:
         OnboardingJourneyContext(
             phase="setup_hub",
             authenticated=True,
-            available_action_ids=["setup.open_pkm"],
+            available_action_ids=["setup.open_ria"],
             assessment=OnboardingAssessmentV1(
                 intent="execute_visible_action",
                 candidate_action_id="auth.sign_in_apple",
@@ -197,6 +195,25 @@ def test_wrong_screen_intelligence_assessment_fails_closed() -> None:
     assert goal.selected_action_id is None
     assert goal.assessment_status == "rejected"
     assert goal.reason_code == "action_not_available_on_screen"
+
+
+def test_setup_progress_is_partitioned_in_authored_order() -> None:
+    goal = resolve_onboarding_goal(
+        OnboardingJourneyContext(
+            phase="setup_hub",
+            authenticated=True,
+            setup_capability_ids=["finance", "gmail", "marketplace"],
+            available_action_ids=["setup.open_location"],
+        )
+    )
+
+    assert goal.setup_completed_ids == ["gmail", "finance"]
+    assert goal.setup_remaining_ids == [
+        "location",
+        "email",
+        "ria",
+        "connected-systems",
+    ]
 
 
 def test_conversational_assessment_does_not_force_onboarding() -> None:

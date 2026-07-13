@@ -24,6 +24,10 @@ from sqlalchemy import text
 from starlette.concurrency import run_in_threadpool
 
 from db.db_client import get_db
+from hushh_mcp.onboarding_contract import (
+    normalize_setup_capability_id,
+    normalize_setup_capability_ids,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +216,9 @@ class VaultKeysService:
                 row.get("onboarding_journey_version")
             ),
             "onboardingPhase": row.get("onboarding_phase"),
-            "onboardingActiveCapability": row.get("onboarding_active_capability"),
+            "onboardingActiveCapability": normalize_setup_capability_id(
+                row.get("onboarding_active_capability")
+            ),
             "onboardingResumeRoute": row.get("onboarding_resume_route"),
             "onboardingCallbackState": row.get("onboarding_callback_state"),
             "onboardingJourneyUpdatedAt": cls._normalize_int_ms_or_none(
@@ -246,13 +252,7 @@ class VaultKeysService:
             return []
         if not isinstance(decoded, list):
             return []
-        seen: set[str] = set()
-        for entry in decoded:
-            if isinstance(entry, str):
-                cleaned = entry.strip()
-                if cleaned:
-                    seen.add(cleaned)
-        return sorted(seen)
+        return normalize_setup_capability_ids(decoded)
 
     async def ensure_user_entry(self, user_id: str) -> Dict[str, Any]:
         return await run_in_threadpool(self._ensure_user_entry_sync, user_id)
@@ -521,6 +521,11 @@ class VaultKeysService:
             if onboarding_phase is not None and onboarding_phase not in allowed_phases:
                 raise ValueError("invalid onboarding phase")
             if (
+                onboarding_active_capability is not None
+                and normalize_setup_capability_id(onboarding_active_capability) is None
+            ):
+                raise ValueError("invalid onboarding active capability")
+            if (
                 onboarding_callback_state is not None
                 and onboarding_callback_state not in allowed_callbacks
             ):
@@ -531,7 +536,9 @@ class VaultKeysService:
                 {
                     "onboarding_journey_version": onboarding_journey_version or 1,
                     "onboarding_phase": onboarding_phase,
-                    "onboarding_active_capability": onboarding_active_capability,
+                    "onboarding_active_capability": normalize_setup_capability_id(
+                        onboarding_active_capability
+                    ),
                     "onboarding_resume_route": onboarding_resume_route or "/one/setup",
                     "onboarding_callback_state": onboarding_callback_state or "none",
                     "onboarding_journey_updated_at": now_ms,

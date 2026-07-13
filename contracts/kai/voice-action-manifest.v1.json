@@ -2744,35 +2744,38 @@
     },
     {
       "id": "setup.capability_continue",
-      "label": "Continue Capability Setup",
-      "meaning": "Advances past the current capability setup step to its next destination (workspace, wizard, or explore acknowledgement). Applies to whichever capability route is currently open.",
+      "label": "Continue or Finish Capability Setup",
+      "meaning": "Starts the current capability setup, or finishes it when the terminal acknowledgement is visible. Applies only to the capability route currently open.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "aliases": [
         "continue",
-        "unlock and continue",
+        "set it up",
+        "finish setup",
+        "finish gmail setup",
+        "finish location setup",
+        "finish email setup",
+        "finish finance setup",
+        "finish ria setup",
+        "finish tools setup",
         "got it",
         "next"
       ],
       "scope": {
         "routes": [
-          "/one/setup/finance",
           "/one/setup/gmail",
-          "/one/setup/email",
           "/one/setup/location",
-          "/one/setup/pkm",
-          "/one/setup/consent",
-          "/one/setup/marketplace",
+          "/one/setup/email",
+          "/one/setup/finance",
+          "/one/setup/ria",
           "/one/setup/connected-systems"
         ],
         "screens": [
-          "one_setup_finance",
           "one_setup_gmail",
-          "one_setup_email",
           "one_setup_location",
-          "one_setup_pkm",
-          "one_setup_consent",
-          "one_setup_marketplace",
+          "one_setup_email",
+          "one_setup_finance",
+          "one_setup_ria",
           "one_setup_connected-systems",
           "one_setup"
         ],
@@ -2800,11 +2803,11 @@
           {
             "type": "action",
             "action_id": "setup.capability_continue",
-            "label": "Continue Capability Setup",
+            "label": "Continue or Finish Capability Setup",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/setup/finance",
-              "screen": "one_setup_finance"
+              "route": "/one/setup/gmail",
+              "screen": "one_setup_gmail"
             }
           }
         ],
@@ -7962,83 +7965,8 @@
       ]
     },
     {
-      "id": "setup.open_finance",
-      "label": "Set Up Finance",
-      "meaning": "Opens the Finance capability setup step from the setup hub.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "aliases": [
-        "set up finance",
-        "open finance setup",
-        "set up investing"
-      ],
-      "scope": {
-        "routes": [
-          "/one/setup"
-        ],
-        "screens": [
-          "one_setup_hub",
-          "one_setup"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
-      },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_hint": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/setup/finance"
-      },
-      "external_callback": null,
-      "goal": {
-        "goal_id": "goal.setup.open_finance",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "setup.open_finance",
-            "label": "Set Up Finance",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/setup/finance",
-              "screen": "one_setup_hub"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      },
-      "map_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
-      ]
-    },
-    {
       "id": "setup.open_gmail",
-      "label": "Set Up Gmail",
+      "label": "Connect Gmail",
       "meaning": "Opens the Gmail capability setup step from the setup hub.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
@@ -8079,84 +8007,10 @@
           {
             "type": "action",
             "action_id": "setup.open_gmail",
-            "label": "Set Up Gmail",
+            "label": "Connect Gmail",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/gmail",
-              "screen": "one_setup_hub"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      },
-      "map_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/quality/one-onboarding-architecture.md"
-      ]
-    },
-    {
-      "id": "setup.open_email",
-      "label": "Set Up Email",
-      "meaning": "Opens the Email capability setup step from the setup hub.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "aliases": [
-        "set up email",
-        "open email setup"
-      ],
-      "scope": {
-        "routes": [
-          "/one/setup"
-        ],
-        "screens": [
-          "one_setup_hub",
-          "one_setup"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
-      },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_hint": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/setup/email"
-      },
-      "external_callback": null,
-      "goal": {
-        "goal_id": "goal.setup.open_email",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "setup.open_email",
-            "label": "Set Up Email",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/setup/email",
               "screen": "one_setup_hub"
             }
           }
@@ -8261,15 +8115,15 @@
       ]
     },
     {
-      "id": "setup.open_pkm",
-      "label": "Set Up Memory",
-      "meaning": "Opens the Memory (PKM) capability setup step from the setup hub.",
+      "id": "setup.open_email",
+      "label": "Let One Draft for You",
+      "meaning": "Opens the email drafting and approval setup step from the setup hub.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "aliases": [
-        "set up memory",
-        "open memory setup",
-        "set up personal information"
+        "let one draft for me",
+        "set up email",
+        "open email setup"
       ],
       "scope": {
         "routes": [
@@ -8291,22 +8145,22 @@
       "execution_hint": {
         "status": "wired",
         "path": "route",
-        "target": "/one/setup/pkm"
+        "target": "/one/setup/email"
       },
       "external_callback": null,
       "goal": {
-        "goal_id": "goal.setup.open_pkm",
+        "goal_id": "goal.setup.open_email",
         "required_inputs": [],
         "input_resolvers": [],
         "slot_schema": {},
         "workflow_steps": [
           {
             "type": "action",
-            "action_id": "setup.open_pkm",
-            "label": "Set Up Memory",
+            "action_id": "setup.open_email",
+            "label": "Let One Draft for You",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/setup/pkm",
+              "route": "/one/setup/email",
               "screen": "one_setup_hub"
             }
           }
@@ -8336,15 +8190,15 @@
       ]
     },
     {
-      "id": "setup.open_marketplace",
-      "label": "Explore Information Marketplace",
-      "meaning": "Opens the Information Marketplace explore step from the setup hub.",
+      "id": "setup.open_finance",
+      "label": "Set Up Finance",
+      "meaning": "Opens the Finance capability setup step from the setup hub.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "aliases": [
-        "explore information marketplace",
-        "open marketplace setup",
-        "set up marketplace"
+        "set up finance",
+        "open finance setup",
+        "set up investing"
       ],
       "scope": {
         "routes": [
@@ -8366,22 +8220,22 @@
       "execution_hint": {
         "status": "wired",
         "path": "route",
-        "target": "/one/setup/marketplace"
+        "target": "/one/setup/finance"
       },
       "external_callback": null,
       "goal": {
-        "goal_id": "goal.setup.open_marketplace",
+        "goal_id": "goal.setup.open_finance",
         "required_inputs": [],
         "input_resolvers": [],
         "slot_schema": {},
         "workflow_steps": [
           {
             "type": "action",
-            "action_id": "setup.open_marketplace",
-            "label": "Explore Information Marketplace",
+            "action_id": "setup.open_finance",
+            "label": "Set Up Finance",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/setup/marketplace",
+              "route": "/one/setup/finance",
               "screen": "one_setup_hub"
             }
           }
@@ -8411,15 +8265,15 @@
       ]
     },
     {
-      "id": "setup.open_consent",
-      "label": "Explore Consent",
-      "meaning": "Opens the Consent explore-only step from the setup hub.",
-      "speaker_persona": "nav",
+      "id": "setup.open_ria",
+      "label": "Set Up RIA",
+      "meaning": "Opens the RIA advisor-profile setup step from the setup hub.",
+      "speaker_persona": "one",
       "delegate_agent_id": null,
       "aliases": [
-        "set up consent",
-        "open consent setup",
-        "explore consent"
+        "set up ria",
+        "set up my advisor profile",
+        "open ria setup"
       ],
       "scope": {
         "routes": [
@@ -8441,22 +8295,22 @@
       "execution_hint": {
         "status": "wired",
         "path": "route",
-        "target": "/one/setup/consent"
+        "target": "/one/setup/ria"
       },
       "external_callback": null,
       "goal": {
-        "goal_id": "goal.setup.open_consent",
+        "goal_id": "goal.setup.open_ria",
         "required_inputs": [],
         "input_resolvers": [],
         "slot_schema": {},
         "workflow_steps": [
           {
             "type": "action",
-            "action_id": "setup.open_consent",
-            "label": "Explore Consent",
+            "action_id": "setup.open_ria",
+            "label": "Set Up RIA",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/setup/consent",
+              "route": "/one/setup/ria",
               "screen": "one_setup_hub"
             }
           }
@@ -8487,13 +8341,14 @@
     },
     {
       "id": "setup.open_connected_systems",
-      "label": "Set Up Connected Systems",
-      "meaning": "Opens the Connected Systems capability setup step from the setup hub.",
+      "label": "Link Your Tools",
+      "meaning": "Opens the CRM-system and profile setup step from the setup hub.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "aliases": [
+        "link my tools",
         "set up connected systems",
-        "open connected systems setup",
+        "show crm systems",
         "connect crm"
       ],
       "scope": {
@@ -8528,7 +8383,7 @@
           {
             "type": "action",
             "action_id": "setup.open_connected_systems",
-            "label": "Set Up Connected Systems",
+            "label": "Link Your Tools",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/connected-systems",

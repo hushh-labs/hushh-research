@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { usePathname } from "next/navigation";
 import type {
   VoiceSurfaceActionDefinition,
   VoiceSurfaceConceptDefinition,
@@ -18,6 +19,8 @@ export type {
 } from "@/lib/voice/voice-types";
 
 export type VoiceSurfaceMetadata = {
+  /** Route publisher lease that owns this composed inventory. */
+  publisherRouteKey?: string | null;
   surfaceDefinition?: VoiceSurfaceDefinition | null;
   screenId?: string | null;
   title?: string | null;
@@ -446,6 +449,7 @@ function normalizeSurfaceMetadata(
   );
 
   return {
+    publisherRouteKey: cleanString(metadata.publisherRouteKey),
     surfaceDefinition,
     screenId: surfaceDefinition?.screenId || null,
     title: surfaceDefinition?.title || null,
@@ -646,13 +650,20 @@ function composePublishedMetadata(): VoiceSurfaceMetadata | null {
         entry.role === "interaction_layer" && entry.metadata?.interactionLayer,
     );
   const layer = layerEntry?.metadata?.interactionLayer;
-  if (!layerEntry?.metadata || !layer) return composed;
+  if (!layerEntry?.metadata || !layer) {
+    return composed
+      ? { ...composed, publisherRouteKey: routeEntry?.routeKey || null }
+      : null;
+  }
   if (layer.blocksUnderlyingActions) {
-    return restrictMetadataToInteractionLayer(
-      composed,
-      layerEntry.metadata,
-      layer,
-    );
+    return {
+      ...restrictMetadataToInteractionLayer(
+        composed,
+        layerEntry.metadata,
+        layer,
+      ),
+      publisherRouteKey: routeEntry?.routeKey || null,
+    };
   }
   const merged = mergeVoiceSurfaceMetadata(composed, layerEntry.metadata, {
     overlayFirst: true,
@@ -662,6 +673,7 @@ function composePublishedMetadata(): VoiceSurfaceMetadata | null {
     screenId: composed?.screenId || merged?.screenId || null,
     modalState: layer.id,
     interactionLayer: layer,
+    publisherRouteKey: routeEntry?.routeKey || null,
     screenMetadata: {
       ...(merged?.screenMetadata || {}),
       active_interaction_layer_id: layer.id,
@@ -741,6 +753,7 @@ export function usePublishVoiceSurfaceMetadata(
   metadata: VoiceSurfaceMetadata | null | undefined,
   options: VoiceSurfacePublisherOptions = {},
 ) {
+  const pathname = usePathname();
   const publisherIdRef = useRef(
     `voice_surface_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
   );
@@ -749,6 +762,7 @@ export function usePublishVoiceSurfaceMetadata(
     const publisherId = publisherIdRef.current;
     const routeKey =
       options.routeKey ??
+      pathname ??
       (typeof window !== "undefined" ? window.location.pathname : null);
     publishVoiceSurfaceMetadata(publisherId, metadata, {
       role: options.role,
@@ -757,7 +771,7 @@ export function usePublishVoiceSurfaceMetadata(
     return () => {
       clearVoiceSurfaceMetadata(publisherId);
     };
-  }, [metadata, options.role, options.routeKey]);
+  }, [metadata, options.role, options.routeKey, pathname]);
 }
 
 export function useVoiceSurfaceControlTracking() {

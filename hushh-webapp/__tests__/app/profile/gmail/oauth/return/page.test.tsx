@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     getStatus: vi.fn(),
   },
   syncOnboardingJourney: vi.fn(),
+  bootstrapState: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -31,6 +32,9 @@ vi.mock("@/lib/services/gmail-receipts-service", () => ({
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: {
     syncOnboardingJourney: mocks.syncOnboardingJourney,
+    bootstrapState: mocks.bootstrapState,
+    isSetupResolved: (state: { setupCompleted?: boolean } | null) =>
+      state?.setupCompleted === true,
   },
 }));
 
@@ -39,8 +43,12 @@ vi.mock("@/lib/profile/gmail-connector-store", () => ({
 }));
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
-  AppPageShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  AppPageContentRegion: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  AppPageShell: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  AppPageContentRegion: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
 }));
 
 vi.mock("@/components/app-ui/hushh-loader", () => ({
@@ -93,12 +101,13 @@ describe("ProfileGmailOAuthReturnPage", () => {
       revoked: false,
     });
     mocks.syncOnboardingJourney.mockResolvedValue(undefined);
+    mocks.bootstrapState.mockResolvedValue(null);
     window.sessionStorage.clear();
   });
 
   it("redirects back to Gmail receipts when the callback is replayed after a successful connection", async () => {
     mocks.gmailReceiptsService.completeConnect.mockRejectedValue(
-      new Error("OAuth state expired")
+      new Error("OAuth state expired"),
     );
     mocks.searchParamsGet.mockImplementation((key: string) => {
       if (key === "code") return "code-123";
@@ -142,7 +151,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
     });
   });
 
-  it("settles a setup-originated Gmail callback back to the setup hub", async () => {
+  it("settles a setup-originated Gmail callback at its terminal acknowledgement", async () => {
     window.sessionStorage.setItem(
       "one_onboarding_connector_intent_v1",
       JSON.stringify({
@@ -151,7 +160,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
         returnTo: "/one/setup",
         correlationId: "connector-test",
         startedAt: Date.now(),
-      })
+      }),
     );
     mocks.searchParamsGet.mockImplementation((key: string) => {
       if (key === "code") return "code-setup";
@@ -164,13 +173,58 @@ describe("ProfileGmailOAuthReturnPage", () => {
     await waitFor(() => {
       expect(mocks.syncOnboardingJourney).toHaveBeenCalledWith({
         userId: "user-123",
-        phase: "setup_hub",
-        activeCapability: null,
+        phase: "capability_setup",
+        activeCapability: "gmail",
         callbackState: "succeeded",
       });
-      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/setup");
+      expect(mocks.routerReplace).toHaveBeenCalledWith(
+        "/one/setup/gmail?finish=1",
+      );
     });
-    expect(window.sessionStorage.getItem("one_onboarding_connector_intent_v1")).toBeNull();
+    expect(
+      window.sessionStorage.getItem("one_onboarding_connector_intent_v1"),
+    ).toBeNull();
+  });
+
+  it("recovers a durable setup journey when the browser intent is missing", async () => {
+    mocks.bootstrapState.mockResolvedValue({
+      setupCompleted: false,
+      onboardingActiveCapability: "gmail",
+    });
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "error") return "access_denied";
+      return null;
+    });
+
+    render(<ProfileGmailOAuthReturnPage />);
+
+    await waitFor(() => {
+      expect(mocks.syncOnboardingJourney).toHaveBeenCalledWith({
+        userId: "user-123",
+        phase: "external_connector",
+        activeCapability: "gmail",
+        callbackState: "cancelled",
+      });
+    });
+    expect(screen.getByText("Gmail connection needs attention")).toBeTruthy();
+  });
+
+  it("marks a durable setup callback with missing parameters as failed", async () => {
+    mocks.bootstrapState.mockResolvedValue({
+      setupCompleted: false,
+      onboardingActiveCapability: "gmail",
+    });
+
+    render(<ProfileGmailOAuthReturnPage />);
+
+    await waitFor(() => {
+      expect(mocks.syncOnboardingJourney).toHaveBeenCalledWith({
+        userId: "user-123",
+        phase: "external_connector",
+        activeCapability: "gmail",
+        callbackState: "failed",
+      });
+    });
   });
 
   it("keeps connector success authoritative when the journey echo fails", async () => {
@@ -189,14 +243,20 @@ describe("ProfileGmailOAuthReturnPage", () => {
       if (key === "state") return "state-setup";
       return null;
     });
-    mocks.syncOnboardingJourney.mockRejectedValue(new Error("journey unavailable"));
+    mocks.syncOnboardingJourney.mockRejectedValue(
+      new Error("journey unavailable"),
+    );
 
     render(<ProfileGmailOAuthReturnPage />);
 
     await waitFor(() => {
-      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/setup");
+      expect(mocks.routerReplace).toHaveBeenCalledWith(
+        "/one/setup/gmail?finish=1",
+      );
     });
     expect(screen.queryByText("Gmail connection needs attention")).toBeNull();
-    expect(window.sessionStorage.getItem("one_onboarding_connector_intent_v1")).toBeNull();
+    expect(
+      window.sessionStorage.getItem("one_onboarding_connector_intent_v1"),
+    ).toBeNull();
   });
 });

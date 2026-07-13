@@ -14,6 +14,7 @@ import {
   type CapabilityStatus,
 } from "@/lib/services/capability-setup-state-service";
 import { SettingsRow } from "@/components/app-ui/settings-ui";
+import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { cn } from "@/lib/utils";
 
 /**
@@ -36,6 +37,7 @@ const STATUS_TEXT_CLASS_BY_TONE: Record<CapabilityStatusTone, string> = {
 };
 
 export interface CapabilitySetupTileProps {
+  capabilityId: string;
   title: string;
   /** Plain, One-voice description of what this step sets up. */
   description: string;
@@ -52,11 +54,13 @@ export interface CapabilitySetupTileProps {
 }
 
 export function CapabilitySetupTile({
+  capabilityId,
   title,
   description,
   href,
   voiceControlId,
   icon: Icon,
+  tone,
   status,
   isExploreOnly = false,
   isCurrent = false,
@@ -73,9 +77,12 @@ export function CapabilitySetupTile({
     <SettingsRow
       asChild
       leading={
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-accent-border bg-accent-surface text-accent-strong">
-          <Icon className="h-5 w-5" aria-hidden />
-        </span>
+        <AgentSectionIcon
+          id={capabilityId}
+          icon={Icon}
+          tone={tone}
+          size="menu"
+        />
       }
       title={title}
       description={description}

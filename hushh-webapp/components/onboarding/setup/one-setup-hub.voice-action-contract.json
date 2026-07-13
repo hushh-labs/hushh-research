@@ -15,6 +15,82 @@
   },
   "actions": [
     {
+      "action_id": "setup.open_gmail",
+      "label": "Connect Gmail",
+      "meaning": "Opens the Gmail capability setup step from the setup hub.",
+      "aliases": ["set up gmail", "open gmail setup", "connect gmail"],
+      "search_keywords": ["gmail", "setup", "receipts"],
+      "reachability": {
+        "routes": ["/one/setup"],
+        "screens": ["one_setup_hub", "one_setup"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/gmail"
+      },
+      "control_ids": ["one_setup_tile_gmail"],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "setup.open_location",
+      "label": "Set Up Location",
+      "meaning": "Opens the Location capability setup step from the setup hub.",
+      "aliases": [
+        "set up location",
+        "open location setup",
+        "set up live sharing"
+      ],
+      "search_keywords": ["location", "setup", "sharing"],
+      "reachability": {
+        "routes": ["/one/setup"],
+        "screens": ["one_setup_hub", "one_setup"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/location"
+      },
+      "control_ids": ["one_setup_tile_location"],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "setup.open_email",
+      "label": "Let One Draft for You",
+      "meaning": "Opens the email drafting and approval setup step from the setup hub.",
+      "aliases": ["let one draft for me", "set up email", "open email setup"],
+      "search_keywords": ["email", "setup", "approvals"],
+      "reachability": {
+        "routes": ["/one/setup"],
+        "screens": ["one_setup_hub", "one_setup"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/email"
+      },
+      "control_ids": ["one_setup_tile_email"],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
       "action_id": "setup.open_finance",
       "label": "Set Up Finance",
       "meaning": "Opens the Finance capability setup step from the setup hub.",
@@ -29,17 +105,21 @@
       "guard_ids": ["auth_signed_in"],
       "risk_level": "low",
       "execution_policy": "allow_direct",
-      "execution_target": { "status": "wired", "path": "route", "target": "/one/setup/finance" },
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/finance"
+      },
       "control_ids": ["one_setup_tile_finance"],
       "state_exposure": [],
       "docs_references": []
     },
     {
-      "action_id": "setup.open_gmail",
-      "label": "Set Up Gmail",
-      "meaning": "Opens the Gmail capability setup step from the setup hub.",
-      "aliases": ["set up gmail", "open gmail setup", "connect gmail"],
-      "search_keywords": ["gmail", "setup", "receipts"],
+      "action_id": "setup.open_ria",
+      "label": "Set Up RIA",
+      "meaning": "Opens the RIA advisor-profile setup step from the setup hub.",
+      "aliases": ["set up ria", "set up my advisor profile", "open ria setup"],
+      "search_keywords": ["ria", "advisor", "profile", "verification", "setup"],
       "reachability": {
         "routes": ["/one/setup"],
         "screens": ["one_setup_hub", "one_setup"],
@@ -49,118 +129,32 @@
       "guard_ids": ["auth_signed_in"],
       "risk_level": "low",
       "execution_policy": "allow_direct",
-      "execution_target": { "status": "wired", "path": "route", "target": "/one/setup/gmail" },
-      "control_ids": ["one_setup_tile_gmail"],
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/ria"
+      },
+      "control_ids": ["one_setup_tile_ria"],
       "state_exposure": [],
       "docs_references": []
-    },
-    {
-      "action_id": "setup.open_email",
-      "label": "Set Up Email",
-      "meaning": "Opens the Email capability setup step from the setup hub.",
-      "aliases": ["set up email", "open email setup"],
-      "search_keywords": ["email", "setup", "approvals"],
-      "reachability": {
-        "routes": ["/one/setup"],
-        "screens": ["one_setup_hub", "one_setup"],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
-      },
-      "guard_ids": ["auth_signed_in"],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "execution_target": { "status": "wired", "path": "route", "target": "/one/setup/email" },
-      "control_ids": ["one_setup_tile_email"],
-      "state_exposure": [],
-      "docs_references": []
-    },
-    {
-      "action_id": "setup.open_location",
-      "label": "Set Up Location",
-      "meaning": "Opens the Location capability setup step from the setup hub.",
-      "aliases": ["set up location", "open location setup", "set up live sharing"],
-      "search_keywords": ["location", "setup", "sharing"],
-      "reachability": {
-        "routes": ["/one/setup"],
-        "screens": ["one_setup_hub", "one_setup"],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
-      },
-      "guard_ids": ["auth_signed_in"],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "execution_target": { "status": "wired", "path": "route", "target": "/one/setup/location" },
-      "control_ids": ["one_setup_tile_location"],
-      "state_exposure": [],
-      "docs_references": []
-    },
-    {
-      "action_id": "setup.open_pkm",
-      "label": "Set Up Memory",
-      "meaning": "Opens the Memory (PKM) capability setup step from the setup hub.",
-      "aliases": ["set up memory", "open memory setup", "set up personal information"],
-      "search_keywords": ["memory", "pkm", "setup", "personal information"],
-      "reachability": {
-        "routes": ["/one/setup"],
-        "screens": ["one_setup_hub", "one_setup"],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
-      },
-      "guard_ids": ["auth_signed_in"],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "execution_target": { "status": "wired", "path": "route", "target": "/one/setup/pkm" },
-      "control_ids": ["one_setup_tile_pkm"],
-      "state_exposure": [],
-      "docs_references": []
-    },
-    {
-      "action_id": "setup.open_marketplace",
-      "label": "Explore Information Marketplace",
-      "meaning": "Opens the Information Marketplace explore step from the setup hub.",
-      "aliases": ["explore information marketplace", "open marketplace setup", "set up marketplace"],
-      "search_keywords": ["information marketplace", "marketplace", "setup", "explore"],
-      "reachability": {
-        "routes": ["/one/setup"],
-        "screens": ["one_setup_hub", "one_setup"],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
-      },
-      "guard_ids": ["auth_signed_in"],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "execution_target": { "status": "wired", "path": "route", "target": "/one/setup/marketplace" },
-      "control_ids": ["one_setup_tile_marketplace"],
-      "state_exposure": [],
-      "docs_references": []
-    },
-    {
-      "action_id": "setup.open_consent",
-      "label": "Explore Consent",
-      "meaning": "Opens the Consent explore-only step from the setup hub.",
-      "aliases": ["set up consent", "open consent setup", "explore consent"],
-      "search_keywords": ["consent", "setup", "approvals"],
-      "reachability": {
-        "routes": ["/one/setup"],
-        "screens": ["one_setup_hub", "one_setup"],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
-      },
-      "guard_ids": ["auth_signed_in"],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "execution_target": { "status": "wired", "path": "route", "target": "/one/setup/consent" },
-      "control_ids": ["one_setup_tile_consent"],
-      "state_exposure": [],
-      "docs_references": [],
-      "speaker_persona": "nav"
     },
     {
       "action_id": "setup.open_connected_systems",
-      "label": "Set Up Connected Systems",
-      "meaning": "Opens the Connected Systems capability setup step from the setup hub.",
-      "aliases": ["set up connected systems", "open connected systems setup", "connect crm"],
-      "search_keywords": ["connected systems", "crm", "setup"],
+      "label": "Link Your Tools",
+      "meaning": "Opens the CRM-system and profile setup step from the setup hub.",
+      "aliases": [
+        "link my tools",
+        "set up connected systems",
+        "show crm systems",
+        "connect crm"
+      ],
+      "search_keywords": [
+        "link tools",
+        "connected systems",
+        "crm",
+        "profile",
+        "setup"
+      ],
       "reachability": {
         "routes": ["/one/setup"],
         "screens": ["one_setup_hub", "one_setup"],
@@ -200,10 +194,16 @@
       "guard_ids": ["auth_signed_in"],
       "risk_level": "low",
       "execution_policy": "allow_direct",
-      "execution_target": { "status": "wired", "path": "local_handler", "target": "setup.hub_master_ack" },
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.hub_master_ack"
+      },
       "control_ids": ["one-setup-master-ack"],
       "state_exposure": ["capabilities completed count"],
-      "docs_references": ["hushh-webapp/components/onboarding/setup/one-setup-hub.tsx"]
+      "docs_references": [
+        "hushh-webapp/components/onboarding/setup/one-setup-hub.tsx"
+      ]
     }
   ]
 }

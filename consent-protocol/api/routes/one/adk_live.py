@@ -113,7 +113,7 @@ _ONBOARDING_PHASES = frozenset(
 )
 _ONBOARDING_CALLBACK_STATES = frozenset({"none", "pending", "succeeded", "cancelled", "failed"})
 _ONBOARDING_CAPABILITIES = frozenset(
-    {"finance", "gmail", "email", "location", "pkm", "consent", "marketplace", "connected-systems"}
+    {"gmail", "location", "email", "finance", "ria", "connected-systems"}
 )
 _ACTION_SETTLEMENT_STATUSES = frozenset(
     {"succeeded", "started", "blocked", "invalid", "failed", "noop"}
@@ -270,6 +270,12 @@ def _compose_route_context_note(context: dict[str, Any]) -> str | None:
     purpose = str(playbook.get("purpose") or "Use the verified current screen.")
     cue = str(playbook.get("entry_cue") or "")
     primary = str(playbook.get("primary_action_id") or "")
+    active_actions = context.get("available_action_ids")
+    action_inventory = ", ".join(active_actions) if isinstance(active_actions, list) else ""
+    interaction_layer = context.get("interaction_layer")
+    layer_id = (
+        str(interaction_layer.get("layer_id") or "") if isinstance(interaction_layer, dict) else ""
+    )
     proactive = playbook.get("proactivity") == "on_entry"
     return (
         "[App route context - not user speech] The verified current route is "
@@ -278,6 +284,8 @@ def _compose_route_context_note(context: dict[str, Any]) -> str | None:
         "Generated actions and their guards remain the only execution authority. "
         "For an explicit request matching a visible action, call list_app_actions "
         "and run the exact returned id before any identity or greeting response. "
+        f"The currently visible generated action ids are: {action_inventory or 'none'}. "
+        f"The current top interaction layer is: {layer_id or 'none'}. "
         f"The preferred action reference is '{primary or 'none'}'. "
         + (
             f"After route settlement, orient once with this intent: {cue} "
@@ -678,11 +686,27 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                         sanitized_context.get("route_playbook"),
                     )
                 if clean_screen:
+                    interaction_layer = sanitized_context.get("interaction_layer")
+                    layer_key = (
+                        ":".join(
+                            [
+                                str(interaction_layer.get("layer_id") or ""),
+                                str(interaction_layer.get("lifecycle_state") or ""),
+                            ]
+                        )
+                        if isinstance(interaction_layer, dict)
+                        else ""
+                    )
+                    action_key = ",".join(
+                        str(value) for value in sanitized_context.get("available_action_ids", [])
+                    )
                     route_key = ":".join(
                         [
                             str(sanitized_context.get("route_pattern") or ""),
                             clean_screen,
                             str(sanitized_context.get("route_instruction_id") or ""),
+                            action_key,
+                            layer_key,
                         ]
                     )
                     changed = route_key != last_injected_route_key

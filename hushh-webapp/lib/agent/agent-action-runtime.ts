@@ -88,6 +88,8 @@ function buildLocalHandlerResult(input: {
     label: input.label,
     routeBefore: input.routeBefore.pathname,
     screenBefore: input.routeBefore.screen,
+    routeAfter: input.handlerResult.routeAfter,
+    screenAfter: input.handlerResult.screenAfter,
     resultSummary: input.handlerResult.summary,
     data: { ...(input.handlerResult.data || {}), goal_id: input.goalId },
   });

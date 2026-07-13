@@ -1415,7 +1415,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "a8519c516cad52790683b90511cd8519e72c360549d44e6cb72d405af3323914",
+      "system_instruction_sha256": "cc8cfb798ea331ddbd18d57721d2bb3643a6358f40bb0f4fd1ce48acf3019784",
       "telemetry_namespace": "agent.onboarding",
       "tools": [],
       "ui_type": "chat",

@@ -4,7 +4,12 @@ import { Capacitor } from "@capacitor/core";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { apiJson } from "@/lib/services/api-client";
 import { AuthService } from "@/lib/services/auth-service";
-import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
+import {
+  CacheService,
+  CACHE_KEYS,
+  CACHE_TTL,
+} from "@/lib/services/cache-service";
+import { normalizeOneSetupCapabilityId } from "@/lib/onboarding/setup-capability-ids";
 
 export type VaultStatus = "placeholder" | "active";
 
@@ -38,7 +43,8 @@ export type PreVaultUserState = {
     | null;
   onboardingActiveCapability: string | null;
   onboardingResumeRoute: "/one/setup" | null;
-  onboardingCallbackState: "none" | "pending" | "succeeded" | "cancelled" | "failed" | null;
+  onboardingCallbackState:
+    "none" | "pending" | "succeeded" | "cancelled" | "failed" | null;
   onboardingJourneyUpdatedAt: number | null;
   // Verified-phone claim folded in from the backend bootstrap call. null means
   // "unknown" (older backend, or shadow lookup failed) so callers fall back to
@@ -97,7 +103,10 @@ function toNullableBool(value: unknown): boolean | null {
   return null;
 }
 
-function normalizeResponse(userId: string, payload: BootstrapStateResponse): PreVaultUserState {
+function normalizeResponse(
+  userId: string,
+  payload: BootstrapStateResponse,
+): PreVaultUserState {
   const status = (payload.vaultStatus || "placeholder") as VaultStatus;
   return {
     userId: String(payload.userId || userId),
@@ -114,37 +123,54 @@ function normalizeResponse(userId: string, payload: BootstrapStateResponse): Pre
     setupCapabilityIds: toStringArray(payload.setupCapabilityIds),
     setupCapabilitiesUpdatedAt: toMillis(payload.setupCapabilitiesUpdatedAt),
     setupStateUpdatedAt: toMillis(payload.setupStateUpdatedAt),
-    onboardingJourneyVersion: normalizeOnboardingJourneyVersion(payload.onboardingJourneyVersion),
+    onboardingJourneyVersion: normalizeOnboardingJourneyVersion(
+      payload.onboardingJourneyVersion,
+    ),
     onboardingPhase: normalizeOnboardingPhase(payload.onboardingPhase),
-    onboardingActiveCapability: normalizeOptionalString(payload.onboardingActiveCapability),
-    onboardingResumeRoute: payload.onboardingResumeRoute === "/one/setup" ? "/one/setup" : null,
-    onboardingCallbackState: normalizeCallbackState(payload.onboardingCallbackState),
+    // Legacy records may contain capabilities that no longer belong to account
+    // setup. Fail closed to the hub instead of manufacturing a retired dynamic
+    // route such as `/one/setup/pkm?finish=1`.
+    onboardingActiveCapability: normalizeOneSetupCapabilityId(
+      payload.onboardingActiveCapability,
+    ),
+    onboardingResumeRoute:
+      payload.onboardingResumeRoute === "/one/setup" ? "/one/setup" : null,
+    onboardingCallbackState: normalizeCallbackState(
+      payload.onboardingCallbackState,
+    ),
     onboardingJourneyUpdatedAt: toMillis(payload.onboardingJourneyUpdatedAt),
     phoneVerified: toNullableBool(payload.phoneVerified),
   };
 }
 
-function normalizeOptionalString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
 function normalizeOnboardingPhase(
-  value: unknown
+  value: unknown,
 ): PreVaultUserState["onboardingPhase"] {
-  return ["anonymous_auth", "phone_required", "setup_hub", "capability_setup", "external_connector", "root_completion"].includes(String(value))
+  return [
+    "anonymous_auth",
+    "phone_required",
+    "setup_hub",
+    "capability_setup",
+    "external_connector",
+    "root_completion",
+  ].includes(String(value))
     ? (value as NonNullable<PreVaultUserState["onboardingPhase"]>)
     : null;
 }
 
 function normalizeCallbackState(
-  value: unknown
+  value: unknown,
 ): PreVaultUserState["onboardingCallbackState"] {
-  return ["none", "pending", "succeeded", "cancelled", "failed"].includes(String(value))
+  return ["none", "pending", "succeeded", "cancelled", "failed"].includes(
+    String(value),
+  )
     ? (value as NonNullable<PreVaultUserState["onboardingCallbackState"]>)
     : null;
 }
 
-function resolvePreVaultPath(path: "bootstrap-state" | "pre-vault-state"): string {
+function resolvePreVaultPath(
+  path: "bootstrap-state" | "pre-vault-state",
+): string {
   // Native builds call backend directly via ApiService.apiFetch, so these routes
   // must use backend paths instead of Next.js proxy paths.
   if (Capacitor.isNativePlatform()) {
@@ -156,7 +182,9 @@ function resolvePreVaultPath(path: "bootstrap-state" | "pre-vault-state"): strin
 async function getAuthHeader(): Promise<string> {
   const token = await AuthService.getIdToken();
   if (!token) {
-    throw new Error("Unable to authenticate request: missing Firebase ID token");
+    throw new Error(
+      "Unable to authenticate request: missing Firebase ID token",
+    );
   }
   return `Bearer ${token}`;
 }
@@ -164,11 +192,12 @@ async function getAuthHeader(): Promise<string> {
 export class PreVaultUserStateService {
   static async bootstrapState(
     userId: string,
-    options?: { force?: boolean }
+    options?: { force?: boolean },
   ): Promise<PreVaultUserState> {
     const cacheKey = CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId);
     if (!options?.force) {
-      const cached = CacheService.getInstance().get<PreVaultUserState>(cacheKey);
+      const cached =
+        CacheService.getInstance().get<PreVaultUserState>(cacheKey);
       if (cached) {
         return cached;
       }
@@ -179,14 +208,17 @@ export class PreVaultUserStateService {
     }
 
     const authorization = await getAuthHeader();
-    const request = apiJson<BootstrapStateResponse>(resolvePreVaultPath("bootstrap-state"), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: authorization,
+    const request = apiJson<BootstrapStateResponse>(
+      resolvePreVaultPath("bootstrap-state"),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authorization,
+        },
+        body: JSON.stringify({ userId }),
       },
-      body: JSON.stringify({ userId }),
-    })
+    )
       .then((payload) => {
         const normalized = normalizeResponse(userId, payload);
         // Pre-vault bootstrap state changes infrequently and is updated by this service,
@@ -195,7 +227,10 @@ export class PreVaultUserStateService {
         // Fold the verified-phone hint from this same call into a cold identity
         // cache so the phone-mandate guard can resolve without a separate
         // identity/refresh round-trip on first paint.
-        AccountIdentityService.primeVerifiedPhoneHint(userId, normalized.phoneVerified);
+        AccountIdentityService.primeVerifiedPhoneHint(
+          userId,
+          normalized.phoneVerified,
+        );
         return normalized;
       })
       .finally(() => {
@@ -210,22 +245,25 @@ export class PreVaultUserStateService {
 
   static async updatePreVaultState(
     userId: string,
-    updates: PreVaultStateUpdatePayload
+    updates: PreVaultStateUpdatePayload,
   ): Promise<PreVaultUserState> {
     const authorization = await getAuthHeader();
-    const payload = await apiJson<BootstrapStateResponse>(resolvePreVaultPath("pre-vault-state"), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: authorization,
+    const payload = await apiJson<BootstrapStateResponse>(
+      resolvePreVaultPath("pre-vault-state"),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authorization,
+        },
+        body: JSON.stringify({ userId, ...updates }),
       },
-      body: JSON.stringify({ userId, ...updates }),
-    });
+    );
     const normalized = normalizeResponse(userId, payload);
     CacheService.getInstance().set(
       CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId),
       normalized,
-      CACHE_TTL.SESSION
+      CACHE_TTL.SESSION,
     );
     return normalized;
   }
@@ -235,7 +273,9 @@ export class PreVaultUserStateService {
     return state.setupCompleted === true;
   }
 
-  static isNavSetupResolved(state: PreVaultUserState | null | undefined): boolean {
+  static isNavSetupResolved(
+    state: PreVaultUserState | null | undefined,
+  ): boolean {
     if (!state) return false;
     return Boolean(state.navSetupCompletedAt || state.navSetupSkippedAt);
   }
@@ -248,7 +288,7 @@ export class PreVaultUserStateService {
    */
   static async syncSetupCapabilities(
     userId: string,
-    setupCapabilityIds: readonly string[]
+    setupCapabilityIds: readonly string[],
   ): Promise<PreVaultUserState> {
     return this.updatePreVaultState(userId, {
       setupCapabilityIds: toStringArray([...setupCapabilityIds]),
@@ -288,7 +328,9 @@ export class PreVaultUserStateService {
       setupCompleted: params.completed,
       setupSkipped: params.skipped,
       setupCompletedAt:
-        params.completed && Number.isFinite(completedAtMs) ? completedAtMs : Date.now(),
+        params.completed && Number.isFinite(completedAtMs)
+          ? completedAtMs
+          : Date.now(),
     });
   }
 
@@ -298,7 +340,8 @@ export class PreVaultUserStateService {
     completedAt?: number | null;
   }): PreVaultUserState {
     const cacheKey = CACHE_KEYS.PRE_VAULT_BOOTSTRAP(params.userId);
-    const existing = CacheService.getInstance().get<PreVaultUserState>(cacheKey);
+    const existing =
+      CacheService.getInstance().get<PreVaultUserState>(cacheKey);
     const completedAt = params.completedAt ?? Date.now();
     const next: PreVaultUserState = existing
       ? {

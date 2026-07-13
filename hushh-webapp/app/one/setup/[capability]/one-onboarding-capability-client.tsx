@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { OnboardingCapabilityStep } from "@/components/onboarding/setup/onboarding-capability-step";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
-import { getOneCapability } from "@/lib/onboarding/one-capabilities";
+import { getOneSetupCapability } from "@/lib/onboarding/one-capabilities";
 import { CapabilityTourService } from "@/lib/services/capability-tour-service";
 import { OneSetupGateService } from "@/lib/services/one-setup-gate-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
@@ -17,7 +17,6 @@ import {
   resolveCapabilityHandoffTarget,
   ROUTES,
 } from "@/lib/navigation/routes";
-
 
 /**
  * Per-capability setup step client: `/one/setup/<capability>`.
@@ -35,22 +34,16 @@ import {
  * resolved only by a genuine finish (the hub's Skip/Continue =
  * `OneSetupHub.handleMasterAck`, or true onboarding completion).
  *
- * When the Continue CTA forwards into a hard-gated product surface
+ * When the setup CTA forwards into a product surface
  * (`/one/<capability>`, e.g. `/one/gmail`, `/one/location`,
  * `/one/connected-systems`), we tag the URL with `?from=/one/setup` (the hub
- * path) so (1) `OneOnboardingGuard` allows the setup-originated entry through
- * without the master gate (see `isCapabilityHandoffTarget`), and (2) the top-bar
- * back button retraces to the hub (the breadcrumb reads `from` as a real path;
- * a bare `setup` marker was rejected by `normalizeInternalRouteHref` and fell
- * back to Profile — the QA back-button bug). An even earlier version wrote
- * `setupCompleted = true` here to dodge the guard bounce — but that account-wide
- * side effect cleared the dashboard's "Finish setup" bar prematurely. The
- * `?from=/one/setup` handoff fixes the redirect loop WITHOUT that side effect.
+ * path) as navigation history only. Durable active-capability state supplies
+ * admission authority; the top-bar uses the marker to return through this
+ * capability's explicit terminal acknowledgement.
  *
- * Forwards that STAY on the setup surface (finance → the `/one/setup/kai`
- * wizard) or that leave `/one/*` entirely (consent → `/consents`) need no
- * marker: the wizard owns its own completion, and routes outside `/one/*` are
- * not behind `OneOnboardingGuard`.
+ * Finance stays on the setup surface through `/one/setup/kai`. RIA leaves the
+ * `/one/*` family, but admission is still bounded by the durable active
+ * capability record rather than by query-string history.
  */
 export function OneOnboardingCapabilityClient({
   capabilityId,
@@ -58,27 +51,28 @@ export function OneOnboardingCapabilityClient({
   capabilityId: string;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
   const { isVaultUnlocked } = useVault();
   const [busy, setBusy] = useState(false);
 
-  const capability = getOneCapability(capabilityId);
+  const capability = getOneSetupCapability(capabilityId);
+  const completion = searchParams.get("finish") === "1";
 
   // The step collects nothing and renders pre-vault, but if this capability's
   // workspace reads vault-backed data and the vault is currently locked, set the
-  // honest "you'll unlock next" expectation. The destination guard owns the
-  // actual unlock prompt.
+  // honest "private setup comes next" expectation. The destination guard owns
+  // the actual vault access prompt.
   const needsVaultUnlock =
     capability?.requiresVault === true && !isVaultUnlocked;
   const handoffTarget = resolveCapabilityHandoffTarget(capabilityId);
   // Forward target for this capability, tagged with the setup-hub ORIGIN so:
   //  (1) the top-bar back retraces to the hub — "jaise aaya waise wapas" — for
-  //      EVERY capability (gmail/email/location/pkm/connected-systems + consent),
+  //      EVERY capability (Gmail, drafting, Location, RIA, and tools),
   //      instead of falling back to Profile/dashboard; and
-  //  (2) `OneOnboardingGuard` lets a setup-originated entry into a hard-gated
-  //      `/one/*` surface through WITHOUT resolving the account-wide master gate
-  //      (see `isCapabilityHandoffTarget` — this replaced an earlier premature
-  //      `setupCompleted = true` write that cleared the "Finish setup" bar).
+  //  (2) the durable active-capability record lets `OneOnboardingGuard` admit
+  //      only this capability's bounded route family without resolving the
+  //      account-wide master gate.
   // Finance opens the investor-preferences WIZARD and carries the specific
   // capability route as its `from` (the wizard reads it for re-entry + its own
   // back affordance); every other capability carries the hub path `/one/setup`.
@@ -92,7 +86,6 @@ export function OneOnboardingCapabilityClient({
   // Unknown capability: contain to the hub, never a hard 404.
   useEffect(() => {
     if (!capability) {
-
       router.replace(ROUTES.ONE_SETUP);
     }
   }, [capability, router]);
@@ -110,9 +103,50 @@ export function OneOnboardingCapabilityClient({
     setBusy(true);
 
     try {
-      // Mark this visit as "seen" so the hub no longer treats it as a fresh,
-      // never-opened tile, and record the explore signal for explore-only
-      // capabilities.
+      if (completion) {
+        const durableState = await PreVaultUserStateService.bootstrapState(
+          userId,
+          { force: true },
+        );
+        if (durableState.onboardingActiveCapability !== capabilityId) {
+          router.replace(ROUTES.ONE_SETUP);
+          return {
+            status: "blocked" as const,
+            summary:
+              "This finish step no longer matches the active setup. Returning to setup.",
+            routeAfter: ROUTES.ONE_SETUP,
+          };
+        }
+        await CapabilityTourService.markExplored(userId, capabilityId);
+        const localIds = await CapabilityTourService.loadExploredIds(userId);
+        const completedIds = Array.from(
+          new Set([
+            ...durableState.setupCapabilityIds,
+            ...localIds,
+            capabilityId,
+          ]),
+        ).sort();
+        await PreVaultUserStateService.syncSetupCapabilities(
+          userId,
+          completedIds,
+        );
+        await PreVaultUserStateService.syncOnboardingJourney({
+          userId,
+          phase: "setup_hub",
+          activeCapability: null,
+        });
+        router.replace(ROUTES.ONE_SETUP);
+        return {
+          status: "started" as const,
+          summary: `${capability?.title || capabilityId} setup is finished. Returning to setup.`,
+          routeAfter: ROUTES.ONE_SETUP,
+          screenAfter: "one_setup_hub",
+        };
+      }
+
+      // Mark this visit as seen, but do not mark the capability complete.
+      // Every capability writes setupCapabilityIds only from its terminal
+      // "Finish <capability> setup" acknowledgement.
       OneSetupGateService.markSeen(userId);
       await PreVaultUserStateService.syncOnboardingJourney({
         userId,
@@ -120,26 +154,15 @@ export function OneOnboardingCapabilityClient({
         activeCapability: capabilityId,
       });
 
-      if (capability?.isExploreOnly === true) {
-        await CapabilityTourService.markExplored(userId, capabilityId).catch(
-          () => undefined,
-        );
-        const explored = await CapabilityTourService.loadExploredIds(userId);
-        void PreVaultUserStateService.syncSetupCapabilities(userId, [
-          ...explored,
-        ]).catch(() => undefined);
-      }
-
       // NOTE: we intentionally do NOT resolve the account-wide master setup
-      // gate here. Forwarding into a hard-gated `/one/*` surface is handled by
-      // the `?from=setup` marker on `target` (which `OneOnboardingGuard`
-      // allows through) — see the component doc comment. Marking
-      // `setupCompleted = true` on capability entry was the cause of the
-      // dashboard "Finish setup" bar clearing prematurely.
+      // gate here. The durable active-capability record authorizes only this
+      // bounded route family; the query marker is navigation history. Marking
+      // `setupCompleted=true` here previously cleared the root gate too early.
       router.replace(target);
       return {
         status: "started" as const,
         summary: `Opening ${capability?.title || capabilityId}.`,
+        routeAfter: target,
       };
     } catch (resolveError) {
       console.warn(
@@ -148,7 +171,8 @@ export function OneOnboardingCapabilityClient({
       );
       return {
         status: "failed" as const,
-        summary: "This setup step could not save its progress. Please try again.",
+        summary:
+          "This setup step could not save its progress. Please try again.",
       };
     } finally {
       setBusy(false);
@@ -156,7 +180,7 @@ export function OneOnboardingCapabilityClient({
   };
 
   // Voice parity: "continue" / "got it" on this step drives the exact same
-  // forwarding logic as tapping the Continue/Unlock/Got it button. Registered
+  // forwarding logic as tapping the Set up or Finish setup button. Registered
   // before the `!capability` early return below to satisfy Rules of Hooks
   // (this hook must run unconditionally on every render of this component).
   useLocalOnboardingActionHandler("setup.capability_continue", async () => {
@@ -174,7 +198,27 @@ export function OneOnboardingCapabilityClient({
   }
 
   const handleBack = () => {
-    router.replace(ROUTES.ONE_SETUP);
+    if (!completion || !user?.uid) {
+      router.replace(ROUTES.ONE_SETUP);
+      return;
+    }
+    // Leaving the terminal screen is a cancellation, not completion. Clear the
+    // active capability so the hub is reachable without falsely adding it to
+    // setupCapabilityIds.
+    setBusy(true);
+    void PreVaultUserStateService.syncOnboardingJourney({
+      userId: user.uid,
+      phase: "setup_hub",
+      activeCapability: null,
+    })
+      .then(() => router.replace(ROUTES.ONE_SETUP))
+      .catch((error) => {
+        console.warn(
+          "[OneOnboardingCapabilityClient] Failed to cancel capability finish:",
+          error,
+        );
+        setBusy(false);
+      });
   };
 
   const handlePrimary = () => {
@@ -189,6 +233,7 @@ export function OneOnboardingCapabilityClient({
       onBack={handleBack}
       busy={busy}
       needsVaultUnlock={needsVaultUnlock}
+      completion={completion}
     />
   );
 }

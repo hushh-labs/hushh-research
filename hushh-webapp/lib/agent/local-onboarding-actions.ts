@@ -17,11 +17,14 @@
  * and should return a short result summary string for the agent to relay.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 
 export type LocalOnboardingActionResult = {
   status: "started" | "succeeded" | "blocked" | "failed";
   summary: string;
+  /** Authored navigation target, settled by the shared voice runtime. */
+  routeAfter?: string | null;
+  screenAfter?: string | null;
   data?: Record<string, unknown>;
 };
 
@@ -48,6 +51,13 @@ type MountedLocalActionHandler = {
 const handlers = new Map<string, Map<string, MountedLocalActionHandler>>();
 const legacyOwnerIds = new WeakMap<LocalOnboardingActionHandler, string>();
 let registrationSequence = 0;
+let handlerRevision = 0;
+const handlerListeners = new Set<() => void>();
+
+function emitHandlerChange() {
+  handlerRevision += 1;
+  handlerListeners.forEach((listener) => listener());
+}
 
 function legacyOwnerId(handler: LocalOnboardingActionHandler): string {
   const existing = legacyOwnerIds.get(handler);
@@ -68,6 +78,7 @@ export function registerMountedLocalActionHandler(
   registrationSequence += 1;
   owners.set(ownerId, { ownerId, sequence: registrationSequence, handler });
   handlers.set(actionId, owners);
+  emitHandlerChange();
 }
 
 /** Remove only the registration owned by the caller. */
@@ -79,6 +90,7 @@ export function unregisterMountedLocalActionHandler(
   if (!owners) return;
   owners.delete(ownerId);
   if (owners.size === 0) handlers.delete(actionId);
+  emitHandlerChange();
 }
 
 /** Register a handler for a governed `action_id`. Last registration wins. */
@@ -106,6 +118,22 @@ export function resolveLocalOnboardingHandler(
     Array.from(owners.values()).sort(
       (left, right) => right.sequence - left.sequence,
     )[0]?.handler ?? null
+  );
+}
+
+export function hasMountedLocalOnboardingHandler(actionId: string): boolean {
+  return resolveLocalOnboardingHandler(actionId) !== null;
+}
+
+/** Monotonic existing-registry revision used by the shared AX snapshot. */
+export function useLocalOnboardingHandlerRevision(): number {
+  return useSyncExternalStore(
+    (listener) => {
+      handlerListeners.add(listener);
+      return () => handlerListeners.delete(listener);
+    },
+    () => handlerRevision,
+    () => handlerRevision,
   );
 }
 

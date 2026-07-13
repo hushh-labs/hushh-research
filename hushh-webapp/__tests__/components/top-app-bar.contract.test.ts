@@ -119,7 +119,7 @@ describe("Top app bar responsive contract", () => {
   it("keeps onboarding chrome canonical and shell-sized", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
-    expect(source).toContain('return { label: "Set up One", interactive: false as const };');
+    expect(source).not.toContain('return { label: "Set up One", interactive: false as const };');
     expect(source).toContain("<ThemeToggleCompact className={TOP_SHELL_ICON_BUTTON_CLASSNAME} />");
     expect(source).toContain('<ShellActionSurface\n            variant="icon"\n            aria-label="Account actions"');
     expect(source).not.toContain('return { label: "Get started", interactive: false as const };');
@@ -133,14 +133,13 @@ describe("Top app bar responsive contract", () => {
     expect(source).not.toContain("history.back()");
   });
 
-  it("makes setup back prime the guard before deterministic navigation", () => {
+  it("keeps setup back as navigation and root completion explicit", () => {
     const topBar = read("components/app-ui/top-app-bar.tsx");
     const setupHub = read("components/onboarding/setup/one-setup-hub.tsx");
     const exitService = read("lib/services/one-setup-exit-service.ts");
 
-    expect(topBar).toContain("normalizedPathname === ROUTES.ONE_SETUP");
-    expect(topBar).toContain("acknowledgeOneSetupExit({");
-    expect(topBar).toContain("router.push(ROUTES.ONE_HOME);");
+    expect(topBar).not.toContain("acknowledgeOneSetupExit({");
+    expect(topBar).toContain("router.push(topShellBreadcrumb.backHref, {");
     expect(setupHub).toContain("acknowledgeOneSetupExit({");
     expect(exitService).toContain("export function acknowledgeOneSetupExit");
     expect(exitService).toContain("primeOneSetupResolved({");

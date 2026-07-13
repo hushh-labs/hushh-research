@@ -60,6 +60,13 @@ router, action registry, or DOM observer. Each publisher has an owner-scoped lea
 a stale unmount cannot clear or replace a newer publisher. Route revision changes
 remove leases that no longer belong to the verified route.
 
+The route publisher also carries a pathname lease. If Next navigation has advanced the
+runtime route while React still exposes the prior route publisher, Morphy AX publishes
+no executable actions or controls for that transient frame. Local-handler actions are
+admitted only while an owner-scoped handler is mounted. A navigation action settles only
+after both the browser route and the new authored publisher agree, which removes the
+refresh-dependent action-inventory race without reconnecting the live session.
+
 `VoiceInteractionLayerV1` is the redacted interaction-layer contract. It carries a
 stable layer id and kind, modality (`nonmodal`, `modal`, or `blocking`), lifecycle,
 dismissibility, an exact generated dismiss/cancel action when one exists, visible
@@ -139,6 +146,7 @@ Release gates are measurable:
 - no additional network call, model call, or live-session recreation for a clear visible action
 - no hidden underlying action exposure while a modal or blocking layer is active
 - provider popup recovery restores a usable Login surface without a page refresh
+- route transitions never expose prior-route actions or claim success before the destination publisher settles
 
 Open-ended language outside the release corpus is not described as universally perfect. When meaning is unresolved, One asks one natural clarification and preserves the active goal.
 

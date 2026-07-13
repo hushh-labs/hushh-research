@@ -230,4 +230,37 @@ describe("voice surface interaction-layer composition", () => {
     expect(getVoiceSurfaceMetadata()?.screenId).toBe("one_intro");
     expect(getVoiceSurfaceMetadata()?.interactionLayer).toBeNull();
   });
+
+  it("never exposes actions from a publisher that belongs to the previous route", () => {
+    publishLoginRoute();
+
+    const betweenRoutes = buildOneVoiceContextSnapshot({
+      appRuntimeState: runtime("/", "one_intro"),
+    });
+    expect(betweenRoutes.available_action_ids).toEqual([]);
+    expect(betweenRoutes.ui.controls || []).toEqual([]);
+
+    publishVoiceSurfaceMetadata(
+      "next_route",
+      {
+        screenId: "one_intro",
+        title: "Claim your One",
+        actions: [
+          {
+            id: "onboarding_claim_one",
+            actionId: "onboarding.claim_one",
+            label: "Claim your One",
+          },
+        ],
+      },
+      { role: "route", routeKey: "/" },
+    );
+
+    const settledRoute = buildOneVoiceContextSnapshot({
+      appRuntimeState: runtime("/", "one_intro"),
+    });
+    expect(settledRoute.available_action_ids).toContain(
+      "onboarding.claim_one",
+    );
+  });
 });

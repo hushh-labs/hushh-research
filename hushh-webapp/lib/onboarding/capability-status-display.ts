@@ -14,7 +14,7 @@ import type {
 export type CapabilityStatusTone = "ready" | "action" | "attention" | "muted";
 
 export interface CapabilityStatusDisplay {
-  /** Short badge label, e.g. "Ready", "Set up", "2 to review", "Unlock to view". */
+  /** Short badge label, e.g. "Ready", "Set up", "2 to review", "Set up vault". */
   label: string;
   tone: CapabilityStatusTone;
   /** Whether tapping the tile should route into a setup action vs just open it. */
@@ -79,7 +79,7 @@ export function getCapabilityStatusDisplay(
     case "unknown":
     default:
       return {
-        label: status.requiresUnlock ? "Unlock to view" : "Checking…",
+        label: status.requiresUnlock ? "Set up vault" : "Checking…",
         tone,
         isActionable: false,
       };
@@ -89,7 +89,7 @@ export function getCapabilityStatusDisplay(
 function blockedLabel(status: CapabilityStatus): string {
   switch (status.prerequisite) {
     case "vault":
-      return "Unlock to set up";
+      return "Set up vault";
     case "oauth":
       return "Connect to set up";
     case "auth":

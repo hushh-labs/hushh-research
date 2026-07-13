@@ -3527,9 +3527,15 @@
           "screen": "one_setup",
           "entry_cue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
           "proactivity": "on_entry",
-          "primary_action_id": "setup.open_finance",
+          "primary_action_id": "setup.open_gmail",
           "happy_path_action_ids": [
-            "setup.open_finance"
+            "setup.open_gmail",
+            "setup.open_location",
+            "setup.open_email",
+            "setup.open_finance",
+            "setup.open_ria",
+            "setup.open_connected_systems",
+            "setup.hub_master_ack"
           ],
           "required_inputs": [],
           "recoveries": {

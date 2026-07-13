@@ -1,4 +1,9 @@
-import { normalizeInternalRouteHref, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildOneSetupCapabilityFinishRoute,
+  normalizeInternalRouteHref,
+  resolveOnboardingCapabilityForRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import {
   buildProfileRoute,
   resolveProfileRouteState,
@@ -73,6 +78,17 @@ function normalizeBreadcrumbPathname(pathname: string): string {
   return withSlash.endsWith("/") ? withSlash.slice(0, -1) : withSlash;
 }
 
+function resolveCapabilitySetupBackHref(
+  pathname: string,
+  originHref: string | null,
+): string | null {
+  if (originHref !== ROUTES.ONE_SETUP) return originHref;
+  const capabilityId = resolveOnboardingCapabilityForRoute(pathname);
+  return capabilityId
+    ? buildOneSetupCapabilityFinishRoute(capabilityId)
+    : ROUTES.ONE_SETUP;
+}
+
 export function resolveTopShellBreadcrumb(
   pathname: string,
   searchParams?: URLSearchParams | { get(name: string): string | null } | null,
@@ -145,9 +161,10 @@ export function resolveTopShellBreadcrumb(
     // can continue onboarding the other capabilities instead of being dropped
     // at One home with no path back.
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    const setupBackHref = resolveCapabilitySetupBackHref(pathname, originHref);
     const fromSetup = originHref === ROUTES.ONE_SETUP;
     return {
-      backHref: originHref || ROUTES.ONE_HOME,
+      backHref: setupBackHref || ROUTES.ONE_HOME,
       width: "content",
       align: "center",
       items: [
@@ -296,13 +313,15 @@ export function resolveTopShellBreadcrumb(
   // The setup hub itself (`/one/setup`). Back returns to the One home so a user
   // who opened setup from the dashboard can step out without completing it.
   if (pathname === ROUTES.ONE_SETUP) {
+    const returnHref =
+      normalizeInternalRouteHref(searchParams?.get("return_to")) || ROUTES.HOME;
     return {
-      backHref: ROUTES.ONE_HOME,
+      backHref: returnHref,
       width: "content",
       align: "center",
       hideBack: false,
       items: [
-        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "One", href: returnHref },
         { label: "Setup" },
       ],
     };
@@ -371,7 +390,8 @@ export function resolveTopShellBreadcrumb(
   if (pathname === ROUTES.CONSENTS) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     const privacyHref = profilePanelHref("access");
-    const backHref = originHref || privacyHref;
+    const backHref =
+      resolveCapabilitySetupBackHref(pathname, originHref) || privacyHref;
     return {
       backHref,
       width: "profile",
@@ -390,7 +410,8 @@ export function resolveTopShellBreadcrumb(
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     const fromProfile = originHref === ROUTES.PROFILE;
     return {
-      backHref: originHref || ROUTES.ONE_HOME,
+      backHref:
+        resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
       items: [
@@ -406,7 +427,8 @@ export function resolveTopShellBreadcrumb(
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     const fromProfile = originHref === ROUTES.PROFILE;
     return {
-      backHref: originHref || ROUTES.ONE_HOME,
+      backHref:
+        resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
       items: [
@@ -422,7 +444,8 @@ export function resolveTopShellBreadcrumb(
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     const fromProfile = originHref === ROUTES.PROFILE;
     return {
-      backHref: originHref || ROUTES.ONE_HOME,
+      backHref:
+        resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
       items: [
@@ -437,7 +460,8 @@ export function resolveTopShellBreadcrumb(
   if (pathname === ROUTES.GMAIL) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     return {
-      backHref: originHref || ROUTES.ONE_HOME,
+      backHref:
+        resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
       items: [
@@ -452,7 +476,8 @@ export function resolveTopShellBreadcrumb(
     // the hub; no marker → One home (unchanged).
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     return {
-      backHref: originHref || ROUTES.ONE_HOME,
+      backHref:
+        resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
       items: [
@@ -466,7 +491,8 @@ export function resolveTopShellBreadcrumb(
     // Origin-aware (see PKM above): setup-hub origin retraces to the hub.
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     return {
-      backHref: originHref || ROUTES.ONE_HOME,
+      backHref:
+        resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
       items: [

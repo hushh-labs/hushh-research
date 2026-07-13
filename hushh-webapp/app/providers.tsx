@@ -46,6 +46,7 @@ import {
   useRouteTransition,
 } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { PostAuthOnboardingSyncBridge } from "@/components/onboarding/PostAuthOnboardingSyncBridge";
+import { OnboardingJourneyGuard } from "@/components/onboarding/onboarding-journey-guard";
 import { KaiCommandBarGlobal } from "@/components/kai/kai-command-bar-global";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { Capacitor } from "@capacitor/core";
@@ -413,7 +414,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                               : "min-h-0"
                           }
                         >
-                          {children}
+                          <OnboardingJourneyGuard>{children}</OnboardingJourneyGuard>
                         </div>
                       </div>
                     </div>
@@ -499,7 +500,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                               : "min-h-0"
                           }
                         >
-                          {children}
+                          <OnboardingJourneyGuard>{children}</OnboardingJourneyGuard>
                         </div>
                       </div>
                     </div>
