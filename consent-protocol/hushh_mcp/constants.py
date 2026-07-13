@@ -49,6 +49,7 @@ class ConsentScope(str, Enum):
 
     AGENT_KYC_PROCESS = "agent.kyc.process"
     AGENT_KYC_REDRAFT_LLM = "agent.kyc.redraft.llm"
+    AGENT_KYC_DISCLOSE_LLM = "agent.kyc.disclose.llm"
 
     # ==================== LIVE LOCATION CAPABILITIES ====================
     # Capability scopes for One Location Agent. These are workflow/action
