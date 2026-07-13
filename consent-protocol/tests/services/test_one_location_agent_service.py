@@ -875,6 +875,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 "updated_at": datetime.now(timezone.utc),
                 "revoked_at": None,
                 "latest_envelope_id": None,
+                "metadata": json.loads(params.get("metadata_json") or "{}"),
                 "recipient_display_name": params.get("recipient_display_name"),
                 "recipient_phone_number": params.get("recipient_phone_number"),
             }
