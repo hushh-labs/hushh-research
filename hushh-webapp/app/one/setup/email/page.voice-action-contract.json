@@ -1,0 +1,10 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "one_setup_email",
+  "surface_title": "KYC Setup",
+  "defaults": { "reachability": { "active_personas": ["investor", "ria"] }, "speaker_persona": "one", "guard_ids": ["auth_signed_in"] },
+  "actions": [
+    { "action_id": "setup.finish_email", "label": "Finish KYC setup", "meaning": "Records a verified email identity and initialized client connector, then returns to setup.", "aliases": ["finish kyc setup", "finish email setup", "finish KYC"], "search_keywords": ["finish", "kyc", "email"], "reachability": { "routes": ["/one/setup/email"], "screens": ["one_setup_email"], "hidden_navigable": false, "navigation_prerequisites": ["A verified email identity and client connector are ready."] }, "guard_ids": ["auth_signed_in"], "risk_level": "low", "execution_policy": "allow_direct", "execution_target": { "status": "wired", "path": "local_handler", "target": "setup.finish_email" }, "control_ids": ["one-setup-email-terminal"], "state_exposure": ["verified email identity", "connector readiness", "active setup capability"] },
+    { "action_id": "setup.skip_email", "label": "Skip KYC setup", "meaning": "Returns to the setup hub without recording KYC as complete.", "aliases": ["skip kyc setup", "skip email setup", "not now"], "search_keywords": ["skip", "kyc", "email"], "reachability": { "routes": ["/one/setup/email"], "screens": ["one_setup_email"], "hidden_navigable": false, "navigation_prerequisites": [] }, "guard_ids": ["auth_signed_in"], "risk_level": "low", "execution_policy": "allow_direct", "execution_target": { "status": "wired", "path": "local_handler", "target": "setup.skip_email" }, "control_ids": ["one-setup-email-terminal"], "state_exposure": ["active setup capability"] }
+  ]
+}

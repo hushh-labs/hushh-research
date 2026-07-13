@@ -169,6 +169,11 @@ import {
   addRecentDestination,
   loadRecentDestinations,
 } from "@/lib/one-location/drive-recents";
+import {
+  loadPersistedDriveSession,
+  restoreDriveSession,
+  saveDriveSession,
+} from "@/lib/one-location/drive-session-store";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
@@ -1748,7 +1753,11 @@ function OneLocationOnboardingFlow({
   );
 }
 
-function OneLocationAgentPageContent() {
+export function OneLocationAgentPageContent({
+  onSetupReadinessChange,
+}: {
+  onSetupReadinessChange?: (ready: boolean) => void;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const auth = useRequireAuth();
@@ -1760,6 +1769,11 @@ function OneLocationAgentPageContent() {
   const [state, setState] = useState<OneLocationState | null>(null);
   const [permission, setPermission] =
     useState<HushhLocationPermissionState | null>(null);
+  useEffect(() => {
+    onSetupReadinessChange?.(
+      permission?.state === "granted" && !isLocationServicesDisabled(permission),
+    );
+  }, [onSetupReadinessChange, permission]);
   const [busy, setBusy] = useState<BusyState>(null);
   // Per-grant revoke tracking so "Stop sharing" only spins on the specific
   // active-share card the user tapped, not every active share at once.
@@ -2755,6 +2769,26 @@ function OneLocationAgentPageContent() {
       pickupSessionRef.current.get(grant.id) ?? livePoint,
     [],
   );
+
+  // Rehydrate the drive/ETA session after a refresh/remount. `driveSessionRef`
+  // is in-memory, so without this the watch loop would resume publishing points
+  // WITHOUT the ETA payload after a reload (position keeps updating, ETA drops).
+  // Restore it from durable storage for still-active owner grants; only when the
+  // ref is empty (never clobber a live session).
+  useEffect(() => {
+    if (!auth.userId || driveSessionRef.current) return;
+    const activeIds = new Set(activeOwnerGrants.map((grant) => grant.id));
+    if (activeIds.size === 0) return;
+    let cancelled = false;
+    void loadPersistedDriveSession(auth.userId).then((persisted) => {
+      if (cancelled || driveSessionRef.current) return;
+      const restored = restoreDriveSession(persisted, activeIds);
+      if (restored) driveSessionRef.current = restored;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.userId, activeOwnerGrants]);
 
   const resetShareComposer = useCallback(() => {
     suppressAutoRecipientSelectionRef.current = true;
@@ -4227,6 +4261,7 @@ function OneLocationAgentPageContent() {
       destination: DriveDestination,
       recipientIds: string[],
       durationHoursValue: string,
+      shareKind?: string,
     ) => {
       if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) {
         toast.error("Location permission is required to share your drive.");
@@ -4286,6 +4321,7 @@ function OneLocationAgentPageContent() {
             recipientKeyId: recipient.keyId,
             durationHours: durationHoursNum,
             reason: "drive_to",
+            ...(shareKind ? { shareKind } : {}),
           });
           await publishEnvelopeWithRetry(grant, recipient, "manual", drivePoint);
           grantIds.add(grant.id);
@@ -4300,6 +4336,17 @@ function OneLocationAgentPageContent() {
           lastEtaPoint: point,
           lastEtaAt: Date.now(),
         };
+        // Persist the session so the live ETA survives a refresh/remount — the
+        // watch loop rehydrates it on mount and keeps attaching the ETA payload.
+        if (auth.userId) {
+          void saveDriveSession(auth.userId, {
+            grantIds: [...grantIds],
+            destination,
+            etaSeconds,
+            distanceMeters,
+            etaComputedAt,
+          });
+        }
 
         if (auth.userId) {
           await addRecentDestination(auth.userId, destination);
@@ -4324,6 +4371,30 @@ function OneLocationAgentPageContent() {
       refresh,
       auth.userId,
     ],
+  );
+
+  // "I'm on my way" — helper-side reverse share: when a helper receives a
+  // Pick Me Up grant they tap "I'm on my way" which drives this handler. It
+  // creates a drive-style grant back to the requester (the grant owner) so the
+  // requester can watch the helper approaching their pickup point in real time.
+  const handleImOnMyWay = useCallback(
+    async (grant: OneLocationGrant) => {
+      // grant.ownerUserId is the REQUESTER (who asked for the pickup); we (the
+      // helper) share our live drive to their pickup point.
+      const requesterUserId = String(grant.ownerUserId || "").trim();
+      const point = decryptedPoints[grant.id];
+      if (!requesterUserId || !point) {
+        toast.error("Can't start yet — open their pickup first.");
+        return;
+      }
+      const destination: DriveDestination = {
+        label: `${receivedGrantOwnerLabel(grant)} · pickup`,
+        latitude: point.latitude,
+        longitude: point.longitude,
+      };
+      await handleDriveTo(destination, [requesterUserId], "4", "pickup_enroute");
+    },
+    [decryptedPoints, handleDriveTo],
   );
 
   // Pick Me Up quick action (INBOUND help): share your LIVE location + a pickup
@@ -4386,6 +4457,7 @@ function OneLocationAgentPageContent() {
             recipientKeyId: recipient.keyId,
             durationHours: durationHoursNum,
             reason: pickupMessage,
+            shareKind: "pick_me_up",
           });
           // Anchor the grant to the fixed-pickup session BEFORE publishing so a
           // mid-publish failure can't leave a created grant drifting to live GPS
@@ -4526,6 +4598,17 @@ function OneLocationAgentPageContent() {
           lastEtaPoint: point,
           lastEtaAt: Date.now(),
         };
+        // Persist the session so the live ETA survives a refresh/remount — the
+        // watch loop rehydrates it on mount and keeps attaching the ETA payload.
+        if (auth.userId) {
+          void saveDriveSession(auth.userId, {
+            grantIds: [...grantIds],
+            destination,
+            etaSeconds,
+            distanceMeters,
+            etaComputedAt,
+          });
+        }
 
         if (auth.userId) {
           await addRecentDestination(auth.userId, destination);
@@ -4976,6 +5059,7 @@ function OneLocationAgentPageContent() {
         durationHoursValue,
         messageValue,
       ),
+    onImOnMyWay: (grant) => void handleImOnMyWay(grant),
   };
 
 
@@ -6278,10 +6362,14 @@ function OneLocationAgentPageContent() {
   );
 }
 
-export default function OneLocationAgentPage() {
+export default function OneLocationAgentPage({
+  onSetupReadinessChange,
+}: {
+  onSetupReadinessChange?: (ready: boolean) => void;
+} = {}) {
   return (
     <VaultLockGuard>
-      <OneLocationAgentPageContent />
+      <OneLocationAgentPageContent onSetupReadinessChange={onSetupReadinessChange} />
     </VaultLockGuard>
   );
 }

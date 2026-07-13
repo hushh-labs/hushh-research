@@ -162,6 +162,13 @@ EOF
   if [ "${#next_args[@]}" -gt 0 ]; then
     exec npm run dev -- "${next_args[@]}"
   fi
+  # Next 16 Turbopack has shown unbounded resident-memory growth during the
+  # long-running onboarding/browser verification lane in this monorepo. Keep
+  # the existing webpack dev path as the bounded local default; operators can
+  # still opt into Turbopack explicitly with `-- --turbopack` when profiling it.
+  if [ "$mode" = "local" ]; then
+    exec npm run dev:webpack
+  fi
   exec npm run dev
 }
 

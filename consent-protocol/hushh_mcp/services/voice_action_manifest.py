@@ -217,6 +217,11 @@ def select_voice_manifest_actions_for_prompt(
         return normalized_screen in screens
 
     for action in list_voice_manifest_actions():
+        # The browser's published visible-action inventory is authoritative.
+        # A non-empty inventory is an exact allowlist, never merely a ranking
+        # hint; otherwise sibling setup actions leak into the live prompt.
+        if normalized_available and action.get("action_id") not in normalized_available:
+            continue
         if not _reachable_on_screen(action):
             continue
         score = 0
@@ -243,6 +248,9 @@ def select_voice_manifest_actions_for_prompt(
         return selected
     # Fallback keeps the same screen-reachability guard so off-screen actions
     # (e.g. phone verification while on the setup hub) never leak in.
-    return [action for action in list_voice_manifest_actions() if _reachable_on_screen(action)][
-        : max(0, limit)
-    ]
+    return [
+        action
+        for action in list_voice_manifest_actions()
+        if _reachable_on_screen(action)
+        and (not normalized_available or action.get("action_id") in normalized_available)
+    ][: max(0, limit)]

@@ -1,0 +1,10 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "one_setup_finance_import",
+  "surface_title": "Finance Source Setup",
+  "defaults": { "reachability": { "active_personas": ["investor"] }, "speaker_persona": "one", "guard_ids": ["auth_signed_in"] },
+  "actions": [
+    { "action_id": "setup.finish_finance", "label": "Finish Finance setup", "meaning": "Records a settled Plaid connection, statement save, or explicit later source choice and returns to setup.", "aliases": ["finish finance setup", "finish finance"], "search_keywords": ["finish", "finance"], "reachability": { "routes": ["/one/setup/finance/import"], "screens": ["one_setup_finance_import"], "hidden_navigable": false, "navigation_prerequisites": ["Finance preferences and one source choice are settled."] }, "guard_ids": ["auth_signed_in"], "risk_level": "low", "execution_policy": "allow_direct", "execution_target": { "status": "wired", "path": "local_handler", "target": "setup.finish_finance" }, "control_ids": ["one-setup-finance-terminal"], "state_exposure": ["Finance source state", "active setup capability"] },
+    { "action_id": "setup.skip_finance", "label": "Skip Finance setup", "meaning": "Returns to the setup hub without recording Finance as complete.", "aliases": ["skip finance setup", "skip finance", "not now"], "search_keywords": ["skip", "finance"], "reachability": { "routes": ["/one/setup/finance", "/one/setup/finance/import"], "screens": ["one_setup_finance", "one_setup_finance_import"], "hidden_navigable": false, "navigation_prerequisites": [] }, "guard_ids": ["auth_signed_in"], "risk_level": "low", "execution_policy": "allow_direct", "execution_target": { "status": "wired", "path": "local_handler", "target": "setup.skip_finance" }, "control_ids": ["one-setup-finance-terminal"], "state_exposure": ["active setup capability"] }
+  ]
+}

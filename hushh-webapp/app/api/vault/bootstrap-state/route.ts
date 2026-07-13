@@ -6,7 +6,7 @@ import {
   resolveRequestId,
   withRequestIdJson,
 } from "@/app/api/_utils/request-id";
-import { createHotGetJsonCache } from "@/app/api/_utils/hot-get-json-cache";
+import { bootstrapStateHotCache as hotPost } from "@/app/api/vault/_utils/bootstrap-state-hot-cache";
 import { validateFirebaseToken } from "@/lib/auth/validate";
 import { isDevelopment } from "@/lib/config";
 import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
@@ -15,10 +15,6 @@ export const dynamic = "force-dynamic";
 
 const PYTHON_API_URL = getPythonApiUrl();
 const UPSTREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(20_000);
-const hotPost = createHotGetJsonCache({
-  freshTtlMs: 30 * 1000,
-  staleTtlMs: 5 * 60 * 1000,
-});
 
 export async function POST(request: NextRequest) {
   const requestId = resolveRequestId(request);

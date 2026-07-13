@@ -104,8 +104,9 @@ export class PostAuthRouteService {
       fallbackRoute === ROUTES.ONE_HOME ||
       fallbackRoute === ROUTES.KAI_HOME ||
       fallbackRoute === ROUTES.LEGACY_KAI_HOME ||
-      fallbackRoute === ROUTES.ONE_SETUP ||
-      fallbackRoute === ROUTES.ONE_SETUP_KAI ||
+          fallbackRoute === ROUTES.ONE_SETUP ||
+          fallbackRoute === ROUTES.ONE_SETUP_FINANCE ||
+          fallbackRoute === ROUTES.ONE_SETUP_KAI ||
       fallbackRoute === ROUTES.LEGACY_ONE_KAI_ONBOARDING ||
       fallbackRoute === ROUTES.LEGACY_KAI_ONBOARDING;
 
@@ -136,6 +137,7 @@ export class PostAuthRouteService {
       }
       if (
         (isSetupHubRedirect ||
+          fallbackRoute === ROUTES.ONE_SETUP_FINANCE ||
           fallbackRoute === ROUTES.ONE_SETUP_KAI ||
           fallbackRoute === ROUTES.LEGACY_ONE_KAI_ONBOARDING ||
           fallbackRoute === ROUTES.LEGACY_KAI_ONBOARDING) &&

@@ -36,10 +36,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 
-import {
-  SettingsGroup,
-  SettingsRow,
-} from "@/components/profile/settings-ui";
+import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
@@ -104,7 +101,12 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { resolveDeveloperRuntime } from "@/lib/developers/runtime";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
-import { resolveDeleteAccountAuth } from "@/lib/flows/delete-account";
+import {
+  DELETE_ACCOUNT_DIALOG_DESCRIPTION,
+  DELETE_ACCOUNT_DIALOG_TITLE,
+  executeVerifiedAccountDeletion,
+  resolveDeleteAccountAuth,
+} from "@/lib/flows/delete-account";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   buildCanonicalProfileRouteFromLegacyQuery,
@@ -127,10 +129,7 @@ import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
-import {
-  AccountService,
-  type AccountDeletionTarget,
-} from "@/lib/services/account-service";
+import { AccountService } from "@/lib/services/account-service";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import {
   setOnboardingFlowActiveCookie,
@@ -202,12 +201,7 @@ import {
 } from "@/lib/agent/agent-voice-settings";
 
 type FinancialContextCategory =
-  | "general"
-  | "portfolio"
-  | "risk"
-  | "kyc"
-  | "tax"
-  | "documents";
+  "general" | "portfolio" | "risk" | "kyc" | "tax" | "documents";
 
 function cloneManifest(manifest: DomainManifest | null): DomainManifest | null {
   if (!manifest) return null;
@@ -691,7 +685,9 @@ function ProfilePageContent() {
   const shouldLoadProfileWorkspaceData =
     profileRouteNeedsWorkspaceData(activePanel);
   const shouldRequestVaultUnlock = searchParams.get("unlock_vault") === "1";
-  const vaultReturnTo = normalizeProfileVaultReturnTo(searchParams.get("return_to"));
+  const vaultReturnTo = normalizeProfileVaultReturnTo(
+    searchParams.get("return_to"),
+  );
   const vaultReturnToRef = useRef<string | null>(vaultReturnTo);
   useEffect(() => {
     if (vaultReturnTo) {
@@ -726,9 +722,6 @@ function ProfilePageContent() {
     gmail.refreshingStatus || gmail.syncingRun || gmailActionBusy !== null;
   const personaList = personaState?.personas ?? ["investor"];
   const hasRiaPersona = personaList.includes("ria");
-  // One account model: deletion always removes the whole One account. Persona-scoped
-  // deletes are retired from the UX; the backend still accepts "both" as the full wipe.
-  const effectiveDeleteTarget: AccountDeletionTarget = "both";
   const vaultAccess = useMemo(
     () =>
       resolveVaultAvailabilityState({
@@ -1362,7 +1355,9 @@ function ProfilePageContent() {
     }
 
     if (resolution.kind === "needs_unlock") {
-      morphyToast.info("Please unlock your vault first to delete your account.");
+      morphyToast.info(
+        "Please unlock your vault first to delete your account.",
+      );
       setIsDeleting(false);
       setShowDeleteConfirm(false);
       setVaultUnlockReason("delete_account");
@@ -1377,24 +1372,22 @@ function ProfilePageContent() {
     // local cleanup complete.
     const token = resolution.token;
     try {
-      await morphyToast.promise(
-        (async () => {
-          await AccountService.deleteAccount(token, effectiveDeleteTarget);
-
-          CacheSyncService.onAccountDeleted(user.uid);
-          await UserLocalStateService.clearForUser(user.uid);
-
-          // One account model: deletion is always a full account removal.
-          setOnboardingRequiredCookie(false);
-          setOnboardingFlowActiveCookie(false);
-        })(),
-        {
-          loading: "Deleting your account...",
-          success: "Account deleted. Redirecting...",
-          error: "Failed to delete account. Please try again.",
-          variant: "destructive",
-        }
-      ).unwrap();
+      await morphyToast
+        .promise(
+          (async () => {
+            await executeVerifiedAccountDeletion({
+              userId: user.uid,
+              vaultOwnerToken: token,
+            });
+          })(),
+          {
+            loading: "Deleting your account...",
+            success: "Account deleted. Redirecting...",
+            error: "Failed to delete account. Please try again.",
+            variant: "destructive",
+          },
+        )
+        .unwrap();
 
       // No artificial delay: the success toast already conveyed completion, and
       // FCM cleanup is skipped because the backend has already destroyed the
@@ -1468,26 +1461,28 @@ function ProfilePageContent() {
     // Branded actionable loading: keep the toast in its loading state until the
     // reset has been acknowledged and local state has been cleared.
     try {
-      await morphyToast.promise(
-        (async () => {
-          await AccountService.resetAccount(resolution.token);
+      await morphyToast
+        .promise(
+          (async () => {
+            await AccountService.resetAccount(resolution.token);
 
-          CacheSyncService.onAccountDeleted(user.uid);
-          await UserLocalStateService.clearForUser(user.uid);
-          await refreshPersonaState({ force: true });
+            CacheSyncService.onAccountDeleted(user.uid);
+            await UserLocalStateService.clearForUser(user.uid);
+            await refreshPersonaState({ force: true });
 
-          // Reset returns the account to a fresh, just-onboarded state: keep
-          // the identity and vault, but re-run onboarding on the next visit.
-          setOnboardingRequiredCookie(true);
-          setOnboardingFlowActiveCookie(true);
-        })(),
-        {
-          loading: "Resetting your account...",
-          success: "Account reset. Restarting onboarding...",
-          error: "Failed to reset account. Please try again.",
-          variant: "destructive",
-        }
-      ).unwrap();
+            // Reset returns the account to a fresh, just-onboarded state: keep
+            // the identity and vault, but re-run onboarding on the next visit.
+            setOnboardingRequiredCookie(true);
+            setOnboardingFlowActiveCookie(true);
+          })(),
+          {
+            loading: "Resetting your account...",
+            success: "Account reset. Restarting onboarding...",
+            error: "Failed to reset account. Please try again.",
+            variant: "destructive",
+          },
+        )
+        .unwrap();
 
       await new Promise((resolve) => setTimeout(resolve, 1200));
       router.replace(ROUTES.ONE_SETUP);
@@ -1567,7 +1562,8 @@ function ProfilePageContent() {
   }
 
   function requestVaultUnlock(
-    reason: "profile_data" | "delete_account" | "reset_account" = "profile_data",
+    reason:
+      "profile_data" | "delete_account" | "reset_account" = "profile_data",
   ) {
     setVaultUnlockReason(reason);
     setShowVaultUnlock(true);
@@ -1905,9 +1901,8 @@ function ProfilePageContent() {
   const deleteRowDescription = vaultAccess.needsVaultCreation
     ? "No vault exists yet. This deletes cloud-linked account records."
     : "This permanently deletes your One account.";
-  const deleteDialogTitle = "Delete your One account?";
-  const deleteDialogDescription =
-    "This action cannot be undone. This permanently deletes your One account, your encrypted vault and saved details, every connected service, and your cloud-linked identity.";
+  const deleteDialogTitle = DELETE_ACCOUNT_DIALOG_TITLE;
+  const deleteDialogDescription = DELETE_ACCOUNT_DIALOG_DESCRIPTION;
 
   const resetRowDescription =
     "Clear your saved details and start onboarding fresh. Keeps your account and sign-in.";
@@ -2355,7 +2350,8 @@ function ProfilePageContent() {
         phone_verified: Boolean(phoneNumber),
         email_verified: emailVerified,
         agent_tts_voice: agentTtsVoice,
-        preference_voice_actions_available: activePanel === "preferences" ? false : null,
+        preference_voice_actions_available:
+          activePanel === "preferences" ? false : null,
       },
     };
   }, [
@@ -3281,7 +3277,9 @@ function ProfilePageContent() {
           icon={Monitor}
           title="Appearance"
           description="Light, dark, or system."
-          trailing={<ThemeToggleLean size="expanded" className="w-full min-w-0" />}
+          trailing={
+            <ThemeToggleLean size="expanded" className="w-full min-w-0" />
+          }
           stackTrailingOnMobile
         />
         <SettingsRow
@@ -4175,18 +4173,6 @@ function ProfilePageContent() {
                 {user.email || "Not available"}
               </span>
             </div>
-            {vaultAccess.needsUnlock && hasVault ? (
-              <div className="pt-1.5">
-                <Button
-                  size="sm"
-                  className="min-w-[148px]"
-                  onClick={() => requestVaultUnlock("profile_data")}
-                >
-                  <Icon icon={KeyRound} size="sm" className="mr-2" />
-                  Unlock vault
-                </Button>
-              </div>
-            ) : null}
           </div>
         </header>
       </AppPageHeaderRegion>
@@ -4202,7 +4188,7 @@ function ProfilePageContent() {
                 chevron={vaultSettingsRow.chevron}
                 disabled={vaultSettingsRow.disabled}
                 voiceControlId="profile_vault"
-                voiceActionId="route.profile_security"
+                voiceActionId="route.profile_security_panel"
                 voiceLabel={vaultSettingsRow.voiceLabel}
                 voicePurpose={vaultSettingsRow.voicePurpose}
                 onClick={openVaultSettingsRow}

@@ -109,28 +109,34 @@ describe("top shell breadcrumbs", () => {
     expect(resolveTopShellBreadcrumb("/one/kai", unsafe)?.backHref).toBe("/one");
   });
 
-  it("gives the setup hub a back affordance to One home", () => {
+  it("gives the setup hub an authored onboarding parent and honors return_to", () => {
     expect(resolveTopShellBreadcrumb("/one/setup")).toEqual({
-      backHref: "/one",
+      backHref: "/",
       width: "content",
       align: "center",
       hideBack: false,
       items: [
-        { label: "One", href: "/one" },
+        { label: "One", href: "/" },
         { label: "Setup" },
       ],
     });
 
     expect(resolveTopShellBreadcrumb("/one/setup/")).toEqual({
-      backHref: "/one",
+      backHref: "/",
       width: "content",
       align: "center",
       hideBack: false,
       items: [
-        { label: "One", href: "/one" },
+        { label: "One", href: "/" },
         { label: "Setup" },
       ],
     });
+
+    const fromDashboard = new URLSearchParams();
+    fromDashboard.set("return_to", "/one");
+    expect(
+      resolveTopShellBreadcrumb("/one/setup", fromDashboard)?.backHref,
+    ).toBe("/one");
   });
 
   it("gives per-capability setup steps a back affordance to the hub", () => {
@@ -334,25 +340,21 @@ describe("top shell breadcrumbs", () => {
     );
   });
 
-  it("retraces setup-hub-opened capabilities back to the hub (?from=/one/setup)", () => {
+  it("retraces setup-hub-opened capabilities through their terminal acknowledgement", () => {
     // From the Set up One hub, capability handoffs carry ?from=/one/setup so the
     // top-bar back returns to the hub (not Profile/dashboard) — "jaise aaya waise
-    // wapas". Covers the origin-aware gated surfaces incl. PKM/connected-systems.
+    // wapas". Covers the six-item onboarding catalog's app-shell surfaces.
     const fromHub = new URLSearchParams();
     fromHub.set("from", "/one/setup");
 
-    for (const path of [
-      "/one/kyc",
-      "/one/location",
-      "/one/marketplace",
-      "/one/gmail",
-      "/one/pkm",
-      "/one/connected-systems",
-      "/consents",
-    ]) {
-      expect(resolveTopShellBreadcrumb(path, fromHub)?.backHref).toBe(
-        "/one/setup",
-      );
+    const expected = new Map([
+      ["/one/kyc", "/one/setup"],
+      ["/one/location", "/one/setup"],
+      ["/one/gmail", "/one/setup"],
+      ["/one/connected-systems", "/one/setup"],
+    ]);
+    for (const [path, backHref] of expected) {
+      expect(resolveTopShellBreadcrumb(path, fromHub)?.backHref).toBe(backHref);
     }
   });
 

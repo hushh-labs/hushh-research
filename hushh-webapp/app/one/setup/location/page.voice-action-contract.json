@@ -1,0 +1,10 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "one_setup_location",
+  "surface_title": "Location Setup",
+  "defaults": { "reachability": { "active_personas": ["investor", "ria"] }, "speaker_persona": "one", "guard_ids": ["auth_signed_in"] },
+  "actions": [
+    { "action_id": "setup.finish_location", "label": "Finish Location setup", "meaning": "Records granted device location permission and returns to the setup hub.", "aliases": ["finish location setup", "finish location"], "search_keywords": ["finish", "location"], "reachability": { "routes": ["/one/setup/location"], "screens": ["one_setup_location"], "hidden_navigable": false, "navigation_prerequisites": ["Device location permission is granted."] }, "guard_ids": ["auth_signed_in"], "risk_level": "low", "execution_policy": "allow_direct", "execution_target": { "status": "wired", "path": "local_handler", "target": "setup.finish_location" }, "control_ids": ["one-setup-location-terminal"], "state_exposure": ["location permission state", "active setup capability"] },
+    { "action_id": "setup.skip_location", "label": "Skip Location setup", "meaning": "Returns to the setup hub without recording Location as complete.", "aliases": ["skip location setup", "skip location", "not now"], "search_keywords": ["skip", "location"], "reachability": { "routes": ["/one/setup/location"], "screens": ["one_setup_location"], "hidden_navigable": false, "navigation_prerequisites": [] }, "guard_ids": ["auth_signed_in"], "risk_level": "low", "execution_policy": "allow_direct", "execution_target": { "status": "wired", "path": "local_handler", "target": "setup.skip_location" }, "control_ids": ["one-setup-location-terminal"], "state_exposure": ["active setup capability"] }
+  ]
+}

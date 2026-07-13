@@ -14,7 +14,7 @@ import type {
 export type CapabilityStatusTone = "ready" | "action" | "attention" | "muted";
 
 export interface CapabilityStatusDisplay {
-  /** Short badge label, e.g. "Ready", "Set up", "2 to review", "Unlock to view". */
+  /** Short, capability-specific next-action label. */
   label: string;
   tone: CapabilityStatusTone;
   /** Whether tapping the tile should route into a setup action vs just open it. */
@@ -40,10 +40,18 @@ const STATE_TONE: Record<CapabilitySetupState, CapabilityStatusTone> = {
  */
 export function getCapabilityStatusDisplay(
   status: CapabilityStatus,
-  options?: { isExploreOnly?: boolean }
+  options?: {
+    isExploreOnly?: boolean;
+    /** The next action authored by the capability's setup copy. */
+    actionLabel?: string;
+    /** The next action after a partially completed setup. */
+    resumeActionLabel?: string;
+  },
 ): CapabilityStatusDisplay {
   const tone = STATE_TONE[status.state];
   const isExploreOnly = options?.isExploreOnly === true;
+  const actionLabel = options?.actionLabel;
+  const resumeActionLabel = options?.resumeActionLabel ?? actionLabel;
 
   switch (status.state) {
     case "completed":
@@ -56,17 +64,21 @@ export function getCapabilityStatusDisplay(
         isActionable: false,
       };
     case "skipped":
-      return { label: "Set up later", tone, isActionable: true };
+      return { label: actionLabel ?? "Set up later", tone, isActionable: true };
     case "not-started":
-    case "in-progress":
-      // Explore-only and not yet explored: invite a look, not a setup step.
       // Location gets a specific "Set up location" CTA (clearer than "Set up").
       return {
         label: isExploreOnly
           ? "Explore"
           : status.id === "location"
             ? "Set up location"
-            : "Set up",
+            : (actionLabel ?? "Set up"),
+        tone,
+        isActionable: true,
+      };
+    case "in-progress":
+      return {
+        label: isExploreOnly ? "Explore" : (resumeActionLabel ?? "Continue"),
         tone,
         isActionable: true,
       };
@@ -80,23 +92,32 @@ export function getCapabilityStatusDisplay(
         isActionable: true,
       };
     case "blocked":
-      return { label: blockedLabel(status), tone, isActionable: true };
+      return {
+        label: blockedLabel(status, actionLabel),
+        tone,
+        isActionable: true,
+      };
     case "unknown":
     default:
       return {
-        label: status.requiresUnlock ? "Unlock to view" : "Checking…",
+        // A vault-dependent setup step is deliberately available before a
+        // vault exists. Keep its capability action visible instead of replacing
+        // every row with the same prerequisite copy.
+        label: status.requiresUnlock
+          ? (actionLabel ?? "Set up vault")
+          : "Preparing…",
         tone,
-        isActionable: false,
+        isActionable: Boolean(actionLabel),
       };
   }
 }
 
-function blockedLabel(status: CapabilityStatus): string {
+function blockedLabel(status: CapabilityStatus, actionLabel?: string): string {
   switch (status.prerequisite) {
     case "vault":
-      return "Unlock to set up";
+      return actionLabel ?? "Set up vault";
     case "oauth":
-      return "Connect to set up";
+      return actionLabel ?? "Connect";
     case "auth":
       return "Sign in to set up";
     default:

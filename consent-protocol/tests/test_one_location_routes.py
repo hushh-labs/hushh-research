@@ -649,3 +649,76 @@ def test_recipient_key_blob_is_returned_to_owner_and_never_leaks_to_others(monke
     for recipient in state_b["recipients"]:
         assert "encryptedPrivateKeyJwk" not in recipient
     assert "OWNER_ONLY_CIPHERTEXT" not in json.dumps(state_b)
+
+
+def test_create_grant_with_explicit_pick_me_up_share_kind(monkeypatch) -> None:
+    """Explicit shareKind wins over _classify_share_kind; reason carries the freeform note."""
+    service = FourUserMemoryService()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)
+
+    _register_key(client, current_user, "user_b")
+    service._seed_connection("user_a", "user_b")
+    current_user["user_id"] = "user_a"
+
+    resp = client.post(
+        "/api/one/location/grants",
+        json={
+            "recipientUserId": "user_b",
+            "recipientKeyId": "key-user_b",
+            "durationHours": 1,
+            "reason": "Pick me up at Starbucks on Main St",
+            "shareKind": "pick_me_up",
+        },
+    )
+    assert resp.status_code == 200
+    grant = resp.json()["grant"]
+
+    # Explicit kind overrides what _classify_share_kind would derive ("check_in").
+    assert grant["shareKind"] == "pick_me_up"
+    # Freeform reason is surfaced as the visible share message.
+    assert grant["shareMessage"] == "Pick me up at Starbucks on Main St"
+
+    # Notification sent to recipient carries the pick_me_up title + note.
+    notif = service.notifications[-1]
+    assert notif["title"] == "Pickup requested"
+    assert "Pick me up at Starbucks on Main St" in notif["body"]
+    assert notif["data"]["share_kind"] == "pick_me_up"
+
+
+def test_create_grant_without_share_kind_preserves_existing_classification(monkeypatch) -> None:
+    """Omitting shareKind must leave existing _classify_share_kind behaviour unchanged."""
+    service = FourUserMemoryService()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)
+
+    _register_key(client, current_user, "user_b")
+    service._seed_connection("user_a", "user_b")
+    current_user["user_id"] = "user_a"
+
+    # A freeform note (not an internal marker) → classified as "check_in".
+    resp = client.post(
+        "/api/one/location/grants",
+        json={
+            "recipientUserId": "user_b",
+            "recipientKeyId": "key-user_b",
+            "durationHours": 1,
+            "reason": "Meeting you at the airport",
+        },
+    )
+    assert resp.status_code == 200
+    grant = resp.json()["grant"]
+    assert grant["shareKind"] == "check_in"
+    assert grant["shareMessage"] == "Meeting you at the airport"
+
+    # Plain share (no reason) → classified as "share".
+    resp2 = client.post(
+        "/api/one/location/grants",
+        json={
+            "recipientUserId": "user_b",
+            "recipientKeyId": "key-user_b",
+            "durationHours": 1,
+        },
+    )
+    assert resp2.status_code == 200
+    assert resp2.json()["grant"]["shareKind"] == "share"

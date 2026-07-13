@@ -3,8 +3,8 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
+import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
 import { OneSetupHub } from "@/components/onboarding/setup/one-setup-hub";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -18,7 +18,9 @@ export default function OneSetupPage() {
       const currentPath =
         typeof window === "undefined"
           ? ROUTES.ONE_SETUP
-          : window.location.pathname + window.location.search + window.location.hash;
+          : window.location.pathname +
+            window.location.search +
+            window.location.hash;
       router.replace(
         `${ROUTES.LOGIN}?redirect=${encodeURIComponent(currentPath)}`,
       );
@@ -26,7 +28,7 @@ export default function OneSetupPage() {
   }, [loading, router, user]);
 
   if (loading || !user) {
-    return <HushhLoader label="Opening setup..." variant="fullscreen" />;
+    return <RouteLoadingState label="Preparing setup…" />;
   }
 
   return (

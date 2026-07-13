@@ -29,6 +29,7 @@ import {
   buildRiaClientWorkspaceRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
+import { RIA_TONE_BADGE } from "@/lib/ria/ria-tone";
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
 import {
   RiaService,
@@ -59,23 +60,23 @@ function statusBadgeClass(status?: string | null) {
   switch (status) {
     case "approved":
     case "active":
-      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+      return RIA_TONE_BADGE.success;
     case "request_pending":
     case "pending":
-      return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+      return RIA_TONE_BADGE.attention;
     default:
-      return "border-border/70 bg-background/80 text-muted-foreground";
+      return RIA_TONE_BADGE.neutral;
   }
 }
 
 function branchBadgeClass(status: RiaAccountBranch["status"]) {
   switch (status) {
     case "approved":
-      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+      return RIA_TONE_BADGE.success;
     case "pending":
-      return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+      return RIA_TONE_BADGE.attention;
     default:
-      return "border-border/70 bg-background/80 text-muted-foreground";
+      return RIA_TONE_BADGE.neutral;
   }
 }
 
@@ -109,11 +110,12 @@ function scalarSummaryRows(financial: Record<string, unknown>) {
   return keys.filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== "");
 }
 
+// DS gold -> ink -> neutral ramp (replaces the sky/amber/emerald/slate mix).
 const ALLOCATION_COLORS: Record<string, string> = {
-  equities: "#7dd3fc",
-  bonds: "#fbbf24",
-  cash: "#6ee7b7",
-  other: "#94a3b8",
+  equities: "#c8923a",
+  bonds: "#0d132b",
+  cash: "#8a8f9a",
+  other: "#d6d8de",
 };
 
 function AllocationBar({ allocation }: { allocation: Record<string, unknown> }) {

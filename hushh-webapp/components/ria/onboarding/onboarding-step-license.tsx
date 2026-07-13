@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const SUPPORTED_REGULATORS = ["SEBI", "SEC", "DFSA", "FCA", "MAS"];
@@ -25,12 +25,12 @@ export function OnboardingStepLicense({
 
   return (
     <div className="space-y-5">
-      <div className="overflow-hidden rounded-[24px] border border-border/60 bg-card/80 shadow-[0_12px_34px_rgba(15,23,42,0.06)] backdrop-blur dark:bg-card/55 dark:shadow-none">
+      <div className="overflow-hidden rounded-[18px] border-[1.5px] border-[color:rgba(201,139,46,0.4)] bg-[color:var(--card)] shadow-[0_0_0_4px_rgba(201,139,46,0.06)]">
         <label
           htmlFor="ria-license-number"
-          className="flex min-h-[58px] items-center gap-4 px-4 sm:px-5"
+          className="flex min-h-[60px] items-center gap-4 px-5"
         >
-          <span className="w-28 shrink-0 text-[15px] text-muted-foreground">
+          <span className="shrink-0 text-[17px] text-[color:var(--ria-muted)]">
             Licence
           </span>
           <input
@@ -40,7 +40,7 @@ export function OnboardingStepLicense({
             onChange={(event) => onLicenseNumberChange(event.target.value)}
             placeholder="INA00123456 or 7413463"
             className={cn(
-              "min-w-0 flex-1 bg-transparent py-3 text-right text-[17px] text-foreground placeholder:text-muted-foreground/55 outline-none",
+              "min-w-0 flex-1 bg-transparent py-3 text-right text-[17px] font-medium tabular-nums text-[color:var(--ria-ink)] placeholder:text-[color:var(--ria-faint)] outline-none",
               verificationStatus === "not_found" &&
                 "text-amber-600 dark:text-amber-300",
               verificationStatus === "error" && "text-red-600 dark:text-red-300"
@@ -54,7 +54,7 @@ export function OnboardingStepLicense({
         disabled={!canVerify}
         onClick={onVerify}
         className={cn(
-          "inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-primary px-6 text-[17px] font-semibold text-primary-foreground shadow-[0_12px_32px_rgba(0,113,227,0.22)] transition-opacity dark:shadow-none",
+          "ria-cta w-full text-[17px]",
           !canVerify && "cursor-not-allowed opacity-40"
         )}
       >
@@ -74,32 +74,50 @@ export function OnboardingStepLicense({
           disabled={!licenseNumber.trim() || verificationStatus === "verifying"}
           onClick={onBypassVerification}
           className={cn(
-            "inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-[#0071E3]/35 bg-[#0071E3]/10 px-6 text-[15px] font-semibold text-[#0071E3] transition-opacity",
+            "ria-secondary w-full text-[15px]",
             (!licenseNumber.trim() || verificationStatus === "verifying") &&
               "opacity-40 cursor-not-allowed"
           )}
         >
-          Bypass for dev/UAT
+          Bypass for dev / UAT
         </button>
       ) : null}
 
       {verificationStatus !== "idle" ? (
         <div className="space-y-3">
           {verificationStatus === "verifying" ? (
-            <div className="flex items-center gap-3 rounded-[18px] border border-border/60 bg-card/70 px-4 py-3 backdrop-blur dark:bg-card/45">
-              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
-              <p className="text-[15px] text-muted-foreground">
+            <div className="flex items-center gap-3 rounded-[18px] border border-[color:var(--ria-divider-outer)] bg-white px-4 py-3">
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[color:var(--ria-gold)]" />
+              <p className="text-[15px] text-[color:var(--ria-muted)]">
                 Checking regulatory databases...
               </p>
             </div>
           ) : null}
 
           {verificationStatus === "found" ? (
-            <div className="flex items-center gap-3 rounded-[18px] border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-              <p className="text-[15px] font-medium text-emerald-700 dark:text-emerald-300">
-                Registration verified
-              </p>
+            <div
+              className="flex min-h-[58px] items-center justify-between gap-3 rounded-[18px] border px-4 py-3.5"
+              style={{
+                borderColor: "var(--ria-success-border)",
+                backgroundColor: "var(--ria-success-bg)",
+              }}
+            >
+              <span className="flex items-center gap-3">
+                <CheckCircle2
+                  className="h-5 w-5 shrink-0"
+                  style={{ color: "var(--ria-success)" }}
+                />
+                <span
+                  className="text-[16px] font-semibold"
+                  style={{ color: "var(--ria-success-text)" }}
+                >
+                  Registration verified
+                </span>
+              </span>
+              <Plus
+                className="h-4 w-4 shrink-0"
+                style={{ color: "var(--ria-gold)" }}
+              />
             </div>
           ) : null}
 
@@ -129,20 +147,18 @@ export function OnboardingStepLicense({
       ) : null}
 
       <div className="space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-          Supported Regulators
-        </p>
+        <p className="ria-sublabel">Supported Regulators</p>
         <div className="flex flex-wrap gap-2">
           {SUPPORTED_REGULATORS.map((regulator) => (
             <span
               key={regulator}
-              className="rounded-full border border-border/60 bg-card/60 px-3 py-1 text-xs font-medium text-muted-foreground dark:bg-card/40"
+              className="inline-flex h-9 items-center rounded-[14px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)] px-4 text-[14px] font-medium text-[color:var(--ria-ink)]"
             >
               {regulator}
             </span>
           ))}
         </div>
-        <p className="text-sm leading-6 text-muted-foreground">
+        <p className="text-[13px] leading-[1.45] text-[color:var(--ria-sublabel)]">
           {verificationBypassEnabled
             ? "Development and UAT can bypass live verification for testing only."
             : "Kai verifies your identity against FINRA and SEC records before unlocking the advisory workflow."}

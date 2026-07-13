@@ -17,6 +17,7 @@ import { RiaService, type RiaHomeResponse } from "@/lib/services/ria-service";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { ROUTES } from "@/lib/navigation/routes";
 import { InlineLoadingState } from "@/components/app-ui/inline-loading-state";
+import { RIA_TONE_BADGE, RIA_TONE_SURFACE } from "@/lib/ria/ria-tone";
 import { cn } from "@/lib/utils";
 
 type HeroTone = "neutral" | "warning" | "success" | "critical";
@@ -60,45 +61,45 @@ function verificationState(status?: string | null) {
 function heroToneClass(tone: HeroTone) {
   switch (tone) {
     case "success":
-      return "border-emerald-500/20 bg-emerald-500/[0.08]";
+      return RIA_TONE_SURFACE.success;
     case "warning":
-      return "border-amber-500/20 bg-amber-500/[0.09]";
+      return RIA_TONE_SURFACE.attention;
     case "critical":
-      return "border-rose-500/20 bg-rose-500/[0.08]";
+      return RIA_TONE_SURFACE.critical;
     case "neutral":
     default:
-      return "border-border/65 bg-background/78";
+      return RIA_TONE_SURFACE.neutral;
   }
 }
 
 function badgeToneClass(tone: HeroTone) {
   switch (tone) {
     case "success":
-      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+      return RIA_TONE_BADGE.success;
     case "warning":
-      return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+      return RIA_TONE_BADGE.attention;
     case "critical":
-      return "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300";
+      return RIA_TONE_BADGE.critical;
     case "neutral":
     default:
-      return "border-border/70 bg-background/80 text-muted-foreground";
+      return RIA_TONE_BADGE.neutral;
   }
 }
 
 function queueToneClass(status?: string | null) {
   switch (status) {
     case "approved":
-      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+      return RIA_TONE_BADGE.success;
     case "request_pending":
     case "submitted":
-      return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+      return RIA_TONE_BADGE.attention;
     case "rejected":
     case "revoked":
     case "expired":
     case "disconnected":
-      return "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300";
+      return RIA_TONE_BADGE.critical;
     default:
-      return "border-border/65 bg-background/80 text-muted-foreground";
+      return RIA_TONE_BADGE.neutral;
   }
 }
 
@@ -119,13 +120,15 @@ function SummaryCell({
     <div
       role="group"
       aria-label={label}
-      className="space-y-1 bg-background/58 px-4 py-4 sm:px-5"
+      className="space-y-1 bg-white px-4 py-4 sm:px-5"
     >
-      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[color:var(--ria-sublabel)]">
         {label}
       </p>
-      <p className="text-lg font-semibold tracking-tight text-foreground">{value}</p>
-      <p className="text-xs leading-5 text-muted-foreground">{helper}</p>
+      <p className="text-lg font-semibold tracking-tight tabular-nums text-[color:var(--ria-ink)]">
+        {value}
+      </p>
+      <p className="text-xs leading-5 text-[color:var(--ria-muted)]">{helper}</p>
     </div>
   );
 }

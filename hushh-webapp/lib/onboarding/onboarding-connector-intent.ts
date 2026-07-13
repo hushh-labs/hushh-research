@@ -17,10 +17,10 @@ function storage(): Storage | null {
   return typeof window === "undefined" ? null : window.sessionStorage;
 }
 
-export function beginOnboardingConnectorIntent(
-  capability: "gmail"
+export function createOnboardingConnectorIntent(
+  capability: "gmail",
 ): OnboardingConnectorIntent {
-  const intent: OnboardingConnectorIntent = {
+  return {
     version: 1,
     capability,
     returnTo: ROUTES.ONE_SETUP,
@@ -30,7 +30,23 @@ export function beginOnboardingConnectorIntent(
         : `connector_${Date.now().toString(36)}`,
     startedAt: Date.now(),
   };
+}
+
+/**
+ * Keep only an opaque correlation in browser session storage. Call this after
+ * the matching durable journey transition has been accepted.
+ */
+export function persistOnboardingConnectorIntent(
+  intent: OnboardingConnectorIntent,
+): void {
   storage()?.setItem(STORAGE_KEY, JSON.stringify(intent));
+}
+
+export function beginOnboardingConnectorIntent(
+  capability: "gmail",
+): OnboardingConnectorIntent {
+  const intent = createOnboardingConnectorIntent(capability);
+  persistOnboardingConnectorIntent(intent);
   return intent;
 }
 

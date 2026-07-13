@@ -29,6 +29,7 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   executeAgentGatewayAction,
   executeTrustedActivationGatewayAction,
+  type AgentActionRuntimeResult,
 } from "@/lib/agent/agent-action-runtime";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
@@ -51,6 +52,8 @@ import { usePersonaState } from "@/lib/persona/persona-context";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { waitForVoiceActionSettlement } from "@/lib/voice/voice-action-settlement";
+import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { createRealtimeVoiceTransport } from "@/lib/voice/one-voice-transport-factory";
 import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
@@ -77,6 +80,62 @@ type PendingVoiceConfirmation = {
   slots?: Record<string, unknown>;
   route: string | null;
 };
+
+function readBrowserVoiceRoute() {
+  if (typeof window === "undefined") return undefined;
+  const query = window.location.search.replace(/^\?/, "");
+  const derived = deriveVoiceRouteScreen(window.location.pathname, query);
+  return {
+    pathname: `${window.location.pathname}${window.location.search}`,
+    screen: derived.screen,
+    subview: derived.subview ?? null,
+  };
+}
+
+async function settleAgentBarAction(
+  result: AgentActionRuntimeResult,
+): Promise<AgentActionRuntimeResult> {
+  if (
+    !result.routeAfter ||
+    (result.status !== "started" && result.status !== "succeeded")
+  ) {
+    return result;
+  }
+
+  const settlement = await waitForVoiceActionSettlement({
+    actionId: result.actionId,
+    mode: "execute_and_wait",
+    actionStatus: result.status,
+    routeBefore: {
+      pathname: result.routeBefore || "",
+      screen: result.screenBefore || "",
+      subview: null,
+    },
+    expectedRoute: result.routeAfter,
+    expectedScreen: result.screenAfter,
+    getCurrentRoute: readBrowserVoiceRoute,
+    getCurrentSurfaceMetadata: getVoiceSurfaceMetadata,
+    timeoutMs: 1800,
+  });
+
+  if (settlement.settled_by === "timeout") {
+    return {
+      ...result,
+      status: "started",
+      reason: "route_settlement_timeout",
+      routeAfter: settlement.route_after || result.routeAfter,
+      screenAfter: settlement.screen_after || result.screenAfter,
+      resultSummary: "The action started, but the next screen is still settling.",
+    };
+  }
+
+  return {
+    ...result,
+    status: "succeeded",
+    routeAfter: settlement.route_after || result.routeAfter,
+    screenAfter: settlement.screen_after || result.screenAfter,
+  };
+}
 
 // Precaution: if a live voice session sits idle (no user speech, no agent
 // speech, no tool/navigation activity) this long, close it automatically
@@ -140,7 +199,7 @@ export function AgentBar() {
   const { user } = useAuth();
   const { resolvedTheme, setTheme } = useTheme();
   const { vaultOwnerToken } = useVault();
-  const { switchPersona } = usePersonaState();
+  const { switchPersona, activePersona } = usePersonaState();
   const busyOperations = useKaiSession((state) => state.busyOperations);
   const setAnalysisParams = useKaiSession((state) => state.setAnalysisParams);
   const appendMirrorEvent = useOneConversationSession(
@@ -319,13 +378,11 @@ export function AgentBar() {
         // One's tools decided this (single decision-maker); the client only
         // executes through the same governed gateway the app uses.
         if (event.directive.kind === "navigate") {
-          const route =
-            typeof event.directive.payload?.route === "string"
-              ? event.directive.payload.route
-              : null;
-          if (route && route.startsWith("/")) {
-            router.push(route);
-          }
+          // Direct navigation directives predate generated action contracts.
+          // Do not let a legacy ADK tool bypass the active route's verified
+          // control inventory; every live route transition now enters through
+          // an `action` directive and executeAgentGatewayAction.
+          console.warn("[AgentBar] Rejected legacy direct navigation directive.");
           return;
         }
         if (event.directive.kind === "action") {
@@ -410,13 +467,16 @@ export function AgentBar() {
             }
             void (async () => {
               try {
-                const result = await executeAgentGatewayAction({
+                const executionResult = await executeAgentGatewayAction({
                   actionId,
                   slots,
                   userId: user?.uid ?? "",
                   router,
                   appRuntimeState: runtimeState,
                   surfaceMetadata: getVoiceSurfaceMetadata(),
+                  allowedActionIds:
+                    runtime?.oneVoiceContextSnapshot.available_action_ids ??
+                    null,
                   hasPortfolioData:
                     runtimeState.portfolio.has_portfolio_data ||
                     runtime?.oneVoiceContextSnapshot.cache.portfolio_ready ===
@@ -426,6 +486,7 @@ export function AgentBar() {
                   switchPersona,
                   executionContext: { directiveId },
                 });
+                const result = await settleAgentBarAction(executionResult);
                 if (directiveId) {
                   liveClientRef.current?.reportActionSettlement?.({
                     directiveId,
@@ -602,6 +663,8 @@ export function AgentBar() {
         router,
         appRuntimeState: runtimeState,
         surfaceMetadata: getVoiceSurfaceMetadata(),
+        allowedActionIds:
+          runtime?.oneVoiceContextSnapshot.available_action_ids ?? null,
         hasPortfolioData:
           runtimeState.portfolio.has_portfolio_data ||
           runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
@@ -611,6 +674,7 @@ export function AgentBar() {
         executionContext: { directiveId: pending.directiveId },
       });
       void settlement
+        .then(settleAgentBarAction)
         .then((result) => {
           scheduleVoiceIdleTimer();
           liveClientRef.current?.reportActionSettlement?.({
@@ -862,6 +926,8 @@ export function AgentBar() {
   const allowScrollHide = !useOnboardingChrome;
   const { progress: hideBottomChromeProgress } =
     useKaiBottomChromeVisibility(allowScrollHide);
+  // RIA sub-agent = Apple-style ALWAYS-PINNED ask-bar (matches the pinned nav).
+  const isRiaChrome = activePersona === "ria";
 
   const hint = useMemo(() => resolveAgentBarHint(pathname), [pathname]);
 
@@ -1179,10 +1245,13 @@ export function AgentBar() {
           bottom: useOnboardingChrome
             ? "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)"
             : "calc(var(--app-bottom-inset) + 0.5rem)",
-          transform: useOnboardingChrome
-            ? undefined
-            : "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height))), 0)",
-          "--bottom-chrome-progress": String(hideBottomChromeProgress),
+          transform:
+            useOnboardingChrome || isRiaChrome
+              ? undefined
+              : "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height))), 0)",
+          "--bottom-chrome-progress": isRiaChrome
+            ? "0"
+            : String(hideBottomChromeProgress),
         } as CSSProperties
       }
       aria-hidden={barHidden}
@@ -1245,13 +1314,15 @@ export function AgentBar() {
           // open/close fade+lift. Smoothly eases the bar in/out with the agent
           // window lifecycle so it never snaps back into place after closing.
           "transition-[opacity,transform,background-color,box-shadow] duration-300 ease-[cubic-bezier(0.16,0.84,0.28,1)] will-change-[opacity,transform]",
-          // CANONICAL agent surface: the exact material of the opened agent
-          // window (agent-popover-provider shell: white/95 + blur-xl +
-          // shadow-2xl, dark #1c1c1e/95), so bar and window read as one
-          // continuous object. No idle glow.
+          // CANONICAL agent surface (from main): the exact material of the
+          // opened agent window (white/95 + blur-xl + shadow-2xl, dark
+          // #1c1c1e/95) so bar and window read as one continuous object.
           "backdrop-blur-xl",
           "bg-white/95 text-[#1d1d1f] shadow-2xl",
           "dark:bg-[#1c1c1e]/95 dark:text-[#f5f5f7]",
+          // RIA: warm cream ask-bar pill (#F7F3EC) per the (1) design.
+          isRiaChrome &&
+            "!bg-[#f7f3ec] !text-[color:var(--ria-ink)] !shadow-none !backdrop-blur-none !ring-1 !ring-[color:var(--ria-divider-outer)]",
           barHidden
             ? "pointer-events-none translate-y-1 scale-[0.98] opacity-0"
             : "translate-y-0 scale-100 opacity-100",

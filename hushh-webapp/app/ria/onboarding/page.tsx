@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
@@ -14,7 +21,10 @@ import { OnboardingStepServices } from "@/components/ria/onboarding/onboarding-s
 import { OnboardingStepReview } from "@/components/ria/onboarding/onboarding-step-review";
 import { useAuth } from "@/hooks/use-auth";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import { ROUTES } from "@/lib/navigation/routes";
+import {
+  normalizeInternalRouteHref,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import {
   buildRiaOnboardingSteps,
   canContinueRiaOnboardingStep,
@@ -49,6 +59,24 @@ import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 const LICENSE_VERIFICATION_TIMEOUT_MS = 90_000;
 const SCRAPE_POLL_INTERVAL_MS = 5_000;
 const RIA_ENVIRONMENT_BYPASS_STATUS = "Environment bypass";
+
+// Decorative advisor photo per onboarding step (transparent, feather-edged
+// WebP under public/ria/onboarding). Welcome = full-bleed hero above the
+// eyebrow; every other step = smaller top-right accent overlapping the header.
+const RIA_ONBOARDING_STEP_IMAGES: Record<
+  string,
+  { src: string; variant: "hero" | "accent"; badge?: boolean }
+> = {
+  welcome: { src: "/ria/onboarding/adv4f.webp", variant: "hero" },
+  license_number: { src: "/ria/onboarding/adv2f.webp", variant: "accent" },
+  license_details: {
+    src: "/ria/onboarding/adv3f.webp",
+    variant: "accent",
+    badge: true,
+  },
+  services: { src: "/ria/onboarding/adv1f.webp", variant: "accent" },
+  review: { src: "/ria/onboarding/adv5f.webp", variant: "accent" },
+};
 const REGULATOR_PREFILL_RESET: Partial<RiaOnboardingDraft> = {
   advisorName: "",
   firmName: "",
@@ -140,7 +168,13 @@ function buildVerifiedLicensePrefillPatch(
   };
 }
 
-export default function RiaOnboardingPage() {
+export default function RiaOnboardingPage({
+  setupMode = false,
+  onSetupReadinessChange,
+}: {
+  setupMode?: boolean;
+  onSetupReadinessChange?: (ready: boolean) => void;
+} = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, phoneNumber } = useAuth();
@@ -157,6 +191,9 @@ export default function RiaOnboardingPage() {
   //   ?reinitiate=1   → re-run the whole 5-step wizard (start at welcome)
   // A generic ?step= is also honoured.
   const editParam = searchParams?.get("edit") ?? null;
+  const setupOrigin =
+    setupMode ||
+    normalizeInternalRouteHref(searchParams?.get("from")) === ROUTES.ONE_SETUP;
   const stepParam = searchParams?.get("step") ?? null;
   const reinitiateIntent = (searchParams?.get("reinitiate") ?? null) === "1";
   const requestedStepId: RiaOnboardingStepId | null =
@@ -197,7 +234,9 @@ export default function RiaOnboardingPage() {
   // fresh advisor who completes onboarding in-session is not hijacked mid-flow.
   const onboardingEntryHandledRef = useRef(false);
   // Mirror the current edit-intent step for use inside the mount-only loader.
-  const requestedStepIdRef = useRef<RiaOnboardingStepId | null>(requestedStepId);
+  const requestedStepIdRef = useRef<RiaOnboardingStepId | null>(
+    requestedStepId,
+  );
   requestedStepIdRef.current = requestedStepId;
   // Mirror the reinitiate intent for use inside the mount-only loader.
   const reinitiateIntentRef = useRef(reinitiateIntent);
@@ -365,13 +404,7 @@ export default function RiaOnboardingPage() {
     if (riaCapability === "switch") {
       router.replace(ROUTES.RIA_PROFILE);
     }
-  }, [
-    hasEditIntent,
-    personaLoading,
-    personaRefreshing,
-    riaCapability,
-    router,
-  ]);
+  }, [hasEditIntent, personaLoading, personaRefreshing, riaCapability, router]);
 
   useEffect(() => {
     if (!user || !draftReady || iamUnavailable || !shouldPersistDraft) return;
@@ -457,6 +490,21 @@ export default function RiaOnboardingPage() {
     }
     moveToStep(steps[currentStepIndex + 1]?.id ?? currentStep.id);
   }
+
+  // Horizontal swipe on the onboarding content pages the wizard steps (emitted
+  // by the pinned-chrome RiaSwipePager). Forward = Continue, back = previous.
+  const swipeNavRef = useRef({ next: () => {}, back: () => {} });
+  swipeNavRef.current = { next: handleContinue, back: handleBack };
+  useEffect(() => {
+    const onSwipe = (event: Event) => {
+      const dir = (event as CustomEvent<{ direction?: number }>).detail
+        ?.direction;
+      if (dir === 1) swipeNavRef.current.next();
+      else if (dir === -1) swipeNavRef.current.back();
+    };
+    window.addEventListener("ria-onboarding-swipe", onSwipe);
+    return () => window.removeEventListener("ria-onboarding-swipe", onSwipe);
+  }, []);
 
   const startScrapePolling = useCallback(
     (jobId: string) => {
@@ -685,6 +733,14 @@ export default function RiaOnboardingPage() {
     // A verified advisor normally can't re-submit — but on a re-initiate they
     // MUST, so the idempotent submitOnboarding re-runs and updates the profile.
     if (advisoryAccessReady && !reinitiateIntent) {
+      if (setupOrigin) {
+        if (setupMode) {
+          onSetupReadinessChange?.(true);
+        } else {
+          router.replace(ROUTES.ONE_SETUP_RIA);
+        }
+        return;
+      }
       router.push(ROUTES.RIA_HOME);
       return;
     }
@@ -796,8 +852,18 @@ export default function RiaOnboardingPage() {
       if (advisoryOutcome === "rejected") {
         moveToStep("review");
       } else {
-        // Onboarding is complete — leave the wizard for the advisor's profile.
-        router.replace(ROUTES.RIA_PROFILE);
+        // A setup-originated journey always settles through its explicit
+        // capability terminal before returning to the setup hub. Ordinary RIA
+        // onboarding keeps its established profile destination.
+        if (setupOrigin) {
+          if (setupMode) {
+            onSetupReadinessChange?.(true);
+          } else {
+            router.replace(ROUTES.ONE_SETUP_RIA);
+          }
+        } else {
+          router.replace(ROUTES.RIA_PROFILE);
+        }
       }
     } catch (submitError) {
       if (isIAMSchemaNotReadyError(submitError)) {
@@ -1009,7 +1075,16 @@ export default function RiaOnboardingPage() {
         errorCode={error ? "ria_onboarding" : null}
         errorMessage={error}
       />
-      <FullscreenFlowShell width="reading" className="px-0">
+      <FullscreenFlowShell
+        width="reading"
+        className="px-0"
+        style={
+          {
+            "--app-fullscreen-flow-content-offset":
+              "var(--top-shell-reserved-height)",
+          } as CSSProperties
+        }
+      >
         <OnboardingShell
           currentStepIndex={currentStepIndex}
           totalSteps={steps.length}
@@ -1022,6 +1097,7 @@ export default function RiaOnboardingPage() {
           isLastStep={currentStep.id === "review"}
           advisoryAccessReady={advisoryAccessReady}
           allowInvalidPress={currentStep.id === "services"}
+          heroImage={RIA_ONBOARDING_STEP_IMAGES[currentStep.id]}
           onBack={handleBack}
           onContinue={handleContinue}
         >

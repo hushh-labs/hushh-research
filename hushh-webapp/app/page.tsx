@@ -3,9 +3,9 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
+import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
 import { JsonLd } from "@/components/seo/json-ld";
 import { buildFaqGraph } from "@/lib/seo/structured-data";
 import { HOME_FAQ } from "@/lib/seo/faq-data";
@@ -34,7 +34,7 @@ function HomeContent() {
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
     if (typeof window === "undefined") return;
-     
+
     (window as any).resetOnboardingMarketing = async () => {
       await OnboardingLocalService.clearMarketingSeen();
       setStep("intro");
@@ -42,7 +42,6 @@ function HomeContent() {
     };
 
     return () => {
-       
       delete (window as any).resetOnboardingMarketing;
     };
   }, [router]);
@@ -64,11 +63,11 @@ function HomeContent() {
   }, [loading, user, router, forceOnboardingInDev]);
 
   if (loading || (!user && step === null)) {
-    return <HushhLoader label="Loading..." variant="fullscreen" />;
+    return <RouteLoadingState surface="ambient" label="Preparing welcome…" />;
   }
 
   if (user) {
-    return <HushhLoader label="Opening One..." variant="fullscreen" />;
+    return <RouteLoadingState surface="ambient" label="Opening One…" />;
   }
 
   if (step === "intro") {
@@ -98,7 +97,11 @@ export default function Home() {
         authState="anonymous"
         dataState="loaded"
       />
-      <Suspense fallback={<HushhLoader label="Loading..." variant="fullscreen" />}>
+      <Suspense
+        fallback={
+          <RouteLoadingState surface="ambient" label="Preparing welcome…" />
+        }
+      >
         <HomeContent />
       </Suspense>
     </>

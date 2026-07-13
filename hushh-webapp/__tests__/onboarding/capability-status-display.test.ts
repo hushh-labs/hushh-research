@@ -27,12 +27,13 @@ describe("getCapabilityStatusDisplay — location", () => {
     ).toBe("Ready");
   });
 
-  it("keeps 'Unlock to view' when unknown + requiresUnlock (vault locked)", () => {
+  it("shows the vault-setup CTA when unknown + requiresUnlock (vault locked)", () => {
+    // Main's app-wide copy for vault-gated unknown state (was "Unlock to view").
     expect(
       getCapabilityStatusDisplay(
         status({ id: "location", state: "unknown", requiresUnlock: true }),
       ).label,
-    ).toBe("Unlock to view");
+    ).toBe("Set up vault");
   });
 
   it("other capabilities keep the generic 'Set up'", () => {

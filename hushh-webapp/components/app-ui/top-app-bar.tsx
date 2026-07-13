@@ -47,7 +47,6 @@ import {
   APP_SHELL_FRAME_CLASSNAME,
   APP_SHELL_FRAME_STYLE,
 } from "@/components/app-ui/app-page-shell";
-import { ThemeToggleCompact } from "@/components/theme-toggle";
 import { Icon } from "@/lib/morphy-ux/ui";
 import {
   DropdownMenu,
@@ -69,22 +68,20 @@ import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
-import { resolveDeleteAccountAuth } from "@/lib/flows/delete-account";
-import { AccountService } from "@/lib/services/account-service";
-import { VaultService } from "@/lib/services/vault-service";
 import {
-  setOnboardingFlowActiveCookie,
-  setOnboardingRequiredCookie,
-} from "@/lib/services/onboarding-route-cookie";
-import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+  DELETE_ACCOUNT_DIALOG_DESCRIPTION,
+  DELETE_ACCOUNT_DIALOG_TITLE,
+  executeVerifiedAccountDeletion,
+  resolveDeleteAccountAuth,
+} from "@/lib/flows/delete-account";
+import { VaultService } from "@/lib/services/vault-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ROUTES } from "@/lib/navigation/routes";
-import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
 import { DebateTaskCenter } from "@/components/app-ui/debate-task-center";
 import { AgentSectionDropdown } from "@/components/app-ui/agent-section-dropdown";
 import { getAgentSection } from "@/lib/navigation/agent-sections";
 import { ConsentInboxDropdown } from "@/components/consent/consent-inbox-dropdown";
-import { UserLocalStateService } from "@/lib/services/user-local-state-service";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { resolveTopShellMetrics } from "@/components/app-ui/top-shell-metrics";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { usePersonaState } from "@/lib/persona/persona-context";
@@ -142,7 +139,7 @@ function getTopBarTitle(
     pathname === ROUTES.ONE_SETUP ||
     pathname.startsWith(`${ROUTES.ONE_SETUP}/`)
   ) {
-    return { label: "Set up One", interactive: false as const };
+    return null;
   }
 
   if (
@@ -230,10 +227,7 @@ function resolveCommonRouteBreadcrumb(
       backHref,
       width: "profile",
       align: "center",
-      items: [
-        { label: parentLabel, href: backHref },
-        { label: "Profile" },
-      ],
+      items: [{ label: parentLabel, href: backHref }, { label: "Profile" }],
     };
   }
 
@@ -242,10 +236,7 @@ function resolveCommonRouteBreadcrumb(
       backHref,
       width: "profile",
       align: "center",
-      items: [
-        { label: parentLabel, href: backHref },
-        { label: "Connect" },
-      ],
+      items: [{ label: parentLabel, href: backHref }, { label: "Connect" }],
     };
   }
 
@@ -348,7 +339,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, user } = useAuth();
-  const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
+  const { isVaultUnlocked } = useVault();
   const { activePersona, riaCapability, riaEntryRoute, switchPersona } =
     usePersonaState();
   const pathname = usePathname();
@@ -468,7 +459,10 @@ export function TopAppBar({ className }: TopAppBarProps) {
           setHasVault(exists);
         }
       } catch (error) {
-        console.warn("[TopAppBar] Failed to resolve vault availability:", error);
+        console.warn(
+          "[TopAppBar] Failed to resolve vault availability:",
+          error,
+        );
         if (!cancelled) {
           setHasVault(null);
         }
@@ -503,6 +497,15 @@ export function TopAppBar({ className }: TopAppBarProps) {
     normalizedPathname === ROUTES.ONE_HOME &&
     !topShellBreadcrumb &&
     !showOnboardingActions;
+  const isRiaOnboardingScope =
+    normalizedPathname === ROUTES.RIA_ONBOARDING ||
+    normalizedPathname.startsWith(`${ROUTES.RIA_ONBOARDING}/`);
+  // RIA sub-agent header: 🤫 One (left) + center "RIA ⌄" cluster, per the
+  // onboarding design. During setup the route can load before the persona state
+  // flips to RIA, so include /ria/onboarding explicitly while keeping other RIA
+  // routes persona-gated.
+  const isRiaScope =
+    (activePersona === "ria" || isRiaOnboardingScope) && !topShellBreadcrumb;
   const showKaiTabs = topShellMetrics.hasTabs;
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(
     null,
@@ -587,8 +590,13 @@ export function TopAppBar({ className }: TopAppBarProps) {
 
   // Subscribe to the shared scroll-direction store so top chrome hides opposite
   // the bottom nav while keeping the page layout spacer stable.
-  const { progress: topChromeHideProgress } =
+  const { progress: rawTopChromeHideProgress } =
     useKaiBottomChromeVisibility(!hideChrome);
+  // RIA sub-agent = Apple-style ALWAYS-PINNED chrome: clamp the consumed hide
+  // progress to 0 so the transform stays identity (never translates away on
+  // scroll). Value-only override — we keep the subscription live and never touch
+  // the shared visibility singleton, so One/investor scroll-hide is unchanged.
+  const topChromeHideProgress = isRiaScope ? 0 : rawTopChromeHideProgress;
 
   const topGlassHeight = useMemo(
     () =>
@@ -616,6 +624,12 @@ export function TopAppBar({ className }: TopAppBarProps) {
       }) as React.CSSProperties,
     [],
   );
+  const riaTopIconSurfaceClassName = isRiaScope
+    ? "!h-10 !w-10 !bg-[#F2EFE8] !text-[#8C8A85] shadow-none hover:!bg-[#EDE8DF] hover:!text-[#151619] dark:!bg-[#F2EFE8] dark:!text-[#8C8A85]"
+    : undefined;
+  const riaTopBadgeWrapperClassName = isRiaScope
+    ? "right-[-3px] top-[-3px] translate-x-0 -translate-y-0"
+    : undefined;
 
   if (hideChrome) return null;
 
@@ -675,28 +689,6 @@ export function TopAppBar({ className }: TopAppBarProps) {
                       variant="icon"
                       aria-label="Go back"
                       onClick={() => {
-                        if (normalizedPathname === ROUTES.ONE_SETUP) {
-                          if (!user?.uid) {
-                            router.push(ROUTES.ONE_HOME);
-                            return;
-                          }
-
-                          const setupExitSync = acknowledgeOneSetupExit({
-                            userId: user.uid,
-                            skipped: false,
-                            isVaultUnlocked,
-                            vaultKey,
-                            vaultOwnerToken,
-                          });
-                          router.push(ROUTES.ONE_HOME);
-                          void setupExitSync.catch((error: unknown) => {
-                            console.warn(
-                              "[TopAppBar] Failed to persist setup back acknowledgement:",
-                              error,
-                            );
-                          });
-                          return;
-                        }
                         // Profile query-panels (`/profile?panel=…&detail=…`) are
                         // a same-pathname, query-only nav. The profile page closes
                         // its panels only via router.replace(.., { scroll: false })
@@ -721,15 +713,16 @@ export function TopAppBar({ className }: TopAppBarProps) {
                       <ArrowLeft className="h-5 w-5" />
                     </ShellActionSurface>
                   </div>
-                ) : showOneHomeBrand ? (
+                ) : showOneHomeBrand || isRiaScope ? (
                   <div
                     data-testid="top-app-bar-one-brand"
                     aria-label="🤫 One"
-                    className="pointer-events-none flex h-11 min-w-0 items-center justify-start gap-1.5 overflow-visible text-foreground"
+                    className="pointer-events-none flex h-11 min-w-[76px] items-center justify-start gap-2 overflow-visible"
+                    style={{ color: isRiaScope ? "var(--ria-ink)" : undefined }}
                   >
                     <span
                       aria-hidden
-                      className="flex h-7 w-7 shrink-0 items-center justify-center overflow-visible text-[21px] leading-[1.25]"
+                      className="flex h-7 w-7 shrink-0 items-center justify-center overflow-visible text-[23px] leading-none"
                       style={{
                         fontFamily:
                           '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", emoji',
@@ -737,7 +730,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                     >
                       🤫
                     </span>
-                    <span className="truncate font-[family-name:var(--font-app-display)] text-[16px] font-semibold leading-[1.15] tracking-normal">
+                    <span className="font-[family-name:var(--font-app-display)] text-[19px] font-bold leading-none tracking-[-0.3px]">
                       One
                     </span>
                   </div>
@@ -746,19 +739,36 @@ export function TopAppBar({ className }: TopAppBarProps) {
                 )}
               </div>
 
-              {/* Title sits in the normal flex flow. On most routes the right
-                  cluster is icon-only, so the pill stays centered. During setup
-                  the right cluster (theme toggle + menu) is wide; a centered
-                  pill would overlap it, so we left-align the title beside the
-                  reserved back slot instead. `flex-1 min-w-0` lets it truncate
-                  before it can ever collide with the actions either way. */}
+              {/* Title sits in the normal flex flow. The right cluster remains
+                  intentionally compact; `flex-1 min-w-0` lets the title truncate
+                  before it can collide with the account action. */}
               <div
                 className={cn(
                   "pointer-events-none flex min-w-0 flex-1 items-center",
                   showOnboardingActions ? "justify-start" : "justify-center",
                 )}
               >
-                {showAgentSectionDropdown ? (
+                {isRiaScope ? (
+                  <div
+                    data-testid="top-app-bar-ria-cluster"
+                    aria-label="RIA"
+                    className="pointer-events-none inline-flex items-center gap-[9px]"
+                  >
+                    <span className="flex h-[38px] w-[38px] items-center justify-center rounded-[11px] bg-white shadow-[0_2px_8px_rgba(62,48,30,0.10)]">
+                      <BriefcaseBusiness
+                        className="h-[19px] w-[19px] text-[color:var(--ria-ink)]"
+                        strokeWidth={1.7}
+                      />
+                    </span>
+                    <span className="text-[17px] font-semibold tracking-[-0.2px] text-[color:var(--ria-ink)]">
+                      RIA
+                    </span>
+                    <ChevronDown
+                      className="h-[13px] w-[13px] text-[color:var(--ria-ink)]"
+                      strokeWidth={2.3}
+                    />
+                  </div>
+                ) : showAgentSectionDropdown ? (
                   <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
                     <AgentSectionDropdown pathname={normalizedPathname} />
                   </div>
@@ -873,7 +883,10 @@ export function TopAppBar({ className }: TopAppBarProps) {
               >
                 <div
                   data-testid="top-app-bar-actions"
-                  className="pointer-events-auto flex flex-nowrap items-center justify-end gap-1.5 sm:gap-2 pr-[env(safe-area-inset-right)]"
+                  className={cn(
+                    "pointer-events-auto flex flex-nowrap items-center justify-end pr-[env(safe-area-inset-right)]",
+                    isRiaScope ? "gap-2.5 sm:gap-2.5" : "gap-1.5 sm:gap-2",
+                  )}
                 >
                   {!isAuthenticated ? null : showOnboardingActions ? (
                     <OnboardingRouteActions />
@@ -884,9 +897,17 @@ export function TopAppBar({ className }: TopAppBarProps) {
                           <ShellActionSurface
                             variant="icon"
                             aria-label="Open consent inbox"
+                            className={riaTopIconSurfaceClassName}
+                            badgeClassName={riaTopBadgeWrapperClassName}
                             badge={
                               pendingCount > 0 ? (
-                                <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-[#1d1d1f] shadow-[0_8px_18px_rgba(184,137,77,0.32)] ring-2 ring-white/90 dark:ring-[#111113]">
+                                <span
+                                  className={cn(
+                                    "inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-[#1d1d1f] shadow-[0_8px_18px_rgba(184,137,77,0.32)] ring-2 ring-white/90 dark:ring-[#111113]",
+                                    isRiaScope &&
+                                      "bg-[color:var(--ria-gold)] text-white shadow-none ring-[#FCFAF6] dark:ring-[#FCFAF6]",
+                                  )}
+                                >
                                   {pendingCount}
                                 </span>
                               ) : null
@@ -902,6 +923,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                           variant="icon"
                           aria-label="Unlock vault"
                           onClick={() => setVaultUnlockOpen(true)}
+                          className={riaTopIconSurfaceClassName}
                         >
                           <KeyRound className="h-5 w-5 text-amber-600 dark:text-amber-300" />
                         </ShellActionSurface>
@@ -912,9 +934,17 @@ export function TopAppBar({ className }: TopAppBarProps) {
                           <ShellActionSurface
                             variant="icon"
                             aria-label="Notifications"
+                            className={riaTopIconSurfaceClassName}
+                            badgeClassName={riaTopBadgeWrapperClassName}
                             badge={
                               badgeCount > 0 ? (
-                                <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-[#1d1d1f] shadow-[0_8px_18px_rgba(184,137,77,0.32)] ring-2 ring-white/90 dark:ring-[#111113]">
+                                <span
+                                  className={cn(
+                                    "inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-[#1d1d1f] shadow-[0_8px_18px_rgba(184,137,77,0.32)] ring-2 ring-white/90 dark:ring-[#111113]",
+                                    isRiaScope &&
+                                      "bg-[color:var(--ria-gold)] text-white shadow-none ring-[#FCFAF6] dark:ring-[#FCFAF6]",
+                                  )}
+                                >
                                   {badgeCount}
                                 </span>
                               ) : null
@@ -973,18 +1003,39 @@ function OnboardingRouteActions() {
   const { user, signOut } = useAuth();
   const { vaultOwnerToken } = useVault();
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [vaultUnlockOpen, setVaultUnlockOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
   async function handleSignOut() {
     try {
-      setOnboardingRequiredCookie(false);
-      setOnboardingFlowActiveCookie(false);
       await signOut();
       router.push(ROUTES.HOME);
     } catch (error) {
       console.error("[TopAppBar] Failed to sign out:", error);
       toast.error("Couldn't sign out. Please retry.");
     }
+  }
+
+  async function requestDeleteAccount() {
+    if (!user?.uid) return;
+
+    try {
+      const resolution = await resolveDeleteAccountAuth({
+        userId: user.uid,
+        existingVaultOwnerToken: vaultOwnerToken ?? null,
+      });
+
+      if (resolution.kind === "needs_unlock") {
+        setVaultUnlockOpen(true);
+        return;
+      }
+    } catch (error) {
+      console.error("[TopAppBar] Failed to prepare account deletion:", error);
+      morphyToast.error("Failed to delete account. Please try again.");
+      return;
+    }
+
+    setDeleteConfirmOpen(true);
   }
 
   async function handleDeleteAccount() {
@@ -998,23 +1049,30 @@ function OnboardingRouteActions() {
       });
 
       if (resolution.kind === "needs_unlock") {
-        toast.error("Unlock your vault from Profile to delete this account.");
-        router.push(ROUTES.PROFILE);
+        setDeleteConfirmOpen(false);
+        setVaultUnlockOpen(true);
         return;
       }
 
-      await AccountService.deleteAccount(resolution.token);
-      CacheSyncService.onAccountDeleted(user.uid);
-      await UserLocalStateService.clearForUser(user.uid);
-      setOnboardingRequiredCookie(false);
-      setOnboardingFlowActiveCookie(false);
+      await morphyToast
+        .promise(
+          executeVerifiedAccountDeletion({
+            userId: user.uid,
+            vaultOwnerToken: resolution.token,
+          }),
+          {
+            loading: "Deleting your account...",
+            success: "Account deleted. Redirecting...",
+            error: "Failed to delete account. Please try again.",
+            variant: "destructive",
+          },
+        )
+        .unwrap();
 
-      toast.success("Account deleted.");
-      await signOut();
-      router.push(ROUTES.HOME);
+      await signOut({ skipFcmCleanup: true });
+      router.replace(ROUTES.HOME);
     } catch (error) {
       console.error("[TopAppBar] Failed to delete account:", error);
-      toast.error("Failed to delete account. Please retry.");
     } finally {
       setIsDeleting(false);
       setDeleteConfirmOpen(false);
@@ -1023,13 +1081,9 @@ function OnboardingRouteActions() {
 
   return (
     <>
-      <ThemeToggleCompact className={TOP_SHELL_ICON_BUTTON_CLASSNAME} />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <ShellActionSurface
-            variant="icon"
-            aria-label="Account actions"
-          >
+          <ShellActionSurface variant="icon" aria-label="Account actions">
             <MoreHorizontal className="h-5 w-5 text-current" />
           </ShellActionSurface>
         </DropdownMenuTrigger>
@@ -1039,7 +1093,7 @@ function OnboardingRouteActions() {
             Sign out
           </DropdownMenuItem>
           <DropdownMenuItem
-            onClick={() => setDeleteConfirmOpen(true)}
+            onClick={() => void requestDeleteAccount()}
             className="text-red-600 focus:text-red-600"
           >
             <Trash2 className="h-4 w-4 text-current" />
@@ -1048,12 +1102,26 @@ function OnboardingRouteActions() {
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {user ? (
+        <VaultUnlockDialog
+          user={user}
+          open={vaultUnlockOpen}
+          onOpenChange={setVaultUnlockOpen}
+          title="Unlock Vault to Delete Account"
+          description="Unlock your vault to confirm deletion. This is permanent and removes all encrypted records."
+          onSuccess={() => {
+            setVaultUnlockOpen(false);
+            window.setTimeout(() => void requestDeleteAccount(), 300);
+          }}
+        />
+      ) : null}
+
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete account?</AlertDialogTitle>
+            <AlertDialogTitle>{DELETE_ACCOUNT_DIALOG_TITLE}</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently deletes your account and associated information.
+              {DELETE_ACCOUNT_DIALOG_DESCRIPTION}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1066,7 +1134,7 @@ function OnboardingRouteActions() {
               className="bg-red-600 text-white hover:bg-red-700"
               disabled={isDeleting}
             >
-              {isDeleting ? "Deleting..." : "Delete"}
+              {isDeleting ? "Deleting..." : "Yes, delete my account"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

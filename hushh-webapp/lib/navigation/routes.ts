@@ -3,6 +3,8 @@
  * Keep every app-level navigation target here to avoid drift.
  */
 
+export { ONE_SETUP_CAPABILITY_IDS } from "@/lib/onboarding/setup-capability-ids";
+
 export const ROUTES = {
   HOME: "/",
   ONE_HOME: "/one",
@@ -39,7 +41,14 @@ export const ROUTES = {
   PROFILE_RECEIPTS: "/profile/receipts",
   PROFILE_GMAIL_OAUTH_RETURN: "/profile/gmail/oauth/return",
   ONE_SETUP: "/one/setup",
+  ONE_SETUP_FINANCE: "/one/setup/finance",
+  ONE_SETUP_FINANCE_IMPORT: "/one/setup/finance/import",
   ONE_SETUP_KAI: "/one/setup/kai",
+  ONE_SETUP_GMAIL: "/one/setup/gmail",
+  ONE_SETUP_LOCATION: "/one/setup/location",
+  ONE_SETUP_EMAIL: "/one/setup/email",
+  ONE_SETUP_RIA: "/one/setup/ria",
+  ONE_SETUP_CONNECTED_SYSTEMS: "/one/setup/connected-systems",
   GMAIL: "/one/gmail",
   PKM: "/one/pkm",
   ONE_MARKETPLACE: "/one/marketplace",
@@ -75,7 +84,7 @@ export const ROUTES = {
   RIA_SETTINGS: "/ria/settings",
   RIA_PROFILE: "/ria/profile",
   KAI_HOME: "/one/kai",
-  KAI_SETUP: "/one/setup/kai",
+  KAI_SETUP: "/one/setup/finance",
   KAI_IMPORT: "/one/kai/import",
   KAI_PLAID_OAUTH_RETURN: "/one/kai/plaid/oauth/return",
   KAI_ALPACA_OAUTH_RETURN: "/one/kai/alpaca/oauth/return",
@@ -87,7 +96,10 @@ export const ROUTES = {
   KAI_OPTIMIZE: "/one/kai/optimize",
 } as const;
 
-function withQuery(pathname: string, entries: Record<string, string | null | undefined>) {
+function withQuery(
+  pathname: string,
+  entries: Record<string, string | null | undefined>,
+) {
   const params = new URLSearchParams();
 
   for (const [key, value] of Object.entries(entries)) {
@@ -123,7 +135,9 @@ export function buildWelcomeRoute(redirect?: string | null) {
   });
 }
 
-export function normalizeInternalRouteHref(value: string | null | undefined): string | null {
+export function normalizeInternalRouteHref(
+  value: string | null | undefined,
+): string | null {
   const href = String(value ?? "").trim();
   if (!href) return null;
   if (!href.startsWith("/") || href.startsWith("//")) return null;
@@ -142,43 +156,47 @@ export function buildOneSetupKaiRoute(entries?: {
   from?: string | null;
   invite?: string | null;
 }) {
-  return withQuery(ROUTES.ONE_SETUP_KAI, {
+  return withQuery(ROUTES.ONE_SETUP_FINANCE, {
     from: normalizeInternalRouteHref(entries?.from),
     invite: entries?.invite,
   });
 }
 
 /**
- * Setup-scoped handoff route for a single capability, e.g.
- * `/one/setup/gmail`. These routes live UNDER `/one/setup/*`, which is
- * already allow-listed through `OneSetupGuard` (see
- * {@link isOneSetupWizardRoute}). The setup hub points every "Set up" /
- * "Explore" tile here so a first-time user is never bounced by the hard gate.
- * The handoff page records the capability setup signal, then forwards to the
- * canonical capability route (see {@link CAPABILITY_HANDOFF_TARGETS}).
+ * Setup-scoped workspace route for a single capability. Every first-run
+ * capability lives here; normal product workspaces remain outside setup.
  */
 export function buildOneSetupCapabilityRoute(capabilityId: string): string {
-  return `${ROUTES.ONE_SETUP}/${capabilityId}`;
+  return SETUP_CAPABILITY_ROUTES[capabilityId] ?? ROUTES.ONE_SETUP;
 }
 
 /**
- * Canonical post-handoff destination per capability. After the
- * `/one/setup/<id>` handoff records the capability signal, it forwards here.
- * Finance forwards into the guided investor-preferences wizard
- * (`/one/setup/kai`), which then chains persona -> portfolio import
- * (`/one/kai/import`) -> dashboard. Sending finance straight to the dashboard
- * orphaned the questionnaire and import, so the tile now opens the actual
- * setup journey. Consent forwards to the pending tab of the consent center.
- * Anything not listed falls back to the setup hub so a typo'd handoff is
- * contained, never a hard 404.
+ * Deprecated compatibility helper. Completion is never encoded in a URL.
+ * Callers must use the setup coordinator's verified finish transition.
  */
+export function buildOneSetupCapabilityFinishRoute(
+  capabilityId: string,
+): string {
+  return buildOneSetupCapabilityRoute(capabilityId);
+}
+
+/** Static setup workspaces. This is intentionally exact rather than a prefix. */
+export const SETUP_CAPABILITY_ROUTES: Readonly<Record<string, string>> = {
+  gmail: ROUTES.ONE_SETUP_GMAIL,
+  location: ROUTES.ONE_SETUP_LOCATION,
+  email: ROUTES.ONE_SETUP_EMAIL,
+  finance: ROUTES.ONE_SETUP_FINANCE,
+  ria: ROUTES.ONE_SETUP_RIA,
+  "connected-systems": ROUTES.ONE_SETUP_CONNECTED_SYSTEMS,
+};
+
+/** Normal (post-setup) destinations; never use these to admit unresolved setup. */
 export const CAPABILITY_HANDOFF_TARGETS: Readonly<Record<string, string>> = {
-  finance: ROUTES.ONE_SETUP_KAI,
+  finance: ROUTES.KAI_HOME,
   gmail: ROUTES.GMAIL,
   email: ROUTES.ONE_KYC,
   location: ROUTES.ONE_LOCATION,
-  pkm: ROUTES.PKM,
-  consent: `${ROUTES.CONSENTS}?tab=pending`,
+  ria: ROUTES.RIA_ONBOARDING,
   "connected-systems": ROUTES.CONNECTED_SYSTEMS,
 };
 
@@ -187,35 +205,91 @@ export function resolveCapabilityHandoffTarget(capabilityId: string): string {
 }
 
 /**
- * Canonical, HARD-GATED capability handoff targets: the subset of
- * {@link CAPABILITY_HANDOFF_TARGETS} that live under `/one/*` but OUTSIDE the
- * `/one/setup/*` surface (gmail, email→/one/kyc, location, pkm,
- * connected-systems). These are the routes `OneOnboardingGuard` bounces to
- * `/one/setup` while the master gate is unresolved. Finance (→ `/one/setup/kai`,
- * a setup surface) and consent (→ `/consents`, off `/one`) are excluded: the
- * former is already allow-listed, the latter is not gated at all.
- * (`isOneSetupSurfaceRoute` is a hoisted function declaration, so it is safe to
- * call here at module init.)
+ * No normal product route is an unresolved-setup handoff target. This export
+ * is retained for callers that need to distinguish the historical model.
  */
-const GATED_CAPABILITY_HANDOFF_TARGETS: ReadonlySet<string> = new Set(
-  Object.values(CAPABILITY_HANDOFF_TARGETS)
-    .map((target) => target.split("?")[0] ?? target)
-    .filter(
-      (target) =>
-        target.startsWith(`${ROUTES.ONE_HOME}/`) &&
-        !isOneSetupSurfaceRoute(target),
-    ),
-);
+const GATED_CAPABILITY_HANDOFF_TARGETS: ReadonlySet<string> = new Set();
 
 /**
  * True when `pathname` is a hard-gated capability handoff target (see
  * {@link GATED_CAPABILITY_HANDOFF_TARGETS}). `OneOnboardingGuard` uses this,
- * together with a `?from=setup` marker, to allow a setup-originated entry into
- * the real product surface WITHOUT first resolving the account-wide master
- * setup gate — so entering one capability no longer marks ALL setup complete.
+ * to identify canonical workspace destinations. Admission comes from the
+ * durable active-capability record, never from a query marker.
  */
 export function isCapabilityHandoffTarget(pathname: string): boolean {
   return GATED_CAPABILITY_HANDOFF_TARGETS.has(pathname);
+}
+
+/**
+ * Route families an unresolved setup journey may enter for its ONE durable
+ * active capability. This replaces the fragile `?from=/one/setup` admission
+ * marker: query parameters describe navigation history, while the verified
+ * pre-vault journey record supplies authority.
+ *
+ * Keep this deliberately narrow. A capability can navigate within its setup
+ * workspace and callback routes, but it cannot use onboarding as a blanket
+ * grant for unrelated signed-in surfaces.
+ */
+export const CAPABILITY_ONBOARDING_ROUTE_PREFIXES: Readonly<
+  Record<string, readonly string[]>
+> = {
+  finance: [
+    ROUTES.ONE_SETUP_FINANCE,
+    ROUTES.ONE_SETUP_FINANCE_IMPORT,
+    ROUTES.KAI_PLAID_OAUTH_RETURN,
+  ],
+  gmail: [ROUTES.ONE_SETUP_GMAIL, ROUTES.PROFILE_GMAIL_OAUTH_RETURN],
+  email: [ROUTES.ONE_SETUP_EMAIL],
+  location: [ROUTES.ONE_SETUP_LOCATION],
+  ria: [ROUTES.ONE_SETUP_RIA],
+  "connected-systems": [ROUTES.ONE_SETUP_CONNECTED_SYSTEMS],
+};
+
+/** True only when the route belongs to the verified active capability. */
+export function isCapabilityOnboardingRoute(
+  capabilityId: string | null | undefined,
+  pathname: string,
+): boolean {
+  if (!capabilityId) return false;
+  return (CAPABILITY_ONBOARDING_ROUTE_PREFIXES[capabilityId] || []).some(
+    (route) => pathname === route,
+  );
+}
+
+/** Resolve the authored capability whose onboarding route family owns a path. */
+export function resolveOnboardingCapabilityForRoute(
+  pathname: string,
+): string | null {
+  for (const [capabilityId, prefixes] of Object.entries(
+    CAPABILITY_ONBOARDING_ROUTE_PREFIXES,
+  )) {
+    if (prefixes.some((route) => pathname === route)) {
+      return capabilityId;
+    }
+  }
+  return null;
+}
+
+/**
+ * Anonymous/editorial and prerequisite routes that never participate in the
+ * authenticated root-setup admission decision. `/profile` is intentionally
+ * not exempt: once signed in it is an internal surface and must not bypass an
+ * explicitly incomplete setup journey.
+ */
+export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
+  return (
+    pathname === ROUTES.HOME ||
+    pathname === ROUTES.DEVELOPERS ||
+    pathname === ROUTES.RESEARCH ||
+    pathname.startsWith(`${ROUTES.RESEARCH}/`) ||
+    pathname === ROUTES.BLOG ||
+    pathname.startsWith(`${ROUTES.BLOG}/`) ||
+    pathname === ROUTES.LOGIN ||
+    pathname === ROUTES.GETTING_STARTED ||
+    pathname === ROUTES.PHONE_MANDATE ||
+    pathname === ROUTES.LOGOUT ||
+    pathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
+  );
 }
 
 /**
@@ -259,7 +333,9 @@ export function buildConnectedSystemRoute(systemId?: string | null) {
   return `${ROUTES.CONNECTED_SYSTEMS}/${encodeURIComponent(normalized)}`;
 }
 
-export function buildMarketplaceConnectionPortfolioRoute(connectionId?: string | null) {
+export function buildMarketplaceConnectionPortfolioRoute(
+  connectionId?: string | null,
+) {
   const normalized = String(connectionId ?? "").trim();
   if (!normalized) return ROUTES.RIA_CLIENTS;
   return buildRiaClientWorkspaceRoute(normalized, { tab: "kai" });
@@ -270,7 +346,7 @@ export function buildRiaClientWorkspaceRoute(
   entries?: {
     tab?: "overview" | "access" | "kai" | "explorer" | null;
     testProfile?: boolean | null;
-  }
+  },
 ) {
   const normalized = String(clientId ?? "").trim();
   if (!normalized) return ROUTES.RIA_CLIENTS;
@@ -285,18 +361,18 @@ export function buildRiaClientAccountRoute(
   accountId?: string | null,
   entries?: {
     testProfile?: boolean | null;
-  }
+  },
 ) {
   const normalizedClientId = String(clientId ?? "").trim();
   const normalizedAccountId = String(accountId ?? "").trim();
   if (!normalizedClientId || !normalizedAccountId) return ROUTES.RIA_CLIENTS;
   return withQuery(
     `${ROUTES.RIA_CLIENTS}/${encodeURIComponent(normalizedClientId)}/accounts/${encodeURIComponent(
-      normalizedAccountId
+      normalizedAccountId,
     )}`,
     {
       test_profile: entries?.testProfile ? "1" : null,
-    }
+    },
   );
 }
 
@@ -305,18 +381,18 @@ export function buildRiaClientRequestRoute(
   requestId?: string | null,
   entries?: {
     testProfile?: boolean | null;
-  }
+  },
 ) {
   const normalizedClientId = String(clientId ?? "").trim();
   const normalizedRequestId = String(requestId ?? "").trim();
   if (!normalizedClientId || !normalizedRequestId) return ROUTES.RIA_CLIENTS;
   return withQuery(
     `${ROUTES.RIA_CLIENTS}/${encodeURIComponent(normalizedClientId)}/requests/${encodeURIComponent(
-      normalizedRequestId
+      normalizedRequestId,
     )}`,
     {
       test_profile: entries?.testProfile ? "1" : null,
-    }
+    },
   );
 }
 
@@ -325,7 +401,7 @@ export function buildRiaWorkspaceRoute(
   entries?: {
     tab?: "overview" | "access" | "kai" | "explorer" | null;
     testProfile?: boolean | null;
-  }
+  },
 ) {
   return buildRiaClientWorkspaceRoute(clientId, entries);
 }
@@ -343,32 +419,11 @@ export function buildKaiAnalysisPreviewRoute(entries?: {
 /**
  * The `/one/setup` capability hub — the canonical setup entry. A fresh user
  * lands here; the investor-preferences wizard opens from the finance tile and
- * lives at `/one/setup/kai`.
+ * lives at `/one/setup/finance`.
  */
 export function isOneSetupRoute(pathname: string): boolean {
-  return (
-    pathname === ROUTES.ONE_SETUP || pathname.startsWith(`${ROUTES.ONE_SETUP}/`)
-  );
+  return pathname === ROUTES.ONE_SETUP;
 }
-
-/**
- * Catalog capability ids that have a dedicated setup step at
- * `/one/setup/<id>`. Kept here (a routing concern) rather than imported
- * from the capability catalog to avoid a circular import — the catalog already
- * imports from this module. Keep in sync with `ONE_CAPABILITIES`.
- * Note: `kai` is intentionally NOT a capability id; the static
- * `/one/setup/kai` wizard segment wins over the `[capability]` dynamic route.
- */
-export const ONE_SETUP_CAPABILITY_IDS: readonly string[] = [
-  "finance",
-  "gmail",
-  "email",
-  "location",
-  "pkm",
-  "consent",
-  "marketplace",
-  "connected-systems",
-];
 
 /**
  * The setup-scoped per-capability step route, e.g. `/one/setup/gmail`.
@@ -377,38 +432,41 @@ export const ONE_SETUP_CAPABILITY_IDS: readonly string[] = [
  * through (it lives under `/one/setup/*`) but must NOT treat it as the wizard —
  * otherwise a resolved user tapping a setup tile would be bounced to `/one`
  * instead of reaching the capability. Only KNOWN capability ids match, so
- * reserved sub-paths like `/one/setup/kai` are unaffected.
+ * reserved wizard and compatibility sub-paths are unaffected.
  */
 export function isOneSetupCapabilityRoute(pathname: string): boolean {
-  const prefix = `${ROUTES.ONE_SETUP}/`;
-  if (!pathname.startsWith(prefix)) return false;
-  const rest = pathname.slice(prefix.length);
-  if (rest.length === 0 || rest.includes("/")) return false;
-  return ONE_SETUP_CAPABILITY_IDS.includes(rest);
+  return Object.values(SETUP_CAPABILITY_ROUTES).includes(pathname);
 }
 
 /**
- * The investor-preferences wizard route at `/one/setup/kai`. Distinct from
+ * The investor-preferences wizard routes at `/one/setup/finance` and its
+ * source-selection child. The legacy `/one/setup/kai` route is compatibility-only.
+ * This is distinct from
  * {@link isOneSetupRoute} and {@link isOneSetupCapabilityRoute}: the wizard is
  * the guided preferences sub-step, while the hub is the root setup surface and
  * the capability handoff is a transient redirector.
  */
 export function isOneSetupWizardRoute(pathname: string): boolean {
   return (
-    pathname === ROUTES.ONE_SETUP_KAI ||
-    pathname.startsWith(`${ROUTES.ONE_SETUP_KAI}/`)
+    pathname === ROUTES.ONE_SETUP_FINANCE ||
+    pathname === ROUTES.ONE_SETUP_FINANCE_IMPORT ||
+    pathname === ROUTES.ONE_SETUP_KAI
   );
 }
 
 /**
  * True for any route in the One setup surface: the canonical `/one/setup` hub,
- * the investor-preferences wizard at `/one/setup/kai`, OR a per-capability
+ * the investor-preferences wizard at `/one/setup/finance`, OR a per-capability
  * handoff at `/one/setup/<id>`. Guards and chrome use this so all render setup
  * chrome and are allowed through the setup gate while the root flow is
  * unresolved.
  */
 export function isOneSetupSurfaceRoute(pathname: string): boolean {
-  return isOneSetupRoute(pathname);
+  return (
+    isOneSetupRoute(pathname) ||
+    isOneSetupCapabilityRoute(pathname) ||
+    isOneSetupWizardRoute(pathname)
+  );
 }
 
 export function isPublicRoute(pathname: string): boolean {
@@ -445,7 +503,9 @@ export function isFoundationPublicRoute(pathname: string): boolean {
 }
 
 export function isRiaRoute(pathname: string): boolean {
-  return pathname === ROUTES.RIA_HOME || pathname.startsWith(`${ROUTES.RIA_HOME}/`);
+  return (
+    pathname === ROUTES.RIA_HOME || pathname.startsWith(`${ROUTES.RIA_HOME}/`)
+  );
 }
 
 export function isRiaOnboardingRoute(pathname: string): boolean {
@@ -455,7 +515,9 @@ export function isRiaOnboardingRoute(pathname: string): boolean {
   );
 }
 
-export function isRiaActionBarRoute(pathname: string | null | undefined): boolean {
+export function isRiaActionBarRoute(
+  pathname: string | null | undefined,
+): boolean {
   const path = pathname ?? "";
   return isRiaRoute(path) && !isRiaOnboardingRoute(path);
 }

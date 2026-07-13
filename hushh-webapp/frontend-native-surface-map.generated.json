@@ -1488,7 +1488,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "redirect",
-        "exemption_reason": "Compatibility redirect route only launches the canonical /one/setup/kai flow.",
+        "exemption_reason": "Compatibility redirect route only launches the canonical /one/setup/finance flow.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -2810,7 +2810,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "redirect",
-        "exemption_reason": "Compatibility redirect route only launches the canonical /one/setup/kai flow.",
+        "exemption_reason": "Compatibility redirect route only launches the canonical /one/setup/finance flow.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -3018,12 +3018,10 @@
           "playbook_id": "route.one.kai.portfolio",
           "purpose": "Help the person understand and use the portfolio screen through its generated controls.",
           "screen": "kai_portfolio_dashboard",
-          "entry_cue": "You can say “Open Portfolio Dashboard” to use the primary control on this screen.",
-          "proactivity": "on_entry",
-          "primary_action_id": "route.kai_dashboard",
-          "happy_path_action_ids": [
-            "route.kai_dashboard"
-          ],
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -3524,12 +3522,18 @@
         "voice_playbook": {
           "playbook_id": "route.one.setup",
           "purpose": "Help the person choose, resume, skip, or finish one setup capability.",
-          "screen": "one_setup",
+          "screen": "one_setup_hub",
           "entry_cue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
           "proactivity": "on_entry",
-          "primary_action_id": "setup.open_finance",
+          "primary_action_id": "setup.open_gmail",
           "happy_path_action_ids": [
-            "setup.open_finance"
+            "setup.open_gmail",
+            "setup.open_location",
+            "setup.open_email",
+            "setup.open_finance",
+            "setup.open_ria",
+            "setup.open_connected_systems",
+            "setup.hub_master_ack"
           ],
           "required_inputs": [],
           "recoveries": {
@@ -3576,28 +3580,21 @@
       "page_file": "app/one/setup/[capability]/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "components/onboarding/setup/onboarding-capability-step.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader"
-        ],
+        "mode": "redirect",
+        "exemption_reason": "Compatibility-only route redirects known legacy capability paths to static setup workspaces.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
           "playbook_id": "route.one.setup.capability",
-          "purpose": "Explain the active setup capability and advance only its visible next step.",
-          "screen": "one_setup",
-          "entry_cue": "Say ‘Continue’ when you are ready for the next step.",
-          "proactivity": "on_entry",
-          "primary_action_id": "setup.capability_continue",
-          "happy_path_action_ids": [
-            "setup.capability_continue"
-          ],
+          "purpose": "Compatibility redirect only; it exposes no executable setup actions.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -3607,7 +3604,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "The step settles after its local handler opens the capability destination.",
+          "completion_boundary": "The compatibility redirect has no completion authority.",
           "next_route": "/one/setup",
           "return_policy": "return_to_hub",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3621,9 +3618,358 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": "app/one/setup/[capability]/one-onboarding-capability-step.voice-action-contract.json",
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/setup/connected-systems",
+      "page_file": "app/one/setup/connected-systems/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/one/setup/connected-systems/page.tsx",
+        "shell_verification_includes": [
+          "ConnectedSystemsPanel",
+          "SetupCapabilityTerminalFooter"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.setup.connected.systems",
+          "purpose": "Link an active CRM record before explicitly finishing or skipping setup.",
+          "screen": "one_setup_connected_systems",
+          "entry_cue": "Choose a CRM to find or create your record, or say skip linking setup.",
+          "proactivity": "on_entry",
+          "primary_action_id": "setup.skip_connected_systems",
+          "happy_path_action_ids": [
+            "setup.skip_connected_systems",
+            "setup.finish_connected_systems"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Keep linked systems setup open and preserve the active goal.",
+            "failed": "Explain that an active record binding is needed before finishing.",
+            "timeout": "Retain the goal and offer a safe retry.",
+            "callback_error": "Return to linked systems setup without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Linked systems setup finishes only after an active CRM record binding and hub settlement.",
+          "next_route": "/one/setup",
+          "return_policy": "return_to_hub",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/setup/connected-systems",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fconnected-systems",
+        "expectedMarker": "native-route-connected-systems",
+        "expectedRoute": "/one/setup/connected-systems",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/one/setup/connected-systems/page.voice-action-contract.json",
       "voice_action_contract_ids": [
-        "setup.capability_continue"
+        "setup.finish_connected_systems",
+        "setup.skip_connected_systems"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/setup/email",
+      "page_file": "app/one/setup/email/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/one/setup/email/page.tsx",
+        "shell_verification_includes": [
+          "OneKycPage",
+          "SetupCapabilityTerminalFooter"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.setup.email",
+          "purpose": "Set up the verified email identity and connector One uses to draft with you.",
+          "screen": "one_setup_email",
+          "entry_cue": "Set up your verified email identity, or say skip KYC setup.",
+          "proactivity": "on_entry",
+          "primary_action_id": "setup.skip_email",
+          "happy_path_action_ids": [
+            "setup.skip_email",
+            "setup.finish_email"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Keep KYC setup open and preserve the active goal.",
+            "failed": "Explain what remains to set up without claiming completion.",
+            "timeout": "Retain the goal and offer a safe retry.",
+            "callback_error": "Use the verified current route and its generated actions only.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "KYC setup finishes only after a verified email identity and client connector are ready.",
+          "next_route": "/one/setup",
+          "return_policy": "return_to_hub",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/setup/email",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Femail",
+        "expectedMarker": "native-route-one-kyc",
+        "expectedRoute": "/one/setup/email",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/one/setup/email/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "setup.finish_email",
+        "setup.skip_email"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/setup/finance",
+      "page_file": "app/one/setup/finance/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "flow",
+        "exemption_reason": "Finance preferences use the existing full-height wizard inside the setup route.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.setup.finance",
+          "purpose": "Collect Finance preferences before choosing Plaid, a statement, or a later source choice.",
+          "screen": "one_setup_finance",
+          "entry_cue": "Answer the visible Finance question to continue.",
+          "proactivity": "on_entry",
+          "primary_action_id": "kai.setup.answer_horizon",
+          "happy_path_action_ids": [
+            "kai.setup.answer_horizon",
+            "kai.setup.answer_drawdown",
+            "kai.setup.answer_volatility",
+            "kai.setup.launch_dashboard",
+            "setup.skip_finance"
+          ],
+          "required_inputs": [
+            "investment_horizon"
+          ],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Keep Finance setup open and preserve the active goal.",
+            "failed": "Explain that Finance setup is still incomplete and offer a safe retry.",
+            "timeout": "Retain the goal and offer a safe retry.",
+            "callback_error": "Return to Finance setup without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Preferences advance to the Finance source choice; only the import route can make Finance ready.",
+          "next_route": "/one/setup/finance/import",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/setup/finance",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Ffinance",
+        "expectedMarker": "native-route-one-setup-kai",
+        "expectedRoute": "/one/setup/finance",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/setup/finance/import",
+      "page_file": "app/one/setup/finance/import/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "flow",
+        "exemption_reason": "Finance source selection uses the existing import flow inside the setup route.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.setup.finance.import",
+          "purpose": "Choose Plaid, a statement, or a later source choice for Finance setup.",
+          "screen": "one_setup_finance_import",
+          "entry_cue": "Choose how you want to add a portfolio, or set it up later.",
+          "proactivity": "on_entry",
+          "primary_action_id": "setup.skip_finance",
+          "happy_path_action_ids": [
+            "setup.finish_finance",
+            "setup.skip_finance"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Keep Finance setup open and preserve the active goal.",
+            "failed": "Explain that a source still needs to settle before finishing.",
+            "timeout": "Retain the goal and offer a safe retry.",
+            "callback_error": "Return to Finance setup without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Finance finishes only after a verified Plaid connection, statement save, or explicit later choice and hub settlement.",
+          "next_route": "/one/setup",
+          "return_policy": "return_to_hub",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/setup/finance/import",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Ffinance%2Fimport",
+        "expectedMarker": "native-route-one-setup-kai",
+        "expectedRoute": "/one/setup/finance/import",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/one/setup/finance/import/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "setup.finish_finance",
+        "setup.skip_finance"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/setup/gmail",
+      "page_file": "app/one/setup/gmail/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/gmail/gmail-receipts-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.setup.gmail",
+          "purpose": "Connect Gmail, review the receipt signal it creates, then finish this capability and return to setup.",
+          "screen": "one_setup_gmail",
+          "entry_cue": "Connect Gmail to review receipt emails and the brands they help One understand.",
+          "proactivity": "on_entry",
+          "primary_action_id": "setup.connect_gmail",
+          "happy_path_action_ids": [
+            "setup.connect_gmail",
+            "setup.finish_gmail",
+            "setup.skip_gmail"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Keep Gmail setup available and return to the current setup screen.",
+            "failed": "Explain that Gmail setup is still incomplete and offer a safe retry.",
+            "timeout": "Keep the Gmail goal active and offer one safe retry.",
+            "callback_error": "Return to Gmail setup and show the connector recovery state without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Gmail setup completes only after the connector reports a verified connection and the setup hub route settles.",
+          "next_route": "/one/setup",
+          "return_policy": "return_to_hub",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/setup/gmail",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fgmail",
+        "expectedMarker": "native-route-gmail",
+        "expectedRoute": "/one/setup/gmail",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/one/setup/gmail/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "setup.connect_gmail",
+        "setup.finish_gmail",
+        "setup.skip_gmail"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
@@ -3634,8 +3980,8 @@
       "page_file": "app/one/setup/kai/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "flow",
-        "exemption_reason": "Fullscreen setup wizard owns its own shell and safe-area spacing.",
+        "mode": "redirect",
+        "exemption_reason": "Compatibility route redirects to the canonical /one/setup/finance workspace.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -3644,13 +3990,11 @@
         "voice_playbook": {
           "playbook_id": "route.one.setup.kai",
           "purpose": "Collect Finance preferences and return to the setup hub without resolving root onboarding.",
-          "screen": "one_setup",
-          "entry_cue": "Answer the visible Finance question to continue.",
-          "proactivity": "on_entry",
-          "primary_action_id": "kai.setup.answer_horizon",
-          "happy_path_action_ids": [
-            "kai.setup.answer_horizon"
-          ],
+          "screen": "one_setup_finance",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
           "required_inputs": [
             "investment_horizon"
           ],
@@ -3662,9 +4006,9 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Finance setup completes only after preferences are saved and the hub route settles.",
-          "next_route": "/one/setup",
-          "return_policy": "return_to_hub",
+          "completion_boundary": "The compatibility route has no executable actions.",
+          "next_route": "/one/setup/finance",
+          "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
@@ -3693,6 +4037,145 @@
         "kai.setup.answer_horizon",
         "kai.setup.answer_volatility",
         "kai.setup.launch_dashboard"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/setup/location",
+      "page_file": "app/one/setup/location/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/one/setup/location/page.tsx",
+        "shell_verification_includes": [
+          "OneLocationAgentPage",
+          "SetupCapabilityTerminalFooter"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.setup.location",
+          "purpose": "Request device location permission, then explicitly finish or skip Location setup.",
+          "screen": "one_setup_location",
+          "entry_cue": "Allow Location when you are ready, or say skip Location setup.",
+          "proactivity": "on_entry",
+          "primary_action_id": "setup.skip_location",
+          "happy_path_action_ids": [
+            "setup.skip_location",
+            "setup.finish_location"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Keep Location setup open and preserve the active goal.",
+            "failed": "Explain that permission is still needed before finishing.",
+            "timeout": "Retain the goal and offer a safe retry.",
+            "callback_error": "Use the verified current route and its generated actions only.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Location setup finishes only after device permission is granted and the hub route settles.",
+          "next_route": "/one/setup",
+          "return_policy": "return_to_hub",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/setup/location",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Flocation",
+        "expectedMarker": "native-route-one-location",
+        "expectedRoute": "/one/setup/location",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/one/setup/location/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "setup.finish_location",
+        "setup.skip_location"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/setup/ria",
+      "page_file": "app/one/setup/ria/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "flow",
+        "exemption_reason": "RIA onboarding retains its existing full-screen verification flow inside the setup route.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.setup.ria",
+          "purpose": "Submit an RIA profile, then explicitly finish or skip its setup.",
+          "screen": "one_setup_ria",
+          "entry_cue": "Complete your RIA profile when ready, or say skip RIA setup.",
+          "proactivity": "on_entry",
+          "primary_action_id": "setup.skip_ria",
+          "happy_path_action_ids": [
+            "setup.skip_ria",
+            "setup.finish_ria"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Keep RIA setup open and preserve the active goal.",
+            "failed": "Explain that the profile has not been accepted yet.",
+            "timeout": "Retain the goal and offer a safe retry.",
+            "callback_error": "Return to RIA setup without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "RIA setup finishes only after a non-rejected profile submission and hub settlement.",
+          "next_route": "/one/setup",
+          "return_policy": "return_to_hub",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/setup/ria",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fria",
+        "expectedMarker": "native-route-ria-onboarding",
+        "expectedRoute": "/one/setup/ria",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/one/setup/ria/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "setup.finish_ria",
+        "setup.skip_ria"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
@@ -6072,8 +6555,8 @@
       "page_file": "app/ria/profile/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "flow",
-        "exemption_reason": "RIA profile uses its existing focused settings surface outside the standard app-page shell.",
+        "mode": "standard",
+        "exemption_reason": null,
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {

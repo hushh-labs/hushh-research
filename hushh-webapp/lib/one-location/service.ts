@@ -342,6 +342,7 @@ export class OneLocationService {
     recipientKeyId: string;
     durationHours: number;
     reason?: string;
+    shareKind?: string;
   }): Promise<OneLocationGrant> {
     const response = await apiJson<{ grant: OneLocationGrant }>(
       "/api/one/location/grants",
@@ -353,6 +354,7 @@ export class OneLocationService {
           recipientKeyId: params.recipientKeyId,
           durationHours: params.durationHours,
           ...(params.reason ? { reason: params.reason } : {}),
+          ...(params.shareKind ? { shareKind: params.shareKind } : {}),
         }),
       },
     );

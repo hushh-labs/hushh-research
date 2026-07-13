@@ -126,12 +126,26 @@ export async function waitForVoiceActionSettlement(
         : currentScreen && currentScreen !== String(routeBefore?.screen || "").trim()
     );
     const surfaceScreen = String(currentSurface?.screenId || "").trim() || null;
+    const surfaceRouteKey = normalizeHref(currentSurface?.publisherRouteKey);
+    const surfaceBelongsToCurrentRoute = Boolean(
+      surfaceRouteKey && routeMatchesTarget(currentPath, surfaceRouteKey),
+    );
     const surfaceMatches = Boolean(
       hasMeaningfulSurfaceMetadata(currentSurface) &&
-        (expectedScreen ? surfaceScreen === expectedScreen : surfaceScreen === currentScreen)
+        (surfaceBelongsToCurrentRoute ||
+          (!surfaceRouteKey &&
+            (expectedScreen
+              ? surfaceScreen === expectedScreen
+              : surfaceScreen === currentScreen)))
     );
+    const requiresPublishedSurface = Boolean(input.getCurrentSurfaceMetadata);
 
-    if (routeChanged && (screenMatches || surfaceMatches || !expectedScreen)) {
+    if (
+      routeChanged &&
+      (requiresPublishedSurface
+        ? surfaceMatches
+        : screenMatches || !expectedScreen)
+    ) {
       const settledBy =
         input.mode === "start_background_and_ack"
           ? "background_start"

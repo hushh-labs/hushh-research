@@ -1,7 +1,11 @@
 import type { KaiProfileV2 } from "@/lib/services/kai-profile-service";
 import type { PreVaultUserState } from "@/lib/services/pre-vault-user-state-service";
 import { resolveKaiOnboardingCompletion } from "@/lib/services/kai-profile-service";
-import { ONE_CAPABILITIES, getOneCapability } from "@/lib/onboarding/one-capabilities";
+import {
+  ONE_CAPABILITIES,
+  ONE_SETUP_CAPABILITY_IDS,
+  getOneCapability,
+} from "@/lib/onboarding/one-capabilities";
 
 /**
  * CAPABILITY SETUP-STATE RESOLVER — single source of truth for "is this
@@ -120,22 +124,44 @@ export interface CapabilitySetupInputs {
 }
 
 /** Capabilities that require an OAuth connection to a third party. */
-const OAUTH_GATED = new Set<string>(["gmail", "connected-systems"]);
+const OAUTH_GATED = new Set<string>(["gmail"]);
+const TERMINAL_SETUP_IDS = new Set<string>(ONE_SETUP_CAPABILITY_IDS);
 
-function blocked(id: string, prerequisite: CapabilityPrerequisite): CapabilityStatus {
-  return { id, state: "blocked", pendingCount: 0, prerequisite, requiresUnlock: false };
+function blocked(
+  id: string,
+  prerequisite: CapabilityPrerequisite,
+): CapabilityStatus {
+  return {
+    id,
+    state: "blocked",
+    pendingCount: 0,
+    prerequisite,
+    requiresUnlock: false,
+  };
 }
 
 function unknown(
   id: string,
   prerequisite: CapabilityPrerequisite | null,
-  requiresUnlock: boolean
+  requiresUnlock: boolean,
 ): CapabilityStatus {
-  return { id, state: "unknown", pendingCount: 0, prerequisite, requiresUnlock };
+  return {
+    id,
+    state: "unknown",
+    pendingCount: 0,
+    prerequisite,
+    requiresUnlock,
+  };
 }
 
 function simple(id: string, state: CapabilitySetupState): CapabilityStatus {
-  return { id, state, pendingCount: 0, prerequisite: null, requiresUnlock: false };
+  return {
+    id,
+    state,
+    pendingCount: 0,
+    prerequisite: null,
+    requiresUnlock: false,
+  };
 }
 
 /**
@@ -146,23 +172,28 @@ function simple(id: string, state: CapabilitySetupState): CapabilityStatus {
 function resolveFinance(inputs: CapabilitySetupInputs): CapabilityStatus {
   const { kaiProfile, preVaultState, isVaultUnlocked } = inputs;
 
+  // Capability completion is its own durable boundary. Root onboarding flags
+  // and a completed preferences questionnaire do not prove that Finance setup
+  // reached its terminal acknowledgement (portfolio source choice + Finish).
+  if (preVaultState?.setupCapabilityIds.includes("finance")) {
+    return simple("finance", "completed");
+  }
+
   if (kaiProfile) {
-    const { completed, skippedPreferences } = resolveKaiOnboardingCompletion(kaiProfile);
-    if (completed) return simple("finance", "completed");
-    if (skippedPreferences) return simple("finance", "skipped");
+    const { completed, skippedPreferences } =
+      resolveKaiOnboardingCompletion(kaiProfile);
+    if (completed || skippedPreferences)
+      return simple("finance", "in-progress");
     return simple("finance", "not-started");
   }
 
-  // No decrypted profile yet. Fall back to the coarse pre-vault mirror.
+  // No decrypted profile yet. The journey mirror may prove that Finance is in
+  // progress, but account-wide setupCompleted/setupSkipped are deliberately
+  // ignored: they describe the root journey, not this capability.
   if (preVaultState) {
-    if (preVaultState.setupCompleted === true) {
-      return simple("finance", "completed");
+    if (preVaultState.onboardingActiveCapability === "finance") {
+      return simple("finance", "in-progress");
     }
-    if (preVaultState.setupSkipped === true) {
-      return simple("finance", "skipped");
-    }
-    // Mirror resolved and says neither done nor skipped → genuinely not started.
-    // We still flag requiresUnlock so callers can enrich post-unlock if desired.
     return {
       id: "finance",
       state: "not-started",
@@ -204,7 +235,10 @@ function resolveConsent(inputs: CapabilitySetupInputs): CapabilityStatus {
  * `not-started` makes the "N of M ready" count honest — an unseen tab is
  * genuinely "left to set up", never a fabricated "Ready".
  */
-function resolveExploreOnly(id: string, inputs: CapabilitySetupInputs): CapabilityStatus {
+function resolveExploreOnly(
+  id: string,
+  inputs: CapabilitySetupInputs,
+): CapabilityStatus {
   const explored = inputs.exploredCapabilityIds?.has(id) === true;
   return simple(id, explored ? "completed" : "not-started");
 }
@@ -214,14 +248,27 @@ function resolveExploreOnly(id: string, inputs: CapabilitySetupInputs): Capabili
  * unlocked vault we cannot read real state, so we report `unknown` with the
  * vault prerequisite rather than guessing.
  */
-function resolveVaultGated(id: string, inputs: CapabilitySetupInputs): CapabilityStatus {
+function resolveVaultGated(
+  id: string,
+  inputs: CapabilitySetupInputs,
+): CapabilityStatus {
+  if (inputs.preVaultState?.onboardingActiveCapability === id) {
+    return {
+      id,
+      state: "in-progress",
+      pendingCount: 0,
+      prerequisite: null,
+      requiresUnlock: !inputs.isVaultUnlocked,
+    };
+  }
   if (!inputs.isVaultUnlocked) {
     return unknown(id, "vault", true);
   }
-  // Post-unlock, no per-capability signal wired yet for non-finance vault
-  // capabilities (e.g. pkm, email, location). Report `unknown` honestly until a
-  // real signal is passed in, instead of fabricating "Ready".
-  return unknown(id, null, true);
+  // Once the durable mirror is known, absence of the terminal acknowledgement
+  // means setup is still available. Vault access alone never fabricates Ready.
+  return inputs.preVaultState
+    ? simple(id, "not-started")
+    : unknown(id, null, true);
 }
 
 /**
@@ -243,9 +290,14 @@ function resolveLocation(inputs: CapabilitySetupInputs): CapabilityStatus {
 }
 
 /** Resolve an OAuth-gated capability from caller-supplied connection booleans. */
-function resolveOauthGated(id: string, inputs: CapabilitySetupInputs): CapabilityStatus {
+function resolveOauthGated(
+  id: string,
+  inputs: CapabilitySetupInputs,
+): CapabilityStatus {
   const connected = inputs.oauthConnections?.[id];
-  if (connected === true) return simple(id, "completed");
+  // A live connection proves useful work happened, but setup completes only
+  // after the explicit capability terminal is acknowledged.
+  if (connected === true) return simple(id, "in-progress");
   if (connected === false) return simple(id, "not-started");
   // No signal supplied → blocked on the OAuth connection (honest, actionable).
   return blocked(id, "oauth");
@@ -254,10 +306,17 @@ function resolveOauthGated(id: string, inputs: CapabilitySetupInputs): Capabilit
 /** Resolve a single capability by id. */
 export function resolveCapabilitySetupState(
   id: string,
-  inputs: CapabilitySetupInputs
+  inputs: CapabilitySetupInputs,
 ): CapabilityStatus {
   if (!inputs.isAuthenticated) {
     return blocked(id, "auth");
+  }
+
+  if (
+    TERMINAL_SETUP_IDS.has(id) &&
+    inputs.preVaultState?.setupCapabilityIds.includes(id)
+  ) {
+    return simple(id, "completed");
   }
 
   if (id === "finance") return resolveFinance(inputs);
@@ -294,9 +353,11 @@ export function resolveCapabilitySetupState(
 
 /** Resolve every capability in the shared catalog, preserving catalog order. */
 export function resolveAllCapabilitySetupStates(
-  inputs: CapabilitySetupInputs
+  inputs: CapabilitySetupInputs,
 ): CapabilityStatus[] {
-  return ONE_CAPABILITIES.map((cap) => resolveCapabilitySetupState(cap.id, inputs));
+  return ONE_CAPABILITIES.map((cap) =>
+    resolveCapabilitySetupState(cap.id, inputs),
+  );
 }
 
 /** True when a capability still needs the user to do something to set it up. */

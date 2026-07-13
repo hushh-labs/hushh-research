@@ -121,11 +121,12 @@ type ValidationIssueItem = {
   messages: string[];
 };
 
+// DS gold -> ink -> neutral ramp (replaces fuchsia/amber/violet/sky).
 const TIER_CONFIG: Record<string, { icon: typeof Crown; color: string }> = {
-  ACE: { icon: Crown, color: "text-fuchsia-600 dark:text-fuchsia-400" },
-  KING: { icon: Trophy, color: "text-amber-600 dark:text-amber-400" },
-  QUEEN: { icon: Star, color: "text-violet-600 dark:text-violet-400" },
-  JACK: { icon: Medal, color: "text-sky-600 dark:text-sky-400" },
+  ACE: { icon: Crown, color: "text-[color:var(--ria-gold)]" },
+  KING: { icon: Trophy, color: "text-[color:var(--ria-ink)]" },
+  QUEEN: { icon: Star, color: "text-[color:var(--ria-alt)]" },
+  JACK: { icon: Medal, color: "text-[color:var(--ria-sublabel)]" },
 };
 
 const TIER_OPTIONS = Object.keys(TIER_CONFIG);

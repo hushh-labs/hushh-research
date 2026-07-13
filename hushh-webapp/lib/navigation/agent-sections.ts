@@ -115,7 +115,10 @@ const RIA_WORKSPACE_SECTION: AgentSection = {
 };
 
 function normalizePathname(value: string | null | undefined): string {
-  const raw = String(value ?? "").split(/[?#]/, 1)[0]?.trim() || "/";
+  const raw =
+    String(value ?? "")
+      .split(/[?#]/, 1)[0]
+      ?.trim() || "/";
   const withSlash = raw.startsWith("/") ? raw : `/${raw}`;
   if (withSlash === "/") return "/";
   return withSlash.endsWith("/") ? withSlash.slice(0, -1) : withSlash;
@@ -152,10 +155,14 @@ function toAgentSection(capability: OneCapability): AgentSection {
 }
 
 export function getAgentSections(): readonly AgentSection[] {
-  const sections = ONE_CAPABILITIES.map(toAgentSection);
+  const sections = ONE_CAPABILITIES.filter(
+    (capability) => capability.id !== "ria",
+  ).map(toAgentSection);
   // RIA sits directly after Investor so the two finance personas stay
   // adjacent while remaining standalone top-level agents.
-  const financeIndex = sections.findIndex((section) => section.id === "finance");
+  const financeIndex = sections.findIndex(
+    (section) => section.id === "finance",
+  );
   if (financeIndex >= 0) {
     sections.splice(financeIndex + 1, 0, RIA_WORKSPACE_SECTION);
   } else {
@@ -164,7 +171,9 @@ export function getAgentSections(): readonly AgentSection[] {
   return sections;
 }
 
-export function getAgentSection(id: string | null | undefined): AgentSection | null {
+export function getAgentSection(
+  id: string | null | undefined,
+): AgentSection | null {
   if (!id) return null;
   if (id === AGENTS_ROOT_SECTION.id) return AGENTS_ROOT_SECTION;
   return getAgentSections().find((section) => section.id === id) ?? null;
@@ -202,7 +211,10 @@ export function resolveAgentNavigationContextForPath(
     };
   }
 
-  if (normalizedPathname === ROUTES.HOME || normalizedPathname === ROUTES.ONE_HOME) {
+  if (
+    normalizedPathname === ROUTES.HOME ||
+    normalizedPathname === ROUTES.ONE_HOME
+  ) {
     return {
       scope: "one",
       sectionId: null,

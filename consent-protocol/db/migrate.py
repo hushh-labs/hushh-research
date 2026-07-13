@@ -117,6 +117,7 @@ async def create_vault_keys(pool: asyncpg.Pool):
             onboarding_active_capability TEXT,
             onboarding_resume_route TEXT,
             onboarding_callback_state TEXT,
+            onboarding_callback_attempt_id TEXT,
             onboarding_journey_updated_at BIGINT,
             created_at BIGINT NOT NULL,
             updated_at BIGINT NOT NULL,
@@ -194,6 +195,7 @@ async def create_vault_keys(pool: asyncpg.Pool):
           ADD COLUMN IF NOT EXISTS onboarding_active_capability TEXT,
           ADD COLUMN IF NOT EXISTS onboarding_resume_route TEXT,
           ADD COLUMN IF NOT EXISTS onboarding_callback_state TEXT,
+          ADD COLUMN IF NOT EXISTS onboarding_callback_attempt_id TEXT,
           ADD COLUMN IF NOT EXISTS onboarding_journey_updated_at BIGINT
         """
     )

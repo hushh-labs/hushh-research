@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "next dev",
     "dev:webpack": "next dev --webpack",
-    "build": "next build --webpack",
-    "build:turbopack": "next build",
+    "build": "next build",
+    "build:turbopack": "npm run build",
+    "build:webpack": "next build --webpack",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",

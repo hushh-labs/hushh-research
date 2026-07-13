@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { ClipboardList, Loader2 } from "lucide-react";
 
 import { SectionHeader } from "@/components/app-ui/page-sections";
+import { RIA_TONE_BADGE } from "@/lib/ria/ria-tone";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import {
   MetricTile,
@@ -32,12 +33,12 @@ function statusBadgeClass(status?: string | null) {
   switch (status) {
     case "approved":
     case "active":
-      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+      return RIA_TONE_BADGE.success;
     case "pending":
     case "request_pending":
-      return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+      return RIA_TONE_BADGE.attention;
     default:
-      return "border-border/70 bg-background/80 text-muted-foreground";
+      return RIA_TONE_BADGE.neutral;
   }
 }
 

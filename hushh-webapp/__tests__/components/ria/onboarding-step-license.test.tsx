@@ -20,7 +20,7 @@ describe("OnboardingStepLicense", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Verify licence" }));
-    fireEvent.click(screen.getByRole("button", { name: "Bypass for dev/UAT" }));
+    fireEvent.click(screen.getByRole("button", { name: "Bypass for dev / UAT" }));
 
     expect(onVerify).toHaveBeenCalledTimes(1);
     expect(onBypassVerification).toHaveBeenCalledTimes(1);
@@ -37,6 +37,6 @@ describe("OnboardingStepLicense", () => {
     );
 
     expect(screen.getByRole("button", { name: "Verify licence" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Bypass for dev/UAT" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Bypass for dev / UAT" })).toBeNull();
   });
 });
