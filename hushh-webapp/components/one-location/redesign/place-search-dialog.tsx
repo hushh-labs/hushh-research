@@ -31,6 +31,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { OneLocationService } from "@/lib/one-location/service";
+import { cn } from "@/lib/utils";
 import type { DriveDestination } from "@/lib/one-location/types";
 
 export interface PlaceSearchDialogProps {
@@ -141,7 +142,12 @@ export function PlaceSearchDialog({
         </DialogHeader>
         <Command
           shouldFilter={false}
-          className="[&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3"
+          className={cn(
+            "[&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3",
+            // Blue active/highlighted row (scoped to this dialog; overrides the
+            // shared CommandItem's neutral `bg-accent`).
+            "[&_[data-slot=command-item][data-selected=true]]:bg-[#007aff]/12 [&_[data-slot=command-item][data-selected=true]]:text-[#007aff]",
+          )}
         >
           <CommandInput
             value={query}
