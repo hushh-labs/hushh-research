@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
@@ -17,6 +17,8 @@ import {
   PreVaultUserStateService,
   type PreVaultUserState,
 } from "@/lib/services/pre-vault-user-state-service";
+
+const SETUP_REDIRECT_WATCHDOG_MS = 2400;
 
 function hasExplicitIncompleteSetup(state: PreVaultUserState): boolean {
   if (PreVaultUserStateService.isSetupResolved(state)) return false;
@@ -51,6 +53,9 @@ export function OnboardingJourneyGuard({
   const [error, setError] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
   const [redirecting, setRedirecting] = useState(false);
+  const redirectWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   const currentHref = useMemo(() => {
     if (typeof window === "undefined") return pathname;
@@ -59,6 +64,14 @@ export function OnboardingJourneyGuard({
 
   useEffect(() => {
     let cancelled = false;
+
+    function clearRedirectWatchdog() {
+      if (redirectWatchdogRef.current === null) return;
+      clearTimeout(redirectWatchdogRef.current);
+      redirectWatchdogRef.current = null;
+    }
+
+    clearRedirectWatchdog();
     setRedirecting(false);
 
     async function verifyAdmission() {
@@ -107,7 +120,17 @@ export function OnboardingJourneyGuard({
         }
 
         setRedirecting(true);
-        router.replace(buildOneSetupRoute({ returnTo: currentHref }));
+        const setupRoute = buildOneSetupRoute({ returnTo: currentHref });
+        router.replace(setupRoute);
+        redirectWatchdogRef.current = setTimeout(() => {
+          if (cancelled || typeof window === "undefined") return;
+          if (window.location.pathname !== ROUTES.ONE_SETUP) {
+            window.location.assign(setupRoute);
+            return;
+          }
+          setRedirecting(false);
+          setChecking(false);
+        }, SETUP_REDIRECT_WATCHDOG_MS);
       } catch (cause) {
         console.warn(
           "[OnboardingJourneyGuard] Failed to verify setup admission:",
@@ -123,6 +146,7 @@ export function OnboardingJourneyGuard({
     void verifyAdmission();
     return () => {
       cancelled = true;
+      clearRedirectWatchdog();
     };
   }, [
     authLoading,
