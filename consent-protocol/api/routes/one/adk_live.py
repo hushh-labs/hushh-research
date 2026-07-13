@@ -371,9 +371,10 @@ def _sanitize_interaction_layer(
         if action_id in submitted and get_voice_manifest_action(action_id) is not None
     ]
     dismissible = value.get("dismissible") is True
-    dismiss_action_id = _bounded_text(value.get("dismiss_action_id"), 128)
+    dismiss_action_id: str | None = _bounded_text(value.get("dismiss_action_id"), 128) or None
     if (
         not dismissible
+        or not dismiss_action_id
         or dismiss_action_id not in visible_action_ids
         or get_voice_manifest_action(dismiss_action_id) is None
     ):
@@ -386,7 +387,7 @@ def _sanitize_interaction_layer(
                 continue
             option_id = _bounded_text(option.get("id"), 64)
             label = _bounded_text(option.get("label"), 96)
-            action_id = _bounded_text(option.get("action_id"), 128)
+            action_id: str | None = _bounded_text(option.get("action_id"), 128) or None
             if not option_id or not label:
                 continue
             if action_id and action_id not in visible_action_ids:
