@@ -31,10 +31,10 @@ import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-ac
 import { useCapabilitySetupStates } from "@/lib/onboarding/use-capability-setup-states";
 import { groupSetupCapabilities } from "@/lib/onboarding/setup-capability-order";
 import {
-  isCapabilitySetupActionable,
   isCapabilitySetupComplete,
   type CapabilityStatus,
 } from "@/lib/services/capability-setup-state-service";
+import { getCapabilityStatusDisplay } from "@/lib/onboarding/capability-status-display";
 import { cn } from "@/lib/utils";
 
 /**
@@ -256,6 +256,8 @@ export function OneSetupHub() {
                   capabilityId={item.id}
                   title={item.copy.setupTitle}
                   description={item.copy.setupBlurb}
+                  actionLabel={item.copy.actionLabel}
+                  resumeActionLabel={item.copy.resumeActionLabel}
                   href={item.copy.href}
                   voiceControlId={item.voiceControlId}
                   icon={item.icon}
@@ -279,6 +281,8 @@ export function OneSetupHub() {
                   capabilityId={item.id}
                   title={item.copy.setupTitle}
                   description={item.copy.setupBlurb}
+                  actionLabel={item.copy.actionLabel}
+                  resumeActionLabel={item.copy.resumeActionLabel}
                   href={item.copy.href}
                   voiceControlId={item.voiceControlId}
                   icon={item.icon}
@@ -330,7 +334,10 @@ function buildSetupItems(byId: Record<string, CapabilityStatus>): SetupItem[] {
         icon: capability.icon,
         tone: capability.tone,
         voiceControlId: capability.setupControlId,
-        isActionable: isCapabilitySetupActionable(status),
+        isActionable: getCapabilityStatusDisplay(status, {
+          actionLabel: copy.actionLabel,
+          resumeActionLabel: copy.resumeActionLabel,
+        }).isActionable,
         isExploreOnly: capability.isExploreOnly === true,
       },
     ];

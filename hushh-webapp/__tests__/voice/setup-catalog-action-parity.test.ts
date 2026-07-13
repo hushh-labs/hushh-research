@@ -34,11 +34,16 @@ describe("setup catalog voice parity", () => {
     ).toEqual([
       "Connect Gmail",
       "Set up location",
-      "Let One draft for you",
+      "KYC",
       "Set up your finances",
       "Set up RIA",
-      "Link your tools",
+      "Link your record to external systems",
     ]);
+    expect(
+      hubContract.actions
+        .filter((action) => action.action_id.startsWith("setup.open_"))
+        .map((action) => action.label),
+    ).toEqual(CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle));
     for (const capability of ONE_SETUP_CAPABILITIES) {
       const action = actions.get(capability.setupActionId);
       expect(action, capability.id).toBeDefined();

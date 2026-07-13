@@ -12042,7 +12042,7 @@
         "setup",
         "receipts"
       ],
-      "meaning": "Opens the Gmail capability setup step from the setup hub.",
+      "meaning": "Opens Gmail setup so One can understand approved brand affinities and keep a private memory of recent interactions.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -12137,7 +12137,7 @@
     {
       "action_id": "setup.open_location",
       "surface_id": "one_setup_hub",
-      "label": "Set Up Location",
+      "label": "Set up location",
       "aliases": [
         "set up location",
         "open location setup",
@@ -12148,7 +12148,7 @@
         "setup",
         "sharing"
       ],
-      "meaning": "Opens the Location capability setup step from the setup hub.",
+      "meaning": "Opens Location setup so the person can share location with trusted people they choose.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -12212,7 +12212,7 @@
           {
             "type": "action",
             "action_id": "setup.open_location",
-            "label": "Set Up Location",
+            "label": "Set up location",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/location",
@@ -12243,18 +12243,21 @@
     {
       "action_id": "setup.open_email",
       "surface_id": "one_setup_hub",
-      "label": "Let One Draft for You",
+      "label": "KYC",
       "aliases": [
+        "kyc",
         "let one draft for me",
         "set up email",
         "open email setup"
       ],
       "search_keywords": [
+        "kyc",
         "email",
-        "setup",
-        "approvals"
+        "draft",
+        "approvals",
+        "one@hushh.ai"
       ],
-      "meaning": "Opens the email drafting and approval setup step from the setup hub.",
+      "meaning": "Opens KYC setup for approval-gated drafting when One is invoked at one@hushh.ai.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -12318,7 +12321,7 @@
           {
             "type": "action",
             "action_id": "setup.open_email",
-            "label": "Let One Draft for You",
+            "label": "KYC",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/email",
@@ -12349,7 +12352,7 @@
     {
       "action_id": "setup.open_finance",
       "surface_id": "one_setup_hub",
-      "label": "Set Up Finance",
+      "label": "Set up your finances",
       "aliases": [
         "set up finance",
         "open finance setup",
@@ -12425,7 +12428,7 @@
           {
             "type": "action",
             "action_id": "setup.open_finance",
-            "label": "Set Up Finance",
+            "label": "Set up your finances",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/finance",
@@ -12456,7 +12459,7 @@
     {
       "action_id": "setup.open_ria",
       "surface_id": "one_setup_hub",
-      "label": "Set Up RIA",
+      "label": "Set up RIA",
       "aliases": [
         "set up ria",
         "set up my advisor profile",
@@ -12533,7 +12536,7 @@
           {
             "type": "action",
             "action_id": "setup.open_ria",
-            "label": "Set Up RIA",
+            "label": "Set up RIA",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/ria",
@@ -12564,8 +12567,10 @@
     {
       "action_id": "setup.open_connected_systems",
       "surface_id": "one_setup_hub",
-      "label": "Link Your Tools",
+      "label": "Link your record to external systems",
       "aliases": [
+        "link my record to external systems",
+        "link my record",
         "link my tools",
         "set up connected systems",
         "show crm systems",
@@ -12578,7 +12583,7 @@
         "profile",
         "setup"
       ],
-      "meaning": "Opens the CRM-system and profile setup step from the setup hub.",
+      "meaning": "Opens external-system setup so the person can choose where One may find or create their record.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -12642,7 +12647,7 @@
           {
             "type": "action",
             "action_id": "setup.open_connected_systems",
-            "label": "Link Your Tools",
+            "label": "Link your record to external systems",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/connected-systems",

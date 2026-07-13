@@ -41,6 +41,10 @@ export interface CapabilitySetupTileProps {
   title: string;
   /** Plain, One-voice description of what this step sets up. */
   description: string;
+  /** Capability-specific next action for the trailing state label. */
+  actionLabel: string;
+  /** Capability-specific continuation label after a partial setup. */
+  resumeActionLabel: string;
   href: string;
   voiceControlId: string;
   icon: LucideIcon;
@@ -57,6 +61,8 @@ export function CapabilitySetupTile({
   capabilityId,
   title,
   description,
+  actionLabel,
+  resumeActionLabel,
   href,
   voiceControlId,
   icon: Icon,
@@ -67,7 +73,11 @@ export function CapabilitySetupTile({
   className,
 }: CapabilitySetupTileProps) {
   const router = useRouter();
-  const display = getCapabilityStatusDisplay(status, { isExploreOnly });
+  const display = getCapabilityStatusDisplay(status, {
+    isExploreOnly,
+    actionLabel,
+    resumeActionLabel,
+  });
   const isComplete = isCapabilitySetupComplete(status);
   const handleOpen = useCallback(() => {
     router.push(href, { scroll: false });

@@ -65,23 +65,27 @@ export function OnboardingCapabilityStep({
   const [acted, setActed] = useState(false);
 
   const isExploreOnly = capability?.isExploreOnly === true;
+  const setupActionLabel =
+    copy?.actionLabel ?? `Set up ${capability?.title || "capability"}`;
+  const finishActionLabel =
+    copy?.resumeActionLabel ?? `Finish ${capability?.title || "capability"}`;
 
   const title = completion
-    ? `Finish ${capability?.title || "this capability"} setup`
+    ? finishActionLabel
     : isExploreOnly
       ? (copy?.exploreTitle ?? copy?.setupTitle ?? "")
       : (copy?.setupTitle ?? "");
   const blurb = completion
-    ? `Review this step, then finish ${capability?.title || "this"} setup and return to your setup home.`
+    ? `Review this step, then ${finishActionLabel.toLowerCase()} and return to your setup home.`
     : isExploreOnly
       ? (copy?.exploreBlurb ?? copy?.setupBlurb ?? "")
       : (copy?.setupBlurb ?? "");
   const bullets = isExploreOnly ? copy?.exploreBullets : copy?.setupBullets;
   const ctaLabel = completion
-    ? `Finish ${capability?.title || "capability"} setup`
+    ? finishActionLabel
     : isExploreOnly
-      ? `Finish ${capability?.title || "capability"} setup`
-      : `Set up ${capability?.title || "capability"}`;
+      ? finishActionLabel
+      : setupActionLabel;
   const subline = completion
     ? "Finish only when you are comfortable with this setup."
     : isExploreOnly

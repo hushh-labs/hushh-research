@@ -64,6 +64,15 @@ that bottom section without re-ranking either section. Setup rows reuse the same
 capability icon, Gmail mark, and tone colors as the `/one` dashboard. Memory,
 Consent, and Information Marketplace remain available in One,
 but are not onboarding requirements and are not published as setup-hub actions.
+Every unfinished row names its actual next action (for example, `Connect Gmail`
+or `Verify RIA`); a vault prerequisite never collapses the list into repeated
+generic instructions.
+The authored capability copy explains the outcome before the route handoff:
+Gmail covers approved brand affinity and recent-interaction memory, Location
+covers sharing with chosen trusted people, and KYC covers invoking drafting at
+`one@hushh.ai`; Connected Systems covers linking a record to chosen external
+systems. The visible label, per-step CTA, local voice contract, generated gateway,
+and route-orchestration index must use that same authored meaning.
 The setup screen reports `completed` only after the capability's durable terminal
 acknowledgement. A connector or preferences record without that acknowledgement is
 `in-progress`, never a fabricated Ready state.

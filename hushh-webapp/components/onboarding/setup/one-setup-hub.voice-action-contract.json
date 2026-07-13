@@ -17,7 +17,7 @@
     {
       "action_id": "setup.open_gmail",
       "label": "Connect Gmail",
-      "meaning": "Opens the Gmail capability setup step from the setup hub.",
+      "meaning": "Opens Gmail setup so One can understand approved brand affinities and keep a private memory of recent interactions.",
       "aliases": ["set up gmail", "open gmail setup", "connect gmail"],
       "search_keywords": ["gmail", "setup", "receipts"],
       "reachability": {
@@ -40,8 +40,8 @@
     },
     {
       "action_id": "setup.open_location",
-      "label": "Set Up Location",
-      "meaning": "Opens the Location capability setup step from the setup hub.",
+      "label": "Set up location",
+      "meaning": "Opens Location setup so the person can share location with trusted people they choose.",
       "aliases": [
         "set up location",
         "open location setup",
@@ -68,10 +68,15 @@
     },
     {
       "action_id": "setup.open_email",
-      "label": "Let One Draft for You",
-      "meaning": "Opens the email drafting and approval setup step from the setup hub.",
-      "aliases": ["let one draft for me", "set up email", "open email setup"],
-      "search_keywords": ["email", "setup", "approvals"],
+      "label": "KYC",
+      "meaning": "Opens KYC setup for approval-gated drafting when One is invoked at one@hushh.ai.",
+      "aliases": [
+        "kyc",
+        "let one draft for me",
+        "set up email",
+        "open email setup"
+      ],
+      "search_keywords": ["kyc", "email", "draft", "approvals", "one@hushh.ai"],
       "reachability": {
         "routes": ["/one/setup"],
         "screens": ["one_setup_hub", "one_setup"],
@@ -92,7 +97,7 @@
     },
     {
       "action_id": "setup.open_finance",
-      "label": "Set Up Finance",
+      "label": "Set up your finances",
       "meaning": "Opens the Finance capability setup step from the setup hub.",
       "aliases": ["set up finance", "open finance setup", "set up investing"],
       "search_keywords": ["finance", "setup", "investing", "kai"],
@@ -116,7 +121,7 @@
     },
     {
       "action_id": "setup.open_ria",
-      "label": "Set Up RIA",
+      "label": "Set up RIA",
       "meaning": "Opens the RIA advisor-profile setup step from the setup hub.",
       "aliases": ["set up ria", "set up my advisor profile", "open ria setup"],
       "search_keywords": ["ria", "advisor", "profile", "verification", "setup"],
@@ -140,9 +145,11 @@
     },
     {
       "action_id": "setup.open_connected_systems",
-      "label": "Link Your Tools",
-      "meaning": "Opens the CRM-system and profile setup step from the setup hub.",
+      "label": "Link your record to external systems",
+      "meaning": "Opens external-system setup so the person can choose where One may find or create their record.",
       "aliases": [
+        "link my record to external systems",
+        "link my record",
         "link my tools",
         "set up connected systems",
         "show crm systems",

@@ -18,6 +18,8 @@ describe("CapabilitySetupTile", () => {
       <CapabilitySetupTile
         title="Gmail"
         description="Bring in receipts."
+        actionLabel="Connect Gmail"
+        resumeActionLabel="Finish Gmail"
         href="/one/setup/gmail"
         voiceControlId="one_setup_tile_gmail"
         icon={Mail}
@@ -32,14 +34,42 @@ describe("CapabilitySetupTile", () => {
       />,
     );
 
-    const row = screen.getByRole("button", { name: "Gmail: Set up" });
+    const row = screen.getByRole("button", { name: "Gmail: Connect Gmail" });
 
     expect(row).toHaveAttribute("data-href", "/one/setup/gmail");
-    expect(row).toHaveAttribute("data-voice-control-id", "one_setup_tile_gmail");
+    expect(row).toHaveAttribute(
+      "data-voice-control-id",
+      "one_setup_tile_gmail",
+    );
     fireEvent.click(row);
 
     expect(mocks.push).toHaveBeenCalledWith("/one/setup/gmail", {
       scroll: false,
     });
+  });
+
+  it("keeps a capability-specific action visible while vault state resolves", () => {
+    render(
+      <CapabilitySetupTile
+        title="Connect Gmail"
+        description="Bring in receipts."
+        actionLabel="Connect Gmail"
+        resumeActionLabel="Finish Gmail"
+        href="/one/setup/gmail"
+        voiceControlId="one_setup_tile_gmail"
+        icon={Mail}
+        tone="gmail"
+        status={{
+          id: "gmail",
+          state: "unknown",
+          pendingCount: 0,
+          prerequisite: "vault",
+          requiresUnlock: true,
+        }}
+      />,
+    );
+
+    expect(screen.getAllByText("Connect Gmail")).toHaveLength(2);
+    expect(screen.queryByText("Set up vault")).toBeNull();
   });
 });
