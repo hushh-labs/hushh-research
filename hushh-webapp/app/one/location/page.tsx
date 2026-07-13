@@ -1889,10 +1889,11 @@ function OneLocationAgentPageContent() {
     lastEtaPoint: PlainLocationPoint | null;
     lastEtaAt: number;
   } | null>(null);
-  const pickupSessionRef = useRef<{
-    grantIds: Set<string>;
-    point: PlainLocationPoint;
-  } | null>(null);
+  // Maps each fixed-pickup grantId to the PlainLocationPoint anchored at request
+  // time. Using a Map (rather than a single shared object) means a second "Pick
+  // Me Up" request no longer overwrites the first grant's fixed spot, which
+  // would otherwise cause it to drift back to live GPS.
+  const pickupSessionRef = useRef<Map<string, PlainLocationPoint>>(new Map());
   const [recentDestinations, setRecentDestinations] = useState<DriveDestination[]>([]);
 
 
@@ -2750,11 +2751,8 @@ function OneLocationAgentPageContent() {
   // Keep an adjusted (fixed) pickup spot fixed: the watch loop must not overwrite
   // these grants with live GPS as the owner moves.
   const pickupPointForGrant = useCallback(
-    (grant: OneLocationGrant, livePoint: PlainLocationPoint): PlainLocationPoint => {
-      const session = pickupSessionRef.current;
-      if (session && session.grantIds.has(grant.id)) return session.point;
-      return livePoint;
-    },
+    (grant: OneLocationGrant, livePoint: PlainLocationPoint): PlainLocationPoint =>
+      pickupSessionRef.current.get(grant.id) ?? livePoint,
     [],
   );
 
@@ -4381,7 +4379,6 @@ function OneLocationAgentPageContent() {
           point = readiness.point;
         }
         const durationHoursNum = Number(durationHoursValue) || 1;
-        const grantCreatedIds: string[] = [];
         for (const recipient of selected) {
           const grant = await OneLocationService.createGrant({
             vaultOwnerToken,
@@ -4393,15 +4390,11 @@ function OneLocationAgentPageContent() {
           // Anchor the grant to the fixed-pickup session BEFORE publishing so a
           // mid-publish failure can't leave a created grant drifting to live GPS
           // when the user chose a fixed spot.
-          grantCreatedIds.push(grant.id);
+          if (pickupPoint) {
+            pickupSessionRef.current.set(grant.id, point);
+          }
           await publishEnvelopeWithRetry(grant, recipient, "manual", point);
           successCount += 1;
-        }
-        if (pickupPoint) {
-          pickupSessionRef.current = {
-            grantIds: new Set(grantCreatedIds),
-            point,
-          };
         }
         trackEvent("one_location_share_confirmed", {
           route_id: "one_location",

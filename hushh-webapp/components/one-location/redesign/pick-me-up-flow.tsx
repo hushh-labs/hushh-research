@@ -10,7 +10,7 @@
  * recipient + note (+ optional fixed pickup point) to `vm.onPickMeUp`.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Navigation } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -60,6 +60,11 @@ export function PickMeUpFlow({
   const [fixedSpot, setFixedSpot] = useState<FixedSpot | null>(null);
   const [geoLabel, setGeoLabel] = useState<string | null>(null);
 
+  // Track the last coordinates we actually reverse-geocoded so we can skip the
+  // call when the live GPS hasn't moved meaningfully (avoids billable requests
+  // every ~5s during the self-preview stream).
+  const lastGeocodedLatLng = useRef<{ lat: number; lng: number } | null>(null);
+
   // Adjust search state
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -73,10 +78,20 @@ export function PickMeUpFlow({
       : null;
 
   // Reverse-geocode the LIVE location for the default label (skip when adjusted).
+  // Guard: only re-request when the location has moved at least 50 m since the
+  // last geocode, so the live-preview stream (which updates ~every 5 s) and GPS
+  // jitter don't trigger a billable Google Geocoding request on every tick.
   useEffect(() => {
     const token = vm.vaultOwnerToken;
     if (!token || fixedSpot || !livePoint) {
       setGeoLabel(null);
+      lastGeocodedLatLng.current = null;
+      return;
+    }
+    const current = { lat: livePoint.latitude, lng: livePoint.longitude };
+    const last = lastGeocodedLatLng.current;
+    if (last && haversineMeters(last, current) < 50) {
+      // Location hasn't moved enough — keep the existing label.
       return;
     }
     let cancelled = false;
@@ -88,6 +103,7 @@ export function PickMeUpFlow({
           lng: livePoint.longitude,
         });
         if (cancelled) return;
+        lastGeocodedLatLng.current = current;
         const label = place.name
           ? place.formattedAddress
             ? `${place.name} · ${place.formattedAddress}`
@@ -162,9 +178,18 @@ export function PickMeUpFlow({
     return `${(meters / 1000).toFixed(1)} km away`;
   }
 
-  const mapPoint: PlainLocationPoint | null = fixedSpot
-    ? { latitude: fixedSpot.latitude, longitude: fixedSpot.longitude, capturedAt: new Date().toISOString(), sourcePlatform: "web" }
-    : livePoint;
+  const mapPoint: PlainLocationPoint | null = useMemo(
+    () =>
+      fixedSpot
+        ? {
+            latitude: fixedSpot.latitude,
+            longitude: fixedSpot.longitude,
+            capturedAt: new Date().toISOString(),
+            sourcePlatform: "web" as const,
+          }
+        : livePoint,
+    [fixedSpot, livePoint],
+  );
 
   return (
     <div className="space-y-4">
