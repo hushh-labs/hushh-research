@@ -1,0 +1,52 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "one_intro",
+  "surface_title": "Claim your One",
+  "docs_references": [
+    "docs/reference/one/one-voice-runtime-architecture.md",
+    "docs/reference/one/one-voice-onboarding-journey.md"
+  ],
+  "orchestration": {
+    "trust_boundary": "none",
+    "delegation_policy": "no_delegation"
+  },
+  "defaults": {
+    "reachability": {
+      "active_personas": ["investor", "ria"]
+    },
+    "speaker_persona": "one"
+  },
+  "actions": [
+    {
+      "action_id": "onboarding.claim_one",
+      "label": "Claim your One",
+      "meaning": "Continues from One's public welcome screen to sign in and begin setup.",
+      "aliases": [
+        "claim your one",
+        "claim my one",
+        "claim one",
+        "get started",
+        "start with one",
+        "begin with one"
+      ],
+      "search_keywords": ["claim", "one", "start", "welcome", "sign in"],
+      "reachability": {
+        "routes": ["/"],
+        "screens": ["one_intro"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "onboarding.claim_one"
+      },
+      "control_ids": ["onboarding_claim_one"],
+      "state_exposure": [],
+      "docs_references": []
+    }
+  ]
+}

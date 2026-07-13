@@ -297,7 +297,9 @@ function KaiOnboardingPageContent() {
   }, [source, stage]);
 
   const handleLaunchDashboard = async () => {
-    if (saving || !user) return;
+    if (saving || !user) {
+      return { status: "blocked" as const, summary: "Finance setup is not ready to finish yet." };
+    }
 
     try {
       setSaving(true);
@@ -306,15 +308,11 @@ function KaiOnboardingPageContent() {
       // person can continue through the rest of One's onboarding deliberately.
       await CapabilityTourService.markExplored(user.uid, "finance");
       const explored = await CapabilityTourService.loadExploredIds(user.uid);
-      await PreVaultUserStateService.syncSetupCapabilities(user.uid, explored).catch(
-        (syncError) => {
-          console.warn("[OneOnboardingPage] Failed finance capability sync:", syncError);
-        }
-      );
+      await PreVaultUserStateService.syncSetupCapabilities(user.uid, explored);
       await PreVaultUserStateService.syncOnboardingJourney({
         userId: user.uid,
         phase: "setup_hub",
-      }).catch(() => undefined);
+      });
       toast.success("Finance preferences saved. Back to your setup checklist.");
       setOnboardingRequiredCookie(true);
       setOnboardingFlowActiveCookie(false);
@@ -323,6 +321,10 @@ function KaiOnboardingPageContent() {
         result: "success",
       });
       router.replace(buildOneSetupRoute({ from: onboardingFromHref }));
+      return {
+        status: "succeeded" as const,
+        summary: "Finance preferences saved. Returning to setup.",
+      };
     } catch (error) {
       console.error("[OneOnboardingPage] Failed to finalize onboarding:", error);
       trackEvent("onboarding_completed", {
@@ -330,6 +332,10 @@ function KaiOnboardingPageContent() {
         result: "error",
       });
       toast.error("Couldn't complete onboarding. Please retry.");
+      return {
+        status: "failed" as const,
+        summary: "Finance preferences could not be finalized. Please try again.",
+      };
     } finally {
       setSaving(false);
     }
@@ -346,8 +352,7 @@ function KaiOnboardingPageContent() {
     if (stage !== "persona") {
       return { status: "blocked", summary: "Answer all three questions first." };
     }
-    await handleLaunchDashboard();
-    return { status: "succeeded", summary: "Finance preferences saved. Returning to setup." };
+    return handleLaunchDashboard();
   });
 
   // Publish the screen id the generated action contract expects

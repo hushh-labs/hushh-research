@@ -21,7 +21,8 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Optional
+import time
+from typing import Any, Literal, Optional
 
 from google.adk.agents import LlmAgent
 from google.adk.runners import Runner
@@ -32,6 +33,7 @@ from google.adk.tools.tool_context import ToolContext
 from hushh_mcp.adk_bridge.contract import A2ATask
 from hushh_mcp.adk_bridge.dispatch import dispatch, is_wired_specialist
 from hushh_mcp.agents.onboarding.agent import (
+    OnboardingAssessmentV1,
     OnboardingJourneyContext,
 )
 from hushh_mcp.agents.onboarding.agent import (
@@ -131,6 +133,16 @@ ONE_IDENTITY_INSTRUCTION = (
     'simply: "I\'m One." Never call yourself Kai, Gemini, or any other name. '
     "You hold the relationship layer: speak warmly, concisely, and in plain "
     "English.\n\n"
+    "Visible controls take priority over introductions. When the person clearly "
+    "asks for a currently available, low-risk visible control, call "
+    "list_app_actions for their words, then call run_app_action with the exact "
+    "returned action id immediately. Do this before greeting, explaining who "
+    "you are, or narrating onboarding. Do not infer controls from page text, "
+    "offer actions from another screen, or ask for confirmation when the "
+    "generated action policy is allow_direct. After dispatch, do not claim it "
+    "worked or describe it as complete until the correlated app action "
+    "settlement reports the outcome. If no current action matches, answer as "
+    "normal conversation instead of forcing a workflow.\n\n"
     "Conversation comes before workflow. Treat short follow-ups such as 'so what?', "
     "'why?', 'how?', 'tell me more', or 'what do you mean?' as replies to "
     "your immediately preceding statement. Answer their underlying question "
@@ -150,7 +162,7 @@ ONE_IDENTITY_INSTRUCTION = (
     "- Consent Center (Nav): what the user has shared and with whom, approvals, "
     "and revocations. Its Connections subagent handles the trusted-people "
     "graph itself; both surface in the Consent Center.\n"
-    "- Information Marketplace: governed data-slice requests and delivery.\n"
+    "- Information Marketplace: governed information-slice requests and delivery.\n"
     "- Connected Systems: CRM and external system workflows.\n\n"
     "Delegate naturally: when a request belongs to a specialist's domain, call "
     "that specialist's tool with the user's request. When the user asks to go "
@@ -166,7 +178,7 @@ ONE_IDENTITY_INSTRUCTION = (
     "tool; run_app_action will redirect you if needed. Use google_search when "
     "the user needs fresh public information from the web. Answer general "
     "questions yourself. Never invent tool results; if a specialist reports "
-    "it cannot act (missing consent, locked vault, no data), relay that "
+    "it cannot act (missing consent, locked vault, no information), relay that "
     "honestly and tell the user what would unlock it. You never execute "
     "sensitive actions directly: specialists validate consent and the app "
     "confirms every state change.\n\n"
@@ -174,9 +186,15 @@ ONE_IDENTITY_INSTRUCTION = (
     "other app action is: setup steps (welcome, sign-in, phone verification, "
     "the setup hub, and the Finance preferences wizard) are reachable through "
     "run_app_action. These steps live on DIFFERENT screens and are not all "
-    "available at once. Call resolve_onboarding_goal before guiding a new "
-    "user or advancing setup; it returns the bounded next step and never "
-    "takes over the conversation. Only ever offer what is reachable on the user's "
+    "available at once. For an explicit request matching a current visible "
+    "low-risk setup action, execute the generated action first; the resolver "
+    "must never delay or replace that command with identity narration. Call "
+    "resolve_onboarding_goal when the person asks what to do next, when input "
+    "is missing, or when recovering a setup goal; it returns the bounded next "
+    "step and never takes over semantic routing. Pass your typed assessment "
+    "fields (intent, candidate action, provider, missing input, ambiguity, and "
+    "confidence); never pass or lexically reclassify the raw transcript. Only "
+    "ever offer what is reachable on the user's "
     "CURRENT screen. If resolve_onboarding_goal returns selected_action_id, call "
     "run_app_action with that exact id immediately; never turn an explicit Apple "
     "or Google request back into a generic provider question. Call "
@@ -193,13 +211,64 @@ ONE_IDENTITY_INSTRUCTION = (
 )
 
 
-async def resolve_onboarding_goal(request: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Resolve the next redacted onboarding goal without invoking a specialist.
+def _one_runtime_instruction(context: Any) -> str:
+    """Append only the active server-sanitized route playbook at Live start."""
+    state = getattr(context, "state", None)
+    state_getter = getattr(state, "get", None)
+    voice_context = state_getter(STATE_VOICE_CONTEXT) if callable(state_getter) else None
+    playbook = voice_context.get("route_playbook") if isinstance(voice_context, dict) else None
+    if not isinstance(playbook, dict):
+        return ONE_IDENTITY_INSTRUCTION
+
+    def bounded(field: str, limit: int) -> str:
+        value = playbook.get(field)
+        return str(value).strip()[:limit] if isinstance(value, str) else ""
+
+    purpose = bounded("purpose", 480)
+    entry_cue = bounded("entry_cue", 240)
+    primary_action = bounded("primary_action_id", 128)
+    completion = bounded("completion_boundary", 480)
+    out_of_scope = bounded("out_of_scope_behavior", 480)
+    return (
+        ONE_IDENTITY_INSTRUCTION
+        + "\n\nACTIVE ROUTE PLAYBOOK (guidance only; never authority):\n"
+        + f"Purpose: {purpose or 'Use the verified current screen.'}\n"
+        + f"Entry cue: {entry_cue or 'Remain ambient until the person speaks.'}\n"
+        + f"Primary generated action reference: {primary_action or 'none'}\n"
+        + f"Completion boundary: {completion or 'Wait for browser settlement.'}\n"
+        + f"Out-of-scope behavior: {out_of_scope or 'Answer naturally without inventing controls.'}\n"
+        + "The generated action gateway, current available actions, and runtime guards "
+        + "remain the only execution authority."
+    )
+
+
+async def resolve_onboarding_goal(
+    tool_context: ToolContext,
+    intent: Literal[
+        "execute_visible_action",
+        "confirm_visible_action",
+        "answer_current_page",
+        "answer_conversationally",
+        "ask_clarifying_question",
+        "provide_input",
+        "recover",
+        "next_step",
+    ] = "next_step",
+    candidate_action_id: str = "",
+    provider: Literal["google", "apple", "none"] = "none",
+    missing_input: str = "",
+    ambiguous: bool = False,
+    confidence: float = 1.0,
+    assessment_source: Literal["one", "agent_onboarding"] = "one",
+) -> dict[str, Any]:
+    """Validate One's typed semantic assessment against redacted journey state.
 
     Anonymous sign-in guidance must not pass through consent-gated A2A. This
-    pure deterministic tool reads only the bounded live context and returns a
-    goal that One can explain; browser and gateway guards still execute it.
+    policy tool receives meaning from One's current ADK turn, reads only the
+    bounded live context, and returns a goal that browser/gateway guards still
+    independently validate and execute.
     """
+    assessment_started_at = time.perf_counter()
     voice_context = tool_context.state.get(STATE_VOICE_CONTEXT)
     if not isinstance(voice_context, dict):
         voice_context = {}
@@ -214,14 +283,25 @@ async def resolve_onboarding_goal(request: str, tool_context: ToolContext) -> di
         }
     consent_token = str(tool_context.state.get(STATE_CONSENT_TOKEN) or "").strip()
     phase = str(onboarding.get("phase") or "anonymous_auth")
-    request_lower = str(request or "").lower()
-    requested_provider = (
-        "apple"
-        if "apple" in request_lower and "google" not in request_lower
-        else "google"
-        if "google" in request_lower and "apple" not in request_lower
-        else None
-    )
+    # One's current ADK turn supplies semantic fields. The deterministic layer
+    # validates them but never reclassifies the request with keywords.
+    try:
+        assessment = OnboardingAssessmentV1.model_validate(
+            {
+                "source": assessment_source,
+                "intent": intent,
+                "candidate_action_id": candidate_action_id or None,
+                "provider": None if provider == "none" else provider,
+                "missing_input": missing_input or None,
+                "ambiguous": ambiguous,
+                "confidence": confidence,
+            }
+        )
+    except ValueError:
+        return {
+            "status": "invalid_assessment",
+            "message": "I need to clarify the next onboarding step before acting.",
+        }
     context_payload = {
         "phase": phase,
         "authenticated": bool(user_id),
@@ -234,7 +314,7 @@ async def resolve_onboarding_goal(request: str, tool_context: ToolContext) -> di
         "available_action_ids": voice_context.get("available_action_ids") or [],
         "setup_capability_ids": onboarding.get("setup_capability_ids") or [],
         "screen": str(tool_context.state.get(STATE_SCREEN) or "unknown"),
-        "requested_provider": requested_provider,
+        "assessment": assessment.model_dump(),
     }
     try:
         context = OnboardingJourneyContext.model_validate(context_payload)
@@ -244,6 +324,22 @@ async def resolve_onboarding_goal(request: str, tool_context: ToolContext) -> di
             "message": "The app has not supplied a usable onboarding state yet.",
         }
     goal = _resolve_onboarding_goal(context)
+    logger.info(
+        "one_onboarding_assessment",
+        extra={
+            "assessment_source": assessment.source,
+            "assessment_intent": assessment.intent,
+            "assessment_status": goal.assessment_status,
+            "assessment_reason": goal.reason_code or "none",
+            "assessment_action_id": goal.selected_action_id or "none",
+            "assessment_screen": context.screen,
+            "assessment_phase": goal.phase,
+            "assessment_latency_ms": round(
+                (time.perf_counter() - assessment_started_at) * 1000,
+                3,
+            ),
+        },
+    )
     return {"status": "ok", "goal": goal.model_dump()}
 
 
@@ -532,7 +628,7 @@ def build_one_root_agent() -> LlmAgent:
         name="one",
         model=_build_one_live_model(),
         description="One, the Hussh head private agent and orchestrator.",
-        instruction=ONE_IDENTITY_INSTRUCTION,
+        instruction=_one_runtime_instruction,
         tools=_one_roster_tools(),
     )
 

@@ -1322,7 +1322,7 @@
         ],
         "default": "hushh_managed_vertex"
       },
-      "description": "Deterministic setup-goal specialist beneath One; it never accesses private content or executes actions.",
+      "description": "Semantic onboarding adjudicator and deterministic journey-policy specialist beneath One.",
       "evaluations": [],
       "failure_states": [
         "invalid_context",
@@ -1334,6 +1334,11 @@
       "icon": null,
       "id": "agent_onboarding",
       "inputs": [
+        {
+          "description": "Typed semantic proposal produced by One's current ADK turn.",
+          "name": "turn_assessment",
+          "type": "object"
+        },
         {
           "description": "Bounded redacted onboarding state.",
           "name": "journey_context",
@@ -1367,10 +1372,17 @@
       "privacy": {
         "context_allowlist": [
           "phase",
+          "authenticated",
+          "phone_verified",
+          "vault_state",
           "active_capability",
           "root_resolved",
           "return_route",
-          "available_action_ids"
+          "available_action_ids",
+          "callback_state",
+          "setup_capability_ids",
+          "screen",
+          "assessment"
         ],
         "plaintext_telemetry": false
       },
@@ -1403,7 +1415,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "356b5c399d0a116dd57f684725f77279d139ed965d3811934f31d3d8f29bcf81",
+      "system_instruction_sha256": "a8519c516cad52790683b90511cd8519e72c360549d44e6cb72d405af3323914",
       "telemetry_namespace": "agent.onboarding",
       "tools": [],
       "ui_type": "chat",

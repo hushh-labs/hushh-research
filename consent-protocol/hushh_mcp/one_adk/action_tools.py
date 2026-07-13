@@ -211,8 +211,10 @@ async def run_app_action(
         # One offers a next step after every governed action it runs, not
         # only after an onboarding screen change.
         "next_step": (
-            f"After {label} completes, briefly confirm what happened and, if "
-            "there's an obvious next step, offer it before waiting to be asked."
+            "Wait for the correlated browser action settlement before saying "
+            f"{label} completed. Then acknowledge only the reported outcome "
+            "and, if there is an obvious next step, offer it before waiting to "
+            "be asked."
         ),
     }
 

@@ -65,6 +65,7 @@ EXPECTED_WORKFLOW_IDS = [
     "new-feature-tri-flow",
     "frontend-native-surface-map",
     "frontend-cache-coherence",
+    "morphy-ax-governance",
     "api-contract-change",
     "pr-governance-review",
     "analytics-observability-review",

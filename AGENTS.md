@@ -76,6 +76,7 @@ These are the durable architecture principles for every Hussh product agent (One
 6. Product agents and engineering agents are separate namespaces. `.codex/agents` contains read-only engineering evidence lanes; `consent-protocol/hushh_mcp/agents` contains runtime product agents. Never make one impersonate or generate the other.
 7. `AgentManifestV2` YAML is the sole authored product-agent source. Generated registries, cards, action identifiers, surface metadata, and hierarchy projections must be reproducible from it; parallel Python manifests and prompt copies are prohibited.
 8. Use ADK `chat`, `task`, and `single_turn` modes inside one runtime, official A2A Tasks across process or deployment boundaries, and MCP for consented tools and encrypted resources. Invocation authority, information authority, and action authority remain separate at every hop.
+9. Intelligence owns semantic assessment. Deterministic policy may validate, normalize, reject, and enforce authority, but it must not replace agent meaning with keyword or regex classification.
 
 ## Project-Wide Premise Verification Gate
 

@@ -1,0 +1,62 @@
+{
+  "id": "morphy-ax",
+  "role": "spoke",
+  "owner_family": "frontend",
+  "primary_scope": "morphy-agent-experience",
+  "description": "Use when changing Morphy AX shared agent-experience state, semantic assessment presentation, performance budgets, or cross-modal compatibility.",
+  "owned_paths": [
+    "hushh-webapp/lib/morphy-ax",
+    "docs/reference/quality/morphy-agent-experience.md"
+  ],
+  "non_owned_paths": [
+    "hushh-webapp/lib/voice",
+    "consent-protocol/hushh_mcp/agents",
+    "hushh-webapp/lib/morphy-ux"
+  ],
+  "task_types": ["morphy-ax-governance"],
+  "required_reads": [
+    "docs/reference/quality/morphy-agent-experience.md",
+    "docs/reference/one/one-voice-runtime-architecture.md",
+    "docs/reference/quality/frontend-ui-architecture-map.md",
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "required_commands": [
+    "cd hushh-webapp && npm run verify:morphy-ax",
+    "cd hushh-webapp && npm run typecheck",
+    "cd hushh-webapp && npm run verify:voice-gateway",
+    "cd hushh-webapp && npm run verify:design-system",
+    "cd consent-protocol && python3 -m pytest tests/test_onboarding_goal_agent.py tests/test_one_adk_agent_tree.py -q",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundles": [
+    {
+      "id": "morphy-ax-governance",
+      "commands": [
+        "cd hushh-webapp && npm run verify:morphy-ax",
+        "cd hushh-webapp && npm run typecheck",
+        "cd hushh-webapp && npm run verify:voice-gateway",
+        "cd consent-protocol && python3 -m pytest tests/test_onboarding_goal_agent.py tests/test_one_adk_agent_tree.py -q",
+        "./bin/hushh docs verify"
+      ],
+      "tests": [
+        "hushh-webapp/__tests__/morphy-ax/morphy-ax-contract.test.ts",
+        "consent-protocol/tests/test_onboarding_goal_agent.py"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "frontend",
+    "kai-voice-governance",
+    "backend-agents-operons",
+    "frontend-design-system",
+    "quality-contracts",
+    "docs-governance"
+  ],
+  "adjacent_skills": [
+    "frontend-design-system",
+    "kai-voice-governance",
+    "backend-agents-operons",
+    "quality-contracts"
+  ],
+  "risk_tags": ["voice", "onboarding", "generated-contract", "performance", "privacy"]
+}

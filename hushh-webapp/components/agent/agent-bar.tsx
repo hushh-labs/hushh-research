@@ -35,26 +35,43 @@ import {
   useAgentVoiceState,
 } from "@/lib/agent/agent-voice-state";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
+import { validateMorphyAxAssessment } from "@/lib/morphy-ax";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { ROUTES, isFoundationPublicRoute, isOneSetupRoute } from "@/lib/navigation/routes";
+import {
+  ROUTES,
+  isFoundationPublicRoute,
+  isOneSetupRoute,
+} from "@/lib/navigation/routes";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { createRealtimeVoiceTransport } from "@/lib/voice/one-voice-transport-factory";
 import type {
   OneVoiceSessionEvent,
   RealtimeVoiceTransport,
 } from "@/lib/voice/one-voice-transport";
-import type { AgentVoiceEventOptions, AgentVoiceStatus } from "@/lib/agent/agent-voice-state";
+import type {
+  AgentVoiceEventOptions,
+  AgentVoiceStatus,
+} from "@/lib/agent/agent-voice-state";
+import { redactSensitiveVoiceTranscript } from "@/lib/voice/voice-sensitive-redaction";
 
 type PrewarmedGeminiRelay = {
   relayUrl: string;
   expiresAtMs: number;
   snapshotId: string;
   accessTier: string;
+};
+
+type PendingVoiceConfirmation = {
+  directiveId: string;
+  actionId: string;
+  slots?: Record<string, unknown>;
+  route: string | null;
 };
 
 // Precaution: if a live voice session sits idle (no user speech, no agent
@@ -109,8 +126,12 @@ export function AgentBar() {
   const { switchPersona } = usePersonaState();
   const busyOperations = useKaiSession((state) => state.busyOperations);
   const setAnalysisParams = useKaiSession((state) => state.setAnalysisParams);
-  const appendMirrorEvent = useOneConversationSession((state) => state.appendMirrorEvent);
-  const createHandoff = useOneConversationSession((state) => state.createHandoff);
+  const appendMirrorEvent = useOneConversationSession(
+    (state) => state.appendMirrorEvent,
+  );
+  const createHandoff = useOneConversationSession(
+    (state) => state.createHandoff,
+  );
   const mirrorSessionId = useOneConversationSession((state) => state.sessionId);
 
   // In-bar conversation (Gemini Live full-duplex) state. This lives entirely in
@@ -118,6 +139,9 @@ export function AgentBar() {
   // the bar highlights and an ambient waveform animates in place, reacting to
   // the user's voice (listening) and the agent's reply (speaking).
   const [conversationActive, setConversationActive] = useState(false);
+  const [pendingConfirmation, setPendingConfirmation] =
+    useState<PendingVoiceConfirmation | null>(null);
+  const pendingConfirmationRef = useRef<PendingVoiceConfirmation | null>(null);
   const voiceStatus = useAgentVoiceState((s) => s.status);
   const voiceMessage = useAgentVoiceState((s) => s.message);
   const voiceLevel = useAgentVoiceState((s) => s.level);
@@ -167,278 +191,443 @@ export function AgentBar() {
     }, AGENT_BAR_VOICE_IDLE_TIMEOUT_MS);
   }, [clearVoiceIdleTimer]);
 
-  const handleTransportEvent = useCallback((event: OneVoiceSessionEvent) => {
-    if (
-      event.type === "state" ||
-      event.type === "transcript_final" ||
-      event.type === "assistant_text" ||
-      event.type === "client_directive" ||
-      event.type === "handoff"
-    ) {
-      scheduleVoiceIdleTimer();
-    }
-    const eventOptions: AgentVoiceEventOptions = {
-      sessionId: "sessionId" in event ? event.sessionId ?? null : null,
-      sourceId: "sourceId" in event ? event.sourceId ?? null : event.provider,
-      sourceSeq: "sourceSeq" in event ? event.sourceSeq ?? null : null,
-    };
-    if (event.type === "state") {
-      const status: AgentVoiceStatus =
-        event.state === "opening"
-          ? "connecting"
-          : event.state === "listening"
-            ? "listening"
-            : event.state === "understanding" ||
-                event.state === "intent_preview" ||
-                event.state === "needs_consent" ||
-                event.state === "acting" ||
-                event.state === "navigation_settling"
-              ? "thinking"
-              : event.state === "result" || event.state === "follow_up"
-                ? "speaking"
-                : event.state === "error_recovery"
-                  ? "error"
-                  : "idle";
-      if (status !== "idle") {
-        setVoiceStatus(status, event.message ?? null, eventOptions);
-      }
-      return;
-    }
-    if (event.type === "input_level") {
-      const current = useAgentVoiceState.getState().status;
-      if (current === "listening" || current === "connecting") {
-        setVoiceLevel(event.level);
-      }
-      return;
-    }
-    if (event.type === "output_level") {
-      if (useAgentVoiceState.getState().status === "speaking") {
-        setVoiceLevel(event.level);
-      }
-      return;
-    }
-    if (event.type === "error") {
-      erroredRef.current = true;
-      setVoiceStatus("error", event.message, eventOptions);
-      return;
-    }
-    if (event.type === "assistant_text") {
-      appendMirrorEvent({
-        role: "assistant",
-        text: event.text,
-        source: "gemini_live",
-        turnId: event.turnId ?? null,
+  const abandonPendingConfirmation = useCallback(
+    (reason: string, summary: string, clearUi = true) => {
+      const pending = pendingConfirmationRef.current;
+      if (!pending) return;
+      pendingConfirmationRef.current = null;
+      if (clearUi) setPendingConfirmation(null);
+      liveClientRef.current?.reportActionSettlement?.({
+        directiveId: pending.directiveId,
+        actionId: pending.actionId,
+        status: "blocked",
+        summary,
+        reason,
       });
-      return;
-    }
-    if (event.type === "transcript_final") {
-      // Mirror the user's transcript into the conversation session. One's
-      // agent tree decides everything server-side; there is no client-side
-      // planner to feed here.
-      const transcript = event.text.trim();
-      const previous = lastTranscriptRef.current;
+    },
+    [],
+  );
+
+  const handleTransportEvent = useCallback(
+    (event: OneVoiceSessionEvent) => {
       if (
-        previous &&
-        previous.text === transcript &&
-        Date.now() - previous.atMs < 1500
+        event.type === "state" ||
+        event.type === "transcript_final" ||
+        event.type === "assistant_text" ||
+        event.type === "client_directive" ||
+        event.type === "handoff"
       ) {
-        return;
+        scheduleVoiceIdleTimer();
       }
-      lastTranscriptRef.current = { text: transcript, atMs: Date.now() };
-      appendMirrorEvent({
-        role: "user",
-        text: transcript,
-        source: "gemini_live",
-        turnId: event.turnId ?? null,
-      });
-      setVoiceStatus("thinking", "Understanding", eventOptions);
-      return;
-    }
-    if (event.type === "client_directive") {
-      // One's tools decided this (single decision-maker); the client only
-      // executes through the same governed gateway the app uses.
-      if (event.directive.kind === "navigate") {
-        const route =
-          typeof event.directive.payload?.route === "string"
-            ? event.directive.payload.route
-            : null;
-        if (route && route.startsWith("/")) {
-          router.push(route);
+      const eventOptions: AgentVoiceEventOptions = {
+        sessionId: "sessionId" in event ? (event.sessionId ?? null) : null,
+        sourceId:
+          "sourceId" in event ? (event.sourceId ?? null) : event.provider,
+        sourceSeq: "sourceSeq" in event ? (event.sourceSeq ?? null) : null,
+      };
+      if (event.type === "state") {
+        const status: AgentVoiceStatus =
+          event.state === "opening"
+            ? "connecting"
+            : event.state === "listening"
+              ? "listening"
+              : event.state === "understanding" ||
+                  event.state === "intent_preview" ||
+                  event.state === "needs_consent" ||
+                  event.state === "acting" ||
+                  event.state === "navigation_settling"
+                ? "thinking"
+                : event.state === "result" || event.state === "follow_up"
+                  ? "speaking"
+                  : event.state === "error_recovery"
+                    ? "error"
+                    : "idle";
+        if (status !== "idle") {
+          setVoiceStatus(status, event.message ?? null, eventOptions);
         }
         return;
       }
-      if (event.directive.kind === "action") {
-        const actionId =
-          typeof event.directive.payload?.actionId === "string"
-            ? event.directive.payload.actionId
-            : null;
-        if (actionId) {
-          const directiveId =
-            typeof event.directive.payload?.directiveId === "string"
-              ? event.directive.payload.directiveId
+      if (event.type === "input_level") {
+        const current = useAgentVoiceState.getState().status;
+        if (current === "listening" || current === "connecting") {
+          setVoiceLevel(event.level);
+        }
+        return;
+      }
+      if (event.type === "output_level") {
+        if (useAgentVoiceState.getState().status === "speaking") {
+          setVoiceLevel(event.level);
+        }
+        return;
+      }
+      if (event.type === "error") {
+        abandonPendingConfirmation(
+          "transport_error",
+          "The confirmation was cancelled because the voice session hit an error.",
+        );
+        erroredRef.current = true;
+        setVoiceStatus("error", event.message, eventOptions);
+        return;
+      }
+      if (event.type === "assistant_text") {
+        appendMirrorEvent({
+          role: "assistant",
+          text: event.text,
+          source: "gemini_live",
+          turnId: event.turnId ?? null,
+        });
+        return;
+      }
+      if (event.type === "transcript_final") {
+        // Mirror the user's transcript into the conversation session. One's
+        // agent tree decides everything server-side; there is no client-side
+        // planner to feed here.
+        const transcript = event.text.trim();
+        const previous = lastTranscriptRef.current;
+        if (
+          previous &&
+          previous.text === transcript &&
+          Date.now() - previous.atMs < 1500
+        ) {
+          return;
+        }
+        lastTranscriptRef.current = { text: transcript, atMs: Date.now() };
+        appendMirrorEvent({
+          role: "user",
+          text: redactSensitiveVoiceTranscript(transcript, runtime?.screen),
+          source: "gemini_live",
+          turnId: event.turnId ?? null,
+        });
+        setVoiceStatus("thinking", "Understanding", eventOptions);
+        return;
+      }
+      if (event.type === "client_directive") {
+        // One's tools decided this (single decision-maker); the client only
+        // executes through the same governed gateway the app uses.
+        if (event.directive.kind === "navigate") {
+          const route =
+            typeof event.directive.payload?.route === "string"
+              ? event.directive.payload.route
               : null;
-          const slots =
-            event.directive.payload?.slots &&
-            typeof event.directive.payload.slots === "object"
-              ? (event.directive.payload.slots as Record<string, unknown>)
-              : undefined;
-          if (event.directive.payload?.needsConfirmation === true) {
-            // Sensitive actions confirm in the audited chat surface, never
-            // silently from voice.
-            const handoff = createHandoff({
-              reason: "action_requires_chat",
-              transcript: null,
-              assistantText: `Confirm before running: ${actionId}`,
-              actionId,
-            });
-            liveClientRef.current?.interrupt?.();
-            agentPopover?.openAgent({ handoff });
-            return;
+          if (route && route.startsWith("/")) {
+            router.push(route);
           }
-          const runtimeState = runtime?.appRuntimeState;
-          if (!runtimeState) {
-            if (directiveId) {
-              liveClientRef.current?.reportActionSettlement?.({
-                directiveId,
-                actionId,
-                status: "failed",
-                summary: "The app was not ready to run that action.",
-                reason: "missing_runtime_state",
-              });
-            }
-            return;
-          }
-          void (async () => {
-            try {
-              const result = await executeAgentGatewayAction({
-                actionId,
-                slots,
-                userId: user?.uid ?? "",
-                router,
-                appRuntimeState: runtimeState,
-                surfaceMetadata: getVoiceSurfaceMetadata(),
-                hasPortfolioData:
-                  runtimeState.portfolio.has_portfolio_data ||
-                  runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
-                busyOperations,
-                setAnalysisParams,
-                switchPersona,
-                executionContext: { directiveId },
-              });
-              if (directiveId) {
-                liveClientRef.current?.reportActionSettlement?.({
-                  directiveId,
-                  actionId,
-                  status: result.status,
-                  summary: result.resultSummary,
-                  reason: result.reason,
-                  routeAfter: result.routeAfter,
-                  screenAfter: result.screenAfter,
-                });
+          return;
+        }
+        if (event.directive.kind === "action") {
+          const actionId =
+            typeof event.directive.payload?.actionId === "string"
+              ? event.directive.payload.actionId
+              : null;
+          if (actionId) {
+            const directiveId =
+              typeof event.directive.payload?.directiveId === "string"
+                ? event.directive.payload.directiveId
+                : null;
+            const slots =
+              event.directive.payload?.slots &&
+              typeof event.directive.payload.slots === "object"
+                ? (event.directive.payload.slots as Record<string, unknown>)
+                : undefined;
+            const needsConfirmation =
+              event.directive.payload?.needsConfirmation === true;
+            if (runtime?.morphyAxEnabled) {
+              const decision = validateMorphyAxAssessment(
+                {
+                  schema_version: "morphy_ax_assessment.v1",
+                  source: "one",
+                  disposition: needsConfirmation
+                    ? "confirm_visible_action"
+                    : "execute_visible_action",
+                  candidate_action_id: actionId,
+                  missing_input: null,
+                  ambiguous: false,
+                  confidence: 1,
+                  expected_outcome: needsConfirmation
+                    ? "confirmation"
+                    : "action",
+                },
+                runtime.morphyAxSnapshot,
+              );
+              const admitted = needsConfirmation
+                ? decision.status === "confirmation_required"
+                : decision.status === "permitted";
+              if (!admitted) {
+                if (directiveId) {
+                  liveClientRef.current?.reportActionSettlement?.({
+                    directiveId,
+                    actionId,
+                    status: "blocked",
+                    summary:
+                      "The requested action is not available on this screen.",
+                    reason: `morphy_ax_${decision.status}`,
+                  });
+                }
+                return;
               }
-            } catch {
+            }
+            if (needsConfirmation) {
+              if (!directiveId) return;
+              // Keep sensitive arguments transient in component memory. The
+              // confirmation card never renders slots (including OTP values).
+              abandonPendingConfirmation(
+                "confirmation_superseded",
+                "A newer confirmation replaced the pending action.",
+              );
+              const pending = { directiveId, actionId, slots, route: pathname };
+              pendingConfirmationRef.current = pending;
+              setPendingConfirmation(pending);
+              liveClientRef.current?.interrupt?.();
+              setVoiceStatus("thinking", "Confirmation needed", eventOptions);
+              return;
+            }
+            const runtimeState = runtime?.appRuntimeState;
+            if (!runtimeState) {
               if (directiveId) {
                 liveClientRef.current?.reportActionSettlement?.({
                   directiveId,
                   actionId,
                   status: "failed",
-                  summary: "The app could not complete that action.",
-                  reason: "client_execution_failed",
+                  summary: "The app was not ready to run that action.",
+                  reason: "missing_runtime_state",
                 });
               }
+              return;
             }
-          })();
+            void (async () => {
+              try {
+                const result = await executeAgentGatewayAction({
+                  actionId,
+                  slots,
+                  userId: user?.uid ?? "",
+                  router,
+                  appRuntimeState: runtimeState,
+                  surfaceMetadata: getVoiceSurfaceMetadata(),
+                  hasPortfolioData:
+                    runtimeState.portfolio.has_portfolio_data ||
+                    runtime?.oneVoiceContextSnapshot.cache.portfolio_ready ===
+                      true,
+                  busyOperations,
+                  setAnalysisParams,
+                  switchPersona,
+                  executionContext: { directiveId },
+                });
+                if (directiveId) {
+                  liveClientRef.current?.reportActionSettlement?.({
+                    directiveId,
+                    actionId,
+                    status: result.status,
+                    summary: result.resultSummary,
+                    reason: result.reason,
+                    routeAfter: result.routeAfter,
+                    screenAfter: result.screenAfter,
+                  });
+                }
+              } catch {
+                if (directiveId) {
+                  liveClientRef.current?.reportActionSettlement?.({
+                    directiveId,
+                    actionId,
+                    status: "failed",
+                    summary: "The app could not complete that action.",
+                    reason: "client_execution_failed",
+                  });
+                }
+              }
+            })();
+            return;
+          }
+          // Specialist directive (location share/check-in/SOS, device
+          // permission re-ask, connected-systems update, etc.) rather than a
+          // run_app_action directive: these need vault-owner crypto/native
+          // calls that only exist in the chat surface's directive runtime.
+          // Without this branch the directive silently dropped (no actionId),
+          // which is why asking One over voice to re-ask location permission
+          // did nothing even though the specialist correctly proposed it.
+          const delegateAgentId =
+            typeof event.directive.payload?.delegateAgentId === "string"
+              ? event.directive.payload.delegateAgentId
+              : null;
+          const directiveType =
+            typeof event.directive.payload?.type === "string"
+              ? event.directive.payload.type
+              : "this";
+          const handoff = createHandoff({
+            reason: "action_requires_chat",
+            transcript: null,
+            assistantText: `One line this up for you: ${directiveType}. Confirm here to continue.`,
+            specialistDirective: delegateAgentId
+              ? {
+                  delegateAgentId,
+                  directive: {
+                    kind: "action",
+                    payload: event.directive.payload ?? {},
+                  },
+                  message: "",
+                  stateChanged: false,
+                }
+              : null,
+          });
+          liveClientRef.current?.interrupt?.();
+          agentPopover?.openAgent({ handoff });
           return;
         }
-        // Specialist directive (location share/check-in/SOS, device
-        // permission re-ask, connected-systems update, etc.) rather than a
-        // run_app_action directive: these need vault-owner crypto/native
-        // calls that only exist in the chat surface's directive runtime.
-        // Without this branch the directive silently dropped (no actionId),
-        // which is why asking One over voice to re-ask location permission
-        // did nothing even though the specialist correctly proposed it.
-        const delegateAgentId =
-          typeof event.directive.payload?.delegateAgentId === "string"
-            ? event.directive.payload.delegateAgentId
+        return;
+      }
+      if (event.type === "handoff") {
+        const transcript =
+          typeof event.payload?.transcript === "string"
+            ? event.payload.transcript
             : null;
-        const directiveType =
-          typeof event.directive.payload?.type === "string"
-            ? event.directive.payload.type
-            : "this";
+        const assistantText =
+          typeof event.payload?.assistantText === "string"
+            ? event.payload.assistantText
+            : null;
+        const actionId =
+          typeof event.payload?.actionId === "string"
+            ? event.payload.actionId
+            : null;
         const handoff = createHandoff({
           reason: "action_requires_chat",
-          transcript: null,
-          assistantText: `One line this up for you: ${directiveType}. Confirm here to continue.`,
-          specialistDirective: delegateAgentId
-            ? {
-                delegateAgentId,
-                directive: {
-                  kind: "action",
-                  payload: event.directive.payload ?? {},
-                },
-                message: "",
-                stateChanged: false,
-              }
-            : null,
+          transcript,
+          assistantText: assistantText || event.reason,
+          actionId,
         });
         liveClientRef.current?.interrupt?.();
         agentPopover?.openAgent({ handoff });
         return;
       }
-      return;
-    }
-    if (event.type === "handoff") {
-      const transcript =
-        typeof event.payload?.transcript === "string" ? event.payload.transcript : null;
-      const assistantText =
-        typeof event.payload?.assistantText === "string" ? event.payload.assistantText : null;
-      const actionId =
-        typeof event.payload?.actionId === "string" ? event.payload.actionId : null;
-      const handoff = createHandoff({
-        reason: "action_requires_chat",
-        transcript,
-        assistantText: assistantText || event.reason,
-        actionId,
-      });
-      liveClientRef.current?.interrupt?.();
-      agentPopover?.openAgent({ handoff });
-      return;
-    }
-    if (event.type === "closed") {
-      clearVoiceIdleTimer();
-      liveClientRef.current = null;
-      if (erroredRef.current) return;
-      setConversationActive(false);
-    }
-  }, [
-    agentPopover,
-    appendMirrorEvent,
-    busyOperations,
-    clearVoiceIdleTimer,
-    createHandoff,
-    router,
-    runtime,
-    scheduleVoiceIdleTimer,
-    setAnalysisParams,
-    setVoiceLevel,
-    setVoiceStatus,
-    switchPersona,
-    user?.uid,
-  ]);
+      if (event.type === "closed") {
+        clearVoiceIdleTimer();
+        abandonPendingConfirmation(
+          "session_closed",
+          "The confirmation was cancelled when the voice session closed.",
+        );
+        liveClientRef.current = null;
+        if (erroredRef.current) return;
+        setConversationActive(false);
+      }
+    },
+    [
+      agentPopover,
+      abandonPendingConfirmation,
+      appendMirrorEvent,
+      busyOperations,
+      clearVoiceIdleTimer,
+      createHandoff,
+      pathname,
+      router,
+      runtime,
+      scheduleVoiceIdleTimer,
+      setAnalysisParams,
+      setVoiceLevel,
+      setVoiceStatus,
+      switchPersona,
+      user?.uid,
+    ],
+  );
 
   const stopConversation = useCallback(() => {
     clearVoiceIdleTimer();
     erroredRef.current = false;
+    abandonPendingConfirmation(
+      "session_cancelled",
+      "The confirmation was cancelled when the voice session ended.",
+    );
     liveClientRef.current?.stop();
     liveClientRef.current = null;
     prewarmedRelayRef.current = null;
     setConversationActive(false);
     resetVoice();
-  }, [clearVoiceIdleTimer, resetVoice]);
+  }, [abandonPendingConfirmation, clearVoiceIdleTimer, resetVoice]);
+
+  const settlePendingConfirmation = useCallback(
+    async (confirmed: boolean) => {
+      const pending = pendingConfirmationRef.current;
+      if (!pending) return;
+      pendingConfirmationRef.current = null;
+      setPendingConfirmation(null);
+      if (!confirmed) {
+        liveClientRef.current?.reportActionSettlement?.({
+          directiveId: pending.directiveId,
+          actionId: pending.actionId,
+          status: "blocked",
+          summary: "The person cancelled the confirmation.",
+          reason: "user_cancelled",
+        });
+        setVoiceStatus("listening", "Listening");
+        return;
+      }
+      const runtimeState = runtime?.appRuntimeState;
+      if (!runtimeState) {
+        liveClientRef.current?.reportActionSettlement?.({
+          directiveId: pending.directiveId,
+          actionId: pending.actionId,
+          status: "failed",
+          summary: "The app was not ready to confirm that action.",
+          reason: "missing_runtime_state",
+        });
+        return;
+      }
+      setVoiceStatus("thinking", "Confirming");
+      try {
+        const result = await executeAgentGatewayAction({
+          actionId: pending.actionId,
+          slots: pending.slots,
+          userId: user?.uid ?? "",
+          router,
+          appRuntimeState: runtimeState,
+          surfaceMetadata: getVoiceSurfaceMetadata(),
+          hasPortfolioData:
+            runtimeState.portfolio.has_portfolio_data ||
+            runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
+          busyOperations,
+          setAnalysisParams,
+          switchPersona,
+          executionContext: { directiveId: pending.directiveId },
+        });
+        liveClientRef.current?.reportActionSettlement?.({
+          directiveId: pending.directiveId,
+          actionId: pending.actionId,
+          status: result.status,
+          summary: result.resultSummary,
+          reason: result.reason,
+          routeAfter: result.routeAfter,
+          screenAfter: result.screenAfter,
+        });
+      } catch {
+        liveClientRef.current?.reportActionSettlement?.({
+          directiveId: pending.directiveId,
+          actionId: pending.actionId,
+          status: "failed",
+          summary: "The app could not complete the confirmed action.",
+          reason: "client_execution_failed",
+        });
+      }
+    },
+    [
+      busyOperations,
+      router,
+      runtime,
+      setAnalysisParams,
+      setVoiceStatus,
+      switchPersona,
+      user?.uid,
+    ],
+  );
 
   useEffect(() => {
     stopConversationRef.current = stopConversation;
   }, [stopConversation]);
+
+  useEffect(() => {
+    const pending = pendingConfirmationRef.current;
+    if (!pending || pending.route === pathname) return;
+    abandonPendingConfirmation(
+      "route_changed",
+      "The confirmation was cancelled because the screen changed.",
+    );
+  }, [abandonPendingConfirmation, pathname]);
 
   const openAgentChat = useCallback(() => {
     if (conversationActive) return;
@@ -543,7 +732,10 @@ export function AgentBar() {
     if (!context || !accessTier || conversationActive || erroredRef.current) {
       return;
     }
-    if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+    if (
+      typeof document !== "undefined" &&
+      document.visibilityState !== "visible"
+    ) {
       return;
     }
     if (
@@ -578,11 +770,7 @@ export function AgentBar() {
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [
-    conversationActive,
-    runtime?.oneVoiceContextSnapshot,
-    runtime?.tier,
-  ]);
+  }, [conversationActive, runtime?.oneVoiceContextSnapshot, runtime?.tier]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -608,12 +796,17 @@ export function AgentBar() {
         clearTimeout(idleTimeoutRef.current);
         idleTimeoutRef.current = null;
       }
+      abandonPendingConfirmation(
+        "component_unmounted",
+        "The confirmation was cancelled when the voice surface closed.",
+        false,
+      );
       liveClientRef.current?.stop();
       liveClientRef.current = null;
       prewarmedRelayRef.current = null;
       resetVoice();
     };
-  }, [resetVoice]);
+  }, [abandonPendingConfirmation, resetVoice]);
 
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   // The root intro screen ("/") has no bottom nav, exactly like the onboarding
@@ -658,14 +851,15 @@ export function AgentBar() {
   // The agent bar rides most surfaces, degrading gracefully by auth/vault level
   // (locked-vault users get an in-place unlock prompt; unlocked users get the
   // full agent). We also unmount where an agent launcher genuinely must not
-  // exist (legacy dedicated agent route, phone mandate, appearance lab,
-  // developers) or on transient auth transitions (login, logout) where the
+  // exist (legacy dedicated agent route or appearance lab) or on transient
+  // auth transitions where the
   // app shell is not the host.
   const path = pathname ?? "";
   // The waveform action circle is white only on the 2c dark dashboard (where a
   // white circle pops); on every other surface (welcome, profile, kai, …) it is
   // the indigo accent, per design.md §5.5.
-  const onDashboard = path === ROUTES.ONE_HOME || path === `${ROUTES.ONE_HOME}/`;
+  const onDashboard =
+    path === ROUTES.ONE_HOME || path === `${ROUTES.ONE_HOME}/`;
   // The logged-out welcome ("/") and the sign-in screen ("/login") both host
   // the dogfooding onboarding voice greeter instead of unmounting the bar
   // outright: it doubles as the pre-auth conversation starter and stays
@@ -674,7 +868,11 @@ export function AgentBar() {
   const onboardingGreeterMode =
     (isHomeRoute && runtime?.tier === "anon_onboarding") ||
     (isLoginRoute && !user);
-  const ambientVoiceOnly = isFoundationPublic && !isHomeRoute;
+  const focusedOnboardingVoiceOnly =
+    isOneSetupRoute(pathname ?? "") ||
+    (pathname ?? "").startsWith(ROUTES.PHONE_MANDATE);
+  const ambientVoiceOnly =
+    (isFoundationPublic && !isHomeRoute) || focusedOnboardingVoiceOnly;
 
   // Signed-out dogfooding: greet the person the moment the onboarding welcome
   // ("/") loads, instead of waiting for a tap. This reuses the exact same
@@ -692,7 +890,8 @@ export function AgentBar() {
       return;
     }
     if (autoGreetedRef.current) return;
-    if (conversationActive || liveClientRef.current || erroredRef.current) return;
+    if (conversationActive || liveClientRef.current || erroredRef.current)
+      return;
     autoGreetedRef.current = true;
     startConversation();
     // Intentionally excludes startConversation/conversationActive from deps:
@@ -703,15 +902,8 @@ export function AgentBar() {
 
   const unmountBar =
     !agentPopover ||
-    // The One setup surface is a focused onboarding flow (like Apple's "Finish
-    // Setting Up" in Settings): a centered translucent agent launcher reads
-    // over the wide grouped-list rows on scroll (they show through it / beside
-    // it), so it is unmounted across the whole setup surface. isOneSetupRoute
-    // (not an exact match) is required because the Capacitor build uses
-    // trailingSlash, so the runtime pathname is "/one/setup/".
-    isOneSetupRoute(path) ||
-    path.startsWith(ROUTES.PHONE_MANDATE) ||
-    path === ROUTES.DEVELOPERS ||
+    // Focused onboarding routes retain voice but use the voice-only rendering
+    // branch above, so Agent Chat never appears over setup or phone entry.
     path === ROUTES.AGENT ||
     // "/login" keeps the bar (signed-out onboarding greeter, parity with "/");
     // only the logout transition unmounts it.
@@ -760,7 +952,10 @@ export function AgentBar() {
       title="Tap to end conversation"
       className="relative flex min-w-0 flex-1 items-center gap-3 overflow-hidden rounded-full pl-1 pr-2 text-left"
     >
-      <span aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+      >
         <MaterialRipple variant="gradient" effect="fill" />
       </span>
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-accent-strong">
@@ -814,7 +1009,10 @@ export function AgentBar() {
         <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-[#17130C]/80 dark:text-white/85">
           Talk to One
         </span>
-        <span aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+        >
           <MaterialRipple variant="gradient" effect="fill" />
         </span>
       </button>
@@ -822,7 +1020,11 @@ export function AgentBar() {
       <button
         type="button"
         onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-        aria-label={resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+        aria-label={
+          resolvedTheme === "dark"
+            ? "Switch to light mode"
+            : "Switch to dark mode"
+        }
         title="Toggle theme"
         className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-accent-strong transition-colors duration-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
       >
@@ -831,7 +1033,10 @@ export function AgentBar() {
         ) : (
           <Moon className="h-[17px] w-[17px]" />
         )}
-        <span aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+        >
           <MaterialRipple variant="gradient" effect="fill" />
         </span>
       </button>
@@ -870,7 +1075,10 @@ export function AgentBar() {
         >
           {hint}
         </span>
-        <span aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+        >
           <MaterialRipple variant="gradient" effect="fill" />
         </span>
       </button>
@@ -885,7 +1093,10 @@ export function AgentBar() {
         className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-accent-strong transition-colors duration-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
       >
         <MessageCircle className="h-[17px] w-[17px]" />
-        <span aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+        >
           <MaterialRipple variant="gradient" effect="fill" />
         </span>
       </button>
@@ -894,7 +1105,7 @@ export function AgentBar() {
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 z-[118] flex justify-center px-4 transform-gpu"
+      className="pointer-events-none fixed inset-x-0 z-[118] flex flex-col items-center gap-3 px-4 transform-gpu"
       style={
         {
           // Sit just above the visible bottom nav and ride the same scroll-hide
@@ -927,9 +1138,44 @@ export function AgentBar() {
       }
       aria-hidden={barHidden}
     >
+      {pendingConfirmation ? (
+        <div
+          role="dialog"
+          aria-label="Confirm voice action"
+          className="pointer-events-auto w-full max-w-[min(calc(100vw-3rem),392px)] rounded-3xl border border-black/10 bg-white/95 p-4 text-[#1d1d1f] shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#1c1c1e]/95 dark:text-[#f5f5f7]"
+        >
+          <p className="text-[13px] font-medium text-muted-foreground">
+            One is ready to
+          </p>
+          <p className="mt-1 text-[16px] font-semibold">
+            {getKaiActionById(pendingConfirmation.actionId)?.label ||
+              "Continue this action"}
+          </p>
+          <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+            Sensitive values are hidden. Nothing runs until you confirm.
+          </p>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => void settlePendingConfirmation(false)}
+              className="h-10 rounded-full bg-black/[0.05] text-[14px] font-semibold dark:bg-white/[0.08]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void settlePendingConfirmation(true)}
+              className="h-10 rounded-full bg-primary text-[14px] font-semibold text-primary-foreground"
+            >
+              Confirm
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div
         data-testid="one-voice-agent-bar"
         data-voice-mode={nativeVoiceMode}
+        data-morphy-ax-presentation={runtime?.morphyAxPresentation ?? "idle"}
         className={cn(
           // z-0 (not just `relative`) is required so this pill forms its own
           // local stacking context: the `.one-bar-aurora -z-10` glow span
@@ -967,7 +1213,9 @@ export function AgentBar() {
             aria-hidden
             className={cn(
               "one-bar-aurora -z-10 transition-opacity duration-500",
-              useOnboardingChrome ? "one-bar-aurora--onboarding" : "one-bar-aurora--active",
+              useOnboardingChrome
+                ? "one-bar-aurora--onboarding"
+                : "one-bar-aurora--active",
             )}
           />
         ) : null}

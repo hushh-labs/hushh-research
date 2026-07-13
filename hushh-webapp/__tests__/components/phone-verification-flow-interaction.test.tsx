@@ -2,10 +2,13 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
+import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 
-function renderPhoneVerificationFlow() {
-  const startVerification = vi.fn().mockResolvedValue({ autoVerified: false });
-  const confirmVerification = vi.fn();
+function renderPhoneVerificationFlow(options?: { startRejects?: boolean }) {
+  const startVerification = options?.startRejects
+    ? vi.fn().mockRejectedValue(new Error("provider unavailable"))
+    : vi.fn().mockResolvedValue({ autoVerified: false });
+  const confirmVerification = vi.fn().mockResolvedValue({ uid: "user_1" });
   const onCompleted = vi.fn();
 
   render(
@@ -19,6 +22,8 @@ function renderPhoneVerificationFlow() {
 
   return {
     startVerification,
+    confirmVerification,
+    onCompleted,
   };
 }
 
@@ -65,5 +70,40 @@ describe("PhoneVerificationFlow country selector", () => {
         resendCode: false,
       });
     });
+  });
+
+  it("reports a failed voice settlement when the SMS provider rejects", async () => {
+    renderPhoneVerificationFlow({ startRejects: true });
+    await waitFor(() => {
+      expect(resolveLocalOnboardingHandler("phone_mandate.submit_number")).not.toBeNull();
+    });
+
+    const result = await resolveLocalOnboardingHandler("phone_mandate.submit_number")?.({
+      phoneNumber: "+16505550101",
+    });
+
+    expect(result).toMatchObject({ status: "failed" });
+  });
+
+  it("keeps the spoken code transient and settles only after confirmation succeeds", async () => {
+    const { confirmVerification, onCompleted } = renderPhoneVerificationFlow();
+    await waitFor(() => {
+      expect(resolveLocalOnboardingHandler("phone_mandate.submit_number")).not.toBeNull();
+    });
+    await resolveLocalOnboardingHandler("phone_mandate.submit_number")?.({
+      phoneNumber: "+16505550101",
+    });
+    await waitFor(() => {
+      expect(resolveLocalOnboardingHandler("phone_mandate.submit_code")).not.toBeNull();
+    });
+
+    const result = await resolveLocalOnboardingHandler("phone_mandate.submit_code")?.({
+      code: "123456",
+    });
+
+    expect(confirmVerification).toHaveBeenCalledWith("123456");
+    expect(onCompleted).toHaveBeenCalled();
+    expect(result).toMatchObject({ status: "succeeded" });
+    expect(result?.summary).not.toContain("123456");
   });
 });

@@ -19,8 +19,8 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://hushh.ai"),
   title: "Hussh One | Your Private Agent",
   description:
-    "Personal AI agents with consent at the core. Your information, your control.",
-  keywords: ["AI agents", "personal AI", "Hussh One", "consent-first", "privacy"],
+    "Private AI agents with consent at the core. Your information, your control.",
+  keywords: ["AI agents", "private AI", "Hussh One", "consent-first", "privacy"],
   authors: [{ name: "Hussh Labs" }],
   icons: {
     icon: [
@@ -39,7 +39,7 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   openGraph: {
     title: "Hussh One | Your Private Agent",
-    description: "Personal AI agents with consent at the core.",
+    description: "Private AI agents with consent at the core.",
     siteName: "Hussh",
     url: "https://hushh.ai",
     type: "website",
@@ -55,7 +55,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Hussh One | Your Private Agent",
-    description: "Personal AI agents with consent at the core.",
+    description: "Private AI agents with consent at the core.",
     images: ["/quiet-emoji-icon.png"],
   },
 };

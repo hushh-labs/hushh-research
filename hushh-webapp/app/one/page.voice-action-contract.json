@@ -3,8 +3,6 @@
   "surface_id": "one_agents",
   "surface_title": "Agents",
   "orchestration": {
-    "instruction_id": "route.one.home",
-    "context_policy": "publish",
     "trust_boundary": "consent",
     "delegation_policy": "one_action_gate"
   },

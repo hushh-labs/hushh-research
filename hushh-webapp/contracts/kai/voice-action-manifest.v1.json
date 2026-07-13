@@ -312,7 +312,7 @@
     {
       "id": "auth.sign_in_google",
       "label": "Continue with Google",
-      "meaning": "Starts Google sign-in for the person already on the One sign-in screen.",
+      "meaning": "Uses the visible Google provider flow, with correlated redirect recovery only when the browser blocks a voice-triggered popup, and settles only after Firebase returns a user session.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "aliases": [
@@ -388,7 +388,7 @@
     {
       "id": "auth.sign_in_apple",
       "label": "Continue with Apple",
-      "meaning": "Starts Apple sign-in for the person already on the One sign-in screen.",
+      "meaning": "Uses the visible Apple provider flow, with correlated redirect recovery only when the browser blocks a voice-triggered popup, and settles only after Firebase returns a user session.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "aliases": [
@@ -2456,6 +2456,7 @@
           "/one/setup/location",
           "/one/setup/pkm",
           "/one/setup/consent",
+          "/one/setup/marketplace",
           "/one/setup/connected-systems"
         ],
         "screens": [
@@ -2465,6 +2466,7 @@
           "one_setup_location",
           "one_setup_pkm",
           "one_setup_consent",
+          "one_setup_marketplace",
           "one_setup_connected-systems",
           "one_setup"
         ],
@@ -2791,14 +2793,14 @@
     },
     {
       "id": "kai.setup.launch_dashboard",
-      "label": "Launch Kai Dashboard",
-      "meaning": "Confirms the computed investor persona and completes Kai setup, opening portfolio import.",
+      "label": "Save Finance Preferences",
+      "meaning": "Saves Finance preferences, marks only Finance ready, and returns to the One setup hub without resolving root onboarding.",
       "speaker_persona": "kai",
       "delegate_agent_id": null,
       "aliases": [
-        "launch my dashboard",
+        "save finance preferences",
         "looks good, continue",
-        "finish kai setup"
+        "finish finance setup"
       ],
       "scope": {
         "routes": [
@@ -2833,7 +2835,7 @@
           {
             "type": "action",
             "action_id": "kai.setup.launch_dashboard",
-            "label": "Launch Kai Dashboard",
+            "label": "Save Finance Preferences",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/kai",
@@ -2864,6 +2866,80 @@
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "docs/reference/quality/one-onboarding-architecture.md",
         "hushh-webapp/app/one/setup/kai/page.tsx"
+      ]
+    },
+    {
+      "id": "onboarding.claim_one",
+      "label": "Claim your One",
+      "meaning": "Continues from One's public welcome screen to sign in and begin setup.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "claim your one",
+        "claim my one",
+        "claim one",
+        "get started",
+        "start with one",
+        "begin with one"
+      ],
+      "scope": {
+        "routes": [
+          "/"
+        ],
+        "screens": [
+          "one_intro"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "onboarding.claim_one"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.onboarding.claim_one",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "onboarding.claim_one",
+            "label": "Claim your One",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/",
+              "screen": "one_intro"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "docs/reference/one/one-voice-onboarding-journey.md"
       ]
     },
     {
@@ -3832,7 +3908,7 @@
     {
       "id": "phone_mandate.submit_code",
       "label": "Submit Verification Code",
-      "meaning": "Confirms the verification code sent by SMS and completes phone verification. Stays user-triggered because it settles account security state.",
+      "meaning": "Confirms the six-digit SMS code after an explicit inline confirmation and completes phone verification. The code is sensitive and must never be repeated or retained.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "aliases": [
@@ -3856,19 +3932,26 @@
       },
       "guard_ids": [
         "auth_signed_in",
-        "manual_user_execution"
+        "explicit_user_confirmation"
       ],
       "risk_level": "high",
-      "execution_policy": "manual_only",
+      "execution_policy": "confirm_required",
       "execution_hint": {
-        "status": "unwired",
-        "reason": "Completing phone verification changes account security state and must stay user-triggered from the visible code field.",
-        "intended_handler": "local_handler"
+        "status": "wired",
+        "path": "local_handler",
+        "target": "phone_mandate.submit_code"
       },
       "external_callback": null,
       "goal": {
         "goal_id": "goal.phone_mandate.submit_code",
-        "required_inputs": [],
+        "required_inputs": [
+          {
+            "name": "verification_code",
+            "prompt": "Say or type the six-digit code. Spoken codes are processed by the voice service.",
+            "required": true,
+            "slot": "code"
+          }
+        ],
         "input_resolvers": [],
         "slot_schema": {},
         "workflow_steps": [
@@ -7073,7 +7156,8 @@
           "/one/kai/import"
         ],
         "screens": [
-          "kai_portfolio_dashboard"
+          "kai_portfolio_dashboard",
+          "import"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
@@ -7642,7 +7726,7 @@
       ]
     },
     {
-      "id": "setup.open_personal_data",
+      "id": "setup.open_pkm",
       "label": "Set Up Memory",
       "meaning": "Opens the Memory (PKM) capability setup step from the setup hub.",
       "speaker_persona": "one",
@@ -7675,18 +7759,92 @@
       },
       "external_callback": null,
       "goal": {
-        "goal_id": "goal.setup.open_personal_data",
+        "goal_id": "goal.setup.open_pkm",
         "required_inputs": [],
         "input_resolvers": [],
         "slot_schema": {},
         "workflow_steps": [
           {
             "type": "action",
-            "action_id": "setup.open_personal_data",
+            "action_id": "setup.open_pkm",
             "label": "Set Up Memory",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/pkm",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md"
+      ]
+    },
+    {
+      "id": "setup.open_marketplace",
+      "label": "Explore Information Marketplace",
+      "meaning": "Opens the Information Marketplace explore step from the setup hub.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "explore information marketplace",
+        "open marketplace setup",
+        "set up marketplace"
+      ],
+      "scope": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/marketplace"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.setup.open_marketplace",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.open_marketplace",
+            "label": "Explore Information Marketplace",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/marketplace",
               "screen": "one_setup_hub"
             }
           }

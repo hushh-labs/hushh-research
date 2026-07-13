@@ -45,18 +45,47 @@ flowchart TD
 
 `contracts/kai/one-route-orchestration-index.v1.json` is generated from the
 complete frontend/native surface map and the generated action gateway. Every
-physical route has exactly one bounded descriptor: route class, stable
-instruction identifier, context publication policy, action coverage, and
-specialist-admission policy. Interactive pages may author an `orchestration`
-block next to their local voice-action contract; routes without an action
-contract receive a generated minimal descriptor.
+physical route has exactly one bounded, authored `voicePlaybook` in the route-layout
+contract: purpose, canonical screen, entry cue, primary generated action reference,
+happy-path references, recovery posture, completion boundary, and return policy. The
+generated index joins that guidance to action coverage and specialist admission.
+Only the server-resolved active playbook reaches a live session; the browser cannot
+submit prompt text or widen its action set.
+
+Morphy AX consumes this verified state as a pure redacted presentation and
+assessment-policy layer. It does not choose actions, create a second voice state
+machine, or change `one_voice_context.v1` during rollout. See
+[Morphy Agent Experience](../quality/morphy-agent-experience.md).
 
 The index is not a second router, prompt bundle, consent grant, or TrustLink
-input. `deriveVoiceRouteScreen` remains the browser's canonical screen mapper,
+input. Playbooks guide conversation but never execute. `deriveVoiceRouteScreen` remains the browser's canonical screen mapper,
 and the action gateway remains the only executable-action authority. Before
 One dispatches an internal A2A specialist, the backend checks the redacted
 current route against this index; scoped consent remains the authority gate,
 and TrustLink validation remains separate for delegation paths that use it.
+
+### Public welcome and first-turn priority
+
+`/` is the public `one_intro` screen; it is not the authenticated `one_agents`
+screen at `/one`. Its visible **Claim your One** button publishes
+`onboarding.claim_one` through a local action contract and a browser-local
+handler. The handler shares the exact redirect-preserving navigation path used
+by the button, while the generated gateway remains the only way One can issue
+that action.
+
+The initial welcome cue is idle-only. The browser sends one bounded,
+transcript-free `voice_activity_start` frame after sustained local speech
+activity. The relay cancels its pending cue before it enters the ADK queue;
+the client interrupts any already-playing cue through its normal barge-in
+fence. One gives a clear, current-screen, low-risk visible-control request
+priority over an introduction or onboarding narration, then waits for the
+correlated browser settlement before claiming completion. No DOM inference,
+client-side intent router, or public MCP route tool participates in this path.
+
+Interactive route entry cues are debounced by the verified route/playbook key. A
+visitor speech-activity frame cancels any pending cue before retained audio reaches
+ADK. Confirmation-required voice directives use an inline ambient card; slots remain
+transient and hidden, and confirm/cancel both report a correlated settlement.
 
 One's voice runtime is Google ADK's `Runner.run_live` over Vertex AI. The
 browser is an audio pump and directive executor; every decision (conversation

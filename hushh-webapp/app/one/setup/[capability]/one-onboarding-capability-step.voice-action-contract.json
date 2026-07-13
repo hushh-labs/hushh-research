@@ -21,7 +21,7 @@
       "aliases": ["continue", "unlock and continue", "got it", "next"],
       "search_keywords": ["continue", "next", "got it", "unlock"],
       "reachability": {
-        "routes": ["/one/setup/finance", "/one/setup/gmail", "/one/setup/email", "/one/setup/location", "/one/setup/pkm", "/one/setup/consent", "/one/setup/connected-systems"],
+        "routes": ["/one/setup/finance", "/one/setup/gmail", "/one/setup/email", "/one/setup/location", "/one/setup/pkm", "/one/setup/consent", "/one/setup/marketplace", "/one/setup/connected-systems"],
         "screens": [
           "one_setup_finance",
           "one_setup_gmail",
@@ -29,6 +29,7 @@
           "one_setup_location",
           "one_setup_pkm",
           "one_setup_consent",
+          "one_setup_marketplace",
           "one_setup_connected-systems",
           "one_setup"
         ],

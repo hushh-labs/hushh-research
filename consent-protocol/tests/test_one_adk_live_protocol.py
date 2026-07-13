@@ -1,6 +1,32 @@
 """Unit coverage for One ADK Live browser-frame trust boundaries."""
 
-from api.routes.one.adk_live import _sanitize_action_settlement, _sanitize_live_context
+from api.routes.one.adk_live import (
+    _compose_route_context_note,
+    _InitialGreetingGate,
+    _sanitize_action_settlement,
+    _sanitize_live_context,
+)
+
+
+def test_initial_greeting_gate_allows_one_idle_cue_only():
+    gate = _InitialGreetingGate()
+    epoch = gate.schedule()
+
+    assert epoch is not None
+    assert gate.may_send(epoch) is True
+    assert gate.mark_sent(epoch) is True
+    assert gate.schedule() is None
+
+
+def test_initial_greeting_gate_invalidates_a_pending_cue_after_visitor_activity():
+    gate = _InitialGreetingGate()
+    epoch = gate.schedule()
+
+    assert epoch is not None
+    gate.cancel_for_visitor_activity()
+    assert gate.may_send(epoch) is False
+    assert gate.mark_sent(epoch) is False
+    assert gate.schedule() is None
 
 
 def test_live_context_keeps_only_bounded_redacted_ui_fields():
@@ -9,7 +35,7 @@ def test_live_context_keeps_only_bounded_redacted_ui_fields():
             "route_family": "/one/kai",
             "persona": "investor",
             "voice_state": "listening",
-            "available_action_ids": ["analysis.start", "analysis.start", 7],
+            "available_action_ids": ["analysis.start", "analysis.start", "not.generated", 7],
             "visible_modules": ["Portfolio"],
             "cache_freshness": "fresh_or_stale_safe",
             "vault_ready": True,
@@ -25,10 +51,13 @@ def test_live_context_keeps_only_bounded_redacted_ui_fields():
         "route_pattern": "/one/kai",
         "route_instruction_id": "route.one.kai",
         "route_context_policy": "publish",
+        "route_playbook": context["route_playbook"],
         "persona": "investor",
         "voice_state": "listening",
         "available_action_ids": ["analysis.start"],
         "visible_modules": ["Portfolio"],
+        "visible_control_ids": [],
+        "pending_settlement": False,
         "cache_freshness": "fresh_or_stale_safe",
         "vault_ready": True,
         "portfolio_ready": True,
@@ -55,8 +84,21 @@ def test_live_context_derives_dynamic_route_policy_and_rejects_client_policy_fie
     )
 
     assert context["route_pattern"] == "/one/setup/[capability]"
-    assert context["route_instruction_id"] == "route.one.setup.capability."
-    assert context["route_context_policy"] == "minimal"
+    assert context["route_instruction_id"] == "route.one.setup.capability"
+    assert context["route_context_policy"] == "publish"
+    assert context["route_playbook"]["primary_action_id"] == "setup.capability_continue"
+
+
+def test_route_note_prioritizes_visible_actions_without_granting_authority():
+    context = _sanitize_live_context(
+        {"route_family": "/", "available_action_ids": ["onboarding.claim_one"]}
+    )
+    note = _compose_route_context_note(context)
+
+    assert note is not None
+    assert "onboarding.claim_one" in note
+    assert "before any identity or greeting response" in note
+    assert "only execution authority" in note
 
 
 def test_action_settlement_requires_matching_issued_directive_and_can_retry_after_invalid():

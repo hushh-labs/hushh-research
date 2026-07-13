@@ -56,7 +56,7 @@
     {
       "action_id": "phone_mandate.submit_code",
       "label": "Submit Verification Code",
-      "meaning": "Confirms the verification code sent by SMS and completes phone verification. Stays user-triggered because it settles account security state.",
+      "meaning": "Confirms the six-digit SMS code after an explicit inline confirmation and completes phone verification. The code is sensitive and must never be repeated or retained.",
       "aliases": [
         "the code is",
         "verify my code",
@@ -70,17 +70,27 @@
         "hidden_navigable": false,
         "navigation_prerequisites": ["A verification code must already be sent."]
       },
-      "guard_ids": ["auth_signed_in", "manual_user_execution"],
+      "guard_ids": ["auth_signed_in", "explicit_user_confirmation"],
       "risk_level": "high",
-      "execution_policy": "manual_only",
+      "execution_policy": "confirm_required",
       "execution_target": {
-        "status": "unwired",
-        "reason": "Completing phone verification changes account security state and must stay user-triggered from the visible code field.",
-        "intended_handler": "local_handler"
+        "status": "wired",
+        "path": "local_handler",
+        "target": "phone_mandate.submit_code"
       },
       "control_ids": ["phone-flow-code"],
       "state_exposure": ["verification step"],
-      "docs_references": ["hushh-webapp/components/auth/phone-verification-flow.tsx"]
+      "docs_references": ["hushh-webapp/components/auth/phone-verification-flow.tsx"],
+      "goal": {
+        "required_inputs": [
+          {
+            "name": "verification_code",
+            "prompt": "Say or type the six-digit code. Spoken codes are processed by the voice service.",
+            "required": true,
+            "slot": "code"
+          }
+        ]
+      }
     }
   ]
 }

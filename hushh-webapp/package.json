@@ -21,6 +21,7 @@
     "build:one-gateway": "npm run build:voice-gateway",
     "verify:one-gateway": "npm run verify:voice-gateway",
     "verify:one-voice": "vitest run __tests__/voice/kai-action-gateway.test.ts __tests__/voice/voice-action-manifest.test.ts __tests__/voice/screen-context-builder.test.ts __tests__/voice/voice-grounding.test.ts __tests__/voice/one-voice-live-action-bridge.test.ts __tests__/voice/one-intelligence-eval.test.ts __tests__/one-goal/one-goal-planner.test.ts __tests__/one-goal/one-goal-runner.test.ts",
+    "verify:morphy-ax": "vitest run __tests__/morphy-ax/morphy-ax-contract.test.ts __tests__/lib/agent-runtime-context.test.tsx __tests__/voice/voice-feature-flags.test.ts",
     "verify:analytics": "vitest run __tests__/services/observability-schema.test.ts __tests__/services/observability-route-map.test.ts __tests__/services/observability-growth.test.ts __tests__/services/observability-native-firebase.test.ts __tests__/services/observability-web-transport.test.ts",
     "verify:analytics:governed": "npm run verify:analytics && npm run audit:analytics-sandbox && npm run smoke:analytics:uat && cd .. && python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py health && ./bin/hushh docs verify",
     "verify:service-boundary": "node ./scripts/architecture/verify-service-layer-boundary.mjs",

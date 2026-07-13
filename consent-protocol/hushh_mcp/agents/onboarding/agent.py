@@ -30,16 +30,24 @@ _CAPABILITIES = {
     "connected-systems",
 }
 _PHASE_ACTIONS = {
-    "anonymous_auth": {"auth.sign_in_google", "auth.sign_in_apple"},
-    "phone_required": {"phone_mandate.submit_number"},
+    "anonymous_auth": {
+        "onboarding.claim_one",
+        "auth.sign_in_google",
+        "auth.sign_in_apple",
+    },
+    "phone_required": {
+        "phone_mandate.submit_number",
+        "phone_mandate.submit_code",
+    },
     "setup_hub": {
         "setup.hub_master_ack",
         "setup.open_finance",
         "setup.open_gmail",
         "setup.open_email",
         "setup.open_location",
-        "setup.open_personal_data",
+        "setup.open_pkm",
         "setup.open_consent",
+        "setup.open_marketplace",
         "setup.open_connected_systems",
     },
     "capability_setup": {
@@ -52,6 +60,30 @@ _PHASE_ACTIONS = {
     "external_connector": set(),
     "root_completion": set(),
 }
+
+
+class OnboardingAssessmentV1(BaseModel):
+    """Semantic interpretation authored by One or the bounded adjudicator."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal[1] = 1
+    source: Literal["one", "agent_onboarding"] = "one"
+    intent: Literal[
+        "execute_visible_action",
+        "confirm_visible_action",
+        "answer_current_page",
+        "answer_conversationally",
+        "ask_clarifying_question",
+        "provide_input",
+        "recover",
+        "next_step",
+    ] = "next_step"
+    candidate_action_id: str | None = Field(default=None, max_length=128)
+    provider: Literal["google", "apple"] | None = None
+    missing_input: str | None = Field(default=None, max_length=64)
+    ambiguous: bool = False
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
 class OnboardingJourneyContext(BaseModel):
@@ -78,7 +110,7 @@ class OnboardingJourneyContext(BaseModel):
     available_action_ids: list[str] = Field(default_factory=list, max_length=18)
     setup_capability_ids: list[str] = Field(default_factory=list, max_length=10)
     screen: str = Field(default="unknown", max_length=64)
-    requested_provider: Literal["google", "apple"] | None = None
+    assessment: OnboardingAssessmentV1 = Field(default_factory=OnboardingAssessmentV1)
 
 
 class OnboardingGoal(BaseModel):
@@ -91,10 +123,16 @@ class OnboardingGoal(BaseModel):
     permitted_action_ids: list[str]
     selected_action_id: str | None = None
     missing_input: str | None = None
-    expected_settlement: Literal["route", "external_redirect", "callback", "local_action", "none"]
+    expected_settlement: Literal[
+        "route", "auth_session", "external_redirect", "callback", "local_action", "none"
+    ]
     return_to_hub: bool
     resolves_root: bool
     recovery: Literal["retry", "choose_provider", "verify_phone", "unlock", "return_to_hub", "none"]
+    assessment_status: Literal[
+        "admitted", "guidance_only", "needs_input", "rejected", "not_applicable"
+    ] = "guidance_only"
+    reason_code: str | None = Field(default=None, max_length=64)
 
 
 def build_onboarding_specialist():
@@ -120,53 +158,116 @@ def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal
 
     allowed = _PHASE_ACTIONS[phase]
     permitted = [action_id for action_id in context.available_action_ids if action_id in allowed]
+    assessment = context.assessment
+    candidate = assessment.candidate_action_id
+    provider_candidate = (
+        f"auth.sign_in_{assessment.provider}" if assessment.provider is not None else None
+    )
+    proposal_conflict = bool(candidate and provider_candidate and candidate != provider_candidate)
+    if candidate is None:
+        candidate = provider_candidate
+    action_intent = assessment.intent in {
+        "execute_visible_action",
+        "confirm_visible_action",
+        "provide_input",
+    }
+    selected = (
+        candidate
+        if action_intent
+        and candidate in permitted
+        and not assessment.ambiguous
+        and not proposal_conflict
+        else None
+    )
+    assessment_missing = assessment.missing_input if assessment.ambiguous else None
+    if assessment.intent in {"answer_current_page", "answer_conversationally"}:
+        assessment_status = "not_applicable"
+        reason_code = None
+    elif assessment.ambiguous or assessment.intent == "ask_clarifying_question":
+        assessment_status = "needs_input"
+        reason_code = assessment_missing or "ambiguous_intent"
+    elif proposal_conflict:
+        assessment_status = "rejected"
+        reason_code = "provider_action_mismatch"
+    elif candidate and candidate not in permitted:
+        assessment_status = "rejected"
+        reason_code = "action_not_available_on_screen"
+    elif selected:
+        assessment_status = "admitted"
+        reason_code = None
+    else:
+        assessment_status = "guidance_only"
+        reason_code = None
 
     if phase == "anonymous_auth":
-        provider_action = (
-            f"auth.sign_in_{context.requested_provider}" if context.requested_provider else None
-        )
-        selected = provider_action if provider_action in permitted else None
+        if context.screen == "one_intro" and selected == "onboarding.claim_one":
+            return OnboardingGoal(
+                phase=phase,
+                next_route="/login",
+                permitted_action_ids=permitted,
+                selected_action_id="onboarding.claim_one",
+                missing_input=None,
+                expected_settlement="route",
+                return_to_hub=False,
+                resolves_root=False,
+                recovery="none",
+                assessment_status=assessment_status,
+                reason_code=reason_code,
+            )
         return OnboardingGoal(
             phase=phase,
             next_route="/login",
             permitted_action_ids=permitted,
             selected_action_id=selected,
-            missing_input="provider" if selected is None else None,
-            expected_settlement="external_redirect",
+            missing_input=assessment_missing or ("provider" if selected is None else None),
+            expected_settlement="auth_session",
             return_to_hub=False,
             resolves_root=False,
             recovery="choose_provider",
+            assessment_status=assessment_status,
+            reason_code=reason_code,
         )
     if phase == "phone_required":
         return OnboardingGoal(
             phase=phase,
             next_route="/register-phone",
             permitted_action_ids=permitted,
-            missing_input="verified_phone",
+            selected_action_id=selected,
+            missing_input=assessment_missing or ("verified_phone" if selected is None else None),
             expected_settlement="callback",
             return_to_hub=False,
             resolves_root=False,
             recovery="verify_phone",
+            assessment_status=assessment_status,
+            reason_code=reason_code,
         )
     if phase == "capability_setup":
         return OnboardingGoal(
             phase=phase,
             next_route="/one/setup",
             permitted_action_ids=permitted,
+            selected_action_id=selected,
+            missing_input=assessment_missing,
             expected_settlement="local_action",
             return_to_hub=True,
             resolves_root=False,
             recovery="return_to_hub",
+            assessment_status=assessment_status,
+            reason_code=reason_code,
         )
     if phase == "setup_hub":
         return OnboardingGoal(
             phase=phase,
             next_route="/one/setup",
             permitted_action_ids=permitted,
+            selected_action_id=selected,
+            missing_input=assessment_missing,
             expected_settlement="route",
             return_to_hub=True,
             resolves_root=False,
             recovery="none",
+            assessment_status=assessment_status,
+            reason_code=reason_code,
         )
     if phase == "external_connector":
         callback_failed = context.callback_state in {"cancelled", "failed"}
@@ -179,6 +280,8 @@ def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal
             return_to_hub=True,
             resolves_root=False,
             recovery="retry" if callback_failed else "return_to_hub",
+            assessment_status=assessment_status,
+            reason_code=reason_code,
         )
     return OnboardingGoal(
         phase=phase,
@@ -191,4 +294,6 @@ def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal
         # needs to resolve it again.
         resolves_root=False,
         recovery="none",
+        assessment_status=assessment_status,
+        reason_code=reason_code,
     )

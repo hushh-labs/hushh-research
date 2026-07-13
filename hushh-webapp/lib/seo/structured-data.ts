@@ -6,7 +6,12 @@
  * (Hussh -> One -> {Kai, Nav, KYC}); see docs/vision/agent-ontology.md.
  */
 
-import { absoluteUrl, SITE_URL } from "@/lib/seo/site";
+import {
+  absoluteUrl,
+  PUBLIC_ROUTES,
+  PUBLIC_ROUTE_SEMANTICS,
+  SITE_URL,
+} from "@/lib/seo/site";
 
 const ORG_ID = `${SITE_URL}/#organization`;
 const SITE_ID = `${SITE_URL}/#website`;
@@ -32,7 +37,17 @@ export function buildOrganizationGraph(): Record<string, unknown> {
         url: SITE_URL,
         name: "Hussh",
         publisher: { "@id": ORG_ID },
+        hasPart: PUBLIC_ROUTES.map((route) => ({ "@id": `${absoluteUrl(route)}#page` })),
       },
+      ...PUBLIC_ROUTES.map((route) => ({
+        "@type": PUBLIC_ROUTE_SEMANTICS[route].schemaType,
+        "@id": `${absoluteUrl(route)}#page`,
+        url: absoluteUrl(route),
+        name: PUBLIC_ROUTE_SEMANTICS[route].title,
+        description: PUBLIC_ROUTE_SEMANTICS[route].description,
+        isPartOf: { "@id": SITE_ID },
+        publisher: { "@id": ORG_ID },
+      })),
       {
         "@type": "SoftwareApplication",
         "@id": APP_ID,
@@ -54,7 +69,7 @@ export function buildOrganizationGraph(): Record<string, unknown> {
           "Nav: privacy, consent, and vault guardian",
           "KYC: identity workflow specialist",
           "Consent-first scoped access with BYOK",
-          "Zero-knowledge vault and encrypted PKM",
+          "Zero-knowledge vault and encrypted personal information memory",
         ],
       },
     ],

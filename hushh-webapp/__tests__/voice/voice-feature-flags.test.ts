@@ -12,6 +12,7 @@ const ORIGINAL_ENV = {
     process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_EXECUTION_ENABLED,
   NEXT_PUBLIC_VOICE_V2_CLIENT_VAD_FALLBACK_ENABLED:
     process.env.NEXT_PUBLIC_VOICE_V2_CLIENT_VAD_FALLBACK_ENABLED,
+  NEXT_PUBLIC_MORPHY_AX_ENABLED: process.env.NEXT_PUBLIC_MORPHY_AX_ENABLED,
 };
 
 function restoreEnv() {
@@ -55,5 +56,12 @@ describe("voice-feature-flags", () => {
     expect(flags.groundedActionResolutionEnabled).toBe(true);
     expect(flags.groundedActionPolicyEnforcementEnabled).toBe(true);
     expect(flags.groundedActionExecutionEnabled).toBe(false);
+  });
+
+  it("keeps Morphy AX off by default and independently reversible", () => {
+    delete process.env.NEXT_PUBLIC_MORPHY_AX_ENABLED;
+    expect(getVoiceV2Flags().morphyAxEnabled).toBe(false);
+    process.env.NEXT_PUBLIC_MORPHY_AX_ENABLED = "1";
+    expect(getVoiceV2Flags().morphyAxEnabled).toBe(true);
   });
 });

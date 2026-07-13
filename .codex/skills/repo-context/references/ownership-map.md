@@ -34,6 +34,7 @@ Use this reference after the initial scan to choose the correct owner skill firs
 3. `frontend-surface-placement`
 4. `frontend-native-surface-mapper`
 5. `frontend-cache-coherence`
+6. `morphy-ax`
 
 ### `mobile-native`
 
@@ -84,17 +85,18 @@ Use this reference after the initial scan to choose the correct owner skill firs
 18. `hushh-consent-mcp-ops`
 19. `kai-voice-governance`
 20. `mcp-surface-change`
-21. `mobile-parity-check`
-22. `new-feature-tri-flow`
-23. `oss-license-governance`
-24. `pr-governance-review`
-25. `pre-pr-readiness`
-26. `release-readiness`
-27. `report-artifact-generation`
-28. `repo-orientation`
-29. `ria-api-reference`
-30. `security-consent-audit`
-31. `security-posture-maintenance`
-32. `skill-authoring`
-33. `subtree-upstream-governance`
-34. `uat-scoped-deploy`
+21. `morphy-ax-governance`
+22. `mobile-parity-check`
+23. `new-feature-tri-flow`
+24. `oss-license-governance`
+25. `pr-governance-review`
+26. `pre-pr-readiness`
+27. `release-readiness`
+28. `report-artifact-generation`
+29. `repo-orientation`
+30. `ria-api-reference`
+31. `security-consent-audit`
+32. `security-posture-maintenance`
+33. `skill-authoring`
+34. `subtree-upstream-governance`
+35. `uat-scoped-deploy`

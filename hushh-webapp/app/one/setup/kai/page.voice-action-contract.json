@@ -121,10 +121,10 @@
     },
     {
       "action_id": "kai.setup.launch_dashboard",
-      "label": "Launch Kai Dashboard",
-      "meaning": "Confirms the computed investor persona and completes Kai setup, opening portfolio import.",
-      "aliases": ["launch my dashboard", "looks good, continue", "finish kai setup"],
-      "search_keywords": ["launch", "dashboard", "finish", "persona"],
+      "label": "Save Finance Preferences",
+      "meaning": "Saves Finance preferences, marks only Finance ready, and returns to the One setup hub without resolving root onboarding.",
+      "aliases": ["save finance preferences", "looks good, continue", "finish finance setup"],
+      "search_keywords": ["save", "finance", "preferences", "finish", "persona"],
       "reachability": {
         "routes": ["/one/setup/kai"],
         "screens": ["kai_setup_wizard", "one_setup"],

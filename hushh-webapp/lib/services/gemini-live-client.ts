@@ -29,6 +29,11 @@ import { mapAgentVoiceStatusToOneVoiceState } from "@/lib/voice/voice-ui-state-m
 
 const INPUT_SAMPLE_RATE = 16000;
 const OUTPUT_SAMPLE_RATE = 24000;
+// This is intentionally a coarse barge-in signal, not speech recognition.
+// It needs sustained energy to avoid treating microphone silence/noise as a
+// visitor turn and cancelling the idle welcome cue on every connection.
+const VISITOR_ACTIVITY_LEVEL = 0.08;
+const VISITOR_ACTIVITY_FRAMES = 8;
 
 export type GeminiLiveVoiceState =
   | "idle"
@@ -199,6 +204,9 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private startContext: OneVoiceContextSnapshot | null = null;
   /** Consent token for One's specialist tools; rides only in app_context frames. */
   private consentToken: string | null = null;
+  private visitorActivitySent = false;
+  private consecutiveSpeechFrames = 0;
+  private bufferedVisitorSpeechFrames: Uint8Array[] = [];
   /**
    * True while the model's turn is open (audio received since the last
    * turnComplete/interrupted). The Live API closes a model turn with
@@ -257,6 +265,9 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     if (this.ws) return;
     this.sessionId = createGeminiLiveSessionId();
     this.sourceSeq = 0;
+    this.visitorActivitySent = false;
+    this.consecutiveSpeechFrames = 0;
+    this.bufferedVisitorSpeechFrames = [];
     this.setState("connecting");
 
     const context = options?.context ?? null;
@@ -343,17 +354,54 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       }
       const sourceRate = this.inputContext?.sampleRate ?? INPUT_SAMPLE_RATE;
       const pcm = floatToPcm16(downsample(frame, sourceRate));
-      this.ws.send(
-        JSON.stringify({
-          realtimeInput: {
-            audio: {
-              mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}`,
-              data: base64FromBytes(pcm),
-            },
-          },
-        })
-      );
+      if (!this.sendVisitorActivityStart(level, pcm)) return;
+      this.sendRealtimeAudio(pcm);
     };
+  }
+
+  private sendRealtimeAudio(pcm: Uint8Array): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.setupComplete) return;
+    this.ws.send(
+      JSON.stringify({
+        realtimeInput: {
+          audio: {
+            mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}`,
+            data: base64FromBytes(pcm),
+          },
+        },
+      })
+    );
+  }
+
+  /**
+   * Returns false while an initial speech onset is buffered. That makes the
+   * transcript-free activity signal precede every first-turn audio frame on
+   * the same socket, instead of relying on raw silence frames as a proxy for
+   * visitor intent.
+   */
+  private sendVisitorActivityStart(level: number, pcm: Uint8Array): boolean {
+    if (this.visitorActivitySent) return true;
+    if (level >= VISITOR_ACTIVITY_LEVEL) {
+      this.consecutiveSpeechFrames += 1;
+      this.bufferedVisitorSpeechFrames.push(pcm);
+    } else {
+      this.consecutiveSpeechFrames = 0;
+      this.bufferedVisitorSpeechFrames = [];
+    }
+    if (this.consecutiveSpeechFrames < VISITOR_ACTIVITY_FRAMES) return false;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.setupComplete) return false;
+    this.visitorActivitySent = true;
+    this.ws.send(JSON.stringify({ type: "voice_activity_start" }));
+    for (const bufferedFrame of this.bufferedVisitorSpeechFrames) {
+      this.sendRealtimeAudio(bufferedFrame);
+    }
+    this.bufferedVisitorSpeechFrames = [];
+    // A visitor who starts speaking should be able to barge in over an
+    // already-playing idle cue. The interruption fence drops stale audio.
+    if (this.modelTurnOpen || this.state === "speaking") {
+      this.interrupt();
+    }
+    return false;
   }
 
   private connectSocket(relayUrl: string): void {
@@ -410,7 +458,9 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       if (this.startContext) {
         this.updateContext(this.startContext);
         this.startContext = null;
-      } else if (this.consentToken) {
+      } else {
+        // Even a context-free/legacy start publishes one bounded frame so the
+        // relay can settle its initial-context gate without guessing.
         this.sendAppContext({});
       }
       this.setState("listening");
@@ -652,10 +702,13 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     return this.sendAppContext({
       screen: context.route.screen,
       route_family: context.route.route_family,
+      route_playbook_id: context.route.playbook_id,
       persona: context.persona.active,
       voice_state: context.voice.state,
       available_action_ids: context.available_action_ids,
       visible_modules: context.ui.visible_modules,
+      visible_control_ids: context.ui.visible_control_ids,
+      pending_settlement: context.pending_settlement,
       cache_freshness: context.cache.freshness,
       vault_ready: context.cache.vault_ready,
       portfolio_ready: context.cache.portfolio_ready,

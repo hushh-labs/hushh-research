@@ -21,7 +21,7 @@ This allows branch merges that already contain newer subtree sync commits to pas
 - `ops/monorepo/protocol.mk` - Make targets for sync/check/push/setup
 - `ops/monorepo/setup.sh` - installs hooks + upstream remote + initial bookmark
 - `ops/monorepo/pre-commit.sh` - lint gate + upstream push reminder
-- `ops/monorepo/pre-push.sh` - subtree drift guard + lint gate
+- `ops/monorepo/pre-push.sh` - branch freshness + lint gate, with opt-in subtree verification
 
 ## Host monorepo setup
 
@@ -56,11 +56,15 @@ exec sh consent-protocol/ops/monorepo/pre-push.sh "$@"
 ./bin/hushh protocol push      # push subtree changes back to upstream
 ```
 
+Normal pushes intentionally skip the expensive subtree projection. Verify it
+explicitly with `./bin/hushh protocol check-sync`, or enable it for one push
+with `CONSENT_PRE_PUSH_SYNC_CHECK=1 git push`.
+
 ## Branch behavior notes
 
-If branch A syncs subtree and branch B does not, merging A into B can still leave B's local bookmark stale. The pre-push guard now reconciles bookmark + subtree commit metadata and auto-heals bookmark when content is already in sync.
+If branch A syncs subtree and branch B does not, merging A into B can still leave B's local bookmark stale. The explicit sync check reconciles bookmark + subtree commit metadata and auto-heals the bookmark when content is already in sync.
 
-If upstream is truly ahead, push is blocked and you must run:
+If the explicit check reports that upstream is truly ahead, run:
 
 ```bash
 ./bin/hushh protocol sync

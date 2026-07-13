@@ -19,6 +19,7 @@ describe("CapabilitySetupTile", () => {
         title="Gmail"
         description="Bring in receipts."
         href="/one/setup/gmail"
+        voiceControlId="one_setup_tile_gmail"
         icon={Mail}
         tone="gmail"
         status={{
@@ -34,6 +35,7 @@ describe("CapabilitySetupTile", () => {
     const row = screen.getByRole("button", { name: "Gmail: Set up" });
 
     expect(row).toHaveAttribute("data-href", "/one/setup/gmail");
+    expect(row).toHaveAttribute("data-voice-control-id", "one_setup_tile_gmail");
     fireEvent.click(row);
 
     expect(mocks.push).toHaveBeenCalledWith("/one/setup/gmail", {

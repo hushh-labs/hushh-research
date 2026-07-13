@@ -2,7 +2,7 @@ manifest_version: 2
 id: agent_onboarding
 name: Onboarding Specialist
 version: 1.0.0
-description: Deterministic setup-goal specialist beneath One; it never accesses private content or executes actions.
+description: Semantic onboarding adjudicator and deterministic journey-policy specialist beneath One.
 status: active
 owner: backend
 parent: agent_one
@@ -12,9 +12,9 @@ credential_policy:
   allowed:
     - hushh_managed_vertex
 system_instruction: |
-  You are the deterministic onboarding specialist beneath One. Resolve only
-  redacted journey state into the next allowed setup goal. Never speak to the
-  person directly, call a connector, request credentials, or widen authority.
+  You are the bounded onboarding policy adjudicator beneath One. Validate
+  One's typed semantic assessment against redacted route and journey state.
+  Never speak directly, execute an action, request credentials, or widen authority.
 runtime:
   kind: deterministic
   factory: hushh_mcp.agents.onboarding.agent.build_onboarding_specialist
@@ -29,6 +29,9 @@ authorities:
   data: []
   actions: []
 inputs:
+  - name: turn_assessment
+    type: object
+    description: Typed semantic proposal produced by One's current ADK turn.
   - name: journey_context
     type: object
     description: Bounded redacted onboarding state.
@@ -51,10 +54,17 @@ surfaces:
 privacy:
   context_allowlist:
     - phase
+    - authenticated
+    - phone_verified
+    - vault_state
     - active_capability
     - root_resolved
     - return_route
     - available_action_ids
+    - callback_state
+    - setup_capability_ids
+    - screen
+    - assessment
   plaintext_telemetry: false
 telemetry_namespace: agent.onboarding
 performance:

@@ -10,6 +10,7 @@ import type {
 import { getKaiActionById, getKaiActionsForControlId } from "@/lib/voice/kai-action-gateway";
 import { listInvestorKaiActionsForSurface } from "@/lib/voice/investor-kai-action-registry";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import type {
   OneVoiceTransition,
   OneVoiceUiState,
@@ -178,12 +179,14 @@ export type OneVoiceContextSnapshot = {
   };
   route: {
     screen: string;
+    playbook_id: string;
     subview?: string | null;
     route_family: string;
     nav_stack: string[];
   };
   ui: {
     visible_modules: string[];
+    visible_control_ids: string[];
     active_section?: string | null;
     active_tab?: string | null;
     selected_entity_present: boolean;
@@ -191,6 +194,7 @@ export type OneVoiceContextSnapshot = {
     focused_widget?: string | null;
   };
   available_action_ids: string[];
+  pending_settlement: boolean;
   cache: {
     vault_ready: boolean;
     portfolio_ready: boolean;
@@ -556,7 +560,7 @@ export function buildStructuredScreenContext(args: {
         .map((control) => control.actionId || null)
         .filter((actionId): actionId is string => Boolean(actionId))),
       ...((publishedSurface?.actions || [])
-        .flatMap((action) => [action.actionId || null, action.id])
+        .map((action) => action.actionId || action.id)
         .filter((actionId): actionId is string => Boolean(actionId))),
     ],
     screen
@@ -669,6 +673,10 @@ export function buildOneVoiceContextSnapshot(args: {
       : "missing"
     : "locked";
   const routeFamily = sanitizeRouteFamily(structured.route.pathname);
+  const routePlaybook = resolveAppRouteLayout(routeFamily).voicePlaybook;
+  const visibleControlIds = uniqueStrings(
+    structured.surface.controls.map((control) => control.id || "")
+  );
   const navStack = uniqueStrings(structured.route.nav_stack.map(sanitizeRouteFamily));
   const transitionSeq = args.lastTransition?.transitionSeq ?? 0;
   const routeRevision = stableRevision([
@@ -676,6 +684,7 @@ export function buildOneVoiceContextSnapshot(args: {
     structured.route.screen,
     structured.route.subview ?? null,
     navStack,
+    routePlaybook.playbookId,
   ]);
   const uiRevision = stableRevision([
     structured.ui.visible_modules,
@@ -685,6 +694,7 @@ export function buildOneVoiceContextSnapshot(args: {
     structured.ui.modal_state ?? null,
     structured.ui.focused_widget ?? null,
     availableActionIds,
+    visibleControlIds,
   ]);
   const cacheRevision = stableRevision([
     vaultReady,
@@ -727,12 +737,14 @@ export function buildOneVoiceContextSnapshot(args: {
     },
     route: {
       screen: structured.route.screen,
+      playbook_id: routePlaybook.playbookId,
       subview: structured.route.subview ?? null,
       route_family: routeFamily,
       nav_stack: navStack,
     },
     ui: {
       visible_modules: structured.ui.visible_modules,
+      visible_control_ids: visibleControlIds,
       active_section: structured.ui.active_section ?? null,
       active_tab: structured.ui.active_tab ?? null,
       selected_entity_present: Boolean(structured.ui.selected_entity),
@@ -740,6 +752,8 @@ export function buildOneVoiceContextSnapshot(args: {
       focused_widget: structured.ui.focused_widget ?? null,
     },
     available_action_ids: availableActionIds,
+    pending_settlement:
+      args.state === "acting" || args.state === "navigation_settling",
     cache: {
       vault_ready: vaultReady,
       portfolio_ready: portfolioReady,
