@@ -81,6 +81,20 @@ function isAuthCancel(error: unknown): boolean {
   return AUTH_CANCEL_CODES.has(code);
 }
 
+function debugLog(...args: unknown[]) {
+  if (process.env.NODE_ENV !== "production") {
+    console.log(...args);
+  }
+}
+
+function debugError(label: string, error?: unknown) {
+  if (process.env.NODE_ENV !== "production" && error !== undefined) {
+    console.error(label, error);
+    return;
+  }
+  console.error(label);
+}
+
 function authErrorMessage(error: unknown): string {
   if (error && typeof error === "object" && "code" in error) {
     const code = String((error as { code?: unknown }).code ?? "");
@@ -392,20 +406,6 @@ export function AuthStep({
     },
     [preserveOnboardingAuditRoute, redirectPath, router, user],
   );
-
-  const debugLog = (...args: unknown[]) => {
-    if (process.env.NODE_ENV !== "production") {
-      console.log(...args);
-    }
-  };
-
-  const debugError = (label: string, error?: unknown) => {
-    if (process.env.NODE_ENV !== "production" && error !== undefined) {
-      console.error(label, error);
-      return;
-    }
-    console.error(label);
-  };
 
   useEffect(() => {
     registerSteps(1);
@@ -747,7 +747,6 @@ export function AuthStep({
       return Promise.race([settlementPromise, attentionPromise]);
     },
     [
-      debugError,
       growthEntrySurface,
       growthJourney,
       publishProviderAttempt,
