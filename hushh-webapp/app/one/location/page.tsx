@@ -103,9 +103,11 @@ function BodyPortal({ children }: { children: ReactNode }) {
 
 
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
+import { isWeb } from "@/lib/capacitor/platform";
 
 import {
   RECIPIENT_KEY_UNAVAILABLE_MESSAGE,
+
   decryptLocationEnvelope,
   encryptLocationForRecipient,
   ensureLocationRecipientKey,
@@ -1566,6 +1568,9 @@ function OneLocationAgentPageContent() {
   const [locationOnboardingStep, setLocationOnboardingStep] =
     useState<OneLocationOnboardingStep>("welcome");
   const [locationOnboardingBusy, setLocationOnboardingBusy] = useState(false);
+  const notificationOnboardingAttemptRef = useRef(false);
+  const notificationOnboardingObservedBusyRef = useRef(false);
+  const notificationOnboardingRetryOnFocusRef = useRef(false);
   const [locationOnboardingPeople, setLocationOnboardingPeople] = useState<
     DirectoryPerson[]
   >([]);
@@ -2305,38 +2310,16 @@ function OneLocationAgentPageContent() {
 
     const introSeen =
       typeof window !== "undefined" &&
-      window.localStorage.getItem(
+      (window.localStorage.getItem(
         `one_location_onboarding_v2:${auth.userId}`,
-      ) === "1";
-    // Re-show the permission screen only when location is *actionably* off:
-    // the phone Location switch is disabled, or the user explicitly denied /
-    // restricted access. Neutral states ("prompt" = never asked yet, or
-    // "unavailable" = web Permissions API can't determine state) must NOT trap
-    // the user on the permission screen — they can use the app, see their
-    // circle, and grant access at the moment they actually share.
-    const deviceLocationBlocked =
-      isLocationServicesDisabled(permission) ||
-      permission?.state === "denied" ||
-      permission?.state === "restricted";
+      ) === "1" ||
+        window.localStorage.getItem(
+          `one_location_onboarding_v1:${auth.userId}`,
+        ) === "1");
 
-    // The marketing intro screen only ever shows once per user (persisted in
-    // localStorage). After that, the second "Allow location" screen is driven
-    // purely by the real device location state: it re-appears only when access
-    // is explicitly off / blocked, and stays hidden otherwise.
+    // The whole takeover is first-run only. Returning users manage Location
+    // and notification readiness from the normal Onepoint surface.
     if (introSeen) {
-      // If onboarding is already visible (the user is mid-flow, e.g. just
-      // advanced from the intro to the permission step), never auto-hide or
-      // redirect — let them finish the current step. Dismissal happens through
-      // the flow's own handlers. Device-state-driven (re)appearance only
-      // applies on a fresh load when onboarding is not already showing.
-      if (locationOnboardingGate === "show") {
-        return;
-      }
-      if (deviceLocationBlocked) {
-        setLocationOnboardingStep("permissions");
-        setLocationOnboardingGate("show");
-        return;
-      }
       setLocationOnboardingGate("hidden");
       return;
     }
@@ -2353,7 +2336,6 @@ function OneLocationAgentPageContent() {
     auth.userId,
     loadError,
     locationOnboardingGate,
-    permission,
     vaultOwnerToken,
   ]);
 
@@ -4518,11 +4500,8 @@ function OneLocationAgentPageContent() {
   }, [ensureForegroundLocationReady]);
 
   const dismissLocationOnboarding = useCallback(() => {
-    // Persist that onboarding is complete so the one-time product introduction
-    // never shows again for this user; only the permissions screen can
-    // re-appear, and only when device location is actually off. We persist on
-    // dismissal/completion (not when merely advancing through the flow)
-    // so a partially-seen flow still re-shows next time.
+    // Persist only after dismissal/completion so an interrupted first run can
+    // resume next time. Once complete, the entire takeover stays dismissed.
     if (typeof window !== "undefined" && auth.userId) {
       try {
         window.localStorage.setItem(
@@ -4639,15 +4618,26 @@ function OneLocationAgentPageContent() {
 
   const openLocationSettingsForOnboarding = useCallback(async () => {
     await OneLocationService.openLocationSettings().catch(() => null);
-    toast.info("Turn on phone Location, then return to continue.");
+    // On web the app can't open device settings; guide the user to the browser's
+    // own site-permission UI instead of a nonexistent "phone Location" switch.
+    toast.info(
+      isWeb()
+        ? "Allow location in your browser's site settings (lock icon in the address bar), then try again."
+        : "Turn on phone Location, then return to continue.",
+    );
     window.setTimeout(() => void refreshLocationPermission(), 1200);
   }, [refreshLocationPermission]);
 
   const openAppSettingsForOnboarding = useCallback(async () => {
     await OneLocationService.openAppSettings().catch(() => null);
-    toast.info("Allow Location for One in Settings, then return.");
+    toast.info(
+      isWeb()
+        ? "Allow location for this site in your browser settings, then try again."
+        : "Allow Location for One in Settings, then return.",
+    );
     window.setTimeout(() => void refreshLocationPermission(), 1200);
   }, [refreshLocationPermission]);
+
 
   const handleLocationOnboardingPermission = useCallback(async () => {
     if (locationOnboardingBusy) return;
@@ -4670,7 +4660,16 @@ function OneLocationAgentPageContent() {
         const refreshedPermission = await refreshLocationPermission();
         if (isLocationServicesDisabled(refreshedPermission)) {
           await openLocationSettingsForOnboarding();
+          return;
         }
+        if (
+          refreshedPermission?.state === "denied" ||
+          refreshedPermission?.state === "restricted"
+        ) {
+          await openAppSettingsForOnboarding();
+          return;
+        }
+        toast.success("Location access is on.");
         return;
       }
 
@@ -4696,7 +4695,9 @@ function OneLocationAgentPageContent() {
         await openLocationSettingsForOnboarding();
         return;
       }
-
+      toast.success("Location access enabled.");
+    } catch (error) {
+      toast.error(locationServicesErrorMessage(error));
     } finally {
       setLocationOnboardingBusy(false);
     }
@@ -4708,16 +4709,77 @@ function OneLocationAgentPageContent() {
     refreshLocationPermission,
   ]);
 
-  const handleLocationOnboardingNotifications = useCallback(() => {
-    if (notificationDeliveryMode === "push_blocked") {
-      void OneLocationService.openAppSettings().then((result) => {
-        if (!result.opened) {
-          toast.info(
-            "Allow notifications in your browser or device settings, then try again.",
-          );
-        }
-      });
+  useEffect(() => {
+    if (!notificationOnboardingAttemptRef.current) return;
+    if (isRetryingPushRegistration) {
+      notificationOnboardingObservedBusyRef.current = true;
+      return;
     }
+    if (!notificationOnboardingObservedBusyRef.current) return;
+
+    notificationOnboardingAttemptRef.current = false;
+    notificationOnboardingObservedBusyRef.current = false;
+    if (notificationDeliveryMode === "push_active") {
+      toast.success("Notifications enabled.");
+      return;
+    }
+    if (notificationDeliveryMode === "push_blocked") {
+      toast.error(
+        "Notifications are still blocked. Allow them in Settings and try again.",
+      );
+      return;
+    }
+    toast.info(
+      "Push notifications could not be enabled. Updates will still appear in One.",
+    );
+  }, [isRetryingPushRegistration, notificationDeliveryMode]);
+
+  useEffect(() => {
+    const retryAfterSettings = () => {
+      if (
+        !notificationOnboardingRetryOnFocusRef.current ||
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
+      notificationOnboardingRetryOnFocusRef.current = false;
+      notificationOnboardingAttemptRef.current = true;
+      notificationOnboardingObservedBusyRef.current = false;
+      retryPushRegistration();
+    };
+
+    window.addEventListener("focus", retryAfterSettings);
+    document.addEventListener("visibilitychange", retryAfterSettings);
+    return () => {
+      window.removeEventListener("focus", retryAfterSettings);
+      document.removeEventListener("visibilitychange", retryAfterSettings);
+    };
+  }, [retryPushRegistration]);
+
+  const handleLocationOnboardingNotifications = useCallback(async () => {
+    if (notificationDeliveryMode === "push_active") {
+      toast.success("Notifications are on.");
+      return;
+    }
+    if (notificationDeliveryMode === "push_blocked") {
+      notificationOnboardingRetryOnFocusRef.current = true;
+      const result = await OneLocationService.openAppSettings().catch(() => ({
+        opened: false,
+        sourcePlatform: "web" as const,
+      }));
+      if (!result.opened) {
+        notificationOnboardingRetryOnFocusRef.current = false;
+      }
+      toast.info(
+        result.opened
+          ? "Allow notifications in Settings, then return to One."
+          : "Allow notifications in your browser or device settings, then try again.",
+      );
+      return;
+    }
+
+    notificationOnboardingAttemptRef.current = true;
+    notificationOnboardingObservedBusyRef.current = false;
     retryPushRegistration();
   }, [notificationDeliveryMode, retryPushRegistration]);
 
@@ -4922,7 +4984,12 @@ function OneLocationAgentPageContent() {
     return (
       <AppPageShell width="standard" nativeTest={nativeTestConfig}>
         <AppPageContentRegion className="mx-auto w-full max-w-[480px] min-w-0 space-y-6 overflow-x-hidden px-3 pb-12 pt-4">
-          {loadError ? (
+          {/* Only surface the load-failure banner on a genuine cold load (no
+              data yet). Once `state` is populated the hub is fully usable, so a
+              transient failure from the 5s background poll must NOT flash a
+              scary red alert over working content — the next poll refreshes it
+              silently. */}
+          {loadError && !state ? (
             <div
               role="alert"
               className="rounded-[20px] border border-[#ff3b30]/30 bg-[#ff3b30]/10 p-4 text-sm font-medium text-[#ff3b30] dark:text-[#ff9f9a]"
@@ -4930,6 +4997,7 @@ function OneLocationAgentPageContent() {
               {loadError}
             </div>
           ) : null}
+
 
           {showInitialSkeleton ? (
             <HushhLoader variant="page" label="Loading location..." />

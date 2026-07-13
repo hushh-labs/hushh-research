@@ -183,6 +183,7 @@ vi.mock("sonner", () => {
 });
 
 import OneLocationAgentPage from "@/app/one/location/page";
+import { toast } from "sonner";
 
 if (!window.localStorage) {
   const localStorageStore = new Map<string, string>();
@@ -793,6 +794,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() =>
       expect(mockRequestLocationPermission).toHaveBeenCalledTimes(1),
     );
+    expect(toast.success).toHaveBeenCalledWith("Location access enabled.");
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(
@@ -823,6 +825,10 @@ describe("OneLocationAgentPage", () => {
         ),
       ).toBe("true"),
     );
+    fireEvent.click(screen.getByRole("switch", { name: "Location permission" }));
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith("Location access is on."),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(
       await screen.findByRole("heading", { name: "Onepoint" }),
@@ -833,6 +839,38 @@ describe("OneLocationAgentPage", () => {
       window.localStorage.getItem("one_location_onboarding_v2:user_a"),
     ).toBe("1");
   });
+
+  it.each(["v1", "v2"])(
+    "does not reopen completed %s onboarding when location is blocked",
+    async (version) => {
+      window.localStorage.setItem(
+        `one_location_onboarding_${version}:user_a`,
+        "1",
+      );
+      mockGetPermissionState.mockResolvedValue({
+        state: "denied",
+        precise: false,
+        background: "restricted",
+        locationServicesEnabled: true,
+      });
+
+      render(<OneLocationAgentPage />);
+
+      expect(
+        await screen.findByRole("heading", { name: "Onepoint" }),
+      ).toBeTruthy();
+      expect(
+        screen.queryByRole("heading", {
+          name: "A few permissions. Nothing more.",
+        }),
+      ).toBeNull();
+      expect(
+        screen.queryByRole("heading", {
+          name: "The people you love. Always in reach.",
+        }),
+      ).toBeNull();
+    },
+  );
 
   it("renders People recommendation metadata without phone-derived labels", async () => {
 
@@ -1605,7 +1643,12 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openLocationPermissionsStep();
-    expect(screen.getByText(/Open device Settings to allow location/i)).toBeTruthy();
+    // jsdom reports the web platform, so blocked-location copy is the
+    // browser-specific variant (native uses "Open device Settings").
+    expect(
+      screen.getByText(/Allow it from your browser's site permissions/i),
+    ).toBeTruthy();
+
 
     fireEvent.click(screen.getByRole("switch", { name: "Location permission" }));
 

@@ -62,7 +62,7 @@ function renderFlow(
       failedUserIds: [],
     }),
     onRequestLocation: vi.fn().mockResolvedValue(undefined),
-    onRequestNotifications: vi.fn(),
+    onRequestNotifications: vi.fn().mockResolvedValue(undefined),
     onComplete: vi.fn(),
     ...overrides,
   };
@@ -116,11 +116,9 @@ describe("OneLocationOnboardingFlow", () => {
     expect(
       screen.getByRole("heading", { name: "A few permissions. Nothing more." }),
     ).toBeTruthy();
-    const motionSwitch = screen.getByRole("switch", {
-      name: "Motion Activity permission",
-    });
-    expect(motionSwitch).toBeDisabled();
-    expect(motionSwitch.querySelector("span")?.className).toContain("left-0");
+    expect(
+      screen.queryByRole("switch", { name: "Motion Activity permission" }),
+    ).toBeNull();
 
     fireEvent.click(screen.getByRole("switch", { name: "Location permission" }));
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
@@ -130,7 +128,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onComplete).toHaveBeenCalledTimes(1);
   });
 
-  it("opens directly on permissions for a returning user with blocked location", async () => {
+  it("supports an explicit permissions-only entry", async () => {
     const onRequestLocation = vi.fn().mockResolvedValue(undefined);
     const onComplete = vi.fn();
     renderFlow({
@@ -149,11 +147,97 @@ describe("OneLocationOnboardingFlow", () => {
       screen.getByRole("heading", { name: "A few permissions. Nothing more." }),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
-    expect(screen.getByText(/Open device Settings to allow location/i)).toBeTruthy();
+    // The test environment reports the web platform, so the blocked-permission
+    // copy is the browser-specific variant (native uses "Open device Settings").
+    expect(
+      screen.getByText(/Allow it from your browser's site permissions/i),
+    ).toBeTruthy();
+
 
     fireEvent.click(screen.getByRole("switch", { name: "Location permission" }));
     expect(onRequestLocation).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Skip" }));
     expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it("continues while recommended contacts are still loading", () => {
+    const props = renderFlow({
+      people: [],
+      connections: [],
+      peopleLoading: true,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    expect(screen.getByRole("heading", { name: "Add people" })).toBeTruthy();
+
+    const continueButton = screen.getByRole("button", { name: "Continue" });
+    expect(continueButton).not.toBeDisabled();
+    fireEvent.click(continueButton);
+
+    expect(
+      screen.getByRole("heading", { name: "Your circle, your choice" }),
+    ).toBeTruthy();
+    expect(props.onSendConnectionRequests).not.toHaveBeenCalled();
+  });
+
+  it("moves to the circle without waiting for connection requests", async () => {
+    let resolveRequests: (result: {
+      sentUserIds: string[];
+      failedUserIds: string[];
+    }) => void = () => undefined;
+    const onSendConnectionRequests = vi.fn(
+      () =>
+        new Promise<{ sentUserIds: string[]; failedUserIds: string[] }>(
+          (resolve) => {
+            resolveRequests = resolve;
+          },
+        ),
+    );
+    renderFlow({ onSendConnectionRequests });
+
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    fireEvent.click(screen.getByRole("button", { name: /Add New Person/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(
+      screen.getByRole("heading", { name: "Your circle is taking shape" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Sending 1 connection request...")).toBeTruthy();
+
+    resolveRequests({ sentUserIds: ["new_user"], failedUserIds: [] });
+    expect(await screen.findByText("1 connection request sent.")).toBeTruthy();
+  });
+
+  it("keeps granted permission controls actionable", () => {
+    const onRequestLocation = vi.fn().mockResolvedValue(undefined);
+    const onRequestNotifications = vi.fn().mockResolvedValue(undefined);
+    renderFlow({
+      startAt: "permissions",
+      locationPermission: {
+        state: "granted",
+        precise: true,
+        background: "foreground-only",
+        locationServicesEnabled: true,
+      },
+      notificationDeliveryMode: "push_active",
+      onRequestLocation,
+      onRequestNotifications,
+    });
+
+    const locationSwitch = screen.getByRole("switch", {
+      name: "Location permission",
+    });
+    const notificationSwitch = screen.getByRole("switch", {
+      name: "Notifications permission",
+    });
+    expect(locationSwitch).not.toBeDisabled();
+    expect(notificationSwitch).not.toBeDisabled();
+
+    fireEvent.click(locationSwitch);
+    fireEvent.click(notificationSwitch);
+    expect(onRequestLocation).toHaveBeenCalledTimes(1);
+    expect(onRequestNotifications).toHaveBeenCalledTimes(1);
   });
 });

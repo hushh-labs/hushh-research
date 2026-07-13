@@ -1,24 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  ArrowLeft,
   Bell,
-  BriefcaseBusiness,
   Check,
-  ChevronLeft,
-  Footprints,
   Loader2,
   LocateFixed,
   LockKeyhole,
   MapPin,
-  PersonStanding,
   ShieldCheck,
+  UserRound,
   UserPlus,
 } from "lucide-react";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import type { ConsentNotificationDeliveryMode } from "@/components/consent/notification-provider";
+import { isWeb } from "@/lib/capacitor/platform";
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
+
 import type {
   ConnectionSummaryEntry,
   DirectoryPerson,
@@ -66,11 +66,22 @@ type OneLocationOnboardingFlowProps = {
     userIds: string[],
   ) => Promise<ConnectionRequestResult>;
   onRequestLocation: () => Promise<void>;
-  onRequestNotifications: () => void;
+  onRequestNotifications: () => Promise<void>;
   onComplete: () => void;
 };
 
 const FEATURE_SCREENS: OnboardingScreen[] = ["arrival", "checkin", "sos"];
+
+// All static onboarding art. Preloaded on mount so screen-to-screen
+// transitions show the illustration instantly instead of fetching it lazily
+// the first time each feature screen renders (which caused visible pop-in).
+const ONBOARDING_IMAGE_SOURCES = [
+  "/one-location/onboarding/arrival-backpack.webp",
+  "/one-location/onboarding/checkin-pin.webp",
+  "/one-location/onboarding/sos-shield.webp",
+  "/one-location/onboarding/contact-avatars.webp",
+] as const;
+
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -136,12 +147,12 @@ function TopNavigation({
           type="button"
           onClick={onBack}
           className={cn(
-            "inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/90 shadow-[0_5px_18px_rgba(24,57,91,0.1)] transition-transform active:scale-95",
-            light ? "text-white bg-white/15" : "text-[#087cf0]",
+            "inline-flex h-11 w-11 items-center justify-center transition-transform active:scale-95",
+            light ? "rounded-full bg-white/15 text-white" : "text-[#1f2b3d]",
           )}
           aria-label="Go back"
         >
-          <ChevronLeft className="h-6 w-6" aria-hidden="true" />
+          <ArrowLeft className="h-7 w-7" aria-hidden="true" />
         </button>
       ) : (
         <span className="h-11 w-11" aria-hidden="true" />
@@ -153,7 +164,7 @@ function TopNavigation({
           onClick={onSkip}
           className={cn(
             "min-h-11 rounded-full px-4 text-[16px] font-semibold transition-opacity active:opacity-70",
-            light ? "text-white" : "text-[#087cf0]",
+            light ? "text-white" : "text-[#1f2b3d]",
           )}
         >
           Skip
@@ -210,7 +221,9 @@ function ProgressDots({ activeIndex }: { activeIndex: number }) {
 }
 
 function WelcomeRadar({ people }: { people: DirectoryPerson[] }) {
-  const shown = people.slice(0, 3);
+  const shown = people
+    .filter((person) => person.relationship === "connected")
+    .slice(0, 3);
   const positions = [
     "left-[18%] top-[55%]",
     "right-[14%] top-[48%]",
@@ -232,37 +245,79 @@ function WelcomeRadar({ people }: { people: DirectoryPerson[] }) {
       <span className="absolute left-1/2 top-1/2 flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-4 border-white/70 bg-white text-[#087cf0] shadow-lg">
         <MapPin className="h-6 w-6 fill-[#087cf0]/12" />
       </span>
-      {(shown.length > 0
-        ? shown
-        : [
-            { userId: "one-a", displayName: "Ava", photoUrl: null },
-            { userId: "one-b", displayName: "Mia", photoUrl: null },
-            { userId: "one-c", displayName: "Jay", photoUrl: null },
-          ]
-      ).map((person, index) => (
-        <span key={person.userId} className={cn("absolute", positions[index])}>
-          <Avatar name={safeName(person.displayName)} photoUrl={person.photoUrl} />
-          <span className="absolute -right-0.5 -top-0.5 h-5 w-5 rounded-full border-[3px] border-white bg-[#34c759]" />
-        </span>
-      ))}
+      {shown.length > 0
+        ? shown.map((person, index) => (
+            <span key={person.userId} className={cn("absolute", positions[index])}>
+              <Avatar name={safeName(person.displayName)} photoUrl={person.photoUrl} />
+              <span className="absolute -right-0.5 -top-0.5 h-5 w-5 rounded-full border-[3px] border-white bg-[#34c759]" />
+            </span>
+          ))
+        : positions.map((position, index) => (
+            <span
+              key={position}
+              className={cn(
+                "absolute flex h-14 w-14 items-center justify-center rounded-full border-[3px] border-white/80 bg-white/20 text-white",
+                position,
+              )}
+            >
+              <UserRound className="h-6 w-6" />
+              {index === 0 ? (
+                <span className="absolute -right-0.5 -top-0.5 h-5 w-5 rounded-full border-[3px] border-white bg-[#34c759]" />
+              ) : null}
+            </span>
+          ))}
     </div>
+  );
+}
+
+const DUMMY_AVATAR_POSITIONS = ["0% 0%", "100% 0%", "0% 100%", "100% 100%"];
+
+function DummyContactAvatar({ index = 0, large = false }: { index?: number; large?: boolean }) {
+  return (
+    <span
+      className={cn(
+        "block shrink-0 rounded-full border-[3px] border-white bg-cover shadow-[0_8px_22px_rgba(24,57,91,0.18)]",
+        large ? "h-16 w-16" : "h-11 w-11",
+      )}
+      style={{
+        backgroundImage: "url('/one-location/onboarding/contact-avatars.webp')",
+        backgroundPosition: DUMMY_AVATAR_POSITIONS[index % DUMMY_AVATAR_POSITIONS.length],
+        backgroundSize: "200% 200%",
+      }}
+    />
   );
 }
 
 function FeatureAlert({
   person,
-  text,
+  action,
+  detail,
+  accent,
+  dummyIndex,
 }: {
-  person: DirectoryPerson | undefined;
-  text: string;
+  person?: DirectoryPerson;
+  action: string;
+  detail?: string;
+  accent: "violet" | "teal";
+  dummyIndex: number;
 }) {
-  const name = safeName(person?.displayName, "Your person");
+  const name = safeName(person?.displayName, dummyIndex === 0 ? "Alex" : "Maya");
   return (
-    <div className="absolute left-1/2 top-[10%] z-10 flex min-w-[190px] -translate-x-1/2 items-center gap-3 rounded-2xl border border-white bg-white px-3 py-2.5 shadow-[0_12px_30px_rgba(28,42,68,0.18)]">
-      <Avatar name={name} photoUrl={person?.photoUrl} size="sm" />
+    <div className="absolute left-[6%] top-[7%] z-10 flex min-w-[192px] items-center gap-3 rounded-[16px] bg-white px-3 py-2.5 shadow-[0_12px_28px_rgba(28,42,68,0.18)]">
+      <span className="absolute -left-1 -top-4 h-3 w-3">
+        <span className={cn("absolute left-0 top-1 h-1 w-3 rotate-[8deg] rounded-full", accent === "teal" ? "bg-[#61d7d4]" : "bg-[#b7a4de]")} />
+        <span className={cn("absolute -top-1 left-2 h-3 w-1 -rotate-[10deg] rounded-full", accent === "teal" ? "bg-[#61d7d4]" : "bg-[#b7a4de]")} />
+      </span>
+      {person?.photoUrl ? (
+        <Avatar name={name} photoUrl={person.photoUrl} size="sm" />
+      ) : (
+        <DummyContactAvatar index={dummyIndex} />
+      )}
       <div className="min-w-0 text-left">
-        <p className="truncate text-[13px] font-bold text-[#182236]">{name}</p>
-        <p className="truncate text-[12px] text-[#7d828b]">{text}</p>
+        <p className="truncate text-[13px] font-bold text-[#1f2938]">
+          {name} {action}
+        </p>
+        {detail ? <p className="truncate text-[12px] text-[#8a8f98]">{detail}</p> : null}
       </div>
     </div>
   );
@@ -270,59 +325,87 @@ function FeatureAlert({
 
 function ArrivalIllustration({ person }: { person?: DirectoryPerson }) {
   return (
-    <div className="relative mx-auto h-[330px] w-full max-w-[390px] overflow-hidden rounded-[36px] bg-[#f4f3fb]" aria-hidden="true">
-      <FeatureAlert person={person} text="arrived at Office" />
-      <span className="absolute bottom-8 left-1/2 h-16 w-[75%] -translate-x-1/2 rounded-[50%] border border-white bg-white/55" />
-      <div className="absolute left-1/2 top-[31%] flex h-44 w-40 -translate-x-1/2 items-center justify-center rounded-[32px] border-[5px] border-[#2f3047] bg-[#474961] shadow-[0_20px_35px_rgba(47,48,71,0.24)]">
-        <BriefcaseBusiness className="h-24 w-24 text-[#282a3d]" strokeWidth={1.25} />
-        <span className="absolute right-3 top-5 h-2.5 w-2.5 rounded-full bg-[#161724]" />
-        <span className="absolute left-3 top-5 h-2.5 w-2.5 rounded-full bg-[#161724]" />
-        <span className="absolute top-10 h-3 w-6 rounded-b-full bg-[#ff7d95]" />
-        <MapPin className="absolute -right-5 top-20 h-12 w-12 fill-[#0a84ff] text-white drop-shadow-lg" />
-      </div>
-      <Footprints className="absolute bottom-6 left-1/2 h-20 w-20 -translate-x-1/2 text-[#313348]" />
+    <div
+      className="relative mx-auto h-[clamp(300px,48dvh,410px)] w-full max-w-[410px] overflow-hidden bg-[#fbf9f5]"
+      data-testid="arrival-product-preview"
+      aria-hidden="true"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- Generated onboarding art must render in Capacitor static export. */}
+      <img
+        src="/one-location/onboarding/arrival-backpack.webp"
+        alt=""
+        className="absolute inset-0 h-full w-full object-cover"
+        style={{ objectPosition: "center 58%" }}
+      />
+      <FeatureAlert
+        person={person}
+        action="arrived"
+        detail="at Office"
+        accent="violet"
+        dummyIndex={0}
+      />
     </div>
   );
 }
 
 function CheckinIllustration({ person }: { person?: DirectoryPerson }) {
   return (
-    <div className="relative mx-auto h-[330px] w-full max-w-[390px] overflow-hidden rounded-[36px] bg-[#fbf7f2]" aria-hidden="true">
-      <FeatureAlert person={person} text="checked in" />
-      <span className="absolute bottom-10 left-1/2 h-14 w-[80%] -translate-x-1/2 rounded-[50%] border-b-4 border-dashed border-[#6cd2cf]" />
-      <div className="absolute left-1/2 top-[31%] flex h-48 w-40 -translate-x-1/2 items-center justify-center rounded-[52%_52%_62%_62%] bg-[#1ec7bd] shadow-[0_20px_35px_rgba(30,199,189,0.25)]">
-        <MapPin className="h-36 w-36 fill-[#1ec7bd] text-[#13aaa3]" strokeWidth={1.2} />
-        <span className="absolute top-14 h-20 w-20 rounded-full bg-white">
-          <span className="absolute left-5 top-7 h-2.5 w-2.5 rounded-full bg-[#172232]" />
-          <span className="absolute right-5 top-7 h-2.5 w-2.5 rounded-full bg-[#172232]" />
-          <span className="absolute bottom-5 left-1/2 h-3 w-7 -translate-x-1/2 rounded-b-full bg-[#ff7390]" />
-        </span>
-      </div>
-      <PersonStanding className="absolute bottom-2 left-1/2 h-24 w-24 -translate-x-1/2 text-[#202b36]" />
+    <div
+      className="relative mx-auto h-[clamp(300px,48dvh,410px)] w-full max-w-[410px] overflow-hidden bg-[#fbf8f3]"
+      data-testid="checkin-product-preview"
+      aria-hidden="true"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- Generated onboarding art must render in Capacitor static export. */}
+      <img
+        src="/one-location/onboarding/checkin-pin.webp"
+        alt=""
+        className="absolute inset-0 h-full w-full object-cover"
+        style={{ objectPosition: "center 58%" }}
+      />
+      <FeatureAlert
+        person={person}
+        action="checked in"
+        accent="teal"
+        dummyIndex={2}
+      />
     </div>
   );
 }
 
 function SosIllustration({ people }: { people: DirectoryPerson[] }) {
+  const recipients = [people[0], people[1]];
   return (
-    <div className="relative mx-auto h-[330px] w-full max-w-[390px] overflow-hidden rounded-[36px] bg-[#fbf7f5]" aria-hidden="true">
-      <span className="absolute left-[7%] top-[45%]">
-        <Avatar name={safeName(people[0]?.displayName, "Ava")} photoUrl={people[0]?.photoUrl} size="lg" />
+    <div
+      className="relative mx-auto h-[clamp(300px,48dvh,410px)] w-full max-w-[410px] overflow-hidden bg-[#fbf8f3]"
+      data-testid="sos-product-preview"
+      aria-hidden="true"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- Generated onboarding art must render in Capacitor static export. */}
+      <img
+        src="/one-location/onboarding/sos-shield.webp"
+        alt=""
+        className="absolute inset-0 h-full w-full object-cover"
+        style={{ objectPosition: "center 55%" }}
+      />
+      <span className="absolute left-[8%] top-[53%]">
+        {recipients[0]?.photoUrl ? (
+          <Avatar name={safeName(recipients[0].displayName)} photoUrl={recipients[0].photoUrl} size="lg" />
+        ) : (
+          <DummyContactAvatar index={2} large />
+        )}
       </span>
-      <span className="absolute right-[7%] top-[45%]">
-        <Avatar name={safeName(people[1]?.displayName, "Mia")} photoUrl={people[1]?.photoUrl} size="lg" />
+      <span className="absolute right-[8%] top-[53%]">
+        {recipients[1]?.photoUrl ? (
+          <Avatar name={safeName(recipients[1].displayName)} photoUrl={recipients[1].photoUrl} size="lg" />
+        ) : (
+          <DummyContactAvatar index={3} large />
+        )}
       </span>
-      <span className="absolute left-[20%] top-[57%] w-[22%] border-t-2 border-dashed border-[#26334f]" />
-      <span className="absolute right-[20%] top-[57%] w-[22%] border-t-2 border-dashed border-[#26334f]" />
-      <div className="absolute left-1/2 top-[17%] flex h-48 w-44 -translate-x-1/2 items-center justify-center">
-        <ShieldCheck className="h-44 w-44 fill-[#147ff0] text-[#0758c7] drop-shadow-[0_18px_22px_rgba(0,122,255,0.26)]" strokeWidth={1.8} />
-        <span className="absolute top-20 h-4 w-4 rounded-full bg-white" />
-        <span className="absolute left-[43%] top-20 h-4 w-4 rounded-full bg-white" />
-        <span className="absolute top-[58%] h-4 w-9 rounded-b-full bg-[#ff8aa0]" />
-      </div>
-      <div className="absolute bottom-7 left-1/2 inline-flex -translate-x-1/2 items-center gap-2 rounded-full bg-white px-4 py-2 text-[12px] font-semibold text-[#4c5566] shadow-lg">
-        <ShieldCheck className="h-4 w-4 text-[#ff708c]" /> Help sent
-      </div>
+      <span className="absolute left-[22%] top-[61%] w-[18%] -rotate-[16deg] border-t-2 border-dashed border-[#343b47]" />
+      <span className="absolute right-[22%] top-[61%] w-[18%] rotate-[16deg] border-t-2 border-dashed border-[#343b47]" />
+      <span className="absolute bottom-[4%] left-1/2 inline-flex -translate-x-1/2 items-center gap-2 rounded-full bg-white px-4 py-2 text-[12px] font-semibold text-[#68707c] shadow-[0_8px_22px_rgba(28,42,68,0.14)]">
+        <ShieldCheck className="h-4 w-4 text-[#f07f92]" /> Help sent
+      </span>
     </div>
   );
 }
@@ -341,36 +424,44 @@ function FeatureScreen({
   onContinue: () => void;
 }) {
   const featureIndex = FEATURE_SCREENS.indexOf(screen);
+  const connectedPeople = people.filter(
+    (person) => person.relationship === "connected",
+  );
+  const arrivalName = safeName(connectedPeople[0]?.displayName, "Alex");
+  const checkinName = safeName(
+    connectedPeople[1]?.displayName ?? connectedPeople[0]?.displayName,
+    "Maya",
+  );
   const content = {
     arrival: {
       title: "Know when they arrive",
-      body: `"${safeName(people[0]?.displayName, "Someone")} arrived" - get a quiet alert the moment your people reach the places that matter.`,
-      visual: <ArrivalIllustration person={people[0]} />,
+      body: `"${arrivalName} arrived at Office" - get a quiet alert the moment your people reach the places that matter.`,
+      visual: <ArrivalIllustration person={connectedPeople[0]} />,
       cta: "Continue",
     },
     checkin: {
       title: "Let them know you're here",
-      body: `"${safeName(people[1]?.displayName, "Someone")} checked in" - one tap tells trusted people where you are. No call needed.`,
-      visual: <CheckinIllustration person={people[1] ?? people[0]} />,
+      body: `"${checkinName} checked in" - one tap tells your trusted people where you are. No call needed.`,
+      visual: <CheckinIllustration person={connectedPeople[1] ?? connectedPeople[0]} />,
       cta: "Continue",
     },
     sos: {
       title: "Help when it matters most",
-      body: `"Help sent" - SOS shares your live location with trusted contacts, instantly.`,
-      visual: <SosIllustration people={people} />,
+      body: `"Help sent" - SOS shares your live location with selected people, instantly.`,
+      visual: <SosIllustration people={connectedPeople} />,
       cta: "Create my circle",
     },
   }[screen];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-[#fffdfb]">
+    <div className="flex min-h-0 flex-1 flex-col bg-[#fbf8f3]">
       <TopNavigation onBack={onBack} onSkip={onSkip} />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pb-3">
-        <h1 className="mx-auto mb-4 max-w-[360px] text-center text-[31px] font-bold leading-[1.12] text-[#19243a]">
+        <h1 className="mx-auto mb-3 max-w-[360px] text-center text-[31px] font-bold leading-[1.12] text-[#1e2a3d]">
           {content.title}
         </h1>
         <div className="my-auto">{content.visual}</div>
-        <p className="mx-auto mt-4 max-w-[375px] text-center text-[17px] font-semibold leading-[1.45] text-[#26334f]">
+        <p className="mx-auto mt-3 max-w-[375px] text-center text-[17px] font-semibold leading-[1.45] text-[#263447]">
           {content.body}
         </p>
       </div>
@@ -417,10 +508,9 @@ function PeopleScreen({
   onRetry: () => void;
   onBack: () => void;
   onSkip: () => void;
-  onContinue: (selectedIds: string[]) => Promise<void>;
+  onContinue: (selectedIds: string[]) => void;
 }) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [submitting, setSubmitting] = useState(false);
 
   const recommendedPeople = useMemo(() => {
     const weight = (relationship: DirectoryPerson["relationship"]) => {
@@ -457,15 +547,6 @@ function PeopleScreen({
         ? current.filter((userId) => userId !== person.userId)
         : [...current, person.userId],
     );
-  };
-
-  const continueToCircle = async () => {
-    setSubmitting(true);
-    try {
-      await onContinue(selectedIds);
-    } finally {
-      setSubmitting(false);
-    }
   };
 
   return (
@@ -546,10 +627,7 @@ function PeopleScreen({
         </p>
       </div>
       <footer className="shrink-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] pt-3">
-        <PrimaryButton onClick={() => void continueToCircle()} disabled={loading || submitting}>
-          {submitting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : null}
-          Continue
-        </PrimaryButton>
+        <PrimaryButton onClick={() => onContinue(selectedIds)}>Continue</PrimaryButton>
       </footer>
     </div>
   );
@@ -560,6 +638,7 @@ function CircleScreen({
   currentUserPhotoUrl,
   members,
   failedCount,
+  requestsSending,
   onBack,
   onContinue,
 }: {
@@ -567,6 +646,7 @@ function CircleScreen({
   currentUserPhotoUrl?: string | null;
   members: CircleMember[];
   failedCount: number;
+  requestsSending: boolean;
   onBack: () => void;
   onContinue: () => void;
 }) {
@@ -577,8 +657,10 @@ function CircleScreen({
     : connectedCount > 0
       ? "You're connected!"
       : "Your circle, your choice";
-  const subtitle = pendingCount > 0
-    ? `${pendingCount} connection request${pendingCount === 1 ? "" : "s"} sent.`
+  const subtitle = requestsSending
+    ? `Sending ${pendingCount} connection request${pendingCount === 1 ? "" : "s"}...`
+    : pendingCount > 0
+      ? `${pendingCount} connection request${pendingCount === 1 ? "" : "s"} sent.`
     : connectedCount > 0
       ? "Here is your circle so far."
       : "Add trusted people anytime from Connect.";
@@ -651,14 +733,12 @@ function PermissionSwitch({
   label,
   checked,
   busy,
-  disabled,
   onClick,
 }: {
   label: string;
   checked: boolean;
   busy?: boolean;
-  disabled?: boolean;
-  onClick?: () => void;
+  onClick: () => void;
 }) {
   return (
     <button
@@ -667,7 +747,7 @@ function PermissionSwitch({
       aria-label={label}
       aria-checked={checked}
       onClick={onClick}
-      disabled={disabled || busy}
+      disabled={busy}
       className={cn(
         "relative h-10 w-[62px] shrink-0 rounded-full transition-colors disabled:cursor-default",
         checked ? "bg-[#34c759]" : "bg-[#d9dde2]",
@@ -691,7 +771,6 @@ function PermissionRow({
   description,
   checked,
   busy,
-  disabled,
   onClick,
 }: {
   icon: ReactNode;
@@ -699,8 +778,7 @@ function PermissionRow({
   description: string;
   checked: boolean;
   busy?: boolean;
-  disabled?: boolean;
-  onClick?: () => void;
+  onClick: () => void;
 }) {
   return (
     <div className="flex min-h-[132px] items-start gap-4 border-b border-[#e9eaec] py-5 last:border-b-0">
@@ -716,7 +794,6 @@ function PermissionRow({
           label={`${title} permission`}
           checked={checked}
           busy={busy}
-          disabled={disabled}
           onClick={onClick}
         />
       </div>
@@ -742,17 +819,37 @@ function PermissionsScreen({
   locationBusy: boolean;
   onBack: () => void;
   onRequestLocation: () => Promise<void>;
-  onRequestNotifications: () => void;
+  onRequestNotifications: () => Promise<void>;
   onComplete: () => void;
 }) {
   const locationGranted =
     locationPermission?.state === "granted" &&
     locationPermission.locationServicesEnabled !== false;
   const notificationsGranted = notificationDeliveryMode === "push_active";
+  const notificationsBlocked = notificationDeliveryMode === "push_blocked";
   const locationBlocked =
     locationPermission?.state === "denied" ||
     locationPermission?.state === "restricted" ||
     locationPermission?.locationServicesEnabled === false;
+  // On web the app cannot open native device Settings — the permission is
+  // controlled by the browser's own site-permission UI. Native (iOS/Android)
+  // does deep-link into device Settings. Copy must match the platform so we
+  // never tell a browser user to "open device Settings".
+  const onWeb = isWeb();
+
+  const locationDescription = locationBlocked
+    ? onWeb
+      ? "Location is blocked for this site. Allow it from your browser's site permissions (the lock icon in the address bar), then try again."
+      : "Open device Settings to allow location. It is shared only when you approve."
+    : onWeb
+      ? "Turn this on and your browser will ask for location. It is shared only when you approve."
+      : "Shows your place on the map and powers check-ins. Shared only when you approve.";
+
+  const notificationDescription = notificationsBlocked
+    ? onWeb
+      ? "Notifications are blocked for this site. Allow them from your browser's site permissions, then try again."
+      : "Notifications are blocked. Allow them in device Settings, then try again."
+    : "Requests, check-ins, and SOS alerts from your people.";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-white">
@@ -765,34 +862,22 @@ function PermissionsScreen({
           <PermissionRow
             icon={<MapPin className="h-7 w-7" />}
             title="Location"
-            description={
-              locationBlocked
-                ? "Open device Settings to allow location. It is shared only when you approve."
-                : "Shows your place on the map and powers check-ins. Shared only when you approve."
-            }
+            description={locationDescription}
             checked={locationGranted}
             busy={locationBusy}
-            disabled={locationGranted}
             onClick={() => void onRequestLocation()}
           />
           <PermissionRow
             icon={<Bell className="h-7 w-7" />}
             title="Notifications"
-            description="Requests, check-ins, and SOS alerts from your people."
+            description={notificationDescription}
             checked={notificationsGranted}
             busy={notificationBusy}
-            disabled={notificationsGranted}
-            onClick={onRequestNotifications}
-          />
-          <PermissionRow
-            icon={<PersonStanding className="h-7 w-7" />}
-            title="Motion Activity"
-            description="Not requested yet. One will ask only when a safety feature genuinely needs it."
-            checked={false}
-            disabled
+            onClick={() => void onRequestNotifications()}
           />
         </div>
       </div>
+
       <footer className="shrink-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-2">
         <p className="mb-4 flex items-center justify-center gap-2 text-center text-[12px] leading-4 text-[#8b8f96]">
           <LockKeyhole className="h-4 w-4 shrink-0" />
@@ -826,33 +911,40 @@ export function OneLocationOnboardingFlow({
   const [screen, setScreen] = useState<OnboardingScreen>(startAt);
   const [circleMembers, setCircleMembers] = useState<CircleMember[]>([]);
   const [failedRequestCount, setFailedRequestCount] = useState(0);
+  const [requestsSending, setRequestsSending] = useState(false);
+  const requestBatchRef = useRef(0);
 
   useEffect(() => {
     setScreen(startAt);
   }, [startAt]);
 
+  // Warm the browser cache with every onboarding illustration as soon as the
+  // flow mounts. Without this, each feature screen only fetches its art the
+  // first time it renders, which shows a blank frame (pop-in) on slower
+  // connections. Decoding ahead of time keeps screen transitions instant.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    for (const source of ONBOARDING_IMAGE_SOURCES) {
+      const image = new window.Image();
+      image.decoding = "async";
+      image.src = source;
+    }
+  }, []);
+
   const goBackFromFeature = () => {
     if (screen === "arrival") setScreen("welcome");
+
     if (screen === "checkin") setScreen("arrival");
     if (screen === "sos") setScreen("checkin");
   };
 
-  const handlePeopleContinue = async (selectedIds: string[]) => {
+  const handlePeopleContinue = (selectedIds: string[]) => {
     const selectedPeople = people.filter((person) => selectedIds.includes(person.userId));
     const requestIds = selectedPeople
       .filter((person) => person.relationship === "none")
       .map((person) => person.userId);
-    const result = await onSendConnectionRequests(requestIds);
-    const sentIds = new Set(result.sentUserIds);
     const activeIds = new Set(connections.map((connection) => connection.userId));
-    const members: CircleMember[] = selectedPeople
-      .filter(
-        (person) =>
-          person.relationship === "connected" ||
-          activeIds.has(person.userId) ||
-          sentIds.has(person.userId),
-      )
-      .map((person) => ({
+    const optimisticMembers: CircleMember[] = selectedPeople.map((person) => ({
         userId: person.userId,
         displayName: safeName(person.displayName),
         photoUrl: person.photoUrl,
@@ -862,9 +954,34 @@ export function OneLocationOnboardingFlow({
             : "pending",
       }));
 
-    setCircleMembers(members);
-    setFailedRequestCount(result.failedUserIds.length);
+    setCircleMembers(optimisticMembers);
+    setFailedRequestCount(0);
+    setRequestsSending(requestIds.length > 0);
     setScreen("circle");
+
+    const batchId = ++requestBatchRef.current;
+    if (requestIds.length === 0) return;
+
+    void onSendConnectionRequests(requestIds)
+      .then((result) => {
+        if (requestBatchRef.current !== batchId) return;
+        const sentIds = new Set(result.sentUserIds);
+        setCircleMembers(
+          optimisticMembers.filter(
+            (member) => member.status === "connected" || sentIds.has(member.userId),
+          ),
+        );
+        setFailedRequestCount(result.failedUserIds.length);
+        setRequestsSending(false);
+      })
+      .catch(() => {
+        if (requestBatchRef.current !== batchId) return;
+        setCircleMembers(
+          optimisticMembers.filter((member) => member.status === "connected"),
+        );
+        setFailedRequestCount(requestIds.length);
+        setRequestsSending(false);
+      });
   };
 
   const handlePeopleSkip = () => {
@@ -877,6 +994,8 @@ export function OneLocationOnboardingFlow({
       })),
     );
     setFailedRequestCount(0);
+    setRequestsSending(false);
+    requestBatchRef.current += 1;
     setScreen("circle");
   };
 
@@ -944,6 +1063,7 @@ export function OneLocationOnboardingFlow({
             currentUserPhotoUrl={currentUserPhotoUrl}
             members={circleMembers}
             failedCount={failedRequestCount}
+            requestsSending={requestsSending}
             onBack={() => setScreen("people")}
             onContinue={() => setScreen("permissions")}
           />
