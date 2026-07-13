@@ -19,6 +19,7 @@ import type {
   OneLocationState,
   PlainLocationPoint,
   DriveDestination,
+  RouteEta,
 } from "@/lib/one-location/types";
 
 function authHeaders(vaultOwnerToken: string): Record<string, string> {
@@ -446,19 +447,20 @@ export class OneLocationService {
     originLng: number;
     destLat: number;
     destLng: number;
-  }): Promise<{ etaSeconds: number; distanceMeters: number }> {
-    const response = await apiJson<{
-      eta: { etaSeconds: number; distanceMeters: number };
-    }>("/api/one/location/maps/route-eta", {
-      method: "POST",
-      headers: jsonAuthHeaders(params.vaultOwnerToken),
-      body: JSON.stringify({
-        originLat: params.originLat,
-        originLng: params.originLng,
-        destLat: params.destLat,
-        destLng: params.destLng,
-      }),
-    });
+  }): Promise<RouteEta> {
+    const response = await apiJson<{ eta: RouteEta }>(
+      "/api/one/location/maps/route-eta",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          originLat: params.originLat,
+          originLng: params.originLng,
+          destLat: params.destLat,
+          destLng: params.destLng,
+        }),
+      },
+    );
     return response.eta;
   }
 
