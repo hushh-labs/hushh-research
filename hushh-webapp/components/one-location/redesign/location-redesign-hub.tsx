@@ -212,6 +212,10 @@ export type LocationHubViewModel = {
     pickupPoint?: { latitude: number; longitude: number; label?: string },
   ) => void;
 
+  /* "I'm on my way" — helper reverse share: creates a drive-style grant back to
+     the requester so they can watch the helper approach their pickup point. */
+  onImOnMyWay: (grant: OneLocationGrant) => void;
+
   /* Safe Arrival (quick action) — outbound: share your live journey + ETA to a
      destination until you arrive, framed for peace-of-mind. Reuses the same
      encrypted drive pipeline as Drive To (destination + ETA ride inside the

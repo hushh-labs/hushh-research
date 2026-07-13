@@ -4236,6 +4236,7 @@ export function OneLocationAgentPageContent({
       destination: DriveDestination,
       recipientIds: string[],
       durationHoursValue: string,
+      shareKind?: string,
     ) => {
       if (!vaultOwnerToken || locationPermissionBlocksSharing(permission)) {
         toast.error("Location permission is required to share your drive.");
@@ -4295,6 +4296,7 @@ export function OneLocationAgentPageContent({
             recipientKeyId: recipient.keyId,
             durationHours: durationHoursNum,
             reason: "drive_to",
+            ...(shareKind ? { shareKind } : {}),
           });
           await publishEnvelopeWithRetry(grant, recipient, "manual", drivePoint);
           grantIds.add(grant.id);
@@ -4333,6 +4335,28 @@ export function OneLocationAgentPageContent({
       refresh,
       auth.userId,
     ],
+  );
+
+  // "I'm on my way" — helper-side reverse share: when a helper receives a
+  // Pick Me Up grant they tap "I'm on my way" which drives this handler. It
+  // creates a drive-style grant back to the requester (the grant owner) so the
+  // requester can watch the helper approaching their pickup point in real time.
+  const handleImOnMyWay = useCallback(
+    async (grant: OneLocationGrant) => {
+      const helperUserId = String(grant.ownerUserId || "").trim();
+      const point = decryptedPoints[grant.id];
+      if (!helperUserId || !point) {
+        toast.error("Can't start yet — open their pickup first.");
+        return;
+      }
+      const destination: DriveDestination = {
+        label: `${receivedGrantOwnerLabel(grant)} · pickup`,
+        latitude: point.latitude,
+        longitude: point.longitude,
+      };
+      await handleDriveTo(destination, [helperUserId], "4", "pickup_enroute");
+    },
+    [decryptedPoints, handleDriveTo],
   );
 
   // Pick Me Up quick action (INBOUND help): share your LIVE location + a pickup
@@ -4986,6 +5010,7 @@ export function OneLocationAgentPageContent({
         durationHoursValue,
         messageValue,
       ),
+    onImOnMyWay: (grant) => void handleImOnMyWay(grant),
   };
 
 
