@@ -22,7 +22,9 @@ describe("profile workspace duplication contract", () => {
     expect(profilePageSource).not.toContain(
       "const openGmailPanel = () => router.push(ROUTES.GMAIL);",
     );
-    expect(profilePageSource).toContain('<SettingsGroup title="Settings">');
+    expect(profilePageSource).toContain(
+      '<SettingsGroup title="Settings" separatorInset>',
+    );
     expect(profilePageSource).not.toContain("myDataRootBadge");
     expect(profilePageSource).not.toContain("accessRootBadge");
     expect(profilePageSource).not.toContain("Data loaded partially");
@@ -45,8 +47,11 @@ describe("profile workspace duplication contract", () => {
     );
   });
 
-  it("keeps one vault entry on Profile and uses the generated router action", () => {
+  it("keeps Security as the sole Profile entry for vault controls", () => {
     expect(profilePageSource).not.toContain('className="min-w-[148px]"');
+    expect(profilePageSource).not.toContain('voiceControlId="profile_vault"');
+    expect(profilePageSource).not.toContain("const openVaultSettingsRow");
+    expect(profilePageSource).toContain('voiceControlId="profile_security"');
     expect(profilePageSource).toContain(
       'voiceActionId="route.profile_security_panel"',
     );

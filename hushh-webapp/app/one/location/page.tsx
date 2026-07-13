@@ -68,9 +68,10 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
-import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
+import { CapabilityVaultPrerequisite } from "@/components/vault/capability-vault-prerequisite";
 
 import { useRequireAuth } from "@/hooks/use-auth";
+import { ROUTES } from "@/lib/navigation/routes";
 
 type LocationTab = "compose" | "activity";
 
@@ -6363,12 +6364,17 @@ export function OneLocationAgentPageContent({
 
 export default function OneLocationAgentPage({
   onSetupReadinessChange,
+  vaultPrerequisiteRouteKey = ROUTES.ONE_LOCATION,
 }: {
   onSetupReadinessChange?: (ready: boolean) => void;
+  vaultPrerequisiteRouteKey?: string;
 } = {}) {
   return (
-    <VaultLockGuard>
+    <CapabilityVaultPrerequisite
+      capabilityLabel="Location"
+      routeKey={vaultPrerequisiteRouteKey}
+    >
       <OneLocationAgentPageContent onSetupReadinessChange={onSetupReadinessChange} />
-    </VaultLockGuard>
+    </CapabilityVaultPrerequisite>
   );
 }

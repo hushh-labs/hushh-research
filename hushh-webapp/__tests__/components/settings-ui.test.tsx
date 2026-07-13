@@ -74,6 +74,22 @@ describe("SettingsRow", () => {
     );
   });
 
+  it("uses compact single-line geometry when a grouped menu has no subtext", () => {
+    const { container } = render(
+      <SettingsRow
+        icon={undefined}
+        title="Security"
+        density="compact"
+        chevron
+        onClick={() => {}}
+      />,
+    );
+
+    const rowShell = container.querySelector('[data-testid="settings-row"]');
+    expect(rowShell?.className).toContain("[--settings-row-py:0.5rem]");
+    expect(screen.queryByTestId("settings-row-description")).toBeNull();
+  });
+
   it("supports asChild rows without losing row content", () => {
     render(
       <SettingsRow

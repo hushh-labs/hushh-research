@@ -28,7 +28,7 @@ export default function OneSetupPage() {
   }, [loading, router, user]);
 
   if (loading || !user) {
-    return <RouteLoadingState label="Preparing setup…" />;
+    return <RouteLoadingState surface="onboarding" label="Preparing setup…" />;
   }
 
   return (

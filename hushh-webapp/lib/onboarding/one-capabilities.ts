@@ -92,8 +92,10 @@ export interface OneCapability {
    * True when this capability's real workspace reads or writes vault-backed
    * personal information and therefore needs an UNLOCKED vault to be usable. The setup
    * STEP itself collects nothing and renders pre-vault; this flag only lets the
-   * step set honest "you'll unlock your vault next" expectations and lets the
-   * destination's own guard own the actual unlock prompt. Consent is
+   * step set honest "you'll set up your vault when it is needed" expectations.
+   * The destination owns a contextual vault prerequisite or its own typed
+   * continuation; it must not mount token-dependent work before that settles.
+   * Consent is
    * the only capability that does not read vault-backed information here.
    */
   requiresVault?: boolean;

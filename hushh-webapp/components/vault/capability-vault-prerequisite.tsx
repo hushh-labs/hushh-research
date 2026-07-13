@@ -1,0 +1,195 @@
+"use client";
+
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+
+import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
+import { Button } from "@/lib/morphy-ux/button";
+import { useAuth } from "@/hooks/use-auth";
+import { VaultService } from "@/lib/services/vault-service";
+import { useVault } from "@/lib/vault/vault-context";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+
+import { VaultUnlockDialog } from "./vault-unlock-dialog";
+
+type VaultPrerequisiteState =
+  | "checking"
+  | "ready"
+  | "create_required"
+  | "unlock_required"
+  | "failed";
+
+type CapabilityVaultPrerequisiteProps = {
+  capabilityLabel: string;
+  routeKey: string;
+  children: ReactNode;
+};
+
+/**
+ * A capability boundary for the first operation that needs encrypted owner
+ * information. It works on setup and normal product routes, so choosing a
+ * capability later receives the same contextual vault introduction.
+ *
+ * This does not alter VaultLockGuard. That guard remains responsible for
+ * already-protected pages; this boundary prevents a token-dependent capability
+ * from mounting before its vault can be created or opened.
+ */
+export function CapabilityVaultPrerequisite({
+  capabilityLabel,
+  routeKey,
+  children,
+}: CapabilityVaultPrerequisiteProps) {
+  const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
+  const userId = user?.uid ?? null;
+  const { vaultOwnerToken } = useVault();
+  const [state, setState] = useState<VaultPrerequisiteState>("checking");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+  const autoPresentedRef = useRef(false);
+
+  useEffect(() => {
+    if (authLoading || userId) return;
+    router.replace(`/login?redirect=${encodeURIComponent(routeKey)}`);
+  }, [authLoading, routeKey, router, userId]);
+
+  useEffect(() => {
+    if (authLoading) {
+      setState("checking");
+      return;
+    }
+    if (!userId) {
+      setState("failed");
+      return;
+    }
+    if (vaultOwnerToken) {
+      setState("ready");
+      return;
+    }
+
+    let active = true;
+    setState("checking");
+    void VaultService.checkVault(userId)
+      .then((hasVault) => {
+        if (!active) return;
+        setState(hasVault ? "unlock_required" : "create_required");
+      })
+      .catch((error) => {
+        console.warn("[CapabilityVaultPrerequisite] Failed to check vault state:", error);
+        if (active) setState("failed");
+      });
+    return () => {
+      active = false;
+    };
+  }, [authLoading, retryKey, userId, vaultOwnerToken]);
+
+  useEffect(() => {
+    if (
+      (state !== "create_required" && state !== "unlock_required") ||
+      autoPresentedRef.current
+    ) {
+      return;
+    }
+    autoPresentedRef.current = true;
+    setDialogOpen(true);
+  }, [state]);
+
+  usePublishVoiceSurfaceMetadata(
+    dialogOpen
+      ? {
+          screenId: "capability_vault_prerequisite",
+          title: `Set up vault for ${capabilityLabel}`,
+          purpose:
+            "A private-vault credential sheet is active. It must settle before this capability can use encrypted information.",
+          interactionLayer: {
+            schemaVersion: "voice_interaction_layer.v1",
+            id: `capability_vault_${routeKey.replaceAll("/", "_")}`,
+            kind: "vault_setup",
+            modality: "blocking",
+            lifecycle: "open",
+            dismissible: false,
+            visibleActionIds: [],
+            visibleControlIds: [],
+            options: [],
+            blocksUnderlyingActions: true,
+            agentContinuity: "suppressed",
+          },
+        }
+      : null,
+    { role: "interaction_layer", routeKey },
+  );
+
+  // A token is memory-only and is the actual authority for the capability.
+  // Render immediately once it arrives instead of briefly flashing a loader
+  // while the status effect catches up after vault settlement.
+  if (vaultOwnerToken || state === "ready") return <>{children}</>;
+  if (!userId) {
+    return <RouteLoadingState label="Redirecting to sign in…" />;
+  }
+  if (state === "checking") {
+    return <RouteLoadingState label={`Preparing ${capabilityLabel}…`} />;
+  }
+
+  const failed = state === "failed";
+  const actionLabel = failed
+    ? "Try again"
+    : state === "unlock_required"
+      ? "Open your private vault"
+      : "Set up your private vault";
+  const detail = failed
+    ? "We could not confirm your vault yet. Try again before continuing with this capability."
+    : state === "unlock_required"
+      ? `Open your private vault before ${capabilityLabel} uses encrypted information.`
+      : `${capabilityLabel} keeps the encrypted information needed for your choices in your private vault.`;
+
+  return (
+    <section
+      aria-labelledby="capability-vault-prerequisite-title"
+      className="mx-auto w-full max-w-[32rem] space-y-4 px-4 py-8 text-center sm:px-6"
+    >
+      <div className="space-y-2">
+        <h1
+          id="capability-vault-prerequisite-title"
+          className="font-[family-name:var(--font-app-display)] text-2xl font-semibold tracking-[-0.02em] text-foreground"
+        >
+          {state === "unlock_required"
+            ? "Open your private vault first"
+            : "Set up your private vault first"}
+        </h1>
+        <p className="text-sm leading-6 text-muted-foreground">{detail}</p>
+      </div>
+      <Button
+        type="button"
+        variant="blue"
+        effect="fill"
+        size="lg"
+        onClick={() => {
+          if (failed) {
+            // The initial automatic presentation was intentionally consumed by
+            // the failed presence probe. A person-triggered retry is a new
+            // attempt and should present the vault flow once that probe settles.
+            autoPresentedRef.current = false;
+            setRetryKey((value) => value + 1);
+            return;
+          }
+          setDialogOpen(true);
+        }}
+      >
+        {actionLabel}
+      </Button>
+      {user ? (
+        <VaultUnlockDialog
+          user={user}
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          title={`${actionLabel} for ${capabilityLabel}`}
+          description={`${actionLabel} before ${capabilityLabel} starts using encrypted information.`}
+          onSuccess={() => {
+            setDialogOpen(false);
+            setRetryKey((value) => value + 1);
+          }}
+        />
+      ) : null}
+    </section>
+  );
+}

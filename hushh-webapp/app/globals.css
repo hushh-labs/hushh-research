@@ -256,6 +256,15 @@ a, button, input, select, textarea {
   --app-bottom-inset: calc(
     var(--app-bottom-fixed-ui) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift)
   );
+  /*
+   * Onboarding has no bottom navigation, but does retain the persistent Agent
+   * Bar. Keep its geometry in one token family so setup terminal controls,
+   * credential forms, and the bar itself never calculate competing insets.
+   * Use the raw safe-area value here because it is also the coordinate space
+   * used by the fixed Agent Bar on web and native onboarding surfaces.
+   */
+  --onboarding-agent-bar-bottom-offset: calc(var(--app-safe-area-bottom) + 0.75rem);
+  --onboarding-agent-bar-clearance: calc(var(--onboarding-agent-bar-bottom-offset) + 3rem);
   --kai-command-fixed-ui: 82px;
   --kai-command-bottom-gap: 12px;
   --app-screen-footer-pad: calc(8px + var(--app-bottom-inset));

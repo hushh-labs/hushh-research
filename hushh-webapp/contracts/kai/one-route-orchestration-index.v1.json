@@ -2043,7 +2043,9 @@
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
-        "allowed_families": []
+        "allowed_families": [
+          "vault_setup"
+        ]
       },
       "canonical_screen": "one_location",
       "voice_contract_file": null,
@@ -2395,7 +2397,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-connected-systems"
     },
     {
       "route_pattern": "/one/setup/email",
@@ -2444,7 +2446,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-one-kyc"
     },
     {
       "route_pattern": "/one/setup/finance",
@@ -2501,7 +2503,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-one-setup-kai"
     },
     {
       "route_pattern": "/one/setup/finance/import",
@@ -2550,7 +2552,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-one-setup-kai"
     },
     {
       "route_pattern": "/one/setup/gmail",
@@ -2601,7 +2603,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-gmail"
     },
     {
       "route_pattern": "/one/setup/kai",
@@ -2681,7 +2683,9 @@
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
-        "allowed_families": []
+        "allowed_families": [
+          "vault_setup"
+        ]
       },
       "canonical_screen": "one_setup_location",
       "voice_contract_file": "app/one/setup/location/page.voice-action-contract.json",
@@ -2695,7 +2699,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-one-location"
     },
     {
       "route_pattern": "/one/setup/ria",
@@ -2744,7 +2748,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-ria-onboarding"
     },
     {
       "route_pattern": "/pkm",
@@ -4367,7 +4371,7 @@
     {
       "route_pattern": "/ria/profile",
       "page_file": "app/ria/profile/page.tsx",
-      "route_mode": "flow",
+      "route_mode": "standard",
       "orchestration_class": "interactive",
       "instruction_id": "route.ria.profile",
       "context_policy": "publish",

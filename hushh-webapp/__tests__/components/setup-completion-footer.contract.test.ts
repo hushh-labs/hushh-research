@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("setup completion footer contract", () => {
-  it("uses the canonical safe-area and keyboard-resize-aware bottom inset", () => {
+  it("delegates fixed-chrome clearance to the shared onboarding scroll root", () => {
     const source = readFileSync(
       join(
         process.cwd(),
@@ -13,7 +13,8 @@ describe("setup completion footer contract", () => {
       "utf8",
     );
 
-    expect(source).toContain("var(--app-bottom-inset)");
+    expect(source).not.toContain("var(--onboarding-agent-bar-clearance)");
+    expect(source).not.toContain("var(--app-bottom-inset)");
     expect(source).toContain('"h-12 text-base"');
     expect(source).toContain("bg-transparent");
     expect(source).not.toContain("SurfaceInset");
@@ -38,7 +39,7 @@ describe("setup completion footer contract", () => {
     expect(source).toContain("data-voice-action-id={actionId}");
   });
 
-  it("keeps the action in the responsive route flow instead of pinning a desktop overlay", () => {
+  it("keeps the action in normal route flow with a guaranteed trailing clearance", () => {
     const source = readFileSync(
       join(
         process.cwd(),
@@ -47,13 +48,9 @@ describe("setup completion footer contract", () => {
       "utf8",
     );
 
-    expect(source).toContain(
-      "sticky bottom-[calc(var(--app-bottom-inset)+var(--onboarding-agent-bar-clearance,3.75rem)+0.75rem)]",
-    );
-    expect(source).toContain(
-      "pb-[calc(var(--app-bottom-inset)+var(--onboarding-agent-bar-clearance,3.75rem)+1.5rem)]",
-    );
+    expect(source).toContain('className="relative z-20 space-y-2 bg-transparent py-2"');
     expect(source).toContain("space-y-2 bg-transparent py-2");
+    expect(source).not.toContain("sticky bottom-");
     expect(source).not.toContain('placement?: "sticky" | "fixed"');
     expect(source).not.toContain("max-w-[var(--app-shell-standard)]");
   });

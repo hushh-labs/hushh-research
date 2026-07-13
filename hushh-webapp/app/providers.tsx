@@ -165,10 +165,17 @@ function AppShellFrame({ children }: ProvidersProps) {
           : "calc(var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift) + var(--kai-command-fixed-ui) + var(--bottom-chrome-fade-overscan))",
         "--bottom-chrome-visual-height": "var(--bottom-chrome-full-height)",
         "--bottom-chrome-hide-distance": "var(--app-bottom-fixed-ui)",
-        "--app-scroll-bottom-pad": "var(--bottom-chrome-stack-height)",
+        // Hidden-shell routes deliberately omit the app navigation, but many
+        // of them still render the fixed onboarding Agent Bar. The scroll root
+        // owns the clearance for that fixed chrome so feature routes do not
+        // need to guess at device safe areas or bar geometry.
+        "--app-scroll-bottom-pad": hideGlobalChrome
+          ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
+          : "var(--bottom-chrome-stack-height)",
       }) as CSSProperties,
     [
       chromeState.hideCommandBar,
+      hideGlobalChrome,
       signedInShellContentOffset.style,
       topShellMetrics.contentOffsetMode,
       topShellMetrics.hasTabs,
@@ -403,7 +410,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                         }
                         className={
                           hideGlobalChrome
-                            ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y relative z-10 min-h-0"
+                            ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance))] relative z-10 min-h-0"
                             : shouldLockFullscreenRoot
                               ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"
                               : "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--app-bottom-inset))] relative z-10 min-h-0"
@@ -487,8 +494,8 @@ function AppShellFrame({ children }: ProvidersProps) {
                         }
                         className={
                           hideGlobalChrome
-                            ? // Landing/onboarding flows should still allow vertical scroll on small screens.
-                              "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y relative z-10 min-h-0"
+                            ? // Landing/onboarding flows retain a scroll tail for the fixed Agent Bar.
+                              "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance))] relative z-10 min-h-0"
                             : shouldLockFullscreenRoot
                               ? // Fullscreen flows keep chrome contract, but permit y-scroll for small devices.
                                 "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"

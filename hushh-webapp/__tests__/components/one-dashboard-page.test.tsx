@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildOneSetupCapabilityRoute } from "@/lib/navigation/routes";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
 
 function status(
@@ -35,12 +35,11 @@ describe("OneDashboardPage", () => {
       <OneDashboardPage
         displayName="Kushal Trivedi"
         capabilityStatusById={buildStatusMap({
-          finance: { state: "not-started" },
+          finance: { state: "not-started", requiresUnlock: true },
           gmail: { state: "blocked", prerequisite: "oauth" },
           email: { state: "completed" },
           location: { state: "completed" },
-          pkm: { state: "unknown", requiresUnlock: true },
-          consent: { state: "needs-attention", pendingCount: 2 },
+          ria: { state: "in-progress" },
           "connected-systems": { state: "blocked", prerequisite: "oauth" },
         })}
       />,
@@ -68,14 +67,12 @@ describe("OneDashboardPage", () => {
     );
     expect(screen.getByText("Agents")).toBeTruthy();
 
-    // Dashboard tiles tag their destination with `?from=/one` (or `&from=/one`
-    // when the href already has a query) so the surface's top-bar back button
-    // returns to the dashboard, not Profile. See resolveTopShellBreadcrumb.
-    const fromOne = `from=${ROUTES.ONE_HOME}`;
-    // The finance tile is publicly named "Finance"; Kai stays internal.
+    // Every dashboard tile enters the same static setup workspace as the hub.
+    // A resolved journey is redirected by that workspace to the normal product
+    // destination, so direct product routes never bypass first-run setup.
     const financeLink = screen.getByRole("link", { name: "Open Finance" });
     expect(financeLink.getAttribute("href")).toBe(
-      `${ROUTES.KAI_HOME}?${fromOne}`,
+      buildOneSetupCapabilityRoute("finance"),
     );
     expect(financeLink.className).not.toContain("translate");
     expect(screen.getByTestId("one-agent-tile-finance").style.width).toBe(
@@ -88,50 +85,46 @@ describe("OneDashboardPage", () => {
     expect(financeIcon?.className).toContain("bg-[#B85CF6]");
     expect(financeIcon?.className).toContain("text-white");
     expect(financeIcon?.className).toContain("dark:text-[#1d1d1f]");
-    // The /one grid mirrors the top-bar agent switcher roster: RIA sits
-    // directly after Finance as a standalone top-level agent.
     const riaLink = screen.getByRole("link", { name: "Open RIA" });
-    expect(riaLink.getAttribute("href")).toBe(`${ROUTES.RIA_HOME}?${fromOne}`);
+    expect(riaLink.getAttribute("href")).toBe(buildOneSetupCapabilityRoute("ria"));
     // Agents model: the route link is a normal app-icon tile, not a large
     // colored workflow card.
     expect(financeLink.className).not.toContain("border-emerald-500");
     expect(financeLink.getAttribute("style") ?? "").not.toContain("background");
     expect(
       screen.getByRole("link", { name: "Open Gmail" }).getAttribute("href"),
-    ).toBe(`${ROUTES.GMAIL}?${fromOne}`);
+    ).toBe(buildOneSetupCapabilityRoute("gmail"));
     expect(
       screen.getByRole("link", { name: "Open Email" }).getAttribute("href"),
-    ).toBe(`${ROUTES.ONE_KYC}?${fromOne}`);
+    ).toBe(buildOneSetupCapabilityRoute("email"));
     expect(
       screen.getByRole("link", { name: "Open Onepoint" }).getAttribute("href"),
-    ).toBe(`${ROUTES.ONE_LOCATION}?${fromOne}`);
-    expect(
-      screen.getByRole("link", { name: "Open Memory" }).getAttribute("href"),
-    ).toBe(`${ROUTES.PKM}?${fromOne}`);
-    expect(
-      screen.getByRole("link", { name: "Open Consent" }).getAttribute("href"),
-    ).toBe(`/consents?tab=pending&${fromOne}`);
+    ).toBe(buildOneSetupCapabilityRoute("location"));
     expect(
       screen
         .getByRole("link", { name: "Open Connected Systems" })
         .getAttribute("href"),
-    ).toBe(`${ROUTES.CONNECTED_SYSTEMS}?${fromOne}`);
+    ).toBe(buildOneSetupCapabilityRoute("connected-systems"));
 
-    // Resolver-driven consumer labels (plain language, no system nouns).
-    expect(screen.getByText("Set up")).toBeTruthy(); // finance not-started
-    expect(screen.queryByText("Connect to set up")).toBeNull();
+    // Resolver-driven setup labels come from the shared setup copy. A vault
+    // prerequisite never turns a setup launcher into a locked control.
+    expect(screen.getByText("Set up Finance")).toBeTruthy();
+    expect(screen.getByText("Connect Gmail")).toBeTruthy();
+    expect(screen.getByText("Finish RIA")).toBeTruthy();
     // email + location are real vault-gated workflows (not explore-only), so a
     // completed status reads "Ready", not "Explored".
     expect(screen.getAllByText("Ready")).toHaveLength(2); // email + location completed
-    expect(screen.getByText("Set up vault")).toBeTruthy(); // pkm vault-gated
-    expect(screen.getByText("2 to review")).toBeTruthy(); // consent attention
-    expect(screen.queryByText("2 consents pending")).toBeNull(); // top shield owns count
+    expect(screen.queryByText("Set up vault")).toBeNull();
     expect(
       screen.getByRole("link", { name: "Open Gmail" }).getAttribute("title"),
     ).toBe("Receipt sync and purchase-memory review.");
-    // All 8 capabilities plus the standalone RIA agent tile render as
-    // tappable launcher links (grid mirrors the top-bar switcher roster).
-    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(9);
+    // The grid and the progress strip share exactly the six setup capabilities.
+    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(6);
+    expect(screen.queryByRole("link", { name: "Open Memory" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open Consent" })).toBeNull();
+    expect(
+      screen.queryByRole("link", { name: "Open Information Marketplace" }),
+    ).toBeNull();
     expect(screen.queryByRole("link", { name: "Open One Agent" })).toBeNull();
   });
 
@@ -144,25 +137,21 @@ describe("OneDashboardPage", () => {
           gmail: { state: "completed" },
           email: { state: "completed" },
           location: { state: "completed" },
-          pkm: { state: "completed" },
-          consent: { state: "completed" },
+          ria: { state: "completed" },
           "connected-systems": { state: "completed" },
         })}
       />,
     );
 
-    // finance + gmail + email + location + pkm + connected-systems are real
-    // workflows and read "Ready" when completed; only consent is explore-only
-    // and reads "Explored".
+    // The exact six setup capabilities read Ready when completed.
     expect(screen.getAllByText("Ready")).toHaveLength(6);
-    expect(screen.getByText("Explored")).toBeTruthy();
-    expect(screen.queryByText("No pending consents")).toBeNull();
     expect(screen.queryByText("Finish setup")).toBeNull();
   });
 
-  it("renders an honest fallback when status is not yet resolved", () => {
+  it("renders authored setup actions instead of transient checking states", () => {
     render(<OneDashboardPage displayName="Kushal Trivedi" />);
-    // No fabricated "Ready"/"Setup needed" — everything reads as checking.
-    expect(screen.getAllByText("Checking...").length).toBeGreaterThan(0);
+    expect(screen.queryAllByText("Checking...")).toHaveLength(0);
+    expect(screen.getByText("Connect Gmail")).toBeTruthy();
+    expect(screen.getByText("Choose location")).toBeTruthy();
   });
 });

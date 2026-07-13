@@ -97,6 +97,10 @@ vi.mock("@/components/vault/vault-lock-guard", () => ({
   VaultLockGuard: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
+vi.mock("@/components/vault/capability-vault-prerequisite", () => ({
+  CapabilityVaultPrerequisite: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
+
 vi.mock("@/components/vault/vault-flow", () => ({
   VaultFlow: ({
     onSuccess,

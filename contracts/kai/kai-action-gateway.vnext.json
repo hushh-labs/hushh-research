@@ -7236,7 +7236,9 @@
         "path": "route",
         "target": "/profile/security"
       },
-      "control_ids": [],
+      "control_ids": [
+        "profile_security"
+      ],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",

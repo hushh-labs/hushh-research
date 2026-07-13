@@ -51,8 +51,8 @@ export function SetupCompletionFooter({
   const visualVariant = isQuietSetupAction ? "blue" : variant;
 
   return (
-    <div className="mt-10 pb-[calc(var(--app-bottom-inset)+var(--onboarding-agent-bar-clearance,3.75rem)+1.5rem)] sm:mt-12">
-      <div className="sticky bottom-[calc(var(--app-bottom-inset)+var(--onboarding-agent-bar-clearance,3.75rem)+0.75rem)] z-20 space-y-2 bg-transparent py-2">
+    <div className="mt-10 sm:mt-12">
+      <div className="relative z-20 space-y-2 bg-transparent py-2">
         {supportingText ? (
           <p className="text-center text-xs text-muted-foreground">
             {supportingText}

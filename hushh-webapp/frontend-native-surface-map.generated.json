@@ -3208,7 +3208,9 @@
           "PageHeader"
         ],
         "interaction_layer_policy": {
-          "allowed_families": []
+          "allowed_families": [
+            "vault_setup"
+          ]
         },
         "voice_playbook": {
           "playbook_id": "route.one.location",
@@ -4055,7 +4057,9 @@
           "SetupCapabilityTerminalFooter"
         ],
         "interaction_layer_policy": {
-          "allowed_families": []
+          "allowed_families": [
+            "vault_setup"
+          ]
         },
         "voice_playbook": {
           "playbook_id": "route.one.setup.location",

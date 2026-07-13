@@ -1,13 +1,6 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
-import {
-  Briefcase,
-  Check,
-  ChevronRight,
-  Circle,
-  Lock,
-  type LucideIcon,
-} from "lucide-react";
+import { Check, ChevronRight, Circle, type LucideIcon } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -15,7 +8,6 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import {
-  ONE_CAPABILITIES,
   ONE_SETUP_CAPABILITIES,
   type OneCapabilityTone,
 } from "@/lib/onboarding/one-capabilities";
@@ -28,7 +20,12 @@ import {
   isCapabilitySetupComplete,
   type CapabilityStatus,
 } from "@/lib/services/capability-setup-state-service";
-import { buildOneSetupRoute, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildOneSetupCapabilityRoute,
+  buildOneSetupRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
+import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
 import { cn } from "@/lib/utils";
 
 type OneAgentMode = {
@@ -40,7 +37,6 @@ type OneAgentMode = {
   status: string;
   statusTone: CapabilityStatusTone;
   tone: OneCapabilityTone;
-  locked: boolean;
   isExploreOnly: boolean;
 };
 
@@ -54,69 +50,37 @@ const ONE_AGENT_GRID_STYLE: CSSProperties = {
   rowGap: "1.25rem",
 };
 
-/**
- * RIA is a standalone top-level agent (workspace persona) rather than a setup
- * capability, so it has no CapabilityStatus. It sits directly after Finance,
- * mirroring the top-bar agent switcher roster exactly: the /one grid and the
- * dropdown must always present the same agents. /ria self-guards (non-RIA
- * users are redirected to RIA onboarding), so exposing the tile is safe.
- */
-const RIA_AGENT_MODE: OneAgentMode = {
-  id: "ria",
-  title: "RIA",
-  description: "Advisor workspace: clients, picks, and requests.",
-  href: `${ROUTES.RIA_HOME}?from=${ROUTES.ONE_HOME}`,
-  icon: Briefcase,
-  status: "Explore",
-  statusTone: "muted",
-  // RIA gets its own Sky Blue tone, distinct from Finance's Lavender Mist.
-  tone: "ria",
-  locked: false,
-  isExploreOnly: true,
-};
-
 function buildModes(
   statusById: Record<string, CapabilityStatus>,
 ): OneAgentMode[] {
-  const modes = ONE_CAPABILITIES.filter((cap) => cap.id !== "ria").map(
-    (cap) => {
+  return ONE_SETUP_CAPABILITIES.map((cap) => {
       const status = statusById[cap.id];
+      const copy = getCapabilitySetupCopy(cap.id);
+      if (!copy) {
+        throw new Error(`Missing setup copy for dashboard capability: ${cap.id}`);
+      }
       const display = status
         ? getCapabilityStatusDisplay(status, {
             isExploreOnly: cap.isExploreOnly,
+            actionLabel: copy.actionLabel,
+            resumeActionLabel: copy.resumeActionLabel,
           })
-        : { label: "Checking...", tone: "muted" as CapabilityStatusTone };
-      const locked =
-        !!status &&
-        (status.requiresUnlock === true ||
-          (status.state === "blocked" && status.prerequisite === "vault"));
+        : { label: copy.actionLabel, tone: "action" as CapabilityStatusTone };
       return {
         id: cap.id,
         title: cap.title,
         description: cap.description,
-        href: cap.href.includes("?")
-          ? `${cap.href}&from=${ROUTES.ONE_HOME}`
-          : `${cap.href}?from=${ROUTES.ONE_HOME}`,
+        href: buildOneSetupCapabilityRoute(cap.id),
         icon: cap.icon,
         status: display.label,
         statusTone: display.tone,
         tone: cap.tone,
-        locked,
         isExploreOnly: cap.isExploreOnly === true,
       };
-    },
-  );
-  const financeIndex = modes.findIndex((mode) => mode.id === "finance");
-  modes.splice(
-    financeIndex >= 0 ? financeIndex + 1 : modes.length,
-    0,
-    RIA_AGENT_MODE,
-  );
-  return modes;
+    });
 }
 
 function statusClassName(mode: OneAgentMode): string {
-  if (mode.locked) return "text-muted-foreground";
   if (mode.statusTone === "ready") return "text-[#138a3d] dark:text-[#5ee283]";
   if (mode.statusTone === "attention") return "text-accent-strong";
   if (mode.statusTone === "action") return "text-foreground";
@@ -124,13 +88,6 @@ function statusClassName(mode: OneAgentMode): string {
 }
 
 function AgentIndicator({ mode }: { mode: OneAgentMode }) {
-  if (mode.locked) {
-    return (
-      <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border border-background bg-muted text-muted-foreground shadow-[0_1px_6px_rgba(0,0,0,0.16)]">
-        <Lock className="h-3 w-3" aria-hidden />
-      </span>
-    );
-  }
   if (mode.statusTone === "ready") {
     return (
       <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border border-background bg-[#34c759] text-white shadow-[0_1px_6px_rgba(0,0,0,0.16)]">

@@ -124,7 +124,6 @@ import {
   getProfileRiaRefreshLicenseNumber,
   resolveProfileRiaRegulatoryRow,
 } from "@/lib/profile/profile-ria-regulatory-row";
-import { resolveProfileVaultSettingsRow } from "@/lib/profile/profile-vault-settings-row";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
@@ -2012,7 +2011,6 @@ function ProfilePageContent() {
       : vaultAccess.needsUnlock
         ? "Locked"
         : readableMethod(displayedUnlockMethod);
-  const vaultSettingsRow = resolveProfileVaultSettingsRow(vaultAccess);
   const shouldShowRiaRegulatoryRow =
     hasRiaPersona || Boolean(riaOnboardingStatus?.exists);
   const riaRegulatoryRow = resolveProfileRiaRegulatoryRow({
@@ -2052,9 +2050,9 @@ function ProfilePageContent() {
         voiceAliases: ["access", "sharing", "consent access"],
       },
       {
-        id: "profile_vault",
-        label: vaultSettingsRow.title,
-        purpose: vaultSettingsRow.voicePurpose,
+        id: "profile_security",
+        label: "Security",
+        purpose: "opens vault, session, and account deletion controls.",
         actionId: "route.profile_security_panel",
         role: "card",
         voiceAliases: [
@@ -2194,7 +2192,6 @@ function ProfilePageContent() {
         ]
       : [
           "Account",
-          "Vault",
           ...(shouldShowRiaRegulatoryRow ? ["Regulatory profile"] : []),
           "Preferences",
           "Security",
@@ -2235,7 +2232,7 @@ function ProfilePageContent() {
                     ]
                   : [
                       "Open Account",
-                      vaultSettingsRow.title,
+                      "Open Security",
                       ...(shouldShowRiaRegulatoryRow
                         ? ["Update license information"]
                         : []),
@@ -2381,8 +2378,6 @@ function ProfilePageContent() {
     supportComposeKind,
     switchingVaultMethod,
     emailVerified,
-    vaultSettingsRow.title,
-    vaultSettingsRow.voicePurpose,
     vaultAccess.needsVaultCreation,
   ]);
   usePublishVoiceSurfaceMetadata(profileVoiceSurfaceMetadata);
@@ -2455,15 +2450,6 @@ function ProfilePageContent() {
   const openPreferencesPanel = () =>
     updateProfileView({ panel: "preferences", detail: null }, "push");
   const openSecurityPanel = () => openVaultBackedPanel("security");
-  const openVaultSettingsRow = () => {
-    if (vaultSettingsRow.action === "wait") return;
-    if (vaultSettingsRow.action === "create") {
-      setShowVaultCreation(true);
-      return;
-    }
-    openSecurityPanel();
-  };
-
   const openRegulatoryProfileRow = async () => {
     if (riaRegulatoryRow.action === "wait") return;
     if (riaRegulatoryRow.action === "onboarding") {
@@ -4175,29 +4161,16 @@ function ProfilePageContent() {
       <AppPageContentRegion>
         <SurfaceStack compact>
           <div className="space-y-4 sm:space-y-5">
-            <SettingsGroup title="Settings">
-              <SettingsRow
-                icon={KeyRound}
-                title={vaultSettingsRow.title}
-                description={vaultSettingsRow.description}
-                chevron={vaultSettingsRow.chevron}
-                disabled={vaultSettingsRow.disabled}
-                voiceControlId="profile_vault"
-                voiceActionId="route.profile_security_panel"
-                voiceLabel={vaultSettingsRow.voiceLabel}
-                voicePurpose={vaultSettingsRow.voicePurpose}
-                onClick={openVaultSettingsRow}
-              />
+            <SettingsGroup title="Settings" separatorInset>
               {shouldShowRiaRegulatoryRow ? (
                 <SettingsRow
                   icon={ClipboardCheck}
                   title={riaRegulatoryRow.title}
-                  description={riaRegulatoryRow.description}
                   trailing={
                     <Badge variant="secondary">{riaRegulatoryRow.badge}</Badge>
                   }
                   chevron
-                  stackTrailingOnMobile
+                  density="compact"
                   disabled={riaRegulatoryRow.disabled}
                   voiceControlId="profile_ria_regulatory"
                   voiceActionId="ria.profile.refresh_license"
@@ -4209,29 +4182,33 @@ function ProfilePageContent() {
               <SettingsRow
                 icon={Phone}
                 title="Account"
-                description="Email, phone number, and sign-in identity."
                 chevron
+                density="compact"
                 onClick={openAccountPanel}
               />
               <SettingsRow
                 icon={RefreshCw}
                 title="Preferences"
-                description="Theme and device behavior."
                 chevron
+                density="compact"
                 onClick={openPreferencesPanel}
               />
               <SettingsRow
                 icon={Fingerprint}
                 title="Security"
-                description="Vault, session, and account deletion."
                 chevron
+                density="compact"
+                voiceControlId="profile_security"
+                voiceActionId="route.profile_security_panel"
+                voiceLabel="Security"
+                voicePurpose="Opens vault, session, and account deletion controls."
                 onClick={openSecurityPanel}
               />
               <SettingsRow
                 icon={LifeBuoy}
                 title="Support & feedback"
-                description="Help, bugs, and product feedback."
                 chevron
+                density="compact"
                 onClick={() =>
                   updateProfileView({ panel: "support", detail: null }, "push")
                 }
@@ -4240,22 +4217,21 @@ function ProfilePageContent() {
                 <SettingsRow
                   icon={Code2}
                   title="PKM Agent Lab"
-                  description="Local developer workspace."
                   trailing={<Badge variant="secondary">Local</Badge>}
                   chevron
-                  stackTrailingOnMobile
+                  density="compact"
                   onClick={() => router.push("/profile/pkm-agent-lab")}
                 />
               ) : null}
             </SettingsGroup>
 
-            <SettingsGroup title="Session">
+            <SettingsGroup title="Session" separatorInset>
               <SettingsRow
                 icon={LogOut}
                 title="Sign out"
-                description="End this session on the current device."
                 tone="destructive"
                 chevron
+                density="compact"
                 onClick={() => void handleSignOut()}
               />
             </SettingsGroup>

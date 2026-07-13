@@ -74,6 +74,14 @@ Rules:
 7. Native iOS stays aligned with:
    - `ios.contentInset = "never"`
    - `SystemBars.insetsHandling = "css"`
+
+The shared app scroll root also owns bottom clearance. Standard signed-in
+surfaces reserve `--bottom-chrome-stack-height`; hidden-shell and onboarding
+surfaces reserve the existing Agent Bar through
+`--onboarding-agent-bar-clearance`. Route content must not reposition the Agent
+Bar or recreate that safe-area calculation locally. Terminal setup actions stay
+in normal flow and use the shared scroll tail so their final control can be
+scrolled fully above fixed chrome on compact viewports.
 8. Decorative glass fade is visual-only and must never add extra content spacing.
 9. Signed-in app pages default to `compact` density through `AppPageShell`; route-level spacing overrides are the exception, not the norm.
 10. Compact density tightens page headers, section headers, card padding, list/table rows, and pagination spacing through shared CSS variables rather than page-local class tweaks.
