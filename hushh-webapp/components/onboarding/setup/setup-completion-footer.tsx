@@ -2,7 +2,6 @@
 
 import { Loader2 } from "lucide-react";
 
-import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { Button } from "@/lib/morphy-ux/button";
 import type { ColorVariant, ComponentEffect } from "@/lib/morphy-ux/types";
 
@@ -44,7 +43,7 @@ export function SetupCompletionFooter({
   effect = "fill",
 }: SetupCompletionFooterProps) {
   return (
-    <SurfaceInset className="sticky bottom-[calc(var(--app-bottom-inset)+var(--onboarding-agent-bar-clearance,3.75rem)+0.75rem)] z-20 space-y-2 border-0 bg-[color:var(--app-card-surface-compact)] p-3 shadow-[var(--app-card-shadow-standard)] sm:p-4">
+    <div className="sticky bottom-[calc(var(--app-bottom-inset)+var(--onboarding-agent-bar-clearance,3.75rem)+0.75rem)] z-20 mt-8 space-y-3 bg-transparent py-3 sm:mt-10">
       {supportingText ? (
         <p className="text-center text-xs text-muted-foreground">
           {supportingText}
@@ -71,6 +70,6 @@ export function SetupCompletionFooter({
           {label}
         </Button>
       </div>
-    </SurfaceInset>
+    </div>
   );
 }

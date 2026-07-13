@@ -15,7 +15,8 @@ describe("setup completion footer contract", () => {
 
     expect(source).toContain("var(--app-bottom-inset)");
     expect(source).toContain('className="h-12 text-base"');
-    expect(source).toContain("SurfaceInset");
+    expect(source).toContain("bg-transparent");
+    expect(source).not.toContain("SurfaceInset");
   });
 
   it("supports a deliberately quieter skip state without changing action authority", () => {
@@ -46,6 +47,7 @@ describe("setup completion footer contract", () => {
     expect(source).toContain(
       "sticky bottom-[calc(var(--app-bottom-inset)+var(--onboarding-agent-bar-clearance,3.75rem)+0.75rem)]",
     );
+    expect(source).toContain("mt-8 space-y-3 bg-transparent py-3 sm:mt-10");
     expect(source).not.toContain('placement?: "sticky" | "fixed"');
     expect(source).not.toContain("max-w-[var(--app-shell-standard)]");
   });

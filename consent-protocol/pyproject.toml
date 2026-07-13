@@ -46,7 +46,7 @@ dependencies = [
     "pyjwt[crypto]>=2.10.1",
     "pydantic>=2.0,<3.0",
     "python-a2a>=0.4.0",
-    "python-dotenv==1.0.1",
+    "python-dotenv==1.2.2",
     "pytesseract>=0.3.10",
     "requests>=2.32.4",
     "rsa>=4.9",
