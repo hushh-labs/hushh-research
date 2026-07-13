@@ -42,7 +42,7 @@ env:
   GCP_REGION: us-central1
   BACKEND_SERVICE: consent-protocol
   FRONTEND_SERVICE: hushh-webapp
-  APP_FRONTEND_ORIGIN: https://kai.hushh.ai
+  APP_FRONTEND_ORIGIN: https://one.hushh.ai
   CLOUD_RUN_REVISION_RETENTION: "10"
   BACKUP_BUCKET: hushh-pda-prod-db-backups
   BACKUP_PREFIX: prod/supabase-logical
@@ -176,7 +176,7 @@ jobs:
             --crm-registry-db-enabled "true" \
             --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}" \
             --obs-data-stale-ratio-threshold "0.25" \
-            --passkey-allowed-rp-ids "localhost,127.0.0.1,kai.hushh.ai" \
+            --passkey-allowed-rp-ids "localhost,127.0.0.1,one.hushh.ai" \
             --plaid-env "production" \
             --plaid-client-name "Hushh Kai" \
             --plaid-country-codes "US" \
