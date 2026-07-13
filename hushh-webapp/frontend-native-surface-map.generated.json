@@ -6072,8 +6072,8 @@
       "page_file": "app/ria/profile/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "flow",
-        "exemption_reason": "RIA profile uses its existing focused settings surface outside the standard app-page shell.",
+        "mode": "standard",
+        "exemption_reason": null,
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
