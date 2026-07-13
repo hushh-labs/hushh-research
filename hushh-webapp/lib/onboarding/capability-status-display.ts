@@ -66,8 +66,13 @@ export function getCapabilityStatusDisplay(
     case "skipped":
       return { label: actionLabel ?? "Set up later", tone, isActionable: true };
     case "not-started":
+      // Location gets a specific "Set up location" CTA (clearer than "Set up").
       return {
-        label: isExploreOnly ? "Explore" : (actionLabel ?? "Set up"),
+        label: isExploreOnly
+          ? "Explore"
+          : status.id === "location"
+            ? "Set up location"
+            : (actionLabel ?? "Set up"),
         tone,
         isActionable: true,
       };
