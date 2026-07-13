@@ -60,8 +60,13 @@ export function getCapabilityStatusDisplay(
     case "not-started":
     case "in-progress":
       // Explore-only and not yet explored: invite a look, not a setup step.
+      // Location gets a specific "Set up location" CTA (clearer than "Set up").
       return {
-        label: isExploreOnly ? "Explore" : "Set up",
+        label: isExploreOnly
+          ? "Explore"
+          : status.id === "location"
+            ? "Set up location"
+            : "Set up",
         tone,
         isActionable: true,
       };

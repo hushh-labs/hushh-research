@@ -110,6 +110,13 @@ export interface CapabilitySetupInputs {
    * means "nothing explored yet".
    */
   exploredCapabilityIds?: ReadonlySet<string>;
+  /**
+   * Location readiness signal: whether the user has a location recipient key
+   * (their live location is set up). Only knowable post-unlock (it lives behind
+   * the vault). `true` → set up, `false` → not set up, `undefined` → not fetched
+   * yet (or vault locked). Fed by a lightweight `getState` fetch when unlocked.
+   */
+  locationRecipientKeyReady?: boolean;
 }
 
 /** Capabilities that require an OAuth connection to a third party. */
@@ -217,6 +224,24 @@ function resolveVaultGated(id: string, inputs: CapabilitySetupInputs): Capabilit
   return unknown(id, null, true);
 }
 
+/**
+ * Resolve the location (Onepoint) capability. "Set up" means the user has a
+ * location recipient key, which lives behind the vault. Locked → we cannot read
+ * it, so keep the honest vault-prerequisite `unknown` ("Unlock to view").
+ * Unlocked → `completed` ("Ready") when the key exists, `not-started`
+ * ("Set up location") when it doesn't, and `unknown`/"Checking…" while the
+ * one-shot fetch is still in flight.
+ */
+function resolveLocation(inputs: CapabilitySetupInputs): CapabilityStatus {
+  if (!inputs.isVaultUnlocked) {
+    return unknown("location", "vault", true);
+  }
+  const ready = inputs.locationRecipientKeyReady;
+  if (ready === true) return simple("location", "completed");
+  if (ready === false) return simple("location", "not-started");
+  return unknown("location", null, false);
+}
+
 /** Resolve an OAuth-gated capability from caller-supplied connection booleans. */
 function resolveOauthGated(id: string, inputs: CapabilitySetupInputs): CapabilityStatus {
   const connected = inputs.oauthConnections?.[id];
@@ -237,6 +262,7 @@ export function resolveCapabilitySetupState(
 
   if (id === "finance") return resolveFinance(inputs);
   if (id === "consent") return resolveConsent(inputs);
+  if (id === "location") return resolveLocation(inputs);
   if (OAUTH_GATED.has(id)) return resolveOauthGated(id, inputs);
 
   const capability = getOneCapability(id);

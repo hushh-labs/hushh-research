@@ -18,6 +18,7 @@ import {
 } from "@/lib/services/pre-vault-user-state-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { CapabilityTourService } from "@/lib/services/capability-tour-service";
+import { OneLocationService } from "@/lib/one-location/service";
 
 /**
  * useCapabilitySetupStates — the single hook that feeds the resolver from live
@@ -78,6 +79,10 @@ export function useCapabilitySetupStates(
   const [exploredIds, setExploredIds] = useState<ReadonlySet<string>>(
     () => new Set<string>()
   );
+  // Location readiness: undefined until we've fetched (or while vault locked).
+  const [locationRecipientKeyReady, setLocationRecipientKeyReady] = useState<
+    boolean | undefined
+  >(undefined);
 
   const userId = user?.uid ?? null;
 
@@ -213,6 +218,36 @@ export function useCapabilitySetupStates(
     };
   }, [enrichOauth, userId]);
 
+  // ---- WHEN UNLOCKED: location recipient-key readiness --------------------
+  // One lightweight `getState` once the vault is unlocked, so the Onepoint tile
+  // reads "Ready" vs "Set up location" instead of a generic "Unlock to view".
+  // Locked → leave undefined so the resolver keeps the honest "Unlock to view".
+  useEffect(() => {
+    if (!userId || !isVaultUnlocked) {
+      setLocationRecipientKeyReady(undefined);
+      return;
+    }
+    const token = getVaultOwnerToken();
+    if (!token) {
+      setLocationRecipientKeyReady(undefined);
+      return;
+    }
+    let cancelled = false;
+    OneLocationService.getState(token)
+      .then((state) => {
+        if (!cancelled) {
+          setLocationRecipientKeyReady(Boolean(state.myRecipientKey?.keyId));
+        }
+      })
+      .catch(() => {
+        // Leave undefined → resolver yields "Checking…", never a fabricated state.
+        if (!cancelled) setLocationRecipientKeyReady(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, isVaultUnlocked, getVaultOwnerToken]);
+
   const markExplored = useCallback(
     async (capabilityId: string) => {
       const id = capabilityId.trim();
@@ -248,6 +283,7 @@ export function useCapabilitySetupStates(
       pendingConsents,
       oauthConnections,
       exploredCapabilityIds: exploredIds,
+      locationRecipientKeyReady,
     }),
     [
       userId,
@@ -257,6 +293,7 @@ export function useCapabilitySetupStates(
       pendingConsents,
       oauthConnections,
       exploredIds,
+      locationRecipientKeyReady,
     ]
   );
 

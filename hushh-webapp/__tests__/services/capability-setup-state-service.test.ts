@@ -234,12 +234,47 @@ describe("resolveCapabilitySetupState — vault-gated (email, location)", () => 
     }
   });
 
-  it("stays unknown (not fabricated) after unlock until a real signal is wired", () => {
-    for (const id of ["email", "location"]) {
-      const status = resolveCapabilitySetupState(id, baseInputs({ isVaultUnlocked: true }));
-      expect(status.state).toBe("unknown");
-      expect(status.requiresUnlock).toBe(true);
-    }
+  it("email stays unknown (not fabricated) after unlock until a real signal is wired", () => {
+    const status = resolveCapabilitySetupState("email", baseInputs({ isVaultUnlocked: true }));
+    expect(status.state).toBe("unknown");
+    expect(status.requiresUnlock).toBe(true);
+  });
+});
+
+describe("resolveCapabilitySetupState — location (recipient key)", () => {
+  it("keeps the honest 'Unlock to view' while the vault is locked", () => {
+    const status = resolveCapabilitySetupState(
+      "location",
+      baseInputs({ isVaultUnlocked: false, locationRecipientKeyReady: true }),
+    );
+    expect(status.state).toBe("unknown");
+    expect(status.prerequisite).toBe("vault");
+    expect(status.requiresUnlock).toBe(true);
+  });
+
+  it("is 'Checking…' (unknown, no unlock badge) when unlocked but not yet fetched", () => {
+    const status = resolveCapabilitySetupState(
+      "location",
+      baseInputs({ isVaultUnlocked: true }),
+    );
+    expect(status.state).toBe("unknown");
+    expect(status.requiresUnlock).toBe(false);
+  });
+
+  it("is completed when unlocked and the recipient key exists", () => {
+    const status = resolveCapabilitySetupState(
+      "location",
+      baseInputs({ isVaultUnlocked: true, locationRecipientKeyReady: true }),
+    );
+    expect(status.state).toBe("completed");
+  });
+
+  it("is not-started when unlocked and the recipient key is missing", () => {
+    const status = resolveCapabilitySetupState(
+      "location",
+      baseInputs({ isVaultUnlocked: true, locationRecipientKeyReady: false }),
+    );
+    expect(status.state).toBe("not-started");
   });
 });
 
