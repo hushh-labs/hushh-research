@@ -27,7 +27,10 @@ from hushh_mcp.integrations.alpaca import (
     AlpacaBrokerRuntimeConfig,
 )
 from hushh_mcp.integrations.plaid import PlaidHttpClient, PlaidRuntimeConfig
-from hushh_mcp.runtime_settings import get_optional_plaid_access_token_key
+from hushh_mcp.runtime_settings import (
+    get_app_runtime_settings,
+    get_optional_plaid_access_token_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -604,7 +607,7 @@ class BrokerFundingService:
             )
             if not redirect_path.startswith("/"):
                 redirect_path = f"/{redirect_path}"
-            frontend_origin = _clean_text(os.getenv("APP_FRONTEND_ORIGIN"))
+            frontend_origin = get_app_runtime_settings().app_frontend_origin
             if frontend_origin:
                 redirect_uri = _normalize_https_url(f"{frontend_origin.rstrip('/')}{redirect_path}")
         authorize_url = _normalize_https_url(

@@ -685,6 +685,7 @@ jobs:
           semantic_report = load_json("/tmp/dev-release-verify-attempt-2.json") or load_json(
               "/tmp/dev-release-verify-attempt-1.json"
           )
+          semantic_report_present = bool(semantic_report)
 
           parity_success = os.environ.get("PARITY_ATTEMPT_1") == "success" or os.environ.get("PARITY_ATTEMPT_2") == "success"
           backend_provenance_success = (
@@ -755,6 +756,8 @@ jobs:
               item for item in semantic_failures if not item.startswith("signed_in_routes:")
           }
           if not semantic_success:
+              if not semantic_report_present:
+                  append_unique(blocking, ["semantic_verifier_failed"])
               if blocking_semantic_failures:
                   append_unique(blocking, ["runtime_behavior_failed"])
               if "smoke_auth" in blocking_semantic_failures:
@@ -798,6 +801,7 @@ jobs:
                   "attempt_1": os.environ.get("SEMANTIC_ATTEMPT_1", ""),
                   "attempt_2": os.environ.get("SEMANTIC_ATTEMPT_2", ""),
                   "success": semantic_success,
+                  "report_present": semantic_report_present,
                   "failures": sorted(semantic_failures),
                   "blocking_failures": sorted(blocking_semantic_failures),
                   "advisory_failures": advisory_semantic_failures,
