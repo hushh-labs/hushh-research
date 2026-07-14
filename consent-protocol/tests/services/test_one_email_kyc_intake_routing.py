@@ -435,3 +435,258 @@ async def test_intake_required_fields_empty_at_needs_confirm():
 async def test_confidence_floor_constant_is_half():
     """Smoke-test: the confidence floor is 0.5 as specified."""
     assert _KYC_ROUTING_CONFIDENCE_FLOOR == 0.5
+
+
+# ---------------------------------------------------------------------------
+# Connector-repair path: needs_client_connector → needs_confirm (Fix I2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_connector_repair_routes_to_needs_confirm_when_proposal_present():
+    """Workflow parked at needs_client_connector WITH kyc_proposal in metadata
+    must advance to needs_confirm (not needs_scope) once a connector is present.
+    """
+    import json
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    _WORKFLOW_ID = "c" * 32
+
+    class _RepairDb:
+        """Minimal fake db that pre-populates a needs_client_connector workflow
+        with a kyc_proposal and serves a connector on lookup.
+        """
+
+        def __init__(self) -> None:
+            self.workflows: list = [
+                {
+                    "workflow_id": _WORKFLOW_ID,
+                    "user_id": "user-1",
+                    "status": "needs_client_connector",
+                    "gmail_message_id": "gmail_repair_msg_1",
+                    "gmail_thread_id": "gmail_repair_thread_1",
+                    "gmail_history_id": "200",
+                    "sender_email": "sender@example.com",
+                    "sender_name": "Sender",
+                    "participant_emails": ["sender@example.com"],
+                    "subject": "KYC Request",
+                    "snippet": None,
+                    "counterparty_label": "Sender",
+                    "rfc_message_id": "<repair1@example.com>",
+                    "required_fields": [],
+                    "requested_scope": "attr.identity.*",
+                    "last_error_code": "kyc_client_connector_missing",
+                    "last_error_message": "Unlock the KYC workspace.",
+                    "metadata": {
+                        "kyc_proposal": _IDENTITY_PROPOSAL,
+                        "candidate_scopes": _IDENTITY_PROPOSAL["requested_items"],
+                        "classification": "kyc",
+                        "detected_domains": ["identity"],
+                        "strict_client_zk": True,
+                        "client_connector_required": True,
+                    },
+                    "consent_request_id": None,
+                    "draft_subject": None,
+                    "draft_body": None,
+                    "draft_status": "not_ready",
+                    "send_attempt_id": None,
+                    "send_status": "not_started",
+                    "sent_message_id": None,
+                    "sent_at": None,
+                    "client_draft_hash": None,
+                    "approved_send_hash": None,
+                    "pkm_writeback_status": "not_started",
+                    "pkm_writeback_artifact_hash": None,
+                    "pkm_writeback_attempt_count": 0,
+                    "pkm_writeback_last_error": None,
+                    "pkm_writeback_completed_at": None,
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            ]
+            self.connectors = [
+                {
+                    "connector_id": "c1",
+                    "user_id": "user-1",
+                    "connector_key_id": "key-1",
+                    "connector_public_key": _CONNECTOR_PUBLIC_B64,
+                    "connector_wrapping_alg": "X25519-AES256-GCM",
+                    "public_key_fingerprint": "fp-1",
+                    "status": "active",
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
+                    "rotated_at": None,
+                    "revoked_at": None,
+                }
+            ]
+
+        def execute_raw(self, sql: str, params: dict | None = None):
+            params = params or {}
+            normalized = " ".join(sql.lower().split())
+            if "from one_kyc_workflows" in normalized and "where gmail_message_id" in normalized:
+                msg_id = params.get("gmail_message_id")
+                rows = [r for r in self.workflows if r.get("gmail_message_id") == msg_id]
+                return SimpleNamespace(data=rows[:1])
+            if "from one_kyc_client_connectors" in normalized:
+                uid = params.get("user_id")
+                rows = [
+                    r
+                    for r in self.connectors
+                    if r.get("user_id") == uid and r.get("status") == "active"
+                ]
+                return SimpleNamespace(data=rows[:1])
+            if "update one_kyc_workflows" in normalized:
+                wf_id = params["workflow_id"]
+                row = next(r for r in self.workflows if r["workflow_id"] == wf_id)
+                for key, value in params.items():
+                    if key == "workflow_id" or key.startswith("set_"):
+                        continue
+                    if not params.get(f"set_{key}", True):
+                        continue
+                    row[key] = json.loads(value) if key == "metadata" else value
+                row["updated_at"] = datetime.now(timezone.utc)
+                return SimpleNamespace(data=[row])
+            return SimpleNamespace(data=[])
+
+    svc = OneEmailKycService(db=_RepairDb())
+    svc._config = _make_service()._config
+
+    result = await svc.process_message_id("gmail_repair_msg_1", history_id="200")
+
+    assert result["reason"] == "client_connector_repaired"
+    workflow = result["workflow"]
+    assert workflow["status"] == "needs_confirm", (
+        f"Expected needs_confirm (proposal present), got {workflow['status']!r}"
+    )
+    # Proposal and candidate scopes must be preserved
+    assert workflow["metadata"]["kyc_proposal"]["classification"] == "kyc"
+    assert workflow["metadata"]["candidate_scopes"][0]["scope"] == "attr.identity.*"
+
+
+@pytest.mark.asyncio
+async def test_connector_repair_routes_to_needs_scope_without_proposal():
+    """Workflow parked at needs_client_connector WITHOUT kyc_proposal (legacy)
+    must advance to needs_scope (existing behavior preserved).
+    """
+    import json
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    _WORKFLOW_ID = "d" * 32
+
+    class _LegacyRepairDb:
+        def __init__(self) -> None:
+            self.workflows: list = [
+                {
+                    "workflow_id": _WORKFLOW_ID,
+                    "user_id": "user-1",
+                    "status": "needs_client_connector",
+                    "gmail_message_id": "gmail_legacy_repair_1",
+                    "gmail_thread_id": "gmail_legacy_thread_1",
+                    "gmail_history_id": "300",
+                    "sender_email": "sender@example.com",
+                    "sender_name": "Sender",
+                    "participant_emails": ["sender@example.com"],
+                    "subject": "KYC Request",
+                    "snippet": None,
+                    "counterparty_label": "Sender",
+                    "rfc_message_id": "<legacy1@example.com>",
+                    "required_fields": [],
+                    "requested_scope": "attr.identity.*",
+                    "last_error_code": "kyc_client_connector_missing",
+                    "last_error_message": "Unlock the KYC workspace.",
+                    # No kyc_proposal — legacy workflow
+                    "metadata": {"strict_client_zk": True, "client_connector_required": True},
+                    "consent_request_id": None,
+                    "draft_subject": None,
+                    "draft_body": None,
+                    "draft_status": "not_ready",
+                    "send_attempt_id": None,
+                    "send_status": "not_started",
+                    "sent_message_id": None,
+                    "sent_at": None,
+                    "client_draft_hash": None,
+                    "approved_send_hash": None,
+                    "pkm_writeback_status": "not_started",
+                    "pkm_writeback_artifact_hash": None,
+                    "pkm_writeback_attempt_count": 0,
+                    "pkm_writeback_last_error": None,
+                    "pkm_writeback_completed_at": None,
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            ]
+            self.connectors = [
+                {
+                    "connector_id": "c1",
+                    "user_id": "user-1",
+                    "connector_key_id": "key-1",
+                    "connector_public_key": _CONNECTOR_PUBLIC_B64,
+                    "connector_wrapping_alg": "X25519-AES256-GCM",
+                    "public_key_fingerprint": "fp-1",
+                    "status": "active",
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
+                    "rotated_at": None,
+                    "revoked_at": None,
+                }
+            ]
+            self.consent_events: list = []
+            self.consent_db_pending: dict = {}
+
+        def execute_raw(self, sql: str, params: dict | None = None):
+            params = params or {}
+            normalized = " ".join(sql.lower().split())
+            if "from one_kyc_workflows" in normalized and "where gmail_message_id" in normalized:
+                msg_id = params.get("gmail_message_id")
+                rows = [r for r in self.workflows if r.get("gmail_message_id") == msg_id]
+                return SimpleNamespace(data=rows[:1])
+            if "from one_kyc_client_connectors" in normalized:
+                uid = params.get("user_id")
+                rows = [
+                    r
+                    for r in self.connectors
+                    if r.get("user_id") == uid and r.get("status") == "active"
+                ]
+                return SimpleNamespace(data=rows[:1])
+            if "update one_kyc_workflows" in normalized:
+                wf_id = params["workflow_id"]
+                row = next(r for r in self.workflows if r["workflow_id"] == wf_id)
+                for key, value in params.items():
+                    if key == "workflow_id" or key.startswith("set_"):
+                        continue
+                    if not params.get(f"set_{key}", True):
+                        continue
+                    row[key] = json.loads(value) if key == "metadata" else value
+                row["updated_at"] = datetime.now(timezone.utc)
+                return SimpleNamespace(data=[row])
+            return SimpleNamespace(data=[])
+
+    class _FakeConsentDb:
+        async def insert_event(self, **kwargs):
+            pass
+
+        async def get_pending_by_request_id(self, user_id, request_id):
+            return {"request_id": request_id, "action": "REQUESTED"}
+
+        async def get_request_status(self, user_id, request_id):
+            return None
+
+        async def get_active_token(self, user_id):
+            return None
+
+        async def get_covering_active_tokens(self, user_id, *, requested_scope, agent_id=None):
+            return []
+
+    legacy_db = _LegacyRepairDb()
+    svc = OneEmailKycService(db=legacy_db, consent_db=_FakeConsentDb())
+    svc._config = _make_service()._config
+
+    result = await svc.process_message_id("gmail_legacy_repair_1", history_id="300")
+
+    assert result["reason"] == "client_connector_repaired"
+    workflow = result["workflow"]
+    assert workflow["status"] == "needs_scope", (
+        f"Expected needs_scope (no proposal), got {workflow['status']!r}"
+    )

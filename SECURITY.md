@@ -118,19 +118,23 @@ access to the encryption keys. This means:
 - The server cannot decrypt user data, even for support purposes
 - This is by design to protect user privacy
 
-**Scoped exception — One Email KYC LLM paths (consent-gated):** The KYC
+**Scoped exception — One Email KYC LLM paths:** The KYC
 extract/draft (`POST /kyc/workflows/{id}/extract-draft`) and full-redraft
 (`POST /kyc/workflows/{id}/redraft-full`) endpoints send the decrypted
 plaintext of the **one user-approved domain** to the server-side Gemini
-Vertex LLM proxy. This path is gated by the `agent.kyc.disclose.llm`
-consent scope, which the user explicitly grants at the KYC confirm step —
-no plaintext leaves the client without that grant. What does **not** change:
-storage remains client-encrypted, `draft_body` is never persisted
-server-side, and server logs contain only SHA-256 hashes (never bodies or
-values). Pass 1 routing (`classify_kyc_request`) sees only the
-sanitized PKM index (domain names, summaries, and tags — no values). This
-server-side LLM path is **transitional**, pending BYOK and on-device
-inference, which will restore the full zero-knowledge posture.
+Vertex LLM proxy. These paths require a valid vault-owner session and the
+per-field data-scope consent the user grants at the confirm step; only the
+approved domain's plaintext is sent, and only after those data scopes are
+consented. The `agent.kyc.disclose.llm` scope tags these endpoints for
+audit, but because a vault-owner token satisfies any scope check it is not
+yet an independently-revocable control — a separately-revocable disclose
+grant is planned as follow-up. What does **not** change: storage remains
+client-encrypted, `draft_body` is never persisted server-side, and server
+logs contain only SHA-256 hashes (never bodies or values). Pass 1 routing
+(`classify_kyc_request`) sees only the sanitized PKM index (domain names,
+summaries, and tags — no values). This server-side LLM path is
+**transitional**, pending BYOK and on-device inference, which will restore
+the full zero-knowledge posture.
 
 ### Consent Tokens
 

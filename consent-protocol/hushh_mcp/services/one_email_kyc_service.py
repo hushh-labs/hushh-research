@@ -1536,23 +1536,26 @@ class OneEmailKycService:
             if existing.get("status") == "needs_client_connector":
                 connector = self._get_active_client_connector(existing.get("user_id"))
                 if connector:
+                    existing_metadata = existing.get("metadata") or {}
+                    has_proposal = bool(existing_metadata.get("kyc_proposal"))
                     repaired = self._update_workflow(
                         existing["workflow_id"],
-                        status="needs_scope",
+                        status="needs_confirm" if has_proposal else "needs_scope",
                         last_error_code=None,
                         last_error_message=None,
                         metadata={
-                            **existing.get("metadata", {}),
+                            **existing_metadata,
                             "client_connector_key_id": connector["connector_key_id"],
                             "client_connector_fingerprint": connector.get("public_key_fingerprint"),
                             "strict_client_zk": True,
                         },
                     )
-                    workflow = await self._ensure_consent_request(repaired, connector=connector)
+                    if not has_proposal:
+                        repaired = await self._ensure_consent_request(repaired, connector=connector)
                     return {
                         "handled": True,
                         "reason": "client_connector_repaired",
-                        "workflow": workflow,
+                        "workflow": repaired,
                     }
             if existing.get("status") == "needs_scope" and (
                 not existing.get("consent_request_id") or has_stale_consent_url
@@ -2783,11 +2786,16 @@ class OneEmailKycService:
             and isinstance(metadata, dict)
             and metadata.get("scope_selection_required")
         ):
+            _from_connector_wait = workflow.get("status") == "needs_client_connector"
             return self._update_workflow(
                 workflow["workflow_id"],
-                status="needs_scope"
-                if workflow.get("status") == "needs_client_connector"
-                else workflow.get("status"),
+                status=(
+                    "needs_confirm"
+                    if _from_connector_wait and metadata.get("kyc_proposal")
+                    else "needs_scope"
+                    if _from_connector_wait
+                    else workflow.get("status")
+                ),
                 last_error_code=None,
                 last_error_message=None,
                 metadata={
@@ -2833,11 +2841,19 @@ class OneEmailKycService:
             selected_scopes=selected_scopes,
         )
         consent_request_id = bundle["consent_requests"][0]["request_id"]
+        _from_connector_wait = workflow.get("status") == "needs_client_connector"
+        _wf_metadata = workflow.get("metadata", {})
         return self._update_workflow(
             workflow["workflow_id"],
-            status="needs_scope"
-            if workflow.get("status") == "needs_client_connector"
-            else workflow.get("status"),
+            status=(
+                "needs_confirm"
+                if _from_connector_wait
+                and isinstance(_wf_metadata, dict)
+                and _wf_metadata.get("kyc_proposal")
+                else "needs_scope"
+                if _from_connector_wait
+                else workflow.get("status")
+            ),
             consent_request_id=consent_request_id,
             requested_scope=bundle["selected_scopes"][0],
             metadata={

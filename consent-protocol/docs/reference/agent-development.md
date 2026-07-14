@@ -466,10 +466,11 @@ user. Otherwise the workflow enters `needs_confirm`.
 **Confirm gate (`POST /kyc/workflows/{id}/confirm-proposal`):** The `/one/kyc`
 UI shows the LLM's proposed domain(s), fields, and reasoning. The user
 approves a subset of proposed scopes; this is the explicit consent act. One
-creates one `agent_kyc` consent request per approved scope (shared bundle id)
-plus an `agent.kyc.disclose.llm` consent scope that gates the PII-to-LLM
-paths. Rejected or edited scopes are discarded before any data leaves the
-client.
+creates one `agent_kyc` consent request per approved data scope (shared bundle
+id). Rejected or edited scopes are discarded before any data leaves the
+client. The `agent.kyc.disclose.llm` scope labels the PII-to-LLM endpoints
+for audit but is not added as a separate consent request here; the effective
+gate is the vault-owner session plus the per-field data-scope grants above.
 
 **Pass 2 — LLM extract + draft (`POST /kyc/workflows/{id}/extract-draft`):**
 The frontend decrypts only the one approved domain and sends the full

@@ -829,7 +829,10 @@ async def test_register_client_connector_repairs_waiting_workflow():
         workflow_id=result["workflow"]["workflow_id"],
     )
 
-    assert refreshed["status"] == "needs_scope"
+    # With Pass 1 routing, _EMPTY_PROPOSAL is stored as kyc_proposal in metadata,
+    # so the connector-repair now correctly advances to needs_confirm (the proposal
+    # review gate) rather than bypassing it.
+    assert refreshed["status"] == "needs_confirm"
     assert refreshed["consent_request_id"] is None
     selected = await _select_identity_scope(service, refreshed)
     assert selected["consent_request_id"].startswith("okyc_")

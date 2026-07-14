@@ -36,9 +36,12 @@ policy.
 The backend owns mailbox intake, workflow metadata, consent status, Gmail send,
 retention metadata, and PKM writeback receipts. The frontend owns vault unlock,
 per-user connector private keys, scoped export decrypt, user review, and
-encrypted PKM writeback. Draft composition is LLM-driven server-side (Pass 2),
-gated by the `agent.kyc.disclose.llm` consent scope; the renderer wraps the
-LLM body in Gmail-safe HTML chrome client-side. Storage remains
+encrypted PKM writeback. Draft composition is LLM-driven server-side (Pass 2), requiring a valid
+vault-owner session and the per-field data-scope consent the user grants at
+the confirm step; the renderer wraps the LLM body in Gmail-safe HTML chrome
+client-side. The `agent.kyc.disclose.llm` scope tags these endpoints for
+audit; because a vault-owner token satisfies any scope check it is not yet
+an independently-revocable control (planned as follow-up). Storage remains
 client-encrypted; `draft_body` is never persisted server-side.
 
 ## Invariants
@@ -109,8 +112,8 @@ inbound Gmail ──> sender match ──(unknown)──> blocked
         needs_confirm   ── /one/kyc shows proposed domain(s) + fields + reasoning
              │              user approves / edits / rejects each proposed field
              ▼ (user approves — this IS the consent act)
-        confirm_proposal creates consent requests for approved scopes
-             (one per field scope + agent.kyc.disclose.llm) ──> consent granted
+        confirm_proposal creates consent requests for approved data scopes
+             (one per field scope; data-scope consent IS the gate) ──> consent granted
              │
              ▼
         [PASS 2: LLM extract + draft]
@@ -178,12 +181,14 @@ in Gmail-safe HTML chrome.
 
 ### Consent Scope: `agent.kyc.disclose.llm`
 
-This scope gates all PII-to-LLM paths (Pass 2 extract+draft and redraft-full).
-It is granted at the confirm step alongside the per-field `attr.*` scopes,
-so the user explicitly consents to "my identity data is sent to the LLM to
-answer this request." It is distinct from `agent.kyc.process` (workflow entry)
-and `agent.kyc.redraft.llm` (cosmetic redraft). Without this grant the
-`extract-draft` and `redraft-full` endpoints reject the request.
+This scope labels the PII-to-LLM paths (Pass 2 extract+draft and redraft-full)
+for audit purposes. The actual gate on those endpoints is a valid vault-owner
+session plus the per-field data-scope consent the user grants at the confirm
+step. Because a vault-owner token satisfies any scope check in the current
+implementation, `agent.kyc.disclose.llm` is not yet an independently-revocable
+control — a separately-revocable disclose grant is planned as follow-up. Only
+the approved domain's plaintext is sent to the LLM, and only after the user's
+data-scope consents are granted at the confirm step.
 
 ### Guardrails (all fail-closed)
 
