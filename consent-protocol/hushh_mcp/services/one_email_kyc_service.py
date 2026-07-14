@@ -263,6 +263,35 @@ _KYC_ROUTING_SCHEMA: dict[str, Any] = {
 }
 
 
+_KYC_EXTRACT_DRAFT_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "extracted": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "scope": {"type": "STRING"},
+                    "label": {"type": "STRING"},
+                    "value": {"type": "STRING"},
+                },
+                "required": ["scope", "label", "value"],
+            },
+        },
+        "missing": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "draft": {
+            "type": "OBJECT",
+            "properties": {
+                "subject": {"type": "STRING"},
+                "body": {"type": "STRING"},
+            },
+            "required": ["subject", "body"],
+        },
+    },
+    "required": ["extracted", "missing", "draft"],
+}
+
+
 def _runtime_environment() -> str:
     return (
         _clean_text(os.getenv("ENVIRONMENT"))
@@ -4199,6 +4228,122 @@ class OneEmailKycService:
 
         # Step 9 — Return the rewritten template for client-side re-substitution.
         return {"rewritten_template": rewritten_template}
+
+    @staticmethod
+    def _draft_values_are_grounded(draft_body: str, extracted: list[dict[str, Any]]) -> bool:
+        """Conservative v1 provenance guard: reject if the draft contains an email address
+        or a 6+ digit run that is not present in (or a substring of) any extracted value.
+
+        Limits: does not catch short invented strings, only email-shaped tokens and long
+        digit sequences. Sufficient as a cheap hallucination backstop for v1.
+        """
+        # re is already imported at module top (line 20) — do NOT import here.
+        allowed = {str(item.get("value", "")).strip() for item in extracted if item.get("value")}
+        for match in re.findall(r"[\w.+-]+@[\w-]+\.[\w.-]+|\b\d{6,}\b", draft_body):
+            if match not in allowed and not any(match in v for v in allowed):
+                return False
+        return True
+
+    async def extract_and_draft(
+        self,
+        *,
+        user_id: str,
+        workflow_id: str,
+        domain: str,
+        domain_data: dict[str, Any],
+        approved_scopes: list[str],
+        request_text: str,
+        consent_token: str,
+    ) -> dict[str, Any]:
+        """Pass 2 — extract exact approved fields from the decrypted domain and
+        compose the reply. Receives full plaintext for the ONE approved domain.
+
+        Consent-gated (agent.kyc.disclose.llm). Enforces two fail-closed guardrails:
+          - Subset invariant: extracted[].scope ⊆ approved_scopes.
+          - Value provenance: draft body must not contain PII-shaped tokens absent
+            from the extracted set (email or 6+ digit run).
+        draft_body is NEVER persisted. Only user_id/workflow_id/domain/scopes are logged.
+        """
+        # Step 1 — Consent gate.
+        valid, reason, _tok = await validate_token_with_db(
+            consent_token, ConsentScope.AGENT_KYC_DISCLOSE_LLM
+        )
+        if not valid:
+            raise PermissionError(f"KYC disclose denied: {reason}")
+
+        # Step 2 — Workflow must be awaiting user review with a ready draft.
+        workflow = await self.get_workflow(user_id=user_id, workflow_id=workflow_id)
+        if workflow.get("status") != "waiting_on_user" or workflow.get("draft_status") != "ready":
+            raise OneEmailKycError(
+                "KYC draft is not ready.",
+                status_code=409,
+                code="ONE_KYC_DRAFT_NOT_READY",
+            )
+
+        # Step 3 — Gemini readiness.
+        if not _require_gemini_ready():
+            return _gemini_unavailable_payload("Gemini unavailable for KYC extract/draft")
+
+        # Step 4 — Build prompt and call the structured LLM helper.
+        approved_set = set(_dedupe(approved_scopes))
+        prompt = (
+            "Extract ONLY the approved fields from the user's data and write a "
+            "professional KYC reply email using the real values.\n"
+            f"Approved scopes (extract only these): {json.dumps(sorted(approved_set))}\n"
+            f"User data for domain '{domain}':\n{json.dumps(domain_data)}\n\n"
+            f"Original request:\n{_truncate(request_text, 4000)}\n\n"
+            "Rules: (1) 'extracted' must contain ONLY approved scopes. (2) If an "
+            "approved field is absent from the data, list its scope in 'missing' and "
+            "do not fabricate a value. (3) 'draft.body' must use only the extracted "
+            "values — never invent data. Return the JSON."
+        )
+        result = await self._llm_generate_structured(
+            prompt=prompt, response_schema=_KYC_EXTRACT_DRAFT_SCHEMA
+        )
+        if result is None:
+            return _gemini_unavailable_payload("KYC extract/draft produced no parseable result")
+
+        # Step 5 — Subset invariant: extracted scopes ⊆ approved scopes.
+        extracted = result.get("extracted", []) or []
+        out_scopes = {str(item.get("scope")) for item in extracted}
+        if not out_scopes.issubset(approved_set):
+            raise OneEmailKycError(
+                "Extraction returned data outside the approved scopes.",
+                status_code=422,
+                code="ONE_KYC_EXTRACT_SUBSET_VIOLATION",
+                payload={"unexpected": sorted(out_scopes - approved_set)},
+            )
+
+        # Step 6 — Provenance guard: draft body must not contain ungrounded PII tokens.
+        draft_body = str((result.get("draft") or {}).get("body") or "")
+        if not self._draft_values_are_grounded(draft_body, extracted):
+            raise OneEmailKycError(
+                "Draft contains values not grounded in approved data.",
+                status_code=422,
+                code="ONE_KYC_DRAFT_PROVENANCE_VIOLATION",
+            )
+
+        # Step 7 — Log identifiers only; never log body or values.
+        logger.info(
+            "one.kyc.extract_draft user_id=%s workflow_id=%s domain=%s scopes=%s",
+            user_id,
+            workflow_id,
+            domain,
+            sorted(out_scopes),
+        )
+
+        # Step 8 — Bump draft_revision, set client_draft_required. Do NOT persist draft_body.
+        metadata = workflow.get("metadata", {}) or {}
+        self._update_workflow(
+            workflow_id,
+            metadata={
+                **metadata,
+                "draft_revision": int(metadata.get("draft_revision") or 0) + 1,
+                "client_draft_required": True,
+            },
+        )
+
+        return result
 
     async def reject_draft(
         self,

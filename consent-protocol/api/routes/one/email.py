@@ -78,6 +78,13 @@ class RecentMailboxSyncRequest(WorkflowUserRequest):
     max_results: int = Field(default=12, ge=1, le=25)
 
 
+class ExtractDraftRequest(WorkflowUserRequest):
+    domain: str = Field(min_length=1, max_length=120)
+    domain_data: dict = Field(default_factory=dict)
+    approved_scopes: list[str] = Field(min_length=1, max_length=8)
+    request_text: str = Field(min_length=1, max_length=12000)
+
+
 class ConfirmProposalRequest(WorkflowUserRequest):
     approved_scopes: list[str] = Field(min_length=1, max_length=8)
 
@@ -588,6 +595,32 @@ async def one_kyc_redraft_llm(
             workflow_id,
         )
         raise _to_http_exception(exc, operation="redraft_llm") from exc
+
+
+@router.post("/kyc/workflows/{workflow_id}/extract-draft")
+async def one_kyc_extract_draft(
+    workflow_id: str,
+    payload: ExtractDraftRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verified_vault_user_id(token_data, payload.user_id)
+    try:
+        return await _service().extract_and_draft(
+            user_id=payload.user_id,
+            workflow_id=workflow_id,
+            domain=payload.domain,
+            domain_data=payload.domain_data,
+            approved_scopes=payload.approved_scopes,
+            request_text=payload.request_text,
+            consent_token=token_data.get("token", ""),
+        )
+    except Exception as exc:
+        logger.exception(
+            "one.kyc.extract_draft_failed user_id=%s workflow_id=%s",
+            payload.user_id,
+            workflow_id,
+        )
+        raise _to_http_exception(exc, operation="extract_draft") from exc
 
 
 @router.post("/kyc/workflows/{workflow_id}/confirm-proposal")
