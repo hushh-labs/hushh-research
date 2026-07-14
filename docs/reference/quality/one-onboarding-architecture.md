@@ -217,8 +217,15 @@ compatibility-only and redirects known old links; `?finish=1` has no meaning.
   completion-ready Gmail setup route. Until Gmail reports a verified connection,
   its shared bottom action is **Skip Gmail setup**; the verified connection
   swaps it to **Finish Gmail setup**. OAuth success alone never records
-capability completion. Shopping-summary PKM persistence is an explicit action;
-Gmail does not auto-save inferred memory.
+capability completion. Desktop web opens Gmail OAuth in a named popup before
+the asynchronous connector-start call, then uses the existing backend-owned
+callback URI. The parent page retains its memory-only vault session. The popup
+holds only an opaque attempt and setup correlation; on verified settlement it
+posts a same-origin terminal result to the exact opener, which refreshes the
+connector before rendering Finish. It never transfers a vault key, owner token,
+Firebase token, OAuth artifact, or receipt content between windows. A blocked
+popup never falls back to a same-tab redirect. Shopping-summary PKM persistence
+is an explicit action; Gmail does not auto-save inferred memory.
 - **External callback correlation**: Gmail and Plaid begin a fresh opaque
   attempt identifier only after the durable journey accepts `pending`. A
   callback may change setup state only when both that identifier and the

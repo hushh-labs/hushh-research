@@ -434,6 +434,40 @@ class TestRunAppAction:
         assert _STATE_PENDING_DIRECTIVE not in state
 
     @pytest.mark.asyncio
+    async def test_navigation_action_executes_even_when_not_in_screen_inventory(self):
+        # Cross-screen navigation ("go to profile") must work from any
+        # screen; the per-screen inventory does not bound route.* actions.
+        state = {
+            "hussh:voice_context": {
+                "available_action_ids": ["analysis.start"],
+            }
+        }
+        result = await run_app_action("route.profile", {}, _tool_context(state))
+        assert result["status"] == "ok"
+        assert state[_STATE_PENDING_DIRECTIVE]["payload"]["actionId"] == "route.profile"
+
+    @pytest.mark.asyncio
+    async def test_pending_settlement_holds_the_next_action(self):
+        state = {
+            "hussh:voice_context": {
+                "available_action_ids": ["analysis.start"],
+                "pending_settlement": True,
+            }
+        }
+        result = await run_app_action("analysis.start", {"symbol": "NVDA"}, _tool_context(state))
+        assert result["status"] == "settling"
+        assert _STATE_PENDING_DIRECTIVE not in state
+
+    @pytest.mark.asyncio
+    async def test_context_pending_marker_reports_recoverable_not_ready(self):
+        # The live relay seeds this marker before the first app_context frame
+        # arrives; the tool must report a retryable status, not a refusal.
+        state = {"hussh:voice_context": {"context_pending": True}}
+        result = await run_app_action("analysis.start", {"symbol": "NVDA"}, _tool_context(state))
+        assert result["status"] == "context_not_ready"
+        assert _STATE_PENDING_DIRECTIVE not in state
+
+    @pytest.mark.asyncio
     async def test_root_claim_is_available_only_on_the_public_intro_screen(self):
         state = {
             _STATE_SCREEN: "one_intro",

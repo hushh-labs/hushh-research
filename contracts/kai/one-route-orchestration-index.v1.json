@@ -185,10 +185,10 @@
     {
       "route_pattern": "/connect",
       "page_file": "app/connect/page.tsx",
-      "route_mode": "hidden",
-      "orchestration_class": "transitional",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
       "instruction_id": "route.connect",
-      "context_policy": "suppress",
+      "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.connect",
         "purpose": "Help the person understand and use the connect screen through its generated controls.",

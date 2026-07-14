@@ -86,6 +86,15 @@ APP_ROUTES: dict[str, str] = {
 # only; it is NOT published on the global endpoint, so the live client pins
 # a region via AGENT_ONE_ADK_LOCATION). Model is env-swappable through
 # AGENT_ONE_ADK_MODEL with no code change.
+#
+# MODEL CONTRACT - do not bump to a gemini-3.x Live model casually:
+# gemini-live-2.5-flash-native-audio is the GA "Recommended" Vertex Live
+# model and supports send_client_content THROUGHOUT the session. The relay
+# (api/routes/one/adk_live.py) depends on mid-session send_content for
+# greetings, app_speech, user_text turns, settlement notes, and route-change
+# notes. On Gemini 3.x Live, send_client_content only seeds initial history;
+# a 3.x swap would silently break every one of those injection paths.
+# _build_one_live_model() logs a warning if the override looks like 3.x.
 _ONE_MODEL = (os.getenv("AGENT_ONE_ADK_MODEL") or "gemini-live-2.5-flash-native-audio").strip()
 _ONE_LIVE_LOCATION = (os.getenv("AGENT_ONE_ADK_LOCATION") or "us-central1").strip()
 # All worker agents run the same generation: gemini-3.5-flash.
@@ -118,6 +127,15 @@ def _build_one_live_model():
     """
     from google.adk.models import Gemini
 
+    if _ONE_MODEL.startswith("gemini-3"):
+        logger.warning(
+            "one_adk_live_model_contract_risk model=%s: Gemini 3.x Live treats "
+            "send_client_content as init-history-only; the relay's mid-session "
+            "content injection (greetings, app_speech, settlement and route "
+            "notes) will not work. Stay on gemini-live-2.5-flash-native-audio "
+            "until those paths are migrated to send_realtime_input.",
+            _ONE_MODEL,
+        )
     use_vertex = (os.getenv("GOOGLE_GENAI_USE_VERTEXAI") or "").strip().lower() in {
         "1",
         "true",
@@ -129,11 +147,15 @@ def _build_one_live_model():
 
 
 ONE_IDENTITY_INSTRUCTION = (
+    # Section 1: persona. (Live API best practice: persona first, then
+    # conversational rules, then per-tool invocation conditions, then
+    # guardrails, in that order.)
     "You are One, the private agent inside Hussh, and the head of a team of "
     "specialist agents. If anyone asks your name or who you are, answer "
     'simply: "I\'m One." Never call yourself Kai, Gemini, or any other name. '
     "You hold the relationship layer: speak warmly, concisely, and in plain "
     "English.\n\n"
+    # Section 2: conversational rules.
     "Visible controls take priority over introductions. Use your intelligence in "
     "the current turn to assess what the person means: whether they are asking "
     "for a visible action, asking about the current screen, continuing the "
@@ -158,6 +180,11 @@ ONE_IDENTITY_INSTRUCTION = (
     "directly in one or two concrete sentences before offering any setup step, "
     "tool, or specialist. Never treat a conversational challenge as missing "
     "onboarding input, silence, or an instruction to repeat your introduction.\n\n"
+    "Context freshness: when a note beginning '[App route context]' arrives, it "
+    "describes the screen the person is on RIGHT NOW and supersedes any action "
+    "inventory listed earlier in this instruction or in older notes. Never act "
+    "from a previous screen's inventory after such a note arrives.\n\n"
+    # Section 3: specialist ownership map.
     "Your specialist agents (your arms) and what they own:\n"
     "- Finance: markets, portfolio, stock analysis and debates (internally "
     "the Kai runtime). Its subagents: RIA (the advisor workspace with "
@@ -173,10 +200,14 @@ ONE_IDENTITY_INSTRUCTION = (
     "graph itself; both surface in the Consent Center.\n"
     "- Information Marketplace: governed information-slice requests and delivery.\n"
     "- Connected Systems: CRM and external system workflows.\n\n"
+    # Section 4: tool invocation conditions, one tool per sentence.
     "Delegate naturally: when a request belongs to a specialist's domain, call "
     "that specialist's tool with the user's request. When the user asks to go "
     "somewhere in the app ('take me to profile', 'open location'), call "
-    "open_screen; it works from any screen. When the user asks to analyze, "
+    "run_app_action with the matching navigation action id (route.profile, "
+    "route.one_location, and similar route actions); navigation actions work "
+    "from every screen and are always available even when not listed in the "
+    "current inventory. When the user asks to analyze, "
     "research, or run a debate on a stock or company ('analyze Nvidia'), act "
     "immediately: call run_app_action with action id 'analysis.start' and "
     "slots {'symbol': <ticker>}; ask only when you cannot infer the ticker. "
@@ -186,7 +217,13 @@ ONE_IDENTITY_INSTRUCTION = (
     "Actions owned by a specialist must go through that specialist's ask_ "
     "tool; run_app_action will redirect you if needed. Use google_search when "
     "the user needs fresh public information from the web. Answer general "
-    "questions yourself. Never invent tool results; if a specialist reports "
+    "questions yourself. Call at most ONE action-producing tool per turn "
+    "(run_app_action or a specialist ask_ tool); wait for its settlement "
+    "before starting another action. If a tool reports 'settling', the "
+    "previous action has not finished; briefly tell the user you are waiting, "
+    "then retry after the settlement note arrives.\n\n"
+    # Section 5: guardrails.
+    "Never invent tool results; if a specialist reports "
     "it cannot act (missing consent, locked vault, no information), relay that "
     "honestly and tell the user what would unlock it. You never execute "
     "sensitive actions directly: specialists validate consent and the app "
@@ -275,18 +312,34 @@ def _one_runtime_instruction(context: Any) -> str:
             action_id for action_id in verified_action_ids if action_id not in layer_action_ids
         ]
 
+    # Render every executable id the browser published (bounded upstream at
+    # 18 by the app_context sanitizer). Rendering fewer than the allowlist
+    # previously made ids 11+ executable but invisible, which read as
+    # "actions not detected" in conversation.
     action_lines: list[str] = []
-    for action_id in prompt_action_ids[:10]:
+    rendered_ids: set[str] = set()
+    for action_id in prompt_action_ids[:18]:
         entry = get_voice_manifest_action(str(action_id))
         if entry is None:
             continue
         label = str(entry.get("label") or action_id).strip()[:120]
         action_lines.append(f"- {label} => {entry['action_id']}")
+        rendered_ids.add(str(action_id))
+    unrendered = [
+        action_id for action_id in prompt_action_ids if str(action_id) not in rendered_ids
+    ]
     action_inventory = ""
     if action_lines:
         action_inventory = (
-            "\n\nACTIVE EXECUTABLE CONTROLS (generated, verified, and bounded):\n"
+            "\n\nACTIVE EXECUTABLE CONTROLS (generated, verified, and bounded; "
+            "superseded by any later [App route context] note):\n"
             + "\n".join(action_lines)
+            + (
+                f"\n{len(unrendered)} more generated controls exist here; "
+                "list_app_actions returns them."
+                if unrendered
+                else ""
+            )
             + "\nFirst assess meaning semantically. For a clear request matching one "
             "of these controls, call run_app_action with that exact id. A clear "
             "provider request selects its exact Apple or Google action; never "

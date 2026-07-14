@@ -220,6 +220,13 @@ Nested routes that render one workspace must share one cache contract and still 
 - Same-session Profile transitions do not use the root generic skeleton: `app/profile/loading.tsx` preserves the route-transition envelope, and `PhoneMandateGuard` hydrates cached vault and phone-mandate hints before its first paint. A cold or unsafe mandate state still owns its explicit guard feedback.
 - Route splits must regenerate `cache-coherence-screen-manifest.generated.json` and keep route readiness/resource classes aligned with `CacheSyncService` invalidation paths.
 
+The One setup family follows the same retained-surface rule. Its parent
+`app/one/loading.tsx` and `app/one/setup/loading.tsx` boundaries intentionally
+render no generic placeholder during a same-session switch. A capability adapter
+owns the only cold wait for the redacted journey record; auth, vault, and phone
+guards own their own unsafe states. This prevents hub-to-capability navigation
+from replacing a usable shell with stacked skeletons.
+
 ## Verification
 
 Run:
