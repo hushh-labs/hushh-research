@@ -1,0 +1,38 @@
+{
+  "name": "@hushh/one-mcp",
+  "version": "0.1.0",
+  "description": "OpenClaw bundle for the Hussh One consent MCP and scoped PKM access flow.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "author": {
+    "name": "Hushh",
+    "email": "partners@hushh.ai",
+    "url": "https://hushh.ai"
+  },
+  "homepage": "https://uat.one.hushh.ai/developers",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hushh-labs/hushh-research.git",
+    "directory": "clawhub/hushh-one-mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/hushh-labs/hushh-research/issues"
+  },
+  "keywords": [
+    "openclaw",
+    "clawhub",
+    "mcp",
+    "hushh",
+    "one",
+    "pkm",
+    "consent"
+  ],
+  "files": [
+    ".codex-plugin/",
+    ".mcp.json",
+    "openclaw.plugin.json",
+    ".clawhubignore",
+    "skills/",
+    "README.md"
+  ]
+}
