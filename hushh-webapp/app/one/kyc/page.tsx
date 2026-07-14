@@ -154,6 +154,26 @@ function workflowConsentRequestIds(workflow: OneKycWorkflow): string[] {
   return Array.from(ids);
 }
 
+/** Returns only the request IDs that still need approval (not yet granted). */
+function workflowPendingConsentRequestIds(workflow: OneKycWorkflow): string[] {
+  const ids = new Set<string>();
+  for (const request of workflow.consent_requests || []) {
+    if (request.request_id && request.status !== "granted") {
+      ids.add(request.request_id);
+    }
+  }
+  // Fallback: single-request workflows use the top-level consent_request_id and
+  // may not carry a per-entry status; include it only if there is no per-entry list.
+  if (
+    ids.size === 0 &&
+    (!workflow.consent_requests || workflow.consent_requests.length === 0) &&
+    workflow.consent_request_id
+  ) {
+    ids.add(workflow.consent_request_id);
+  }
+  return Array.from(ids);
+}
+
 function workflowEffectiveRequiredFields(workflow: OneKycWorkflow): string[] {
   return effectiveOneKycRequiredFields({
     requiredFields: workflow.required_fields,
@@ -1240,9 +1260,13 @@ export function OneKycWorkspace({
       if (!auth.userId || !vaultOwnerToken) {
         throw new Error("Sign in again to approve access.");
       }
-      const requestIds = workflowConsentRequestIds(workflow);
+      // Use only PENDING request IDs — already-granted ones are satisfied and
+      // will not appear in the pending-requests lookup, which would produce a
+      // false "missing" error for MIXED consent bundles.
+      const requestIds = workflowPendingConsentRequestIds(workflow);
       if (requestIds.length === 0) {
-        throw new Error("No access request is ready for this email yet.");
+        // All consent requests are already granted; nothing left to approve.
+        return [];
       }
       const lookup = await ConsentCenterService.lookupPendingRequests({
         vaultOwnerToken,
@@ -1273,7 +1297,13 @@ export function OneKycWorkspace({
           return;
         }
         const consents = await loadPendingConsentsForWorkflow(withRequests);
-        if (consents.length === 1) {
+        if (consents.length === 0) {
+          // All consent requests were already granted; refresh so the backend
+          // advances the workflow to draft without re-approving.
+          await refreshWorkflowState(withRequests);
+          toast.success("Access already approved. Preparing draft.");
+          return;
+        } else if (consents.length === 1) {
           const consent = consents[0];
           if (!consent) {
             throw new Error("No access request is ready for this email yet.");
