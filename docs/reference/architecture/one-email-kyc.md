@@ -192,15 +192,19 @@ and `agent.kyc.redraft.llm` (cosmetic redraft). Without this grant the
    rather than auto-proposing fields.
 2. **Confirm gate** — human safety net for any Pass-1 misroute; user
    approves the exact subset of fields before any data leaves the client.
-3. **Pass 2 subset invariant** (`ONE_KYC_EXTRACT_SUBSET_VIOLATION`) —
+3. **Workflow readiness guard** (`ONE_KYC_DRAFT_NOT_READY`) — `extract-draft`
+   and `redraft-full` require the workflow to be in `waiting_on_user` state with
+   `draft_status == "ready"`; calling either endpoint before the confirm gate
+   completes and consent is granted fails closed.
+4. **Pass 2 subset invariant** (`ONE_KYC_EXTRACT_SUBSET_VIOLATION`) —
    `extracted` scopes ⊆ approved fields, enforced in code after the call;
    violation fails closed.
-4. **Draft value-provenance check** (`ONE_KYC_DRAFT_PROVENANCE_VIOLATION`) —
+5. **Draft value-provenance check** (`ONE_KYC_DRAFT_PROVENANCE_VIOLATION`) —
    every value in `draft.body` must appear in `extracted[]`; catches the LLM
    inventing or leaking a value in prose.
-5. **Malformed output guard** (`ONE_KYC_EXTRACT_MALFORMED`) — strict JSON
+6. **Malformed output guard** (`ONE_KYC_EXTRACT_MALFORMED`) — strict JSON
    schema validation with bounded retries; malformed output fails closed.
-6. **Scope-expansion block on redraft** (`ONE_KYC_LLM_SCOPE_EXPANSION_BLOCKED`)
+7. **Scope-expansion block on redraft** (`ONE_KYC_LLM_SCOPE_EXPANSION_BLOCKED`)
    — a redraft requesting more data routes back to `needs_confirm`, never
    silently discloses additional fields.
 

@@ -127,8 +127,8 @@ consent scope, which the user explicitly grants at the KYC confirm step —
 no plaintext leaves the client without that grant. What does **not** change:
 storage remains client-encrypted, `draft_body` is never persisted
 server-side, and server logs contain only SHA-256 hashes (never bodies or
-values). Pass 1 routing (`POST /kyc/workflows/{id}/classify`) sees only the
-sanitized PKM index (domain names and summaries — no values). This
+values). Pass 1 routing (`classify_kyc_request`) sees only the
+sanitized PKM index (domain names, summaries, and tags — no values). This
 server-side LLM path is **transitional**, pending BYOK and on-device
 inference, which will restore the full zero-knowledge posture.
 
