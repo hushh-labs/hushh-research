@@ -146,7 +146,7 @@ export function PlaceSearchDialog({
             "[&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3",
             // Blue active/highlighted row (scoped to this dialog; overrides the
             // shared CommandItem's neutral `bg-accent`).
-            "[&_[data-slot=command-item][data-selected=true]]:bg-[#007aff]/12 [&_[data-slot=command-item][data-selected=true]]:text-[#007aff]",
+            "[&_[data-slot=command-item][data-selected=true]]:bg-[color:var(--app-accent-tint)] [&_[data-slot=command-item][data-selected=true]]:text-[color:var(--app-accent)]",
           )}
         >
           <CommandInput
@@ -179,7 +179,7 @@ export function PlaceSearchDialog({
                     value={`recent:${recent.placeId ?? recent.label}`}
                     onSelect={() => chooseRecent(recent)}
                   >
-                    <MapPin className="text-[#007aff]" />
+                    <MapPin className="text-[color:var(--app-accent)]" />
                     <span className="min-w-0 flex-1">{recent.label}</span>
                   </CommandItem>
                 ))}
@@ -195,7 +195,7 @@ export function PlaceSearchDialog({
                     disabled={resolving}
                     onSelect={() => void choose(suggestion.placeId)}
                   >
-                    <Navigation className="rotate-90 text-[#007aff]" />
+                    <Navigation className="rotate-90 text-[color:var(--app-accent)]" />
                     <span className="min-w-0 flex-1">{suggestion.text}</span>
                   </CommandItem>
                 ))}

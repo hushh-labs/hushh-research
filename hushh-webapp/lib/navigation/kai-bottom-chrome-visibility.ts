@@ -1,4 +1,8 @@
-import { useEffect, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useSyncExternalStore,
+  type RefObject,
+} from "react";
 
 const MIN_SCROLL_Y_FOR_SHOW = 10;
 const MIN_SCROLL_Y_FOR_HIDE = 24;
@@ -23,6 +27,8 @@ const listeners = new Set<Listener>();
 let listenerRefCount = 0;
 let scrollListenerAttached = false;
 let activeScrollTarget: Window | HTMLElement | null = null;
+let scrollRootObserver: MutationObserver | null = null;
+let scrollRootRefreshFrame: number | null = null;
 const handleScroll = () => onScroll(readActiveScrollY());
 
 const state: VisibilityState = {
@@ -173,16 +179,66 @@ export function onScroll(y: number): void {
 }
 
 function attachScrollListener() {
-  if (scrollListenerAttached) return;
-
   const target = resolveScrollTarget();
   if (!target) return;
+
+  // The app's Suspense fallback and resolved shell each own a scroll root. A
+  // route settlement can replace that node without remounting this singleton;
+  // keep the listener attached to the live root instead of a detached
+  // fallback element.
+  if (scrollListenerAttached && activeScrollTarget === target) return;
+
+  if (scrollListenerAttached && activeScrollTarget) {
+    activeScrollTarget.removeEventListener("scroll", handleScroll);
+  }
 
   activeScrollTarget = target;
   target.addEventListener("scroll", handleScroll, { passive: true });
   scrollListenerAttached = true;
 
+  resetKaiBottomChromeVisibility();
   onScroll(readActiveScrollY());
+}
+
+function scheduleScrollTargetRefresh() {
+  if (
+    typeof window === "undefined" ||
+    scrollRootRefreshFrame !== null ||
+    listenerRefCount === 0
+  ) {
+    return;
+  }
+
+  scrollRootRefreshFrame = window.requestAnimationFrame(() => {
+    scrollRootRefreshFrame = null;
+    attachScrollListener();
+  });
+}
+
+function observeScrollRoot() {
+  if (
+    scrollRootObserver ||
+    typeof MutationObserver === "undefined" ||
+    typeof document === "undefined" ||
+    !document.body
+  ) {
+    return;
+  }
+
+  scrollRootObserver = new MutationObserver(scheduleScrollTargetRefresh);
+  scrollRootObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
+  });
+}
+
+function stopObservingScrollRoot() {
+  scrollRootObserver?.disconnect();
+  scrollRootObserver = null;
+  if (scrollRootRefreshFrame !== null && typeof window !== "undefined") {
+    window.cancelAnimationFrame(scrollRootRefreshFrame);
+  }
+  scrollRootRefreshFrame = null;
 }
 
 function detachScrollListener() {
@@ -191,6 +247,7 @@ function detachScrollListener() {
   activeScrollTarget.removeEventListener("scroll", handleScroll);
   scrollListenerAttached = false;
   activeScrollTarget = null;
+  stopObservingScrollRoot();
 }
 
 export function resetKaiBottomChromeVisibility(): void {
@@ -270,6 +327,7 @@ export function useKaiBottomChromeVisibility(enabled: boolean): {
 
     listenerRefCount += 1;
     attachScrollListener();
+    observeScrollRoot();
     syncKaiBottomChromeVisibilityToScroll();
 
     return () => {
@@ -285,6 +343,8 @@ export function useKaiBottomChromeVisibility(enabled: boolean): {
 }
 
 const BOTTOM_CHROME_PROGRESS_VAR = "--bottom-chrome-progress";
+const BOTTOM_CHROME_SHARED_TRANSLATION =
+  "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height))), 0)";
 
 /**
  * Drives the bottom-chrome hide animation by writing the continuous scroll
@@ -322,6 +382,7 @@ export function useKaiBottomChromeProgressCssVar(enabled: boolean): void {
 
     listenerRefCount += 1;
     attachScrollListener();
+    observeScrollRoot();
     syncKaiBottomChromeVisibilityToScroll();
     writeVar();
     const unsubscribe = subscribe(writeVar);
@@ -336,4 +397,38 @@ export function useKaiBottomChromeProgressCssVar(enabled: boolean): void {
       root.style.setProperty(BOTTOM_CHROME_PROGRESS_VAR, "0");
     };
   }, [enabled]);
+}
+
+/**
+ * Bind a fixed sibling to the established bottom-chrome motion without
+ * subscribing its React owner to every scroll frame. The Agent Bar is mounted
+ * outside the route shell, so it receives the shared CSS variables directly on
+ * its own fixed wrapper.
+ *
+ * The translation is deliberately the navigation's measured travel distance,
+ * not the fixed sibling's height. When the navigation exits, the Agent Bar
+ * settles into its vacated bottom slot and remains entirely visible. Measuring
+ * the Agent Bar itself here would move it beyond the viewport and make the
+ * primary conversation control disappear.
+ */
+export function useKaiBottomChromeElementTranslation(
+  elementRef: RefObject<HTMLElement | null>,
+  enabled: boolean,
+): void {
+  useEffect(() => {
+    const element = elementRef.current;
+    if (!enabled || !element) {
+      element?.style.removeProperty("transform");
+      return;
+    }
+
+    // Browser-side CSS resolves the current runtime-measured nav size and the
+    // root scroll progress without a scroll listener, layout read, or React
+    // update for the Agent Bar subtree.
+    element.style.transform = BOTTOM_CHROME_SHARED_TRANSLATION;
+
+    return () => {
+      element.style.removeProperty("transform");
+    };
+  }, [elementRef, enabled]);
 }

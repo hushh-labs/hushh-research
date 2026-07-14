@@ -1,10 +1,4 @@
-import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
-
+/** The phone flow owns its explicit auth and verification states. */
 export default function RegisterPhoneLoading() {
-  return (
-    <RouteLoadingState
-      surface="onboarding"
-      label="Preparing phone verification…"
-    />
-  );
+  return null;
 }

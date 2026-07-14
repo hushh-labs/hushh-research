@@ -4,7 +4,7 @@ import type { MorphyAxSnapshotV1 } from "./types";
 
 export function buildMorphyAxSnapshot(
   voice: OneVoiceContextSnapshot,
-  access?: { signedIn?: boolean },
+  access?: { signedIn?: boolean; accent?: "blue" | "gold" },
 ): MorphyAxSnapshotV1 {
   return {
     schema_version: "morphy_ax_snapshot.v1",
@@ -15,6 +15,8 @@ export function buildMorphyAxSnapshot(
         access?.signedIn ?? voice.onboarding.phase !== "anonymous_auth",
       vault_ready: voice.cache.vault_ready,
       persona: voice.persona.active,
+      // Presentation only; assessment validation must never branch on it.
+      accent: access?.accent ?? "blue",
     },
     context: {
       screen: voice.route.screen,

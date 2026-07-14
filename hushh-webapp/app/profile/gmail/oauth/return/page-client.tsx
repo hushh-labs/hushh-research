@@ -16,6 +16,7 @@ import {
 import {
   buildProfileGmailReturnPath,
   isRecoverableGmailOAuthReplayError,
+  sanitizeGmailUserMessage,
   stashProfileGmailReturnStatus,
 } from "@/lib/profile/mail-flow";
 import { primeConnectorStatus } from "@/lib/profile/gmail-connector-store";
@@ -25,6 +26,11 @@ import {
   readOnboardingConnectorIntent,
 } from "@/lib/onboarding/onboarding-connector-intent";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import {
+  clearGmailOAuthPopupAttempt,
+  notifyGmailOAuthPopupOpener,
+  readGmailOAuthPopupAttempt,
+} from "@/lib/profile/gmail-oauth-popup";
 
 type CompleteStage = "loading" | "completing" | "redirecting" | "error";
 
@@ -33,6 +39,31 @@ function resolveErrorMessage(error: unknown): string {
     return error.message;
   }
   return "Gmail connection could not be completed.";
+}
+
+/**
+ * A same-origin OAuth popup may return the terminal state to the retained
+ * opener. The message contains no OAuth or vault material; direct callbacks
+ * still take the established route-replace recovery path below.
+ */
+function settlePopupOpener(params: {
+  outcome: "succeeded" | "cancelled" | "failed";
+  message?: string;
+}): boolean {
+  const attempt = readGmailOAuthPopupAttempt();
+  if (!attempt) return false;
+  const delivered = notifyGmailOAuthPopupOpener({
+    schemaVersion: 1,
+    type: "gmail_oauth_settlement",
+    attemptId: attempt.attemptId,
+    outcome: params.outcome,
+    ...(params.message ? { message: params.message } : {}),
+  });
+  clearGmailOAuthPopupAttempt();
+  if (delivered) {
+    window.setTimeout(() => window.close(), 0);
+  }
+  return delivered;
 }
 
 function matchesPendingGmailSetupAttempt(
@@ -145,7 +176,21 @@ export default function ProfileGmailOAuthReturnPageClient({
       );
       void persistEarlyCallbackOutcome(
         oauthError.toLowerCase() === "access_denied" ? "cancelled" : "failed",
-      );
+      ).finally(() => {
+        settlePopupOpener({
+          outcome:
+            oauthError.toLowerCase() === "access_denied"
+              ? "cancelled"
+              : "failed",
+          message:
+            sanitizeGmailUserMessage(
+              oauthErrorDescription || oauthError,
+              {
+                fallback: "Gmail connection could not be completed.",
+              },
+            ),
+        });
+      });
       return;
     }
 
@@ -156,7 +201,12 @@ export default function ProfileGmailOAuthReturnPageClient({
       setError(
         "Missing OAuth code or state. Start Connect Gmail again from Gmail.",
       );
-      void persistEarlyCallbackOutcome("failed");
+      void persistEarlyCallbackOutcome("failed").finally(() => {
+        settlePopupOpener({
+          outcome: "failed",
+          message: "Gmail connection could not be completed.",
+        });
+      });
       return;
     }
 
@@ -215,8 +265,14 @@ export default function ProfileGmailOAuthReturnPageClient({
             return false;
           });
           clearOnboardingConnectorIntent();
+          if (settlePopupOpener({ outcome: "succeeded" })) {
+            return;
+          }
           router.replace(settled ? ROUTES.ONE_SETUP_GMAIL : buildProfileGmailReturnPath());
         } else {
+          if (settlePopupOpener({ outcome: "succeeded" })) {
+            return;
+          }
           router.replace(buildProfileGmailReturnPath());
         }
       } catch (completeError) {
@@ -250,8 +306,14 @@ export default function ProfileGmailOAuthReturnPageClient({
                   return false;
                 });
                 clearOnboardingConnectorIntent();
+                if (settlePopupOpener({ outcome: "succeeded" })) {
+                  return;
+                }
                 router.replace(settled ? ROUTES.ONE_SETUP_GMAIL : buildProfileGmailReturnPath());
               } else {
+                if (settlePopupOpener({ outcome: "succeeded" })) {
+                  return;
+                }
                 router.replace(buildProfileGmailReturnPath());
               }
               return;
@@ -271,6 +333,12 @@ export default function ProfileGmailOAuthReturnPageClient({
           }).catch(() => undefined);
           clearOnboardingConnectorIntent();
         }
+        settlePopupOpener({
+          outcome: "failed",
+          message: sanitizeGmailUserMessage(completeError, {
+            fallback: "Gmail connection could not be completed.",
+          }),
+        });
       }
     })();
   }, [

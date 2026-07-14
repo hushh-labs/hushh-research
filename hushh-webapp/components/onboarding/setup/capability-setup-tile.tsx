@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, type LucideIcon } from "lucide-react";
 
@@ -79,6 +79,12 @@ export function CapabilitySetupTile({
     resumeActionLabel,
   });
   const isComplete = isCapabilitySetupComplete(status);
+  const didPrefetch = useRef(false);
+  const prefetchRoute = useCallback(() => {
+    if (didPrefetch.current) return;
+    didPrefetch.current = true;
+    router.prefetch(href);
+  }, [href, router]);
   const handleOpen = useCallback(() => {
     router.push(href, { scroll: false });
   }, [href, router]);
@@ -118,6 +124,9 @@ export function CapabilitySetupTile({
       <button
         type="button"
         onClick={handleOpen}
+        onPointerEnter={prefetchRoute}
+        onFocus={prefetchRoute}
+        onTouchStart={prefetchRoute}
         aria-label={`${title}: ${display.label}`}
         aria-current={isCurrent ? "step" : undefined}
         data-href={href}

@@ -51,13 +51,27 @@ function DrawerContent({
   className,
   children,
   showCloseButton = false,
+  overlayClassName,
+  overlayStyle,
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Content> & {
   showCloseButton?: boolean
+  /**
+   * Surface-specific backdrop treatment. Most drawers keep the shared blurred
+   * scrim; a credential hard gate may request an opaque canvas so persistent
+   * app chrome is not visible beneath the focused unlock surface.
+  */
+  overlayClassName?: string
+  /**
+   * Inline overlay values for a hard requirement such as an opaque credential
+   * gate. This is intentionally separate from the content style because the
+   * vaul overlay is a sibling portal node.
+   */
+  overlayStyle?: React.CSSProperties
 }) {
   return (
     <DrawerPortal data-slot="drawer-portal">
-      <DrawerOverlay />
+      <DrawerOverlay className={overlayClassName} style={overlayStyle} />
       <DrawerPrimitive.Content
         data-slot="drawer-content"
         className={cn(

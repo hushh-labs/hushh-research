@@ -19,6 +19,7 @@ import {
 import { AuthService } from "@/lib/services/auth-service";
 import { CapabilityTourService } from "@/lib/services/capability-tour-service";
 import { OneLocationService } from "@/lib/one-location/service";
+import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 
 /**
  * useCapabilitySetupStates — the single hook that feeds the resolver from live
@@ -67,9 +68,17 @@ export function useCapabilitySetupStates(
   const { user } = useAuth();
   const { isVaultUnlocked, getVaultKey, getVaultOwnerToken } = useVault();
   const pendingConsents = useConsentPendingSummaryCount();
+  const userId = user?.uid ?? null;
 
-  const [preVaultState, setPreVaultState] = useState<PreVaultUserState | null>(null);
-  const [bootstrapResolved, setBootstrapResolved] = useState(false);
+  const cachedPreVaultState = userId
+    ? PreVaultUserStateService.getCachedBootstrapState?.(userId) ?? null
+    : null;
+  const [preVaultState, setPreVaultState] = useState<PreVaultUserState | null>(
+    () => cachedPreVaultState,
+  );
+  const [bootstrapResolved, setBootstrapResolved] = useState(
+    () => cachedPreVaultState !== null,
+  );
   const [kaiProfile, setKaiProfile] = useState<KaiProfileV2 | null>(null);
   const [oauthConnections, setOauthConnections] = useState<
     Partial<Record<string, boolean>>
@@ -84,8 +93,6 @@ export function useCapabilitySetupStates(
     boolean | undefined
   >(undefined);
 
-  const userId = user?.uid ?? null;
-
   // ---- ALWAYS: coarse pre-vault mirror ------------------------------------
   useEffect(() => {
     if (!userId) {
@@ -94,6 +101,17 @@ export function useCapabilitySetupStates(
       return;
     }
     let cancelled = false;
+    const cache = CacheService.getInstance();
+    const cacheKey = CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId);
+    const cached =
+      PreVaultUserStateService.getCachedBootstrapState?.(userId) ?? null;
+    if (cached) {
+      setPreVaultState(cached);
+      setBootstrapResolved(true);
+    } else {
+      setPreVaultState(null);
+      setBootstrapResolved(false);
+    }
     PreVaultUserStateService.bootstrapState(userId)
       .then((state) => {
         if (!cancelled) setPreVaultState(state);
@@ -106,8 +124,19 @@ export function useCapabilitySetupStates(
       .finally(() => {
         if (!cancelled) setBootstrapResolved(true);
       });
+    const unsubscribe = cache.subscribe((event) => {
+      if (event.type === "set" && event.key === cacheKey) {
+        const next =
+          PreVaultUserStateService.getCachedBootstrapState?.(userId) ?? null;
+        if (!cancelled && next) {
+          setPreVaultState(next);
+          setBootstrapResolved(true);
+        }
+      }
+    });
     return () => {
       cancelled = true;
+      unsubscribe();
     };
   }, [userId]);
 
@@ -278,7 +307,7 @@ export function useCapabilitySetupStates(
     () => ({
       isAuthenticated: Boolean(userId),
       isVaultUnlocked,
-      preVaultState,
+      preVaultState: preVaultState ?? cachedPreVaultState,
       kaiProfile,
       pendingConsents,
       oauthConnections,
@@ -289,6 +318,7 @@ export function useCapabilitySetupStates(
       userId,
       isVaultUnlocked,
       preVaultState,
+      cachedPreVaultState,
       kaiProfile,
       pendingConsents,
       oauthConnections,
@@ -308,7 +338,7 @@ export function useCapabilitySetupStates(
   return {
     statuses,
     byId,
-    isLoading: Boolean(userId) && !bootstrapResolved,
+    isLoading: Boolean(userId) && !bootstrapResolved && !cachedPreVaultState,
     isEnriching: enrichingVault || enrichingOauth,
     markExplored,
   };

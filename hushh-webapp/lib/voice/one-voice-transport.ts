@@ -3,7 +3,7 @@
 import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
 import type { OneVoiceUiState } from "@/lib/voice/voice-ui-state-machine";
 
-export type OneVoiceProvider = "gemini_live" | "openai_realtime";
+export type OneVoiceProvider = "gemini_live";
 export type OneVoiceAccessTier =
   | "anon_onboarding"
   | "anon_browsing"

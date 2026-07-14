@@ -2,44 +2,59 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  pathname: "/one",
-  routerReplace: vi.fn(),
-  bootstrapState: vi.fn(),
-  auth: {
-    user: { uid: "user-1" },
-    loading: false,
-  },
-}));
+import { OnboardingJourneyGuard } from "@/components/onboarding/onboarding-journey-guard";
+
+const { replace, bootstrapStateMock, getCachedBootstrapStateMock } = vi.hoisted(
+  () => ({
+    replace: vi.fn(),
+    bootstrapStateMock: vi.fn(),
+    getCachedBootstrapStateMock: vi.fn(),
+  }),
+);
+
+let pathnameValue = "/one/setup";
+
+// App Router returns a stable router instance; an unstable identity would
+// spuriously re-run the guard effect (its deps include `router`).
+const stableRouter = { replace };
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => mocks.pathname,
-  useRouter: () => ({
-    replace: mocks.routerReplace,
-  }),
+  usePathname: () => pathnameValue,
+  useRouter: () => stableRouter,
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => mocks.auth,
+  useAuth: () => ({ user: { uid: "journey-user" }, loading: false }),
 }));
 
 vi.mock("@/components/app-ui/hushh-loader", () => ({
-  HushhLoader: ({ label }: { label: string }) => (
-    <div data-testid="hushh-loader">{label}</div>
-  ),
+  HushhLoader: ({ label }: { label: string }) => <p>{label}</p>,
+}));
+
+vi.mock("@/lib/morphy-ux/button", () => ({
+  Button: ({ children }: { children: ReactNode }) => <button>{children}</button>,
+}));
+
+vi.mock("@/lib/navigation/routes", () => ({
+  ROUTES: { ONE_SETUP: "/one/setup" },
+  buildOneSetupRoute: ({ returnTo }: { returnTo: string }) =>
+    `/one/setup?return_to=${encodeURIComponent(returnTo)}`,
+  isCapabilityOnboardingRoute: () => false,
+  isOnboardingAdmissionExemptRoute: () => false,
+  isOneSetupSurfaceRoute: (pathname: string) => pathname === "/one/setup",
 }));
 
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: {
-    bootstrapState: mocks.bootstrapState,
+    bootstrapState: bootstrapStateMock,
+    getCachedBootstrapState: getCachedBootstrapStateMock,
     isSetupResolved: (state: { setupCompleted?: boolean | null }) =>
-      state?.setupCompleted === true,
+      state.setupCompleted === true,
   },
 }));
-
-import { OnboardingJourneyGuard } from "@/components/onboarding/onboarding-journey-guard";
 
 const WEBAPP_ROOT = path.resolve(__dirname, "../..");
 
@@ -49,7 +64,6 @@ function read(relativePath: string) {
 
 function incompleteSetupState() {
   return {
-    userId: "user-1",
     setupCompleted: false,
     onboardingJourneyVersion: 1,
     onboardingPhase: "setup_hub",
@@ -59,39 +73,15 @@ function incompleteSetupState() {
 
 describe("OnboardingJourneyGuard", () => {
   beforeEach(() => {
-    mocks.pathname = "/one";
-    mocks.routerReplace.mockReset();
-    mocks.bootstrapState.mockReset();
-    mocks.auth = {
-      user: { uid: "user-1" },
-      loading: false,
-    };
-    window.history.replaceState(null, "", "/one");
+    replace.mockReset();
+    bootstrapStateMock.mockReset();
+    getCachedBootstrapStateMock.mockReset();
+    pathnameValue = "/one/setup";
+    window.history.replaceState(null, "", "/one/setup");
   });
 
-  it("redirects an explicitly incomplete One journey to the setup hub", async () => {
-    mocks.bootstrapState.mockResolvedValue(incompleteSetupState());
-
-    render(
-      <OnboardingJourneyGuard>
-        <div>one home</div>
-      </OnboardingJourneyGuard>,
-    );
-
-    await waitFor(() => {
-      expect(mocks.routerReplace).toHaveBeenCalledWith(
-        "/one/setup?return_to=%2Fone",
-      );
-    });
-    expect(screen.getByTestId("hushh-loader").textContent).toBe(
-      "Returning to setup...",
-    );
-  });
-
-  it("admits the canonical setup hub even when setup is incomplete", async () => {
-    mocks.pathname = "/one/setup";
-    window.history.replaceState(null, "", "/one/setup?return_to=%2Fone");
-    mocks.bootstrapState.mockResolvedValue(incompleteSetupState());
+  it("admits a cached setup route without a bootstrap request or checking churn", async () => {
+    getCachedBootstrapStateMock.mockReturnValue(incompleteSetupState());
 
     render(
       <OnboardingJourneyGuard>
@@ -102,15 +92,76 @@ describe("OnboardingJourneyGuard", () => {
     await waitFor(() => {
       expect(screen.getByText("setup hub")).toBeTruthy();
     });
-    expect(mocks.routerReplace).not.toHaveBeenCalled();
+    expect(screen.queryByText("Checking setup...")).toBeNull();
+    expect(bootstrapStateMock).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("redirects an explicitly incomplete One journey to the setup hub", async () => {
+    pathnameValue = "/one";
+    bootstrapStateMock.mockResolvedValue(incompleteSetupState());
+    getCachedBootstrapStateMock.mockReturnValue(null);
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>one home</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    await waitFor(() => {
+      expect(replace).toHaveBeenCalledWith("/one/setup?return_to=%2Fone");
+    });
+    expect(screen.getByText("Returning to setup...")).toBeTruthy();
+  });
+
+  it("admits the canonical setup hub even when setup is incomplete", async () => {
+    pathnameValue = "/one/setup";
+    bootstrapStateMock.mockResolvedValue(incompleteSetupState());
+    getCachedBootstrapStateMock.mockReturnValue(incompleteSetupState());
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>setup hub</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("setup hub")).toBeTruthy();
+    });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("preserves a query-bearing route in one idempotent setup redirect", async () => {
+    pathnameValue = "/one/location";
+    window.history.replaceState(null, "", "/one/location?tab=family");
+    bootstrapStateMock.mockResolvedValue(incompleteSetupState());
+    getCachedBootstrapStateMock.mockReturnValue(null);
+
+    const view = render(
+      <OnboardingJourneyGuard>
+        <div>location workspace</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    await waitFor(() => {
+      expect(replace).toHaveBeenCalledWith(
+        "/one/setup?return_to=%2Fone%2Flocation%3Ftab%3Dfamily",
+      );
+    });
+    view.rerender(
+      <OnboardingJourneyGuard>
+        <div>location workspace</div>
+      </OnboardingJourneyGuard>,
+    );
+    expect(replace).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a hard setup fallback when App Router navigation does not commit", () => {
     const source = read("components/onboarding/onboarding-journey-guard.tsx");
 
     expect(source).toContain("SETUP_REDIRECT_WATCHDOG_MS");
-    expect(source).toContain("router.replace(setupRoute)");
+    expect(source).toContain("router.replace(redirectTarget)");
     expect(source).toContain("window.location.pathname !== ROUTES.ONE_SETUP");
-    expect(source).toContain("window.location.assign(setupRoute)");
+    expect(source).toContain("window.location.assign(redirectTarget)");
   });
 });

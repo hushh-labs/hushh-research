@@ -55,14 +55,14 @@
 }
 .cinematicSettings [data-tone="default"] [data-slot="settings-row-icon"] {
   background: rgba(156, 116, 52, 0.1);
-  color: #9c7434;
+  color: var(--app-accent-deep);
 }
 :global(.dark)
   .cinematicSettings
   [data-tone="default"]
   [data-slot="settings-row-icon"] {
   background: rgba(212, 175, 106, 0.16);
-  color: #d4af6a;
+  color: var(--app-accent-deep);
 }
 
 /* Match the One home Email/Location tile title recipe exactly. */

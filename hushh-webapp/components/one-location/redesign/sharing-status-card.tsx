@@ -40,7 +40,7 @@ function initialsOf(name: string): string {
 function MapBackdrop() {
   return (
     <svg
-      className="absolute inset-0 h-full w-full"
+      className="absolute inset-0 h-full w-full dark:[filter:invert(0.92)_hue-rotate(180deg)_saturate(0.8)]"
       viewBox="0 0 362 300"
       preserveAspectRatio="xMidYMid slice"
       aria-hidden="true"
@@ -87,6 +87,7 @@ export function SharingStatusCard({
   onTapShare,
   live,
   onToggle,
+  onToggleOff,
   toggleBusy,
 }: {
   isSharing: boolean;
@@ -104,15 +105,22 @@ export function SharingStatusCard({
    * the map, not yet shared) can also read as LIVE.
    */
   live?: boolean;
-  /** Tapping the LIVE/OFF badge captures / refreshes your live location. */
+  /** Tapping the OFF badge captures / refreshes your live location. */
   onToggle?: () => void;
+  /**
+   * Tapping the LIVE badge turns the live preview OFF (true toggle). When not
+   * provided, tapping while live falls back to `onToggle` (refresh capture) —
+   * e.g. while an active share drives the LIVE state and must not be stopped
+   * from this badge.
+   */
+  onToggleOff?: () => void;
   toggleBusy?: boolean;
 }) {
   const markers = people.slice(0, MARKER_SLOTS.length);
   const showLive = live ?? isSharing;
 
   return (
-    <div className="relative overflow-hidden rounded-[20px] bg-white shadow-[0_4px_16px_rgba(0,0,0,0.06)] dark:bg-white">
+    <div className="relative overflow-hidden rounded-[20px] bg-white shadow-[0_4px_16px_rgba(0,0,0,0.06)] dark:bg-[#1f1f24]">
       <div className="relative h-[280px]">
         {/* Backdrop: the real live map when we have a fix, else a stylised map. */}
         {point ? (
@@ -123,8 +131,8 @@ export function SharingStatusCard({
           <MapBackdrop />
         )}
 
-        {/* Left→right white fade so text stays readable over the map. */}
-        <div className="absolute inset-0 bg-[linear-gradient(100deg,#ffffff_30%,rgba(255,255,255,0.9)_46%,rgba(255,255,255,0)_72%)]" />
+        {/* Left→right surface fade so text stays readable over the map. */}
+        <div className="absolute inset-0 bg-[linear-gradient(100deg,#ffffff_30%,rgba(255,255,255,0.9)_46%,rgba(255,255,255,0)_72%)] dark:bg-[linear-gradient(100deg,#1f1f24_30%,rgba(31,31,36,0.9)_46%,rgba(31,31,36,0)_72%)]" />
 
         {/* Circle members as avatar markers. */}
         {markers.map((person, i) => {
@@ -151,11 +159,17 @@ export function SharingStatusCard({
         <div className="absolute left-5 right-5 top-5">
           <button
             type="button"
-            onClick={onToggle}
-            disabled={toggleBusy || !onToggle}
+            onClick={showLive ? (onToggleOff ?? onToggle) : onToggle}
+            disabled={toggleBusy || (showLive ? !(onToggleOff ?? onToggle) : !onToggle)}
             aria-pressed={showLive}
-            aria-label={showLive ? "Live location on" : "Turn on live location"}
-            className="inline-flex items-center gap-[7px] rounded-full bg-white px-3 py-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.08)] transition active:scale-95 disabled:opacity-70 enabled:cursor-pointer"
+            aria-label={
+              showLive
+                ? onToggleOff
+                  ? "Turn off live location preview"
+                  : "Live location on"
+                : "Turn on live location"
+            }
+            className="inline-flex items-center gap-[7px] rounded-full bg-white px-3 py-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.08)] transition active:scale-95 disabled:opacity-70 enabled:cursor-pointer dark:bg-[#2f2f35] dark:shadow-[0_2px_8px_rgba(0,0,0,0.4)]"
           >
             {toggleBusy ? (
               <Loader2 className="h-[11px] w-[11px] animate-spin text-[#6b7280]" />
@@ -173,24 +187,24 @@ export function SharingStatusCard({
             </span>
           </button>
 
-          <h2 className="mt-3.5 text-[25px] font-bold leading-none tracking-[-0.4px] text-[#1c1c2e]">
+          <h2 className="mt-3.5 text-[25px] font-bold leading-none tracking-[-0.4px] text-[#1c1c2e] dark:text-white">
             {title}
           </h2>
-          <p className="mt-1.5 max-w-[210px] text-[15px] leading-[1.4] text-black/50">
+          <p className="mt-1.5 max-w-[210px] text-[15px] leading-[1.4] text-black/50 dark:text-white/55">
             {subtitle}
           </p>
 
           {isSharing ? (
-            <div className="mt-[18px] inline-flex items-center gap-[11px] rounded-[14px] bg-white px-3.5 py-[11px] shadow-[0_2px_8px_rgba(0,0,0,0.06)]">
-              <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-[#efe9fb]">
-                <Clock className="h-[15px] w-[15px] text-[#7c5cff]" />
+            <div className="mt-[18px] inline-flex items-center gap-[11px] rounded-[14px] bg-white px-3.5 py-[11px] shadow-[0_2px_8px_rgba(0,0,0,0.06)] dark:bg-[#2f2f35] dark:shadow-[0_2px_8px_rgba(0,0,0,0.4)]">
+              <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-[#efe9fb] dark:bg-[#7c5cff]/20">
+                <Clock className="h-[15px] w-[15px] text-[#7c5cff] dark:text-[#a78bfa]" />
               </span>
               <span className="block">
-                <span className="block text-[15px] font-bold text-[#1c1c2e]">
+                <span className="block text-[15px] font-bold text-[#1c1c2e] dark:text-white">
                   {endsLabel ?? "Sharing live"}
                 </span>
                 {startedLabel ? (
-                  <span className="mt-px block text-[13px] text-black/45">
+                  <span className="mt-px block text-[13px] text-black/45 dark:text-white/50">
                     {startedLabel}
                   </span>
                 ) : null}
@@ -200,7 +214,7 @@ export function SharingStatusCard({
             <button
               type="button"
               onClick={onTapShare}
-              className="mt-[18px] inline-flex items-center gap-[9px] rounded-full bg-[#007aff] px-5 py-3 text-white shadow-[0_4px_14px_rgba(0,122,255,0.32)]"
+              className="mt-[18px] inline-flex items-center gap-[9px] rounded-full bg-[color:var(--app-accent)] px-5 py-3 text-[color:var(--app-accent-fg)] shadow-[0_4px_14px_rgba(0,122,255,0.32)]"
             >
               <Navigation className="h-4 w-4" />
               <span className="text-base font-semibold">Tap to share</span>
@@ -210,9 +224,9 @@ export function SharingStatusCard({
       </div>
 
       {/* Privacy footer. */}
-      <div className="flex items-center gap-[11px] border-t border-black/[0.06] px-[18px] py-3.5">
-        <Lock className="h-[15px] w-[15px] text-black/40" />
-        <span className="text-sm text-black/50">
+      <div className="flex items-center gap-[11px] border-t border-black/[0.06] px-[18px] py-3.5 dark:border-white/[0.08]">
+        <Lock className="h-[15px] w-[15px] text-black/40 dark:text-white/40" />
+        <span className="text-sm text-black/50 dark:text-white/50">
           Your location is only visible to your circle.
         </span>
       </div>

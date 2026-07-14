@@ -87,6 +87,23 @@ timeout, and stale completion retain the goal and restore a usable Login surface
 new attempt cannot be cleared or completed by an older promise. Generic “sign in” asks
 which provider; it never selects one silently.
 
+### Gmail connector OAuth
+
+Gmail connector OAuth is distinct from Firebase provider sign-in, but it follows the
+same continuity principle on desktop web. A real **Connect Gmail** tap opens a named
+browser popup synchronously, before connector preparation becomes asynchronous. The
+existing backend-owned callback URI remains the only Google redirect target. The parent
+tab retains One's live session and its memory-only vault state; the popup receives only
+an opaque connector attempt and, for setup, an opaque journey correlation. It never
+receives a vault key, owner token, Firebase token, OAuth artifact, or receipt content.
+
+After verified callback settlement, the popup posts a same-origin, exact-attempt terminal
+outcome to its opener and closes. The opener force-refreshes the connector and durable
+journey record before showing **Finish Gmail setup**; receipt scanning can continue in
+the background. A blocked popup has no same-tab fallback. A direct/cold callback remains
+safe: it follows the established return route and asks for a fresh vault unlock only when
+the person next needs vault-backed receipt access.
+
 Login legal documents are authored interaction layers. While Terms or Privacy is open,
 the layer's generated close action and visible controls outrank Apple, Google, and
 route-back actions. One may interpret “close this” naturally, but it can execute only

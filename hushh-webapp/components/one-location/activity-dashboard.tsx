@@ -40,7 +40,7 @@ function activityEventToneClassName(kind: OneLocationActivityKind): string {
     return "bg-[#eaf9ef] text-[#2dbd5a] dark:bg-emerald-400/15 dark:text-emerald-200";
   }
   if (kind === "request") {
-    return "bg-[#e7f0fd] text-[#007aff] dark:bg-[#007aff]/15 dark:text-[#4a9eff]";
+    return "bg-[#e7f0fd] text-[color:var(--app-accent)] dark:bg-[color:var(--app-accent)]/15 dark:text-[color:var(--app-accent)]";
   }
   return "bg-[#fff3e6] text-[#ff9500] dark:bg-orange-400/15 dark:text-orange-200";
 }
@@ -128,7 +128,7 @@ export function OneLocationActivityDashboard({
       <div className={cn(activityPanelClassName, "space-y-4 p-4")}>
         <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#e7f0fd] text-[#007aff] dark:bg-[#007aff]/15 dark:text-[#4a9eff]">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#e7f0fd] text-[color:var(--app-accent)] dark:bg-[color:var(--app-accent)]/15 dark:text-[color:var(--app-accent)]">
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               ) : (
@@ -217,7 +217,7 @@ export function OneLocationActivityDashboard({
                         ) : null}
                         {bucket.requests > 0 ? (
                           <span
-                            className="block bg-[#007aff]"
+                            className="block bg-[color:var(--app-accent)]"
                             style={{ flexGrow: bucket.requests, minHeight: 3 }}
                           />
                         ) : null}
@@ -242,7 +242,7 @@ export function OneLocationActivityDashboard({
                 Shares
               </span>
               <span className="inline-flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full bg-[#007aff]" />
+                <span className="h-2 w-2 rounded-full bg-[color:var(--app-accent)]" />
                 Requests
               </span>
               <span className="inline-flex items-center gap-1">

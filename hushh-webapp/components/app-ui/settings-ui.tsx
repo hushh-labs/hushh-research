@@ -90,6 +90,21 @@ function containsInteractiveNode(node: ReactNode): boolean {
 
 export const SettingsSegmentedTabs = SegmentedTabs;
 
+const SETTINGS_ICON_TONE_CLASSNAME = {
+  accent: "bg-accent/12 text-accent-strong dark:bg-accent/20",
+  blue: "bg-sky-500/12 text-sky-700 dark:bg-sky-400/20 dark:text-sky-200",
+  purple:
+    "bg-violet-500/12 text-violet-700 dark:bg-violet-400/20 dark:text-violet-200",
+  green:
+    "bg-emerald-500/12 text-emerald-700 dark:bg-emerald-400/20 dark:text-emerald-200",
+  orange:
+    "bg-orange-500/12 text-orange-700 dark:bg-orange-400/20 dark:text-orange-200",
+  red: "bg-destructive/10 text-destructive dark:bg-destructive/20",
+  gray: "bg-muted/65 text-muted-foreground",
+} as const;
+
+type SettingsIconTone = keyof typeof SETTINGS_ICON_TONE_CLASSNAME;
+
 export function SettingsGroup({
   eyebrow,
   title,
@@ -184,6 +199,8 @@ export function SettingsRow({
   chevron = false,
   disabled = false,
   tone = "default",
+  iconTone = "gray",
+  density = "comfortable",
   stackTrailingOnMobile = false,
   className,
   voiceControlId,
@@ -203,6 +220,10 @@ export function SettingsRow({
   chevron?: boolean;
   disabled?: boolean;
   tone?: "default" | "destructive";
+  /** Semantic leading-icon treatment; independent from destructive action tone. */
+  iconTone?: SettingsIconTone;
+  /** Compact, single-line settings rows for dense grouped menus. */
+  density?: "compact" | "comfortable";
   stackTrailingOnMobile?: boolean;
   className?: string;
   voiceControlId?: string;
@@ -228,6 +249,7 @@ export function SettingsRow({
     "[--settings-row-top-radius:0px] [--settings-row-bottom-radius:0px] first:[--settings-row-top-radius:calc(var(--settings-group-radius)-1px)] last:[--settings-row-bottom-radius:calc(var(--settings-group-radius)-1px)] [border-top-left-radius:var(--settings-row-top-radius)] [border-top-right-radius:var(--settings-row-top-radius)] [border-bottom-left-radius:var(--settings-row-bottom-radius)] [border-bottom-right-radius:var(--settings-row-bottom-radius)]";
   const rowShellClassName = cn(
     "group/settings-row relative isolate overflow-hidden bg-[color:var(--app-list-row-surface)] sm:bg-transparent",
+    density === "compact" && "[--settings-row-py:0.5rem]",
     // iOS inset hairline separator — active only inside a SettingsGroup with
     // separatorInset; starts after the leading icon and hides on the last row.
     "group-data-[inset-separators=true]/settings-list:after:pointer-events-none group-data-[inset-separators=true]/settings-list:after:absolute group-data-[inset-separators=true]/settings-list:after:bottom-0 group-data-[inset-separators=true]/settings-list:after:right-0 group-data-[inset-separators=true]/settings-list:after:left-[3.75rem] group-data-[inset-separators=true]/settings-list:after:h-px group-data-[inset-separators=true]/settings-list:after:bg-[color:var(--foundation-hairline)] group-data-[inset-separators=true]/settings-list:after:content-[''] sm:group-data-[inset-separators=true]/settings-list:after:left-[4.25rem] last:after:hidden",
@@ -235,6 +257,8 @@ export function SettingsRow({
     disabled && "cursor-not-allowed opacity-60",
     className,
   );
+  const resolvedIconTone: SettingsIconTone =
+    tone === "destructive" ? "red" : iconTone;
   const mainContent = (
     <div
       className={cn(
@@ -247,9 +271,11 @@ export function SettingsRow({
       ) : icon ? (
         <span
           data-slot="settings-row-icon"
+          data-icon-tone={resolvedIconTone}
           className={cn(
-            "inline-flex h-8 w-8 shrink-0 items-center justify-center self-center rounded-2xl bg-muted/65 text-muted-foreground sm:h-10 sm:w-10",
-            tone === "destructive" && "bg-destructive/10 text-destructive",
+            "inline-flex h-8 w-8 shrink-0 items-center justify-center self-center rounded-2xl",
+            density !== "compact" && "sm:h-10 sm:w-10",
+            SETTINGS_ICON_TONE_CLASSNAME[resolvedIconTone],
           )}
         >
           <Icon icon={icon} size="md" />
@@ -259,7 +285,7 @@ export function SettingsRow({
         <div
           data-slot="settings-row-title"
           className={cn(
-            "text-[14px] font-medium tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[15px]",
+            "text-[15px] font-normal leading-tight tracking-normal text-foreground [overflow-wrap:anywhere]",
             tone === "destructive" && "text-destructive",
           )}
         >

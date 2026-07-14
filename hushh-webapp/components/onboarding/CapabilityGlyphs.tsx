@@ -19,8 +19,8 @@ function Defs({ id }: { id: string }) {
     <defs>
       <linearGradient id={`${id}-gold`} x1="0" y1="0" x2="1" y2="1">
         <stop offset="0%" stopColor="#F4D79A" />
-        <stop offset="45%" stopColor="#D4A574" />
-        <stop offset="100%" stopColor="#B8894D" />
+        <stop offset="45%" stopColor="var(--app-accent)" />
+        <stop offset="100%" stopColor="var(--app-accent-deep)" />
       </linearGradient>
       <radialGradient id={`${id}-hot`} cx="35%" cy="30%" r="75%">
         <stop offset="0%" stopColor="#FFF6E0" />

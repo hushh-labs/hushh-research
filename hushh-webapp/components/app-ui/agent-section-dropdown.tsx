@@ -14,13 +14,12 @@ import {
 } from "@/components/ui/command";
 import {
   Popover,
-  PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import {
   TOP_SHELL_DROPDOWN_COLLISION_PADDING,
-  TOP_SHELL_DROPDOWN_CONTENT_CLASSNAME,
+  TopShellPopoverContent,
 } from "@/components/app-ui/top-shell-dropdown";
 import {
   getAgentSection,
@@ -96,17 +95,22 @@ export function AgentSectionDropdown({
           <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" />
         </button>
       </PopoverTrigger>
-      <PopoverContent
-        align="start"
+      {/* The switcher sits in the centered header lane. Aligning its panel to
+          the trigger start made the desktop menu look detached from that lane. */}
+      <TopShellPopoverContent
+        align="center"
         collisionPadding={TOP_SHELL_DROPDOWN_COLLISION_PADDING}
-        className={cn(TOP_SHELL_DROPDOWN_CONTENT_CLASSNAME, "w-[300px]")}
+        className="max-h-[calc(100svh-5.5rem)]"
       >
         <Command className="bg-transparent">
           <CommandInput
             placeholder="Search agents..."
             data-testid="agent-section-search"
           />
-          <CommandList id="agent-section-command-list" className="max-h-[340px] px-1 pb-2">
+          <CommandList
+            id="agent-section-command-list"
+            className="max-h-[calc(100svh-9rem)] px-1 pb-2"
+          >
             <CommandEmpty>No agent found.</CommandEmpty>
             <CommandGroup heading="Agents">
               {sections.map((section) => {
@@ -138,7 +142,7 @@ export function AgentSectionDropdown({
             </CommandGroup>
           </CommandList>
         </Command>
-      </PopoverContent>
+      </TopShellPopoverContent>
     </Popover>
   );
 }

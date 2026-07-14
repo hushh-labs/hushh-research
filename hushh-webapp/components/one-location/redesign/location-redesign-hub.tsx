@@ -158,6 +158,7 @@ export type LocationHubViewModel = {
   /* actions — wired 1:1 to existing handlers */
   onRefresh: () => void;
   onShowMyLocation: () => void;
+  onHideMyLocation: () => void;
   onRequestPermission: () => void;
   onOpenLocationSettings: () => void;
   onSyncContacts: () => void;
@@ -462,7 +463,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             type="button"
             onClick={vm.onRefresh}
             disabled={BUSY(vm, "load")}
-            className="inline-flex items-center gap-[7px] rounded-[14px] border border-[rgba(0,122,255,0.32)] bg-white px-4 py-[11px] text-[15px] font-semibold text-[#007aff] transition-colors hover:bg-[#f5f9ff] disabled:opacity-60"
+            className="inline-flex items-center gap-[7px] rounded-[14px] border border-[color:var(--app-accent-ring)] bg-white px-4 py-[11px] text-[15px] font-semibold text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-surface)] disabled:opacity-60 dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
           >
             <RefreshCw
               className={cn("h-[15px] w-[15px]", BUSY(vm, "load") && "animate-spin")}
@@ -657,6 +658,10 @@ function NowHub({
         onTapShare={onStartShare}
         live={hasActiveShare || Boolean(vm.myLocationPoint)}
         onToggle={vm.onShowMyLocation}
+        // A true toggle: while LIVE is only the self-preview, tapping turns it
+        // off. While an active share drives LIVE, the badge refreshes instead
+        // (shares are stopped from their own grant controls, never this badge).
+        onToggleOff={hasActiveShare ? undefined : vm.onHideMyLocation}
         toggleBusy={vm.busy === "selfLocation"}
       />
 
@@ -673,7 +678,7 @@ function NowHub({
 
         <Button
           onClick={onStartShare}
-          className="h-12 whitespace-nowrap rounded-2xl bg-[#007aff] px-3 text-center text-[13px] font-semibold text-white hover:bg-[#007aff]/90 sm:text-base"
+          className="h-12 whitespace-nowrap rounded-2xl bg-[color:var(--app-accent)] px-3 text-center text-[13px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 sm:text-base"
         >
           <Navigation className="mr-1.5 h-4 w-4 shrink-0" />
           Share my location
@@ -681,7 +686,7 @@ function NowHub({
         <Button
           variant="outline"
           onClick={onAsk}
-          className="h-12 whitespace-nowrap rounded-2xl border-[#007aff] px-3 text-center text-[13px] font-semibold text-[#007aff] hover:bg-[#007aff]/10 sm:text-base"
+          className="h-12 whitespace-nowrap rounded-2xl border-[color:var(--app-accent)] px-3 text-center text-[13px] font-semibold text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-tint)] sm:text-base"
         >
           <UsersRound className="mr-1.5 h-4 w-4 shrink-0" />
           Ask someone
@@ -807,7 +812,7 @@ function NowHub({
         className="flex w-full items-center gap-3.5 rounded-2xl bg-white p-4 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-colors hover:bg-black/[0.02] dark:bg-[color:var(--app-card-surface-default-solid)]"
       >
         <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#e7f0fd] dark:bg-sky-400/15">
-          <Lock className="h-[18px] w-[18px] text-[#007aff]" />
+          <Lock className="h-[18px] w-[18px] text-[color:var(--app-accent)]" />
         </span>
         <span className="flex-1 text-[15px] font-semibold text-[#1c1c2e] dark:text-foreground">
           Privacy
@@ -916,7 +921,7 @@ function PrivacyFlow({
       </div>
 
       <div className="mt-4 flex items-start gap-2.5 px-1">
-        <Shield className="mt-0.5 h-[15px] w-[15px] shrink-0 text-[#007aff]" />
+        <Shield className="mt-0.5 h-[15px] w-[15px] shrink-0 text-[color:var(--app-accent)]" />
         <p className="text-[13px] leading-[1.5] text-black/50 dark:text-muted-foreground">
           Your location is never shared outside your circle. You can revoke
           access to anyone at any time.
@@ -1046,7 +1051,7 @@ function PeopleHub({
           <div className="grid grid-cols-1 gap-2">
             <Button
               onClick={onInvite}
-              className="h-11 rounded-full bg-[#007aff] text-sm font-semibold text-white hover:bg-[#007aff]/90"
+              className="h-11 rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
             >
               <UserPlus className="mr-2 h-4 w-4" />
               Invite trusted person
@@ -1093,7 +1098,7 @@ function PeopleHub({
         <Button
           variant="outline"
           onClick={onInvite}
-          className="h-10 rounded-full border-[#007aff] text-sm font-semibold text-[#007aff]"
+          className="h-10 rounded-full border-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent)]"
         >
           <UserPlus className="mr-2 h-4 w-4" />
           Invite trusted person
@@ -1143,7 +1148,7 @@ function PeopleHub({
                       variant="outline"
                       onClick={() => vm.onStopGrant(grant.id)}
                       isLoading={vm.revokingGrantId === grant.id}
-                      className="h-9 rounded-full border-[#007aff] px-5 text-sm font-semibold text-[#007aff]"
+                      className="h-9 rounded-full border-[color:var(--app-accent)] px-5 text-sm font-semibold text-[color:var(--app-accent)]"
                     >
                       Stop
                     </Button>
@@ -1153,7 +1158,7 @@ function PeopleHub({
                         vm.toggleShareRecipient(r.userId, "people_hub");
                         onStartShare();
                       }}
-                      className="h-9 rounded-full bg-[#007aff] px-5 text-sm font-semibold text-white hover:bg-[#007aff]/90"
+                      className="h-9 rounded-full bg-[color:var(--app-accent)] px-5 text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
                     >
                       Share
                     </Button>
@@ -1177,10 +1182,10 @@ function PeopleHub({
         className="flex w-full items-center gap-3.5 rounded-2xl bg-white p-4 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-colors hover:bg-black/[0.02] dark:bg-[color:var(--app-card-surface-default-solid)]"
       >
         <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#e7f0fd] dark:bg-sky-400/15">
-          <Navigation className="h-[18px] w-[18px] text-[#007aff]" />
+          <Navigation className="h-[18px] w-[18px] text-[color:var(--app-accent)]" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-[15px] font-semibold text-[#007aff]">
+          <span className="block text-[15px] font-semibold text-[color:var(--app-accent)]">
             Ask someone to share
           </span>
           <span className="block text-[13px] text-black/50 dark:text-muted-foreground">
@@ -1239,7 +1244,7 @@ function ActiveLinkRow({
       <Button
         variant="outline"
         onClick={onCopy}
-        className="h-9 shrink-0 rounded-full border-[#007aff] px-4 text-sm font-semibold text-[#007aff]"
+        className="h-9 shrink-0 rounded-full border-[color:var(--app-accent)] px-4 text-sm font-semibold text-[color:var(--app-accent)]"
       >
         Copy
       </Button>
@@ -1296,7 +1301,7 @@ function LinksHub({
 
       <Button
         onClick={onCreateTempLink}
-        className="h-12 w-full rounded-full bg-[#007aff] text-[15px] font-semibold text-white hover:bg-[#007aff]/90"
+        className="h-12 w-full rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
       >
         <Plus className="mr-2 h-4 w-4" />
         Create a new link
@@ -1631,7 +1636,7 @@ function SosFlow({
             </div>
             <button
               type="button"
-              className="shrink-0 whitespace-nowrap rounded-[14px] border-[1.5px] border-[#007aff] px-[18px] py-[11px] text-[14px] font-semibold text-[#007aff] dark:border-[#4a9eff] dark:text-[#4a9eff]"
+              className="shrink-0 whitespace-nowrap rounded-[14px] border-[1.5px] border-[color:var(--app-accent)] px-[18px] py-[11px] text-[14px] font-semibold text-[color:var(--app-accent)] dark:border-[color:var(--app-accent)] dark:text-[color:var(--app-accent)]"
             >
               View all
             </button>
@@ -1696,8 +1701,8 @@ function SosFlow({
         type="button"
         className="flex w-full items-center gap-3 rounded-[16px] bg-white px-4 py-3.5 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] dark:bg-white/[0.05]"
       >
-        <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#eef3fb] dark:bg-[#007aff]/15">
-          <Lock className="h-[18px] w-[18px] text-[#007aff] dark:text-[#4a9eff]" strokeWidth={1.6} />
+        <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#eef3fb] dark:bg-[color:var(--app-accent)]/15">
+          <Lock className="h-[18px] w-[18px] text-[color:var(--app-accent)] dark:text-[color:var(--app-accent)]" strokeWidth={1.6} />
         </span>
         <span className="flex-1 text-[15px] font-medium text-foreground">
           Privacy
@@ -1770,7 +1775,7 @@ function ShareFlow({
           <Button
             onClick={vm.onConfirmShare}
             isLoading={vm.busy === "share"}
-            className="h-12 w-full rounded-2xl bg-[#007aff] text-base font-semibold text-white hover:bg-[#007aff]/90"
+            className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
           >
             Start sharing
           </Button>
@@ -1811,7 +1816,7 @@ function ShareFlow({
                 rows={2}
                 maxLength={80}
                 placeholder="On my way to the meeting"
-                className="w-full rounded-[14px] border border-border/70 bg-background p-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[#007aff]/25"
+                className="w-full rounded-[14px] border border-border/70 bg-background p-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
               />
             </div>
           </div>
@@ -1824,7 +1829,7 @@ function ShareFlow({
           onClick={vm.onOpenShareReview}
           disabled={!vm.canShare}
           isLoading={vm.busy === "share"}
-          className="h-12 w-full rounded-2xl bg-[#007aff] text-base font-semibold text-white hover:bg-[#007aff]/90 disabled:opacity-50"
+          className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:opacity-50"
         >
           Review share
         </Button>
@@ -1887,7 +1892,7 @@ function ShareFlow({
       <Button
         onClick={() => setStep("details")}
         disabled={!selectedReady.length}
-        className="h-12 w-full rounded-2xl bg-[#007aff] text-base font-semibold text-white hover:bg-[#007aff]/90 disabled:opacity-50"
+        className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:opacity-50"
       >
         Continue
       </Button>
@@ -2000,7 +2005,7 @@ function AskFlow({
           onChange={(e) => vm.setRequestMessage(e.target.value)}
           rows={2}
           placeholder="Hey, can you share your location until we meet?"
-          className="w-full rounded-[14px] border border-border/70 bg-background p-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[#007aff]/25"
+          className="w-full rounded-[14px] border border-border/70 bg-background p-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
         />
       </SectionCard>
 
@@ -2016,7 +2021,7 @@ function AskFlow({
         }}
         disabled={!vm.selectedRequestOwnerIds.length}
         isLoading={vm.busy === "request"}
-        className="h-12 w-full rounded-2xl bg-[#007aff] text-base font-semibold text-white hover:bg-[#007aff]/90 disabled:opacity-50"
+        className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:opacity-50"
       >
         Send request
       </Button>
@@ -2049,7 +2054,7 @@ function InviteFlow({
         />
         <SectionCard>
           <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#007aff]/12 text-[#007aff]">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]">
               <UserPlus className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
@@ -2070,7 +2075,7 @@ function InviteFlow({
         <div className="grid grid-cols-2 gap-2">
           <Button
             onClick={vm.onShareCircleInvite}
-            className="h-11 rounded-full bg-[#007aff] text-sm font-semibold text-white hover:bg-[#007aff]/90"
+            className="h-11 rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
           >
             <Send className="mr-1.5 h-4 w-4" />
             Share invite
@@ -2137,7 +2142,7 @@ function InviteFlow({
       <Button
         onClick={vm.onCreateCircleInvite}
         isLoading={vm.busy === "circleInvite"}
-        className="h-12 w-full rounded-2xl bg-[#007aff] text-base font-semibold text-white hover:bg-[#007aff]/90"
+        className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
       >
         Create invite
       </Button>
@@ -2235,7 +2240,7 @@ function TemporaryLinkFlow({
       <Button
         onClick={vm.onCreatePublicInvite}
         isLoading={vm.busy === "publicInvite"}
-        className="h-12 w-full rounded-2xl bg-[#007aff] text-base font-semibold text-white hover:bg-[#007aff]/90"
+        className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
       >
         Review public location link
       </Button>

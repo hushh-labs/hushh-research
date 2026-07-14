@@ -3,6 +3,7 @@
 import * as React from "react";
 
 import { DropdownMenuContent } from "@/components/ui/dropdown-menu";
+import { PopoverContent } from "@/components/ui/popover";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
@@ -23,12 +24,12 @@ export const TOP_SHELL_DROPDOWN_FOOTER_CLASSNAME =
 type TopShellDropdownContentProps = React.ComponentProps<
   typeof DropdownMenuContent
 >;
+type TopShellPopoverContentProps = React.ComponentProps<typeof PopoverContent>;
+type TopShellContentAlign = "start" | "center" | "end" | undefined;
 
-function openDropdownTrigger() {
+function openTopShellTrigger(selector: string) {
   const triggers = Array.from(
-    document.querySelectorAll<HTMLElement>(
-      '[data-slot="dropdown-menu-trigger"][data-state="open"]',
-    ),
+    document.querySelectorAll<HTMLElement>(selector),
   );
 
   return triggers.find((trigger) => {
@@ -39,7 +40,7 @@ function openDropdownTrigger() {
 
 function centeredMobileAlignOffset(
   trigger: HTMLElement,
-  align: TopShellDropdownContentProps["align"],
+  align: TopShellContentAlign,
 ) {
   const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
   const gutter = TOP_SHELL_DROPDOWN_COLLISION_PADDING;
@@ -57,13 +58,10 @@ function centeredMobileAlignOffset(
   return desiredX - baseX;
 }
 
-export function TopShellDropdownContent({
-  align = "end",
-  alignOffset,
-  className,
-  collisionPadding = TOP_SHELL_DROPDOWN_COLLISION_PADDING,
-  ...props
-}: TopShellDropdownContentProps) {
+function useTopShellMobileAlignOffset(
+  triggerSelector: string,
+  align: TopShellContentAlign,
+) {
   const isMobile = useIsMobile();
   const [mobileAlignOffset, setMobileAlignOffset] = React.useState<
     number | undefined
@@ -76,7 +74,7 @@ export function TopShellDropdownContent({
     }
 
     const update = () => {
-      const trigger = openDropdownTrigger();
+      const trigger = openTopShellTrigger(triggerSelector);
       setMobileAlignOffset(
         trigger ? centeredMobileAlignOffset(trigger, align) : undefined,
       );
@@ -89,10 +87,56 @@ export function TopShellDropdownContent({
       window.removeEventListener("resize", update);
       window.visualViewport?.removeEventListener("resize", update);
     };
-  }, [align, isMobile]);
+  }, [align, isMobile, triggerSelector]);
+
+  return { isMobile, mobileAlignOffset };
+}
+
+export function TopShellDropdownContent({
+  align = "end",
+  alignOffset,
+  className,
+  collisionPadding = TOP_SHELL_DROPDOWN_COLLISION_PADDING,
+  ...props
+}: TopShellDropdownContentProps) {
+  const { isMobile, mobileAlignOffset } = useTopShellMobileAlignOffset(
+    '[data-slot="dropdown-menu-trigger"][data-state="open"]',
+    align,
+  );
 
   return (
     <DropdownMenuContent
+      align={align}
+      alignOffset={isMobile ? mobileAlignOffset : alignOffset}
+      collisionPadding={collisionPadding}
+      className={cn(TOP_SHELL_DROPDOWN_CONTENT_CLASSNAME, className)}
+      {...props}
+    />
+  );
+}
+
+/**
+ * Popover counterpart to `TopShellDropdownContent`.
+ *
+ * Header controls use both Radix menu and popover primitives. Keeping their
+ * geometry in one app-ui wrapper prevents a centered trigger (such as the
+ * Agents switcher) from producing a detached desktop panel or a differently
+ * aligned mobile panel.
+ */
+export function TopShellPopoverContent({
+  align = "center",
+  alignOffset,
+  className,
+  collisionPadding = TOP_SHELL_DROPDOWN_COLLISION_PADDING,
+  ...props
+}: TopShellPopoverContentProps) {
+  const { isMobile, mobileAlignOffset } = useTopShellMobileAlignOffset(
+    '[data-slot="popover-trigger"][data-state="open"]',
+    align,
+  );
+
+  return (
+    <PopoverContent
       align={align}
       alignOffset={isMobile ? mobileAlignOffset : alignOffset}
       collisionPadding={collisionPadding}

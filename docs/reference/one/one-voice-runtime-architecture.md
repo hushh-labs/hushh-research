@@ -283,6 +283,14 @@ browser-owned popup is not an in-app interaction layer, and popup close, cancell
 focus recovery, retry, SDK failure, and stale completion report typed settlements
 without reloading Login or allowing an old attempt to mutate a newer one.
 
+Gmail connector OAuth uses the same activation boundary without impersonating Firebase
+provider authentication. The generated **Connect Gmail** action is
+`trusted_activation_required`: the Agent Bar's exact confirming tap opens the named
+connector popup synchronously, and only then does the popup navigate to the
+backend-issued Google authorization URL. The callback reports a same-origin, opaque
+terminal settlement to the retained opener. The vault key and owner token remain solely
+in the opener's memory; neither is written to browser storage or sent through the popup.
+
 ## Onboarding and Proactive Prompting
 
 Guiding a new user through account setup is an ordinary `run_app_action`/

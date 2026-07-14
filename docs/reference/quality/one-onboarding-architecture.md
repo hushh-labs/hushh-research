@@ -23,7 +23,12 @@ gated, reset, resumed, and skipped across the app.
 The end‑to‑end setup journey stays inside static setup workspaces. Feature bodies
 are reused there; adapters own only journey state, voice publication, logical
 return to the hub, and the terminal footer. Vault‑backed capabilities introduce
-the private vault at the first operation that needs encrypted persistence.
+the private vault at the first operation that needs encrypted persistence. A
+setup adapter uses the shared `CapabilityVaultPrerequisite` before mounting a
+token-dependent feature body: it checks presence once, opens the established
+vault flow with capability-specific context, and resumes only after a fresh
+in-memory owner token exists. It never silently creates a vault, passes a key
+to One, or changes the global `VaultLockGuard` behavior for ordinary routes.
 
 ```mermaid
 flowchart TD
@@ -179,8 +184,10 @@ compatibility-only and redirects known old links; `?finish=1` has no meaning.
 
 - **Gmail** reuses `GmailReceiptsPage`; its finish predicate is a verified
   connector.
-- **Location** reuses the location workspace; it becomes finishable after
-  device permission. The first share remains optional.
+- **Location** reuses the location workspace; it introduces the private vault
+  before registering a recipient key, then becomes finishable after device
+  permission. The first share remains optional. A dismissed or failed vault
+  setup leaves Location pending and keeps the explicit Skip action available.
 - **KYC** reuses the email workspace; it becomes finishable after a verified
   identity and initialized client connector. Sending a draft remains optional.
 - **Finance** uses `/one/setup/finance` for preferences and
@@ -191,9 +198,12 @@ compatibility-only and redirects known old links; `?finish=1` has no meaning.
 - **Linked Systems** reuses the CRM panel and becomes finishable only after an
   active record binding. Merely viewing the list is not completion.
 - **Shared terminal presentation**: every verified capability finish uses
-  `SetupCompletionFooter`: one full-width bottom action above the Agent Bar,
-  using the canonical app bottom inset for safe areas and keyboard-resized
-  native viewports. An unfinished capability publishes a visible **Skip
+  `SetupCompletionFooter`: one full-width terminal action in normal route flow
+  above the Agent Bar. The shared hidden-shell scroll root owns
+  `--onboarding-agent-bar-clearance` for safe areas and
+  keyboard-resized native viewports. The Agent Bar and setup terminal controls
+  therefore use the same measured geometry rather than independent fallbacks.
+  An unfinished capability publishes a visible **Skip
   `<capability>` setup** action that returns to the hub without adding a
   completed capability; once its verified goal is reached, that action becomes
   **Finish `<capability>` setup** and records completion before the same return.
@@ -207,8 +217,15 @@ compatibility-only and redirects known old links; `?finish=1` has no meaning.
   completion-ready Gmail setup route. Until Gmail reports a verified connection,
   its shared bottom action is **Skip Gmail setup**; the verified connection
   swaps it to **Finish Gmail setup**. OAuth success alone never records
-capability completion. Shopping-summary PKM persistence is an explicit action;
-Gmail does not auto-save inferred memory.
+capability completion. Desktop web opens Gmail OAuth in a named popup before
+the asynchronous connector-start call, then uses the existing backend-owned
+callback URI. The parent page retains its memory-only vault session. The popup
+holds only an opaque attempt and setup correlation; on verified settlement it
+posts a same-origin terminal result to the exact opener, which refreshes the
+connector before rendering Finish. It never transfers a vault key, owner token,
+Firebase token, OAuth artifact, or receipt content between windows. A blocked
+popup never falls back to a same-tab redirect. Shopping-summary PKM persistence
+is an explicit action; Gmail does not auto-save inferred memory.
 - **External callback correlation**: Gmail and Plaid begin a fresh opaque
   attempt identifier only after the durable journey accepts `pending`. A
   callback may change setup state only when both that identifier and the

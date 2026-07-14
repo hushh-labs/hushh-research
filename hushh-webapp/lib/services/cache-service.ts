@@ -188,6 +188,7 @@ class CacheService {
       CACHE_KEYS.RIA_ROSTER_SUMMARY(userId),
       CACHE_KEYS.RIA_HOME(userId),
       CACHE_KEYS.RIA_PICKS(userId),
+      CACHE_KEYS.ONE_LOCATION_STATE(userId),
     ]);
 
     for (const key of this.cache.keys()) {
@@ -313,6 +314,7 @@ export const CACHE_KEYS = {
   RIA_PICKS: (userId: string) => `ria_picks_${userId}`,
   KAI_PROFILE: (userId: string) => `kai_profile_${userId}`,
   ANALYSIS_HISTORY: (userId: string) => `analysis_history_${userId}`,
+  ONE_LOCATION_STATE: (userId: string) => `one_location_state_${userId}`,
   PKM_UPGRADE_STATUS: (userId: string) => `pkm_upgrade_status_${userId}`,
   STOCK_CONTEXT: (userId: string, ticker: string) => `stock_context_${userId}_${ticker}`,
   KAI_MARKET_HOME: (

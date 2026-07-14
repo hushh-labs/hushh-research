@@ -127,6 +127,32 @@ describe("PhoneVerificationFlow country selector", () => {
     });
   });
 
+  it("submits both the phone number and six-digit code through their semantic forms", async () => {
+    const { startVerification, confirmVerification, onCompleted } =
+      renderPhoneVerificationFlow();
+
+    const phoneInput = screen.getByRole("textbox", { name: "Phone number" });
+    fireEvent.change(phoneInput, { target: { value: "6505550101" } });
+    fireEvent.submit(phoneInput.closest("form")!);
+
+    await waitFor(() => {
+      expect(startVerification).toHaveBeenCalledWith("+16505550101", {
+        resendCode: false,
+      });
+    });
+
+    const codeInput = await screen.findByRole("textbox", {
+      name: "One-time code",
+    });
+    fireEvent.change(codeInput, { target: { value: "123456" } });
+    fireEvent.submit(codeInput.closest("form")!);
+
+    await waitFor(() => {
+      expect(confirmVerification).toHaveBeenCalledWith("123456");
+      expect(onCompleted).toHaveBeenCalledWith({ uid: "user_1" });
+    });
+  });
+
   it("reports a failed voice settlement when the SMS provider rejects", async () => {
     renderPhoneVerificationFlow({ startRejects: true });
     await waitFor(() => {
@@ -170,5 +196,9 @@ describe("PhoneVerificationFlow country selector", () => {
     expect(onCompleted).toHaveBeenCalled();
     expect(result).toMatchObject({ status: "succeeded" });
     expect(result?.summary).not.toContain("123456");
+    expect(
+      (screen.getByRole("textbox", { name: "One-time code" }) as HTMLInputElement)
+        .value,
+    ).toBe("");
   });
 });

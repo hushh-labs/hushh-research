@@ -191,12 +191,41 @@ The events are metadata-only. They are for UX and reliability decisions; they ar
 
 ## Route Family Coherence
 
+### Setup Journey Admission
+
+The authenticated setup journey uses the redacted pre-vault bootstrap record
+as a session resource. The initial cold entry may wait for that record. Once
+it is present, route changes reuse it synchronously and setup tiles prefetch
+their static target on intent; they must not show a full-page loader or force a
+new bootstrap request on every navigation. Durable settlement, callback
+recovery, explicit retry, and cache invalidation remain the only paths that
+refresh the record authoritatively. Decrypted vault material, OAuth artifacts,
+and OTPs are never part of this cache.
+
+Load-time admission follows one ordered path: resolve the client host first,
+then use the cached bootstrap record, then join its non-forced single-flight
+read when cold. Phone-mandate, vault-presence, and setup guards must not start
+independent network reads before that host decision or alongside that shared
+read. A nullable legacy phone hint may use the identity cache as a bounded
+fallback; callback and terminal settlement retain explicit forced refreshes.
+This prevents transient localhost policy from bouncing a setup route through
+phone verification and keeps a cold session to one authenticated admission
+request.
+
 Nested routes that render one workspace must share one cache contract and still appear as distinct route IDs in the generated screen manifest. Profile settings are the current reference case:
 
 - `/profile/account`, `/profile/preferences`, `/profile/security`, `/profile/my-data`, `/profile/access`, `/profile/connected-systems`, `/profile/gmail`, and `/profile/support` render through the shared profile workspace.
 - Identifier-bearing detail routes stay static-export-safe with query-backed detail keys, for example `/profile/my-data/domain?key=<domain_key>` and `/profile/access/connection?id=<connection_id>`.
 - All profile nested routes inherit the profile cache posture: vault and PKM readiness gate sensitive panels; stale safe metadata may render while background refresh runs; decrypted PKM and raw cache keys never enter analytics or realtime voice context.
+- Same-session Profile transitions do not use the root generic skeleton: `app/profile/loading.tsx` preserves the route-transition envelope, and `PhoneMandateGuard` hydrates cached vault and phone-mandate hints before its first paint. A cold or unsafe mandate state still owns its explicit guard feedback.
 - Route splits must regenerate `cache-coherence-screen-manifest.generated.json` and keep route readiness/resource classes aligned with `CacheSyncService` invalidation paths.
+
+The One setup family follows the same retained-surface rule. Its parent
+`app/one/loading.tsx` and `app/one/setup/loading.tsx` boundaries intentionally
+render no generic placeholder during a same-session switch. A capability adapter
+owns the only cold wait for the redacted journey record; auth, vault, and phone
+guards own their own unsafe states. This prevents hub-to-capability navigation
+from replacing a usable shell with stacked skeletons.
 
 ## Verification
 

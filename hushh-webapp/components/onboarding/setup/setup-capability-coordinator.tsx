@@ -101,6 +101,18 @@ export function useSetupCapabilityCoordinator({
   const [callbackReadiness, setCallbackReadiness] = useState(false);
 
   const operationallyReady = isOperationallyReady || callbackReadiness;
+  // Same-session setup transitions reuse the redacted bootstrap record already
+  // hydrated by the app runtime. Cold entry waits once; explicit settlement
+  // retains the force-refresh + version checks for durable correctness.
+  const cachedJourney = user?.uid
+    ? PreVaultUserStateService.getCachedBootstrapState?.(user.uid) ?? null
+    : null;
+  const hasUsableCachedJourney = Boolean(
+    enabled &&
+      cachedJourney &&
+      !PreVaultUserStateService.isSetupResolved(cachedJourney),
+  );
+  const routeReady = isReady || hasUsableCachedJourney;
 
   const canonicalRoute = useMemo(
     () => buildOneSetupCapabilityRoute(capabilityId),
@@ -119,9 +131,9 @@ export function useSetupCapabilityCoordinator({
     setCallbackReadiness(false);
     void (async () => {
       try {
-        const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
-          force: true,
-        });
+        const journey =
+          cachedJourney ??
+          (await PreVaultUserStateService.bootstrapState(user.uid));
         if (cancelled) return;
 
         if (PreVaultUserStateService.isSetupResolved(journey)) {
@@ -172,6 +184,7 @@ export function useSetupCapabilityCoordinator({
     };
   }, [
     authLoading,
+    cachedJourney,
     canonicalRoute,
     capabilityId,
     enabled,
@@ -268,7 +281,7 @@ export function useSetupCapabilityCoordinator({
     : `Skip ${setupCapabilityLabel(capabilityId)} setup`;
   const routeSurfaceMetadata = useMemo(
     () =>
-      !enabled || !isReady
+      !enabled || !routeReady
         ? null
         : {
             screenId: screenId || SETUP_CAPABILITY_SCREEN[capabilityId],
@@ -302,7 +315,7 @@ export function useSetupCapabilityCoordinator({
     [
       capabilityId,
       enabled,
-      isReady,
+      routeReady,
       operationallyReady,
       screenId,
       terminalControlId,
@@ -314,7 +327,7 @@ export function useSetupCapabilityCoordinator({
     routeSurfaceMetadata,
   );
 
-  return { isReady, operationallyReady, isSettling, finish, skip };
+  return { isReady: routeReady, operationallyReady, isSettling, finish, skip };
 }
 
 type SetupCapabilityTerminalFooterProps = {
@@ -365,5 +378,5 @@ export function SetupCapabilityTerminalFooter({
 }
 
 export function SetupCapabilityLoading({ label }: { label: string }) {
-  return <RouteLoadingState label={label} />;
+  return <RouteLoadingState label={label} surface="onboarding" />;
 }

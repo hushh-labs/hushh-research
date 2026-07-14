@@ -17,7 +17,7 @@
     {
       "action_id": "setup.connect_gmail",
       "label": "Connect Gmail",
-      "meaning": "Starts the Gmail connector from the current setup workspace.",
+      "meaning": "Presents the exact Connect Gmail action so a confirming tap can open the secure Gmail popup while the private-agent session remains active.",
       "aliases": ["connect gmail", "connect my gmail", "set up gmail", "open gmail connector"],
       "search_keywords": ["connect", "gmail", "connector"],
       "reachability": {
@@ -29,6 +29,7 @@
       "guard_ids": ["auth_signed_in"],
       "risk_level": "low",
       "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
       "execution_target": {
         "status": "wired",
         "path": "local_handler",

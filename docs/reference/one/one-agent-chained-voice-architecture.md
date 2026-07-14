@@ -1,7 +1,8 @@
 # One Agent Chained Voice Architecture
 
-This document describes the One Agent popup voice path. It is separate from the
-existing Kai OpenAI realtime voice compatibility runtime.
+This document describes the One Agent popup voice path (turn-based STT/TTS
+chain in the chat workspace). It is separate from the full-duplex One ADK
+live relay (`/api/one/adk/live`), which is the only realtime voice transport.
 
 ## Visual Context
 
