@@ -1,7 +1,18 @@
 .shell {
   position: relative;
   display: flex;
-  min-height: 100dvh;
+  /* The outer app scroll root already reserves --app-scroll-bottom-pad of
+     clearance below this element for the fixed onboarding Agent Bar (see
+     app/providers.tsx), then adds it back as its own padding-bottom. Sizing
+     this element to a full 100dvh on top of that reservation made the total
+     scrollable content one full screen PLUS the bar clearance, forcing
+     scroll on every device and leaving a background seam in the reserved
+     strip (this element's own background stops at its own box, one dvh
+     tall, so the extra strip below showed the plain page background
+     instead). Subtracting the reservation here makes shell + reserved
+     padding equal exactly one viewport, so the page always fits without
+     scrolling and the background never runs out early. */
+  min-height: calc(100dvh - var(--app-scroll-bottom-pad, 0px));
   width: 100%;
   flex-direction: column;
   overflow: hidden;
@@ -11,13 +22,13 @@
   position: relative;
   z-index: 10;
   display: grid;
-  min-height: 100dvh;
+  min-height: calc(100dvh - var(--app-scroll-bottom-pad, 0px));
   width: 100%;
   max-width: 34rem;
   margin: 0 auto;
   grid-template-rows: auto minmax(0, 1fr) auto;
   padding: calc(max(28px, var(--app-safe-area-top-effective, 0px)) + 12px) 24px
-    calc(92px + var(--app-safe-area-bottom-effective, 0px));
+    24px;
   text-align: center;
 }
 
@@ -242,10 +253,6 @@
 }
 
 @media (max-height: 740px) {
-  .stage {
-    padding-bottom: calc(82px + var(--app-safe-area-bottom-effective, 0px));
-  }
-
   .hero {
     transform: translateY(-4px);
   }

@@ -1212,15 +1212,16 @@ export function AgentBar() {
           <MaterialRipple variant="gradient" effect="fill" />
         </span>
       </button>
-      {/* Agent chat, right-aligned chip in the same slot the theme toggle
-          occupies during onboarding. */}
+      {/* Agent chat: a persistently visible filled/bordered button (not just
+          a hover-state icon) so it reads as tappable at rest, matching the
+          weight of a real button rather than a quiet icon-only affordance. */}
       <button
         type="button"
         data-testid="one-voice-agent-bar-start"
         onClick={openAgentChat}
         aria-label={`Open Agent Chat. ${hint}`}
         title="Open Agent Chat"
-        className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-accent-strong transition-colors duration-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
+        className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] text-accent-strong transition-colors duration-200 hover:bg-[color:var(--app-accent-surface)]"
       >
         <MessageCircle className="h-[17px] w-[17px]" />
         <span
@@ -1230,6 +1231,9 @@ export function AgentBar() {
           <MaterialRipple variant="gradient" effect="fill" />
         </span>
       </button>
+      {/* Theme toggle stays available on signed-in surfaces too, matching the
+          pre-auth greeter row. */}
+      {themeToggleButton}
     </>
   );
 
