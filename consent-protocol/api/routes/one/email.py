@@ -78,6 +78,10 @@ class RecentMailboxSyncRequest(WorkflowUserRequest):
     max_results: int = Field(default=12, ge=1, le=25)
 
 
+class ConfirmProposalRequest(WorkflowUserRequest):
+    approved_scopes: list[str] = Field(min_length=1, max_length=8)
+
+
 _DEPENDENCY_ERROR_PATTERNS = (
     "connection refused",
     "server closed the connection unexpectedly",
@@ -584,6 +588,28 @@ async def one_kyc_redraft_llm(
             workflow_id,
         )
         raise _to_http_exception(exc, operation="redraft_llm") from exc
+
+
+@router.post("/kyc/workflows/{workflow_id}/confirm-proposal")
+async def one_kyc_confirm_proposal(
+    workflow_id: str,
+    payload: ConfirmProposalRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verified_vault_user_id(token_data, payload.user_id)
+    try:
+        return await _service().confirm_proposal(
+            user_id=payload.user_id,
+            workflow_id=workflow_id,
+            approved_scopes=payload.approved_scopes,
+        )
+    except Exception as exc:
+        logger.exception(
+            "one.kyc.confirm_proposal_failed user_id=%s workflow_id=%s",
+            payload.user_id,
+            workflow_id,
+        )
+        raise _to_http_exception(exc, operation="confirm_proposal") from exc
 
 
 @router.post("/kyc/retention/purge")

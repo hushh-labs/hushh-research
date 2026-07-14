@@ -2830,6 +2830,61 @@ class OneEmailKycService:
             },
         )
 
+    async def confirm_proposal(
+        self,
+        *,
+        user_id: str,
+        workflow_id: str,
+        approved_scopes: list[str],
+    ) -> dict[str, Any]:
+        """Approve a subset of proposed KYC scopes and create consent requests.
+
+        Requires the workflow to be in ``needs_confirm`` status (set by Pass 1
+        routing). Validates that every approved scope appears in the proposal's
+        ``requested_items``, stores ``kyc_confirmed_items``, then delegates to
+        ``select_scopes`` to create the per-scope consent requests.
+        """
+        workflow = await self.get_workflow(user_id=user_id, workflow_id=workflow_id)
+        if workflow.get("status") != "needs_confirm":
+            raise OneEmailKycError(
+                "This request is not awaiting confirmation.",
+                status_code=409,
+                code="ONE_KYC_NOT_AWAITING_CONFIRM",
+            )
+        proposal = (workflow.get("metadata") or {}).get("kyc_proposal") or {}
+        proposed_scopes = {
+            str(item.get("scope"))
+            for item in proposal.get("requested_items", [])
+            if item.get("scope")
+        }
+        approved = _dedupe(approved_scopes)
+        invalid = [s for s in approved if s not in proposed_scopes]
+        if not approved or invalid:
+            raise OneEmailKycError(
+                "Approved data must be a subset of what One proposed.",
+                status_code=400,
+                code="ONE_KYC_CONFIRM_SCOPE_INVALID",
+                payload={
+                    "invalid_scopes": invalid,
+                    "proposed_scopes": sorted(proposed_scopes),
+                },
+            )
+        confirmed_items = [
+            item for item in proposal.get("requested_items", []) if item.get("scope") in approved
+        ]
+        self._update_workflow(
+            workflow_id,
+            metadata={
+                **(workflow.get("metadata") or {}),
+                "kyc_confirmed_items": confirmed_items,
+            },
+        )
+        return await self.select_scopes(
+            user_id=user_id,
+            workflow_id=workflow_id,
+            selected_scopes=approved,
+        )
+
     async def select_scopes(
         self,
         *,
