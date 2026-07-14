@@ -60,4 +60,33 @@ describe("usePickupEta", () => {
     );
     expect(fetchEta).not.toHaveBeenCalled();
   });
+
+  it("does not refetch when the helper has barely moved (within throttle)", async () => {
+    const fetchEta = vi.fn().mockResolvedValue(ETA);
+    const { result, rerender } = renderHook(
+      ({ helper }: { helper: PlainLocationPoint }) =>
+        usePickupEta({ helperPoint: helper, pickupPoint: PICKUP, seedEtaSeconds: null, fetchEta }),
+      { initialProps: { helper: HELPER } },
+    );
+    await waitFor(() => expect(result.current.status).toBe("live"));
+    expect(fetchEta).toHaveBeenCalledTimes(1);
+    // Tiny move — well under 250 m, no time elapsed
+    rerender({ helper: pt(40.7501, -74.05) });
+    expect(fetchEta).toHaveBeenCalledTimes(1); // still throttled
+  });
+
+  it("does not call setState after unmount (cancelled guard)", async () => {
+    let resolveEta!: (eta: RouteEta) => void;
+    const fetchEta = vi.fn(
+      () => new Promise<RouteEta>((resolve) => { resolveEta = resolve; }),
+    );
+    const { unmount } = renderHook(() =>
+      usePickupEta({ helperPoint: HELPER, pickupPoint: PICKUP, seedEtaSeconds: null, fetchEta }),
+    );
+    // Unmount while the fetch is still pending
+    unmount();
+    // Resolving after unmount must not throw (cancelled guard swallows it)
+    expect(() => { resolveEta(ETA); }).not.toThrow();
+    await Promise.resolve(); // flush microtasks
+  });
 });

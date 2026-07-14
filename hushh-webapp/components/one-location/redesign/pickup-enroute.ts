@@ -40,14 +40,23 @@ export type EnRouteHelper = {
  *   pre-filtered to status === "active" by the view-model before being passed in.
  * @param params.decryptedPoints  Map of grant-id → decrypted location point.
  * @param params.labelFor         Callback that returns the display name for a grant owner.
+ * @param params.pickupPointForOwnerGrant  Resolver for the current user's fixed pickup
+ *   point given one of their outbound pick_me_up grant ids.
  */
 export function deriveEnRouteHelpers(params: {
   receivedGrants: OneLocationGrant[];
   activeOwnerGrants: OneLocationGrant[];
   decryptedPoints: Record<string, PlainLocationPoint>;
   labelFor: (grant: OneLocationGrant) => string;
+  pickupPointForOwnerGrant: (grantId: string) => PlainLocationPoint | null;
 }): EnRouteHelper[] {
-  const { receivedGrants, activeOwnerGrants, decryptedPoints, labelFor } = params;
+  const {
+    receivedGrants,
+    activeOwnerGrants,
+    decryptedPoints,
+    labelFor,
+    pickupPointForOwnerGrant,
+  } = params;
 
   return receivedGrants
     .filter(
@@ -71,7 +80,7 @@ export function deriveEnRouteHelpers(params: {
           point,
           etaSeconds: point.drive?.etaSeconds ?? null,
           outboundGrantId: outboundGrant.id,
-          pickupPoint: decryptedPoints[outboundGrant.id] ?? null,
+          pickupPoint: pickupPointForOwnerGrant(outboundGrant.id),
         },
       ];
     });

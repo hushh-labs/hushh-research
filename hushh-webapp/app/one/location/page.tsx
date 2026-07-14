@@ -5101,6 +5101,9 @@ export function OneLocationAgentPageContent({
       if (!grant) return null;
       return decryptedPoints[grant.id] ?? null;
     },
+    /** Resolve the current user's pickup point for one of their outbound pick_me_up grants. */
+    pickupPointForOwnerGrant: (grantId: string): PlainLocationPoint | null =>
+      pickupSessionRef.current.get(grantId) ?? myLocationPoint ?? null,
     safeArrivalBusy: busy === "safeArrival",
     onSafeArrival: (destination, recipientIds, durationHoursValue, messageValue) =>
       void handleSafeArrival(

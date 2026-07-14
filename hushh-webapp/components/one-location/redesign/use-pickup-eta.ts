@@ -60,12 +60,12 @@ export function usePickupEta(params: {
     }
 
     let cancelled = false;
+    lastComputedAtRef.current = Date.now();
+    lastOriginRef.current = origin;
     setState((s) => ({ eta: s.eta, status: "updating" }));
     fetchEta(origin, dest)
       .then((eta) => {
         if (cancelled) return;
-        lastComputedAtRef.current = Date.now();
-        lastOriginRef.current = origin;
         setState({ eta, status: "live" });
       })
       .catch(() => {

@@ -256,6 +256,8 @@ export type LocationHubViewModel = {
   decryptedPoints: Record<string, PlainLocationPoint>;
   /** Latest decrypted live point for a contact who is sharing with the user, else null. */
   recipientLivePoint: (userId: string) => PlainLocationPoint | null;
+  /** Resolve the current user's pickup point for one of their outbound pick_me_up grants. */
+  pickupPointForOwnerGrant: (grantId: string) => PlainLocationPoint | null;
 };
 
 type FlowKind =
@@ -624,6 +626,7 @@ function NowHub({
     activeOwnerGrants: vm.activeOwnerGrants,
     decryptedPoints: vm.decryptedPoints,
     labelFor: vm.grantOwnerLabel,
+    pickupPointForOwnerGrant: vm.pickupPointForOwnerGrant,
   });
 
   const vaultOwnerToken = vm.vaultOwnerToken;

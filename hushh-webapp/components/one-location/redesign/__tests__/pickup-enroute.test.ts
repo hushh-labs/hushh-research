@@ -51,9 +51,10 @@ describe("deriveEnRouteHelpers", () => {
       activeOwnerGrants: [outbound],
       decryptedPoints: {
         "recv-1": point(40.75, -74.05, 300), // helper live point + shipped ETA
-        "out-1": point(40.76, -74.04), // requester pickup point
+        // "out-1" intentionally absent — pickup point must come from the callback
       },
       labelFor: () => "Alex",
+      pickupPointForOwnerGrant: (id) => (id === "out-1" ? point(40.76, -74.04) : null),
     });
     expect(helpers).toHaveLength(1);
     expect(helpers[0].pickupPoint).toEqual(
@@ -68,6 +69,7 @@ describe("deriveEnRouteHelpers", () => {
       activeOwnerGrants: [outbound],
       decryptedPoints: { "recv-1": point(40.75, -74.05, 300) },
       labelFor: () => "Alex",
+      pickupPointForOwnerGrant: () => null,
     });
     expect(helpers[0].pickupPoint).toBeNull();
   });
