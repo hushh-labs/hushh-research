@@ -476,29 +476,39 @@ export class OneKycService {
     domainData,
     approvedScopes,
     requestText,
+    domains,
   }: AuthInput & {
     workflowId: string;
     domain: string;
     domainData: Record<string, unknown>;
     approvedScopes: string[];
     requestText: string;
+    /** Multi-domain support: when provided, all domains are sent in one LLM call. */
+    domains?: Array<{ domain: string; domainData: Record<string, unknown> }>;
   }): Promise<{
     extracted: Array<{ scope: string; label: string; value: string }>;
     missing: string[];
     draft: { subject: string; body: string };
   }> {
+    const body: Record<string, unknown> = {
+      user_id: userId,
+      domain,
+      domain_data: domainData,
+      approved_scopes: approvedScopes,
+      request_text: requestText,
+    };
+    if (domains && domains.length > 0) {
+      body.domains = domains.map((d) => ({
+        domain: d.domain,
+        domain_data: d.domainData,
+      }));
+    }
     return apiJson(
       `/api/one/kyc/workflows/${encodeURIComponent(workflowId)}/extract-draft`,
       {
         method: "POST",
         headers: authHeaders(vaultOwnerToken),
-        body: JSON.stringify({
-          user_id: userId,
-          domain,
-          domain_data: domainData,
-          approved_scopes: approvedScopes,
-          request_text: requestText,
-        }),
+        body: JSON.stringify(body),
       },
     );
   }

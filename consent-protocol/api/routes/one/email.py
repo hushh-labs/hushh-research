@@ -79,10 +79,15 @@ class RecentMailboxSyncRequest(WorkflowUserRequest):
 
 
 class ExtractDraftRequest(WorkflowUserRequest):
-    domain: str = Field(min_length=1, max_length=120)
+    domain: str = Field(default="", max_length=120)
     domain_data: dict = Field(default_factory=dict)
     approved_scopes: list[str] = Field(min_length=1, max_length=8)
     request_text: str = Field(min_length=1, max_length=12000)
+    # Multi-domain support (Pass 2). When provided (non-empty), overrides the
+    # single-domain `domain`/`domain_data` fields and sends all domains in one
+    # coherent LLM call. Each item must be {"domain": str, "domain_data": dict}.
+    # Limit matches approved_scopes max_length (one domain per scope family).
+    domains: list[dict] | None = Field(default=None, max_length=8)
 
 
 class ConfirmProposalRequest(WorkflowUserRequest):
@@ -642,6 +647,7 @@ async def one_kyc_extract_draft(
             approved_scopes=payload.approved_scopes,
             request_text=payload.request_text,
             consent_token=token_data.get("token", ""),
+            domains=payload.domains,
         )
     except Exception as exc:
         logger.exception(

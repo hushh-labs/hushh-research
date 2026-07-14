@@ -258,6 +258,129 @@ async def test_extract_draft_malformed_null_scope():
 
 
 @pytest.mark.asyncio
+async def test_extract_draft_multi_domain_success():
+    """domains=[identity, financial] sends BOTH domains' data in the prompt and
+    returns extracted items for BOTH scopes with none in missing."""
+    service = get_one_email_kyc_service()
+    captured_prompts: list[str] = []
+
+    llm_out = {
+        "extracted": [
+            {"scope": "attr.identity.name", "label": "Full name", "value": "Jane Doe"},
+            {
+                "scope": "attr.financial.portfolio.value",
+                "label": "Portfolio value",
+                "value": "500000",
+            },
+        ],
+        "missing": [],
+        "draft": {
+            "subject": "Re: KYC + Portfolio",
+            "body": "My name is Jane Doe. My portfolio value is 500000.",
+        },
+    }
+    workflow = {
+        "workflow_id": "wf-multi",
+        "status": "waiting_on_user",
+        "draft_status": "ready",
+        "metadata": {},
+    }
+
+    async def capture_prompt(**kwargs):
+        captured_prompts.append(kwargs.get("prompt", ""))
+        return llm_out
+
+    with (
+        patch.object(service, "get_workflow", new=AsyncMock(return_value=workflow)),
+        patch.object(
+            service, "_llm_generate_structured", new=AsyncMock(side_effect=capture_prompt)
+        ),
+        patch.object(service, "_update_workflow", return_value=workflow),
+        patch(
+            "hushh_mcp.services.one_email_kyc_service.validate_token_with_db",
+            new=AsyncMock(return_value=(True, "ok", None)),
+        ),
+    ):
+        result = await service.extract_and_draft(
+            user_id="u1",
+            workflow_id="wf-multi",
+            domain="identity",
+            domain_data={},
+            approved_scopes=["attr.identity.*", "attr.financial.portfolio.*"],
+            request_text="Please share your identity and portfolio details.",
+            consent_token="tok",  # noqa: S106
+            domains=[
+                {"domain": "identity", "domain_data": {"full_name": "Jane Doe"}},
+                {"domain": "financial", "domain_data": {"portfolio": {"value": 500000}}},
+            ],
+        )
+
+    # Both scopes must appear in extracted, nothing in missing.
+    extracted_scopes = {item["scope"] for item in result["extracted"]}
+    assert "attr.identity.name" in extracted_scopes
+    assert "attr.financial.portfolio.value" in extracted_scopes
+    assert result["missing"] == []
+
+    # Prompt must mention both domain names and both data payloads.
+    assert len(captured_prompts) == 1, "Expected exactly one LLM call"
+    prompt = captured_prompts[0]
+    assert "identity" in prompt
+    assert "financial" in prompt
+    assert "Jane Doe" in prompt
+    assert "500000" in prompt or "portfolio" in prompt
+
+
+@pytest.mark.asyncio
+async def test_extract_draft_multi_domain_falls_back_to_single_when_domains_empty():
+    """When domains=[] (empty), falls back to single-domain domain/domain_data."""
+    service = get_one_email_kyc_service()
+    captured_prompts: list[str] = []
+
+    llm_out = {
+        "extracted": [{"scope": "attr.identity.name", "label": "Full name", "value": "Jane Doe"}],
+        "missing": [],
+        "draft": {"subject": "Re: KYC", "body": "My name is Jane Doe."},
+    }
+    workflow = {
+        "workflow_id": "wf-fallback",
+        "status": "waiting_on_user",
+        "draft_status": "ready",
+        "metadata": {},
+    }
+
+    async def capture_prompt(**kwargs):
+        captured_prompts.append(kwargs.get("prompt", ""))
+        return llm_out
+
+    with (
+        patch.object(service, "get_workflow", new=AsyncMock(return_value=workflow)),
+        patch.object(
+            service, "_llm_generate_structured", new=AsyncMock(side_effect=capture_prompt)
+        ),
+        patch.object(service, "_update_workflow", return_value=workflow),
+        patch(
+            "hushh_mcp.services.one_email_kyc_service.validate_token_with_db",
+            new=AsyncMock(return_value=(True, "ok", None)),
+        ),
+    ):
+        result = await service.extract_and_draft(
+            user_id="u1",
+            workflow_id="wf-fallback",
+            domain="identity",
+            domain_data={"full_name": "Jane Doe"},
+            approved_scopes=["attr.identity.*"],
+            request_text="Please share your identity details.",
+            consent_token="tok",  # noqa: S106
+            domains=[],  # empty list → fall back to single-domain
+        )
+
+    assert result["extracted"][0]["value"] == "Jane Doe"
+    prompt = captured_prompts[0]
+    assert "identity" in prompt
+    assert "Jane Doe" in prompt
+
+
+@pytest.mark.asyncio
 async def test_extract_draft_prompt_framing():
     """Assert the prompt sent to the LLM contains the correct role/disclosure framing.
 

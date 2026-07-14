@@ -1563,10 +1563,17 @@ export class OneKycClientZkService {
     const response = await OneKycService.extractDraft({
       ...params.input,
       workflowId: params.workflow.workflow_id,
+      // Single-domain fallback fields (backward compat for servers that don't
+      // yet support the multi-domain `domains` param).
       domain: primary?.domain ?? "identity",
       domainData: primary?.data ?? {},
       approvedScopes: params.approvedScopes,
       requestText: params.requestText,
+      // Multi-domain: send ALL decrypted domains so every scope is covered.
+      domains: params.decryptedDomains.map((d) => ({
+        domain: d.domain,
+        domainData: d.data,
+      })),
     });
 
     const approvedValues: Record<string, string> = {};

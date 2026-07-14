@@ -19,6 +19,7 @@ vi.mock("@/lib/services/one-kyc-service", () => ({
 }));
 
 import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
+import { OneKycService } from "@/lib/services/one-kyc-service";
 import type { OneKycWorkflow } from "@/lib/services/one-kyc-service";
 
 describe("buildDraftViaLlm", () => {
@@ -45,5 +46,32 @@ describe("buildDraftViaLlm", () => {
     expect(result.approvedValues["attr.identity.name"]).toBe("Jane Doe");
     expect(result.htmlBody).toBeTruthy();
     expect(result.missingFields).toEqual([]);
+  });
+
+  it("forwards ALL decryptedDomains as the domains array to extractDraft", async () => {
+    const workflow = {
+      workflow_id: "wf-multi",
+      subject: "KYC + Portfolio",
+      requested_scope: "attr.identity.*",
+    } as unknown as OneKycWorkflow;
+
+    await OneKycClientZkService.buildDraftViaLlm({
+      workflow,
+      input: { userId: "u1", vaultOwnerToken: "tok" },
+      decryptedDomains: [
+        { domain: "identity", scope: "attr.identity.*", data: { full_name: "Jane Doe" } },
+        { domain: "financial", scope: "attr.financial.portfolio.*", data: { portfolio: { value: 500000 } } },
+      ],
+      approvedScopes: ["attr.identity.*", "attr.financial.portfolio.*"],
+      requestText: "Please share your identity and portfolio details.",
+    });
+
+    // extractDraft must have been called once with a domains array of length 2
+    expect(OneKycService.extractDraft).toHaveBeenCalledTimes(1);
+    const callArgs = (OneKycService.extractDraft as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.domains).toBeDefined();
+    expect(callArgs.domains).toHaveLength(2);
+    expect(callArgs.domains[0].domain).toBe("identity");
+    expect(callArgs.domains[1].domain).toBe("financial");
   });
 });

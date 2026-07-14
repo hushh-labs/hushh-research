@@ -4385,20 +4385,26 @@ class OneEmailKycService:
         *,
         user_id: str,
         workflow_id: str,
-        domain: str,
-        domain_data: dict[str, Any],
+        domain: str = "",
+        domain_data: dict[str, Any] | None = None,
         approved_scopes: list[str],
         request_text: str,
         consent_token: str,
+        domains: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """Pass 2 — extract exact approved fields from the decrypted domain and
-        compose the reply. Receives full plaintext for the ONE approved domain.
+        """Pass 2 — extract exact approved fields from the decrypted domain(s) and
+        compose the reply. Receives full plaintext for the approved domain(s).
+
+        Supports multi-domain via the `domains` parameter (list of
+        {"domain": str, "domain_data": dict}). When `domains` is provided and
+        non-empty, all domains are included in a single LLM call. Falls back to
+        the single-domain `domain`/`domain_data` params for backward compatibility.
 
         Consent-gated (agent.kyc.disclose.llm). Enforces two fail-closed guardrails:
           - Subset invariant: extracted[].scope ⊆ approved_scopes.
           - Value provenance: draft body must not contain PII-shaped tokens absent
             from the extracted set (email or 6+ digit run).
-        draft_body is NEVER persisted. Only user_id/workflow_id/domain/scopes are logged.
+        draft_body is NEVER persisted. Only user_id/workflow_id/domain(s)/scopes are logged.
         """
         # Step 1 — Consent gate.
         valid, reason, _tok = await validate_token_with_db(
@@ -4422,6 +4428,21 @@ class OneEmailKycService:
 
         # Step 4 — Build prompt and call the structured LLM helper.
         approved_set = set(_dedupe(approved_scopes))
+
+        # Resolve domain payloads: prefer the multi-domain list, fall back to single.
+        if domains and len(domains) > 0:
+            domain_payloads = domains
+        else:
+            domain_payloads = [{"domain": domain, "domain_data": domain_data or {}}]
+
+        # Build the user-data section covering ALL domains.
+        domain_sections = "\n".join(
+            f"User data for domain '{str(entry.get('domain', ''))}': "
+            f"{json.dumps(entry.get('domain_data') or {})}"
+            for entry in domain_payloads
+        )
+        domain_names_logged = [str(entry.get("domain", "")) for entry in domain_payloads]
+
         prompt = (
             "ROLE: You are drafting an email reply ON BEHALF OF the user (the data "
             "owner) who received a request for their personal information. Write the "
@@ -4433,7 +4454,7 @@ class OneEmailKycService:
             "labelled lines (e.g. 'Full name: <value>', 'Address: <value>'), so the "
             "requester receives the data they asked for.\n\n"
             f"Approved scopes (extract only these): {json.dumps(sorted(approved_set))}\n"
-            f"User data for domain '{domain}':\n{json.dumps(domain_data)}\n\n"
+            f"{domain_sections}\n\n"
             f"Inbound request (context for what was asked — the reply ANSWERS it with "
             f"the user's data):\n{_truncate(request_text, 4000)}\n\n"
             "Extraction rules:\n"
@@ -4494,10 +4515,10 @@ class OneEmailKycService:
 
         # Step 7 — Log identifiers only; never log body or values.
         logger.info(
-            "one.kyc.extract_draft user_id=%s workflow_id=%s domain=%s scopes=%s",
+            "one.kyc.extract_draft user_id=%s workflow_id=%s domains=%s scopes=%s",
             user_id,
             workflow_id,
-            domain,
+            domain_names_logged,
             sorted(out_scopes),
         )
 
