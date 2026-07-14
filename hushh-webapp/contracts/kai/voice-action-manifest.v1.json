@@ -2598,12 +2598,11 @@
     {
       "id": "route.one_location",
       "label": "Open Location",
-      "meaning": "Navigates to the One Location agent route.",
+      "meaning": "Navigates to the One Location route.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "aliases": [
         "open location",
-        "open location agent",
         "go to location",
         "show location"
       ],

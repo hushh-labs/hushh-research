@@ -170,7 +170,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     setupActionId: "setup.open_location",
     setupControlId: "one_setup_tile_location",
     agentId: "agent_location",
-    title: "Onepoint",
+    title: "Location",
     description: "Live location & Alerts",
     previewLabel: "Live location & Alerts",
     href: ROUTES.ONE_LOCATION,

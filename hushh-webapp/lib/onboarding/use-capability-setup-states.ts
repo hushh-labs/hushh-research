@@ -248,7 +248,7 @@ export function useCapabilitySetupStates(
   }, [enrichOauth, userId]);
 
   // ---- WHEN UNLOCKED: location recipient-key readiness --------------------
-  // One lightweight `getState` once the vault is unlocked, so the Onepoint tile
+  // One lightweight `getState` once the vault is unlocked, so the Location tile
   // reads "Ready" vs "Set up location" instead of a generic "Unlock to view".
   // Locked → leave undefined so the resolver keeps the honest "Unlock to view".
   useEffect(() => {

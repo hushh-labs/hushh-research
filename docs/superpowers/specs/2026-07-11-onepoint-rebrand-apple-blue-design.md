@@ -1,4 +1,4 @@
-# Onepoint Rebrand + Apple Blue Theme — Design Spec
+# Location Rebrand + Apple Blue Theme — Design Spec
 
 **Date:** 2026-07-11
 **Status:** Approved (Phase 1)
@@ -7,7 +7,7 @@
 ## Visual Map
 
 ```
-"One Location"  ──rebrand──►  "Onepoint"        (display copy only)
+"One Location"  ──rebrand──►  "Location"        (display copy only)
 warm-gold #d4a574  ──restyle──►  Apple blue #007aff (theme only)
 
 Surfaces restyled (presentation layer, components/one-location/redesign/*):
@@ -19,12 +19,12 @@ Unchanged: routes, agent IDs, file names, storage keys, business logic.
 
 ## Problem / Context
 
-A new design ("Onepoint / Apple Blue v2") rebrands and restyles the location
+A new design ("Location / Apple Blue v2") rebrands and restyles the location
 product. Investigation confirmed the location feature **already exists in full**
 in the codebase under the name **"One Location"** — the Now/People/Links/Inbox
 hub, Check-In, SOS/Alert, Drive To, Pick Me Up, Safe Arrival, live map, sharing
 links, Inbox, invite code, onboarding, and agent chat are all built. The string
-"Onepoint" appears nowhere today.
+"Location" appears nowhere today.
 
 Therefore this is a **rebrand + restyle of an existing feature**, not a new
 build. All business logic (encryption, consent, service calls, analytics) is
@@ -36,7 +36,7 @@ low-risk.
 ## Scope (Phase 1)
 
 In scope:
-1. Rebrand user-facing "One Location" → **"Onepoint"**.
+1. Rebrand user-facing "One Location" → **"Location"**.
 2. Replace the warm-gold accent with **Apple system blue** as the single theme.
 
 Explicitly **out of scope** (deferred to a later phase):
@@ -48,7 +48,7 @@ Explicitly **out of scope** (deferred to a later phase):
 
 ## Design
 
-### A. Rebrand: "One Location" → "Onepoint" (display copy only)
+### A. Rebrand: "One Location" → "Location" (display copy only)
 
 Rename user-facing strings **only**. Do NOT change: route paths
 (`/one/location`), `agentId` (`agent_location`), file/directory names,
@@ -57,18 +57,18 @@ IDs.
 
 | File:line | Current | New |
 |---|---|---|
-| `components/one-location/redesign/location-redesign-hub.tsx:436` | `title="One Location"` (hub header) | `title="Onepoint"` |
-| `components/one-location/redesign/location-chat-panel.tsx:59` | `>One Location<` (bot name) | `>Onepoint<` |
-| `components/one-location/redesign/location-chat-panel.tsx:74` | `>One Location<` (bot name) | `>Onepoint<` |
-| `lib/onboarding/one-capabilities.ts:134` | `title:"Location"` | `title:"Onepoint"` |
+| `components/one-location/redesign/location-redesign-hub.tsx:436` | `title="One Location"` (hub header) | `title="Location"` |
+| `components/one-location/redesign/location-chat-panel.tsx:59` | `>One Location<` (bot name) | `>Location<` |
+| `components/one-location/redesign/location-chat-panel.tsx:74` | `>One Location<` (bot name) | `>Location<` |
+| `lib/onboarding/one-capabilities.ts:134` | `title:"Location"` | `title:"Location"` |
 | `lib/onboarding/one-capabilities.ts` (same entry) | `description:"Live sharing, referrals, and local context."` / `previewLabel:"Live sharing & local context"` | `description:"Live location & Alerts"` / `previewLabel:"Live location & Alerts"` |
-| `app/one/location/page.tsx:1200` | `aria-label="How One Location works"` | `...Onepoint works` |
-| `app/one/location/page.tsx:1251` | `aria-label="How One Location keeps you safe"` | `...Onepoint keeps you safe` |
-| `app/one/location/page.tsx:1431` | `aria-label="Loading One Location"` | `Loading Onepoint` |
-| `app/one/location/page.tsx:5267` | `<h2 class="sr-only">One Location Agent</h2>` | `Onepoint Agent` |
-| `lib/consent/location-consent.ts:112` | `"...wants to see your location through One Location."` | `...through Onepoint.` |
-| `components/consent/consent-center-page.tsx:1040` | `"...expiry in One Location."` | `...in Onepoint.` |
-| `app/one/location/invite/[token]/page-client.tsx:279` | `"encrypted share from One Location."` | `...from Onepoint.` |
+| `app/one/location/page.tsx:1200` | `aria-label="How One Location works"` | `...Location works` |
+| `app/one/location/page.tsx:1251` | `aria-label="How One Location keeps you safe"` | `...Location keeps you safe` |
+| `app/one/location/page.tsx:1431` | `aria-label="Loading One Location"` | `Loading Location` |
+| `app/one/location/page.tsx:5267` | `<h2 class="sr-only">One Location Agent</h2>` | `Location Agent` |
+| `lib/consent/location-consent.ts:112` | `"...wants to see your location through One Location."` | `...through Location.` |
+| `components/consent/consent-center-page.tsx:1040` | `"...expiry in One Location."` | `...in Location.` |
+| `app/one/location/invite/[token]/page-client.tsx:279` | `"encrypted share from One Location."` | `...from Location.` |
 
 Note: the agents-hub tile `tone:"location"` (Sage Green pin icon) stays as-is —
 that is the agent's brand icon in the roster and is independent of the location
@@ -118,7 +118,7 @@ Colors intentionally **left unchanged** (already match the design):
    passing after the swap to blue, no update needed. Watch for any other test
    asserting the literal gold value positively.
 4. Drive the location screen in the app and confirm accents render Apple blue and
-   the header/chat/roster read "Onepoint".
+   the header/chat/roster read "Location".
 
 ## Risks
 

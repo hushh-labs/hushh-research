@@ -67,10 +67,9 @@
     {
       "action_id": "route.one_location",
       "label": "Open Location",
-      "meaning": "Navigates to the One Location agent route.",
+      "meaning": "Navigates to the One Location route.",
       "aliases": [
         "open location",
-        "open location agent",
         "go to location",
         "show location"
       ],

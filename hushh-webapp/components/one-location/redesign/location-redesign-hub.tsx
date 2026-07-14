@@ -456,7 +456,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   return (
     <div className="space-y-5">
       <LocationHeader
-        title="Onepoint"
+        title="Location"
         subtitle={headerSubtitle}
         trailing={
           <button
@@ -878,7 +878,7 @@ function PrivacyFlow({
   return (
     <div>
       <TaskFlowHeader
-        eyebrow="Onepoint"
+        eyebrow="Location"
         title="Privacy"
         description="You control who sees your location and when. Change this anytime."
         onBack={onClose}

@@ -233,7 +233,7 @@ const REQUEST_MESSAGE_MAX_LENGTH = 80;
 
 
 const ONE_LOCATION_SHARE_TITLE = "Join me on One";
-const ONE_LOCATION_PUBLIC_SHARE_COPY = "Join my Onepoint circle";
+const ONE_LOCATION_PUBLIC_SHARE_COPY = "Join my Location circle";
 const ONE_LOCATION_CIRCLE_SHARE_COPY = "Join me on One";
 const SHOW_LOCATION_ACTIVITY_SECTION = false;
 const SHOW_OWNER_GRANTS_SECTION = false;
@@ -448,7 +448,7 @@ function recipientRecommendationLine(recipient: OneLocationRecipient): string {
     visibleRecommendationReasons(recipient)[0]?.label ||
     (recipient.canReceiveLocation
       ? "Ready for private location sharing"
-      : "Needs to open Onepoint once")
+      : "Needs to open Location once")
   );
 }
 
@@ -1210,7 +1210,7 @@ const ONE_LOCATION_FIRST_RUN_GUIDE_KEY = "one_location_first_run_guide_v1";
 function OneLocationFirstRunGuide({ onDismiss }: { onDismiss: () => void }) {
   return (
     <section
-      aria-label="How Onepoint works"
+      aria-label="How Location works"
       className="relative min-w-0 max-w-full overflow-hidden rounded-[20px] border border-[color:var(--app-accent-border)] bg-gradient-to-b from-[color:var(--app-accent-surface)] to-white p-4 shadow-sm dark:border-[color:var(--app-accent-border)] dark:from-[color:var(--app-accent-tint)] dark:to-transparent"
     >
       <button
@@ -1261,7 +1261,7 @@ function OneLocationFirstRunGuide({ onDismiss }: { onDismiss: () => void }) {
 function OneLocationTrustStrip() {
   return (
     <ul
-      aria-label="How Onepoint keeps you safe"
+      aria-label="How Location keeps you safe"
       className="grid min-w-0 max-w-full grid-cols-1 gap-2 sm:grid-cols-3"
     >
       {ONE_LOCATION_TRUST_CHIPS.map(({ icon: Icon, label, detail }) => (
@@ -1441,7 +1441,7 @@ function readinessCopy(permission: HushhLocationPermissionState | null): {
 function OneLocationInitialSkeleton() {
   return (
     <div
-      aria-label="Loading Onepoint"
+      aria-label="Loading Location"
       className="mx-auto w-full max-w-[720px] space-y-5"
       role="status"
     >
@@ -2185,7 +2185,7 @@ export function OneLocationAgentPageContent({
       const result = await OneLocationService.openLocationSettings();
       toast.info(
         result.opened
-          ? "Turn on Location, then return to Onepoint and refresh."
+          ? "Turn on Location, then return here and refresh."
           : "Open your phone or browser location settings, then return and refresh.",
       );
     } catch (error) {
@@ -2375,7 +2375,7 @@ export function OneLocationAgentPageContent({
         ) === "1");
 
     // The whole takeover is first-run only. Returning users manage Location
-    // and notification readiness from the normal Onepoint surface.
+    // and notification readiness from the normal Location surface.
     if (introSeen) {
       setLocationOnboardingGate("hidden");
       return;
@@ -2562,7 +2562,7 @@ export function OneLocationAgentPageContent({
     ) => {
       if (!vaultOwnerToken) throw new Error("Vault owner token required.");
       if (!recipient.publicKeyJwk || !recipient.keyId) {
-        throw new Error("They need to open Onepoint once before private sharing can start.");
+        throw new Error("They need to open Location once before private sharing can start.");
       }
       const point =
         pointOverride ?? (await OneLocationService.captureCurrentPosition());
@@ -2827,7 +2827,7 @@ export function OneLocationAgentPageContent({
     async (grant: OneLocationGrant) => {
       const recipient = recipientForGrant(grant);
       if (!recipient) {
-        toast.error("This share needs the recipient to open Onepoint once.");
+        toast.error("This share needs the recipient to open Location once.");
         return;
       }
       setBusy("publish");
@@ -3836,7 +3836,7 @@ export function OneLocationAgentPageContent({
         (recipient) => recipient.userId === request.requesterUserId,
       );
       if (!requester?.keyId || !requester.publicKeyJwk) {
-        toast.error("They need to open Onepoint once before approval can finish.");
+        toast.error("They need to open Location once before approval can finish.");
         return;
       }
       setBusy("approve");
@@ -4676,7 +4676,7 @@ export function OneLocationAgentPageContent({
           await ConnectionsService.sendRequest({
             idToken,
             addresseeUserId: userId,
-            message: "I would like to add you to my private Onepoint circle.",
+            message: "I would like to add you to my private Location circle.",
           });
           sentUserIds.push(userId);
         } catch {
@@ -5162,7 +5162,7 @@ export function OneLocationAgentPageContent({
             <h1 className="text-[28px] font-medium leading-[1.12] tracking-normal text-[#1c1c1e] sm:text-[32px] dark:text-white">
               Your circle, safely connected.
             </h1>
-            <h2 className="sr-only">Onepoint Agent</h2>
+            <h2 className="sr-only">Location</h2>
             <p className="max-w-[460px] text-[16px] font-medium leading-snug text-[#8e8e93] dark:text-white/55">
               Let the people you trust see where you are - only when you choose,
               only for as long as you choose. We can never see it.
@@ -5620,7 +5620,7 @@ export function OneLocationAgentPageContent({
                           {peopleCountLabel(
                             setupNeededSelectedRecipients.length,
                           )}{" "}
-                          need to open Onepoint once before private sharing
+                          need to open Location once before private sharing
                           can start.
                         </div>
                       ) : null}

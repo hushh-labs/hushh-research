@@ -1,10 +1,10 @@
-# Onepoint Rebrand + Apple Blue Theme Implementation Plan
+# Location Rebrand + Apple Blue Theme Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rebrand the existing "One Location" feature to "Onepoint" and replace its warm-gold accent with Apple system blue as the single theme.
+**Goal:** Rebrand the existing "One Location" feature to "Location" and replace its warm-gold accent with Apple system blue as the single theme.
 
-**Architecture:** The location feature already exists in full. Business logic (encryption, consent, service calls) lives in `app/one/location/page.tsx` and is passed to pure-presentation components in `components/one-location/redesign/` via a single `LocationHubViewModel`. This change is presentation-only: (1) swap hardcoded gold hex literals for Apple blue across `components/one-location/**`, and (2) rename user-facing "One Location" display strings to "Onepoint". No routes, agent IDs, file names, or storage keys change.
+**Architecture:** The location feature already exists in full. Business logic (encryption, consent, service calls) lives in `app/one/location/page.tsx` and is passed to pure-presentation components in `components/one-location/redesign/` via a single `LocationHubViewModel`. This change is presentation-only: (1) swap hardcoded gold hex literals for Apple blue across `components/one-location/**`, and (2) rename user-facing "One Location" display strings to "Location". No routes, agent IDs, file names, or storage keys change.
 
 **Tech Stack:** Next.js (App Router), React, TypeScript, Tailwind CSS (arbitrary color values with alpha modifiers), Vitest/Jest + Testing Library.
 
@@ -116,12 +116,12 @@ Expected: PASS / no type errors. `cards-primary-theme.test.tsx` still passes (go
 ```bash
 cd /Users/gautamahuja/Desktop/RedPlanet/hushh-research
 git add hushh-webapp/components/one-location
-git commit -s -m "style(onepoint): replace warm-gold accent with Apple blue"
+git commit -s -m "style(location): replace warm-gold accent with Apple blue"
 ```
 
 ---
 
-### Task 2: Rebrand user-facing "One Location" → "Onepoint"
+### Task 2: Rebrand user-facing "One Location" → "Location"
 
 **Files:**
 - Modify: `hushh-webapp/components/one-location/redesign/location-redesign-hub.tsx`
@@ -134,7 +134,7 @@ git commit -s -m "style(onepoint): replace warm-gold accent with Apple blue"
 
 **Interfaces:**
 - Consumes: `ACCENT_BLUE` from Task 1 is unrelated; no cross-task dependency.
-- Produces: user-facing brand string "Onepoint" (no exported symbols).
+- Produces: user-facing brand string "Location" (no exported symbols).
 
 - [ ] **Step 1: Baseline — list remaining user-facing "One Location" strings**
 
@@ -150,7 +150,7 @@ Expected: the set of display strings listed in the spec (hub title, chat bot nam
 
 `components/one-location/redesign/location-redesign-hub.tsx` line 436:
 ```tsx
-        title="Onepoint"
+        title="Location"
 ```
 (was `title="One Location"`)
 
@@ -158,7 +158,7 @@ Expected: the set of display strings listed in the spec (hub title, chat bot nam
 
 `components/one-location/redesign/location-chat-panel.tsx` lines 59 and 74 — change each bot-name label:
 ```tsx
-            <p className="text-sm font-semibold text-foreground">Onepoint</p>
+            <p className="text-sm font-semibold text-foreground">Location</p>
 ```
 (was `>One Location<`)
 
@@ -168,7 +168,7 @@ Expected: the set of display strings listed in the spec (hub title, chat bot nam
 ```ts
     id: "location",
     agentId: "agent_location",
-    title: "Onepoint",
+    title: "Location",
     description: "Live location & Alerts",
     previewLabel: "Live location & Alerts",
     href: ROUTES.ONE_LOCATION,
@@ -180,24 +180,24 @@ Change only `title`, `description`, `previewLabel`. Leave `id`, `agentId`, `href
 - [ ] **Step 5: Rename the page aria-labels / sr-only heading**
 
 `app/one/location/page.tsx`:
-- line 1200: `aria-label="How Onepoint works"`
-- line 1251: `aria-label="How Onepoint keeps you safe"`
-- line 1431: `aria-label="Loading Onepoint"`
-- line 5267: `<h2 className="sr-only">Onepoint Agent</h2>`
+- line 1200: `aria-label="How Location works"`
+- line 1251: `aria-label="How Location keeps you safe"`
+- line 1431: `aria-label="Loading Location"`
+- line 5267: `<h2 className="sr-only">Location Agent</h2>`
 
 - [ ] **Step 6: Rename user-facing consent + invite copy**
 
 - `lib/consent/location-consent.ts:112` — the returned string:
 ```ts
-  return `${who} wants to see your location through Onepoint.`;
+  return `${who} wants to see your location through Location.`;
 ```
 - `components/consent/consent-center-page.tsx:1040`:
 ```tsx
-            description="Review this location request, active access, and expiry in Onepoint."
+            description="Review this location request, active access, and expiry in Location."
 ```
 - `app/one/location/invite/[token]/page-client.tsx:279` — the text node:
 ```tsx
-                encrypted share from Onepoint.
+                encrypted share from Location.
 ```
 
 - [ ] **Step 7: Verify no user-facing "One Location" strings remain**
@@ -218,14 +218,14 @@ npx jest components/one-location app/one/location 2>/dev/null \
   || npx vitest run components/one-location app/one/location
 npx tsc --noEmit -p tsconfig.json
 ```
-Expected: PASS / no type errors. If a test asserts the literal string "One Location", update it to "Onepoint".
+Expected: PASS / no type errors. If a test asserts the literal string "One Location", update it to "Location".
 
 - [ ] **Step 9: Commit**
 
 ```bash
 cd /Users/gautamahuja/Desktop/RedPlanet/hushh-research
 git add hushh-webapp
-git commit -s -m "feat(onepoint): rebrand One Location display copy to Onepoint"
+git commit -s -m "feat(location): rebrand One Location display copy to Location"
 ```
 
 ---
@@ -239,14 +239,14 @@ git commit -s -m "feat(onepoint): rebrand One Location display copy to Onepoint"
 
 - [ ] **Step 1: Launch the app and open the location screen**
 
-Use the repo's run workflow (see `AGENTS.md` / `/run`). Reuse the iOS simulator noted in memory (iPhone 16 / iOS 18.2, `B46FD09B-…`) or the web dev server, log in, unlock the vault, and navigate to the Onepoint agent (`/one/location`).
+Use the repo's run workflow (see `AGENTS.md` / `/run`). Reuse the iOS simulator noted in memory (iPhone 16 / iOS 18.2, `B46FD09B-…`) or the web dev server, log in, unlock the vault, and navigate to the Location agent (`/one/location`).
 
 - [ ] **Step 2: Confirm rebrand**
 
 Expected on screen:
-- Agents hub tile reads **"Onepoint" / "Live location & Alerts"**.
-- Location hub header reads **"Onepoint"**.
-- Agent chat card bot name reads **"Onepoint"**.
+- Agents hub tile reads **"Location" / "Live location & Alerts"**.
+- Location hub header reads **"Location"**.
+- Agent chat card bot name reads **"Location"**.
 
 - [ ] **Step 3: Confirm Apple blue accents**
 

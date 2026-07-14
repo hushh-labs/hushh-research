@@ -1025,7 +1025,7 @@ export function OneLocationOnboardingFlow({
             <div className="flex min-h-full flex-1 flex-col">
               <div className="pt-6 text-center sm:pt-12">
                 <p className="inline-flex items-center gap-2 text-[19px] font-bold">
-                  <LocateFixed className="h-6 w-6" /> Onepoint
+                  <LocateFixed className="h-6 w-6" /> Location
                 </p>
                 <h1 className="mx-auto mt-8 max-w-[390px] text-[38px] font-bold leading-[1.08]">
                   The people you love.<br />Always in reach.
