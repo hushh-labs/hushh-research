@@ -28,7 +28,16 @@ steps:
             exit 1
           fi
         done
-        docker build \
+        # Registry layer cache (buildx, mode=max): caches the npm ci + next build layers
+        # so an unchanged package-lock turns dependency install into a cache hit. First
+        # build after this lands is cold (seeds :buildcache); later builds are minutes.
+        gcloud auth configure-docker gcr.io --quiet || true
+        docker buildx create --use --name hushh-builder --driver docker-container \
+          >/dev/null 2>&1 || docker buildx use hushh-builder
+        docker buildx build \
+          --cache-from=type=registry,ref=gcr.io/$PROJECT_ID/hushh-webapp:buildcache \
+          --cache-to=type=registry,ref=gcr.io/$PROJECT_ID/hushh-webapp:buildcache,mode=max \
+          --push \
           -t gcr.io/$PROJECT_ID/hushh-webapp:manual \
           -t gcr.io/$PROJECT_ID/hushh-webapp:latest \
           -t gcr.io/$PROJECT_ID/hushh-webapp:${_IMAGE_TAG} \
@@ -67,25 +76,6 @@ steps:
     ]
     id: "build-frontend-image"
 
-  # Step 2: Push Docker image to Container Registry
-  - name: "gcr.io/cloud-builders/docker"
-    args:
-      - "push"
-      - "gcr.io/$PROJECT_ID/hushh-webapp:manual"
-    id: "push-frontend-image"
-
-  - name: "gcr.io/cloud-builders/docker"
-    args:
-      - "push"
-      - "gcr.io/$PROJECT_ID/hushh-webapp:latest"
-    id: "push-frontend-latest"
-
-  - name: "gcr.io/cloud-builders/docker"
-    args:
-      - "push"
-      - "gcr.io/$PROJECT_ID/hushh-webapp:${_IMAGE_TAG}"
-    id: "push-frontend-version"
-
   # Step 3: Deploy to Cloud Run
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
@@ -117,14 +107,12 @@ steps:
         "${cmd[@]}"
     id: "deploy-frontend"
 
-# Images to store in Container Registry
-images:
-  - "gcr.io/$PROJECT_ID/hushh-webapp:manual"
-  - "gcr.io/$PROJECT_ID/hushh-webapp:latest"
-  - "gcr.io/$PROJECT_ID/hushh-webapp:${_IMAGE_TAG}"
+# NOTE: no top-level `images:` block — `docker buildx build --push` (Step 1) already
+# pushes every tag. Listing images here would make Cloud Build re-push from the local
+# daemon, which is empty under the buildx docker-container driver, and fail.
 
-# Build timeout
-timeout: "1200s"
+# Build timeout: 1800s headroom for the one-time cold seeding build; cached builds are minutes.
+timeout: "1800s"
 
 substitutions:
   _FRONTEND_SERVICE: hushh-webapp
