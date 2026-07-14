@@ -8,10 +8,36 @@
 
 **Tech Stack:** Python 3 (FastAPI, Pydantic v2, `google-genai` Vertex client), Next.js/TypeScript (React), Vitest (frontend), pytest (backend).
 
+## Visual Map
+
+```mermaid
+flowchart TD
+  intake["Gmail intake (one@hushh.ai)"]
+  classify["Pass 1: classify_kyc_request\nrequest text + sanitized pkm_index (no values)"]
+  needs_confirm["needs_confirm\n/one/kyc shows proposal + reasoning"]
+  confirm_proposal["confirm_proposal\ncreates per-scope consent requests"]
+  consent["consent granted"]
+  extract_draft["Pass 2: extract_and_draft\nclient decrypts approved domain → full values"]
+  draft["draft\nrenderer wraps LLM body in Gmail-safe HTML chrome"]
+  redraft_full["redraft_full (optional)\nLLM sees full values; scope-expansion → needs_confirm"]
+  send["approve_draft → send_approved_reply → PKM writeback"]
+
+  intake --> classify
+  classify -->|"confidence < 0.5 or unsupported"| parked["parked — user prompted"]
+  classify --> needs_confirm
+  needs_confirm --> confirm_proposal
+  confirm_proposal --> consent
+  consent --> extract_draft
+  extract_draft --> draft
+  draft --> redraft_full
+  redraft_full --> send
+  draft --> send
+```
+
 ## Global Constraints
 
-- **LLM determinism:** all KYC LLM calls use `temperature=KAI_LLM_TEMPERATURE` (`= 0.0`, `consent-protocol/hushh_mcp/constants.py:328`) and `max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT` (`= 16384`, line 330).
-- **Structured output:** mirror `pkm_agent_lab_service._run_agent_contract` (`consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py:1353-1410`) — `types.GenerateContentConfig(temperature=0.0, response_mime_type="application/json", response_schema=<dict>, automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))`, read `response.parsed`, fall back to `json.loads(response.text)`. Schemas use uppercase type strings (`"OBJECT"`, `"STRING"`, `"ARRAY"`, `"NUMBER"`) and `enum` lists.
+- **LLM determinism:** all KYC LLM calls use `temperature=KAI_LLM_TEMPERATURE` (`= 0.0`, `consent-protocol/hushh_mcp/constants.py` line 328) and `max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT` (`= 16384`, line 330).
+- **Structured output:** mirror `pkm_agent_lab_service._run_agent_contract` (`consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py` lines 1353-1410) — `types.GenerateContentConfig(temperature=0.0, response_mime_type="application/json", response_schema=<dict>, automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))`, read `response.parsed`, fall back to `json.loads(response.text)`. Schemas use uppercase type strings (`"OBJECT"`, `"STRING"`, `"ARRAY"`, `"NUMBER"`) and `enum` lists.
 - **Shared LLM client reuse:** never instantiate a new client. Import from `hushh_mcp.operons.kai.llm` exactly as `one_email_kyc_service.py:43-49` does; guard with `_require_gemini_ready()`; on unavailability return `_gemini_unavailable_payload(<msg>)`.
 - **Consent is DB-aware:** gate every PII-exposing endpoint with `validate_token_with_db(consent_token, ConsentScope.AGENT_KYC_DISCLOSE_LLM)` (pattern: `redraft_llm` step 1, `one_email_kyc_service.py:3914-3919`).
 - **`draft_body` stays NULL server-side.** Pass 2 and redraft return the composed body to the client transiently; never persist it. Log only SHA-256 hashes, never bodies (pattern: `one_email_kyc_service.py:3990-3997`).
@@ -34,7 +60,7 @@ Frontend (`hushh-webapp/`):
 - `lib/services/one-kyc-approved-disclosure-renderer.ts` — renderer (formatter/fallback)
 - `app/one/kyc/page.tsx` — the `/one/kyc` state machine + UI
 
-Docs: `SECURITY.md`, `docs/reference/agent-development.md`, `docs/reference/architecture/one-email-kyc.md`.
+Docs: `SECURITY.md`, `consent-protocol/docs/reference/agent-development.md`, `docs/reference/architecture/one-email-kyc.md`.
 
 ## Shared contracts (types every task depends on)
 
@@ -76,8 +102,8 @@ Docs: `SECURITY.md`, `docs/reference/agent-development.md`, `docs/reference/arch
 ### Task 1: Register the `agent.kyc.disclose.llm` consent scope
 
 **Files:**
-- Modify: `consent-protocol/hushh_mcp/constants.py:51`
-- Modify: `consent-protocol/hushh_mcp/consent/scope_helpers.py:58` and `:218-223`
+- Modify: `consent-protocol/hushh_mcp/constants.py` (line 51)
+- Modify: `consent-protocol/hushh_mcp/consent/scope_helpers.py` (lines 58 and 218-223)
 - Test: `consent-protocol/tests/test_kyc_disclose_llm_scope.py` (create)
 
 **Interfaces:**
@@ -1219,7 +1245,7 @@ Signed-off-by: Gautam Ahuja <ahujagautam024@gmail.com>"
 
 **Interfaces:**
 - Consumes: `classify_kyc_request` (Task 2).
-- Produces: an eval script `eval_kyc_routing_agent.py` mirroring `scripts/eval_pkm_structure_agent.py` that runs a labeled set `[{subject, body, pkm_index, expected_domain}]` through `classify_kyc_request` and reports accuracy.
+- Produces: an eval script `eval_kyc_routing_agent.py` mirroring `consent-protocol/scripts/eval_pkm_structure_agent.py` that runs a labeled set `[{subject, body, pkm_index, expected_domain}]` through `classify_kyc_request` and reports accuracy.
 
 - [ ] **Step 1: Add the exact-bug regression assertion**
 
@@ -1256,7 +1282,7 @@ Signed-off-by: Gautam Ahuja <ahujagautam024@gmail.com>"
 
 **Files:**
 - Modify: `SECURITY.md`
-- Modify: `docs/reference/agent-development.md` (the One Email KYC section, ~line 447)
+- Modify: `consent-protocol/docs/reference/agent-development.md` (the One Email KYC section, ~line 447)
 - Modify: `docs/reference/architecture/one-email-kyc.md`
 
 **Interfaces:** none (docs).

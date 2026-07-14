@@ -35,6 +35,32 @@ and drafting — around an LLM that sees the **real data**, so the agent maps a
 request to the correct PKM domain, extracts the exact fields requested, and
 composes a natural reply. Keep an explicit per-request consent gate.
 
+## Visual Map
+
+```mermaid
+flowchart TD
+  intake["Gmail intake"]
+  classify["Pass 1: classify_kyc_request\nrequest text + sanitized pkm_index (no raw values)\n→ { classification, requested_items, primary_domains, confidence, reasoning }"]
+  needs_confirm["needs_confirm\n/one/kyc: proposed domain + fields + reasoning\nuser approves / narrows / rejects"]
+  confirm_proposal["confirm_proposal\n(consent act — creates per-scope consent requests)"]
+  consent["consent granted"]
+  extract_draft["Pass 2: extract_and_draft\nclient decrypts approved domain → full plaintext\n→ { extracted[], missing[], draft{subject,body} }"]
+  draft["draft\nrenderer wraps LLM body in Gmail-safe HTML chrome"]
+  redraft_full["redraft_full (optional)\nLLM sees full values — scope-expansion → needs_confirm"]
+  send["approve_draft → send_approved_reply → PKM writeback"]
+
+  intake --> classify
+  classify -->|"confidence < 0.5 or unsupported"| parked["parked — user prompted"]
+  classify --> needs_confirm
+  needs_confirm --> confirm_proposal
+  confirm_proposal --> consent
+  consent --> extract_draft
+  extract_draft --> draft
+  draft --> redraft_full
+  redraft_full --> send
+  draft --> send
+```
+
 ## Scope
 
 **Rebuild (the brains):**
@@ -231,7 +257,7 @@ sent to the LLM to answer this request."*
 
 **Docs:**
 - `SECURITY.md` and the ZK reference docs — amend the plaintext guarantee.
-- `docs/reference/agent-development.md` — update the One Email KYC section; fix the
+- `consent-protocol/docs/reference/agent-development.md` — update the One Email KYC section; fix the
   broken `docs/reference/architecture/one-email-kyc.md` reference.
 
 ## Testing
@@ -246,7 +272,7 @@ sent to the LLM to answer this request."*
   `agent.kyc.disclose.llm`; reject discloses nothing.
 - Fail-closed paths: low confidence, `unsupported`, malformed JSON, subset
   violation, scope-expansion attempt on redraft.
-- **Classification eval harness** — reuse the `scripts/eval_pkm_structure_agent.py`
+- **Classification eval harness** — reuse the `consent-protocol/scripts/eval_pkm_structure_agent.py`
   pattern: a labeled set of inbound requests → expected domain, so routing
   accuracy is measurable and regression-guarded over time.
 

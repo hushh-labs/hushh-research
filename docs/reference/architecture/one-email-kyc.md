@@ -41,7 +41,7 @@ vault-owner session and the per-field data-scope consent the user grants at
 the confirm step; the renderer wraps the LLM body in Gmail-safe HTML chrome
 client-side. The `agent.kyc.disclose.llm` scope tags these endpoints for
 audit; because a vault-owner token satisfies any scope check it is not yet
-an independently-revocable control (planned as follow-up). Storage remains
+an independently-revocable control (not yet independently revocable; tracked as follow-up). Storage remains
 client-encrypted; `draft_body` is never persisted server-side.
 
 ## Invariants
@@ -186,7 +186,7 @@ for audit purposes. The actual gate on those endpoints is a valid vault-owner
 session plus the per-field data-scope consent the user grants at the confirm
 step. Because a vault-owner token satisfies any scope check in the current
 implementation, `agent.kyc.disclose.llm` is not yet an independently-revocable
-control — a separately-revocable disclose grant is planned as follow-up. Only
+control — a separately-revocable disclose grant is not yet independently revocable (tracked as follow-up). Only
 the approved domain's plaintext is sent to the LLM, and only after the user's
 data-scope consents are granted at the confirm step.
 
