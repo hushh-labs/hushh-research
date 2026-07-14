@@ -4305,7 +4305,13 @@ class OneEmailKycService:
 
         # Step 5 — Subset invariant: extracted scopes ⊆ approved scopes.
         extracted = result.get("extracted", []) or []
-        out_scopes = {str(item.get("scope")) for item in extracted}
+        if any(item.get("scope") is None for item in extracted):
+            raise OneEmailKycError(
+                "LLM extraction returned an item with a missing scope.",
+                status_code=422,
+                code="ONE_KYC_EXTRACT_MALFORMED",
+            )
+        out_scopes = {str(item["scope"]) for item in extracted if item.get("scope") is not None}
         if not out_scopes.issubset(approved_set):
             raise OneEmailKycError(
                 "Extraction returned data outside the approved scopes.",
