@@ -449,21 +449,51 @@ The cross-surface One-led hierarchy lives in `docs/reference/one/one-agent-hiera
 
 ### One Email KYC Intake
 
-The broker/KYC email lane is One-led, not Kai-owned:
+The broker/KYC email lane is One-led, not Kai-owned. Full architecture
+contract: `../../../docs/reference/architecture/one-email-kyc.md`.
+
+**Two-pass LLM flow (current):**
+
+**Pass 1 — LLM routing (`classify_kyc_request`):** On inbound Gmail message,
+after sender-identity matching and client-connector gate, One calls the
+server-side LLM with the request text and the sanitized PKM index
+(`available_domains`, `domain_summaries`, `computed_tags` — no raw values).
+The LLM returns `{ classification, requested_items, primary_domains,
+confidence, reasoning }`. If `classification` is `"unsupported"` or
+`confidence < 0.5`, the workflow parks and surfaces the reasoning to the
+user. Otherwise the workflow enters `needs_confirm`.
+
+**Confirm gate (`POST /kyc/workflows/{id}/confirm-proposal`):** The `/one/kyc`
+UI shows the LLM's proposed domain(s), fields, and reasoning. The user
+approves a subset of proposed scopes; this is the explicit consent act. One
+creates one `agent_kyc` consent request per approved scope (shared bundle id)
+plus an `agent.kyc.disclose.llm` consent scope that gates the PII-to-LLM
+paths. Rejected or edited scopes are discarded before any data leaves the
+client.
+
+**Pass 2 — LLM extract + draft (`POST /kyc/workflows/{id}/extract-draft`):**
+The frontend decrypts only the one approved domain and sends the full
+plaintext values to the server LLM. The LLM returns `{ extracted[], missing[],
+draft{ subject, body } }`. The renderer wraps the LLM body in Gmail-safe HTML
+chrome. The subset invariant and draft value-provenance check run
+fail-closed before the draft is surfaced.
+
+**Redraft (`POST /kyc/workflows/{id}/redraft-full`):** Sends the full values
+for the approved domain again; scope-expansion attempts are blocked and route
+back to `needs_confirm`.
+
+Additional plumbing (unchanged):
 
 - `one@hushh.ai` is the Workspace user mailbox.
-- Current implementation contract: `docs/reference/architecture/one-email-kyc.md`.
 - `POST /api/one/email/webhook` receives Gmail Pub/Sub notifications.
 - `POST /api/one/email/watch/renew` renews the mailbox watch.
-- workflow state lives in `one_kyc_workflows` and stores metadata, hashes, send status, Gmail thread verification, and encrypted PKM writeback receipts; `draft_body` is legacy and must stay null/redacted in strict client-side ZK mode.
-- One performs text-only request detection for identity/KYC and financial disclosure signals, stores candidate scopes only, and waits for the vault owner to confirm or narrow scopes in `/one/kyc`.
-- One creates one `agent_kyc` consent request per selected scope with a shared bundle id and the user's registered public client connector metadata.
-- `/one/kyc` requires vault unlock so the frontend can own the connector private key, decrypt approved exports locally, build deterministic review drafts locally, approve send, or reject.
-- KYC owns the `agent_kyc.approved_disclosure_formatter.v1` ADK drafting contract for approved replies, but strict client-side ZK mode applies that contract in the browser. Backend ADK/LLM paths must not receive decrypted PKM plaintext unless the strict-ZK contract is explicitly redesigned.
-- The approved disclosure formatter contract uses exact client-side JSON shapes: `ApprovedDisclosureRenderInput`, `ApprovedDisclosureRenderModel`, `RenderSection`, `RenderCard`, `RenderTable`, `RenderFact`, and `RedraftTransform`. Deterministic code may execute and validate the model locally; it must not become a backend plaintext drafting agent.
-- Client drafts render every selected granted scope as human-readable sections, with Gmail-safe HTML and plain-text fallback, while filtering PKM structure, manifests, hashes, provenance, ids, and parser metadata from user-facing copy.
-- outbound Gmail send is blocked until every selected scope is granted/current, `draft_status=ready`, `status=waiting_on_user`, and the vault owner approves the final body; the backend handles the plain-text body and optional sanitized HTML transiently only for Gmail reply-all send in the original Gmail thread.
-- if a selected scope is denied, One does not send an external counterparty reply and surfaces an internal-only explanation to the user.
+- Workflow state lives in `one_kyc_workflows`; `draft_body` must remain null
+  server-side (the LLM draft is assembled client-side only).
+- Outbound Gmail send is blocked until every selected scope is granted/current,
+  `draft_status=ready`, `status=waiting_on_user`, and the vault owner approves
+  the final body.
+- If any selected scope is denied, One does not send and surfaces an
+  internal-only explanation.
 
 Do not store raw email bodies, raw vault contents, broad decrypted PKM, tokens, or chain-of-thought in this lane.
 
