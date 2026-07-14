@@ -54,13 +54,6 @@ vi.mock("@/lib/services/kai-profile-sync-service", () => ({
   },
 }));
 
-const upgradeEnsureRunningMock = vi.fn();
-vi.mock("@/lib/services/pkm-upgrade-orchestrator", () => ({
-  PkmUpgradeOrchestrator: {
-    ensureRunning: (...a: unknown[]) => upgradeEnsureRunningMock(...a),
-  },
-}));
-
 const consentRefreshEnsureRunningMock = vi.fn();
 vi.mock("@/lib/services/consent-export-refresh-orchestrator", () => ({
   ConsentExportRefreshOrchestrator: {
@@ -167,7 +160,6 @@ function setupDefaultMocks() {
   apiGetActiveConsentsMock.mockResolvedValue(okJsonResponse({ active: [] }));
   apiGetPendingConsentsMock.mockResolvedValue(okJsonResponse({ pending: [] }));
   apiGetConsentHistoryMock.mockResolvedValue(okJsonResponse({ items: [] }));
-  upgradeEnsureRunningMock.mockResolvedValue(undefined);
   consentRefreshEnsureRunningMock.mockResolvedValue(undefined);
 }
 
@@ -182,7 +174,7 @@ describe("UnlockWarmOrchestrator", () => {
   });
 
   describe("resolveWarmPriority (tested indirectly via run())", () => {
-    it('resolves "/kai" to "market" priority -- warms market data and still queues pkm upgrade', async () => {
+    it('resolves "/kai" to "market" priority without starting a second PKM upgrade', async () => {
       setupDefaultMocks();
       const result = await UnlockWarmOrchestrator.run({
         ...BASE_PARAMS,
@@ -190,7 +182,6 @@ describe("UnlockWarmOrchestrator", () => {
       });
       // market priority skips profile sync (metadata warm = false)
       expect(profileSyncMock).not.toHaveBeenCalled();
-      expect(upgradeEnsureRunningMock).toHaveBeenCalledTimes(1);
       expect(appBackgroundStartTaskMock).toHaveBeenCalledTimes(1);
       expect(appBackgroundCompleteTaskMock).toHaveBeenCalledTimes(1);
       expect(trackEventMock).toHaveBeenCalledWith(
@@ -228,7 +219,7 @@ describe("UnlockWarmOrchestrator", () => {
       expect(result.metadataWarmed).toBe(true);
     });
 
-    it('resolves "/consents" to "consents" priority -- queues consent export refresh and pkm upgrade', async () => {
+    it('resolves "/consents" to "consents" priority and queues consent export refresh', async () => {
       setupDefaultMocks();
       await UnlockWarmOrchestrator.run({
         ...BASE_PARAMS,
@@ -236,20 +227,17 @@ describe("UnlockWarmOrchestrator", () => {
       });
       // consents priority queues consent export refresh
       expect(consentRefreshEnsureRunningMock).toHaveBeenCalledTimes(1);
-      expect(upgradeEnsureRunningMock).toHaveBeenCalledTimes(1);
     });
 
-    it('resolves "/profile" to "profile" priority -- queues pkm upgrade', async () => {
+    it('resolves "/profile" to "profile" priority without duplicating vault-owned PKM work', async () => {
       setupDefaultMocks();
       await UnlockWarmOrchestrator.run({
         ...BASE_PARAMS,
         routePath: "/profile",
       });
-      // profile priority queues pkm upgrade
-      expect(upgradeEnsureRunningMock).toHaveBeenCalledTimes(1);
     });
 
-    it('resolves "/ria" to "ria" priority -- skips heavy warm-ups but still queues pkm upgrade', async () => {
+    it('resolves "/ria" to "ria" priority and skips heavy warm-ups', async () => {
       setupDefaultMocks();
       const result = await UnlockWarmOrchestrator.run({
         ...BASE_PARAMS,
@@ -258,12 +246,11 @@ describe("UnlockWarmOrchestrator", () => {
       // ria priority skips metadata warm, financial warm, consents, market, dashboard picks
       expect(profileSyncMock).not.toHaveBeenCalled();
       expect(pkmLoadDomainDataMock).not.toHaveBeenCalled();
-      expect(upgradeEnsureRunningMock).toHaveBeenCalledTimes(1);
       expect(result.metadataWarmed).toBe(false);
       expect(result.financialWarmed).toBe(false);
     });
 
-    it('resolves null routePath to "default" priority -- warms everything and queues pkm upgrade', async () => {
+    it('resolves null routePath to "default" priority and warms the route resources', async () => {
       setupDefaultMocks();
       const result = await UnlockWarmOrchestrator.run({
         ...BASE_PARAMS,
@@ -273,7 +260,6 @@ describe("UnlockWarmOrchestrator", () => {
       expect(profileSyncMock).toHaveBeenCalledTimes(1);
       expect(pkmGetMetadataMock).toHaveBeenCalled();
       expect(apiGetActiveConsentsMock).toHaveBeenCalled();
-      expect(upgradeEnsureRunningMock).toHaveBeenCalledTimes(1);
       expect(result.metadataWarmed).toBe(true);
       expect(result.consentsWarmed).toBe(true);
     });

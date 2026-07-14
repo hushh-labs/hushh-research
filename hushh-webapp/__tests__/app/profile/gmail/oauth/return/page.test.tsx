@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import React from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   routerReplace: vi.fn(),
@@ -72,6 +72,10 @@ vi.mock("@/lib/morphy-ux/button", () => ({
 import ProfileGmailOAuthReturnPage from "@/app/profile/gmail/oauth/return/page";
 
 describe("ProfileGmailOAuthReturnPage", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.searchParamsGet.mockReturnValue(null);
@@ -103,6 +107,10 @@ describe("ProfileGmailOAuthReturnPage", () => {
     mocks.syncOnboardingJourney.mockResolvedValue(undefined);
     mocks.bootstrapState.mockResolvedValue(null);
     window.sessionStorage.clear();
+    Object.defineProperty(window, "opener", {
+      configurable: true,
+      value: null,
+    });
   });
 
   it("redirects back to Gmail receipts when the callback is replayed after a successful connection", async () => {
@@ -148,6 +156,47 @@ describe("ProfileGmailOAuthReturnPage", () => {
         state: "live-state-123",
       });
     });
+  });
+
+  it("returns a redacted terminal result to the retained Gmail popup opener", async () => {
+    const opener = {
+      closed: false,
+      postMessage: vi.fn(),
+    };
+    const close = vi.spyOn(window, "close").mockImplementation(() => undefined);
+    Object.defineProperty(window, "opener", {
+      configurable: true,
+      value: opener,
+    });
+    window.sessionStorage.setItem(
+      "one_gmail_oauth_popup_attempt_v1",
+      JSON.stringify({
+        version: 1,
+        attemptId: "gmail-popup-test",
+        startedAt: Date.now(),
+      }),
+    );
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "code") return "popup-code";
+      if (key === "state") return "popup-state";
+      return null;
+    });
+
+    render(<ProfileGmailOAuthReturnPage />);
+
+    await waitFor(() => {
+      expect(opener.postMessage).toHaveBeenCalledWith(
+        {
+          schemaVersion: 1,
+          type: "gmail_oauth_settlement",
+          attemptId: "gmail-popup-test",
+          outcome: "succeeded",
+        },
+        window.location.origin,
+      );
+    });
+    expect(mocks.routerReplace).not.toHaveBeenCalled();
+    await waitFor(() => expect(close).toHaveBeenCalled());
   });
 
   it("settles a setup-originated Gmail callback at its terminal acknowledgement", async () => {

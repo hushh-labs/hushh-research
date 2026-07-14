@@ -8,7 +8,7 @@ import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { useAuth } from "@/hooks/use-auth";
-import { isPublicRoute } from "@/lib/navigation/routes";
+import { isPublicRoute, ROUTES } from "@/lib/navigation/routes";
 
 /**
  * OneAuthGate - conditionally applies the vault + phone + onboarding guards to
@@ -33,16 +33,22 @@ import { isPublicRoute } from "@/lib/navigation/routes";
  */
 /**
  * Routes that stay signed-in-gated but skip the hard vault wall. The CRM
- * systems overview lists registry metadata only (backend accepts a Firebase
- * ID token for it), and the workspace surfaces its own inline unlock CTA for
- * record-level actions, so forcing the full-screen vault gate here just
- * blocks a read-only overview.
+ * systems overview lists registry metadata only, while Location owns an
+ * authored contextual vault prerequisite for its encrypted workflow. Forcing
+ * the full-screen guard ahead of either route would make that route-owned
+ * recovery unreachable.
  */
 const SOFT_VAULT_ROUTE_PREFIXES = ["/one/connected-systems"] as const;
+const SOFT_VAULT_ROUTES = [ROUTES.ONE_LOCATION] as const;
 
 function isSoftVaultRoute(pathname: string): boolean {
-  return SOFT_VAULT_ROUTE_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  return (
+    SOFT_VAULT_ROUTES.includes(
+      pathname as (typeof SOFT_VAULT_ROUTES)[number],
+    ) ||
+    SOFT_VAULT_ROUTE_PREFIXES.some(
+      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+    )
   );
 }
 

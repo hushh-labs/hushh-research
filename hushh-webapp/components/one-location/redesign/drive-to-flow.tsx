@@ -125,7 +125,7 @@ export function DriveToFlow({
         <button
           type="button"
           onClick={onClose}
-          className="text-[15px] text-[#007aff]"
+          className="text-[15px] text-[color:var(--app-accent)]"
         >
           Cancel
         </button>
@@ -152,7 +152,7 @@ export function DriveToFlow({
                 type="button"
                 onClick={vm.onShowMyLocation}
                 disabled={vm.busy === "selfLocation"}
-                className="inline-flex items-center gap-2 rounded-full bg-[#007aff] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-full bg-[color:var(--app-accent)] px-4 py-2 text-sm font-semibold text-[color:var(--app-accent-fg)] disabled:opacity-50"
               >
                 <LocateFixed className="h-4 w-4" />
                 {vm.busy === "selfLocation" ? "Capturing…" : "Capture location"}
@@ -164,7 +164,7 @@ export function DriveToFlow({
         <div className="px-4">
           {/* Starting from */}
           <div className="flex items-center gap-3 border-b border-black/[0.06] py-[11px] dark:border-white/10">
-            <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#007aff]" />
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[color:var(--app-accent)]" />
             <div className="min-w-0 flex-1">
               <div className="text-xs text-muted-foreground">Starting from</div>
               {point ? (
@@ -175,7 +175,7 @@ export function DriveToFlow({
                 <button
                   type="button"
                   onClick={vm.onShowMyLocation}
-                  className="truncate text-[15px] font-semibold text-[#007aff]"
+                  className="truncate text-[15px] font-semibold text-[color:var(--app-accent)]"
                 >
                   Capture your location
                 </button>
@@ -206,7 +206,7 @@ export function DriveToFlow({
               <button
                 type="button"
                 onClick={() => setSearchOpen(true)}
-                className="shrink-0 text-[13px] font-medium text-[#007aff]"
+                className="shrink-0 text-[13px] font-medium text-[color:var(--app-accent)]"
               >
                 Change
               </button>
@@ -255,7 +255,7 @@ export function DriveToFlow({
                     className={cn(
                       "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
                       checked
-                        ? "border-[#007aff] bg-[#007aff] text-white"
+                        ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
                         : "border-border bg-transparent",
                     )}
                   >
@@ -280,7 +280,7 @@ export function DriveToFlow({
             destination && vm.onDriveTo(destination, checkedIds, DRIVE_DURATION_HOURS)
           }
           disabled={!canStart}
-          className="flex w-full items-center justify-center gap-2 rounded-full bg-[#007aff] py-4 text-[17px] font-medium text-white transition-opacity disabled:opacity-40"
+          className="flex w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] py-4 text-[17px] font-medium text-[color:var(--app-accent-fg)] transition-opacity disabled:opacity-40"
         >
           <Navigation className="h-[18px] w-[18px]" fill="currentColor" strokeWidth={0} />
           {busy ? "Starting…" : "Start sharing drive"}

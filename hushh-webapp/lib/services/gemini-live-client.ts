@@ -23,8 +23,8 @@ import { mapAgentVoiceStatusToOneVoiceState } from "@/lib/voice/voice-ui-state-m
  *   4. Play back the 24 kHz PCM16 audio Gemini streams down, and surface input
  *      and output amplitude + a coarse status so the UI waveform can react.
  *
- * This intentionally mirrors the handler shape of the existing
- * AgentRealtimeClient so it can be wired in the same way.
+ * This is the only realtime full-duplex voice transport; the chat
+ * workspace's turn-based voice path (AgentVoiceClient) is separate.
  */
 
 const INPUT_SAMPLE_RATE = 16000;

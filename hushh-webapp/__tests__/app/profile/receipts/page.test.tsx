@@ -24,6 +24,25 @@ const mocks = vi.hoisted(() => {
       startConnect: vi.fn(),
       syncNow: vi.fn(),
     },
+    gmailOAuthPopup: {
+      attempt: {
+        version: 1 as const,
+        attemptId: "gmail-popup-test",
+        startedAt: 1,
+      },
+      popup: {
+        closed: false,
+        close: vi.fn(),
+        sessionStorage: {
+          setItem: vi.fn(),
+          removeItem: vi.fn(),
+        },
+      },
+      create: vi.fn(),
+      open: vi.fn(),
+      navigate: vi.fn(),
+      clear: vi.fn(),
+    },
     assignWindowLocation: vi.fn(),
     pkmDomainResourceService: {
       prepareDomainWriteContext: vi.fn(),
@@ -208,6 +227,22 @@ vi.mock("@/lib/navigation/routes", () => ({
 
 vi.mock("@/lib/utils/browser-navigation", () => ({
   assignWindowLocation: mocks.assignWindowLocation,
+}));
+
+vi.mock("@/lib/profile/gmail-oauth-popup", () => ({
+  createGmailOAuthPopupAttempt: () => {
+    mocks.gmailOAuthPopup.create();
+    return mocks.gmailOAuthPopup.attempt;
+  },
+  openGmailOAuthPopup: (...args: unknown[]) => {
+    mocks.gmailOAuthPopup.open(...args);
+    return mocks.gmailOAuthPopup.popup;
+  },
+  navigateGmailOAuthPopup: (...args: unknown[]) =>
+    mocks.gmailOAuthPopup.navigate(...args),
+  clearGmailOAuthPopupAttempt: (...args: unknown[]) =>
+    mocks.gmailOAuthPopup.clear(...args),
+  isGmailOAuthPopupSettlement: () => false,
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -922,6 +957,9 @@ describe("ProfileReceiptsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /connect gmail/i }));
     await waitFor(() => {
+      expect(mocks.gmailOAuthPopup.open).toHaveBeenCalledWith(
+        mocks.gmailOAuthPopup.attempt,
+      );
       expect(GmailReceiptsService.startConnect).toHaveBeenCalledWith({
         idToken: "token-abc",
         userId: "user-123",
@@ -929,10 +967,60 @@ describe("ProfileReceiptsPage", () => {
         includeGrantedScopes: true,
       });
     });
-    expect(assignWindowLocation).toHaveBeenCalledWith(
+    expect(mocks.gmailOAuthPopup.navigate).toHaveBeenCalledWith(
+      mocks.gmailOAuthPopup.popup,
       "https://accounts.google.com/o/oauth2/v2/auth",
     );
+    expect(assignWindowLocation).not.toHaveBeenCalled();
     expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
+  it("allows Gmail setup to finish as soon as the connector is verified", () => {
+    const finishSetup = vi.fn();
+    const skipSetup = vi.fn();
+    mocks.useGmailConnectorStatus.mockReturnValue(
+      makeGmailView({
+        syncRun: {
+          run_id: "background-backfill",
+          user_id: "user-123",
+          trigger_source: "connect",
+          sync_mode: "backfill",
+          status: "running",
+          listed_count: 0,
+          filtered_count: 0,
+          synced_count: 0,
+          extracted_count: 0,
+          duplicates_dropped: 0,
+          extraction_success_rate: 0,
+        },
+        presentation: {
+          state: "connected_backfill_running",
+          badgeLabel: "Connected",
+          description: "Gmail is connected and scanning in the background.",
+          latestSyncText: "Scanning recent receipts.",
+          latestSyncBadge: null,
+          isConnected: true,
+        },
+      }),
+    );
+
+    render(
+      <ProfileReceiptsPage
+        journeyVariant="onboarding"
+        onFinishSetup={finishSetup}
+        onSkipSetup={skipSetup}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /finish gmail setup/i }),
+    );
+
+    expect(finishSetup).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: /skip gmail setup/i })).toBeNull();
+    expect(
+      screen.getAllByText(/preparing your receipt scan/i).length,
+    ).toBeGreaterThan(0);
   });
 
   it("disconnects Gmail from the receipts page without clearing stored receipts", async () => {

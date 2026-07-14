@@ -19,7 +19,7 @@
 .moteLayer {
   position: absolute;
   inset: 0;
-  color: #b8894d;
+  color: var(--app-accent-deep);
 }
 
 .mote {

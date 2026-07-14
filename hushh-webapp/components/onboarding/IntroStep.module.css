@@ -73,17 +73,15 @@
   display: inline-block;
   margin: -0.05em -0.04em;
   padding: 0.06em 0.08em;
+  /* Hero foil gradient follows the app accent (iOS Blue default, Molten
+     Gold under html[data-accent="gold"]) via the shared hero stops. */
   background-image: linear-gradient(
     98deg,
-    #6d431a 0%,
-    #96622a 12%,
-    #c08b3e 26%,
-    #dcae59 40%,
-    #eccb7f 50%,
-    #dcae59 60%,
-    #c08b3e 74%,
-    #96622a 88%,
-    #6d431a 100%
+    var(--app-accent-hero-from) 0%,
+    var(--app-accent-hero-mid) 40%,
+    var(--app-accent-hero-to) 50%,
+    var(--app-accent-hero-mid) 60%,
+    var(--app-accent-hero-from) 100%
   );
   background-size: 300% 100%;
   background-position: 30% 50%;

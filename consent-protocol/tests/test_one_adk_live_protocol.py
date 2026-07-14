@@ -1,10 +1,14 @@
 """Unit coverage for One ADK Live browser-frame trust boundaries."""
 
-from api.routes.one.adk_live import (
-    _compose_route_context_note,
-    _InitialGreetingGate,
-    _sanitize_action_settlement,
-    _sanitize_live_context,
+from api.routes.one.adk_live import _InitialGreetingGate
+from api.routes.one.live_context import (
+    compose_route_context_note as _compose_route_context_note,
+)
+from api.routes.one.live_context import (
+    sanitize_action_settlement as _sanitize_action_settlement,
+)
+from api.routes.one.live_context import (
+    sanitize_live_context as _sanitize_live_context,
 )
 
 
@@ -143,7 +147,35 @@ def test_live_context_intersects_actions_and_screen_with_generated_route_policy(
     )
 
     assert context["screen"] == "one_setup_gmail"
-    assert context["available_action_ids"] == ["setup.connect_gmail"]
+    # Navigation actions (route.*, allow_direct) survive on every route so
+    # cross-screen requests like "go to profile" stay proposable; the
+    # route-declared local action survives through the index intersection.
+    assert context["available_action_ids"] == ["route.profile", "setup.connect_gmail"]
+
+
+def test_live_context_keeps_navigation_actions_on_routes_without_local_actions():
+    # /agent is a context_only route whose index entry declares no action
+    # ids. Navigation must remain proposable there; junk must still drop.
+    context = _sanitize_live_context(
+        {
+            "route_family": "/agent",
+            "available_action_ids": ["route.profile", "analysis.start", "not.generated"],
+        }
+    )
+
+    assert context["available_action_ids"] == ["route.profile"]
+
+
+def test_live_context_never_accepts_unknown_ids_via_navigation_branch():
+    # A forged route.* id that is not in the generated manifest never passes.
+    context = _sanitize_live_context(
+        {
+            "route_family": "/agent",
+            "available_action_ids": ["route.totally_forged"],
+        }
+    )
+
+    assert context["available_action_ids"] == []
 
 
 def test_route_note_prioritizes_visible_actions_without_granting_authority():

@@ -2890,7 +2890,12 @@ export class ApiService {
    */
   static async getOneAdkLiveRelayUrl(data?: { signal?: AbortSignal }): Promise<string> {
     const backend = resolveRuntimeBackendUrl();
-    const base = backend || (typeof window !== "undefined" ? window.location.origin : "");
+    // Apply the same Android-emulator localhost rewrite the HTTP layer uses.
+    // Without it, the ticket mint succeeds (CapacitorHttp normalizes) while
+    // the WS connect to ws://localhost fails inside the emulator.
+    const normalizedBackend = backend ? normalizeNativeBackendUrl(backend) : "";
+    const base =
+      normalizedBackend || (typeof window !== "undefined" ? window.location.origin : "");
     const wsBase = base.replace(/^http/i, "ws");
     const url = new URL(`${wsBase}/api/one/adk/live`);
     const relaySession = await this.createOneAdkRelaySession(data);

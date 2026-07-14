@@ -29,6 +29,28 @@ Those stay in:
 - `motion.ts`
 - `tokens/*`
 
+## Accent system (single switchable identity)
+
+All accent color flows through the `--app-accent-*` CSS family declared in
+`app/globals.css`: iOS Blue by default, Molten Gold under
+`html[data-accent="gold"]` (user preference in Profile → Preferences → Accent,
+managed by `lib/theme/accent.ts`, applied pre-paint by the inline script in
+`app/layout.tsx`). Rules:
+
+1. Never hardcode an accent hex in a primitive or component. Consume
+   `var(--app-accent)`, `var(--app-accent-deep)` (text on light),
+   `var(--app-accent-tint)`/`-surface` (fills), `var(--app-accent-ring)`
+   (focus/hairlines), `var(--app-accent-fg)` (text on solid accent).
+   `npm run verify:accent-tokens` enforces this.
+2. Legacy names (`--morphy-primary-*`, `--brand-*`, `--foundation-gold-*`,
+   `--tone-blue*`) are aliases of the family; both dark mode and the accent
+   preference flip automatically.
+3. Promoted surface grammar lives in `tokens/surfaces.ts` (className constants)
+   and `ui/surface-primitives.tsx` (StatusPill, SectionCard, TaskFlowHeader,
+   QuickPathRow, EmptyState, banners, AvatarBubble). Feature routes re-export
+   from these instead of forking their own copies; the One Location redesign
+   was the reference implementation and now consumes the promoted modules.
+
 ## Motion system (single source of truth)
 
 All motion in the app is driven by CSS custom properties declared once in

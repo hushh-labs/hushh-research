@@ -28,8 +28,10 @@ import { cn } from "@/lib/utils";
 // Siri spectrum (blue → cyan → green → gold → orange → magenta → violet →
 // indigo back to blue) with our Foundation gold woven in. Thinking leans cooler,
 // speaking warmer, error goes red.
+// First stop is accent-seeded so the glow leads with the active app accent
+// (iOS Blue default, Molten Gold opt-in); the rest of the mix stays multicolor.
 const LISTENING_MIX = [
-  "#4f7bff", "#38bdf8", "#22d3ee", "#34d399", "#a3e635", "#f0c890",
+  "var(--app-accent)", "#38bdf8", "#22d3ee", "#34d399", "#a3e635", "#f0c890",
   "#f59e0b", "#fb7185", "#ec4899", "#c026d3", "#8b5cf6", "#6366f1",
 ];
 
@@ -42,7 +44,7 @@ const STATUS_MIX: Record<string, string[]> = {
     "#6366f1", "#7c3aed", "#8b5cf6", "#a855f7", "#7c3aed", "#4f46e5",
   ],
   speaking: [
-    "#f0c890", "#f6d365", "#f59e0b", "#fb923c", "#fb7185", "#ec4899",
+    "var(--app-accent)", "#f6d365", "#f59e0b", "#fb923c", "#fb7185", "#ec4899",
     "#d4af6a", "#f0c890", "#f59e0b", "#fb7185", "#c026d3", "#f0c890",
   ],
   muted: [

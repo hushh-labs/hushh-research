@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useTheme } from "next-themes";
 
 import {
   easeInOutQuad,
@@ -34,6 +35,10 @@ export interface LiveMapProps {
 
 export function LiveMap({ point, className }: LiveMapProps) {
   const { status } = useGoogleMaps();
+  const { resolvedTheme } = useTheme();
+  // Follow the APP theme (next-themes class), not the OS scheme, so the map
+  // matches the surrounding surfaces when the user overrides light/dark.
+  const colorScheme = resolvedTheme === "dark" ? "DARK" : "LIGHT";
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
   const markerRef = useRef<google.maps.Marker | null>(null);
@@ -54,6 +59,9 @@ export function LiveMap({ point, className }: LiveMapProps) {
   }, [point]);
 
   // Create the map + marker once the API is ready and the container exists.
+  // Google Maps applies colorScheme only at construction, so a theme flip
+  // recreates the map (the container div is keyed by scheme below, giving a
+  // fresh node; position is restored from the current target).
   useEffect(() => {
     if (status !== "ready" || !containerRef.current || mapRef.current) return;
     const map = new google.maps.Map(containerRef.current, {
@@ -61,10 +69,11 @@ export function LiveMap({ point, className }: LiveMapProps) {
       zoom: 16,
       disableDefaultUI: true,
       clickableIcons: false,
+      colorScheme,
     });
     mapRef.current = map;
     markerRef.current = new google.maps.Marker({ map, position: target });
-    // Created once; subsequent movement handled by the glide effect below.
+    // Created once per scheme; movement handled by the glide effect below.
     return () => {
       if (frameRef.current !== null) {
         cancelAnimationFrame(frameRef.current);
@@ -74,7 +83,7 @@ export function LiveMap({ point, className }: LiveMapProps) {
       markerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
+  }, [status, colorScheme]);
 
   // Glide the marker to each new point.
   useEffect(() => {
@@ -112,7 +121,9 @@ export function LiveMap({ point, className }: LiveMapProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target.lat, target.lng, status]);
 
-  // Not ready (loading or error / no key) -> keep today's iframe embed.
+  // Not ready (loading or error / no key) -> keep today's iframe embed. The
+  // keyless embed has no dark mode, so dark theme applies an invert+hue-rotate
+  // filter (standard technique) to keep the surface from glowing white.
   if (status !== "ready") {
     return (
       <iframe
@@ -121,10 +132,20 @@ export function LiveMap({ point, className }: LiveMapProps) {
         loading="lazy"
         referrerPolicy="no-referrer-when-downgrade"
         allowFullScreen
-        className={cn("h-full w-full border-0", className)}
+        className={cn(
+          "h-full w-full border-0",
+          "dark:[filter:invert(0.9)_hue-rotate(180deg)_saturate(0.85)]",
+          className,
+        )}
       />
     );
   }
 
-  return <div ref={containerRef} className={cn("h-full w-full", className)} />;
+  return (
+    <div
+      key={colorScheme}
+      ref={containerRef}
+      className={cn("h-full w-full", className)}
+    />
+  );
 }

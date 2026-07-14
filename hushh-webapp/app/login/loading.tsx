@@ -1,5 +1,4 @@
-import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
-
+/** Login owns its cold authentication feedback through AuthStep. */
 export default function LoginLoading() {
-  return <RouteLoadingState surface="onboarding" label="Preparing sign in…" />;
+  return null;
 }

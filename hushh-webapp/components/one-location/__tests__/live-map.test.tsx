@@ -7,6 +7,11 @@ vi.mock("@/lib/one-location/use-google-maps", () => ({
   useGoogleMaps: () => ({ status: mockStatus.current }),
 }));
 
+const mockTheme = { current: "light" as "light" | "dark" };
+vi.mock("next-themes", () => ({
+  useTheme: () => ({ resolvedTheme: mockTheme.current }),
+}));
+
 import { LiveMap } from "@/components/one-location/live-map";
 
 const point: PlainLocationPoint = {
@@ -68,6 +73,34 @@ describe("LiveMap", () => {
     expect(Map).toHaveBeenCalledTimes(1);
     expect(Marker).toHaveBeenCalledTimes(1);
     expect(screen.queryByTitle("Live location map preview")).toBeNull();
+  });
+
+  it("constructs the map with the app theme's color scheme", () => {
+    const Marker = vi.fn(function () {
+      return { getPosition: () => null, setPosition: vi.fn() };
+    });
+    const Map = vi.fn(function () {
+      return { panTo: vi.fn() };
+    });
+    // @ts-expect-error test global
+    globalThis.google = { maps: { Map, Marker } };
+    mockStatus.current = "ready";
+    mockTheme.current = "dark";
+
+    render(<LiveMap point={point} />);
+
+    expect(Map).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ colorScheme: "DARK" }),
+    );
+    mockTheme.current = "light";
+  });
+
+  it("applies a dark filter to the iframe fallback so it cannot glow white", () => {
+    mockStatus.current = "error";
+    render(<LiveMap point={point} />);
+    const iframe = screen.getByTitle("Live location map preview");
+    expect(iframe.className).toContain("dark:[filter:");
   });
 
   describe("marker animation", () => {

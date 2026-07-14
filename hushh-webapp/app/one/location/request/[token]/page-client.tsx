@@ -166,7 +166,7 @@ export default function PublicLocationRequestPageClient() {
       <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col justify-center px-5 py-10">
         <div className="space-y-6 rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-[var(--shadow-xs)] sm:p-7">
           <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#007aff]/10 text-[#007aff]">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]">
               {error ? (
                 <AlertTriangle className="h-5 w-5" aria-hidden="true" />
               ) : publicLocation ? (
@@ -176,7 +176,7 @@ export default function PublicLocationRequestPageClient() {
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-semibold uppercase tracking-[0.22em] text-[#007aff]">
+              <div className="text-xs font-semibold uppercase tracking-[0.22em] text-[color:var(--app-accent)]">
                 Onepoint
               </div>
               <h1 className="mt-2 text-[28px] font-medium leading-[1.12] tracking-normal sm:text-[32px]">

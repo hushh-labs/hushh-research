@@ -55,7 +55,7 @@ export function SuggestionChips(props: {
           className={cn(
             "rounded-full border border-[color:var(--app-card-border-standard)]",
             "bg-[color:var(--app-card-surface-compact)] px-3 py-1.5 text-xs font-medium",
-            "text-foreground transition-colors hover:border-[#007aff]/50 hover:text-[#007aff]",
+            "text-foreground transition-colors hover:border-[color:var(--app-accent)]/50 hover:text-[color:var(--app-accent)]",
           )}
         >
           {chip.label}

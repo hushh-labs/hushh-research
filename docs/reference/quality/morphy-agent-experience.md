@@ -38,12 +38,14 @@ Morphy AX must never introduce another provider, store, router, voice state mach
 
 | Dimension | Bounded content |
 | --- | --- |
-| Access | signed-in posture, vault readiness, active persona |
+| Access | signed-in posture, vault readiness, active persona, presentation accent (`blue` default / `gold`) |
 | Context | canonical screen, route family, active playbook, top interaction layer, visible modules and controls, onboarding posture |
 | Tools | currently available generated action identifiers |
 | Orchestration | pending settlement, voice lifecycle posture, bounded busy operations |
 
 Privacy is explicit: the snapshot is redacted and excludes raw voice turns, OTP values, credentials, OAuth material, vault material, private page content, and action slots. The snapshot is derived synchronously and performs no network or model call.
+
+The `access.accent` field is presentation-only state: it lets presentation surfaces mirror the user's app accent preference (see the accent system in the design-system contract) and is guaranteed by contract test to never change an assessment decision or leak onto the `one_voice_context.v1` wire shape.
 
 During rollout, `toOneVoiceContextSnapshot` preserves the existing `one_voice_context.v1` wire shape. Disabling `NEXT_PUBLIC_MORPHY_AX_ENABLED` keeps the pre-existing compatibility path authoritative.
 

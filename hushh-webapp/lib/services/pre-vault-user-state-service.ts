@@ -204,6 +204,19 @@ async function getAuthHeader(): Promise<string> {
 }
 
 export class PreVaultUserStateService {
+  /**
+   * Return only the session-safe bootstrap record already held in the shared
+   * cache. Callers use this to render a same-session route immediately, then
+   * reconcile against the backend in the background when needed.
+   */
+  static getCachedBootstrapState(userId: string): PreVaultUserState | null {
+    return (
+      CacheService.getInstance().get<PreVaultUserState>(
+        CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId),
+      ) ?? null
+    );
+  }
+
   static async bootstrapState(
     userId: string,
     options?: { force?: boolean },
@@ -221,39 +234,54 @@ export class PreVaultUserStateService {
       }
     }
 
-    const authorization = await getAuthHeader();
-    const request = apiJson<BootstrapStateResponse>(
-      resolvePreVaultPath("bootstrap-state"),
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: authorization,
+    // Register the complete async chain before obtaining the Firebase header.
+    // Multiple guards mount in the same client commit; registering only after
+    // `await getAuthHeader()` leaves a cold-start window where each guard sends
+    // its own bootstrap request. Forced callers intentionally stay outside this
+    // coalescing path because callback/terminal settlement requires freshness.
+    const request = (async () => {
+      const authorization = await getAuthHeader();
+      const payload = await apiJson<BootstrapStateResponse>(
+        resolvePreVaultPath("bootstrap-state"),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: authorization,
+          },
+          body: JSON.stringify({ userId }),
         },
-        body: JSON.stringify({ userId }),
-      },
-    )
-      .then((payload) => {
-        const normalized = normalizeResponse(userId, payload);
-        // Pre-vault bootstrap state changes infrequently and is updated by this service,
-        // so keeping it warm for the session reduces repeated heavy bootstrap requests.
-        CacheService.getInstance().set(cacheKey, normalized, CACHE_TTL.SESSION);
-        // Fold the verified-phone hint from this same call into a cold identity
-        // cache so the phone-mandate guard can resolve without a separate
-        // identity/refresh round-trip on first paint.
-        AccountIdentityService.primeVerifiedPhoneHint(
-          userId,
-          normalized.phoneVerified,
-        );
-        return normalized;
-      })
-      .finally(() => {
-        if (bootstrapInflight.get(cacheKey) === request) {
-          bootstrapInflight.delete(cacheKey);
-        }
-      });
+      );
+      const normalized = normalizeResponse(userId, payload);
+      // Pre-vault bootstrap state changes infrequently and is updated by this service,
+      // so keeping it warm for the session reduces repeated heavy bootstrap requests.
+      CacheService.getInstance().set(cacheKey, normalized, CACHE_TTL.SESSION);
+      // Fold the verified-phone hint from this same call into a cold identity
+      // cache so the phone-mandate guard can resolve without a separate
+      // identity/refresh round-trip on first paint.
+      AccountIdentityService.primeVerifiedPhoneHint(
+        userId,
+        normalized.phoneVerified,
+      );
+      return normalized;
+    })();
 
-    bootstrapInflight.set(cacheKey, request);
+    if (!options?.force) {
+      bootstrapInflight.set(cacheKey, request);
+      void request.then(
+        () => {
+          if (bootstrapInflight.get(cacheKey) === request) {
+            bootstrapInflight.delete(cacheKey);
+          }
+        },
+        () => {
+          if (bootstrapInflight.get(cacheKey) === request) {
+            bootstrapInflight.delete(cacheKey);
+          }
+        },
+      );
+    }
+
     return request;
   }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, LogOut, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
@@ -46,7 +46,7 @@ function requiresVaultUnlockForRedirect(path?: string | null): boolean {
   );
 }
 
-function PhoneMandatePageContent() {
+export function PhoneMandatePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectPath = searchParams.get("redirect") || undefined;
@@ -125,6 +125,7 @@ function PhoneMandatePageContent() {
 
   const [shouldBypassLocalPhoneMandate, setShouldBypassLocalPhoneMandate] =
     useState(false);
+  const localBypassNavigationRef = useRef<string | null>(null);
 
   const handleSignOut = useCallback(async () => {
     try {
@@ -150,10 +151,24 @@ function PhoneMandatePageContent() {
 
   useEffect(() => {
     if (!shouldBypassLocalPhoneMandate || !user) {
+      localBypassNavigationRef.current = null;
       return;
     }
-    void continueToNextRoute(user);
-  }, [continueToNextRoute, shouldBypassLocalPhoneMandate, user]);
+
+    // Local development bypasses the phone challenge only. It must not await
+    // account sync, persona lookup, or pre-vault bootstrap before leaving this
+    // screen: those are network-backed reconciliation tasks and can stall a
+    // local browser indefinitely. The canonical next onboarding boundary is
+    // always the setup hub; it owns its own authenticated state admission.
+    const targetRoute = ROUTES.ONE_SETUP;
+    const attemptKey = `${user.uid}:${targetRoute}`;
+    if (localBypassNavigationRef.current === attemptKey) {
+      return;
+    }
+
+    localBypassNavigationRef.current = attemptKey;
+    router.replace(targetRoute);
+  }, [router, shouldBypassLocalPhoneMandate, user]);
 
   usePublishVoiceSurfaceMetadata(
     !loading && user && !shouldBypassLocalPhoneMandate
@@ -186,7 +201,7 @@ function PhoneMandatePageContent() {
   }
 
   const shell = (
-    <main className="relative h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-[#0A0908] [--phone-mandate-agent-bar-clearance:calc(3rem+0.75rem)] [--phone-mandate-safe-pb:calc(34px+var(--app-safe-area-bottom-effective,0px)+var(--phone-mandate-agent-bar-clearance))] [--phone-mandate-safe-pt:calc(18px+var(--app-safe-area-top-effective,0px))]">
+    <main className="relative h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-[#0A0908] [--phone-mandate-safe-pb:calc(1.5rem+var(--onboarding-agent-bar-clearance))] [--phone-mandate-safe-pt:calc(18px+var(--app-safe-area-top-effective,0px))]">
       <NativeRouteMarker
         routeId={ROUTES.PHONE_MANDATE}
         marker="native-route-register-phone"
@@ -318,14 +333,7 @@ function PhoneMandatePageContent() {
 
 export default function RegisterPhonePage() {
   return (
-    <Suspense
-      fallback={
-        <HushhLoader
-          label="Loading phone verification..."
-          variant="fullscreen"
-        />
-      }
-    >
+    <Suspense fallback={null}>
       <PhoneMandatePageContent />
     </Suspense>
   );

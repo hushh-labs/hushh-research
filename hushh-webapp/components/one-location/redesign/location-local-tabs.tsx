@@ -50,10 +50,11 @@ export function LocationLocalTabs({
       onValueChange={(next) => onChange(next as LocationHubTab)}
       options={options}
       className={cn(
-        // Onepoint: Apple-blue active pill (light-blue fill + blue text),
+        // Onepoint: accent active pill (accent-tinted fill + accent text),
         // scoped to the location tabs by overriding the shared segmented-tab
-        // CSS vars here — the app-wide primitive stays untouched.
-        "[--app-segmented-active-surface:#e6f0ff] [--app-segmented-active-foreground:#007aff] [--app-segmented-active-border:transparent]",
+        // CSS vars here — the app-wide primitive stays untouched. Follows the
+        // active accent preference (iOS Blue default, Molten Gold opt-in).
+        "[--app-segmented-active-surface:var(--app-accent-surface)] [--app-segmented-active-foreground:var(--app-accent)] [--app-segmented-active-border:transparent]",
         // Squarish shape per the design (container 16px, tab pills 12px) instead
         // of the primitive's full-round. Literal px values because this app's
         // --radius scale is large (rounded-xl ≈ 24px here). tailwind-merge lets

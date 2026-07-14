@@ -79,7 +79,7 @@ export function QuickActionCard({
       className={cn(
         "group flex h-full w-full min-w-0 flex-col gap-3 rounded-2xl bg-white p-3 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-all duration-200 dark:bg-[color:var(--app-card-surface-default-solid)]",
         interactive
-          ? "cursor-pointer hover:-translate-y-0.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007aff]/40"
+          ? "cursor-pointer hover:-translate-y-0.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
           : "cursor-not-allowed",
       )}
     >
@@ -126,7 +126,7 @@ export function QuickActionsSection({
       <div className="flex items-center justify-between px-1">
         <h2 className={SECTION_HEADING}>{title}</h2>
         <span className="inline-flex items-center gap-[7px] rounded-full bg-[#eef2f8] px-3 py-1.5 dark:bg-white/10">
-          <span className="h-2 w-2 rounded-full bg-[#007aff]" />
+          <span className="h-2 w-2 rounded-full bg-[color:var(--app-accent)]" />
           <span className="text-[13px] font-semibold text-black/55 dark:text-muted-foreground">
             Live features
           </span>

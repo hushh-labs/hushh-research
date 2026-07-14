@@ -327,8 +327,8 @@ binding rows store no raw email, phone, or CRM field values.
 | PATCH | `/api/kai/agent/chat/conversations/{conversation_id}` | Rename an authenticated vault owner's encrypted Agent chat conversation |
 | DELETE | `/api/kai/agent/chat/conversations/{conversation_id}` | Delete an authenticated vault owner's Agent chat conversation and its encrypted messages |
 | GET | `/api/kai/agent/chat/history/{conversation_id}` | Read decrypted Agent chat history for the authenticated conversation owner |
-| POST | `/api/kai/agent/realtime/session` | Create an OpenAI Realtime WebRTC client secret for the vault-unlocked Agent chat and voice surface |
-| POST | `/api/kai/agent/realtime/gemini/relay-session` | Mint a short-lived opaque Gemini Live relay ticket over HTTPS so Firebase bearer tokens are not placed in WebSocket URLs |
+| POST | `/api/one/adk/relay-session` | Mint a short-lived opaque One ADK live relay ticket over HTTPS so Firebase bearer tokens are not placed in WebSocket URLs |
+| WS | `/api/one/adk/live` | One ADK live relay WebSocket; bridges the browser wire envelope onto `Runner.run_live` (the only full-duplex voice transport) |
 | GET | `/api/kai/chat/history/{conversation_id}` | Conversation history |
 | GET | `/api/kai/chat/conversations/{user_id}` | List all conversations |
 | GET | `/api/kai/chat/initial-state/{user_id}` | Initial chat state |

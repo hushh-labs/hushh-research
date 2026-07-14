@@ -62,13 +62,22 @@ import {
   type ReceiptListItem,
 } from "@/lib/services/gmail-receipts-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
-import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import {
   clearOnboardingConnectorIntent,
   createOnboardingConnectorIntent,
   persistOnboardingConnectorIntent,
+  persistOnboardingConnectorIntentInStorage,
+  readOnboardingConnectorIntent,
 } from "@/lib/onboarding/onboarding-connector-intent";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import {
+  clearGmailOAuthPopupAttempt,
+  createGmailOAuthPopupAttempt,
+  isGmailOAuthPopupSettlement,
+  navigateGmailOAuthPopup,
+  openGmailOAuthPopup,
+  type GmailOAuthPopupAttempt,
+} from "@/lib/profile/gmail-oauth-popup";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   usePublishVoiceSurfaceMetadata,
@@ -104,20 +113,20 @@ function formatAmount(
   }
 }
 
-function computeSyncProgressPercent(run: GmailSyncRun | null): number {
-  if (!run) return 0;
-  if (run.status === "queued") return 8;
+function computeSyncProgressPercent(run: GmailSyncRun | null): number | null {
+  if (!run || run.status === "queued") return null;
   if (run.status === "running") {
-    const listed = Math.max(1, run.listed_count || 0);
+    const listed = Math.max(0, run.listed_count || 0);
     const pipelineWork =
       (run.filtered_count || 0) +
       (run.synced_count || 0) +
       (run.extracted_count || 0);
+    if (listed === 0 || pipelineWork === 0) return null;
     const ratio = Math.max(0, Math.min(1, pipelineWork / (listed * 3)));
-    return Math.max(12, Math.min(95, Math.round(ratio * 100)));
+    return Math.max(1, Math.min(95, Math.round(ratio * 100)));
   }
   if (run.status === "completed") return 100;
-  return 100;
+  return null;
 }
 
 const RECEIPT_MEMORY_DETERMINISTIC_CONFIG_VERSION = "receipt_memory_v1";
@@ -336,11 +345,14 @@ export default function GmailReceiptsPage({
   const [gmailActionBusy, setGmailActionBusy] = useState<
     "connect" | "disconnect" | null
   >(null);
+  const [gmailPopupAttempt, setGmailPopupAttempt] =
+    useState<GmailOAuthPopupAttempt | null>(null);
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const receiptsRef = useRef<ReceiptListItem[]>([]);
   const pageRef = useRef(1);
   const pendingSyncFeedbackRef = useRef(false);
   const autoReceiptSummaryKeyRef = useRef<string | null>(null);
+  const gmailPopupRef = useRef<Window | null>(null);
 
   useEffect(() => {
     receiptsRef.current = receipts;
@@ -489,15 +501,113 @@ export default function GmailReceiptsPage({
   const isPassiveBackfillState =
     connectorState === "connected_backfill_running";
 
+  const refreshGmailStatus = gmail.refreshStatus;
+
+  useEffect(() => {
+    if (!gmailPopupAttempt || !user?.uid) return;
+    const attempt = gmailPopupAttempt;
+
+    const clearAttempt = () => {
+      gmailPopupRef.current = null;
+      setGmailPopupAttempt((current) =>
+        current?.attemptId === attempt.attemptId ? null : current,
+      );
+      setGmailActionBusy((current) => (current === "connect" ? null : current));
+    };
+
+    const settleClosedPopup = async () => {
+      const intent = readOnboardingConnectorIntent();
+      const status = await refreshGmailStatus({ force: true }).catch(() => null);
+      const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
+        force: true,
+      }).catch(() => null);
+      const matchesPendingSetupAttempt = Boolean(
+        intent &&
+          journey &&
+          !PreVaultUserStateService.isSetupResolved(journey) &&
+          journey.onboardingPhase === "external_connector" &&
+          journey.onboardingActiveCapability === "gmail" &&
+          journey.onboardingCallbackState === "pending" &&
+          journey.onboardingCallbackAttemptId === intent.correlationId,
+      );
+      if (matchesPendingSetupAttempt && intent && journey) {
+        await PreVaultUserStateService.syncOnboardingJourney({
+          userId: user.uid,
+          phase: "capability_setup",
+          activeCapability: "gmail",
+          callbackState: status?.connected ? "succeeded" : "cancelled",
+          expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
+          expectedCallbackAttemptId: intent.correlationId,
+        }).catch(() => undefined);
+      }
+      clearOnboardingConnectorIntent();
+      if (status?.connected) {
+        toast.success("Gmail connected. You can finish setup when ready.");
+      } else {
+        toast.message("The Gmail window closed. You can try again whenever you are ready.");
+      }
+    };
+
+    const handlePopupSettlement = (event: MessageEvent<unknown>) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.source !== gmailPopupRef.current) return;
+      if (!isGmailOAuthPopupSettlement(event.data)) return;
+      if (event.data.attemptId !== attempt.attemptId) return;
+
+      clearAttempt();
+      clearOnboardingConnectorIntent();
+      if (event.data.outcome === "succeeded") {
+        void Promise.all([
+          refreshGmailStatus({ force: true }),
+          PreVaultUserStateService.bootstrapState(user.uid, { force: true }),
+        ]).then(() => {
+          toast.success("Gmail connected. You can finish setup when ready.");
+        });
+        return;
+      }
+      toast.error(
+        event.data.message ||
+          (event.data.outcome === "cancelled"
+            ? "Gmail connection was cancelled."
+            : "Gmail connection could not be completed."),
+      );
+    };
+
+    window.addEventListener("message", handlePopupSettlement);
+    const closeWatcher = window.setInterval(() => {
+      const popup = gmailPopupRef.current;
+      if (!popup || !popup.closed) return;
+      clearAttempt();
+      void settleClosedPopup();
+    }, 500);
+
+    return () => {
+      window.removeEventListener("message", handlePopupSettlement);
+      window.clearInterval(closeWatcher);
+    };
+  }, [gmailPopupAttempt, refreshGmailStatus, user?.uid]);
+
   useEffect(() => {
     onConnectionStateChange?.(isConnected);
   }, [isConnected, onConnectionStateChange]);
 
-  const handleConnectGmail = useCallback(async () => {
-    if (!user?.uid) return;
+  const handleConnectGmail = useCallback(async (): Promise<boolean> => {
+    if (!user?.uid || gmailActionBusy !== null) return false;
+
+    const attempt = createGmailOAuthPopupAttempt();
+    const popup = openGmailOAuthPopup(attempt);
+    if (!popup) {
+      toast.error(
+        "Allow the Gmail connection window, then try again. Your private vault stays open here.",
+      );
+      return false;
+    }
+
+    gmailPopupRef.current = popup;
+    setGmailPopupAttempt(attempt);
+    setGmailActionBusy("connect");
 
     try {
-      setGmailActionBusy("connect");
       const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
         force: true,
       }).catch(() => null);
@@ -537,11 +647,27 @@ export default function GmailReceiptsPage({
         // accepted the pending transition. A failed write must not cause an
         // unrelated callback to be mistaken for onboarding later.
         persistOnboardingConnectorIntent(intent);
+        if (
+          !persistOnboardingConnectorIntentInStorage(
+            popup.sessionStorage,
+            intent,
+          )
+        ) {
+          throw new Error(
+            "The Gmail connection window could not prepare its secure return.",
+          );
+        }
       }
 
-      assignWindowLocation(payload.authorize_url);
+      navigateGmailOAuthPopup(popup, payload.authorize_url);
+      return true;
     } catch (error) {
       clearOnboardingConnectorIntent();
+      clearGmailOAuthPopupAttempt(popup);
+      popup.close();
+      gmailPopupRef.current = null;
+      setGmailPopupAttempt(null);
+      setGmailActionBusy(null);
       const message = sanitizeGmailUserMessage(error, {
         fallback:
           "We couldn't start Gmail connection right now. Please try again in a moment.",
@@ -551,10 +677,9 @@ export default function GmailReceiptsPage({
         error,
       );
       toast.error(message);
-    } finally {
-      setGmailActionBusy(null);
+      return false;
     }
-  }, [user]);
+  }, [gmailActionBusy, user]);
 
   useLocalOnboardingActionHandler("setup.connect_gmail", async () => {
     if (journeyVariant !== "onboarding") {
@@ -569,10 +694,18 @@ export default function GmailReceiptsPage({
         summary: "Gmail connection is already being prepared.",
       };
     }
-    await handleConnectGmail();
+    const opened = await handleConnectGmail();
+    if (!opened) {
+      return {
+        status: "blocked",
+        summary:
+          "Use the Connect Gmail button to open the secure Gmail connection window.",
+      };
+    }
     return {
       status: "started",
-      summary: "Opening Gmail connection. Finish setup after it verifies.",
+      summary:
+        "Gmail connection is open in its secure window. Finish setup after it verifies.",
     };
   });
 
@@ -649,6 +782,13 @@ export default function GmailReceiptsPage({
       extracted: gmail.syncRun.extracted_count || 0,
     };
   }, [gmail.syncRun]);
+  const hasObservedScanWork = Boolean(
+    latestRunMetrics &&
+      (latestRunMetrics.listed > 0 ||
+        latestRunMetrics.filtered > 0 ||
+        latestRunMetrics.synced > 0 ||
+        latestRunMetrics.extracted > 0),
+  );
   const {
     activeControlId: activeVoiceControlId,
     lastInteractedControlId: lastVoiceControlId,
@@ -1254,12 +1394,16 @@ export default function GmailReceiptsPage({
 
             {isSyncingState && latestRunMetrics && !isPassiveBackfillState ? (
               <div className="space-y-2">
-                <Progress value={progressPercent} className="h-2" />
+                {progressPercent !== null ? (
+                  <Progress value={progressPercent} className="h-2" />
+                ) : null}
                 <p className="text-xs text-muted-foreground">
-                  {describeGmailReceiptScanProgress({
-                    scanned: latestRunMetrics.listed,
-                    matched: latestRunMetrics.filtered,
-                  })}
+                  {hasObservedScanWork
+                    ? describeGmailReceiptScanProgress({
+                        scanned: latestRunMetrics.listed,
+                        matched: latestRunMetrics.filtered,
+                      })
+                    : "Preparing your receipt scan. This continues in the background."}
                 </p>
               </div>
             ) : null}
@@ -1471,20 +1615,26 @@ export default function GmailReceiptsPage({
               </p>
               {latestRunMetrics ? (
                 <div className="space-y-2 pt-1">
-                  <Progress value={progressPercent} className="h-2" />
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-3">
-                    <span>Emails checked: {latestRunMetrics.listed}</span>
-                    <span>Receipt matches: {latestRunMetrics.filtered}</span>
-                    <span>Saved receipts: {latestRunMetrics.synced}</span>
-                    <span>
-                      Details recognized: {latestRunMetrics.extracted}
-                    </span>
-                  </div>
+                  {progressPercent !== null ? (
+                    <Progress value={progressPercent} className="h-2" />
+                  ) : null}
+                  {hasObservedScanWork ? (
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-3">
+                      <span>Emails checked: {latestRunMetrics.listed}</span>
+                      <span>Receipt matches: {latestRunMetrics.filtered}</span>
+                      <span>Saved receipts: {latestRunMetrics.synced}</span>
+                      <span>
+                        Details recognized: {latestRunMetrics.extracted}
+                      </span>
+                    </div>
+                  ) : null}
                   <p className="text-xs text-muted-foreground">
-                    {describeGmailReceiptScanProgress({
-                      scanned: latestRunMetrics.listed,
-                      matched: latestRunMetrics.filtered,
-                    })}
+                    {hasObservedScanWork
+                      ? describeGmailReceiptScanProgress({
+                          scanned: latestRunMetrics.listed,
+                          matched: latestRunMetrics.filtered,
+                        })
+                      : "Preparing your receipt scan. It will keep running after you finish setup."}
                   </p>
                 </div>
               ) : null}

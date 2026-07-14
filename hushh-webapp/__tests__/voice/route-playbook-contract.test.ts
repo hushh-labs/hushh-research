@@ -31,6 +31,12 @@ describe("One route voice playbooks", () => {
     expect(
       resolveAppRouteLayout("/register-phone").interactionLayerPolicy.allowedFamilies,
     ).toEqual(["country_picker"]);
+    expect(
+      resolveAppRouteLayout("/one/setup/location").interactionLayerPolicy.allowedFamilies,
+    ).toEqual(["vault_setup"]);
+    expect(resolveAppRouteLayout("/one/location").interactionLayerPolicy.allowedFamilies).toEqual([
+      "vault_setup",
+    ]);
   });
 
   it("prefers exact setup routes before the dynamic capability pattern", () => {

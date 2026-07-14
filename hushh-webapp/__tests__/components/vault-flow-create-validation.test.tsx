@@ -9,6 +9,11 @@ const getPrimaryWrapperMock = vi.fn();
 const getWrapperByMethodMock = vi.fn();
 const unlockGeneratedDefaultVaultMock = vi.fn();
 const unlockVaultMock = vi.fn();
+const createVaultMock = vi.fn();
+const hashVaultKeyMock = vi.fn();
+const setupVaultStateMock = vi.fn();
+const assertVaultKeyMatchesStateMock = vi.fn();
+const setVaultCheckCacheMock = vi.fn();
 let isNativePlatformMock = false;
 
 vi.mock("@capacitor/core", () => ({
@@ -23,6 +28,12 @@ vi.mock("@/lib/services/vault-service", () => ({
     getVaultState: (...args: unknown[]) => getVaultStateMock(...args),
     getPrimaryWrapper: (...args: unknown[]) => getPrimaryWrapperMock(...args),
     getWrapperByMethod: (...args: unknown[]) => getWrapperByMethodMock(...args),
+    createVault: (...args: unknown[]) => createVaultMock(...args),
+    hashVaultKey: (...args: unknown[]) => hashVaultKeyMock(...args),
+    setupVaultState: (...args: unknown[]) => setupVaultStateMock(...args),
+    assertVaultKeyMatchesState: (...args: unknown[]) =>
+      assertVaultKeyMatchesStateMock(...args),
+    setVaultCheckCache: (...args: unknown[]) => setVaultCheckCacheMock(...args),
     unlockGeneratedDefaultVault: (...args: unknown[]) =>
       unlockGeneratedDefaultVaultMock(...args),
   },
@@ -124,6 +135,19 @@ describe("VaultFlow create validation", () => {
     unlockGeneratedDefaultVaultMock.mockRejectedValue(
       new Error("Quick unlock prompt unavailable in test"),
     );
+    createVaultMock.mockResolvedValue({
+      vaultKeyHex: "vault-key",
+      encryptedVaultKey: "encrypted-passphrase",
+      salt: "salt-passphrase",
+      iv: "iv-passphrase",
+      recoveryEncryptedVaultKey: "encrypted-recovery",
+      recoverySalt: "recovery-salt",
+      recoveryIv: "recovery-iv",
+      recoveryKey: "recovery-key",
+    });
+    hashVaultKeyMock.mockResolvedValue("vault-key-hash");
+    setupVaultStateMock.mockResolvedValue(undefined);
+    assertVaultKeyMatchesStateMock.mockResolvedValue(undefined);
   });
 
   it("explains why Create Vault is disabled for short or mismatched passphrases", async () => {
@@ -143,6 +167,25 @@ describe("VaultFlow create validation", () => {
     fireEvent.change(confirmInput, { target: { value: "different" } });
     expect(await screen.findByText("Passphrases do not match.")).toBeTruthy();
     expect(createButton.disabled).toBe(true);
+  });
+
+  it("submits vault creation when Enter is pressed on a valid confirmation", async () => {
+    render(<VaultFlow user={user} onSuccess={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /continue to vault setup/i }));
+    fireEvent.change(screen.getByLabelText("Passphrase"), {
+      target: { value: "correct horse battery staple" },
+    });
+    const confirmation = screen.getByLabelText("Confirm Passphrase");
+    fireEvent.change(confirmation, {
+      target: { value: "correct horse battery staple" },
+    });
+
+    fireEvent.submit(confirmation.closest("form")!);
+
+    await screen.findByRole("dialog", { name: /save your recovery key/i });
+    expect(createVaultMock).toHaveBeenCalledTimes(1);
+    expect(createVaultMock).toHaveBeenCalledWith("correct horse battery staple");
   });
 
   it("uses compact Vault Key primary copy with Passkey and Recovery Key alternatives", async () => {

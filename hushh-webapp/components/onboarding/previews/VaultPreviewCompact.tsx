@@ -16,7 +16,7 @@ const VAULT_ROWS: VaultRow[] = [
     label: "Encrypted on your device",
     sublabel: "Your key never leaves you",
     icon: KeyRound,
-    iconTone: "text-[#b8894d] bg-[#d4a574]/10 dark:text-[#d4a574] dark:bg-[#d4a574]/16",
+    iconTone: "text-[color:var(--app-accent-deep)] bg-[color:var(--app-accent-tint)]",
   },
   {
     label: "Unlock with Face ID",
@@ -45,7 +45,7 @@ export function VaultPreviewCompact() {
         </div>
 
         <div className="flex flex-col items-center text-center">
-          <span className="grid h-11 w-11 place-items-center rounded-[14px] bg-[#d4a574]/10 text-[#b8894d] dark:bg-[#d4a574]/16 dark:text-[#d4a574]">
+          <span className="grid h-11 w-11 place-items-center rounded-[14px] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent-deep)]">
             <Icon icon={Lock} className="h-[22px] w-[22px]" />
           </span>
           <p className="type-headline mt-2 text-[15px]">Only you hold the key</p>

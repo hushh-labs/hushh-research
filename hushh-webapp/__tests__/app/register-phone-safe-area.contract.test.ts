@@ -12,10 +12,9 @@ describe("/register-phone safe-area shell contract", () => {
 
     expect(source).toContain("--phone-mandate-safe-pt");
     expect(source).toContain("--phone-mandate-safe-pb");
-    expect(source).toContain("--phone-mandate-agent-bar-clearance");
+    expect(source).toContain("var(--onboarding-agent-bar-clearance)");
     expect(source).toContain("var(--app-safe-area-top-effective");
-    expect(source).toContain("var(--app-safe-area-bottom-effective");
-    expect(source).toContain("var(--phone-mandate-agent-bar-clearance)");
+    expect(source).not.toContain("--phone-mandate-agent-bar-clearance");
     expect(source).toContain("h-[100dvh]");
     expect(source).toContain("min-h-[100svh]");
     expect(source).toContain("justify-center");

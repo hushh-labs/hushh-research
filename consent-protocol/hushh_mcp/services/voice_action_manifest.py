@@ -102,6 +102,7 @@ def _normalize_action_entry(raw: Any) -> dict[str, Any] | None:
                 for route in (scope.get("routes") or [])
                 if str(route or "").strip()
             ],
+            "hidden_navigable": scope.get("hidden_navigable") is True,
         },
         "guards": guards,
         "risk": {
@@ -178,6 +179,32 @@ def get_voice_manifest_action(action_id: str | None) -> dict[str, Any] | None:
     if not normalized_action_id:
         return None
     return _voice_manifest_action_index().get(normalized_action_id)
+
+
+def is_navigation_action(entry: dict[str, Any] | None) -> bool:
+    """True for generated cross-screen navigation actions (``route.*``).
+
+    Navigation actions declare their DESTINATION screens in ``scope.screens``
+    (where the route lands), not the screens they can be invoked from. A
+    person can ask to "go to profile" from any screen, so these low-risk
+    direct-execution actions are screen-agnostic for invocation purposes.
+
+    This is the server-side authority for the frontend's reserved
+    global-navigation segment (``GLOBAL_NAV_ACTION_IDS`` in
+    ``hushh-webapp/lib/voice/screen-context-builder.ts``): the browser may
+    publish a navigation id from anywhere, but only ids that resolve to a
+    generated manifest entry with allow_direct execution ever pass. The
+    browser can never mint authority this way.
+    """
+    if not entry:
+        return False
+    action_id = str(entry.get("action_id") or "")
+    if not action_id.startswith("route."):
+        return False
+    execution_policy = str(
+        (entry.get("risk") or {}).get("execution_policy") or "allow_direct"
+    ).strip()
+    return execution_policy == "allow_direct"
 
 
 def select_voice_manifest_actions_for_prompt(

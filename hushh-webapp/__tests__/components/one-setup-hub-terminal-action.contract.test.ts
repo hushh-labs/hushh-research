@@ -34,4 +34,14 @@ describe("One setup hub terminal action contract", () => {
     );
     expect(source).not.toContain("actions={");
   });
+
+  it("leaves fixed-chrome clearance to the shared app scroll root", () => {
+    const styles = readFileSync(
+      join(process.cwd(), "components/onboarding/setup/one-setup-hub.module.css"),
+      "utf8",
+    );
+
+    expect(styles).not.toContain(".setupShell");
+    expect(styles).not.toContain("--app-bottom-inset");
+  });
 });

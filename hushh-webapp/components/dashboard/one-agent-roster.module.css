@@ -1,0 +1,22 @@
+.oneAgentGrid {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  place-items: center;
+  column-gap: 0.75rem;
+  row-gap: 1.25rem;
+}
+
+@media (min-width: 640px) {
+  .oneAgentGrid {
+    column-gap: 1.5rem;
+    row-gap: 1.75rem;
+  }
+}
+
+@media (min-width: 1280px) {
+  .oneAgentGrid {
+    grid-template-columns: repeat(9, minmax(0, 1fr));
+    row-gap: 0;
+  }
+}
