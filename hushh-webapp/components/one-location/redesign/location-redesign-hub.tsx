@@ -365,11 +365,49 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const inboxCount = vm.pendingOwnerRequests.length;
   const hasActiveShare = vm.activeOwnerGrants.length > 0;
 
+  // Back-button navigation for focused task flows (Check In, Drive To, Pick Me
+  // Up, Safe Arrival, SOS, Share, Ask, Invite, Privacy, Temp link).
+  //
+  // Problem: /one/location is a single route. Without this, the OS/browser Back
+  // button (and the app chrome's back arrow) would leave the whole Location page
+  // and land on /one, even though the user only meant to leave the action screen.
+  //
+  // Fix: opening a flow pushes ONE history entry. Pressing Back pops it and we
+  // just close the flow, returning to the Location hub — the page itself only
+  // leaves once the user is back on the hub. `unwindFlowHistory` keeps history
+  // balanced for programmatic closes (Cancel button, share complete, deep link).
+  const flowHistoryPushedRef = useRef(false);
+
+  const unwindFlowHistory = () => {
+    if (typeof window !== "undefined" && flowHistoryPushedRef.current) {
+      flowHistoryPushedRef.current = false;
+      window.history.back();
+    }
+  };
+
   const closeFlow = () => {
     setFlow("none");
     setShareStep("person");
     vm.setShareReviewOpen(false);
+    unwindFlowHistory();
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined" || flow === "none") return;
+    if (!flowHistoryPushedRef.current) {
+      window.history.pushState({ oneLocationFlow: flow }, "");
+      flowHistoryPushedRef.current = true;
+    }
+    const onPopState = () => {
+      // The pushed entry is being consumed by this Back press.
+      flowHistoryPushedRef.current = false;
+      setFlow("none");
+      setShareStep("person");
+      vm.setShareReviewOpen(false);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [flow, vm]);
 
   // When a share completes successfully (page bumps shareCompletedTick), close
   // the 3-step share flow and return to the main One Location hub.
@@ -381,9 +419,11 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       // from the "Now" tab, so no explicit tab change is needed.
       setFlow("none");
       setShareStep("person");
+      unwindFlowHistory();
     }
 
   }, [vm.shareCompletedTick]);
+
 
 
   /* ----------------------------------------------------------------- */
@@ -456,8 +496,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   return (
     <div className="space-y-5">
       <LocationHeader
-        title="Onepoint"
+        title="One Location"
         subtitle={headerSubtitle}
+
         trailing={
           <button
             type="button"
@@ -878,8 +919,9 @@ function PrivacyFlow({
   return (
     <div>
       <TaskFlowHeader
-        eyebrow="Onepoint"
+        eyebrow="One Location"
         title="Privacy"
+
         description="You control who sees your location and when. Change this anytime."
         onBack={onClose}
       />
