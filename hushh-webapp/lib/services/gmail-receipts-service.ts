@@ -1,5 +1,6 @@
 import { trackEvent } from "@/lib/observability/client";
 import { ApiService } from "@/lib/services/api-service";
+import { CACHE_TTL, CacheService } from "@/lib/services/cache-service";
 import {
   buildGmailNudgesPath,
   buildGmailReceiptsPath,
@@ -7,6 +8,13 @@ import {
   buildGmailSyncRunPath,
   GMAIL_RECEIPTS_API_TEMPLATES,
 } from "@/lib/services/kai-profile-api-paths";
+
+// SHORT (1 min) TTL: fast enough to still reflect a just-completed OAuth
+// connect (callers that need guaranteed-fresh data, like the OAuth return
+// page, pass `force: true` to bypass this cache), but long enough that
+// repeated mounts of the same screen (e.g. `/one/setup`) within a few
+// seconds don't each trigger their own network round trip.
+const gmailStatusCacheKey = (userId: string) => `gmail_connection_status_${userId}`;
 
 export type GmailConnectionState =
   | "disconnected"
@@ -190,7 +198,16 @@ export class GmailReceiptsService {
   static async getStatus(params: {
     idToken: string;
     userId: string;
+    /** Bypass the short-TTL cache when the caller needs guaranteed-fresh data. */
+    force?: boolean;
   }): Promise<GmailConnectionStatus> {
+    const cache = CacheService.getInstance();
+    const cacheKey = gmailStatusCacheKey(params.userId);
+    if (!params.force) {
+      const cached = cache.get<GmailConnectionStatus>(cacheKey);
+      if (cached) return cached;
+    }
+
     const response = await ApiService.apiFetch(
       buildGmailStatusPath(params.userId),
       {
@@ -205,7 +222,9 @@ export class GmailReceiptsService {
       throw new Error(await extractError(response, "Failed to load Gmail connector status."));
     }
 
-    return (await response.json()) as GmailConnectionStatus;
+    const status = (await response.json()) as GmailConnectionStatus;
+    cache.set(cacheKey, status, CACHE_TTL.SHORT);
+    return status;
   }
 
   static async startConnect(params: {
@@ -320,7 +339,13 @@ export class GmailReceiptsService {
       throw new Error(await extractError(response, "Failed to refresh Gmail connector status."));
     }
 
-    return (await response.json()) as GmailConnectionStatus;
+    const status = (await response.json()) as GmailConnectionStatus;
+    CacheService.getInstance().set(
+      gmailStatusCacheKey(params.userId),
+      status,
+      CACHE_TTL.SHORT,
+    );
+    return status;
   }
 
   static async syncNow(params: {

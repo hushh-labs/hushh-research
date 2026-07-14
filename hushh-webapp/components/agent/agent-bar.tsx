@@ -1057,55 +1057,87 @@ export function AgentBar() {
             : voiceStatus === "error"
               ? "error"
               : "opening";
-  // Pill contents for the frosted bar, one JSX source across all modes so
-  // the voice/theme controls and test ids never fork.
-  const pillContents = conversationActive ? (
-    // The ENTIRE bar is the tap target to end the conversation: tapping
-    // anywhere stops it. The X icon on the left is a bare marker (no chip
-    // background) showing this is the "tap to end" affordance.
+  // Theme toggle, infused right-aligned, accent-toned like the mic. Rendered
+  // in its own variable (not inline JSX) because the pre-auth home route
+  // auto-greets on mount (see autoGreetedRef effect above): conversationActive
+  // flips true within ~1s of landing on "/", and the toggle must stay mounted
+  // through that transition instead of disappearing along with the rest of
+  // the idle greeter row, or the person never gets a chance to tap it.
+  const themeToggleButton = (
     <button
       type="button"
-      data-native-voice-control-id="one_voice_agent_bar_end"
-      data-testid="one-voice-agent-bar-end"
-      onClick={stopConversation}
-      aria-label="End conversation"
-      title="Tap to end conversation"
-      className="relative flex min-w-0 flex-1 items-center gap-3 overflow-hidden rounded-full pl-1 pr-2 text-left"
+      onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+      // Static label + CSS-driven icon swap: next-themes resolves the theme
+      // client-side only, so branching the render on resolvedTheme caused a
+      // hydration mismatch (server always rendered the light branch).
+      aria-label="Toggle theme"
+      title="Toggle theme"
+      className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-accent-strong transition-colors duration-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
     >
+      <Sun className="hidden h-[17px] w-[17px] dark:block" />
+      <Moon className="h-[17px] w-[17px] dark:hidden" />
       <span
         aria-hidden
         className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
       >
         <MaterialRipple variant="gradient" effect="fill" />
       </span>
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-accent-strong">
-        <X className="h-[18px] w-[18px]" />
-      </span>
-      <span
-        className="flex min-w-0 flex-1 items-center gap-3"
-        role="status"
-        aria-live="polite"
-        aria-label={voiceStatusLabel}
-      >
-        <AgentVoiceWaveform
-          level={voiceLevel}
-          status={voiceStatus}
-          barCount={28}
-          className="h-6 flex-1"
-        />
-        <span
-          className={cn(
-            "shrink-0 text-[12px] font-medium",
-            voiceStatus === "error"
-              ? "min-w-0 max-w-[60%] flex-1 truncate text-right text-destructive/80"
-              : "tabular-nums text-foreground/60",
-          )}
-          title={voiceStatus === "error" ? voiceStatusLabel : undefined}
-        >
-          {voiceStatusLabel}
-        </span>
-      </span>
     </button>
+  );
+  // Pill contents for the frosted bar, one JSX source across all modes so
+  // the voice/theme controls and test ids never fork.
+  const pillContents = conversationActive ? (
+    // The ENTIRE bar is the tap target to end the conversation: tapping
+    // anywhere stops it. The X icon on the left is a bare marker (no chip
+    // background) showing this is the "tap to end" affordance. On the
+    // pre-auth greeter (home route auto-greet) the theme toggle stays
+    // docked alongside it so it never disappears mid-connect.
+    <>
+      <button
+        type="button"
+        data-native-voice-control-id="one_voice_agent_bar_end"
+        data-testid="one-voice-agent-bar-end"
+        onClick={stopConversation}
+        aria-label="End conversation"
+        title="Tap to end conversation"
+        className="relative flex min-w-0 flex-1 items-center gap-3 overflow-hidden rounded-full pl-1 pr-2 text-left"
+      >
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+        >
+          <MaterialRipple variant="gradient" effect="fill" />
+        </span>
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-accent-strong">
+          <X className="h-[18px] w-[18px]" />
+        </span>
+        <span
+          className="flex min-w-0 flex-1 items-center gap-3"
+          role="status"
+          aria-live="polite"
+          aria-label={voiceStatusLabel}
+        >
+          <AgentVoiceWaveform
+            level={voiceLevel}
+            status={voiceStatus}
+            barCount={28}
+            className="h-6 flex-1"
+          />
+          <span
+            className={cn(
+              "shrink-0 text-[12px] font-medium",
+              voiceStatus === "error"
+                ? "min-w-0 max-w-[60%] flex-1 truncate text-right text-destructive/80"
+                : "tabular-nums text-foreground/60",
+            )}
+            title={voiceStatus === "error" ? voiceStatusLabel : undefined}
+          >
+            {voiceStatusLabel}
+          </span>
+        </span>
+      </button>
+      {onboardingGreeterMode ? themeToggleButton : null}
+    </>
   ) : onboardingGreeterMode || ambientVoiceOnly ? (
     // Signed-out welcome ("/") + sign-in ("/login"): the bar IS the
     // conversation starter (voice-only pre-auth) with the theme toggle
@@ -1137,29 +1169,7 @@ export function AgentBar() {
         </span>
       </button>
       {/* Theme toggle, infused right-aligned, accent-toned like the mic. */}
-      <button
-        type="button"
-        onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-        aria-label={
-          resolvedTheme === "dark"
-            ? "Switch to light mode"
-            : "Switch to dark mode"
-        }
-        title="Toggle theme"
-        className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-accent-strong transition-colors duration-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
-      >
-        {resolvedTheme === "dark" ? (
-          <Sun className="h-[17px] w-[17px]" />
-        ) : (
-          <Moon className="h-[17px] w-[17px]" />
-        )}
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
-        >
-          <MaterialRipple variant="gradient" effect="fill" />
-        </span>
-      </button>
+      {themeToggleButton}
     </>
   ) : (
     // Signed-in: same anatomy as the onboarding greeter (voice-first row on

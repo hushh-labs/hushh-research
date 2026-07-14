@@ -92,16 +92,13 @@ const SETUP_COPY_BY_ID: Record<
     ],
   },
   email: {
-    setupTitle: "KYC",
-    setupBlurb:
-      "Let One draft for you when you invoke it from email at one@hushh.ai.",
-    actionLabel: "Set up KYC",
-    resumeActionLabel: "Finish KYC",
+    setupTitle: "Email",
+    setupBlurb: "Turn on drafting so One can prepare replies from one@hushh.ai.",
+    actionLabel: "Set up email",
+    resumeActionLabel: "Finish email",
     setupBullets: [
-      "Invoke One from email at one@hushh.ai when you want a draft.",
-      "One prepares replies and approvals you can review before sending.",
-      "Everything stays a draft until you choose to send it.",
-      "You are always in control of what goes out.",
+      "Turn drafting on or off any time.",
+      "Every draft stays yours to review before it sends.",
     ],
   },
   location: {
@@ -158,13 +155,12 @@ const SETUP_COPY_BY_ID: Record<
   "connected-systems": {
     setupTitle: "Link your record to external systems",
     setupBlurb:
-      "Choose the external systems where One can find or create your record, only with your approval.",
+      "One finds your existing record or creates one, only with your approval.",
     actionLabel: "Link your record",
     resumeActionLabel: "Finish linking",
     setupBullets: [
-      "See every CRM system currently available to your account.",
-      "Check whether your record already exists before creating one.",
-      "One creates or updates a record only after your approval.",
+      "One looks for your record first, then creates one if needed.",
+      "Nothing happens without your approval.",
     ],
   },
 };

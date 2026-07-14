@@ -16,6 +16,18 @@
     #fcf9f2;
 }
 
+/* Dark mode: same soft corner washes at lower opacity over the app's
+   standard near-black canvas (#1c1c1e), instead of the light cream base
+   bleeding through under html.dark. */
+:global(html.dark) .base {
+  background:
+    radial-gradient(circle at 4% 4%, rgba(197, 244, 237, 0.1), rgba(197, 244, 237, 0) 32%),
+    radial-gradient(circle at 100% 0%, rgba(207, 246, 237, 0.08), rgba(207, 246, 237, 0) 34%),
+    radial-gradient(circle at 0% 100%, rgba(255, 204, 226, 0.1), rgba(255, 204, 226, 0) 34%),
+    radial-gradient(circle at 100% 100%, rgba(255, 214, 179, 0.08), rgba(255, 214, 179, 0) 32%),
+    #1c1c1e;
+}
+
 .moteLayer {
   position: absolute;
   inset: 0;

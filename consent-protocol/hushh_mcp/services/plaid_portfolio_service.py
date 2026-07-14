@@ -910,8 +910,15 @@ class PlaidPortfolioService:
         sec_type = _clean_text(security.get("type")).lower()
         sec_subtype = _clean_text(security.get("subtype")).lower()
         hint = f"{symbol} {name} {sec_type} {sec_subtype}".lower()
+        # Plaid's own is_cash_equivalent flag is authoritative when present
+        # (e.g. sweep vehicles, money market cash positions); trust it before
+        # falling back to string heuristics.
+        if security.get("is_cash_equivalent") is True:
+            return "cash_equivalent"
         if sec_type == "cash" or "money market" in hint or "sweep" in hint:
             return "cash_equivalent"
+        if sec_type == "cryptocurrency" or "crypto" in hint:
+            return "real_asset"
         if sec_type in {"equity", "etf", "mutual fund"}:
             return "equity"
         if sec_type == "fixed income" or sec_subtype in {"bond", "bill", "note", "cd"}:
@@ -1053,6 +1060,13 @@ class PlaidPortfolioService:
         }
 
     def _summarize_transactions(self, transactions: list[dict[str, Any]]) -> dict[str, Any]:
+        # Plaid's investment transaction `amount` sign convention: positive
+        # means cash left the account (e.g. a buy), negative means cash
+        # entered the account (e.g. a sell, dividend, interest, or cash
+        # contribution/deposit). See
+        # https://plaid.com/docs/api/products/investments/#investments-transactions-get
+        # We normalize these to conventional positive-income/positive-fee
+        # reporting below.
         dividends = 0.0
         interest = 0.0
         fees = 0.0
@@ -1064,16 +1078,21 @@ class PlaidPortfolioService:
             subtype = _clean_text(row.get("subtype")).lower()
             tx_type = _clean_text(row.get("type")).lower()
             amount = _to_float(row.get("amount")) or 0.0
+            # Per-trade commission/fee attached to a buy or sell transaction.
             fee_amount = _to_float(row.get("fees")) or 0.0
             fees += fee_amount
-            if "dividend" in subtype or "dividend" in tx_type:
-                dividends += amount
+            if tx_type == "fee":
+                # Standalone fee transactions (e.g. account maintenance fees)
+                # carry the charge in `amount`, not `fees` (which is 0 here).
+                fees += amount
+            elif "dividend" in subtype or "dividend" in tx_type:
+                dividends += -amount
             elif "interest" in subtype or "interest" in tx_type:
-                interest += amount
+                interest += -amount
             elif subtype in {"deposit", "contribution", "transfer in"} or "contribution" in subtype:
-                contributions += amount
+                contributions += -amount
             elif subtype in {"withdrawal", "transfer out"}:
-                withdrawals += abs(amount)
+                withdrawals += amount
             elif "buy" in subtype or tx_type == "buy":
                 buys += abs(amount)
             elif "sell" in subtype or tx_type == "sell":

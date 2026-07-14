@@ -18,12 +18,24 @@ import {
   type LucideIcon,
   Zap,
 } from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart as RechartsLineChart,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { ConnectPortfolioCta } from "@/components/kai/cards/connect-portfolio-cta";
 import { RiaPicksList } from "@/components/kai/cards/renaissance-market-list";
+import { getCompanyLogoUrl } from "@/components/kai/shared/symbol-avatar";
 import { PermissionGate } from "@/components/privacy/permission-gate/permission-gate";
 import {
   type MarketOverviewDetailPanel,
@@ -57,6 +69,7 @@ import {
   type KaiHomeNewsItem,
   type KaiHomePickSource,
   type KaiHomeRenaissanceItem,
+  type KaiHomeSectorItem,
   type KaiHomeWatchlistItem,
 } from "@/lib/services/api-service";
 import {
@@ -173,17 +186,11 @@ type OneMarketDisplayRow = {
   price: number | null;
   changePct: number | null;
   volume?: number | null;
+  sparkline?: number[] | null;
 };
 
 type OneMarketMoverTab = "gain" | "lose" | "active";
-type OneMarketNewsTone = "yahoo" | "bud" | "kai" | "positive" | "negative" | "neutral";
-
-const ONE_MARKET_FALLBACK_ROWS: OneMarketDisplayRow[] = [
-  { symbol: "TSLA", companyName: "Tesla", price: 248.5, changePct: 5.2, volume: 198_700_000 },
-  { symbol: "AAPL", companyName: "Apple", price: 189.2, changePct: 1.1, volume: 84_200_000 },
-  { symbol: "NVDA", companyName: "NVIDIA", price: 121.4, changePct: -0.8, volume: 312_400_000 },
-  { symbol: "AMZN", companyName: "Amazon", price: 238, changePct: 1.9, volume: 61_500_000 },
-];
+type OneMarketNewsTone = "positive" | "negative" | "neutral";
 
 function formatOneMarketPrice(value: number | null | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "--";
@@ -220,16 +227,26 @@ function toOneMarketRows(
 ): OneMarketDisplayRow[] {
   if (!Array.isArray(rows)) return [];
   return rows
-    .map((row) => ({
-      symbol: normalizeMarketSymbol(row?.symbol),
-      companyName: String(row?.company_name || row?.symbol || "Market name").trim(),
-      price: typeof row?.price === "number" && Number.isFinite(row.price) ? row.price : null,
-      changePct:
-        typeof row?.change_pct === "number" && Number.isFinite(row.change_pct)
-          ? row.change_pct
-          : null,
-      volume: typeof row?.volume === "number" && Number.isFinite(row.volume) ? row.volume : null,
-    }))
+    .map((row) => {
+      const sparklineSource = (row as { sparkline?: unknown } | null | undefined)?.sparkline;
+      const sparkline =
+        Array.isArray(sparklineSource) && sparklineSource.length > 1
+          ? sparklineSource.filter(
+              (point): point is number => typeof point === "number" && Number.isFinite(point)
+            )
+          : null;
+      return {
+        symbol: normalizeMarketSymbol(row?.symbol),
+        companyName: String(row?.company_name || row?.symbol || "Market name").trim(),
+        price: typeof row?.price === "number" && Number.isFinite(row.price) ? row.price : null,
+        changePct:
+          typeof row?.change_pct === "number" && Number.isFinite(row.change_pct)
+            ? row.change_pct
+            : null,
+        volume: typeof row?.volume === "number" && Number.isFinite(row.volume) ? row.volume : null,
+        sparkline: sparkline && sparkline.length > 1 ? sparkline : null,
+      };
+    })
     .filter((row) => Boolean(row.symbol));
 }
 
@@ -243,37 +260,12 @@ function dedupeOneMarketRows(rows: OneMarketDisplayRow[]): OneMarketDisplayRow[]
   });
 }
 
-function toMostBoughtRows(
-  rows: Array<KaiHomeWatchlistItem | KaiHomeRenaissanceItem>
-): OneMarketDisplayRow[] {
-  const displayRows = dedupeOneMarketRows([...toOneMarketRows(rows), ...ONE_MARKET_FALLBACK_ROWS]);
-  const preferred = ["TSLA", "AAPL", "NVDA", "AMZN"];
-  const ordered = preferred
-    .map((symbol) => displayRows.find((row) => row.symbol === symbol))
-    .filter((row): row is OneMarketDisplayRow => Boolean(row));
-  const rest = displayRows.filter((row) => !preferred.includes(row.symbol));
-  return [...ordered, ...rest].slice(0, 4);
-}
-
 function toMoverGroups(
-  payload: KaiHomeInsightsV2 | null,
-  mostBoughtRows: OneMarketDisplayRow[]
+  payload: KaiHomeInsightsV2 | null
 ): Record<OneMarketMoverTab, OneMarketDisplayRow[]> {
-  const gainers = dedupeOneMarketRows([
-    ...toOneMarketRows(payload?.movers?.gainers),
-    ...mostBoughtRows.filter((row) => Number(row.changePct || 0) > 0),
-    ...ONE_MARKET_FALLBACK_ROWS.filter((row) => Number(row.changePct || 0) > 0),
-  ]).slice(0, 4);
-  const losers = dedupeOneMarketRows([
-    ...toOneMarketRows(payload?.movers?.losers),
-    ...mostBoughtRows.filter((row) => Number(row.changePct || 0) < 0),
-    ...ONE_MARKET_FALLBACK_ROWS.filter((row) => Number(row.changePct || 0) < 0),
-  ]).slice(0, 4);
-  const active = dedupeOneMarketRows([
-    ...toOneMarketRows(payload?.movers?.active),
-    ...mostBoughtRows,
-    ...ONE_MARKET_FALLBACK_ROWS,
-  ])
+  const gainers = dedupeOneMarketRows(toOneMarketRows(payload?.movers?.gainers)).slice(0, 4);
+  const losers = dedupeOneMarketRows(toOneMarketRows(payload?.movers?.losers)).slice(0, 4);
+  const active = dedupeOneMarketRows(toOneMarketRows(payload?.movers?.active))
     .sort((left, right) => Number(right.volume || 0) - Number(left.volume || 0))
     .slice(0, 4);
   return { gain: gainers, lose: losers, active };
@@ -335,55 +327,37 @@ function openOneMarketHref(href: string) {
   requestInternalAppNavigation({ href, scroll: false });
 }
 
-function oneMarketNewsTone(row: KaiHomeNewsItem, index: number): OneMarketNewsTone {
-  const symbol = normalizeMarketSymbol(row.symbol);
-  const source = String(row.source_name || "").toLowerCase();
-  const title = String(row.title || "").toLowerCase();
+function oneMarketNewsTone(row: KaiHomeNewsItem): OneMarketNewsTone {
   const sentiment = String(row.sentiment_hint || "").toLowerCase();
-
-  if (symbol === "YHOO" || source.includes("yahoo")) return "yahoo";
-  if (symbol === "BUD" || title.includes("anheuser") || title.includes("busch")) return "bud";
-  if (symbol === "KAI" || source.includes("kai")) return "kai";
   if (sentiment.includes("positive")) return "positive";
   if (sentiment.includes("negative")) return "negative";
-  return index % 3 === 0 ? "kai" : "neutral";
+  return "neutral";
 }
 
-function oneMarketNewsCoverClassName(row: KaiHomeNewsItem, index: number): string {
-  const tone = oneMarketNewsTone(row, index);
-  if (tone === "yahoo") return "bg-[#5f01d1]";
-  if (tone === "bud") return "bg-[#c8102e]";
+function oneMarketNewsCoverClassName(row: KaiHomeNewsItem): string {
+  const tone = oneMarketNewsTone(row);
   if (tone === "positive") return "bg-[color:var(--one-up)]";
   if (tone === "negative") return "bg-[color:var(--one-down)]";
-  if (tone === "neutral") return "bg-[#8e8e93]";
-  return "bg-[color:var(--one-blue)]";
+  return "bg-[#8e8e93]";
 }
 
 function oneMarketNewsContext(row: KaiHomeNewsItem): string {
-  const symbol = normalizeMarketSymbol(row.symbol);
   const title = String(row.title || "").toLowerCase();
-  const source = String(row.source_name || "").toLowerCase();
   const sentiment = String(row.sentiment_hint || "").toLowerCase();
 
-  if (title.includes("data") || title.includes("ai") || title.includes("ibm")) {
-    return "AI and data migration read - useful for cloud, software, and infrastructure exposure.";
+  if (title.includes("data") || title.includes("ai") || title.includes("chip") || title.includes("semiconductor")) {
+    return "AI and infrastructure read - useful for cloud, software, and chip exposure.";
   }
-  if (symbol === "KAI" || source.includes("kai") || title.includes("portfolio")) {
-    return "Portfolio lens - see which holdings need attention as the tape softens.";
-  }
-  if (symbol === "BUD" || title.includes("defensive") || title.includes("anheuser") || title.includes("busch")) {
+  if (title.includes("defensive") || title.includes("staple")) {
     return "Defensive rotation read - check staples exposure and downside protection.";
   }
-  if (symbol === "NVDA" || title.includes("chip") || title.includes("semiconductor")) {
-    return "AI infrastructure read - watch chip leadership and concentration risk.";
-  }
-  if (symbol === "TSLA" || title.includes("tesla") || title.includes("ev")) {
+  if (title.includes("ev") || title.includes("auto")) {
     return "High-beta move - review entry discipline and position sizing.";
   }
-  if (symbol === "AAPL" || title.includes("apple")) {
-    return "Quality tech read - watch device demand, services, and cash-flow durability.";
+  if (title.includes("cloud") || title.includes("device") || title.includes("services")) {
+    return "Quality tech read - watch demand, services, and cash-flow durability.";
   }
-  if (symbol === "AMZN" || title.includes("amazon")) {
+  if (title.includes("marketplace") || title.includes("commerce")) {
     return "Platform read - marketplace and cloud strength can shape tech breadth.";
   }
   if (sentiment.includes("positive")) {
@@ -395,13 +369,7 @@ function oneMarketNewsContext(row: KaiHomeNewsItem): string {
   return "Market context - use it to confirm the current rotation before acting.";
 }
 
-function OneMarketNewsGlyph({ row, index }: { row: KaiHomeNewsItem; index: number }) {
-  const tone = oneMarketNewsTone(row, index);
-  if (tone === "kai") {
-    return <Sparkles className="h-9 w-9 drop-shadow-[0_2px_4px_rgba(0,0,0,0.25)]" />;
-  }
-  if (tone === "yahoo") return <>y!</>;
-  if (tone === "bud") return <>B</>;
+function OneMarketNewsGlyph({ row }: { row: KaiHomeNewsItem }) {
   const symbol = normalizeMarketSymbol(row.symbol);
   return <>{symbol.slice(0, 1) || "N"}</>;
 }
@@ -414,67 +382,33 @@ function BrandLogo({
   className?: string;
 }) {
   const normalized = normalizeMarketSymbol(symbol);
+  const logoUrl = getCompanyLogoUrl({ symbol: normalized });
+  const [logoFailed, setLogoFailed] = useState(false);
+
+  useEffect(() => {
+    setLogoFailed(false);
+  }, [logoUrl]);
+
   const baseClassName =
     "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[10px] bg-[color:var(--one-surface)] text-[color:var(--one-fg)]";
-  if (normalized === "TSLA") {
-    return (
-      <span className={cn(baseClassName, "bg-[#e82127] text-white", className)} aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="currentColor" className="h-[58%] w-[58%]">
-          <path d="M12 5.362l2.475-3.026s4.245.09 8.471 2.054c-1.082 1.636-3.231 2.438-3.231 2.438-.146-1.439-1.154-1.79-4.354-1.79L12 24 8.619 5.034c-3.18 0-4.188.354-4.335 1.792 0 0-2.146-.795-3.229-2.43C5.28 2.431 9.525 2.34 9.525 2.34L12 5.362l-.004.002H12v-.002zm0-3.899c3.415-.03 7.326.528 11.328 2.28.535-.968.672-1.395.672-1.395C19.625.612 15.528.015 12 0 8.472.015 4.375.61 0 2.349c0 0 .195.525.672 1.396C4.674 1.989 8.585 1.435 12 1.46v.003z" />
-        </svg>
-      </span>
-    );
-  }
-  if (normalized === "AAPL") {
-    return (
-      <span className={cn(baseClassName, "border border-[color:var(--one-hairline)] bg-white text-[#111111]", className)} aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="currentColor" className="h-[58%] w-[58%]">
-          <path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" />
-        </svg>
-      </span>
-    );
-  }
-  if (normalized === "NVDA") {
-    return (
-      <span className={cn(baseClassName, "bg-[#76b900] text-white", className)} aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="currentColor" className="h-[58%] w-[58%]">
-          <path d="M8.948 8.798v-1.43a6.7 6.7 0 0 1 .424-.018c3.922-.124 6.493 3.374 6.493 3.374s-2.774 3.851-5.75 3.851c-.398 0-.787-.062-1.158-.185v-4.346c1.528.185 1.837.857 2.747 2.385l2.04-1.714s-1.492-1.952-4-1.952a6.016 6.016 0 0 0-.796.035m0-4.735v2.138l.424-.027c5.45-.185 9.01 4.47 9.01 4.47s-4.08 4.964-8.33 4.964c-.37 0-.733-.035-1.095-.097v1.325c.3.035.61.062.91.062 3.957 0 6.82-2.023 9.593-4.408.459.371 2.34 1.263 2.73 1.652-2.633 2.208-8.772 3.984-12.253 3.984-.335 0-.653-.018-.971-.053v1.864H24V4.063zm0 10.326v1.131c-3.657-.654-4.673-4.46-4.673-4.46s1.758-1.944 4.673-2.262v1.237H8.94c-1.528-.186-2.73 1.245-2.73 1.245s.68 2.412 2.739 3.11M2.456 10.9s2.164-3.197 6.5-3.533V6.201C4.153 6.59 0 10.653 0 10.653s2.35 6.802 8.948 7.42v-1.237c-4.84-.6-6.492-5.936-6.492-5.936z" />
-        </svg>
-      </span>
-    );
-  }
-  if (normalized === "META") {
-    return (
-      <span className={cn(baseClassName, "border border-[color:var(--one-hairline)] bg-white text-[#0866ff]", className)} aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="currentColor" className="h-[58%] w-[58%]">
-          <path d="M6.915 4.03c-1.968 0-3.683 1.28-4.871 3.113C.704 9.208 0 11.883 0 14.449c0 .706.07 1.369.21 1.973a6.624 6.624 0 0 0 .265.86 5.297 5.297 0 0 0 .371.761c.696 1.159 1.818 1.927 3.593 1.927 1.497 0 2.633-.671 3.965-2.444.76-1.012 1.144-1.626 2.663-4.32l.756-1.339.186-.325c.061.1.121.196.183.3l2.152 3.595c.724 1.21 1.665 2.556 2.47 3.314 1.046.987 1.992 1.22 3.06 1.22 1.075 0 1.876-.355 2.455-.843a3.743 3.743 0 0 0 .81-.973c.542-.939.861-2.127.861-3.745 0-2.72-.681-5.357-2.084-7.45-1.282-1.912-2.957-2.93-4.716-2.93-1.047 0-2.088.467-3.053 1.308-.652.57-1.257 1.29-1.82 2.05-.69-.875-1.335-1.547-1.958-2.056-1.182-.966-2.315-1.303-3.454-1.303zm10.16 2.053c1.147 0 2.188.758 2.992 1.999 1.132 1.748 1.647 4.195 1.647 6.4 0 1.548-.368 2.9-1.839 2.9-.58 0-1.027-.23-1.664-1.004-.496-.601-1.343-1.878-2.832-4.358l-.617-1.028a44.908 44.908 0 0 0-1.255-1.98c.07-.109.141-.224.211-.327 1.12-1.667 2.118-2.602 3.358-2.602zm-10.201.553c1.265 0 2.058.791 2.675 1.446.307.327.737.871 1.234 1.579l-1.02 1.566c-.757 1.163-1.882 3.017-2.837 4.338-1.191 1.649-1.81 1.817-2.486 1.817-.524 0-1.038-.237-1.383-.794-.263-.426-.464-1.13-.464-2.046 0-2.221.63-4.535 1.66-6.088.454-.687.964-1.226 1.533-1.533a2.264 2.264 0 0 1 1.088-.285z" />
-        </svg>
-      </span>
-    );
-  }
-  if (normalized === "GOOGL" || normalized === "GOOG") {
+
+  if (logoUrl && !logoFailed) {
     return (
       <span className={cn(baseClassName, "border border-[color:var(--one-hairline)] bg-white", className)} aria-hidden="true">
-        <svg viewBox="0 0 24 24" className="h-[58%] w-[58%]">
-          <path fill="#4285F4" d="M23.06 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h6.2a5.3 5.3 0 0 1-2.3 3.48v2.9h3.72c2.18-2 3.44-4.96 3.44-8.39Z" />
-          <path fill="#34A853" d="M12 24c3.1 0 5.7-1.03 7.6-2.79l-3.72-2.9c-1.03.7-2.35 1.1-3.88 1.1-2.98 0-5.5-2.01-6.4-4.72H1.76v2.99A11.5 11.5 0 0 0 12 24Z" />
-          <path fill="#FBBC05" d="M5.6 14.69a6.9 6.9 0 0 1 0-4.38v-2.99H1.76a11.5 11.5 0 0 0 0 10.36l3.84-2.99Z" />
-          <path fill="#EA4335" d="M12 4.75c1.68 0 3.2.58 4.39 1.72l3.29-3.29C17.7 1.27 15.1.25 12 .25 7.49.25 3.6 2.84 1.76 6.62l3.84 2.99C6.5 6.76 9.02 4.75 12 4.75Z" />
-        </svg>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={logoUrl}
+          alt=""
+          className="h-[62%] w-[62%] object-contain"
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onError={() => setLogoFailed(true)}
+        />
       </span>
     );
   }
-  if (normalized === "AMZN") {
-    return (
-      <span className={cn(baseClassName, "relative bg-[#232f3e] text-white", className)} aria-hidden="true">
-        <span className="text-[13px] font-bold leading-none">a</span>
-        <svg viewBox="0 0 24 8" className="absolute bottom-[5px] left-[21%] h-[7px] w-[58%] text-[#ff9900]">
-          <path d="M2 2c5.5 4 14.5 4 20-.8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          <path d="M19.3 1l3.2-.4-1.1 2.9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </span>
-    );
-  }
+
   return (
     <span className={cn(baseClassName, "font-bold text-[11px]", className)} aria-hidden="true">
       {normalized.slice(0, 4)}
@@ -525,17 +459,19 @@ function OneMarketSectionHeader({
 }
 
 /**
- * Honest, data-driven sparkline. Renders the REAL series scaled to its own
- * min/max; when no series exists it renders a flat neutral baseline instead
- * of inventing a chart shape. Stroke color follows the actual tone, never a
+ * Honest, data-driven sparkline built on recharts. Renders the REAL series;
+ * when no series exists it renders a flat dashed baseline instead of
+ * inventing a chart shape. Stroke color follows the actual tone, never a
  * hardcoded "always up" green.
  */
 function IndexSparkline({
   tone,
   series,
+  height = 20,
 }: {
-  tone: MarketOverviewMetric["tone"];
-  series?: number[];
+  tone: MarketOverviewMetric["tone"] | undefined;
+  series?: number[] | null;
+  height?: number;
 }) {
   const stroke =
     tone === "negative"
@@ -543,6 +479,7 @@ function IndexSparkline({
       : tone === "positive"
         ? "var(--one-up)"
         : "var(--one-fg3)";
+
   if (!series || series.length < 2) {
     // No real data: flat neutral baseline, clearly "no chart" rather than a
     // fabricated trend.
@@ -552,6 +489,7 @@ function IndexSparkline({
         viewBox="0 0 100 20"
         preserveAspectRatio="none"
         aria-hidden="true"
+        style={{ height }}
       >
         <path
           d="M0 10 L100 10"
@@ -564,34 +502,24 @@ function IndexSparkline({
       </svg>
     );
   }
-  const min = Math.min(...series);
-  const max = Math.max(...series);
-  const range = max - min;
-  const points = series
-    .map((point, index) => {
-      const x = (index / (series.length - 1)) * 100;
-      // 2..18 vertical padding inside the 20-high viewBox; flat series sits
-      // on the midline.
-      const y = range === 0 ? 10 : 18 - ((point - min) / range) * 16;
-      return `${x.toFixed(2)} ${y.toFixed(2)}`;
-    })
-    .join(" L");
+
+  const chartData = series.map((value, index) => ({ index, value }));
+
   return (
-    <svg
-      className="mt-2 block h-5 w-full opacity-90"
-      viewBox="0 0 100 20"
-      preserveAspectRatio="none"
-      aria-hidden="true"
-    >
-      <path
-        d={`M${points}`}
-        fill="none"
-        stroke={stroke}
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <div className="mt-2 w-full" style={{ height }} aria-hidden="true">
+      <ResponsiveContainer width="100%" height="100%">
+        <RechartsLineChart data={chartData} margin={{ top: 1, right: 1, left: 1, bottom: 1 }}>
+          <Line
+            type="monotone"
+            dataKey="value"
+            stroke={stroke}
+            strokeWidth={1.8}
+            dot={false}
+            isAnimationActive={false}
+          />
+        </RechartsLineChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
 
@@ -668,6 +596,11 @@ function OneMarketMoverRow({
           {row.symbol} · NASDAQ
         </span>
       </span>
+      {row.sparkline && row.sparkline.length >= 2 ? (
+        <span className="hidden w-14 shrink-0 sm:block">
+          <IndexSparkline tone={oneMarketTone(row.changePct) === "up" ? "positive" : oneMarketTone(row.changePct) === "down" ? "negative" : "neutral"} series={row.sparkline} height={22} />
+        </span>
+      ) : null}
       <span className="flex shrink-0 flex-col items-end gap-0.5 text-right">
         <span className="text-[14px] font-semibold leading-tight tabular-nums text-[color:var(--one-fg)]">
           {formatOneMarketPrice(row.price)}
@@ -693,6 +626,117 @@ function OneMarketMoverRow({
   );
 }
 
+function OneMarketNewsCover({ row, index }: { row: KaiHomeNewsItem; index: number }) {
+  const symbol = normalizeMarketSymbol(row.symbol);
+  const logoUrl = getCompanyLogoUrl({ symbol });
+  const [logoFailed, setLogoFailed] = useState(false);
+
+  useEffect(() => {
+    setLogoFailed(false);
+  }, [logoUrl]);
+
+  const showLogo = Boolean(logoUrl) && !logoFailed;
+
+  return (
+    <div
+      className={cn(
+        "relative flex h-[116px] items-center justify-center overflow-hidden",
+        "after:pointer-events-none after:absolute after:inset-y-0 after:-left-[80%] after:w-[60%] after:skew-x-[-20deg] after:bg-[linear-gradient(105deg,transparent,rgba(255,255,255,0.44),transparent)] after:transition-[left] after:duration-700 group-hover/news:after:left-[130%]",
+        showLogo ? "bg-white" : oneMarketNewsCoverClassName(row)
+      )}
+    >
+      {showLogo ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={logoUrl ?? undefined}
+          alt=""
+          className="block h-[48%] w-[48%] shrink-0 object-contain"
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onError={() => setLogoFailed(true)}
+        />
+      ) : (
+        <>
+          <span className="relative text-[36px] font-semibold leading-none tracking-normal text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.25)]">
+            <OneMarketNewsGlyph row={row} />
+          </span>
+          <svg
+            className="absolute inset-x-0 bottom-0 h-10 w-full opacity-25"
+            viewBox="0 0 100 30"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <path
+              d={
+                index % 3 === 1
+                  ? "M0 24 L20 18 L40 22 L60 12 L80 16 L100 8 L100 30 L0 30 Z"
+                  : index % 3 === 2
+                    ? "M0 20 L20 24 L40 14 L60 18 L80 8 L100 12 L100 30 L0 30 Z"
+                    : "M0 22 L20 16 L40 20 L60 10 L80 14 L100 6 L100 30 L0 30 Z"
+              }
+              fill="#ffffff"
+            />
+          </svg>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SectorRotationChart({ rows }: { rows: KaiHomeSectorItem[] }) {
+  const chartRows = useMemo(
+    () =>
+      rows
+        .filter(
+          (row): row is KaiHomeSectorItem & { change_pct: number } =>
+            Boolean(row?.sector) &&
+            typeof row.change_pct === "number" &&
+            Number.isFinite(row.change_pct)
+        )
+        .map((row) => ({ sector: row.sector, changePct: row.change_pct }))
+        .sort((left, right) => right.changePct - left.changePct)
+        .slice(0, 8),
+    [rows]
+  );
+
+  if (!chartRows.length) return null;
+
+  return (
+    <div className="w-full" style={{ height: Math.max(180, chartRows.length * 34) }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart
+          data={chartRows}
+          layout="vertical"
+          margin={{ top: 4, right: 24, left: 4, bottom: 4 }}
+        >
+          <CartesianGrid horizontal={false} strokeDasharray="3 3" stroke="var(--one-line)" />
+          <XAxis
+            type="number"
+            tickFormatter={(value) => `${value >= 0 ? "+" : ""}${value}%`}
+            axisLine={false}
+            tickLine={false}
+            tick={{ fontSize: 10, fill: "var(--one-fg3)" }}
+          />
+          <YAxis
+            type="category"
+            dataKey="sector"
+            axisLine={false}
+            tickLine={false}
+            width={110}
+            tick={{ fontSize: 11, fill: "var(--one-fg2)" }}
+          />
+          <Bar dataKey="changePct" radius={[0, 4, 4, 0]} maxBarSize={18} isAnimationActive={false}>
+            {chartRows.map((row) => (
+              <Cell key={row.sector} fill={row.changePct >= 0 ? "var(--one-up)" : "var(--one-down)"} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function OneMarketNewsCards({ rows }: { rows: KaiHomeNewsItem[] }) {
   const fallbackRows = rows.length
     ? rows
@@ -708,50 +752,25 @@ function OneMarketNewsCards({ rows }: { rows: KaiHomeNewsItem[] }) {
         },
       ];
   return (
-    <div className="-mx-[var(--one-gutter)] flex gap-3 overflow-x-auto px-[var(--one-gutter)] pb-1 pt-0.5 [-ms-overflow-style:none] [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-3 sm:px-0 [&::-webkit-scrollbar]:hidden">
+    <div className="-mx-[var(--one-gutter)] flex gap-3 overflow-x-auto px-[var(--one-gutter)] pb-1 pt-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {fallbackRows.slice(0, 4).map((row, index) => (
         <button
           key={`${row.symbol}-${index}-${row.url}`}
           type="button"
           onClick={() => openOneMarketHref(row.url)}
-          className="group/news flex w-[274px] shrink-0 flex-col overflow-hidden rounded-[18px] bg-[color:var(--one-card)] text-left shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.22)] transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-[0_1px_2px_rgba(0,0,0,0.04),0_20px_34px_-18px_rgba(0,0,0,0.26)] active:scale-[0.985] sm:w-full"
+          className="group/news flex w-[274px] shrink-0 flex-col overflow-hidden rounded-[18px] bg-[color:var(--one-card)] text-left shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.22)] transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-[0_1px_2px_rgba(0,0,0,0.04),0_20px_34px_-18px_rgba(0,0,0,0.26)] active:scale-[0.985] sm:w-[300px]"
         >
-          <div
-            className={cn(
-              "relative grid h-[116px] place-items-center overflow-hidden",
-              "after:pointer-events-none after:absolute after:inset-y-0 after:-left-[80%] after:w-[60%] after:skew-x-[-20deg] after:bg-[linear-gradient(105deg,transparent,rgba(255,255,255,0.44),transparent)] after:transition-[left] after:duration-700 group-hover/news:after:left-[130%]",
-              oneMarketNewsCoverClassName(row, index)
-            )}
-          >
-            <span className="absolute left-3 top-3 rounded-full bg-white/18 px-2 py-1 text-[10px] font-semibold uppercase tracking-normal text-white/92 shadow-[inset_0_1px_0_rgba(255,255,255,0.20)] backdrop-blur-md">
-              {normalizeMarketSymbol(row.symbol) || "NEWS"}
-            </span>
-            <span className="relative text-[36px] font-semibold leading-none tracking-normal text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.25)]">
-              <OneMarketNewsGlyph row={row} index={index} />
-            </span>
-            <svg
-              className="absolute inset-x-0 bottom-0 h-10 w-full opacity-25"
-              viewBox="0 0 100 30"
-              preserveAspectRatio="none"
-              aria-hidden="true"
-            >
-              <path
-                d={
-                  index % 3 === 1
-                    ? "M0 24 L20 18 L40 22 L60 12 L80 16 L100 8 L100 30 L0 30 Z"
-                    : index % 3 === 2
-                      ? "M0 20 L20 24 L40 14 L60 18 L80 8 L100 12 L100 30 L0 30 Z"
-                      : "M0 22 L20 16 L40 20 L60 10 L80 14 L100 6 L100 30 L0 30 Z"
-                }
-                fill="#ffffff"
-              />
-            </svg>
-          </div>
+          <OneMarketNewsCover row={row} index={index} />
           <div className="flex flex-1 flex-col px-[13px] pb-[13px] pt-[11px]">
-            <div className="mb-1.5 flex items-center gap-1.5 text-[11.5px] font-medium text-[color:var(--one-fg3)]">
-              <span className="min-w-0 truncate">{row.source_name || "Market news"}</span>
-              <span className="h-0.5 w-0.5 rounded-full bg-[color:var(--one-fg3)]" />
-              <span className="shrink-0">{formatHeadlinePublished(row.published_at)}</span>
+            <div className="mb-1.5 flex items-center justify-between gap-1.5 text-[11.5px] font-medium text-[color:var(--one-fg3)]">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="min-w-0 truncate">{row.source_name || "Market news"}</span>
+                <span className="h-0.5 w-0.5 shrink-0 rounded-full bg-[color:var(--one-fg3)]" />
+                <span className="shrink-0">{formatHeadlinePublished(row.published_at)}</span>
+              </span>
+              <span className="shrink-0 rounded-full bg-[color:var(--one-surface)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--one-fg2)]">
+                {normalizeMarketSymbol(row.symbol) || "NEWS"}
+              </span>
             </div>
             <div className="line-clamp-2 text-[13.5px] font-semibold leading-[1.35] text-[color:var(--one-fg)]">
               {row.title}
@@ -759,10 +778,7 @@ function OneMarketNewsCards({ rows }: { rows: KaiHomeNewsItem[] }) {
             <p className="mt-2 line-clamp-2 text-[12px] leading-[1.38] text-[color:var(--one-fg2)]">
               {oneMarketNewsContext(row)}
             </p>
-            <div className="mt-3 flex items-center justify-between gap-2">
-              <span className="min-w-0 truncate rounded-full bg-[color:var(--one-surface)] px-2.5 py-1 text-[11px] font-semibold text-[color:var(--one-fg2)]">
-                {normalizeMarketSymbol(row.symbol) || "MARKET"}
-              </span>
+            <div className="mt-3 flex items-center justify-end">
               <span className="shrink-0 text-[11px] font-semibold text-[color:var(--one-link)]">
                 Read
               </span>
@@ -1987,15 +2003,18 @@ export function KaiMarketPreviewView() {
     () => toIndexStripItems(effectivePayload, overviewMetrics),
     [effectivePayload, overviewMetrics]
   );
-  const mostBoughtRows = useMemo(() => toMostBoughtRows(pickRows), [pickRows]);
   const moverGroups = useMemo(
-    () => toMoverGroups(effectivePayload, mostBoughtRows),
-    [effectivePayload, mostBoughtRows]
+    () => toMoverGroups(effectivePayload),
+    [effectivePayload]
   );
   const effectiveNewsTape = effectivePayload?.news_tape;
   const marketNewsRows = useMemo(
     () => (Array.isArray(effectiveNewsTape) ? effectiveNewsTape : []),
     [effectiveNewsTape]
+  );
+  const sectorRotationRows = useMemo(
+    () => (Array.isArray(effectivePayload?.sector_rotation) ? effectivePayload.sector_rotation : []),
+    [effectivePayload]
   );
   const shellOverlayOpen = notificationsOpen;
   const closeShellOverlays = useCallback(() => {
@@ -2155,7 +2174,7 @@ export function KaiMarketPreviewView() {
             </section>
 
             <section className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
-              <OneMarketSectionHeader title="Top movers" icon={ChartColumnIncreasing} tone="orange" actionLabel="See all" actionHref={`${ROUTES.KAI_ANALYSIS}?view=movers`} />
+              <OneMarketSectionHeader title="Top movers" icon={ChartColumnIncreasing} tone="orange" />
               <div className="mb-3.5 grid grid-cols-3 rounded-xl bg-[color:var(--one-surface)] p-[3px]">
                 {[
                   { id: "gain" as const, label: "Gainers" },
@@ -2177,9 +2196,15 @@ export function KaiMarketPreviewView() {
                 ))}
               </div>
               <div>
-                {moverGroups[moverTab].map((row) => (
-                  <OneMarketMoverRow key={`${moverTab}-${row.symbol}`} row={row} tab={moverTab} />
-                ))}
+                {moverGroups[moverTab].length ? (
+                  moverGroups[moverTab].map((row) => (
+                    <OneMarketMoverRow key={`${moverTab}-${row.symbol}`} row={row} tab={moverTab} />
+                  ))
+                ) : (
+                  <p className="py-3.5 text-[13px] text-[color:var(--one-fg3)]">
+                    No movers to show right now.
+                  </p>
+                )}
               </div>
             </section>
 
@@ -2187,6 +2212,15 @@ export function KaiMarketPreviewView() {
               <OneMarketSectionHeader title="Market news" icon={Newspaper} tone="teal" actionLabel="More" actionHref={ROUTES.KAI_ANALYSIS} />
               <OneMarketNewsCards rows={marketNewsRows} />
             </section>
+
+            {sectorRotationRows.length ? (
+              <section className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
+                <OneMarketSectionHeader title="Sector rotation" icon={ChartColumnIncreasing} tone="indigo" />
+                <div className="rounded-2xl bg-[color:var(--one-card)] p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)]">
+                  <SectorRotationChart rows={sectorRotationRows} />
+                </div>
+              </section>
+            ) : null}
 
             {showConnectPortfolio ? (
               <section className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">

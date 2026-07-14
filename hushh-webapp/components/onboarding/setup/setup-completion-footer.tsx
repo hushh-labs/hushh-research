@@ -71,7 +71,7 @@ export function SetupCompletionFooter({
             className={cn(
               "h-12 text-base",
               isQuietSetupAction &&
-                "!border-0 !bg-transparent text-accent-strong hover:!bg-accent-surface dark:hover:!bg-accent-surface/70",
+                "!border-0 !bg-transparent text-accent-strong hover:bg-muted/60 dark:hover:bg-muted/40",
             )}
             data-testid={testId}
             data-voice-control-id={controlId}

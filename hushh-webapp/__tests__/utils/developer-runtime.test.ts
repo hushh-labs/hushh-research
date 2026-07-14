@@ -32,9 +32,9 @@ describe("developer runtime resolution", () => {
     expect(runtime.apiOrigin).toBe("https://api.uat.hushh.ai");
     expect(runtime.apiBaseUrl).toBe("https://api.uat.hushh.ai/api/v1");
     expect(runtime.mcpUrl).toBe("https://api.uat.hushh.ai/mcp/");
-    expect(runtime.remoteMcpUrlTemplate).toBe(
-      "https://api.uat.hushh.ai/mcp/?token=<developer-token>"
-    );
+    // Bare URL, no ?token= query: the live API rejects query-string tokens
+    // (QUERY_TOKEN_AUTH_UNSUPPORTED) and requires "Authorization: Bearer".
+    expect(runtime.remoteMcpUrlTemplate).toBe("https://api.uat.hushh.ai/mcp/");
   });
 
   it("uses local backend hints only for local development display", async () => {
@@ -79,7 +79,7 @@ describe("developer runtime resolution", () => {
 
     expect(runtime.mcpUrl).toBe("https://mcp.example.com/custom-mount/");
     expect(runtime.remoteMcpUrlTemplate).toBe(
-      "https://mcp.example.com/custom-mount/?token=<developer-token>"
+      "https://mcp.example.com/custom-mount/"
     );
   });
 });

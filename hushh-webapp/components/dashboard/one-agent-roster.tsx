@@ -10,7 +10,7 @@ import {
 
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { SettingsRow } from "@/components/app-ui/settings-ui";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
   getOneSetupCapability,
   ONE_CAPABILITIES,
@@ -264,16 +264,14 @@ export function OneAgentRoster({
           ))}
         </div>
       ) : (
-        <div>
-          <div
-            data-testid="one-agents-list"
-            className="overflow-hidden rounded-[22px] border border-border/55 bg-background/70 divide-y divide-border/60 dark:bg-background/25"
-          >
-            {modes.map((mode) => (
-              <AgentListRow key={mode.id} mode={mode} />
-            ))}
-          </div>
-        </div>
+        // Same grouped-card treatment as Profile (SettingsGroup shell): the
+        // solid card surface, standard border, and row dividers so list items
+        // read identically on /one and /profile.
+        <SettingsGroup embedded testId="one-agents-list">
+          {modes.map((mode) => (
+            <AgentListRow key={mode.id} mode={mode} />
+          ))}
+        </SettingsGroup>
       )}
     </section>
   );

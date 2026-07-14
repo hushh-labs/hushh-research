@@ -125,6 +125,21 @@ function emptyResult(
   };
 }
 
+/**
+ * The backend write call (`storeDomainData` and friends) throws a raw
+ * `Failed to store domain data: 500 - {...}` Error on any non-conflict
+ * failure. Surfacing that string verbatim to the user is a stack-trace
+ * leak, not a UX. Callers should get one consistent, actionable message and
+ * a `failed` result they can retry, instead of an uncaught rejection.
+ */
+function pkmWriteFailureResult(error: unknown): PkmWriteCoordinatorResult {
+  console.error("[PkmWriteCoordinator] PKM write failed:", error);
+  return emptyResult(
+    "failed",
+    "We couldn't save this to your vault. Try again, or make sure your vault is set up.",
+  );
+}
+
 async function buildWriteContext(params: {
   userId: string;
   domain: string;
@@ -253,96 +268,100 @@ export class PkmWriteCoordinator {
     let retryingAfterConflict = false;
     let upgradeContext: PkmUpgradeContext | undefined;
 
-    for (let attempt = 0; attempt <= MAX_CONFLICT_RETRIES; attempt += 1) {
-      if (!upgradedInSession) {
-        const upgrade = await ensureWritableVersion({
+    try {
+      for (let attempt = 0; attempt <= MAX_CONFLICT_RETRIES; attempt += 1) {
+        if (!upgradedInSession) {
+          const upgrade = await ensureWritableVersion({
+            userId: params.userId,
+            domain: params.domain,
+            vaultKey: params.vaultKey,
+            vaultOwnerToken: params.vaultOwnerToken,
+          });
+          upgradedInSession = upgrade.upgraded;
+          upgradeContext = upgrade.upgradeContext;
+        }
+
+        const context = await buildWriteContext({
           userId: params.userId,
           domain: params.domain,
           vaultKey: params.vaultKey,
           vaultOwnerToken: params.vaultOwnerToken,
+          attempt,
+          upgradedInSession,
+          upgradeContext,
         });
-        upgradedInSession = upgrade.upgraded;
-        upgradeContext = upgrade.upgradeContext;
-      }
-
-      const context = await buildWriteContext({
-        userId: params.userId,
-        domain: params.domain,
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
-        attempt,
-        upgradedInSession,
-        upgradeContext,
-      });
-      const plan = await params.build(context);
-      const mutationPlan = await buildConfirmedPkmMutationPlanV2({
-        userId: params.userId,
-        domain: params.domain,
-        currentManifest: context.currentManifest,
-        targetManifest: plan.manifest,
-        operation: context.currentManifest ? "update" : "create",
-        sourceRevision: context.currentEncryptedDomain?.dataVersion,
-        confirmation: params.confirmation,
-      });
-      const syncCheckpoint = buildSyncCheckpoint({
-        source: "merged_domain",
-        domain: params.domain,
-        attempt,
-        context,
-        plan,
-        conflictRetry: retryingAfterConflict,
-      });
-      const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
-        userId: params.userId,
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
-        domain: params.domain,
-        domainData: plan.domainData,
-        summary: plan.summary,
-        mergeDecision: plan.mergeDecision,
-        manifest: plan.manifest,
-        writeProjections: plan.writeProjections,
-        baseFullBlob: context.baseFullBlob,
-        expectedDataVersion: context.currentEncryptedDomain?.dataVersion ?? context.expectedDataVersion,
-        upgradeContext: context.upgradeContext,
-        syncCheckpoint,
-        mutationPlan,
-        cacheFullBlob: false,
-      });
-      const resultCheckpoint = {
-        ...syncCheckpoint,
-        resultDataVersion: toNullableVersion(result.dataVersion),
-      };
-
-      if (result.success) {
-        return {
-          saveState: upgradedInSession
-            ? "upgraded_and_saved"
-            : retryingAfterConflict
-              ? "retrying_after_conflict"
-              : "saved",
-          success: true,
-          conflict: false,
-          message: result.message,
-          dataVersion: result.dataVersion,
-          updatedAt: result.updatedAt,
-          syncCheckpoint: resultCheckpoint,
-          fullBlob: result.fullBlob,
+        const plan = await params.build(context);
+        const mutationPlan = await buildConfirmedPkmMutationPlanV2({
+          userId: params.userId,
+          domain: params.domain,
+          currentManifest: context.currentManifest,
+          targetManifest: plan.manifest,
+          operation: context.currentManifest ? "update" : "create",
+          sourceRevision: context.currentEncryptedDomain?.dataVersion,
+          confirmation: params.confirmation,
+        });
+        const syncCheckpoint = buildSyncCheckpoint({
+          source: "merged_domain",
+          domain: params.domain,
+          attempt,
+          context,
+          plan,
+          conflictRetry: retryingAfterConflict,
+        });
+        const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
+          userId: params.userId,
+          vaultKey: params.vaultKey,
+          vaultOwnerToken: params.vaultOwnerToken,
+          domain: params.domain,
+          domainData: plan.domainData,
+          summary: plan.summary,
+          mergeDecision: plan.mergeDecision,
+          manifest: plan.manifest,
+          writeProjections: plan.writeProjections,
+          baseFullBlob: context.baseFullBlob,
+          expectedDataVersion: context.currentEncryptedDomain?.dataVersion ?? context.expectedDataVersion,
+          upgradeContext: context.upgradeContext,
+          syncCheckpoint,
+          mutationPlan,
+          cacheFullBlob: false,
+        });
+        const resultCheckpoint = {
+          ...syncCheckpoint,
+          resultDataVersion: toNullableVersion(result.dataVersion),
         };
+
+        if (result.success) {
+          return {
+            saveState: upgradedInSession
+              ? "upgraded_and_saved"
+              : retryingAfterConflict
+                ? "retrying_after_conflict"
+                : "saved",
+            success: true,
+            conflict: false,
+            message: result.message,
+            dataVersion: result.dataVersion,
+            updatedAt: result.updatedAt,
+            syncCheckpoint: resultCheckpoint,
+            fullBlob: result.fullBlob,
+          };
+        }
+        if (!result.conflict || attempt >= MAX_CONFLICT_RETRIES) {
+          return {
+            saveState: "failed",
+            success: false,
+            conflict: result.conflict,
+            message: result.message,
+            dataVersion: result.dataVersion,
+            updatedAt: result.updatedAt,
+            syncCheckpoint: resultCheckpoint,
+            fullBlob: result.fullBlob,
+          };
+        }
+        retryingAfterConflict = true;
       }
-      if (!result.conflict || attempt >= MAX_CONFLICT_RETRIES) {
-        return {
-          saveState: "failed",
-          success: false,
-          conflict: result.conflict,
-          message: result.message,
-          dataVersion: result.dataVersion,
-          updatedAt: result.updatedAt,
-          syncCheckpoint: resultCheckpoint,
-          fullBlob: result.fullBlob,
-        };
-      }
-      retryingAfterConflict = true;
+    } catch (error) {
+      return pkmWriteFailureResult(error);
     }
 
     return emptyResult("failed", "Failed to save PKM domain.");
@@ -364,107 +383,111 @@ export class PkmWriteCoordinator {
     let retryingAfterConflict = false;
     let upgradeContext: PkmUpgradeContext | undefined;
 
-    for (let attempt = 0; attempt <= MAX_CONFLICT_RETRIES; attempt += 1) {
-      if (!upgradedInSession) {
-        const upgrade = await ensureWritableVersion({
+    try {
+      for (let attempt = 0; attempt <= MAX_CONFLICT_RETRIES; attempt += 1) {
+        if (!upgradedInSession) {
+          const upgrade = await ensureWritableVersion({
+            userId: params.userId,
+            domain: params.domain,
+            vaultKey: params.vaultKey,
+            vaultOwnerToken: params.vaultOwnerToken,
+          });
+          upgradedInSession = upgrade.upgraded;
+          upgradeContext = upgrade.upgradeContext;
+        }
+
+        const context = await buildWriteContext({
           userId: params.userId,
           domain: params.domain,
           vaultKey: params.vaultKey,
           vaultOwnerToken: params.vaultOwnerToken,
+          attempt,
+          upgradedInSession,
+          upgradeContext,
         });
-        upgradedInSession = upgrade.upgraded;
-        upgradeContext = upgrade.upgradeContext;
-      }
-
-      const context = await buildWriteContext({
-        userId: params.userId,
-        domain: params.domain,
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
-        attempt,
-        upgradedInSession,
-        upgradeContext,
-      });
-      const plan = await params.build(context);
-      const mergeMode = String(plan.mergeDecision?.merge_mode || "").trim().toLowerCase();
-      const operation = mergeMode === "delete_entity"
-        ? "delete"
-        : mergeMode === "correct_entity"
-          ? "update"
-          : context.currentManifest
+        const plan = await params.build(context);
+        const mergeMode = String(plan.mergeDecision?.merge_mode || "").trim().toLowerCase();
+        const operation = mergeMode === "delete_entity"
+          ? "delete"
+          : mergeMode === "correct_entity"
             ? "update"
-            : "create";
-      const mutationPlan = await buildConfirmedPkmMutationPlanV2({
-        userId: params.userId,
-        domain: params.domain,
-        currentManifest: context.currentManifest,
-        targetManifest: plan.manifest,
-        operation,
-        confidence: Number(plan.structureDecision?.confidence ?? 1),
-        explanation: String(plan.structureDecision?.explanation || "").trim() || undefined,
-        sourceRevision: context.currentEncryptedDomain?.dataVersion,
-        confirmation: params.confirmation,
-      });
-      const syncCheckpoint = buildSyncCheckpoint({
-        source: "prepared_domain",
-        domain: params.domain,
-        attempt,
-        context,
-        plan,
-        conflictRetry: retryingAfterConflict,
-      });
-      const result = await PersonalKnowledgeModelService.storePreparedDomainWithPreparedBlob({
-        userId: params.userId,
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
-        domain: params.domain,
-        domainData: plan.domainData,
-        summary: plan.summary,
-        mergeDecision: plan.mergeDecision,
-        structureDecision: plan.structureDecision,
-        manifest: plan.manifest,
-        writeProjections: plan.writeProjections,
-        baseFullBlob: context.baseFullBlob,
-        expectedDataVersion: context.currentEncryptedDomain?.dataVersion ?? context.expectedDataVersion,
-        upgradeContext: context.upgradeContext,
-        syncCheckpoint,
-        mutationPlan,
-        cacheFullBlob: false,
-      });
-      const resultCheckpoint = {
-        ...syncCheckpoint,
-        resultDataVersion: toNullableVersion(result.dataVersion),
-      };
+            : context.currentManifest
+              ? "update"
+              : "create";
+        const mutationPlan = await buildConfirmedPkmMutationPlanV2({
+          userId: params.userId,
+          domain: params.domain,
+          currentManifest: context.currentManifest,
+          targetManifest: plan.manifest,
+          operation,
+          confidence: Number(plan.structureDecision?.confidence ?? 1),
+          explanation: String(plan.structureDecision?.explanation || "").trim() || undefined,
+          sourceRevision: context.currentEncryptedDomain?.dataVersion,
+          confirmation: params.confirmation,
+        });
+        const syncCheckpoint = buildSyncCheckpoint({
+          source: "prepared_domain",
+          domain: params.domain,
+          attempt,
+          context,
+          plan,
+          conflictRetry: retryingAfterConflict,
+        });
+        const result = await PersonalKnowledgeModelService.storePreparedDomainWithPreparedBlob({
+          userId: params.userId,
+          vaultKey: params.vaultKey,
+          vaultOwnerToken: params.vaultOwnerToken,
+          domain: params.domain,
+          domainData: plan.domainData,
+          summary: plan.summary,
+          mergeDecision: plan.mergeDecision,
+          structureDecision: plan.structureDecision,
+          manifest: plan.manifest,
+          writeProjections: plan.writeProjections,
+          baseFullBlob: context.baseFullBlob,
+          expectedDataVersion: context.currentEncryptedDomain?.dataVersion ?? context.expectedDataVersion,
+          upgradeContext: context.upgradeContext,
+          syncCheckpoint,
+          mutationPlan,
+          cacheFullBlob: false,
+        });
+        const resultCheckpoint = {
+          ...syncCheckpoint,
+          resultDataVersion: toNullableVersion(result.dataVersion),
+        };
 
-      if (result.success) {
-        return {
-          saveState: upgradedInSession
-            ? "upgraded_and_saved"
-            : retryingAfterConflict
-              ? "retrying_after_conflict"
-              : "saved",
-          success: true,
-          conflict: false,
-          message: result.message,
-          dataVersion: result.dataVersion,
-          updatedAt: result.updatedAt,
-          syncCheckpoint: resultCheckpoint,
-          fullBlob: result.fullBlob,
-        };
+        if (result.success) {
+          return {
+            saveState: upgradedInSession
+              ? "upgraded_and_saved"
+              : retryingAfterConflict
+                ? "retrying_after_conflict"
+                : "saved",
+            success: true,
+            conflict: false,
+            message: result.message,
+            dataVersion: result.dataVersion,
+            updatedAt: result.updatedAt,
+            syncCheckpoint: resultCheckpoint,
+            fullBlob: result.fullBlob,
+          };
+        }
+        if (!result.conflict || attempt >= MAX_CONFLICT_RETRIES) {
+          return {
+            saveState: "failed",
+            success: false,
+            conflict: result.conflict,
+            message: result.message,
+            dataVersion: result.dataVersion,
+            updatedAt: result.updatedAt,
+            syncCheckpoint: resultCheckpoint,
+            fullBlob: result.fullBlob,
+          };
+        }
+        retryingAfterConflict = true;
       }
-      if (!result.conflict || attempt >= MAX_CONFLICT_RETRIES) {
-        return {
-          saveState: "failed",
-          success: false,
-          conflict: result.conflict,
-          message: result.message,
-          dataVersion: result.dataVersion,
-          updatedAt: result.updatedAt,
-          syncCheckpoint: resultCheckpoint,
-          fullBlob: result.fullBlob,
-        };
-      }
-      retryingAfterConflict = true;
+    } catch (error) {
+      return pkmWriteFailureResult(error);
     }
 
     return emptyResult("failed", "Failed to save PKM domain.");

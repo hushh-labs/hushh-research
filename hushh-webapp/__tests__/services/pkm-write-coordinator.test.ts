@@ -414,4 +414,27 @@ describe("PkmWriteCoordinator", () => {
       expect(upgradeEnsureRunningMock).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("backend write throws", () => {
+    it("converts a thrown storeDomainData 500 into a graceful failed result instead of propagating", async () => {
+      stubNoUpgradeNeeded();
+      stubWriteContext();
+      pkmStoreMergedDomainWithPreparedBlobMock.mockRejectedValue(
+        new Error(
+          'Failed to store domain data: 500 - {"detail":"Failed to store domain data"}',
+        ),
+      );
+
+      const result = await PkmWriteCoordinator.saveMergedDomain({
+        ...BASE_PARAMS,
+        build: BUILD_CALLBACK,
+      });
+
+      expect(result.saveState).toBe("failed");
+      expect(result.success).toBe(false);
+      // The raw backend error text must never reach the caller/UI verbatim.
+      expect(result.message).not.toContain("Failed to store domain data: 500");
+      expect(result.message).toMatch(/vault/i);
+    });
+  });
 });

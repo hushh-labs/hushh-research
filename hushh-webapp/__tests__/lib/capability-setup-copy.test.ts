@@ -16,13 +16,13 @@ describe("onboarding capability copy", () => {
     expect(location?.setupBlurb).toContain("trusted people you choose");
   });
 
-  it("uses KYC for the email capability and names the invocation address", () => {
+  it("frames email as a simple drafting toggle and names the invocation address", () => {
     const email = getCapabilitySetupCopy("email");
 
     expect(email).toMatchObject({
-      setupTitle: "KYC",
-      actionLabel: "Set up KYC",
-      resumeActionLabel: "Finish KYC",
+      setupTitle: "Email",
+      actionLabel: "Set up email",
+      resumeActionLabel: "Finish email",
     });
     expect(email?.setupBlurb).toContain("one@hushh.ai");
   });

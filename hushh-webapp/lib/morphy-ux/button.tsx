@@ -100,8 +100,10 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       }
     };
 
+    // Apple grammar: no decorative gradients on chrome; the "gradient" icon
+    // box is a solid Action Blue fill.
     const iconBoxClass = icon?.gradient
-      ? "bg-gradient-to-r from-[var(--morphy-primary-start)] to-[var(--morphy-primary-end)] border-transparent"
+      ? "bg-[var(--app-accent)] border-transparent"
       : "bg-transparent border-transparent";
     const shouldShowRipple = showRipple !== false;
     const iconColorClass = icon?.gradient
@@ -157,7 +159,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           data-loading={loading || undefined}
           aria-busy={loading || undefined}
           className={cn(
-            "relative overflow-hidden transition-[border-color,box-shadow,background-color] duration-200",
+            "press-scale relative overflow-hidden transition-[border-color,box-shadow,background-color,transform] duration-200",
             variantStyles,
             effect === "fill" && variant !== "none" && variant !== "link"
               ? "border border-transparent"
@@ -189,7 +191,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         data-loading={loading || undefined}
         aria-busy={loading || undefined}
         className={cn(
-          "relative overflow-hidden transition-[border-color,box-shadow,background-color] duration-200",
+          "press-scale relative overflow-hidden transition-[border-color,box-shadow,background-color,transform] duration-200",
           variantStyles,
           effect === "fill" && variant !== "none" && variant !== "link"
             ? "border border-transparent"

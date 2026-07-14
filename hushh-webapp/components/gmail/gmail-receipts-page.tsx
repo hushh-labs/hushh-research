@@ -76,6 +76,7 @@ import {
   isGmailOAuthPopupSettlement,
   navigateGmailOAuthPopup,
   openGmailOAuthPopup,
+  readGmailOAuthPopupSettlementFallback,
   type GmailOAuthPopupAttempt,
 } from "@/lib/profile/gmail-oauth-popup";
 import { useVault } from "@/lib/vault/vault-context";
@@ -548,15 +549,13 @@ export default function GmailReceiptsPage({
       }
     };
 
-    const handlePopupSettlement = (event: MessageEvent<unknown>) => {
-      if (event.origin !== window.location.origin) return;
-      if (event.source !== gmailPopupRef.current) return;
-      if (!isGmailOAuthPopupSettlement(event.data)) return;
-      if (event.data.attemptId !== attempt.attemptId) return;
-
+    const applySettlement = (settlement: {
+      outcome: "succeeded" | "cancelled" | "failed";
+      message?: string;
+    }) => {
       clearAttempt();
       clearOnboardingConnectorIntent();
-      if (event.data.outcome === "succeeded") {
+      if (settlement.outcome === "succeeded") {
         void Promise.all([
           refreshGmailStatus({ force: true }),
           PreVaultUserStateService.bootstrapState(user.uid, { force: true }),
@@ -566,14 +565,32 @@ export default function GmailReceiptsPage({
         return;
       }
       toast.error(
-        event.data.message ||
-          (event.data.outcome === "cancelled"
+        settlement.message ||
+          (settlement.outcome === "cancelled"
             ? "Gmail connection was cancelled."
             : "Gmail connection could not be completed."),
       );
     };
 
+    const handlePopupSettlement = (event: MessageEvent<unknown>) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.source !== gmailPopupRef.current) return;
+      if (!isGmailOAuthPopupSettlement(event.data)) return;
+      if (event.data.attemptId !== attempt.attemptId) return;
+      applySettlement(event.data);
+    };
+
+    // Fallback channel: if the popup's `window.opener` reference was lost,
+    // postMessage never arrives. The popup also writes the same settlement
+    // to localStorage, which fires a same-origin "storage" event here.
+    const handleStorageSettlement = (event: StorageEvent) => {
+      const settlement = readGmailOAuthPopupSettlementFallback(event);
+      if (!settlement || settlement.attemptId !== attempt.attemptId) return;
+      applySettlement(settlement);
+    };
+
     window.addEventListener("message", handlePopupSettlement);
+    window.addEventListener("storage", handleStorageSettlement);
     const closeWatcher = window.setInterval(() => {
       const popup = gmailPopupRef.current;
       if (!popup || !popup.closed) return;
@@ -583,6 +600,7 @@ export default function GmailReceiptsPage({
 
     return () => {
       window.removeEventListener("message", handlePopupSettlement);
+      window.removeEventListener("storage", handleStorageSettlement);
       window.clearInterval(closeWatcher);
     };
   }, [gmailPopupAttempt, refreshGmailStatus, user?.uid]);

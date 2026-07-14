@@ -44,7 +44,7 @@ function RouteBadge({
   secondary: string;
 }) {
   return (
-    <div className="pointer-events-none absolute right-3 top-3 rounded-[11px] bg-white/90 px-3 py-2 shadow-[rgba(0,0,0,0.22)_3px_5px_30px_0px] backdrop-blur">
+    <div className="pointer-events-none absolute right-3 top-3 rounded-[11px] bg-white/90 px-3 py-2 shadow-[var(--app-shadow-product)] backdrop-blur">
       <div className="text-[19px] font-semibold leading-tight text-[#1d1d1f]">
         {primary}
       </div>

@@ -129,6 +129,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
       expect(mocks.gmailReceiptsService.getStatus).toHaveBeenCalledWith({
         idToken: "token-abc",
         userId: "user-123",
+        force: true,
       });
     });
 

@@ -29,6 +29,7 @@ import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-se
 import {
   clearGmailOAuthPopupAttempt,
   notifyGmailOAuthPopupOpener,
+  notifyGmailOAuthPopupOpenerFallback,
   readGmailOAuthPopupAttempt,
 } from "@/lib/profile/gmail-oauth-popup";
 
@@ -42,9 +43,18 @@ function resolveErrorMessage(error: unknown): string {
 }
 
 /**
- * A same-origin OAuth popup may return the terminal state to the retained
- * opener. The message contains no OAuth or vault material; direct callbacks
- * still take the established route-replace recovery path below.
+ * A same-origin OAuth popup returns the terminal state to the retained
+ * opener via both postMessage (primary) and a localStorage "storage" event
+ * (fallback, for when `window.opener` is null/inaccessible). The payload
+ * contains no OAuth or vault material either way.
+ *
+ * This page only reaches here when it was opened as the retained popup (an
+ * attempt marker exists in its own sessionStorage). In that case it always
+ * closes itself once both channels have been attempted, regardless of
+ * whether postMessage delivery succeeded, so the popup never falls through
+ * to rendering the full app in place of closing. Direct/non-popup visits
+ * (no attempt marker) return false and take the existing route-replace
+ * recovery path instead.
  */
 function settlePopupOpener(params: {
   outcome: "succeeded" | "cancelled" | "failed";
@@ -52,18 +62,18 @@ function settlePopupOpener(params: {
 }): boolean {
   const attempt = readGmailOAuthPopupAttempt();
   if (!attempt) return false;
-  const delivered = notifyGmailOAuthPopupOpener({
-    schemaVersion: 1,
-    type: "gmail_oauth_settlement",
+  const settlement = {
+    schemaVersion: 1 as const,
+    type: "gmail_oauth_settlement" as const,
     attemptId: attempt.attemptId,
     outcome: params.outcome,
     ...(params.message ? { message: params.message } : {}),
-  });
+  };
+  notifyGmailOAuthPopupOpener(settlement);
+  notifyGmailOAuthPopupOpenerFallback(settlement);
   clearGmailOAuthPopupAttempt();
-  if (delivered) {
-    window.setTimeout(() => window.close(), 0);
-  }
-  return delivered;
+  window.setTimeout(() => window.close(), 0);
+  return true;
 }
 
 function matchesPendingGmailSetupAttempt(
@@ -282,6 +292,7 @@ export default function ProfileGmailOAuthReturnPageClient({
             const status = await GmailReceiptsService.getStatus({
               idToken,
               userId: user.uid,
+              force: true,
             });
             if (status.connected) {
               primeConnectorStatus({

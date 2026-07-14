@@ -1,18 +1,15 @@
 import Link from "next/link";
-import { BookOpen } from "lucide-react";
 import {
   AppPageShell,
   AppPageHeaderRegion,
   AppPageContentRegion,
 } from "@/components/app-ui/app-page-shell";
+import { Hero } from "@/components/app-ui/sections";
 import { ResearchSubNav } from "@/components/research/research-sub-nav";
 import { ROUTES } from "@/lib/navigation/routes";
 import { BLOG_POSTS } from "@/lib/research/blog";
 import { formatBlogDate } from "@/lib/research/format-blog-date";
-import {
-  SUMMER_HERO_WASH,
-  summerColorForKey,
-} from "@/lib/research/summer-theme";
+import { summerColorForKey } from "@/lib/research/summer-theme";
 import { cn } from "@/lib/utils";
 
 export function BlogIndex() {
@@ -22,19 +19,11 @@ export function BlogIndex() {
         <div className="mb-5">
           <ResearchSubNav />
         </div>
-        <div className="relative overflow-hidden rounded-[var(--app-card-radius-feature)] border border-border/60 px-5 py-7 sm:px-8 sm:py-9">
-          <div className={SUMMER_HERO_WASH} />
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-fuchsia-700 dark:text-fuchsia-300">
-            <BookOpen className="h-4 w-4" />
-            Blog
-          </div>
-          <h1 className="mt-3 max-w-2xl bg-gradient-to-r from-fuchsia-600 via-violet-600 to-sky-500 bg-clip-text text-[28px] font-semibold leading-[1.1] tracking-tight text-transparent sm:text-[36px] dark:from-fuchsia-300 dark:via-violet-300 dark:to-sky-300">
-            On consent, control, and the human
-          </h1>
-          <p className="mt-2.5 max-w-xl text-[15px] leading-7 text-foreground/80">
-            Working backwards from the person and the job they are trying to get done.
-          </p>
-        </div>
+        <Hero
+          kicker="Blog"
+          title="On consent, control, and the human"
+          lede="Working backwards from the person and the job they are trying to get done."
+        />
       </AppPageHeaderRegion>
 
       <AppPageContentRegion className="mt-8">

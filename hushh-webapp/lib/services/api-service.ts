@@ -935,6 +935,11 @@ export interface KaiHomeMover {
   source_tags: string[];
   degraded: boolean;
   as_of: string | null;
+  /**
+   * Optional real recent daily-close series (chronological). When absent
+   * the UI must not invent a chart shape.
+   */
+  sparkline?: number[] | null;
 }
 
 export interface KaiHomeMovers {

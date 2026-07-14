@@ -171,15 +171,37 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  border: 1px solid rgba(23, 19, 12, 0.1);
+  border: 0;
   border-radius: 999px;
-  background: #ffffff;
-  box-shadow: 0 12px 30px -12px rgba(23, 19, 12, 0.35);
-  color: #17130c;
+  /* Accent morphy: flat accent fill that follows the accent preference
+     (iOS Blue default, Molten Gold opt-in). No gradient, no shadow. */
+  background: var(--app-accent);
+  color: var(--app-accent-fg);
   font-family: var(--font-app-body);
   font-size: 16px;
   font-weight: 700;
   line-height: 1;
+  transition:
+    background-color var(--motion-duration-sm) var(--motion-ease-standard),
+    transform var(--motion-press-duration) var(--motion-ease-standard);
+}
+
+.cta:hover {
+  background: var(--app-accent-hover);
+}
+
+.cta:active {
+  transform: scale(var(--motion-press-scale));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cta {
+    transition: none;
+  }
+
+  .cta:active {
+    transform: none;
+  }
 }
 
 .links {

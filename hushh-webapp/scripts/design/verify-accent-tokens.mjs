@@ -169,6 +169,61 @@ if (goldBlockStart === -1) {
   }
 }
 
+// ── Apple design grammar (see design-system.md → Radius/Weight/Elevation) ──
+// 1. Weight ladder is 300 / 400 / 600 / 700; weight 500 (font-medium) is
+//    deliberately absent from morphy-ux primitives. Labels are 400; active/
+//    strong emphasis is 600.
+const morphyDir = path.join(repoRoot, "lib/morphy-ux");
+if (fs.existsSync(morphyDir)) {
+  for (const filePath of listFiles(morphyDir)) {
+    const repoPath = path
+      .relative(repoRoot, filePath)
+      .replaceAll(path.sep, "/");
+    if (isAllowed(repoPath)) continue;
+    const source = fs.readFileSync(filePath, "utf8");
+    if (source.includes("font-medium")) {
+      const line =
+        source.split("\n").findIndex((l) => l.includes("font-medium")) + 1;
+      failures.push(
+        `${repoPath}:${line} uses font-medium (weight 500); the ladder is 300/400/600/700 — use font-normal or font-semibold`,
+      );
+    }
+  }
+}
+
+// 2. The photographic product shadow exists exactly once as a token; raw
+//    copies of its recipe outside globals.css must consume the token.
+const RAW_PRODUCT_SHADOW = /rgba\(0,\s*0,\s*0,\s*0\.22\)\s*[_ ]?3px[_ ]5px[_ ]30px/i;
+for (const scanDir of SCAN_DIRS) {
+  const fullDir = path.join(repoRoot, scanDir);
+  if (!fs.existsSync(fullDir)) continue;
+  for (const filePath of listFiles(fullDir)) {
+    const repoPath = path
+      .relative(repoRoot, filePath)
+      .replaceAll(path.sep, "/");
+    if (repoPath === "app/globals.css" || isAllowed(repoPath)) continue;
+    const source = fs.readFileSync(filePath, "utf8");
+    if (RAW_PRODUCT_SHADOW.test(source)) {
+      failures.push(
+        `${repoPath} inlines the product shadow recipe; use var(--app-shadow-product)`,
+      );
+    }
+  }
+}
+
+// 3. Grammar tokens must exist.
+for (const token of [
+  "--app-radius-pill:",
+  "--motion-press-scale:",
+  "--app-shadow-product:",
+  "--app-blur-frosted:",
+  "--app-tile-dark-1:",
+]) {
+  if (!globals.includes(token)) {
+    failures.push(`app/globals.css is missing grammar token ${token}`);
+  }
+}
+
 if (failures.length > 0) {
   console.error(`verify-accent-tokens: ${failures.length} failure(s)\n`);
   for (const failure of failures) {

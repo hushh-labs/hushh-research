@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
+import { VaultStatusInline } from "@/components/app-ui/vault-status-inline";
 import { KaiFlow } from "@/components/kai/kai-flow";
 import {
   SetupCapabilityLoading,
@@ -33,6 +34,7 @@ export function FinanceImportOnboardingSetupClient() {
 
   return (
     <FullscreenFlowShell as="div" width="expanded" className="relative space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]">
+      <VaultStatusInline className="px-1" />
       <KaiFlow
         userId={user.uid}
         mode="import"

@@ -85,8 +85,33 @@ def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
     return value
 
 
+class JsonParam:
+    """Explicit marker telling ``rpc``/``execute_raw`` to serialize this value
+    as JSON/JSONB rather than passing it through as a native array parameter
+    (e.g. a Postgres ``TEXT[]`` or ``vector``). Wrap any JSONB array argument
+    (a list of row objects, or a plain list bound to a JSONB column/param)
+    with this before passing it to ``rpc()``.
+    """
+
+    __slots__ = ("value",)
+
+    def __init__(self, value: Any):
+        self.value = value
+
+
 def _adapt_db_param_value(value: Any, dialect_name: str | None = None) -> Any:
-    """Adapt JSON-like values for the active DB driver."""
+    """Adapt JSON-like values for the active DB driver.
+
+    Plain dicts are always JSON/JSONB. Lists/tuples are passed through
+    unchanged by default (they may be native Postgres arrays, e.g.
+    ``TEXT[]`` or ``vector``) unless explicitly wrapped in ``JsonParam``,
+    in which case they are serialized as JSON/JSONB too.
+    """
+    if isinstance(value, JsonParam):
+        inner = value.value
+        if dialect_name and dialect_name.startswith("postgres"):
+            return PsycopgJson(inner)
+        return json.dumps(inner)
     if isinstance(value, dict):
         if dialect_name and dialect_name.startswith("postgres"):
             return PsycopgJson(value)

@@ -88,7 +88,9 @@ describe("DeveloperDocsHub", () => {
 
     expect(screen.getByRole("heading", { name: "Connect to Hussh with Remote MCP" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Connect with Remote MCP" })).toBeTruthy();
-    expect(screen.getAllByText(/https:\/\/api\.uat\.hushh\.ai\/mcp\/\?token=<developer-token>/).length).toBeGreaterThan(0);
+    // Bare URL, no ?token= query: the live API rejects query-string tokens and
+    // requires "Authorization: Bearer" instead.
+    expect(screen.getAllByText(/https:\/\/api\.uat\.hushh\.ai\/mcp\//).length).toBeGreaterThan(0);
     expect(screen.getByText("Advanced: REST API and npm bridge")).toBeTruthy();
     expect(screen.getAllByText("Remote MCP first").length).toBeGreaterThan(0);
     expect(screen.queryByText("Production")).toBeNull();

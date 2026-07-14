@@ -10,6 +10,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { VaultStatusInline } from "@/components/app-ui/vault-status-inline";
 import {
   SetupCapabilityLoading,
   SetupCapabilityTerminalFooter,
@@ -49,6 +50,7 @@ export function ConnectedSystemsOnboardingSetupClient() {
         />
       </AppPageHeaderRegion>
       <AppPageContentRegion>
+        <VaultStatusInline className="mb-3 px-1" />
         <ConnectedSystemsPanel
           vaultOwnerToken={vaultOwnerToken}
           onRequestUnlock={() => setShowUnlock(true)}

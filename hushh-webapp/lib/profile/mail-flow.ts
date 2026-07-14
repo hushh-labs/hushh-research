@@ -83,6 +83,7 @@ const TECHNICAL_ERROR_PATTERNS = [
   "nullreference",
   "syntaxerror",
   "background on this error at",
+  "failed to store domain data",
 ];
 
 function normalizeText(value: string | null | undefined): string {
