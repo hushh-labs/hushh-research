@@ -21,6 +21,8 @@ export type EnRouteHelper = {
   etaSeconds: number | null;
   /** The current user's outbound pick_me_up grant id — used to cancel. */
   outboundGrantId: string;
+  /** The requester's own pickup destination (their outbound pick_me_up point), or null. */
+  pickupPoint: PlainLocationPoint | null;
 };
 
 /**
@@ -69,6 +71,7 @@ export function deriveEnRouteHelpers(params: {
           point,
           etaSeconds: point.drive?.etaSeconds ?? null,
           outboundGrantId: outboundGrant.id,
+          pickupPoint: decryptedPoints[outboundGrant.id] ?? null,
         },
       ];
     });
