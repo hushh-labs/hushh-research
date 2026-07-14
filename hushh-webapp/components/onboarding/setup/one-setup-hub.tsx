@@ -59,6 +59,7 @@ export function OneSetupHub() {
   const { byId, isLoading } = useCapabilitySetupStates({
     enrichVault: true,
     enrichOauth: true,
+    enrichRia: true,
   });
   const [dismissing, setDismissing] = useState(false);
   const returnTo = useMemo(
