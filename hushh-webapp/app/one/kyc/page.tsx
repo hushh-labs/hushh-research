@@ -387,7 +387,10 @@ export function OneKycWorkspace({
   const [sentReplySnapshots, setSentReplySnapshots] = useState<
     Record<string, KycWorkflowSentReplySnapshot>
   >({});
-  const [localExportPayloads, setLocalExportPayloads] = useState<
+  // Write-only cache of decrypted export payloads (kept in sync by the setter
+  // for cleanup/retention). The value is not read: the draft-prep path decrypts
+  // fresh and passes decryptedDomains into buildDraftViaLlm directly.
+  const [, setLocalExportPayloads] = useState<
     Record<
       string,
       Array<{ scope?: string | null; payload: Record<string, unknown> }>
@@ -1227,7 +1230,6 @@ export function OneKycWorkspace({
       auth.user,
       auth.userId,
       clearLocalWorkflowState,
-      localExportPayloads,
       localDrafts,
       redraftInstructions,
       refreshWorkflowState,
