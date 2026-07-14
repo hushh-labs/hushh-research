@@ -302,6 +302,49 @@ describe("resolveCapabilitySetupState — authored setup terminals", () => {
   });
 });
 
+describe("resolveCapabilitySetupState — RIA (onboarded)", () => {
+  it("is completed when an RIA profile is onboarded, even while locked", () => {
+    const status = resolveCapabilitySetupState(
+      "ria",
+      baseInputs({ isVaultUnlocked: false, riaOnboarded: true }),
+    );
+    expect(status.state).toBe("completed");
+  });
+
+  it("is not-started when unlocked, no profile, and the mirror is known", () => {
+    const status = resolveCapabilitySetupState(
+      "ria",
+      baseInputs({
+        isVaultUnlocked: true,
+        riaOnboarded: false,
+        preVaultState: makePreVaultState(),
+      }),
+    );
+    expect(status.state).toBe("not-started");
+  });
+
+  it("falls back to the honest 'Unlock to view' while locked and unknown", () => {
+    const status = resolveCapabilitySetupState(
+      "ria",
+      baseInputs({ isVaultUnlocked: false, riaOnboarded: undefined }),
+    );
+    expect(status.state).toBe("unknown");
+    expect(status.prerequisite).toBe("vault");
+    expect(status.requiresUnlock).toBe(true);
+  });
+
+  it("still completes from the durable terminal id regardless of the live signal", () => {
+    const status = resolveCapabilitySetupState(
+      "ria",
+      baseInputs({
+        riaOnboarded: false,
+        preVaultState: makePreVaultState({ setupCapabilityIds: ["ria"] }),
+      }),
+    );
+    expect(status.state).toBe("completed");
+  });
+});
+
 describe("resolveCapabilitySetupState — vault-gated (email, location)", () => {
   it("is unknown with vault prerequisite while locked", () => {
     for (const id of ["email", "location"]) {
