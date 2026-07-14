@@ -87,10 +87,13 @@ def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
 
 def _adapt_db_param_value(value: Any, dialect_name: str | None = None) -> Any:
     """Adapt JSON-like values for the active DB driver."""
+    is_postgres = bool(dialect_name and dialect_name.startswith("postgres"))
     if isinstance(value, dict):
-        if dialect_name and dialect_name.startswith("postgres"):
-            return PsycopgJson(value)
-        return json.dumps(value)
+        return PsycopgJson(value) if is_postgres else json.dumps(value)
+    # A list containing JSON objects maps to a jsonb array (Postgres arrays
+    # cannot hold dicts); lists of scalars stay as native arrays (e.g. TEXT[]).
+    if isinstance(value, list) and any(isinstance(item, dict) for item in value):
+        return PsycopgJson(value) if is_postgres else json.dumps(value)
     return value
 
 

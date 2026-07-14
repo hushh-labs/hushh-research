@@ -35,12 +35,14 @@ policy.
 
 The backend owns mailbox intake, workflow metadata, consent status, Gmail send,
 retention metadata, and PKM writeback receipts. The frontend owns vault unlock,
-per-user connector private keys, scoped export decrypt, local deterministic
-draft generation, user review, and encrypted PKM writeback. The KYC ADK
-manifest owns the `agent_kyc.approved_disclosure_formatter.v1` approved-reply
-drafting contract, but strict client-side zero-knowledge mode executes that
-contract in the browser so decrypted PKM plaintext is never sent to a backend
-drafting agent.
+per-user connector private keys, scoped export decrypt, user review, and
+encrypted PKM writeback. Draft composition is LLM-driven server-side (Pass 2), requiring a valid
+vault-owner session and the per-field data-scope consent the user grants at
+the confirm step; the renderer wraps the LLM body in Gmail-safe HTML chrome
+client-side. The `agent.kyc.disclose.llm` scope tags these endpoints for
+audit; because a vault-owner token satisfies any scope check it is not yet
+an independently-revocable control (not yet independently revocable; tracked as follow-up). Storage remains
+client-encrypted; `draft_body` is never persisted server-side.
 
 ## Invariants
 
@@ -52,11 +54,12 @@ drafting agent.
    same sender-authority and duplicate-protection rules.
 3. Raw email bodies, consent tokens, connector private keys, decrypted exports,
    final approved bodies, and draft plaintext are not durable backend state.
-4. One detects candidate scopes from text against the resolved vault owner's
-   consumer-visible scope inventory. The vault owner must confirm or narrow
-   selected scopes in `/one/kyc` before consent requests are created.
-   The resolved vault owner is the verified sender only; copied recipients and
-   distribution-list members are reply context, not authority.
+4. Pass 1 LLM routing proposes domain(s) and fields from the inbound request
+   text and the sanitized PKM index (no raw values). The vault owner must
+   confirm or narrow the LLM proposal in `/one/kyc` before consent requests
+   are created (`needs_confirm` → confirm gate). The resolved vault owner is
+   the verified sender only; copied recipients and distribution-list members
+   are reply context, not authority.
 5. Each selected workflow scope becomes its own consent request under one bundle
    id. Draft generation may use all selected and granted workflow scopes, not
    just identity scope, but must not read every globally available user scope.
@@ -85,12 +88,138 @@ drafting agent.
     requests remain visible while One checks recent mail, refreshes workflow
     status, and merges newer rows into the paginated list.
 
+## Two-Pass LLM State Machine
+
+The KYC brains (classification, domain/field selection, extraction, draft
+composition) are LLM-driven. The deterministic keyword classifier and client-side
+alias-table extraction have been replaced by two sequenced LLM calls, bracketed
+by an explicit human confirm gate.
+
+```
+inbound Gmail ──> sender match ──(unknown)──> blocked
+      │
+      └─> client-connector gate ──(no key)──> needs_client_connector
+             │
+             ▼
+        [PASS 1: LLM routing]
+             request_text + sanitized pkm_index (NO raw values)
+             → { classification, requested_items, primary_domains,
+                 confidence, reasoning }
+             │
+             ├─(confidence < 0.5 OR classification == "unsupported")──> parked,
+             │  reasoning surfaced to user
+             ▼
+        needs_confirm   ── /one/kyc shows proposed domain(s) + fields + reasoning
+             │              user approves / edits / rejects each proposed field
+             ▼ (user approves — this IS the consent act)
+        confirm_proposal creates consent requests for approved data scopes
+             (one per field scope; data-scope consent IS the gate) ──> consent granted
+             │
+             ▼
+        [PASS 2: LLM extract + draft]
+             client decrypts ONLY the one approved domain → full plaintext values
+             → { extracted[], missing[], draft{ subject, body } }
+             guardrails: subset invariant + draft value-provenance check (fail-closed)
+             │
+             ▼
+        draft (renderer wraps LLM body in Gmail-safe HTML chrome)
+             │
+             ▼ optional
+        redraft_full (LLM sees full values; scope-expansion → back to needs_confirm)
+             │
+             ▼
+        approve_draft ──> send_approved_reply ──> PKM writeback
+```
+
+### LLM Contracts
+
+Both run **server-side, Gemini Vertex, temperature 0**, strict JSON schema with
+bounded retry-on-malformed.
+
+**Pass 1 — Routing** (`classify_kyc_request`)
+
+Input: `request_text` (email subject + body), `pkm_index`
+(`available_domains[]`, `domain_summaries{}`, `computed_tags[]` — no values),
+`scope_catalog` (known `attr.*` / `financial.*` scopes).
+
+Output (strict JSON):
+```json
+{
+  "classification": "kyc | kyc_financial | financial | unsupported",
+  "requested_items": [
+    { "label": "Full name", "domain": "identity",
+      "scope": "attr.identity.name", "rationale": "..." }
+  ],
+  "primary_domains": ["identity"],
+  "confidence": 0.87,
+  "reasoning": "Email asks for personal info to confirm a hotel booking → identity verification, not travel itinerary."
+}
+```
+
+`reasoning` is shown at the confirm step so a bad route is visible and
+rejectable before any data leaves the client.
+
+**Pass 2 — Extract + Draft** (`extract_and_draft`)
+
+Input: `domain_data` (full decrypted JSON of the one approved domain),
+`requested_fields` (user-approved field list), `request_text`.
+
+Output (strict JSON):
+```json
+{
+  "extracted": [
+    { "scope": "attr.identity.name", "label": "Full name", "value": "Jane A. Doe" }
+  ],
+  "missing": ["attr.identity.passport_number"],
+  "draft": { "subject": "...", "body": "..." }
+}
+```
+
+`extracted[]` drives the subset guardrail. `missing[]` is surfaced in the UI.
+`draft.body` is LLM-composed prose using real values; the renderer wraps it
+in Gmail-safe HTML chrome.
+
+### Consent Scope: `agent.kyc.disclose.llm`
+
+This scope labels the PII-to-LLM paths (Pass 2 extract+draft and redraft-full)
+for audit purposes. The actual gate on those endpoints is a valid vault-owner
+session plus the per-field data-scope consent the user grants at the confirm
+step. Because a vault-owner token satisfies any scope check in the current
+implementation, `agent.kyc.disclose.llm` is not yet an independently-revocable
+control — a separately-revocable disclose grant is not yet independently revocable (tracked as follow-up). Only
+the approved domain's plaintext is sent to the LLM, and only after the user's
+data-scope consents are granted at the confirm step.
+
+### Guardrails (all fail-closed)
+
+1. **Pass 1 confidence floor (0.5)** — below threshold, or
+   `classification: "unsupported"`, the workflow parks and asks the user
+   rather than auto-proposing fields.
+2. **Confirm gate** — human safety net for any Pass-1 misroute; user
+   approves the exact subset of fields before any data leaves the client.
+3. **Workflow readiness guard** (`ONE_KYC_DRAFT_NOT_READY`) — `extract-draft`
+   and `redraft-full` require the workflow to be in `waiting_on_user` state with
+   `draft_status == "ready"`; calling either endpoint before the confirm gate
+   completes and consent is granted fails closed.
+4. **Pass 2 subset invariant** (`ONE_KYC_EXTRACT_SUBSET_VIOLATION`) —
+   `extracted` scopes ⊆ approved fields, enforced in code after the call;
+   violation fails closed.
+5. **Draft value-provenance check** (`ONE_KYC_DRAFT_PROVENANCE_VIOLATION`) —
+   every value in `draft.body` must appear in `extracted[]`; catches the LLM
+   inventing or leaking a value in prose.
+6. **Malformed output guard** (`ONE_KYC_EXTRACT_MALFORMED`) — strict JSON
+   schema validation with bounded retries; malformed output fails closed.
+7. **Scope-expansion block on redraft** (`ONE_KYC_LLM_SCOPE_EXPANSION_BLOCKED`)
+   — a redraft requesting more data routes back to `needs_confirm`, never
+   silently discloses additional fields.
+
 ## Workflow States
 
 KYC workflow states are:
 
 - `needs_client_connector`
 - `needs_scope`
+- `needs_confirm` *(new — set after Pass 1 routing; awaits user confirm of LLM proposal)*
 - `needs_documents`
 - `drafting`
 - `waiting_on_user`
@@ -115,7 +244,8 @@ Important operational boundaries:
 - `FIREBASE_ADMIN_CREDENTIALS_JSON` is the canonical backend service-account secret.
 - `ONE_EMAIL_ADDRESS` defaults to `one@hushh.ai`.
 - `ONE_EMAIL_PUBSUB_TOPIC` configures Gmail watch delivery.
-- `ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED` must remain true for strict-ZK KYC.
+- `ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED` governs legacy ZK mode; the two-pass
+  LLM flow is the current default for extract/draft/redraft paths.
 - `ONE_EMAIL_KYC_DEFAULT_SCOPE` must remain allowlisted. Current approved value:
   `attr.identity.*`.
 - Backend connector public, key-id, and private-key env vars are not part of
@@ -134,5 +264,6 @@ true:
    consent, local decrypt/draft, same-thread approved send, encrypted PKM
    writeback, and retention purge.
 5. KYC cannot read or write outside selected workflow consent scopes.
-6. Server-side draft plaintext remains null/redacted in strict mode.
+6. `draft_body` is never persisted server-side; LLM draft is assembled
+   client-side by the renderer. Server logs contain only SHA-256 hashes.
 7. `/one/kyc` passes web and native parity gates for the current route inventory.

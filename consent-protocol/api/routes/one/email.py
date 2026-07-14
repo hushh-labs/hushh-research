@@ -78,6 +78,22 @@ class RecentMailboxSyncRequest(WorkflowUserRequest):
     max_results: int = Field(default=12, ge=1, le=25)
 
 
+class ExtractDraftRequest(WorkflowUserRequest):
+    domain: str = Field(default="", max_length=120)
+    domain_data: dict = Field(default_factory=dict)
+    approved_scopes: list[str] = Field(min_length=1, max_length=8)
+    request_text: str = Field(min_length=1, max_length=12000)
+    # Multi-domain support (Pass 2). When provided (non-empty), overrides the
+    # single-domain `domain`/`domain_data` fields and sends all domains in one
+    # coherent LLM call. Each item must be {"domain": str, "domain_data": dict}.
+    # Limit matches approved_scopes max_length (one domain per scope family).
+    domains: list[dict] | None = Field(default=None, max_length=8)
+
+
+class ConfirmProposalRequest(WorkflowUserRequest):
+    approved_scopes: list[str] = Field(min_length=1, max_length=8)
+
+
 _DEPENDENCY_ERROR_PATTERNS = (
     "connection refused",
     "server closed the connection unexpectedly",
@@ -584,6 +600,84 @@ async def one_kyc_redraft_llm(
             workflow_id,
         )
         raise _to_http_exception(exc, operation="redraft_llm") from exc
+
+
+class FullRedraftRequest(WorkflowUserRequest):
+    draft_body: str = Field(min_length=1, max_length=20000)
+    instruction: str = Field(min_length=1, max_length=1000)
+
+
+@router.post("/kyc/workflows/{workflow_id}/redraft-full")
+async def one_kyc_redraft_full(
+    workflow_id: str,
+    payload: FullRedraftRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verified_vault_user_id(token_data, payload.user_id)
+    try:
+        return await _service().redraft_full(
+            user_id=payload.user_id,
+            workflow_id=workflow_id,
+            draft_body=payload.draft_body,
+            instruction=payload.instruction,
+            consent_token=token_data.get("token", ""),
+        )
+    except Exception as exc:
+        logger.exception(
+            "one.kyc.redraft_full_failed user_id=%s workflow_id=%s",
+            payload.user_id,
+            workflow_id,
+        )
+        raise _to_http_exception(exc, operation="redraft_full") from exc
+
+
+@router.post("/kyc/workflows/{workflow_id}/extract-draft")
+async def one_kyc_extract_draft(
+    workflow_id: str,
+    payload: ExtractDraftRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verified_vault_user_id(token_data, payload.user_id)
+    try:
+        return await _service().extract_and_draft(
+            user_id=payload.user_id,
+            workflow_id=workflow_id,
+            domain=payload.domain,
+            domain_data=payload.domain_data,
+            approved_scopes=payload.approved_scopes,
+            request_text=payload.request_text,
+            consent_token=token_data.get("token", ""),
+            domains=payload.domains,
+        )
+    except Exception as exc:
+        logger.exception(
+            "one.kyc.extract_draft_failed user_id=%s workflow_id=%s",
+            payload.user_id,
+            workflow_id,
+        )
+        raise _to_http_exception(exc, operation="extract_draft") from exc
+
+
+@router.post("/kyc/workflows/{workflow_id}/confirm-proposal")
+async def one_kyc_confirm_proposal(
+    workflow_id: str,
+    payload: ConfirmProposalRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verified_vault_user_id(token_data, payload.user_id)
+    try:
+        return await _service().confirm_proposal(
+            user_id=payload.user_id,
+            workflow_id=workflow_id,
+            approved_scopes=payload.approved_scopes,
+        )
+    except Exception as exc:
+        logger.exception(
+            "one.kyc.confirm_proposal_failed user_id=%s workflow_id=%s",
+            payload.user_id,
+            workflow_id,
+        )
+        raise _to_http_exception(exc, operation="confirm_proposal") from exc
 
 
 @router.post("/kyc/retention/purge")

@@ -56,6 +56,7 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
         "agent.nav.review": ConsentScope.AGENT_NAV_REVIEW,
         "agent.kyc.process": ConsentScope.AGENT_KYC_PROCESS,
         "agent.kyc.redraft.llm": ConsentScope.AGENT_KYC_REDRAFT_LLM,
+        "agent.kyc.disclose.llm": ConsentScope.AGENT_KYC_DISCLOSE_LLM,
         "cap.location.live.share": ConsentScope.CAP_LOCATION_LIVE_SHARE,
         "cap.location.live.view": ConsentScope.CAP_LOCATION_LIVE_VIEW,
         "cap.location.live.request": ConsentScope.CAP_LOCATION_LIVE_REQUEST,
@@ -221,6 +222,12 @@ def get_scope_display_metadata(scope: str) -> dict:
             "icon_name": "file-pen",
             "color_hex": "#6366F1",
         },
+        "agent.kyc.disclose.llm": {
+            "label": "KYC Data Disclosure via AI",
+            "description": "Allow One to send approved data to the AI to draft this KYC reply",
+            "icon_name": "id-card",
+            "color_hex": "#6366F1",
+        },
         "cap.location.live.share": {
             "label": "Share Live Location",
             "description": "Allow One to create a recipient-bound live-location grant",
@@ -304,3 +311,7 @@ def normalize_scope(scope: str) -> str:
         return scope
 
     return scope
+
+
+# Short alias for resolve_scope_to_enum, used in tests and external callers.
+resolve_scope = resolve_scope_to_enum
