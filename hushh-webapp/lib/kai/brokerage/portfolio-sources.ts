@@ -109,6 +109,8 @@ export interface PlaidPortfolioStatusResponse {
   environment?: string;
   webhook_configured?: boolean;
   webhook_url?: string | null;
+  available_environments?: string[];
+  local_dual_environment_enabled?: boolean;
   user_id: string;
   source_preference: PortfolioSource | string;
   items: PlaidItemSummary[];

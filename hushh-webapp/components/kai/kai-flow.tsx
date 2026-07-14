@@ -2923,7 +2923,7 @@ export function KaiFlow({
     }
   }, [finishFinanceSetupIfActive, flowData.portfolioData, mode, router]);
 
-  const handleConnectPlaid = useCallback(async () => {
+  const handleConnectPlaid = useCallback(async (environment?: string | null) => {
     let onboardingAttemptId: string | undefined;
     if (!vaultKey || !effectiveVaultOwnerToken) {
       setPendingPlaidConnection(true);
@@ -2939,6 +2939,7 @@ export function KaiFlow({
         userId,
         vaultOwnerToken: effectiveVaultOwnerToken,
         redirectUri,
+        environment,
       });
 
       if (!linkToken.configured || !linkToken.link_token) {
@@ -2998,6 +2999,7 @@ export function KaiFlow({
               vaultOwnerToken: effectiveVaultOwnerToken,
               metadata,
               resumeSessionId: linkToken.resume_session_id || null,
+              environment: linkToken.environment || environment || null,
             })
               .then((status) => {
                 clearPlaidOAuthResumeSession();
@@ -3210,12 +3212,13 @@ export function KaiFlow({
           onFileSelect={handleFileUpload}
           onSkip={handleSkipImport}
           onPreloadSchema={() => void handlePreloadSchema()}
-          onConnectPlaid={() => void handleConnectPlaid()}
+          onConnectPlaid={(environment) => void handleConnectPlaid(environment)}
           isUploading={false}
           isPreloadingSchema={isPreloadingSchema}
           isConnectingPlaid={isConnectingPlaid}
           plaidConfigured={plaidConfigured}
           plaidConnectedInstitutionCount={plaidStatus?.aggregate?.item_count || 0}
+          plaidLocalDualEnvironmentEnabled={plaidStatus?.local_dual_environment_enabled ?? false}
         />
       )}
 
@@ -3314,12 +3317,13 @@ export function KaiFlow({
           onFileSelect={handleFileUpload}
           onSkip={handleSkipImport}
           onPreloadSchema={() => void handlePreloadSchema()}
-          onConnectPlaid={() => void handleConnectPlaid()}
+          onConnectPlaid={(environment) => void handleConnectPlaid(environment)}
           isUploading={false}
           isPreloadingSchema={isPreloadingSchema}
           isConnectingPlaid={isConnectingPlaid}
           plaidConfigured={plaidConfigured}
           plaidConnectedInstitutionCount={plaidStatus?.aggregate?.item_count || 0}
+          plaidLocalDualEnvironmentEnabled={plaidStatus?.local_dual_environment_enabled ?? false}
         />
       )}
 

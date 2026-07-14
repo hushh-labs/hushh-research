@@ -509,6 +509,7 @@ export function DashboardMasterView({
   const isPlaidView = activeSource === "plaid";
   const hasPlaidConnections = (plaidStatus?.aggregate?.item_count || 0) > 0;
   const plaidConfigured = plaidStatus?.configured ?? true;
+  const plaidLocalDualEnvironmentEnabled = plaidStatus?.local_dual_environment_enabled ?? false;
   const activePlaidItemIds = useMemo(
     () =>
       (plaidStatus?.items || [])
@@ -822,7 +823,7 @@ export function DashboardMasterView({
   );
 
   const openPlaidLinkFlow = useCallback(
-    async (itemId?: string) => {
+    async (itemId?: string, environment?: string | null) => {
       if (!vaultOwnerToken) {
         toast.error("Please unlock your Vault and try again.");
         return;
@@ -837,6 +838,7 @@ export function DashboardMasterView({
           itemId,
           updateMode: Boolean(itemId),
           redirectUri,
+          environment,
         });
         if (!linkToken.configured || !linkToken.link_token) {
           throw new Error("Plaid is not configured for this environment.");
@@ -869,6 +871,7 @@ export function DashboardMasterView({
                 vaultOwnerToken,
                 metadata,
                 resumeSessionId: linkToken.resume_session_id || null,
+                environment: linkToken.environment || environment || null,
               })
                 .then(async () => {
                   clearPlaidOAuthResumeSession();
@@ -2694,12 +2697,23 @@ export function DashboardMasterView({
                 <MorphyButton
                   variant="blue-gradient"
                   effect="fill"
-                  onClick={() => void openPlaidLinkFlow()}
+                  onClick={() => void openPlaidLinkFlow(undefined, plaidLocalDualEnvironmentEnabled ? "sandbox" : undefined)}
                   disabled={isLinkingPlaid}
                 >
                   {isLinkingPlaid ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Building2 className="mr-2 h-4 w-4" />}
-                  Connect Plaid
+                  {plaidLocalDualEnvironmentEnabled ? "Connect Test Brokerage (Sandbox)" : "Connect Plaid"}
                 </MorphyButton>
+                {plaidLocalDualEnvironmentEnabled ? (
+                  <MorphyButton
+                    variant="metallic"
+                    effect="fill"
+                    onClick={() => void openPlaidLinkFlow(undefined, "production")}
+                    disabled={isLinkingPlaid}
+                  >
+                    {isLinkingPlaid ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Building2 className="mr-2 h-4 w-4" />}
+                    Connect Real Brokerage (Production)
+                  </MorphyButton>
+                ) : null}
                 <MorphyButton variant="none" effect="fade" onClick={onReupload}>
                   Upload Statement
                 </MorphyButton>
@@ -2886,7 +2900,7 @@ export function DashboardMasterView({
               <MorphyButton
                 variant="none"
                 effect="fade"
-                onClick={() => void openPlaidLinkFlow()}
+                onClick={() => void openPlaidLinkFlow(undefined, plaidLocalDualEnvironmentEnabled ? "sandbox" : undefined)}
                 disabled={isLinkingPlaid}
                 data-voice-control-id="connect_plaid"
               >
@@ -2895,7 +2909,27 @@ export function DashboardMasterView({
                 ) : (
                   <Building2 className="mr-2 h-4 w-4" />
                 )}
-                {hasPlaidConnections ? "Connect Another Brokerage" : "Connect Plaid"}
+                {plaidLocalDualEnvironmentEnabled
+                  ? "Connect Test Brokerage (Sandbox)"
+                  : hasPlaidConnections
+                    ? "Connect Another Brokerage"
+                    : "Connect Plaid"}
+              </MorphyButton>
+            ) : null}
+            {plaidConfigured !== false && plaidLocalDualEnvironmentEnabled ? (
+              <MorphyButton
+                variant="none"
+                effect="fade"
+                onClick={() => void openPlaidLinkFlow(undefined, "production")}
+                disabled={isLinkingPlaid}
+                data-voice-control-id="connect_plaid_production"
+              >
+                {isLinkingPlaid ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Building2 className="mr-2 h-4 w-4" />
+                )}
+                Connect Real Brokerage (Production)
               </MorphyButton>
             ) : null}
             <MorphyButton
