@@ -18,9 +18,13 @@ const { replace, bootstrapStateMock, getCachedBootstrapStateMock } = vi.hoisted(
 let pathnameValue = "/one/setup";
 let searchValue = "";
 
+// App Router returns a stable router instance; an unstable identity would
+// spuriously re-run the guard effect (its deps include `router`).
+const stableRouter = { replace };
+
 vi.mock("next/navigation", () => ({
   usePathname: () => pathnameValue,
-  useRouter: () => ({ replace }),
+  useRouter: () => stableRouter,
   useSearchParams: () => new URLSearchParams(searchValue),
 }));
 

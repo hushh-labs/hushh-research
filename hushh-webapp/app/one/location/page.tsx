@@ -5327,7 +5327,7 @@ export function OneLocationAgentPageContent({
                       size="sm"
                       onClick={() => void handleShowMyLiveLocation()}
                       disabled={busy !== null && busy !== "selfLocation"}
-                      className="h-11 w-full shrink-0 rounded-full bg-[color:var(--app-accent)] px-4 text-[14px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-deep)]"
+                      className="h-11 w-full shrink-0 rounded-full bg-[color:var(--app-accent)] px-4 text-[14px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
                     >
                       {busy === "selfLocation" ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
@@ -5668,7 +5668,7 @@ export function OneLocationAgentPageContent({
                             busyKey="share"
                             onClick={() => void handleShare()}
                             disabled={!canShare}
-                            className="h-10 w-full min-w-0 rounded-full bg-[color:var(--app-accent)] px-4 text-[13px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-deep)] sm:w-auto"
+                            className="h-10 w-full min-w-0 rounded-full bg-[color:var(--app-accent)] px-4 text-[13px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] sm:w-auto"
                           >
                             <Send
                               className="mr-2 h-4 w-4"
@@ -5935,7 +5935,7 @@ export function OneLocationAgentPageContent({
                               busy={busy}
                               busyKey="approve"
                               onClick={() => void handleApprove(request)}
-                              className="h-9 flex-1 rounded-[12px] bg-[color:var(--app-accent)] font-semibold text-[color:var(--app-accent-fg)] shadow-[0_2px_8px_var(--app-accent-ring)] hover:bg-[color:var(--app-accent-deep)]"
+                              className="h-9 flex-1 rounded-[12px] bg-[color:var(--app-accent)] font-semibold text-[color:var(--app-accent-fg)] shadow-[0_2px_8px_var(--app-accent-ring)] hover:bg-[color:var(--app-accent-hover)]"
                             >
                               Approve
                             </ActionButton>
@@ -5994,7 +5994,7 @@ export function OneLocationAgentPageContent({
                       busyKey="circleInvite"
                       onClick={() => void handleCreateCircleInvite()}
                       disabled={!vaultOwnerToken}
-                      className="w-full min-w-0 rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-deep)] sm:w-auto"
+                      className="w-full min-w-0 rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] sm:w-auto"
                     >
                       <UserPlus className="mr-2 h-4 w-4" />
                       Create Circle Invite
@@ -6087,7 +6087,7 @@ export function OneLocationAgentPageContent({
                       busyKey="publicInvite"
                       onClick={() => void handleCreatePublicInvite()}
                       disabled={!vaultOwnerToken}
-                      className="w-full min-w-0 rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-deep)] sm:w-auto"
+                      className="w-full min-w-0 rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] sm:w-auto"
                     >
                       <ExternalLink className="mr-2 h-4 w-4" />
                       Create Public Link

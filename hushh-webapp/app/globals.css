@@ -225,18 +225,22 @@ a, button, input, select, textarea {
        enforces this.
      - -deep is the TEXT-legible tone on light surfaces; -bright is the
        TEXT-legible tone on dark surfaces; -tint/-surface are fills. */
+  /* Values are the EXACT Apple Blue v2 recipe from the Location redesign
+     (the reference implementation): pure system blue #007aff carries both
+     text and fills on light — never a derived darker tone. */
   --app-accent: #007aff;                    /* solid fills / CTAs */
-  --app-accent-deep: #006fdc;               /* TEXT / icons on light */
+  --app-accent-deep: #007aff;               /* TEXT / icons on light = same system blue */
   --app-accent-bright: #4a9eff;             /* dark-mode solid partner */
   --app-accent-tint: rgba(0, 122, 255, 0.10);
-  --app-accent-surface: #e7f0fd;            /* solid tint background */
-  --app-accent-surface-strong: #d7e7fb;
-  --app-accent-border: #b9d5f6;
+  --app-accent-surface: #e6f0ff;            /* Location's active-pill fill */
+  --app-accent-surface-strong: #d4e5ff;
+  --app-accent-border: rgba(0, 122, 255, 0.32);
   --app-accent-fg: #ffffff;                 /* text on solid accent */
-  --app-accent-ring: rgba(0, 122, 255, 0.30);
+  --app-accent-hover: #0070ea;              /* pressed/hover partner of the solid fill */
+  --app-accent-ring: rgba(0, 122, 255, 0.25);
   /* Hero gradient stops (intro "One" molten text + brand glyph strokes). */
   --app-accent-hero-from: #0a4d9e;
-  --app-accent-hero-mid: #2f8bff;
+  --app-accent-hero-mid: #007aff;
   --app-accent-hero-to: #8fc3ff;
 
   /* Legacy gold names now ALIAS the accent family so every existing
@@ -1806,18 +1810,20 @@ html.native-ios {
      too faint on dark surfaces. */
 
   /* ── App accent family (dark) ── iOS Blue default; gold overrides live
-     under html[data-accent="gold"].dark below. */
+     under html[data-accent="gold"].dark below. #4a9eff is Location's own
+     dark companion for text AND fills (check-in-flow dark tokens). */
   --app-accent: #4a9eff;
-  --app-accent-deep: #72b4ff;               /* TEXT / icons on dark */
+  --app-accent-deep: #4a9eff;               /* TEXT / icons on dark = Location dark blue */
   --app-accent-bright: #9bc9ff;
   --app-accent-tint: rgba(74, 158, 255, 0.15);
   --app-accent-surface: rgba(74, 158, 255, 0.15);
   --app-accent-surface-strong: rgba(74, 158, 255, 0.24);
   --app-accent-border: rgba(74, 158, 255, 0.35);
-  --app-accent-fg: #0a0a0c;
-  --app-accent-ring: rgba(74, 158, 255, 0.35);
+  --app-accent-fg: #ffffff;                 /* Apple system blue always pairs with white */
+  --app-accent-hover: #66adff;
+  --app-accent-ring: rgba(74, 158, 255, 0.30);
   --app-accent-hero-from: #2f6fbe;
-  --app-accent-hero-mid: #6fb1ff;
+  --app-accent-hero-mid: #4a9eff;
   --app-accent-hero-to: #dcecff;
 
   --background: oklch(0.146 0.004 285.9);
@@ -3085,6 +3091,7 @@ html[data-accent="gold"] {
   --app-accent-surface-strong: #efe4d2;
   --app-accent-border: #e8d8bf;
   --app-accent-fg: #ffffff;
+  --app-accent-hover: #c79a5e;
   --app-accent-ring: rgba(184, 137, 77, 0.30);
   --app-accent-hero-from: #6d431a;
   --app-accent-hero-mid: #b8894d;
@@ -3101,6 +3108,7 @@ html[data-accent="gold"].dark {
   --app-accent-surface-strong: rgba(212, 165, 116, 0.20);
   --app-accent-border: rgba(212, 165, 116, 0.28);
   --app-accent-fg: #1d1d1f;
+  --app-accent-hover: #e0b382;
   --app-accent-ring: rgba(212, 165, 116, 0.35);
   --app-accent-hero-from: #8a5a24;
   --app-accent-hero-mid: #d4a574;

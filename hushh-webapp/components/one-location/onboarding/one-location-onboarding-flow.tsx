@@ -198,7 +198,7 @@ function PrimaryButton({
         "flex h-14 w-full items-center justify-center rounded-full px-6 text-[17px] font-bold shadow-[0_10px_28px_rgba(0,122,255,0.24)] transition-transform active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-55",
         inverse
           ? "bg-white text-[#087cf0] dark:bg-[#101722] dark:text-[color:var(--app-accent-bright)] dark:shadow-[0_12px_28px_rgba(0,0,0,0.32)]"
-          : "bg-[#087cf0] text-white hover:bg-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent)] dark:text-[#07111f] dark:hover:bg-[#94c7ff]",
+          : "bg-[#087cf0] text-white hover:bg-[color:var(--app-accent-hover)] dark:bg-[color:var(--app-accent)] dark:text-[#07111f] dark:hover:bg-[#94c7ff]",
       )}
     >
       {children}
