@@ -439,26 +439,28 @@ function FeatureScreen({
       title: "Know when they arrive",
       body: `"${arrivalName} arrived at Office" - get a quiet alert the moment your people reach the places that matter.`,
       visual: <ArrivalIllustration person={connectedPeople[0]} />,
-      // Soft lavender/purple — matches the tone behind the walking-bag art.
-      gradient: "from-[#f1ecfb] via-[#eae3f7] to-[#f4eefb]",
+      // Near-white cool grey — matches the arrival art's own light backdrop so
+      // the illustration blends into the screen with no visible image edge.
+      gradient: "from-[#f6f7fa] to-[#eef0f4]",
       cta: "Continue",
     },
     checkin: {
       title: "Let them know you're here",
       body: `"${checkinName} checked in" - one tap tells your trusted people where you are. No call needed.`,
       visual: <CheckinIllustration person={connectedPeople[1] ?? connectedPeople[0]} />,
-      // Warm cream — matches the check-in pin illustration's background.
-      gradient: "from-[#fdfaf4] via-[#f6eee2] to-[#efe4d5]",
+      // Near-white warm — matches the check-in art's own light backdrop.
+      gradient: "from-[#faf9f6] to-[#f2efea]",
       cta: "Continue",
     },
     sos: {
       title: "Help when it matters most",
       body: `"Help sent" - SOS shares your live location with selected people, instantly.`,
       visual: <SosIllustration people={connectedPeople} />,
-      // Warm peach/cream — matches the SOS shield illustration's background.
-      gradient: "from-[#fdf5f1] via-[#f8e9e2] to-[#f3e2da]",
+      // Near-white warm — matches the SOS art's own light backdrop.
+      gradient: "from-[#faf8f6] to-[#f2efea]",
       cta: "Create my circle",
     },
+
   }[screen];
 
   return (
