@@ -1500,15 +1500,13 @@ export class OneKycClientZkService {
       });
     }
     const style = redraftTransformFromInstructions(params.instructions);
-    const renderModel: KycDraftRenderModel = {
-      contractId: APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID,
-      contractVersion: "1.0.0",
-      accountHolder: accountHolderLabel(params.workflow),
-      style,
+    const renderModel = OneKycClientZkService.buildFallbackRenderModel(
+      params.workflow,
       sections,
       missingFields,
       missingPresentationMetadata,
-    };
+      style,
+    );
     const body = buildApprovedDisclosurePlainText(renderModel);
     const htmlBody = buildApprovedDisclosureHtml(renderModel);
     return {
@@ -1517,6 +1515,110 @@ export class OneKycClientZkService {
       htmlBody,
       approvedValues,
       missingFields,
+      renderModel,
+      scopeSummaries,
+      draftHash: await sha256Hex(body),
+    };
+  }
+
+  /**
+   * Shared helper: constructs an `ApprovedDisclosureRenderModel` from pre-computed
+   * sections. Used by both `buildDraft` (deterministic path) and `buildDraftViaLlm`
+   * (LLM Pass 2 path) so the render-model shape stays in one place.
+   */
+  static buildFallbackRenderModel(
+    workflow: OneKycWorkflow,
+    sections: KycDraftRenderSection[],
+    missingFields: string[],
+    missingPresentationMetadata: string[],
+    style?: RedraftTransform,
+  ): KycDraftRenderModel {
+    return {
+      contractId: APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID,
+      contractVersion: "1.0.0",
+      accountHolder: accountHolderLabel(workflow),
+      style: style ?? redraftTransformFromInstructions(undefined),
+      sections,
+      missingFields,
+      missingPresentationMetadata,
+    };
+  }
+
+  /**
+   * Pass 2: send the decrypted approved domain data to the backend LLM endpoint
+   * and assemble a `KycDraftBuildResult` whose `body` is the LLM-composed draft.
+   *
+   * Uses the first decrypted domain for v1 (one domain per confirm flow).
+   * Falls back gracefully — the caller in page.tsx catches any thrown error and
+   * falls back to the deterministic `buildDraft` result.
+   */
+  static async buildDraftViaLlm(params: {
+    workflow: OneKycWorkflow;
+    input: { userId: string; vaultOwnerToken: string };
+    decryptedDomains: Array<{ domain: string; scope: string | null; data: Record<string, unknown> }>;
+    approvedScopes: string[];
+    requestText: string;
+  }): Promise<KycDraftBuildResult> {
+    const primary = params.decryptedDomains[0];
+    const response = await OneKycService.extractDraft({
+      ...params.input,
+      workflowId: params.workflow.workflow_id,
+      // Single-domain fallback fields (backward compat for servers that don't
+      // yet support the multi-domain `domains` param).
+      domain: primary?.domain ?? "identity",
+      domainData: primary?.data ?? {},
+      approvedScopes: params.approvedScopes,
+      requestText: params.requestText,
+      // Multi-domain: send ALL decrypted domains so every scope is covered.
+      domains: params.decryptedDomains.map((d) => ({
+        domain: d.domain,
+        domainData: d.data,
+      })),
+    });
+
+    const approvedValues: Record<string, string> = {};
+    for (const item of response.extracted) approvedValues[item.scope] = item.value;
+
+    const body = response.draft.body;
+    const primaryScope =
+      primary?.scope ?? params.workflow.requested_scope ?? "attr.identity.*";
+    const sections: KycDraftRenderSection[] = [
+      {
+        scope: primaryScope,
+        title: workflowScopeTitle(params.workflow, primaryScope),
+        entries: response.extracted.map((e) => ({
+          field: e.scope,
+          label: e.label,
+          value: e.value,
+          scope: e.scope,
+        })),
+        missingFields: response.missing,
+        presentationSource: presentationSourceForScope(params.workflow, primaryScope),
+      },
+    ];
+
+    const renderModel = OneKycClientZkService.buildFallbackRenderModel(
+      params.workflow,
+      sections,
+      response.missing,
+      [],
+      undefined,
+    );
+
+    const scopeSummaries = params.approvedScopes.map((scope) => ({
+      scope,
+      approvedFields: response.extracted
+        .filter((e) => e.scope === scope)
+        .map((e) => e.label),
+      missingFields: response.missing.filter((m) => m === scope),
+    }));
+
+    return {
+      subject: response.draft.subject,
+      body,
+      htmlBody: renderLlmRedraftHtml(body),
+      approvedValues,
+      missingFields: response.missing,
       renderModel,
       scopeSummaries,
       draftHash: await sha256Hex(body),
@@ -1810,6 +1912,40 @@ export async function runLlmRedraft(params: {
       body: resubstitutedBody,
       htmlBody: llmHtmlBody,
       draftHash: llmDraftHash,
+    },
+  };
+}
+
+/**
+ * Full-body KYC redraft orchestrator (Task 8 — no tokenization).
+ *
+ * Sends the real draft body to the server-side Gemini proxy and returns a
+ * rewritten draft. No PII redaction is performed in the browser — the actual
+ * draft body is transmitted to the server and discarded immediately after the
+ * LLM call. Only the instruction hash is recorded server-side.
+ */
+export async function runFullRedraft(params: {
+  localDraft: KycDraftBuildResult;
+  instruction: string;
+  workflow: OneKycWorkflow;
+  input: { userId: string; vaultOwnerToken: string; workflowId: string };
+}): Promise<LlmRedraftResult> {
+  const { localDraft, instruction, workflow, input } = params;
+
+  const { rewritten_body } = await OneKycService.redraftFull({
+    ...input,
+    workflowId: workflow.workflow_id,
+    draftBody: localDraft.body,
+    instruction,
+  });
+
+  return {
+    ok: true,
+    draft: {
+      ...localDraft,
+      body: rewritten_body,
+      htmlBody: renderLlmRedraftHtml(rewritten_body),
+      draftHash: await sha256Hex(rewritten_body),
     },
   };
 }

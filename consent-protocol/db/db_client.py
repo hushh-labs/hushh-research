@@ -102,20 +102,22 @@ class JsonParam:
 def _adapt_db_param_value(value: Any, dialect_name: str | None = None) -> Any:
     """Adapt JSON-like values for the active DB driver.
 
-    Plain dicts are always JSON/JSONB. Lists/tuples are passed through
-    unchanged by default (they may be native Postgres arrays, e.g.
-    ``TEXT[]`` or ``vector``) unless explicitly wrapped in ``JsonParam``,
-    in which case they are serialized as JSON/JSONB too.
+    Plain dicts are always JSON/JSONB. A list containing JSON objects also
+    maps to a JSONB array (Postgres arrays cannot hold dicts) and is
+    auto-detected; lists of scalars stay as native arrays (e.g. ``TEXT[]``)
+    unless explicitly wrapped in ``JsonParam``, in which case they are always
+    serialized as JSON/JSONB too.
     """
+    is_postgres = bool(dialect_name and dialect_name.startswith("postgres"))
     if isinstance(value, JsonParam):
         inner = value.value
-        if dialect_name and dialect_name.startswith("postgres"):
-            return PsycopgJson(inner)
-        return json.dumps(inner)
+        return PsycopgJson(inner) if is_postgres else json.dumps(inner)
     if isinstance(value, dict):
-        if dialect_name and dialect_name.startswith("postgres"):
-            return PsycopgJson(value)
-        return json.dumps(value)
+        return PsycopgJson(value) if is_postgres else json.dumps(value)
+    # A list containing JSON objects maps to a jsonb array (Postgres arrays
+    # cannot hold dicts); lists of scalars stay as native arrays (e.g. TEXT[]).
+    if isinstance(value, list) and any(isinstance(item, dict) for item in value):
+        return PsycopgJson(value) if is_postgres else json.dumps(value)
     return value
 
 

@@ -32,6 +32,7 @@ from google.oauth2 import service_account
 
 from api.utils.firebase_admin import ensure_firebase_auth_admin, get_firebase_auth_app
 from db.db_client import get_db
+from hushh_mcp.consent.export_envelope import scope_handle_for_machine_scope
 from hushh_mcp.consent.scope_generator import get_scope_generator
 from hushh_mcp.consent.scope_helpers import scope_matches
 from hushh_mcp.consent.token import validate_token_with_db
@@ -103,11 +104,13 @@ _MAX_WORKFLOW_PAGE_LIMIT = 100
 _MAX_RECENT_MAIL_SYNC_LIMIT = 25
 _DEFAULT_RECENT_MAIL_SYNC_LIMIT = 12
 _DEFAULT_RECENT_MAIL_LOOKBACK_DAYS = 7
+_KYC_ROUTING_CONFIDENCE_FLOOR = 0.5
 _SENSITIVE_WORKFLOW_METADATA_KEYS = frozenset(
     {"access_token", "consent_token", "token", "token_id"}
 )
 _KYC_WORKFLOW_STATES = {
     "needs_client_connector",
+    "needs_confirm",
     "needs_scope",
     "needs_documents",
     "drafting",
@@ -226,6 +229,68 @@ _SCOPE_MATCH_STOPWORDS = frozenset(
         "your",
     }
 )
+
+_KYC_ROUTING_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "classification": {
+            "type": "STRING",
+            "enum": ["kyc", "kyc_financial", "financial", "unsupported"],
+        },
+        "requested_items": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "label": {"type": "STRING"},
+                    "domain": {"type": "STRING"},
+                    "scope": {"type": "STRING"},
+                    "rationale": {"type": "STRING"},
+                },
+                "required": ["label", "domain", "scope", "rationale"],
+            },
+        },
+        "primary_domains": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "confidence": {"type": "NUMBER"},
+        "reasoning": {"type": "STRING"},
+    },
+    "required": [
+        "classification",
+        "requested_items",
+        "primary_domains",
+        "confidence",
+        "reasoning",
+    ],
+}
+
+
+_KYC_EXTRACT_DRAFT_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "extracted": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "scope": {"type": "STRING"},
+                    "label": {"type": "STRING"},
+                    "value": {"type": "STRING"},
+                },
+                "required": ["scope", "label", "value"],
+            },
+        },
+        "missing": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "draft": {
+            "type": "OBJECT",
+            "properties": {
+                "subject": {"type": "STRING"},
+                "body": {"type": "STRING"},
+            },
+            "required": ["subject", "body"],
+        },
+    },
+    "required": ["extracted", "missing", "draft"],
+}
 
 
 def _runtime_environment() -> str:
@@ -1087,10 +1152,15 @@ class OneEmailKycService:
     """Processes broker KYC emails addressed to One."""
 
     def __init__(
-        self, *, db: Any | None = None, consent_db: ConsentDBService | None = None
+        self,
+        *,
+        db: Any | None = None,
+        consent_db: ConsentDBService | None = None,
+        pkm_service: Any | None = None,
     ) -> None:
         self._db = db
         self._consent_db = consent_db
+        self._pkm = pkm_service
         self._config: OneEmailKycConfig | None = None
         self._sessions: dict[tuple[str, ...], AuthorizedSession] = {}
 
@@ -1105,6 +1175,16 @@ class OneEmailKycService:
         if self._consent_db is None:
             self._consent_db = ConsentDBService()
         return self._consent_db
+
+    @property
+    def pkm(self) -> Any:
+        if self._pkm is None:
+            from hushh_mcp.services.personal_knowledge_model_service import (
+                PersonalKnowledgeModelService,
+            )
+
+            self._pkm = PersonalKnowledgeModelService()
+        return self._pkm
 
     @property
     def config(self) -> OneEmailKycConfig:
@@ -1457,23 +1537,26 @@ class OneEmailKycService:
             if existing.get("status") == "needs_client_connector":
                 connector = self._get_active_client_connector(existing.get("user_id"))
                 if connector:
+                    existing_metadata = existing.get("metadata") or {}
+                    has_proposal = bool(existing_metadata.get("kyc_proposal"))
                     repaired = self._update_workflow(
                         existing["workflow_id"],
-                        status="needs_scope",
+                        status="needs_confirm" if has_proposal else "needs_scope",
                         last_error_code=None,
                         last_error_message=None,
                         metadata={
-                            **existing.get("metadata", {}),
+                            **existing_metadata,
                             "client_connector_key_id": connector["connector_key_id"],
                             "client_connector_fingerprint": connector.get("public_key_fingerprint"),
                             "strict_client_zk": True,
                         },
                     )
-                    workflow = await self._ensure_consent_request(repaired, connector=connector)
+                    if not has_proposal:
+                        repaired = await self._ensure_consent_request(repaired, connector=connector)
                     return {
                         "handled": True,
                         "reason": "client_connector_repaired",
-                        "workflow": workflow,
+                        "workflow": repaired,
                     }
             if existing.get("status") == "needs_scope" and (
                 not existing.get("consent_request_id") or has_stale_consent_url
@@ -1829,14 +1912,6 @@ class OneEmailKycService:
         if sender_email == mailbox:
             return {"handled": False, "reason": "self_sent_message", "message_id": gmail_message_id}
 
-        is_kyc = self._looks_like_kyc(subject=subject, body=body_text)
-        is_financial = self._looks_like_financial_request(subject=subject, body=body_text)
-        scope_candidates = self._detect_scope_candidates(
-            subject=subject,
-            body=body_text,
-            include_fallback=False,
-        )
-        candidate_scopes = [candidate["scope"] for candidate in scope_candidates]
         has_attachments = _has_attachments(message)
         sender_user_match = self._match_verified_user([sender_email] if sender_email else [])
         user_match = {
@@ -1861,25 +1936,12 @@ class OneEmailKycService:
                 "body_sha256": body_hash,
                 "request_body_sha256": request_body_hash,
                 "quoted_reply_text_stripped": body_text != raw_body_text,
-                "classification": (
-                    "kyc_financial"
-                    if is_kyc and is_financial
-                    else "kyc"
-                    if is_kyc
-                    else "financial"
-                    if is_financial
-                    else "unsupported"
-                ),
                 "request_summary": "One text-only disclosure request",
                 "one_agent_id": _ONE_AGENT_ID,
                 "nav_agent_id": _NAV_AGENT_ID,
                 "kyc_agent_id": _KYC_AGENT_ID,
                 "identity_match_source": user_match.get("matched_from"),
                 "identity_matched_by": user_match.get("matched_by"),
-                "detected_domains": sorted(
-                    {str(candidate.get("domain")) for candidate in scope_candidates}
-                ),
-                "candidate_scopes": scope_candidates,
                 "scope_selection_required": True,
                 "selected_scopes": [],
                 "text_only_intake_v1": True,
@@ -1910,66 +1972,73 @@ class OneEmailKycService:
             )
             return {"handled": True, "workflow": workflow, "blocked": True}
 
-        dynamic_scope_candidates = await self._detect_available_scope_candidates(
-            user_id=user_match["user_id"],
+        # Pass 1: LLM routing — runs after sender match so we have user_id for PKM index.
+        pkm_index = await self._load_pkm_index_for_user(user_match["user_id"])
+        proposal = await self.classify_kyc_request(
             subject=subject,
             body=body_text,
+            pkm_index=pkm_index,
         )
-        scope_candidates = _dedupe_scope_candidates([*scope_candidates, *dynamic_scope_candidates])
-        if not scope_candidates and (is_kyc or is_financial):
-            scope_candidates = self._detect_scope_candidates(
-                subject=subject,
-                body=body_text,
-                include_fallback=True,
-            )
-        candidate_scopes = [candidate["scope"] for candidate in scope_candidates]
+
+        # Build candidate_scopes from the proposal's requested_items so the existing
+        # select_scopes / consent path (Task 4) can still validate against them.
+        candidate_scopes_list = [
+            {
+                "scope": item["scope"],
+                "domain": item["domain"],
+                "label": item["label"],
+                "description": item.get("rationale", ""),
+                "reason": item.get("rationale", ""),
+            }
+            for item in (proposal.get("requested_items") or [])
+            if item.get("scope")
+        ]
+        classification = proposal.get("classification") or "unsupported"
+        primary_domains = proposal.get("primary_domains") or []
+
         common["metadata"].update(
             {
-                "classification": (
-                    "kyc_financial"
-                    if is_kyc and is_financial
-                    else "kyc"
-                    if is_kyc
-                    else "financial"
-                    if is_financial
-                    else "dynamic_disclosure"
-                    if dynamic_scope_candidates
-                    else "unsupported"
-                ),
-                "detected_domains": sorted(
-                    {str(candidate.get("domain")) for candidate in scope_candidates}
-                ),
-                "candidate_scopes": scope_candidates,
-                "dynamic_scope_detection": bool(dynamic_scope_candidates),
+                "classification": classification,
+                "detected_domains": sorted(primary_domains),
+                "candidate_scopes": candidate_scopes_list,
+                "kyc_proposal": proposal,
             }
         )
 
-        if not scope_candidates:
+        # Fallback or unsupported → block immediately; operator must review manually.
+        if proposal.get("fallback") or classification == "unsupported":
             workflow = self._insert_workflow(
                 **common,
                 status="blocked",
                 required_fields=[],
                 requested_scope=None,
-                last_error_code="unsupported_email_task",
+                last_error_code="kyc_routing_unavailable",
                 last_error_message=(
-                    "One could not match this email to any available shareable scope."
+                    "One could not determine what this request needs. Review manually."
                 ),
             )
             return {"handled": True, "workflow": workflow, "blocked": True}
 
-        required_fields = self._effective_required_fields_for_candidates(
-            extracted_fields=self._extract_required_fields(subject=subject, body=body_text),
-            candidates=scope_candidates,
+        # Low confidence → flag but still route to needs_confirm for human review.
+        confidence = float(proposal.get("confidence") or 0.0)
+        if confidence < _KYC_ROUTING_CONFIDENCE_FLOOR:
+            common["metadata"]["kyc_low_confidence"] = True
+
+        first_scope = (
+            candidate_scopes_list[0]["scope"]
+            if candidate_scopes_list
+            else self.config.default_kyc_scope
         )
+
+        # Connector gate — store proposal metadata even while waiting so the workflow
+        # can advance to needs_confirm once the connector is registered.
         connector = self._get_active_client_connector(user_match.get("user_id"))
         if not connector:
             workflow = self._insert_workflow(
                 **common,
                 status="needs_client_connector",
-                required_fields=required_fields,
-                requested_scope=candidate_scopes[0]
-                if candidate_scopes
-                else self.config.default_kyc_scope,
+                required_fields=[],
+                requested_scope=first_scope,
                 last_error_code="kyc_client_connector_missing",
                 last_error_message=(
                     "Unlock the KYC workspace once so One can register a client-held connector key."
@@ -1988,15 +2057,110 @@ class OneEmailKycService:
         }
         workflow = self._insert_workflow(
             **workflow_common,
-            status="needs_scope",
-            required_fields=required_fields,
-            requested_scope=candidate_scopes[0]
-            if candidate_scopes
-            else self.config.default_kyc_scope,
+            status="needs_confirm",
+            required_fields=[],
+            requested_scope=first_scope,
             last_error_code=None,
             last_error_message=None,
         )
         return {"handled": True, "workflow": workflow, "blocked": False}
+
+    # ------------------------------------------------------------------
+    # LLM helpers — Pass 1 routing
+    # ------------------------------------------------------------------
+
+    async def _load_pkm_index_for_user(self, user_id: str) -> dict[str, Any]:
+        """Fetch the sanitized PKM discovery index (domains + summaries, NO values).
+
+        Returns a dict with available_domains, domain_summaries, and computed_tags.
+        If the user has no PKM index yet, returns empty collections so Pass 1 routing
+        can still operate (it will classify from the email content alone).
+        """
+        index = await self.pkm.get_index_v2(user_id)
+        if index is None:
+            return {"available_domains": [], "domain_summaries": {}, "computed_tags": []}
+        return {
+            "available_domains": index.available_domains,
+            "domain_summaries": index.domain_summaries,
+            "computed_tags": index.computed_tags,
+        }
+
+    async def _llm_generate_structured(
+        self,
+        *,
+        prompt: str,
+        response_schema: dict[str, Any],
+        timeout_seconds: float = 30.0,
+    ) -> dict[str, Any] | None:
+        """Run a structured (JSON-schema) Gemini call on the shared kai client.
+
+        Returns the parsed dict, or None on unavailability/parse failure so
+        callers fail closed.
+        """
+        if not _require_gemini_ready():
+            return None
+        client = _gemini_client if _gemini_client is not None else _kai_llm._gemini_client
+        model_name = _gemini_model_name or _kai_llm._gemini_model_name
+        types_mod = _genai_types if _genai_types is not None else _kai_llm.types
+        if client is None or types_mod is None:
+            return None
+        config = types_mod.GenerateContentConfig(
+            temperature=KAI_LLM_TEMPERATURE,
+            max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
+            response_mime_type="application/json",
+            response_schema=response_schema,
+            automatic_function_calling=types_mod.AutomaticFunctionCallingConfig(disable=True),
+        )
+
+        def _invoke() -> Any:
+            return client.models.generate_content(model=model_name, contents=prompt, config=config)
+
+        loop = asyncio.get_running_loop()
+        try:
+            response = await asyncio.wait_for(
+                loop.run_in_executor(None, _invoke), timeout=timeout_seconds
+            )
+        except asyncio.TimeoutError:
+            return None
+        parsed = response.parsed if isinstance(getattr(response, "parsed", None), dict) else None
+        if parsed is None:
+            try:
+                parsed = json.loads((getattr(response, "text", None) or "").strip() or "{}")
+            except json.JSONDecodeError:
+                return None
+        return parsed if isinstance(parsed, dict) else None
+
+    async def classify_kyc_request(
+        self, *, subject: str, body: str, pkm_index: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Pass 1 — route the request to the correct PKM domain + fields.
+
+        Sends the request text and the SANITIZED pkm_index (domain names +
+        summaries, NO raw values) to Gemini. Never sees real data. Replaces the
+        keyword detectors (_looks_like_kyc / _detect_scope_candidates /
+        _extract_required_fields).
+        """
+        if not _require_gemini_ready():
+            return _gemini_unavailable_payload("Gemini unavailable for KYC routing")
+        prompt = (
+            "You classify an inbound email that requests personal data, and map it "
+            "to the correct domain(s) in the user's personal knowledge model.\n"
+            "Decide WHAT DATA is being requested, not which keywords appear. "
+            "Example: 'provide your information to confirm a hotel booking' is a "
+            "request for IDENTITY data (name, address), NOT travel itinerary data.\n\n"
+            f"Available domains and summaries (NO values):\n{json.dumps(pkm_index)}\n\n"
+            f"Email subject: {_truncate(subject, 500)}\n"
+            f"Email body: {_truncate(body, 4000)}\n\n"
+            "Return the routing JSON. For each requested item, pick the single most "
+            "appropriate domain and scope. Set confidence 0..1. If the email does not "
+            "request personal data, set classification='unsupported' and requested_items=[]."
+        )
+        result = await self._llm_generate_structured(
+            prompt=prompt, response_schema=_KYC_ROUTING_SCHEMA
+        )
+        if result is None:
+            return _gemini_unavailable_payload("KYC routing produced no parseable result")
+        return result
 
     def _looks_like_kyc(self, *, subject: str, body: str) -> bool:
         haystack = f"{subject}\n{body}".lower()
@@ -2355,6 +2519,10 @@ class OneEmailKycService:
             poll_timeout_at=expires_at,
             metadata={
                 "request_source": _KYC_REQUEST_SOURCE,
+                "developer_app_id": _KYC_AGENT_ID,
+                "scope_handle": scope_handle_for_machine_scope(
+                    workflow["user_id"], requested_scope
+                ),
                 "requester_actor_type": "developer",
                 "requester_label": "One",
                 "developer_app_display_name": "One",
@@ -2623,11 +2791,16 @@ class OneEmailKycService:
             and isinstance(metadata, dict)
             and metadata.get("scope_selection_required")
         ):
+            _from_connector_wait = workflow.get("status") == "needs_client_connector"
             return self._update_workflow(
                 workflow["workflow_id"],
-                status="needs_scope"
-                if workflow.get("status") == "needs_client_connector"
-                else workflow.get("status"),
+                status=(
+                    "needs_confirm"
+                    if _from_connector_wait and metadata.get("kyc_proposal")
+                    else "needs_scope"
+                    if _from_connector_wait
+                    else workflow.get("status")
+                ),
                 last_error_code=None,
                 last_error_message=None,
                 metadata={
@@ -2673,11 +2846,19 @@ class OneEmailKycService:
             selected_scopes=selected_scopes,
         )
         consent_request_id = bundle["consent_requests"][0]["request_id"]
+        _from_connector_wait = workflow.get("status") == "needs_client_connector"
+        _wf_metadata = workflow.get("metadata", {})
         return self._update_workflow(
             workflow["workflow_id"],
-            status="needs_scope"
-            if workflow.get("status") == "needs_client_connector"
-            else workflow.get("status"),
+            status=(
+                "needs_confirm"
+                if _from_connector_wait
+                and isinstance(_wf_metadata, dict)
+                and _wf_metadata.get("kyc_proposal")
+                else "needs_scope"
+                if _from_connector_wait
+                else workflow.get("status")
+            ),
             consent_request_id=consent_request_id,
             requested_scope=bundle["selected_scopes"][0],
             metadata={
@@ -2697,6 +2878,61 @@ class OneEmailKycService:
                 "selected_scopes": bundle["selected_scopes"],
                 "requested_scopes": bundle["selected_scopes"],
             },
+        )
+
+    async def confirm_proposal(
+        self,
+        *,
+        user_id: str,
+        workflow_id: str,
+        approved_scopes: list[str],
+    ) -> dict[str, Any]:
+        """Approve a subset of proposed KYC scopes and create consent requests.
+
+        Requires the workflow to be in ``needs_confirm`` status (set by Pass 1
+        routing). Validates that every approved scope appears in the proposal's
+        ``requested_items``, stores ``kyc_confirmed_items``, then delegates to
+        ``select_scopes`` to create the per-scope consent requests.
+        """
+        workflow = await self.get_workflow(user_id=user_id, workflow_id=workflow_id)
+        if workflow.get("status") != "needs_confirm":
+            raise OneEmailKycError(
+                "This request is not awaiting confirmation.",
+                status_code=409,
+                code="ONE_KYC_NOT_AWAITING_CONFIRM",
+            )
+        proposal = (workflow.get("metadata") or {}).get("kyc_proposal") or {}
+        proposed_scopes = {
+            str(item.get("scope"))
+            for item in proposal.get("requested_items", [])
+            if item.get("scope")
+        }
+        approved = _dedupe(approved_scopes)
+        invalid = [s for s in approved if s not in proposed_scopes]
+        if not approved or invalid:
+            raise OneEmailKycError(
+                "Approved data must be a subset of what One proposed.",
+                status_code=400,
+                code="ONE_KYC_CONFIRM_SCOPE_INVALID",
+                payload={
+                    "invalid_scopes": invalid,
+                    "proposed_scopes": sorted(proposed_scopes),
+                },
+            )
+        confirmed_items = [
+            item for item in proposal.get("requested_items", []) if item.get("scope") in approved
+        ]
+        self._update_workflow(
+            workflow_id,
+            metadata={
+                **(workflow.get("metadata") or {}),
+                "kyc_confirmed_items": confirmed_items,
+            },
+        )
+        return await self.select_scopes(
+            user_id=user_id,
+            workflow_id=workflow_id,
+            selected_scopes=approved,
         )
 
     async def select_scopes(
@@ -2919,7 +3155,7 @@ class OneEmailKycService:
             )
             if ready_from_existing_grants:
                 return ready_from_existing_grants
-        if workflow["status"] in {"needs_client_connector", "needs_scope"}:
+        if workflow["status"] in {"needs_client_connector", "needs_scope", "needs_confirm"}:
             workflow = await self._ensure_consent_request(workflow)
         should_revalidate_ready_draft = (
             workflow["status"] == "waiting_on_user"
@@ -4013,6 +4249,291 @@ class OneEmailKycService:
 
         # Step 9 — Return the rewritten template for client-side re-substitution.
         return {"rewritten_template": rewritten_template}
+
+    async def redraft_full(
+        self,
+        *,
+        user_id: str,
+        workflow_id: str,
+        draft_body: str,
+        instruction: str,
+        consent_token: str,
+    ) -> dict[str, Any]:
+        """Full-body LLM redraft for KYC (Task 8).
+
+        Sends the real ``draft_body`` (no tokenization) plus ``instruction`` to
+        server-side Gemini Vertex. The draft body is NEVER persisted or logged;
+        only the instruction hash + revision metadata are recorded.
+
+        Use this instead of ``redraft_llm`` when the caller is comfortable
+        sending the actual PII-containing draft body to the server (the body
+        is only held in memory for the duration of the Gemini call and is
+        discarded immediately after).
+        """
+        # Step 1 — Consent gate (DB-aware so revoked tokens are rejected).
+        valid, reason, _token_obj = await validate_token_with_db(
+            consent_token, ConsentScope.AGENT_KYC_DISCLOSE_LLM
+        )
+        if not valid:
+            raise PermissionError(f"KYC full redraft denied: {reason}")
+
+        # Step 2 — Workflow must be awaiting user review with a ready draft.
+        workflow = await self.get_workflow(user_id=user_id, workflow_id=workflow_id)
+        if workflow.get("status") != "waiting_on_user" or workflow.get("draft_status") != "ready":
+            raise OneEmailKycError(
+                "KYC draft is not ready for redraft.",
+                status_code=409,
+                code="ONE_KYC_DRAFT_NOT_READY",
+            )
+
+        # Step 3 — Scope-expansion guard. The LLM must not pull in new scopes.
+        if _redraft_requests_more_data(instruction):
+            raise OneEmailKycError(
+                "The instruction requests data outside the approved scopes.",
+                status_code=422,
+                code="ONE_KYC_LLM_SCOPE_EXPANSION_BLOCKED",
+            )
+
+        # Step 4 — Gemini readiness (lazy-inits the shared Vertex client).
+        if not _require_gemini_ready():
+            return _gemini_unavailable_payload("Gemini unavailable for KYC full redraft")
+
+        # Step 5 — System prompt that forbids hallucination.
+        system_instruction = (
+            "rewrite per the instruction; do not add facts not already present in the draft; "
+            "output only the rewritten email."
+        )
+        user_message = (
+            f"Instruction: {_truncate(instruction, 1000)}\n\nEmail to rewrite:\n{draft_body}"
+        )
+
+        # Step 6 — Call Gemini via the shared client (no new client instantiated).
+        client = _gemini_client if _gemini_client is not None else _kai_llm._gemini_client
+        model_name = _gemini_model_name or _kai_llm._gemini_model_name
+        types_mod = _genai_types if _genai_types is not None else _kai_llm.types
+        if client is None or types_mod is None:
+            return _gemini_unavailable_payload("Gemini unavailable for KYC full redraft")
+
+        config = types_mod.GenerateContentConfig(
+            system_instruction=system_instruction,
+            temperature=KAI_LLM_TEMPERATURE,
+            max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
+        )
+
+        def _invoke() -> Any:
+            return client.models.generate_content(
+                model=model_name,
+                contents=user_message,
+                config=config,
+            )
+
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(None, _invoke)
+        rewritten = getattr(response, "text", None)
+        if not rewritten:
+            candidates = getattr(response, "candidates", None) or []
+            if candidates:
+                parts = getattr(getattr(candidates[0], "content", None), "parts", None) or []
+                if parts:
+                    rewritten = getattr(parts[0], "text", None)
+        rewritten = (rewritten or "").strip()
+
+        # Step 7 — Log the instruction hash only. NEVER log the draft body.
+        instruction_hash = hashlib.sha256(instruction.encode("utf-8")).hexdigest()
+        logger.info(
+            "one.kyc.redraft_full user_id=%s workflow_id=%s instruction_hash=%s",
+            user_id,
+            workflow_id,
+            instruction_hash,
+        )
+
+        # Step 8 — Update workflow metadata only (no draft_body). Bump revision.
+        metadata = workflow.get("metadata", {})
+        revision = int(metadata.get("draft_revision") or 1) + 1
+        self._update_workflow(
+            workflow_id,
+            metadata={
+                **metadata,
+                "draft_revision": revision,
+                "last_redraft_source": "llm_full",
+                "last_redraft_at": _utcnow().isoformat(),
+                "last_redraft_instruction_hash": instruction_hash,
+                "client_draft_required": True,
+            },
+        )
+
+        # Step 9 — Return the rewritten body.
+        return {"rewritten_body": rewritten}
+
+    @staticmethod
+    def _draft_values_are_grounded(draft_body: str, extracted: list[dict[str, Any]]) -> bool:
+        """Conservative v1 provenance guard: reject if the draft contains an email address
+        or a 6+ digit run that is not present in (or a substring of) any extracted value.
+
+        Limits: does not catch short invented strings, only email-shaped tokens and long
+        digit sequences. Sufficient as a cheap hallucination backstop for v1.
+        """
+        # re is already imported at module top (line 20) — do NOT import here.
+        allowed = {str(item.get("value", "")).strip() for item in extracted if item.get("value")}
+        for match in re.findall(r"[\w.+-]+@[\w-]+\.[\w.-]+|\b\d{6,}\b", draft_body):
+            if match not in allowed and not any(match in v for v in allowed):
+                return False
+        return True
+
+    async def extract_and_draft(
+        self,
+        *,
+        user_id: str,
+        workflow_id: str,
+        domain: str = "",
+        domain_data: dict[str, Any] | None = None,
+        approved_scopes: list[str],
+        request_text: str,
+        consent_token: str,
+        domains: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Pass 2 — extract exact approved fields from the decrypted domain(s) and
+        compose the reply. Receives full plaintext for the approved domain(s).
+
+        Supports multi-domain via the `domains` parameter (list of
+        {"domain": str, "domain_data": dict}). When `domains` is provided and
+        non-empty, all domains are included in a single LLM call. Falls back to
+        the single-domain `domain`/`domain_data` params for backward compatibility.
+
+        Consent-gated (agent.kyc.disclose.llm). Enforces two fail-closed guardrails:
+          - Subset invariant: extracted[].scope ⊆ approved_scopes.
+          - Value provenance: draft body must not contain PII-shaped tokens absent
+            from the extracted set (email or 6+ digit run).
+        draft_body is NEVER persisted. Only user_id/workflow_id/domain(s)/scopes are logged.
+        """
+        # Step 1 — Consent gate.
+        valid, reason, _tok = await validate_token_with_db(
+            consent_token, ConsentScope.AGENT_KYC_DISCLOSE_LLM
+        )
+        if not valid:
+            raise PermissionError(f"KYC disclose denied: {reason}")
+
+        # Step 2 — Workflow must be awaiting user review with a ready draft.
+        workflow = await self.get_workflow(user_id=user_id, workflow_id=workflow_id)
+        if workflow.get("status") != "waiting_on_user" or workflow.get("draft_status") != "ready":
+            raise OneEmailKycError(
+                "KYC draft is not ready.",
+                status_code=409,
+                code="ONE_KYC_DRAFT_NOT_READY",
+            )
+
+        # Step 3 — Gemini readiness.
+        if not _require_gemini_ready():
+            return _gemini_unavailable_payload("Gemini unavailable for KYC extract/draft")
+
+        # Step 4 — Build prompt and call the structured LLM helper.
+        approved_set = set(_dedupe(approved_scopes))
+
+        # Resolve domain payloads: prefer the multi-domain list, fall back to single.
+        if domains and len(domains) > 0:
+            domain_payloads = domains
+        else:
+            domain_payloads = [{"domain": domain, "domain_data": domain_data or {}}]
+
+        # Build the user-data section covering ALL domains.
+        domain_sections = "\n".join(
+            f"User data for domain '{str(entry.get('domain', ''))}': "
+            f"{json.dumps(entry.get('domain_data') or {})}"
+            for entry in domain_payloads
+        )
+        domain_names_logged = [str(entry.get("domain", "")) for entry in domain_payloads]
+
+        prompt = (
+            "ROLE: You are drafting an email reply ON BEHALF OF the user (the data "
+            "owner) who received a request for their personal information. Write the "
+            "reply FROM the user's first-person perspective, addressed to the party "
+            "who sent the request. Do NOT write from the requester's perspective and "
+            "do NOT sign off as the requester's organisation or support team.\n\n"
+            "GOAL: The reply must DISCLOSE the requested information to the requester. "
+            "Present each approved field with its real extracted value as clearly "
+            "labelled lines (e.g. 'Full name: <value>', 'Address: <value>'), so the "
+            "requester receives the data they asked for.\n\n"
+            f"Approved scopes (extract only these): {json.dumps(sorted(approved_set))}\n"
+            f"{domain_sections}\n\n"
+            f"Inbound request (context for what was asked — the reply ANSWERS it with "
+            f"the user's data):\n{_truncate(request_text, 4000)}\n\n"
+            "Extraction rules:\n"
+            "(1) 'extracted' must list {{scope, label, value}} for each approved field "
+            "found in the data. Every item's 'scope' must be one of the approved scopes "
+            "OR a more specific sub-scope under an approved wildcard (e.g. under "
+            "'attr.identity.*' you may return 'attr.identity.name'). Never return a "
+            "scope outside the approved set.\n"
+            "(2) If an approved field is absent from the data, list its scope in "
+            "'missing' — do NOT fabricate a value. The body should politely note any "
+            "requested-but-unavailable field rather than invent it.\n"
+            "(3) 'draft.body' must use ONLY the real extracted values — never invent "
+            "PII. The body must clearly present each extracted field and its value.\n"
+            "(4) 'draft.subject' should reference the original request (e.g. "
+            "'Re: <original subject or topic>'). Do NOT use the requester's "
+            "organisation name as the sender.\n"
+            "(5) Sign off in the user's name if their name is available in the data; "
+            "otherwise use a neutral sign-off. Do NOT sign as the requester's "
+            "'Customer Support Team' or similar.\n"
+            "Return the JSON."
+        )
+        result = await self._llm_generate_structured(
+            prompt=prompt, response_schema=_KYC_EXTRACT_DRAFT_SCHEMA
+        )
+        if result is None:
+            return _gemini_unavailable_payload("KYC extract/draft produced no parseable result")
+
+        # Step 5 — Subset invariant: extracted scopes ⊆ approved scopes.
+        extracted = result.get("extracted", []) or []
+        if any(item.get("scope") is None for item in extracted):
+            raise OneEmailKycError(
+                "LLM extraction returned an item with a missing scope.",
+                status_code=422,
+                code="ONE_KYC_EXTRACT_MALFORMED",
+            )
+        out_scopes = {str(item["scope"]) for item in extracted if item.get("scope") is not None}
+        unexpected = sorted(
+            s
+            for s in out_scopes
+            if not any(scope_matches(approved, s) for approved in approved_set)
+        )
+        if unexpected:
+            raise OneEmailKycError(
+                "Extraction returned data outside the approved scopes.",
+                status_code=422,
+                code="ONE_KYC_EXTRACT_SUBSET_VIOLATION",
+                payload={"unexpected": unexpected},
+            )
+
+        # Step 6 — Provenance guard: draft body must not contain ungrounded PII tokens.
+        draft_body = str((result.get("draft") or {}).get("body") or "")
+        if not self._draft_values_are_grounded(draft_body, extracted):
+            raise OneEmailKycError(
+                "Draft contains values not grounded in approved data.",
+                status_code=422,
+                code="ONE_KYC_DRAFT_PROVENANCE_VIOLATION",
+            )
+
+        # Step 7 — Log identifiers only; never log body or values.
+        logger.info(
+            "one.kyc.extract_draft user_id=%s workflow_id=%s domains=%s scopes=%s",
+            user_id,
+            workflow_id,
+            domain_names_logged,
+            sorted(out_scopes),
+        )
+
+        # Step 8 — Bump draft_revision, set client_draft_required. Do NOT persist draft_body.
+        metadata = workflow.get("metadata", {}) or {}
+        self._update_workflow(
+            workflow_id,
+            metadata={
+                **metadata,
+                "draft_revision": int(metadata.get("draft_revision") or 0) + 1,
+                "client_draft_required": True,
+            },
+        )
+
+        return result
 
     async def reject_draft(
         self,

@@ -154,6 +154,12 @@ class PlaidPortfolioService:
         self._warned_fallback_encryption_key = False
         self._runtime_config: PlaidRuntimeConfig | None = None
         self._client: PlaidHttpClient | None = None
+        # Environment-scoped configs/clients, keyed by environment name. Used
+        # only when a caller passes an explicit `environment` override (local
+        # dev's dual sandbox/production connect buttons); the default
+        # `self.config`/`self.client` above are untouched for every other path.
+        self._env_configs: dict[str, PlaidRuntimeConfig] = {}
+        self._env_clients: dict[str, PlaidHttpClient] = {}
 
     @property
     def db(self):
@@ -172,6 +178,31 @@ class PlaidPortfolioService:
         if self._client is None:
             self._client = PlaidHttpClient(self.config)
         return self._client
+
+    def _config_for(self, environment: str | None) -> PlaidRuntimeConfig:
+        """Resolve the runtime config for an explicit environment, if given.
+
+        Falls back to the default `self.config` when `environment` is None or
+        matches the default environment already. Only local dev can actually
+        switch environment (see `PlaidRuntimeConfig.from_env`); everywhere
+        else this is a no-op passthrough to the default config.
+        """
+        normalized = _clean_text(environment).lower() or None
+        if not normalized or normalized == self.config.environment:
+            return self.config
+        if normalized not in self._env_configs:
+            self._env_configs[normalized] = PlaidRuntimeConfig.from_env(
+                environment_override=normalized
+            )
+        return self._env_configs[normalized]
+
+    def _client_for(self, environment: str | None) -> PlaidHttpClient:
+        normalized = _clean_text(environment).lower() or None
+        if not normalized or normalized == self.config.environment:
+            return self.client
+        if normalized not in self._env_clients:
+            self._env_clients[normalized] = PlaidHttpClient(self._config_for(normalized))
+        return self._env_clients[normalized]
 
     def _track_background_task(
         self,
@@ -303,8 +334,14 @@ class PlaidPortfolioService:
         )
         return plaintext.decode("utf-8")
 
-    async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return await self.client.post(path, payload)
+    async def _post(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        environment: str | None = None,
+    ) -> dict[str, Any]:
+        return await self._client_for(environment).post(path, payload)
 
     def _row_metadata(self, row: dict[str, Any] | None) -> dict[str, Any]:
         if not isinstance(row, dict):

@@ -116,9 +116,24 @@ def is_owned_by_operator(item: dict) -> bool:
 
 
 def extract_referenced_issues(text: str) -> list[int]:
+    """Extract issue numbers from GitHub closing-keyword references only.
+
+    IMPORTANT: the keyword prefix is REQUIRED, not optional. An earlier
+    version made the keyword group optional (`(?:close|...)?`), which matched
+    ANY bare `#NNN` anywhere in the body -- including CSS hex colors like
+    `#007aff` (captured as issue #007) and narrative cross-references to
+    OTHER PRs ("pairs with #4441", "mirrors #4442") that are not closing
+    references at all. Verified 2026-07-14: this false-matched 4 of ~37 PRs
+    that were actually unlinked, silently marking them "linked" in state and
+    suppressing the unlinked-PR warning that should have fired. A matched
+    non-issue number (e.g. a PR number) also risks get_issue_json()'s
+    pr-view fallback treating a PR as a linkable "issue" -- never let that
+    reach ensure_issue_on_project/update_task; PRs must never land on the
+    board (see board sync SOP: "PRs are NOT board items").
+    """
     if not text:
         return []
-    pattern = r"(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved|ref|refs)?\s*#(\d+)"
+    pattern = r"(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+#(\d+)"
     return [int(n) for n in re.findall(pattern, text, re.IGNORECASE)]
 
 

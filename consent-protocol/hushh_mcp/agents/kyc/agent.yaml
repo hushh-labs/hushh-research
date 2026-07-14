@@ -18,6 +18,7 @@ required_scopes:
   - agent.kyc.process
 optional_scopes:
   - agent.kyc.redraft.llm
+  - agent.kyc.disclose.llm
   - pkm.write
 capabilities:
   drafting_contract_owned_by_adk: true

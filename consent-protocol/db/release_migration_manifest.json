@@ -72,7 +72,8 @@
     "091_public_profile_projection_cutover.sql",
     "092_one_onboarding_journey_v1.sql",
     "093_consent_audit_request_id_text.sql",
-    "094_one_onboarding_callback_attempt_v1.sql"
+    "094_one_onboarding_callback_attempt_v1.sql",
+    "095_one_kyc_needs_confirm_status.sql"
   ],
   "groups": {
     "iam": [
@@ -113,7 +114,8 @@
       "087_scope_policy_v2.sql",
       "092_one_onboarding_journey_v1.sql",
       "093_consent_audit_request_id_text.sql",
-      "094_one_onboarding_callback_attempt_v1.sql"
+      "094_one_onboarding_callback_attempt_v1.sql",
+      "095_one_kyc_needs_confirm_status.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

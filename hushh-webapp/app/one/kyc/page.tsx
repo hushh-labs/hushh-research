@@ -7,6 +7,7 @@ import {
   BadgeCheck,
   Ban,
   BriefcaseBusiness,
+  Check,
   CheckCircle2,
   Clock3,
   Eye,
@@ -60,6 +61,7 @@ import {
 } from "@/lib/consent/consent-events";
 import { useConsentActions, type PendingConsent } from "@/lib/consent";
 import { ROUTES } from "@/lib/navigation/routes";
+import { cn } from "@/lib/utils";
 import {
   hasApprovedKycWorkflowAccess,
   isKycClientDraftReady,
@@ -96,7 +98,7 @@ import {
 import {
   effectiveOneKycRequiredFields,
   OneKycClientZkService,
-  runLlmRedraft,
+  runFullRedraft,
   type KycDraftBuildResult,
 } from "@/lib/services/one-kyc-client-zk-service";
 import {
@@ -111,11 +113,19 @@ import {
   usePublishVoiceSurfaceMetadata,
   type VoiceSurfacePublisherRole,
 } from "@/lib/voice/voice-surface-metadata";
+import {
+  BTN_OUTLINE,
+  BTN_PRIMARY,
+  SELECT_CIRCLE_BASE,
+  SELECT_CIRCLE_OFF,
+  SELECT_CIRCLE_ON,
+} from "./tokens";
 
 const STATUS_LABELS: Record<OneKycWorkflowStatus, string> = {
   needs_client_connector: "Needs vault setup",
   needs_scope: "Needs access",
   needs_documents: "Needs documents",
+  needs_confirm: "Needs confirmation",
   drafting: "Drafting",
   waiting_on_user: "Needs review",
   waiting_on_counterparty: "Sent",
@@ -127,7 +137,7 @@ function statusVariant(
   status: OneKycWorkflowStatus,
 ): "default" | "secondary" | "destructive" | "outline" {
   if (status === "blocked") return "destructive";
-  if (status === "waiting_on_user" || status === "needs_scope")
+  if (status === "waiting_on_user" || status === "needs_scope" || status === "needs_confirm")
     return "default";
   if (status === "completed" || status === "waiting_on_counterparty")
     return "secondary";
@@ -138,7 +148,7 @@ function statusIcon(status: OneKycWorkflowStatus): LucideIcon {
   if (status === "blocked") return Ban;
   if (status === "completed" || status === "waiting_on_counterparty")
     return BadgeCheck;
-  if (status === "needs_scope" || status === "needs_client_connector")
+  if (status === "needs_scope" || status === "needs_client_connector" || status === "needs_confirm")
     return ShieldCheck;
   if (status === "waiting_on_user") return Send;
   return Clock3;
@@ -149,6 +159,26 @@ function workflowConsentRequestIds(workflow: OneKycWorkflow): string[] {
   if (workflow.consent_request_id) ids.add(workflow.consent_request_id);
   for (const request of workflow.consent_requests || []) {
     if (request.request_id) ids.add(request.request_id);
+  }
+  return Array.from(ids);
+}
+
+/** Returns only the request IDs that still need approval (not yet granted). */
+function workflowPendingConsentRequestIds(workflow: OneKycWorkflow): string[] {
+  const ids = new Set<string>();
+  for (const request of workflow.consent_requests || []) {
+    if (request.request_id && request.status !== "granted") {
+      ids.add(request.request_id);
+    }
+  }
+  // Fallback: single-request workflows use the top-level consent_request_id and
+  // may not carry a per-entry status; include it only if there is no per-entry list.
+  if (
+    ids.size === 0 &&
+    (!workflow.consent_requests || workflow.consent_requests.length === 0) &&
+    workflow.consent_request_id
+  ) {
+    ids.add(workflow.consent_request_id);
   }
   return Array.from(ids);
 }
@@ -210,6 +240,7 @@ function emailWorkflowBusyLabel(busy: string | null): string | null {
   if (busy === "reject") return "Rejecting request...";
   if (busy === "redraft") return "Redrafting reply...";
   if (busy === "alias") return "Updating verified email...";
+  if (busy === "confirm-proposal") return "Confirming proposal...";
   return "Working...";
 }
 
@@ -239,6 +270,10 @@ function titleCase(value: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function shouldShowProposal(workflow: OneKycWorkflow): boolean {
+  return workflow.status === "needs_confirm" && Boolean(workflow.metadata?.kyc_proposal);
 }
 
 function shouldSyncWorkflowOnLoad(workflow: OneKycWorkflow): boolean {
@@ -352,7 +387,10 @@ export function OneKycWorkspace({
   const [sentReplySnapshots, setSentReplySnapshots] = useState<
     Record<string, KycWorkflowSentReplySnapshot>
   >({});
-  const [localExportPayloads, setLocalExportPayloads] = useState<
+  // Write-only cache of decrypted export payloads (kept in sync by the setter
+  // for cleanup/retention). The value is not read: the draft-prep path decrypts
+  // fresh and passes decryptedDomains into buildDraftViaLlm directly.
+  const [, setLocalExportPayloads] = useState<
     Record<
       string,
       Array<{ scope?: string | null; payload: Record<string, unknown> }>
@@ -370,6 +408,7 @@ export function OneKycWorkspace({
   const [autoSyncedNeedsScopeIds, setAutoSyncedNeedsScopeIds] = useState<
     Record<string, true>
   >({});
+  const [confirmSelection, setConfirmSelection] = useState<string[]>([]);
   const [connectorReady, setConnectorReady] = useState(false);
   const [emailAliases, setEmailAliases] = useState<AccountEmailAlias[]>([]);
   const [aliasEmail, setAliasEmail] = useState("");
@@ -434,6 +473,17 @@ export function OneKycWorkspace({
       selected.draft_status === "ready" &&
       selectedDraft,
   );
+
+  // Reset confirm-proposal selection when the selected workflow changes
+  useEffect(() => {
+    if (!selected || !shouldShowProposal(selected)) return;
+    const proposal = selected.metadata?.kyc_proposal;
+    const scopes = proposal?.requested_items?.map((item) => item.scope) ?? [];
+    setConfirmSelection(scopes);
+    // Intentionally depends only on identity/status change to avoid resetting mid-session
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.workflow_id, selected?.status]);
+
   const busyLabel = emailWorkflowBusyLabel(busy);
   const showInitialLoading = loading && workflows.length === 0;
   const listRefreshLabel =
@@ -791,10 +841,46 @@ export function OneKycWorkspace({
         // Private KYC draft context is exclusively sourced from exact approved
         // encrypted exports. Public-profile resources never authorize PKM reads.
         const draftPayloads: Array<{ scope?: string | null; payload: Record<string, unknown> }> = exportPayloads;
-        const draft = await OneKycClientZkService.buildDraft({
+        // Deterministic draft — used as-is or as fallback if LLM Pass 2 fails.
+        let draft = await OneKycClientZkService.buildDraft({
           workflow: selected,
           exportPayloads: draftPayloads,
         });
+        // Pass 2: send the decrypted approved domain data to the LLM endpoint and
+        // replace the draft with the LLM-composed version. On any error, log a
+        // non-fatal message and leave the deterministic draft intact so the user
+        // still gets a valid draft to approve.
+        try {
+          const decryptedDomains = exportPayloads.map((ep) => ({
+            domain:
+              String(ep.scope ?? "identity")
+                .replace(/^attr\./, "")
+                .replace(/\.\*$/, "")
+                .split(".")[0] ?? "identity",
+            scope: ep.scope ?? null,
+            data: ep.payload,
+          }));
+          const approvedScopes =
+            selected.selected_scopes ??
+            selected.requested_scopes ??
+            (selected.requested_scope ? [selected.requested_scope] : []);
+          const requestText = [selected.subject, selected.snippet]
+            .filter(Boolean)
+            .join("\n\n");
+          draft = await OneKycClientZkService.buildDraftViaLlm({
+            workflow: selected,
+            input: { userId, vaultOwnerToken },
+            decryptedDomains,
+            approvedScopes,
+            requestText,
+          });
+        } catch (llmErr) {
+          if (!cancelled) {
+            setError(
+              oneKycErrorMessage(llmErr, "LLM draft unavailable; using deterministic draft."),
+            );
+          }
+        }
         if (!cancelled) {
           setLocalDrafts((current) => ({
             ...current,
@@ -985,32 +1071,25 @@ export function OneKycWorkspace({
             setError("Prepare the email draft before revising it.");
             return;
           }
-          const exportPayloads = localExportPayloads[workflow.workflow_id] || [];
-          const result = await runLlmRedraft({
-            localDraft,
-            instruction: redraftInstructions.trim(),
-            workflow,
-            exportPayloads,
-            llmRewrite: (tokenizedTemplate, instruction) =>
-              OneKycService.redraftWithLlm({
-                ...input,
-                tokenizedTemplate,
-                instruction,
-              }).then((response) => response.rewritten_template),
-          });
-          if (!result.ok) {
-            setError(
-              result.errorCode === "TOKEN_INTEGRITY"
-                ? "AI output failed token integrity check — using original draft. Try again or use a simpler instruction."
-                : "AI output altered the consented field set — using original draft. Try again.",
-            );
-            setRedraftInstructions("");
-            return;
+          try {
+            const result = await runFullRedraft({
+              localDraft,
+              instruction: redraftInstructions.trim(),
+              workflow,
+              input,
+            });
+            if (!result.ok) {
+              setError("Redraft failed — please try again.");
+              setRedraftInstructions("");
+              return;
+            }
+            setLocalDrafts((current) => ({
+              ...current,
+              [workflow.workflow_id]: result.draft,
+            }));
+          } catch {
+            setError("Redraft failed — please try again.");
           }
-          setLocalDrafts((current) => ({
-            ...current,
-            [workflow.workflow_id]: result.draft,
-          }));
           setRedraftInstructions("");
           return;
         }
@@ -1151,7 +1230,6 @@ export function OneKycWorkspace({
       auth.user,
       auth.userId,
       clearLocalWorkflowState,
-      localExportPayloads,
       localDrafts,
       redraftInstructions,
       refreshWorkflowState,
@@ -1193,9 +1271,13 @@ export function OneKycWorkspace({
       if (!auth.userId || !vaultOwnerToken) {
         throw new Error("Sign in again to approve access.");
       }
-      const requestIds = workflowConsentRequestIds(workflow);
+      // Use only PENDING request IDs — already-granted ones are satisfied and
+      // will not appear in the pending-requests lookup, which would produce a
+      // false "missing" error for MIXED consent bundles.
+      const requestIds = workflowPendingConsentRequestIds(workflow);
       if (requestIds.length === 0) {
-        throw new Error("No access request is ready for this email yet.");
+        // All consent requests are already granted; nothing left to approve.
+        return [];
       }
       const lookup = await ConsentCenterService.lookupPendingRequests({
         vaultOwnerToken,
@@ -1226,7 +1308,13 @@ export function OneKycWorkspace({
           return;
         }
         const consents = await loadPendingConsentsForWorkflow(withRequests);
-        if (consents.length === 1) {
+        if (consents.length === 0) {
+          // All consent requests were already granted; refresh so the backend
+          // advances the workflow to draft without re-approving.
+          await refreshWorkflowState(withRequests);
+          toast.success("Access already approved. Preparing draft.");
+          return;
+        } else if (consents.length === 1) {
           const consent = consents[0];
           if (!consent) {
             throw new Error("No access request is ready for this email yet.");
@@ -1501,6 +1589,36 @@ export function OneKycWorkspace({
     });
   }, []);
 
+  const toggleConfirmScope = useCallback((scope: string) => {
+    setConfirmSelection((current) =>
+      current.includes(scope)
+        ? current.filter((item) => item !== scope)
+        : [...current, scope],
+    );
+  }, []);
+
+  const confirmProposal = useCallback(
+    async (workflow: OneKycWorkflow) => {
+      if (!auth.userId || !vaultOwnerToken) return;
+      setBusy("confirm-proposal");
+      setError(null);
+      try {
+        const next = await OneKycService.confirmProposal({
+          userId: auth.userId,
+          vaultOwnerToken,
+          workflowId: workflow.workflow_id,
+          approvedScopes: confirmSelection,
+        });
+        updateWorkflow(next);
+      } catch (err) {
+        setError(oneKycErrorMessage(err, "Unable to confirm proposal."));
+      } finally {
+        setBusy(null);
+      }
+    },
+    [auth.userId, confirmSelection, updateWorkflow, vaultOwnerToken],
+  );
+
   return (
     <AppPageShell
       width="content"
@@ -1522,17 +1640,17 @@ export function OneKycWorkspace({
           accent="neutral"
           actions={
             <div className="flex flex-wrap justify-end gap-2">
-              <Button
-                variant="outline"
-                size="sm"
+              <button
+                type="button"
+                className={cn(BTN_PRIMARY)}
                 onClick={() => setAliasPanelOpen(true)}
               >
                 <MailPlus className="size-4" />
                 Email aliases
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
+              </button>
+              <button
+                type="button"
+                className={cn(BTN_PRIMARY)}
                 onClick={() => void load({ syncMailbox: true })}
                 disabled={loading}
               >
@@ -1540,7 +1658,7 @@ export function OneKycWorkspace({
                   className={loading ? "size-4 animate-spin" : "size-4"}
                 />
                 Refresh
-              </Button>
+              </button>
             </div>
           }
         />
@@ -1634,10 +1752,9 @@ export function OneKycWorkspace({
             </SettingsGroup>
             {hasMoreWorkflows ? (
               <div className="flex justify-center">
-                <Button
+                <button
                   type="button"
-                  variant="outline"
-                  size="sm"
+                  className={cn(BTN_OUTLINE)}
                   onClick={() => void loadMore()}
                   disabled={loadingMore}
                 >
@@ -1647,7 +1764,7 @@ export function OneKycWorkspace({
                     <RefreshCw className="size-4" />
                   )}
                   {loadingMore ? "Loading..." : "Load more"}
-                </Button>
+                </button>
               </div>
             ) : null}
           </div>
@@ -1728,6 +1845,77 @@ export function OneKycWorkspace({
                 </SettingsGroup>
               ) : null}
 
+              {shouldShowProposal(selected) ? (() => {
+                const proposal = selected.metadata?.kyc_proposal;
+                if (!proposal) return null;
+                return (
+                  <SettingsGroup
+                    embedded
+                    title="What One will share"
+                    description={proposal.reasoning}
+                  >
+                    {proposal.requested_items.map((item) => {
+                      const checked = confirmSelection.includes(item.scope);
+                      return (
+                        <SettingsRow
+                          key={item.scope}
+                          icon={ShieldCheck}
+                          title={item.label}
+                          description={item.rationale}
+                          trailing={
+                            <button
+                              type="button"
+                              role="checkbox"
+                              aria-checked={checked}
+                              aria-label={`Select ${item.label}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                toggleConfirmScope(item.scope);
+                              }}
+                              className="flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-1"
+                            >
+                              <span className={cn(SELECT_CIRCLE_BASE, checked ? SELECT_CIRCLE_ON : SELECT_CIRCLE_OFF)}>
+                                {checked ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : null}
+                              </span>
+                            </button>
+                          }
+                          onClick={() => toggleConfirmScope(item.scope)}
+                          stackTrailingOnMobile
+                        />
+                      );
+                    })}
+                    <div className="flex flex-wrap gap-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+                      <button
+                        type="button"
+                        className={cn(BTN_PRIMARY)}
+                        onClick={() => void confirmProposal(selected)}
+                        disabled={Boolean(busy) || confirmSelection.length === 0}
+                      >
+                        {busy === "confirm-proposal" ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <ShieldCheck className="size-4" />
+                        )}
+                        {busy === "confirm-proposal" ? "Confirming..." : "Confirm"}
+                      </button>
+                      <button
+                        type="button"
+                        className={cn(BTN_OUTLINE)}
+                        onClick={() => setArchiveTarget(selected)}
+                        disabled={Boolean(archivingWorkflowId)}
+                      >
+                        {archivingWorkflowId === selected.workflow_id ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <XCircle className="size-4" />
+                        )}
+                        {archivingWorkflowId === selected.workflow_id ? "Removing..." : "Reject"}
+                      </button>
+                    </div>
+                  </SettingsGroup>
+                );
+              })() : null}
+
               {shouldShowDataSelection(selected) ? (
                 <SettingsGroup
                   embedded
@@ -1776,16 +1964,21 @@ export function OneKycWorkspace({
                             >
                               <Eye className="size-4" />
                             </Button>
-                            <input
-                              type="checkbox"
-                              className="size-4 accent-foreground"
-                              checked={checked}
-                              onClick={(event) => event.stopPropagation()}
-                              onChange={() =>
-                                toggleScope(selected, candidate.scope)
-                              }
+                            <button
+                              type="button"
+                              role="checkbox"
+                              aria-checked={checked}
                               aria-label={`Select ${candidateLabel}`}
-                            />
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                toggleScope(selected, candidate.scope);
+                              }}
+                              className="flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-1"
+                            >
+                              <span className={cn(SELECT_CIRCLE_BASE, checked ? SELECT_CIRCLE_ON : SELECT_CIRCLE_OFF)}>
+                                {checked ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : null}
+                              </span>
+                            </button>
                           </div>
                         }
                         onClick={() => toggleScope(selected, candidate.scope)}
@@ -1795,8 +1988,9 @@ export function OneKycWorkspace({
                   })}
                   <div className="flex flex-wrap gap-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
                     {selectedScopeSelectionChanged ? (
-                      <Button
+                      <button
                         type="button"
+                        className={cn(BTN_PRIMARY)}
                         onClick={() => void applyScopeSelection(selected)}
                         disabled={Boolean(busy) || selectedScopeSelection.length === 0}
                       >
@@ -1806,11 +2000,12 @@ export function OneKycWorkspace({
                           <RefreshCw className="size-4" />
                         )}
                         {busy === "refresh" ? "Updating..." : "Update draft"}
-                      </Button>
+                      </button>
                     ) : selectedNeedsAccessApproval ? (
                       <>
-                        <Button
+                        <button
                           type="button"
+                          className={cn(BTN_PRIMARY)}
                           onClick={() => void approveWorkflowConsent(selected)}
                           disabled={
                             Boolean(busy) ||
@@ -1830,10 +2025,10 @@ export function OneKycWorkspace({
                           {busy === "consent-approve"
                             ? "Approving..."
                             : "Approve access"}
-                        </Button>
-                        <Button
+                        </button>
+                        <button
                           type="button"
-                          variant="outline"
+                          className={cn(BTN_OUTLINE)}
                           onClick={() => void denyWorkflowConsent(selected)}
                           disabled={
                             Boolean(busy) ||
@@ -1851,12 +2046,12 @@ export function OneKycWorkspace({
                             <XCircle className="size-4" />
                           )}
                           {busy === "consent-deny" ? "Denying..." : "Deny"}
-                        </Button>
+                        </button>
                       </>
                     ) : selectedAccessApproved && selected.status === "needs_scope" ? (
-                      <Button
+                      <button
                         type="button"
-                        variant="outline"
+                        className={cn(BTN_PRIMARY)}
                         onClick={() => void runAction("refresh", selected)}
                         disabled={Boolean(busy)}
                         data-voice-control-id="one-kyc-sync-status"
@@ -1868,7 +2063,7 @@ export function OneKycWorkspace({
                           }
                         />
                         {busy === "refresh" ? "Preparing..." : "Prepare draft"}
-                      </Button>
+                      </button>
                     ) : (
                       <span className="text-sm text-muted-foreground">
                         The draft will use the selected data.
@@ -1951,8 +2146,9 @@ export function OneKycWorkspace({
                       className="min-h-24"
                       data-voice-control-id="one-kyc-redraft-instructions"
                     />
-                    <Button
-                      variant="outline"
+                    <button
+                      type="button"
+                      className={cn(BTN_PRIMARY)}
                       onClick={() => void runAction("redraft", selected)}
                       disabled={
                         Boolean(busy) ||
@@ -1968,7 +2164,7 @@ export function OneKycWorkspace({
                         <PenLine className="size-4" />
                       )}
                       {busy === "redraft" ? "Redrafting..." : "Redraft"}
-                    </Button>
+                    </button>
                   </div>
                 </SettingsGroup>
               ) : null}
@@ -2022,8 +2218,9 @@ export function OneKycWorkspace({
               ) : (
                 <SettingsGroup embedded title="Actions">
                   <div className="flex flex-wrap gap-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-                    <Button
-                      variant="outline"
+                    <button
+                      type="button"
+                      className={cn(BTN_OUTLINE)}
                       onClick={() => void runAction("refresh", selected)}
                       disabled={Boolean(busy)}
                       data-voice-control-id="one-kyc-sync-status"
@@ -2035,8 +2232,10 @@ export function OneKycWorkspace({
                         }
                       />
                       {busy === "refresh" ? "Syncing..." : "Sync status"}
-                    </Button>
-                    <Button
+                    </button>
+                    <button
+                      type="button"
+                      className={cn(BTN_PRIMARY)}
                       onClick={() => void runAction("approve", selected)}
                       disabled={Boolean(busy) || !selectedCanReviewDraft}
                       data-voice-control-id="one-kyc-approve-send"
@@ -2048,9 +2247,10 @@ export function OneKycWorkspace({
                         <Send className="size-4" />
                       )}
                       {busy === "approve" ? "Sending..." : "Approve send"}
-                    </Button>
-                    <Button
-                      variant="outline"
+                    </button>
+                    <button
+                      type="button"
+                      className={cn(BTN_OUTLINE)}
                       onClick={() => void runAction("reject", selected)}
                       disabled={
                         Boolean(busy) || selected.status !== "waiting_on_user"
@@ -2064,7 +2264,7 @@ export function OneKycWorkspace({
                         <XCircle className="size-4" />
                       )}
                       {busy === "reject" ? "Rejecting..." : "Reject"}
-                    </Button>
+                    </button>
                   </div>
                 </SettingsGroup>
               )}
@@ -2231,13 +2431,11 @@ export function OneKycWorkspace({
                   </p>
                 ) : null}
                 <div className="grid gap-2 sm:flex sm:flex-wrap">
-                  <Button
+                  <button
                     type="button"
-                    variant="outline"
-                    size="sm"
+                    className={cn(BTN_OUTLINE, "w-full sm:w-auto")}
                     onClick={() => void startAliasVerification()}
                     disabled={Boolean(busy) || !aliasEmail.trim()}
-                    className="w-full sm:w-auto"
                   >
                     {busy === "alias" ? (
                       <Loader2 className="size-4 animate-spin" />
@@ -2245,15 +2443,14 @@ export function OneKycWorkspace({
                       <MailPlus className="size-4" />
                     )}
                     {busy === "alias" ? "Sending..." : "Send code"}
-                  </Button>
-                  <Button
+                  </button>
+                  <button
                     type="button"
-                    size="sm"
+                    className={cn(BTN_PRIMARY, "w-full sm:w-auto")}
                     onClick={() => void confirmAliasVerification()}
                     disabled={
                       Boolean(busy) || !aliasChallenge || !aliasCode.trim()
                     }
-                    className="w-full sm:w-auto"
                   >
                     {busy === "alias" ? (
                       <Loader2 className="size-4 animate-spin" />
@@ -2261,7 +2458,7 @@ export function OneKycWorkspace({
                       <BadgeCheck className="size-4" />
                     )}
                     {busy === "alias" ? "Verifying..." : "Verify email"}
-                  </Button>
+                  </button>
                 </div>
               </div>
             </SettingsGroup>

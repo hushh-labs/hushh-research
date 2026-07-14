@@ -10,9 +10,9 @@ import {
   LockKeyhole,
   MapPin,
   ShieldCheck,
-  UserRound,
   UserPlus,
 } from "lucide-react";
+
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import type { ConsentNotificationDeliveryMode } from "@/components/consent/notification-provider";
@@ -224,13 +224,18 @@ function ProgressDots({ activeIndex }: { activeIndex: number }) {
 }
 
 function WelcomeRadar({ people }: { people: DirectoryPerson[] }) {
-  const shown = people
+  const connected = people
     .filter((person) => person.relationship === "connected")
     .slice(0, 3);
+  // Always render three avatar bubbles in an evenly-spaced triangle around the
+  // center pin. Real connected people fill first; remaining slots fall back to
+  // dummy contact avatars so the radar never looks empty and keeps consistent
+  // distancing from the middle on every device.
+  const slots = [0, 1, 2].map((index) => connected[index] ?? null);
   const positions = [
-    "left-[18%] top-[55%]",
-    "right-[14%] top-[48%]",
-    "right-[28%] top-[8%]",
+    "left-1/2 top-[3%] -translate-x-1/2",
+    "left-[9%] bottom-[15%]",
+    "right-[9%] bottom-[15%]",
   ];
 
   return (
@@ -252,27 +257,21 @@ function WelcomeRadar({ people }: { people: DirectoryPerson[] }) {
       <span className="absolute left-1/2 top-1/2 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-[5px] border-white/85 bg-white text-[#087cf0] shadow-[0_14px_30px_rgba(0,35,93,0.3)]">
         <MapPin className="h-8 w-8 fill-[#087cf0]/12" strokeWidth={2.25} />
       </span>
-      {shown.length > 0
-        ? shown.map((person, index) => (
-            <span key={person.userId} className={cn("absolute", positions[index])}>
-              <Avatar name={safeName(person.displayName)} photoUrl={person.photoUrl} />
-              <span className="absolute -right-0.5 -top-0.5 h-5 w-5 rounded-full border-[3px] border-white bg-[#34c759]" />
-            </span>
-          ))
-        : positions.map((position, index) => (
-            <span
-              key={position}
-              className={cn(
-                "absolute flex h-14 w-14 items-center justify-center rounded-full border-[3px] border-white/90 bg-white/22 text-white shadow-[0_10px_22px_rgba(0,38,95,0.22)] backdrop-blur-sm",
-                position,
-              )}
-            >
-              <UserRound className="h-6 w-6" />
-              {index === 0 ? (
-                <span className="absolute -right-0.5 -top-0.5 h-5 w-5 rounded-full border-[3px] border-white bg-[#34c759]" />
-              ) : null}
-            </span>
-          ))}
+      {slots.map((person, index) => (
+        <span
+          key={person?.userId ?? `dummy-${index}`}
+          className={cn("absolute", positions[index])}
+        >
+          {person ? (
+            <Avatar name={safeName(person.displayName)} photoUrl={person.photoUrl} />
+          ) : (
+            <DummyContactAvatar index={index} large />
+          )}
+          {index === 0 ? (
+            <span className="absolute -right-0.5 -top-0.5 h-5 w-5 rounded-full border-[3px] border-white bg-[#34c759]" />
+          ) : null}
+        </span>
+      ))}
     </div>
   );
 }
@@ -437,24 +436,29 @@ function FeatureScreen({
       title: "Know when they arrive",
       body: `"${arrivalName} arrived at Office" - get a quiet alert the moment your people reach the places that matter.`,
       visual: <ArrivalIllustration person={connectedPeople[0]} />,
+      // Near-white gradient tuned to each illustration's own light backdrop so
+      // the art blends seamlessly into the screen with no visible image edge.
+      gradient: "from-[#f6f7fa] to-[#eef0f4] dark:from-[#14171d] dark:to-[#14171d]",
       cta: "Continue",
     },
     checkin: {
       title: "Let them know you're here",
       body: `"${checkinName} checked in" - one tap tells your trusted people where you are. No call needed.`,
       visual: <CheckinIllustration person={connectedPeople[1] ?? connectedPeople[0]} />,
+      gradient: "from-[#faf9f6] to-[#f2efea] dark:from-[#14171d] dark:to-[#14171d]",
       cta: "Continue",
     },
     sos: {
       title: "Help when it matters most",
       body: `"Help sent" - SOS shares your live location with selected people, instantly.`,
       visual: <SosIllustration people={connectedPeople} />,
+      gradient: "from-[#faf8f6] to-[#f2efea] dark:from-[#14171d] dark:to-[#14171d]",
       cta: "Create my circle",
     },
   }[screen];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-[#fbf8f3] dark:bg-[#14171d]">
+    <div className={cn("flex min-h-0 flex-1 flex-col bg-gradient-to-b", content.gradient)}>
       <TopNavigation onBack={onBack} onSkip={onSkip} />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pb-3">
         <h1 className="mx-auto mb-3 max-w-[360px] text-center text-[31px] font-bold leading-[1.12] text-[#1e2a3d] dark:text-[#f5f7fb]">
@@ -640,6 +644,7 @@ function CircleScreen({
   failedCount,
   requestsSending,
   onBack,
+  onAddPeople,
   onContinue,
 }: {
   currentUserName: string;
@@ -648,6 +653,8 @@ function CircleScreen({
   failedCount: number;
   requestsSending: boolean;
   onBack: () => void;
+  /** Return to the "Add people" screen when the circular add (+) button is tapped. */
+  onAddPeople: () => void;
   onContinue: () => void;
 }) {
   const pendingCount = members.filter((member) => member.status === "pending").length;
@@ -698,11 +705,16 @@ function CircleScreen({
               ) : null}
             </span>
           ))}
-          {shown.length === 0 ? (
-            <span className="absolute bottom-[8%] right-[9%] flex h-16 w-16 items-center justify-center rounded-full border-2 border-dashed border-[#83c4fb] bg-[#eaf5ff] text-[#087cf0]">
-              <UserPlus className="h-7 w-7" />
-            </span>
-          ) : null}
+          {/* Add-person (+) button — always available so the user can jump back
+              to the "Add people" screen to grow their circle. */}
+          <button
+            type="button"
+            onClick={onAddPeople}
+            aria-label="Add people to your circle"
+            className="absolute bottom-[8%] right-[9%] flex h-16 w-16 items-center justify-center rounded-full border-2 border-dashed border-[#83c4fb] bg-[#eaf5ff] text-[#087cf0] transition-transform active:scale-95 hover:bg-[#dbeeff]"
+          >
+            <UserPlus className="h-7 w-7" />
+          </button>
         </div>
 
         <div className="mt-5 flex gap-4 rounded-[22px] bg-[#f5f8fb] px-5 py-5 shadow-[0_8px_24px_rgba(35,55,78,0.08)] dark:bg-[#1c212a] dark:shadow-[0_8px_24px_rgba(0,0,0,0.2)]">
@@ -1065,6 +1077,7 @@ export function OneLocationOnboardingFlow({
             failedCount={failedRequestCount}
             requestsSending={requestsSending}
             onBack={() => setScreen("people")}
+            onAddPeople={() => setScreen("people")}
             onContinue={() => setScreen("permissions")}
           />
         ) : null}
