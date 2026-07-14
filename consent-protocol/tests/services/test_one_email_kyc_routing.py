@@ -54,6 +54,64 @@ async def test_classify_routes_hotel_booking_to_identity():
 
 
 @pytest.mark.asyncio
+async def test_classify_hotel_booking_excludes_travel_domain():
+    """Regression guard for the hotel-booking mis-routing bug.
+
+    When the pkm_index exposes BOTH identity and travel domains and the
+    inbound email asks the user to 'provide your information to confirm
+    your hotel booking', classify_kyc_request must route to identity, NOT
+    travel — because the request is for KYC personal data, not itinerary data.
+    """
+    service = get_one_email_kyc_service()
+    routing = {
+        "classification": "kyc",
+        "requested_items": [
+            {
+                "label": "Full name",
+                "domain": "identity",
+                "scope": "attr.identity.name",
+                "rationale": "Hotel booking confirmation requests personal identity data",
+            },
+            {
+                "label": "Residential address",
+                "domain": "identity",
+                "scope": "attr.identity.address",
+                "rationale": "Address is required to confirm the booking reservation",
+            },
+        ],
+        "primary_domains": ["identity"],
+        "confidence": 0.92,
+        "reasoning": (
+            "The email requests identity data (name, address) to confirm a hotel booking. "
+            "The travel domain describes itinerary preferences, not KYC fields."
+        ),
+    }
+    with patch.object(service, "_llm_generate_structured", return_value=routing) as gen:
+        result = await service.classify_kyc_request(
+            subject="Action required: confirm your hotel booking",
+            body=(
+                "Dear guest, please provide your information to confirm your hotel booking. "
+                "We need your full name, address, and date of birth to complete your reservation."
+            ),
+            pkm_index={
+                "available_domains": ["identity", "travel"],
+                "domain_summaries": {
+                    "travel": "flight search history, hotel preferences, trip notes",
+                    "identity": "full name, date of birth, residential address",
+                },
+            },
+        )
+
+    assert result["primary_domains"] == ["identity"], (
+        f"Expected ['identity'] but got {result['primary_domains']}"
+    )
+    assert "travel" not in result["primary_domains"], (
+        "travel domain must not appear in primary_domains for a hotel-booking KYC request"
+    )
+    gen.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_classify_returns_fallback_when_llm_returns_none():
     """When _llm_generate_structured returns None, classify_kyc_request must
     return the _gemini_unavailable_payload shape (fallback=True)."""
