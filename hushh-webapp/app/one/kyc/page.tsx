@@ -96,13 +96,11 @@ import {
 import {
   effectiveOneKycRequiredFields,
   OneKycClientZkService,
-  runLlmRedraft,
   runFullRedraft,
   type KycDraftBuildResult,
 } from "@/lib/services/one-kyc-client-zk-service";
 import {
   OneKycService,
-  type KycProposal,
   type OneKycScopeCandidate,
   type OneKycWorkflow,
   type OneKycWorkflowStatus,
