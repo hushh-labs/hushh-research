@@ -326,7 +326,7 @@ function FeatureAlert({
 function ArrivalIllustration({ person }: { person?: DirectoryPerson }) {
   return (
     <div
-      className="relative mx-auto h-[clamp(300px,48dvh,410px)] w-full max-w-[410px] overflow-hidden bg-[#fbf9f5]"
+      className="relative mx-auto h-[clamp(300px,48dvh,410px)] w-full max-w-[410px] overflow-hidden rounded-[24px] bg-transparent"
       data-testid="arrival-product-preview"
       aria-hidden="true"
     >
@@ -342,6 +342,7 @@ function ArrivalIllustration({ person }: { person?: DirectoryPerson }) {
         action="arrived"
         detail="at Office"
         accent="violet"
+
         dummyIndex={0}
       />
     </div>
@@ -351,8 +352,9 @@ function ArrivalIllustration({ person }: { person?: DirectoryPerson }) {
 function CheckinIllustration({ person }: { person?: DirectoryPerson }) {
   return (
     <div
-      className="relative mx-auto h-[clamp(300px,48dvh,410px)] w-full max-w-[410px] overflow-hidden bg-[#fbf8f3]"
+      className="relative mx-auto h-[clamp(300px,48dvh,410px)] w-full max-w-[410px] overflow-hidden rounded-[24px] bg-transparent"
       data-testid="checkin-product-preview"
+
       aria-hidden="true"
     >
       {/* eslint-disable-next-line @next/next/no-img-element -- Generated onboarding art must render in Capacitor static export. */}
@@ -454,13 +456,17 @@ function FeatureScreen({
   }[screen];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-[#fbf8f3]">
+    // Warm cream-to-beige gradient behind all three onboarding sliders so the
+    // whole screen blends seamlessly with the warm-toned illustration art
+    // (matching the reference image) instead of a flat background color.
+    <div className="flex min-h-0 flex-1 flex-col bg-gradient-to-b from-[#fdfaf4] via-[#faf1e3] to-[#f3e2cd]">
       <TopNavigation onBack={onBack} onSkip={onSkip} />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pb-3">
         <h1 className="mx-auto mb-3 max-w-[360px] text-center text-[31px] font-bold leading-[1.12] text-[#1e2a3d]">
           {content.title}
         </h1>
         <div className="my-auto">{content.visual}</div>
+
         <p className="mx-auto mt-3 max-w-[375px] text-center text-[17px] font-semibold leading-[1.45] text-[#263447]">
           {content.body}
         </p>
