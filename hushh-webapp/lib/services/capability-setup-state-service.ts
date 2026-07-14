@@ -121,6 +121,15 @@ export interface CapabilitySetupInputs {
    * yet (or vault locked). Fed by a lightweight `getState` fetch when unlocked.
    */
   locationRecipientKeyReady?: boolean;
+  /**
+   * RIA readiness signal: whether the user has an onboarded RIA profile (a
+   * `ria_profiles` row exists, which the backend creates only on onboarding
+   * submit — never for a partial license check). `true` → onboarded, `false` →
+   * no profile, `undefined` → not fetched yet. Fed by a lightweight
+   * `getOnboardingStatus` fetch. Unlike location this does not require the vault,
+   * so an onboarded RIA reads as complete even before unlock.
+   */
+  riaOnboarded?: boolean;
 }
 
 /** Capabilities that require an OAuth connection to a third party. */
@@ -289,6 +298,20 @@ function resolveLocation(inputs: CapabilitySetupInputs): CapabilityStatus {
   return unknown("location", null, false);
 }
 
+/**
+ * Resolve the RIA capability. "Set up" means the user has an onboarded RIA
+ * profile (an existing `ria_profiles` row). When that live signal says onboarded
+ * we mark it `completed` regardless of vault state — the profile exists whether
+ * or not the vault is unlocked this session. Otherwise fall back to the generic
+ * vault-gated behaviour (locked → "Unlock to view", active journey →
+ * "in-progress", unlocked-but-none → "Set up RIA") so nothing is fabricated and
+ * the durable "Finish RIA setup" terminal id still completes it.
+ */
+function resolveRia(inputs: CapabilitySetupInputs): CapabilityStatus {
+  if (inputs.riaOnboarded === true) return simple("ria", "completed");
+  return resolveVaultGated("ria", inputs);
+}
+
 /** Resolve an OAuth-gated capability from caller-supplied connection booleans. */
 function resolveOauthGated(
   id: string,
@@ -322,6 +345,7 @@ export function resolveCapabilitySetupState(
   if (id === "finance") return resolveFinance(inputs);
   if (id === "consent") return resolveConsent(inputs);
   if (id === "location") return resolveLocation(inputs);
+  if (id === "ria") return resolveRia(inputs);
   if (OAUTH_GATED.has(id)) return resolveOauthGated(id, inputs);
 
   const capability = getOneCapability(id);
