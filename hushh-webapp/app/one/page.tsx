@@ -13,9 +13,11 @@ import { useCapabilitySetupStates } from "@/lib/onboarding/use-capability-setup-
 export default function OneHomePage() {
   const router = useRouter();
   const { user, loading } = useAuth();
-  // Dashboard uses coarse states only (no vault/oauth enrichment) so it stays
-  // cheap; the /one/setup flow opts into full enrichment for skip-vs-continue.
-  const { byId } = useCapabilitySetupStates();
+  // Dashboard stays coarse (no vault/oauth enrichment) to stay cheap, but opts
+  // into `enrichRia` — a single cached getOnboardingStatus call — so the
+  // "N of 6 ready" count matches the /one/setup hub. Without it, an onboarded
+  // RIA counts on the hub but not here (the count read "1 of 6" vs "2 of 6").
+  const { byId } = useCapabilitySetupStates({ enrichRia: true });
 
   useEffect(() => {
     if (!loading && !user) {
