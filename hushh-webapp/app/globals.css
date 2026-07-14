@@ -1,6 +1,27 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+
+/*
+ * The Location introduction is mounted only after the client has resolved a
+ * vault-backed first-run state. Tailwind's incremental scanner cannot infer
+ * that deferred branch from the server render, which previously omitted its
+ * essential background and text utilities from the first stylesheet. Keep the
+ * authored flow explicitly in the source graph so its complete shell is ready
+ * before React mounts the portal.
+ */
+@source "../components/one-location/onboarding/one-location-onboarding-flow.tsx";
+
+/*
+ * The Location hub (SharingStatusCard hero, live/route maps) mounts behind a
+ * vault gate and per-tab lazy branches, so the incremental scanner misses
+ * utilities that only appear there (e.g. the dark-theme card surfaces and the
+ * dark map-embed filters). Keep the whole redesign folder plus the shared map
+ * components in the source graph.
+ */
+@source "../components/one-location/redesign";
+@source "../components/one-location/live-map.tsx";
+
 /* ============================================================================
  * MOBILE UX & ACCESSIBILITY FIXES
  * ============================================================================ */
@@ -183,7 +204,7 @@ a, button, input, select, textarea {
   --foundation-micro-line: 1.273;
   --foundation-micro-weight: 600;
   --foundation-micro-tracking: 0.2em;
-  --foundation-gold: #B8894D;
+  --foundation-gold: var(--app-accent-deep);
 
   /* Foundation color system (light) — adopted verbatim from hushh-search-console
      (the design bible). Gold = emphasis/markers ONLY; ink/gray carry the reading
@@ -193,11 +214,43 @@ a, button, input, select, textarea {
   --foundation-off: #f5f5f7;
   --foundation-surface: #ffffff;
   --foundation-hairline: #e5e5ea;
-  --foundation-gold-accent: #d4a574;        /* fills / markers */
-  --foundation-gold-deep: #b8894d;          /* TEXT / icons on light */
-  --foundation-accent-surface: #f7f1e8;     /* warm cream */
-  --foundation-accent-surface-strong: #efe4d2;
-  --foundation-accent-border: #e8d8bf;
+
+  /* ── App accent family (light) ─────────────────────────────────
+     The ONE switchable accent identity. Default = iOS Blue (the Location
+     route's Apple Blue v2 language, promoted app-wide). The Molten Gold
+     preference overrides these under html[data-accent="gold"] below.
+     Rules:
+     - components consume ONLY these neutral names (or their aliases),
+       never raw accent hexes; scripts/design/verify-accent-tokens.mjs
+       enforces this.
+     - -deep is the TEXT-legible tone on light surfaces; -bright is the
+       TEXT-legible tone on dark surfaces; -tint/-surface are fills. */
+  /* Values are the EXACT Apple Blue v2 recipe from the Location redesign
+     (the reference implementation): pure system blue #007aff carries both
+     text and fills on light — never a derived darker tone. */
+  --app-accent: #007aff;                    /* solid fills / CTAs */
+  --app-accent-deep: #007aff;               /* TEXT / icons on light = same system blue */
+  --app-accent-bright: #4a9eff;             /* dark-mode solid partner */
+  --app-accent-tint: rgba(0, 122, 255, 0.10);
+  --app-accent-surface: #e6f0ff;            /* Location's active-pill fill */
+  --app-accent-surface-strong: #d4e5ff;
+  --app-accent-border: rgba(0, 122, 255, 0.32);
+  --app-accent-fg: #ffffff;                 /* text on solid accent */
+  --app-accent-hover: #0070ea;              /* pressed/hover partner of the solid fill */
+  --app-accent-ring: rgba(0, 122, 255, 0.25);
+  /* Hero gradient stops (intro "One" molten text + brand glyph strokes). */
+  --app-accent-hero-from: #0a4d9e;
+  --app-accent-hero-mid: #007aff;
+  --app-accent-hero-to: #8fc3ff;
+
+  /* Legacy gold names now ALIAS the accent family so every existing
+     consumer follows the accent preference automatically. The literal
+     gold values live only in the html[data-accent="gold"] block. */
+  --foundation-gold-accent: var(--app-accent);
+  --foundation-gold-deep: var(--app-accent-deep);
+  --foundation-accent-surface: var(--app-accent-surface);
+  --foundation-accent-surface-strong: var(--app-accent-surface-strong);
+  --foundation-accent-border: var(--app-accent-border);
   --foundation-crimson: #9a1b1b;
 
   /* Runtime CSS variable fallbacks for dynamic primitives/charts. */
@@ -256,6 +309,15 @@ a, button, input, select, textarea {
   --app-bottom-inset: calc(
     var(--app-bottom-fixed-ui) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift)
   );
+  /*
+   * Onboarding has no bottom navigation, but does retain the persistent Agent
+   * Bar. Keep its geometry in one token family so setup terminal controls,
+   * credential forms, and the bar itself never calculate competing insets.
+   * Use the raw safe-area value here because it is also the coordinate space
+   * used by the fixed Agent Bar on web and native onboarding surfaces.
+   */
+  --onboarding-agent-bar-bottom-offset: calc(var(--app-safe-area-bottom) + 0.75rem);
+  --onboarding-agent-bar-clearance: calc(var(--onboarding-agent-bar-bottom-offset) + 3rem);
   --kai-command-fixed-ui: 82px;
   --kai-command-bottom-gap: 12px;
   --app-screen-footer-pad: calc(8px + var(--app-bottom-inset));
@@ -395,8 +457,8 @@ a, button, input, select, textarea {
   --secondary-foreground: oklch(0.2 0.01 264);
   --muted: oklch(0.96 0.003 264);
   --muted-foreground: oklch(0.6 0.005 264);
-  --accent: oklch(0.754 0.085 67.1);
-  --accent-foreground: oklch(0.232 0.004 286.1);
+  --accent: var(--app-accent);
+  --accent-foreground: var(--app-accent-fg);
   --destructive: oklch(0.446 0.162 26.9);
   --destructive-foreground: oklch(1 0 0);
   --critical-solid: oklch(0.446 0.162 26.9);
@@ -406,7 +468,7 @@ a, button, input, select, textarea {
   --critical-soft-text: oklch(0.48 0.16 26);
   --border: oklch(0.92 0.004 264);
   --input: oklch(0.87 0.006 264);
-  --ring: oklch(0.663 0.096 71.6);
+  --ring: var(--app-accent-ring);
   --chart-1: oklch(0.663 0.096 71.6);
   --chart-2: oklch(0.754 0.085 67.1);
   --chart-3: oklch(0.62 0.19 155);
@@ -421,32 +483,34 @@ a, button, input, select, textarea {
   --sidebar-border: oklch(0.92 0.004 264);
   --sidebar-ring: oklch(0.663 0.096 71.6);
 
-  /* Primary Brand Theme — Foundation gold scale (was Apple Blue). Gold is the
-     brand accent; ink carries primary. Scale tuned around #d4a574 / #b8894d. */
-  --brand-primary: #b8894d;
-  --brand-secondary: #d4a574;
-  --brand-50: #faf6f0;
-  --brand-100: #f7f1e8;
-  --brand-200: #efe4d2;
-  --brand-300: #e8d8bf;
-  --brand-400: #d9b98a;
-  --brand-500: #d4a574;
-  --brand-600: #b8894d;
-  --brand-700: #9a7038;
-  --brand-800: #6f4f26;
-  --brand-900: #4a3418;
+  /* Primary Brand Theme — follows the app accent (iOS Blue default; Molten
+     Gold under html[data-accent="gold"]). Ink carries primary. */
+  --brand-primary: var(--app-accent-deep);
+  --brand-secondary: var(--app-accent);
+  /* Numeric scale derived from the live accent so kai/vault consumers
+     (allocation strips, badges, wizard highlights) follow the preference. */
+  --brand-50: color-mix(in srgb, var(--app-accent) 6%, #ffffff);
+  --brand-100: color-mix(in srgb, var(--app-accent) 12%, #ffffff);
+  --brand-200: color-mix(in srgb, var(--app-accent) 24%, #ffffff);
+  --brand-300: color-mix(in srgb, var(--app-accent) 40%, #ffffff);
+  --brand-400: color-mix(in srgb, var(--app-accent) 70%, #ffffff);
+  --brand-500: var(--app-accent);
+  --brand-600: var(--app-accent-deep);
+  --brand-700: color-mix(in srgb, var(--app-accent-deep) 80%, #000000);
+  --brand-800: color-mix(in srgb, var(--app-accent-deep) 60%, #000000);
+  --brand-900: color-mix(in srgb, var(--app-accent-deep) 40%, #000000);
 
   /* Onboarding tri-tone chips / rail. Semantic category colors (vault / finance /
-     inbox). The blue tone is re-pointed to Foundation gold so the vault/consent
-     feature carries the signature gold marker; green/finance + orange/inbox stay
-     as warm secondary accents (Foundation-compatible, not Google-blue). */
-  --tone-blue: #b8894d;
+     inbox). The blue tone follows the app accent so the vault/consent feature
+     carries the signature accent marker; green/finance + orange/inbox stay
+     as semantic secondary accents. */
+  --tone-blue: var(--app-accent-deep);
   --tone-green: #16a34a;
   --tone-orange: #f97316;
-  --tone-blue-bg: #f7f1e8;
+  --tone-blue-bg: var(--app-accent-surface);
   --tone-green-bg: #dcfce7;
   --tone-orange-bg: #ffedd5;
-  --tone-blue-glow: rgba(184, 137, 77, 0.3);
+  --tone-blue-glow: var(--app-accent-ring);
   --tone-green-glow: rgba(22, 163, 74, 0.26);
   --tone-orange-glow: rgba(249, 115, 22, 0.28);
 
@@ -463,21 +527,21 @@ a, button, input, select, textarea {
   --activeShadowColor: var(--shadow1);
   --fadeGrey: #e5e7eb80;
 
-  /* Hussh Brand Color Tokens - Foundation gold (was Apple Blue) */
-  --morphy-primary-start: #b8894d;
-  --morphy-primary-mid: #c8995f;
-  --morphy-primary-end: #d4a574;
+  /* Hussh Brand Color Tokens - follow the app accent family */
+  --morphy-primary-start: var(--app-accent-deep);
+  --morphy-primary-mid: var(--app-accent);
+  --morphy-primary-end: var(--app-accent-bright);
   --morphy-secondary-start: #c0c0c0;
   --morphy-secondary-end: #e8e8e8;
-  --morphy-glass-accent-a: rgba(184, 137, 77, 0.13);
-  --morphy-glass-accent-b: rgba(212, 165, 116, 0.11);
+  --morphy-glass-accent-a: var(--app-accent-tint);
+  --morphy-glass-accent-b: var(--app-accent-tint);
 
   /* CTA elevation (used by Morphy Button fill variants) */
-  --morphy-cta-shadow: rgba(184, 137, 77, 0.25);
+  --morphy-cta-shadow: var(--app-accent-ring);
 
   /* Accent gradient */
-  --morphy-accent-start: #b8894d;
-  --morphy-accent-end: #d4a574;
+  --morphy-accent-start: var(--app-accent-deep);
+  --morphy-accent-end: var(--app-accent);
 
   /* Pre-computed gradients */
   --morphy-primary-gradient: linear-gradient(
@@ -822,13 +886,13 @@ html.native-ios {
   --app-screen-footer-pad: calc(56px + var(--app-bottom-inset));
 }
 
-/* Theme-aware gradient text - Apple Blue consistently */
+/* Theme-aware gradient text - follows the app accent family */
 .hushh-gradient-text {
   background-image: linear-gradient(
     98deg,
-    #9a7038 0%,
-    #b8894d 52%,
-    #d4a574 100%
+    var(--app-accent-deep) 0%,
+    var(--app-accent) 52%,
+    var(--app-accent-bright) 100%
   );
   color: transparent;
   -webkit-background-clip: text;
@@ -838,9 +902,9 @@ html.native-ios {
 .dark .hushh-gradient-text {
   background-image: linear-gradient(
     98deg,
-    #c8995f 0%,
-    #d4a574 52%,
-    #e0bb8e 100%
+    var(--app-accent) 0%,
+    var(--app-accent-deep) 52%,
+    var(--app-accent-bright) 100%
   );
 }
 
@@ -1442,46 +1506,6 @@ html.native-ios {
   z-index: 10;
 }
 
-/* ── Molten-gold foil text ── clipped liquid-metal sheen, slowly panned.
-   NOTE: display:inline-block + generous line-height + real padding so
-   background-clip:text never crops glyphs at tight tracking; the negative
-   right margin compensates the extra advance the padding adds so the word
-   still centers optically.
-   Light-mode gradient stays MID-TONE ONLY: on the near-white pearl hero any
-   near-white highlight stop makes the panning sheen vanish entirely, so the
-   brightest stop is capped at a readable gold. */
-.one-molten {
-  display: inline-block;
-  line-height: 1.24;
-  padding: 0.1em 0.08em;
-  margin: -0.06em -0.04em;
-  background-image: linear-gradient(
-    98deg,
-    #6d431a 0%, #96622a 12%, #c08b3e 26%, #dcae59 40%,
-    #eccb7f 50%, #dcae59 60%, #c08b3e 74%, #96622a 88%, #6d431a 100%
-  );
-  background-size: 300% 100%;
-  background-position: 0% 50%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  animation: one-molten-pan 6.5s var(--motion-ease-standard) infinite;
-  will-change: background-position;
-}
-.dark .one-molten {
-  background-image: linear-gradient(
-    98deg,
-    #8a5a24 0%, #c08b3e 12%, #e6bd6a 26%, #f7e0a6 40%,
-    #fff8ea 50%, #f7e0a6 60%, #e6bd6a 74%, #c08b3e 88%, #8a5a24 100%
-  );
-}
-@keyframes one-molten-pan {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
-
 /* ── The hero glow ── one large soft orb that slowly breathes + drifts. */
 .one-hero-glow {
   filter: blur(8px);
@@ -1557,10 +1581,10 @@ html.native-ios {
   padding: 12px 2px;
 }
 .one-cap-row + .one-cap-row {
-  border-top: 1px solid rgba(184, 137, 77, 0.14);
+  border-top: 1px solid var(--app-accent-tint);
 }
 .dark .one-cap-row + .one-cap-row {
-  border-top-color: rgba(231, 192, 120, 0.12);
+  border-top-color: var(--app-accent-tint);
 }
 .one-cap-dot {
   position: relative;
@@ -1568,16 +1592,16 @@ html.native-ios {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #fff4d6, #d4a574 45%, #a9702f 100%);
-  box-shadow: 0 0 0 4px rgba(184, 137, 77, 0.1), 0 0 10px 0 rgba(212, 165, 116, 0.7);
+  background: radial-gradient(circle at 35% 30%, var(--app-accent-hero-to), var(--app-accent) 45%, var(--app-accent-hero-from) 100%);
+  box-shadow: 0 0 0 4px var(--app-accent-tint), 0 0 10px 0 var(--app-accent-ring);
   transition: box-shadow 320ms var(--motion-ease-decelerate);
 }
 .dark .one-cap-dot {
-  background: radial-gradient(circle at 35% 30%, #fff6e2, #e6bd6a 45%, #96612a 100%);
-  box-shadow: 0 0 0 4px rgba(231, 192, 120, 0.12), 0 0 12px 0 rgba(231, 192, 120, 0.6);
+  background: radial-gradient(circle at 35% 30%, var(--app-accent-hero-to), var(--app-accent-deep) 45%, var(--app-accent-hero-from) 100%);
+  box-shadow: 0 0 0 4px var(--app-accent-tint), 0 0 12px 0 var(--app-accent-ring);
 }
 .one-cap-row:hover .one-cap-dot {
-  box-shadow: 0 0 0 5px rgba(184, 137, 77, 0.16), 0 0 16px 2px rgba(212, 165, 116, 0.9);
+  box-shadow: 0 0 0 5px var(--app-accent-tint), 0 0 16px 2px var(--app-accent-ring);
 }
 .one-cap-underline {
   background-image: linear-gradient(90deg, rgba(184, 137, 77, 0.6), rgba(212, 165, 116, 0));
@@ -1738,7 +1762,6 @@ html.native-ios {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .one-molten { animation: none; background-position: 32% 50%; }
   .one-hero-glow, .one-hero-glow--alt, .one-mote { animation: none; }
   .one-reveal { animation: none; opacity: 1; transform: none; filter: none; }
   .one-cap-underline, .one-cap-dot { transition: none; }
@@ -1775,7 +1798,7 @@ html.native-ios {
 
 /* Hussh Brand Text */
 .text-hushh-brand {
-  background: linear-gradient(135deg, #b8894d 0%, #d4a574 100%);
+  background: linear-gradient(135deg, var(--app-accent-deep) 0%, var(--app-accent) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -1783,7 +1806,26 @@ html.native-ios {
 
 .dark {
   /* Foundation dark — PDF pitch-black bg #0a0a0c, elevated card #15151c.
-     Gold tuned BRIGHT (#d4a574) for legibility on black; deep gold is too faint. */
+     Accent tuned BRIGHT for legibility on black; the light -deep tone is
+     too faint on dark surfaces. */
+
+  /* ── App accent family (dark) ── iOS Blue default; gold overrides live
+     under html[data-accent="gold"].dark below. #4a9eff is Location's own
+     dark companion for text AND fills (check-in-flow dark tokens). */
+  --app-accent: #4a9eff;
+  --app-accent-deep: #4a9eff;               /* TEXT / icons on dark = Location dark blue */
+  --app-accent-bright: #9bc9ff;
+  --app-accent-tint: rgba(74, 158, 255, 0.15);
+  --app-accent-surface: rgba(74, 158, 255, 0.15);
+  --app-accent-surface-strong: rgba(74, 158, 255, 0.24);
+  --app-accent-border: rgba(74, 158, 255, 0.35);
+  --app-accent-fg: #ffffff;                 /* Apple system blue always pairs with white */
+  --app-accent-hover: #66adff;
+  --app-accent-ring: rgba(74, 158, 255, 0.30);
+  --app-accent-hero-from: #2f6fbe;
+  --app-accent-hero-mid: #4a9eff;
+  --app-accent-hero-to: #dcecff;
+
   --background: oklch(0.146 0.004 285.9);
   --foreground: oklch(0.971 0.003 286.4);
   --card: oklch(0.199 0.014 285.1);
@@ -1796,8 +1838,8 @@ html.native-ios {
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.25 0.003 264);
   --muted-foreground: oklch(0.879 0.012 286.1);
-  --accent: oklch(0.797 0.112 76.3);
-  --accent-foreground: oklch(0.232 0.004 286.1);
+  --accent: var(--app-accent);
+  --accent-foreground: var(--app-accent-fg);
   --destructive: oklch(0.636 0.172 26.8);
   --destructive-foreground: oklch(0.15 0 0);
   --critical-solid: oklch(0.636 0.172 26.8);
@@ -1807,7 +1849,7 @@ html.native-ios {
   --critical-soft-text: oklch(0.79 0.13 24);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.797 0.112 76.3);
+  --ring: var(--app-accent-ring);
   /* Chart colors - higher lightness for contrast on dark card */
   --chart-1: oklch(0.797 0.112 76.3);
   --chart-2: oklch(0.663 0.096 71.6);
@@ -1836,29 +1878,29 @@ html.native-ios {
   --activeShadowColor: var(--shadow2);
   --fadeGrey: #e5e7eb80;
 
-  /* Morphy UI Color Tokens - Dark Mode (Foundation gold) */
-  --morphy-primary-start: #d4a574;
-  --morphy-primary-mid: #e0bb8e;
-  --morphy-primary-end: #c8995f;
-  --morphy-secondary-start: #d4a574;
-  --morphy-secondary-end: #b8894d;
-  --morphy-glass-accent-a: rgba(212, 165, 116, 0.16);
-  --morphy-glass-accent-b: rgba(224, 187, 142, 0.14);
+  /* Morphy UI Color Tokens - Dark Mode (follow app accent family) */
+  --morphy-primary-start: var(--app-accent);
+  --morphy-primary-mid: var(--app-accent-deep);
+  --morphy-primary-end: var(--app-accent-bright);
+  --morphy-secondary-start: var(--app-accent);
+  --morphy-secondary-end: var(--app-accent-deep);
+  --morphy-glass-accent-a: var(--app-accent-tint);
+  --morphy-glass-accent-b: var(--app-accent-tint);
 
-  /* Onboarding tri-tone chips / rail (dark mode). Blue tone → Foundation gold
-     (vault/consent marker); green/orange stay warm semantic accents. */
-  --tone-blue: #d4a574;
+  /* Onboarding tri-tone chips / rail (dark mode). Blue tone follows the
+     accent (vault/consent marker); green/orange stay semantic accents. */
+  --tone-blue: var(--app-accent-deep);
   --tone-green: #4ade80;
   --tone-orange: #fb923c;
-  --tone-blue-bg: #2a2114;
+  --tone-blue-bg: var(--app-accent-surface);
   --tone-green-bg: #182d24;
   --tone-orange-bg: #33241b;
-  --tone-blue-glow: rgba(212, 165, 116, 0.22);
+  --tone-blue-glow: var(--app-accent-ring);
   --tone-green-glow: rgba(74, 222, 128, 0.22);
   --tone-orange-glow: rgba(251, 146, 60, 0.24);
 
   /* CTA elevation (used by Morphy Button fill variants) */
-  --morphy-cta-shadow: rgba(212, 165, 116, 0.22);
+  --morphy-cta-shadow: var(--app-accent-ring);
 
   /* Ensure gradient colors are available immediately in dark mode */
   --morphy-secondary-gradient: linear-gradient(
@@ -1867,9 +1909,9 @@ html.native-ios {
     var(--morphy-secondary-end)
   );
 
-  /* Material 3 Expressive Ripple Tokens - Foundation gold */
-  --md-ripple-hover-color: #d4a574;
-  --md-ripple-pressed-color: #b8894d;
+  /* Material 3 Expressive Ripple Tokens - follow app accent */
+  --md-ripple-hover-color: var(--app-accent);
+  --md-ripple-pressed-color: var(--app-accent-deep);
   --md-ripple-hover-opacity: 0.08;
   --md-ripple-pressed-opacity: 0.12;
 
@@ -1997,7 +2039,7 @@ html.native-ios {
      the foundation h1 lock above. Same layer + higher specificity + important
      so it deterministically wins over the base h1 rule (which also beats
      Tailwind arbitrary utilities and inline styles). Generous line-height:
-     the word is painted by .one-molten's background-clip:text, which crops
+     the word is painted with background-clip:text, which crops
      glyphs when the line box is tight at -3.5px tracking. */
   h1.one-hero-title {
     font-size: clamp(64px, 20vw, 88px) !important;
@@ -2044,6 +2086,17 @@ html.native-ios {
     line-height: var(--foundation-title3-line) !important;
     font-weight: var(--foundation-title3-weight) !important;
     letter-spacing: var(--foundation-title3-tracking);
+  }
+
+  /* Settings rows are list labels, not page/card titles. Keep this after the
+     generic title-slot rule so ordinary iOS-style rows retain calm SF Text
+     typography instead of inheriting title3 size and semibold weight. */
+  [data-slot="settings-row-title"] {
+    font-family: var(--font-app-body);
+    font-size: 0.9375rem !important;
+    line-height: 1.25 !important;
+    font-weight: 400 !important;
+    letter-spacing: 0 !important;
   }
 
   .app-section-heading,
@@ -3006,21 +3059,60 @@ html.dark .morphy-app-bg {
 }
 
 .dark {
-  --foundation-gold: #D4A574;
+  --foundation-gold: var(--app-accent);
 
-  /* Foundation color system (dark) — PDF pitch-black surfaces, gold tuned BRIGHT
-     for legibility on black (deep gold #b8894d is too faint as text on dark). */
+  /* Foundation color system (dark) — PDF pitch-black surfaces. The legacy
+     gold names alias the app accent family (bright variants for dark). */
   --foundation-ink: #f5f5f7;
   --foundation-dim: #86868b;
   --foundation-off: #0a0a0c;                  /* PDF pitch black */
   --foundation-surface: #15151c;
   --foundation-hairline: #2a2a36;
-  --foundation-gold-accent: #e6b366;          /* fills / markers — brightened for dark vibrancy */
-  --foundation-gold-deep: #e6b366;            /* TEXT on dark = BRIGHT gold (brighter+more saturated) */
-  --foundation-accent-surface: rgba(212, 165, 116, 0.12);
-  --foundation-accent-surface-strong: rgba(212, 165, 116, 0.20);
-  --foundation-accent-border: rgba(212, 165, 116, 0.28);
+  --foundation-gold-accent: var(--app-accent-deep);  /* fills / markers */
+  --foundation-gold-deep: var(--app-accent-deep);    /* TEXT on dark = bright tone */
+  --foundation-accent-surface: var(--app-accent-surface);
+  --foundation-accent-surface-strong: var(--app-accent-surface-strong);
+  --foundation-accent-border: var(--app-accent-border);
   --foundation-crimson: #e0584f;
+}
+
+/* ── Molten Gold accent preference ──────────────────────────────────
+   html[data-accent="gold"] restores the Foundation gold identity for
+   every neutral accent token. Set by the inline no-FOUC script in
+   app/layout.tsx from localStorage ("hushh.app.accent.v1"); toggled in
+   Profile → Preferences → Accent. Default (attribute absent or "blue")
+   is iOS Blue above. Light values first, dark overrides beneath. */
+html[data-accent="gold"] {
+  --app-accent: #d4a574;
+  --app-accent-deep: #b8894d;
+  --app-accent-bright: #e6b366;
+  --app-accent-tint: rgba(212, 165, 116, 0.10);
+  --app-accent-surface: #f7f1e8;
+  --app-accent-surface-strong: #efe4d2;
+  --app-accent-border: #e8d8bf;
+  --app-accent-fg: #ffffff;
+  --app-accent-hover: #c79a5e;
+  --app-accent-ring: rgba(184, 137, 77, 0.30);
+  --app-accent-hero-from: #6d431a;
+  --app-accent-hero-mid: #b8894d;
+  --app-accent-hero-to: #eccb7f;
+}
+
+html[data-accent="gold"] .dark,
+html[data-accent="gold"].dark {
+  --app-accent: #d4a574;
+  --app-accent-deep: #e6b366;
+  --app-accent-bright: #f0c890;
+  --app-accent-tint: rgba(212, 165, 116, 0.15);
+  --app-accent-surface: rgba(212, 165, 116, 0.12);
+  --app-accent-surface-strong: rgba(212, 165, 116, 0.20);
+  --app-accent-border: rgba(212, 165, 116, 0.28);
+  --app-accent-fg: #1d1d1f;
+  --app-accent-hover: #e0b382;
+  --app-accent-ring: rgba(212, 165, 116, 0.35);
+  --app-accent-hero-from: #8a5a24;
+  --app-accent-hero-mid: #d4a574;
+  --app-accent-hero-to: #fff8ea;
 }
 
 @layer utilities {
@@ -3125,7 +3217,7 @@ html.dark .morphy-app-bg {
   }
 
   .gold-period {
-    /* deep gold (#b8894d) on light, bright gold (#d4a574) on dark — auto via token */
+    /* accent-deep on light, accent-bright partner on dark — auto via token */
     color: var(--foundation-gold-deep);
   }
 }
@@ -3535,6 +3627,21 @@ body[data-persona-surface="ria"] .ria-secondary {
 body[data-persona-surface="ria"] .ria-secondary:active {
   transform: scale(0.985);
   opacity: 0.92;
+}
+
+/* A vault unlock is a focused credential surface. Persistent navigation and
+   conversation chrome must not remain visible beneath it: they distract from
+   credential entry and, for an opaque hard gate, visually contradict the
+   route lock. The dialog owns restoring them once the last unlock surface has
+   closed. */
+html[data-vault-unlock-active] [data-app-top-bar],
+html[data-vault-unlock-active] [data-app-bottom-nav],
+html[data-vault-unlock-active] [data-agent-bar-shell],
+body[data-vault-unlock-active] [data-app-top-bar],
+body[data-vault-unlock-active] [data-app-bottom-nav],
+body[data-vault-unlock-active] [data-agent-bar-shell] {
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 /* ── RIA chrome exact-match overrides ──────────────────────────────────────

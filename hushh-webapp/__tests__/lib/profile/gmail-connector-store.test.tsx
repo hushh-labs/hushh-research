@@ -74,6 +74,78 @@ describe("gmail-connector-store", () => {
     expect(populatedFirst.status?.google_email).toBe("akshat@hushh.ai");
   });
 
+  it("keeps same-run receipt progress monotonic when a lagging status response arrives", () => {
+    const baseStatus = {
+      configured: true,
+      connected: true,
+      status: "connected" as const,
+      google_email: "progress@hushh.ai",
+      scope_csv: "gmail.readonly",
+      auto_sync_enabled: true,
+      revoked: false,
+      connection_state: "connected" as const,
+      sync_state: "bootstrap_running" as const,
+      bootstrap_state: "running" as const,
+      watch_status: "active" as const,
+      needs_reauth: false,
+      last_sync_status: "running" as const,
+    };
+
+    primeConnectorStatus({
+      userId: "user-progress",
+      source: "status",
+      status: {
+        ...baseStatus,
+        latest_run: {
+          run_id: "run_progress",
+          user_id: "user-progress",
+          trigger_source: "connect",
+          sync_mode: "bootstrap",
+          status: "running",
+          listed_count: 40,
+          filtered_count: 16,
+          synced_count: 12,
+          extracted_count: 8,
+          duplicates_dropped: 2,
+          extraction_success_rate: 0.9,
+        },
+      },
+    });
+
+    primeConnectorStatus({
+      userId: "user-progress",
+      source: "status",
+      status: {
+        ...baseStatus,
+        latest_run: {
+          run_id: "run_progress",
+          user_id: "user-progress",
+          trigger_source: "connect",
+          sync_mode: "bootstrap",
+          status: "queued",
+          listed_count: 0,
+          filtered_count: 0,
+          synced_count: 0,
+          extracted_count: 0,
+          duplicates_dropped: 0,
+          extraction_success_rate: 0,
+        },
+      },
+    });
+
+    const view = getConnectorView("user-progress");
+    expect(view.syncRun).toEqual(
+      expect.objectContaining({
+        status: "running",
+        listed_count: 40,
+        filtered_count: 16,
+        synced_count: 12,
+        extracted_count: 8,
+      }),
+    );
+    clearConnectorStatus("user-progress");
+  });
+
   it("renders the hook without triggering an external-store snapshot loop", () => {
     primeConnectorStatus({
       userId: "user-hook",

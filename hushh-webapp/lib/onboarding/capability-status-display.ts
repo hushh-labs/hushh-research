@@ -103,9 +103,7 @@ export function getCapabilityStatusDisplay(
         // A vault-dependent setup step is deliberately available before a
         // vault exists. Keep its capability action visible instead of replacing
         // every row with the same prerequisite copy.
-        label: status.requiresUnlock
-          ? (actionLabel ?? "Set up vault")
-          : "Preparing…",
+        label: status.requiresUnlock ? (actionLabel ?? "Set up") : "Preparing…",
         tone,
         isActionable: Boolean(actionLabel),
       };
@@ -115,7 +113,7 @@ export function getCapabilityStatusDisplay(
 function blockedLabel(status: CapabilityStatus, actionLabel?: string): string {
   switch (status.prerequisite) {
     case "vault":
-      return actionLabel ?? "Set up vault";
+      return actionLabel ?? "Set up";
     case "oauth":
       return actionLabel ?? "Connect";
     case "auth":

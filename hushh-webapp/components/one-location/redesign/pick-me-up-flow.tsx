@@ -157,7 +157,7 @@ export function PickMeUpFlow({
         <h2 className="text-[24px] font-semibold leading-tight tracking-[-0.3px] text-foreground">
           Pick me up
         </h2>
-        <button type="button" onClick={onClose} className="text-[15px] text-[#007aff]">
+        <button type="button" onClick={onClose} className="text-[15px] text-[color:var(--app-accent)]">
           Cancel
         </button>
       </div>
@@ -176,7 +176,7 @@ export function PickMeUpFlow({
                 type="button"
                 onClick={vm.onShowMyLocation}
                 disabled={vm.busy === "selfLocation"}
-                className="inline-flex items-center gap-2 rounded-full bg-[#007aff] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-full bg-[color:var(--app-accent)] px-4 py-2 text-sm font-semibold text-[color:var(--app-accent-fg)] disabled:opacity-50"
               >
                 {vm.busy === "selfLocation" ? "Capturing…" : "Capture location"}
               </button>
@@ -192,7 +192,7 @@ export function PickMeUpFlow({
             <button
               type="button"
               onClick={() => setFixedSpot(null)}
-              className="shrink-0 text-[15px] text-[#007aff]"
+              className="shrink-0 text-[15px] text-[color:var(--app-accent)]"
             >
               Use live
             </button>
@@ -200,7 +200,7 @@ export function PickMeUpFlow({
             <button
               type="button"
               onClick={() => setAdjustOpen(true)}
-              className="shrink-0 text-[15px] text-[#007aff]"
+              className="shrink-0 text-[15px] text-[color:var(--app-accent)]"
             >
               Adjust
             </button>
@@ -252,7 +252,7 @@ export function PickMeUpFlow({
                   <span
                     className={cn(
                       "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
-                      selected ? "border-[#007aff] bg-[#007aff] text-white" : "border-border",
+                      selected ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]" : "border-border",
                     )}
                   >
                     {selected ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : null}
@@ -304,7 +304,7 @@ export function PickMeUpFlow({
             )
           }
           disabled={!canAsk}
-          className="flex w-full items-center justify-center gap-2 rounded-full bg-[#007aff] py-4 text-[17px] font-medium text-white transition-opacity disabled:opacity-40"
+          className="flex w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] py-4 text-[17px] font-medium text-[color:var(--app-accent-fg)] transition-opacity disabled:opacity-40"
         >
           <Navigation className="h-[18px] w-[18px]" fill="currentColor" strokeWidth={0} />
           {busy ? "Asking…" : selectedName ? `Ask ${selectedName} to pick me up` : "Select who to ask"}

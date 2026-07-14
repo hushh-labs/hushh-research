@@ -35,6 +35,12 @@ export type MorphyAxSnapshotV1 = {
     signed_in: boolean;
     vault_ready: boolean;
     persona: string;
+    /**
+     * PRESENTATION ONLY. The active app accent preference ("blue" default,
+     * "gold" opt-in). Never consulted by assessment validation or any
+     * policy path; carried so presentation surfaces can mirror the accent.
+     */
+    accent?: "blue" | "gold";
   };
   context: {
     screen: string;

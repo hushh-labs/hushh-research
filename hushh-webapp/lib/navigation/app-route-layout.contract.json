@@ -264,6 +264,9 @@
   {
     "route": "/one/location",
     "mode": "standard",
+    "interactionLayerPolicy": {
+      "allowedFamilies": ["vault_setup"]
+    },
     "shellVerification": {
       "file": "app/one/location/page.tsx",
       "includes": [
@@ -640,8 +643,17 @@
   },
   {
     "route": "/connect",
-    "mode": "hidden",
-    "exemptionReason": "Standalone people-connection route intentionally bypasses the signed-in app shell while still exposing its own native test beacon.",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/connect/page-client.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
     "voicePlaybook": {
       "playbookId": "route.connect",
       "purpose": "Help the person understand and use the connect screen through its generated controls.",
@@ -1240,6 +1252,9 @@
   {
     "route": "/one/setup/location",
     "mode": "standard",
+    "interactionLayerPolicy": {
+      "allowedFamilies": ["vault_setup"]
+    },
     "shellVerification": { "file": "app/one/setup/location/page.tsx", "includes": ["OneLocationAgentPage", "SetupCapabilityTerminalFooter"] },
     "voicePlaybook": {
       "playbookId": "route.one.setup.location", "purpose": "Request device location permission, then explicitly finish or skip Location setup.", "screen": "one_setup_location", "entryCue": "Allow Location when you are ready, or say skip Location setup.", "proactivity": "on_entry", "primaryActionId": "setup.skip_location", "happyPathActionIds": ["setup.skip_location", "setup.finish_location"], "requiredInputs": [],

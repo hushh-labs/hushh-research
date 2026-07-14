@@ -49,8 +49,8 @@ export function DurationSelector({
               className={cn(
                 "h-9 rounded-full border px-4 text-sm font-medium transition-colors touch-manipulation",
                 active
-                  ? "border-[#007aff] bg-[#007aff] text-white"
-                  : "border-border/70 bg-background text-foreground hover:border-[#007aff]/40",
+                  ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                  : "border-border/70 bg-background text-foreground hover:border-[color:var(--app-accent-ring)]",
               )}
             >
               {option.label}
@@ -105,7 +105,7 @@ export function LocationTypeSelector({
               className={cn(
                 SUBCARD_SURFACE,
                 "flex items-center justify-between p-3.5 text-left transition-colors",
-                active && "border-[#007aff]/50 ring-1 ring-[#007aff]/30",
+                active && "border-[color:var(--app-accent)]/50 ring-1 ring-[color:var(--app-accent-ring)]",
               )}
             >
               <span>
@@ -120,7 +120,7 @@ export function LocationTypeSelector({
                 className={cn(
                   "flex h-5 w-5 items-center justify-center rounded-full border-2",
                   active
-                    ? "border-[#007aff] bg-[#007aff]"
+                    ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)]"
                     : "border-border",
                 )}
               >
@@ -174,8 +174,8 @@ export function ReasonChips({
               className={cn(
                 "h-9 rounded-full border px-3.5 text-sm font-medium transition-colors touch-manipulation",
                 active
-                  ? "border-[#007aff] bg-[#007aff]/10 text-[#007aff]"
-                  : "border-border/70 bg-background text-foreground hover:border-[#007aff]/40",
+                  ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]"
+                  : "border-border/70 bg-background text-foreground hover:border-[color:var(--app-accent-ring)]",
               )}
             >
               {reason}
@@ -204,7 +204,7 @@ export function PersonSearchInput({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="h-11 w-full rounded-[14px] border border-border/70 bg-background pl-10 pr-4 text-base text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-[#007aff]/25"
+        className="h-11 w-full rounded-[14px] border border-border/70 bg-background pl-10 pr-4 text-base text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
       />
     </div>
   );

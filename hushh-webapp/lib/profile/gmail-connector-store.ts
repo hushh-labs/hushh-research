@@ -145,6 +145,67 @@ function hasActiveRun(run: GmailSyncRun | null | undefined): boolean {
   return run.status === "queued" || run.status === "running";
 }
 
+function syncRunStatusRank(run: GmailSyncRun): number {
+  switch (run.status) {
+    case "queued":
+      return 1;
+    case "running":
+      return 2;
+    case "completed":
+    case "failed":
+    case "canceled":
+      return 3;
+  }
+}
+
+/**
+ * The status endpoint and focused run poll can arrive out of order. Keep a
+ * same-run presentation monotonic so a lagging status response cannot make
+ * verified counters (or a terminal state) jump backwards in the UI.
+ */
+function mergeSameRunProgress(
+  current: GmailSyncRun | null | undefined,
+  incoming: GmailSyncRun | null,
+): GmailSyncRun | null {
+  if (!incoming || !current || current.run_id !== incoming.run_id) {
+    return incoming;
+  }
+
+  const currentRank = syncRunStatusRank(current);
+  const incomingRank = syncRunStatusRank(incoming);
+  const terminalSource =
+    currentRank === 3 && incomingRank < 3 ? current : incoming;
+
+  return {
+    ...current,
+    ...incoming,
+    status: incomingRank >= currentRank ? incoming.status : current.status,
+    listed_count: Math.max(current.listed_count || 0, incoming.listed_count || 0),
+    filtered_count: Math.max(
+      current.filtered_count || 0,
+      incoming.filtered_count || 0,
+    ),
+    synced_count: Math.max(current.synced_count || 0, incoming.synced_count || 0),
+    extracted_count: Math.max(
+      current.extracted_count || 0,
+      incoming.extracted_count || 0,
+    ),
+    duplicates_dropped: Math.max(
+      current.duplicates_dropped || 0,
+      incoming.duplicates_dropped || 0,
+    ),
+    extraction_success_rate: Math.max(
+      current.extraction_success_rate || 0,
+      incoming.extraction_success_rate || 0,
+    ),
+    started_at: current.started_at || incoming.started_at || null,
+    completed_at:
+      terminalSource.completed_at || current.completed_at || incoming.completed_at || null,
+    error_message:
+      terminalSource.error_message || incoming.error_message || current.error_message || null,
+  };
+}
+
 function isPassiveBackfillRun(run: GmailSyncRun | null | undefined): boolean {
   return hasActiveRun(run) && deriveConnectorTaskKind(run) === "gmail_backfill";
 }
@@ -656,7 +717,11 @@ async function pollSyncRun(params: {
       });
       if (controller.signal.aborted) return;
 
-      const run = payload.run;
+      const run = mergeSameRunProgress(
+        getOrCreateEntry(normalizedUserId).syncRun,
+        payload.run,
+      );
+      if (!run) return;
       const taskKind = params.taskKind || deriveConnectorTaskKind(run);
       const taskId = seedTaskFromRun(normalizedUserId, run, {
         routeHref: params.routeHref,
@@ -825,7 +890,10 @@ export function primeConnectorStatus(params: {
   if (!normalizedUserId) return;
 
   const currentEntry = getOrCreateEntry(normalizedUserId);
-  const latestRun = params.status.latest_run || null;
+  const latestRun = mergeSameRunProgress(
+    currentEntry.syncRun,
+    params.status.latest_run || null,
+  );
   const shouldKeepSuppressedRun =
     Boolean(currentEntry.suppressedRunId) &&
     latestRun?.run_id === currentEntry.suppressedRunId &&
@@ -851,6 +919,7 @@ export function primeConnectorStatus(params: {
   updateEntry(normalizedUserId, {
     status: {
       ...params.status,
+      latest_run: latestRun,
       status_refreshed_at: nowIso(),
       connection_state:
         params.status.connection_state ||

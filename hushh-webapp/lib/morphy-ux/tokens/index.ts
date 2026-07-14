@@ -5,3 +5,4 @@
  */
 
 export * from "./colors";
+export * from "./surfaces";

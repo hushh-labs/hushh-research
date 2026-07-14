@@ -407,8 +407,20 @@ function prioritizeAvailableActionIds(
   }
   const rankOf = (actionId: string): number => {
     const action = getKaiActionById(actionId);
-    if (!action) return 2;
-    if (action.execution_target.status !== "wired") return 2;
+    if (!action || action.execution_target.status !== "wired") {
+      // An id the generated gateway does not know (or an unwired one) ranks
+      // last and can silently fall off the cap. Surface it in dev so
+      // contract drift is caught before it reads as "action not detected".
+      if (process.env.NODE_ENV !== "production") {
+        console.warn(
+          "[VOICE_CONTEXT] published action id is",
+          action ? "unwired" : "unknown to the generated gateway",
+          ":",
+          actionId,
+        );
+      }
+      return 2;
+    }
     if (screen && action.reachability.screens.includes(screen)) return 0;
     return 1;
   };

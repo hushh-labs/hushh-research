@@ -34,7 +34,7 @@ export function ChatComposer(props: {
         className={cn(
           "max-h-32 min-h-10 flex-1 resize-none rounded-2xl px-3.5 py-2.5 text-sm",
           "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)]",
-          "text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#007aff]/40",
+          "text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]",
         )}
       />
       <Button

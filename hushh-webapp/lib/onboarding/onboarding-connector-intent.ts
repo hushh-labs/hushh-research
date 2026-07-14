@@ -17,6 +17,19 @@ function storage(): Storage | null {
   return typeof window === "undefined" ? null : window.sessionStorage;
 }
 
+function writeIntent(
+  target: Storage | null | undefined,
+  intent: OnboardingConnectorIntent,
+): boolean {
+  if (!target) return false;
+  try {
+    target.setItem(STORAGE_KEY, JSON.stringify(intent));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function createOnboardingConnectorIntent(
   capability: "gmail",
 ): OnboardingConnectorIntent {
@@ -39,7 +52,20 @@ export function createOnboardingConnectorIntent(
 export function persistOnboardingConnectorIntent(
   intent: OnboardingConnectorIntent,
 ): void {
-  storage()?.setItem(STORAGE_KEY, JSON.stringify(intent));
+  void writeIntent(storage(), intent);
+}
+
+/**
+ * The Gmail OAuth popup has its own top-level session. Copy only the opaque
+ * journey correlation into that popup so its callback can settle the durable
+ * setup goal. Vault material, Firebase credentials, OAuth artifacts, and
+ * Gmail contents are deliberately never copied across windows.
+ */
+export function persistOnboardingConnectorIntentInStorage(
+  target: Storage | null | undefined,
+  intent: OnboardingConnectorIntent,
+): boolean {
+  return writeIntent(target, intent);
 }
 
 export function beginOnboardingConnectorIntent(

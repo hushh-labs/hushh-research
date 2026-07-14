@@ -1,8 +1,8 @@
 import {
-  Briefcase,
+  BookOpen,
+  BriefcaseBusiness,
   ChartNoAxesCombined,
   Database,
-  FolderSearch,
   Mail,
   MailCheck,
   MapPin,
@@ -92,8 +92,10 @@ export interface OneCapability {
    * True when this capability's real workspace reads or writes vault-backed
    * personal information and therefore needs an UNLOCKED vault to be usable. The setup
    * STEP itself collects nothing and renders pre-vault; this flag only lets the
-   * step set honest "you'll unlock your vault next" expectations and lets the
-   * destination's own guard own the actual unlock prompt. Consent is
+   * step set honest "you'll set up your vault when it is needed" expectations.
+   * The destination owns a contextual vault prerequisite or its own typed
+   * continuation; it must not mount token-dependent work before that settles.
+   * Consent is
    * the only capability that does not read vault-backed information here.
    */
   requiresVault?: boolean;
@@ -131,7 +133,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Advisor verification, profile, clients, and requests.",
     previewLabel: "Advisor profile & verification",
     href: ROUTES.RIA_ONBOARDING,
-    icon: Briefcase,
+    icon: BriefcaseBusiness,
     tone: "ria",
     group: "workflow",
     requiresVault: true,
@@ -183,7 +185,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "Memory",
     description: "Saved knowledge and context you can review.",
     href: ROUTES.PKM,
-    icon: FolderSearch,
+    icon: BookOpen,
     tone: "pkm",
     group: "memory",
     requiresVault: true,
@@ -271,10 +273,9 @@ export function getOneCapability(id: string): OneCapability | undefined {
  *
  * Each tone gets its own fixed, mid-lightness brand color — the same hex in
  * both themes, so the tile stays recognizable at a glance regardless of
- * appearance mode. Only the glyph color flips for contrast: white in light
- * mode (the tile reads as a solid color chip against the light page), ink
- * (near-black) in dark mode (the same chip now reads as a lighter accent
- * against the dark page, so a dark glyph is what stays legible).
+ * appearance mode. The shared glyph contract is deliberately simple and
+ * predictable: ink in light mode and white in dark mode, across the grid,
+ * compact list, and top-menu surfaces.
  * Shared so the dashboard tile, the topbar/menu chip, and the onboarding
  * preview render identically.
  */
@@ -287,20 +288,20 @@ export const ONE_CAPABILITY_ICON_CLASS_BY_TONE: Record<
   // One color guidelines — soft premium palette (see the "One — Color
   // Guidelines" spec). Each tone maps to its named token.
   // Finance: Lavender Mist.
-  finance: "bg-[#B85CF6] text-white dark:text-[#1d1d1f]",
+  finance: "bg-[#B85CF6] text-[#1d1d1f] dark:text-white",
   // RIA: Sky Blue.
-  ria: "bg-[#60A5FA] text-white dark:text-[#1d1d1f]",
+  ria: "bg-[#60A5FA] text-[#1d1d1f] dark:text-white",
   // Gmail renders its own full-color brand mark (see GmailBrandIcon) on a clean
   // Cloud White tile, so the logo's colors read cleanly.
   gmail: "bg-white text-[#1d1d1f]",
   // Email: Mint Teal.
-  email: "bg-[#14B8A6] text-white dark:text-[#1d1d1f]",
+  email: "bg-[#14B8A6] text-[#1d1d1f] dark:text-white",
   // Location: Sage Green.
-  location: "bg-[#A7D7A1] text-white dark:text-[#1d1d1f]",
+  location: "bg-[#A7D7A1] text-[#1d1d1f] dark:text-white",
   // Memory (saved knowledge) + Information Marketplace preview: Lavender Mist.
-  pkm: "bg-[#B85CF6] text-white dark:text-[#1d1d1f]",
+  pkm: "bg-[#B85CF6] text-[#1d1d1f] dark:text-white",
   // Consent: Warm Gold (matches the shield motif).
-  consent: "bg-[#C8923A] text-white dark:text-[#1d1d1f]",
+  consent: "bg-[#C8923A] text-[#1d1d1f] dark:text-white",
   // Connected Systems: Slate Blue-Gray.
-  connected: "bg-[#94A3B8] text-white dark:text-[#1d1d1f]",
+  connected: "bg-[#94A3B8] text-[#1d1d1f] dark:text-white",
 };

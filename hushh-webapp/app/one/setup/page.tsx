@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
-import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
+import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { OneSetupHub } from "@/components/onboarding/setup/one-setup-hub";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -28,7 +28,7 @@ export default function OneSetupPage() {
   }, [loading, router, user]);
 
   if (loading || !user) {
-    return <RouteLoadingState label="Preparing setup…" />;
+    return <HushhLoader variant="page" label="Preparing setup…" />;
   }
 
   return (

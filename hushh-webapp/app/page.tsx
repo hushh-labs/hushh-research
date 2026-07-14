@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
-import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
+import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { JsonLd } from "@/components/seo/json-ld";
 import { buildFaqGraph } from "@/lib/seo/structured-data";
 import { HOME_FAQ } from "@/lib/seo/faq-data";
@@ -63,11 +63,11 @@ function HomeContent() {
   }, [loading, user, router, forceOnboardingInDev]);
 
   if (loading || (!user && step === null)) {
-    return <RouteLoadingState surface="ambient" label="Preparing welcome…" />;
+    return <HushhLoader variant="fullscreen" label="Preparing welcome…" />;
   }
 
   if (user) {
-    return <RouteLoadingState surface="ambient" label="Opening One…" />;
+    return <HushhLoader variant="fullscreen" label="Opening One…" />;
   }
 
   if (step === "intro") {
@@ -97,11 +97,7 @@ export default function Home() {
         authState="anonymous"
         dataState="loaded"
       />
-      <Suspense
-        fallback={
-          <RouteLoadingState surface="ambient" label="Preparing welcome…" />
-        }
-      >
+      <Suspense fallback={null}>
         <HomeContent />
       </Suspense>
     </>

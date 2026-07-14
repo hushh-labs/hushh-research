@@ -64,7 +64,6 @@ import { NativeTestRouter } from "@/components/app-ui/native-test-router";
 import { RiaSurfaceScopeSync } from "@/components/ria/ria-surface-scope-sync";
 import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
 import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-status";
-import { VaultMethodPrompt } from "@/components/vault/vault-method-prompt";
 import {
   INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
   type InternalAppNavigationRequest,
@@ -165,10 +164,17 @@ function AppShellFrame({ children }: ProvidersProps) {
           : "calc(var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift) + var(--kai-command-fixed-ui) + var(--bottom-chrome-fade-overscan))",
         "--bottom-chrome-visual-height": "var(--bottom-chrome-full-height)",
         "--bottom-chrome-hide-distance": "var(--app-bottom-fixed-ui)",
-        "--app-scroll-bottom-pad": "var(--bottom-chrome-stack-height)",
+        // Hidden-shell routes deliberately omit the app navigation, but many
+        // of them still render the fixed onboarding Agent Bar. The scroll root
+        // owns the clearance for that fixed chrome so feature routes do not
+        // need to guess at device safe areas or bar geometry.
+        "--app-scroll-bottom-pad": hideGlobalChrome
+          ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
+          : "var(--bottom-chrome-stack-height)",
       }) as CSSProperties,
     [
       chromeState.hideCommandBar,
+      hideGlobalChrome,
       signedInShellContentOffset.style,
       topShellMetrics.contentOffsetMode,
       topShellMetrics.hasTabs,
@@ -177,8 +183,6 @@ function AppShellFrame({ children }: ProvidersProps) {
   );
   const showSharedBottomChromeGlass =
     topShellMetrics.shellVisible && !isFullscreenTopFlow;
-  const showVaultMethodPrompt =
-    isAuthenticated && topShellMetrics.shellVisible && !isFullscreenTopFlow;
   // Drive the bottom-chrome hide animation through a CSS variable instead of a
   // render-coupled value. Reading the continuous scroll progress in this root
   // shell re-rendered the entire provider subtree on every scroll frame, which
@@ -190,7 +194,13 @@ function AppShellFrame({ children }: ProvidersProps) {
   // disabled branch writes --bottom-chrome-progress:0). Path-based gate — this
   // shell renders above PersonaProvider, so persona isn't available here.
   const riaPinnedChrome = isRiaRoute(pathname);
-  useKaiBottomChromeProgressCssVar(showSharedBottomChromeGlass && !riaPinnedChrome);
+  // Motion authority follows the bottom navigation, not the optional
+  // decorative bottom glass. Hidden-shell and flow routes can retain the nav
+  // while omitting that glass, and the persistent Agent Bar must still travel
+  // with it. This matches Navbar's non-onboarding scroll-hide policy.
+  useKaiBottomChromeProgressCssVar(
+    !chromeState.useOnboardingChrome && !riaPinnedChrome,
+  );
   const pageRef = useRef<HTMLDivElement | null>(null);
   const isKaiRoute = useMemo(
     () =>
@@ -290,6 +300,15 @@ function AppShellFrame({ children }: ProvidersProps) {
       "--app-fullscreen-flow-content-offset",
       "--app-top-shell-visible",
       "--app-top-offset-mode",
+      // AgentBar is an app-level fixed sibling of the route shell, not its
+      // descendant. Mirror the complete bottom-chrome geometry to :root so it
+      // resolves the same hide distance as the navbar and bottom glass instead
+      // of falling through an unresolved sibling-only custom property.
+      "--bottom-chrome-stack-height",
+      "--bottom-chrome-full-height",
+      "--bottom-chrome-search-height",
+      "--bottom-chrome-visual-height",
+      "--bottom-chrome-hide-distance",
     ];
     const previousValues = new Map<string, string>();
 
@@ -347,6 +366,10 @@ function AppShellFrame({ children }: ProvidersProps) {
                 route switch. Both are fixed overlays, so position is unaffected. */}
               <AgentVoiceEdgeGlow />
               <AgentBar />
+              {/* This bridge owns one post-unlock reconciliation for the whole
+                app. Keeping it outside the route Suspense boundary prevents
+                fallback/resolved remounts from launching the same sync twice. */}
+              <PostAuthOnboardingSyncBridge />
               <Suspense
                 fallback={
                   <>
@@ -388,7 +411,6 @@ function AppShellFrame({ children }: ProvidersProps) {
                           ) : null
                         }
                       </VaultContext.Consumer>
-                      <PostAuthOnboardingSyncBridge />
                       <Suspense fallback={null}>
                         <KaiCommandBarGlobal />
                       </Suspense>
@@ -403,7 +425,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                         }
                         className={
                           hideGlobalChrome
-                            ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y relative z-10 min-h-0"
+                            ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance))] relative z-10 min-h-0"
                             : shouldLockFullscreenRoot
                               ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"
                               : "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--app-bottom-inset))] relative z-10 min-h-0"
@@ -468,12 +490,8 @@ function AppShellFrame({ children }: ProvidersProps) {
                           ) : null
                         }
                       </VaultContext.Consumer>
-                      <PostAuthOnboardingSyncBridge />
                       <Suspense fallback={null}>
                         <KaiCommandBarGlobal />
-                      </Suspense>
-                      <Suspense fallback={null}>
-                        <VaultMethodPrompt enabled={showVaultMethodPrompt} />
                       </Suspense>
                       {/* Main scroll container: extends under fixed bar so content can scroll behind it; padding clears bar height */}
                       <div
@@ -487,8 +505,8 @@ function AppShellFrame({ children }: ProvidersProps) {
                         }
                         className={
                           hideGlobalChrome
-                            ? // Landing/onboarding flows should still allow vertical scroll on small screens.
-                              "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y relative z-10 min-h-0"
+                            ? // Landing/onboarding flows retain a scroll tail for the fixed Agent Bar.
+                              "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance))] relative z-10 min-h-0"
                             : shouldLockFullscreenRoot
                               ? // Fullscreen flows keep chrome contract, but permit y-scroll for small devices.
                                 "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"

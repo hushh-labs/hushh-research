@@ -30,6 +30,19 @@ function hasExplicitIncompleteSetup(state: PreVaultUserState): boolean {
   );
 }
 
+function admissionAllowsCurrentRoute(params: {
+  state: PreVaultUserState;
+  pathname: string;
+  setupSurface: boolean;
+}): boolean {
+  const { pathname, setupSurface, state } = params;
+  return (
+    !hasExplicitIncompleteSetup(state) ||
+    setupSurface ||
+    isCapabilityOnboardingRoute(state.onboardingActiveCapability, pathname)
+  );
+}
+
 /**
  * App-wide authenticated onboarding admission gate.
  *
@@ -53,14 +66,30 @@ export function OnboardingJourneyGuard({
   const [error, setError] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
   const [redirecting, setRedirecting] = useState(false);
+  const redirectTargetRef = useRef<string | null>(null);
   const redirectWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
 
+  // Read query/hash from window at redirect time instead of useSearchParams:
+  // this guard wraps every route (including the 404 shell) and a CSR bailout
+  // from useSearchParams would break static prerender of /_not-found. The
+  // href is only consumed client-side inside the effect below.
   const currentHref = useMemo(() => {
     if (typeof window === "undefined") return pathname;
-    return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    return `${pathname}${window.location.search}${window.location.hash}`;
   }, [pathname]);
+  const cachedState = userId
+    ? PreVaultUserStateService.getCachedBootstrapState?.(userId) ?? null
+    : null;
+  const cachedAdmissionAllowsCurrentRoute = Boolean(
+    cachedState &&
+      admissionAllowsCurrentRoute({
+        state: cachedState,
+        pathname,
+        setupSurface,
+      }),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -81,6 +110,25 @@ export function OnboardingJourneyGuard({
         exempt ||
         (setupSurface && pathname !== ROUTES.ONE_SETUP)
       ) {
+        redirectTargetRef.current = null;
+        setError(null);
+        setChecking(false);
+        return;
+      }
+
+      // A fresh session record is already sufficient to admit this route.
+      // Do not toggle checking on every client navigation: it adds two root
+      // renders and competes with the nested vault/phone guards despite no
+      // network work being required.
+      if (
+        cachedState &&
+        admissionAllowsCurrentRoute({
+          state: cachedState,
+          pathname,
+          setupSurface,
+        })
+      ) {
+        redirectTargetRef.current = null;
         setError(null);
         setChecking(false);
         return;
@@ -89,43 +137,40 @@ export function OnboardingJourneyGuard({
       setChecking(true);
       setError(null);
       try {
-        const state = await PreVaultUserStateService.bootstrapState(userId, {
-          force: true,
-        });
+        const state =
+          cachedState ??
+          (await PreVaultUserStateService.bootstrapState(userId));
         if (cancelled) return;
 
         // A missing legacy mirror is not evidence that an established account
         // is incomplete. New journeys write setupCompleted=false and a versioned
         // phase, so only explicit durable state activates the hard gate.
-        if (!hasExplicitIncompleteSetup(state)) {
-          setChecking(false);
-          return;
-        }
-
-        // The hub is always a safe return point. An active capability remains
-        // resumable there until its own explicit Finish or Skip settles it.
-        if (setupSurface) {
-          setChecking(false);
-          return;
-        }
-
         if (
-          isCapabilityOnboardingRoute(
-            state.onboardingActiveCapability,
-            pathname,
-          )
+          admissionAllowsCurrentRoute({ state, pathname, setupSurface })
         ) {
+          redirectTargetRef.current = null;
           setChecking(false);
+
+          // Bootstrap state is session-cached and updated through the journey
+          // services on every local mutation/callback. Do not re-fetch it on
+          // every route change; explicit recovery and terminal settlement use
+          // the force-refresh path and expected-version guard instead.
           return;
         }
 
+        const redirectTarget = buildOneSetupRoute({ returnTo: currentHref });
+        if (redirectTargetRef.current === redirectTarget) {
+          return;
+        }
+        redirectTargetRef.current = redirectTarget;
         setRedirecting(true);
-        const setupRoute = buildOneSetupRoute({ returnTo: currentHref });
-        router.replace(setupRoute);
+        router.replace(redirectTarget);
+        // Watchdog (from main): if the client router never lands on the setup
+        // route, force a hard navigation; otherwise release the loader.
         redirectWatchdogRef.current = setTimeout(() => {
           if (cancelled || typeof window === "undefined") return;
           if (window.location.pathname !== ROUTES.ONE_SETUP) {
-            window.location.assign(setupRoute);
+            window.location.assign(redirectTarget);
             return;
           }
           setRedirecting(false);
@@ -150,6 +195,7 @@ export function OnboardingJourneyGuard({
     };
   }, [
     authLoading,
+    cachedState,
     currentHref,
     exempt,
     pathname,
@@ -160,7 +206,11 @@ export function OnboardingJourneyGuard({
   ]);
 
   if (exempt || (!authLoading && !userId)) return <>{children}</>;
-  if (checking || authLoading || redirecting) {
+  if (
+    (checking && !cachedAdmissionAllowsCurrentRoute) ||
+    authLoading ||
+    redirecting
+  ) {
     return <HushhLoader label={redirecting ? "Returning to setup..." : "Checking setup..."} />;
   }
   if (error) {

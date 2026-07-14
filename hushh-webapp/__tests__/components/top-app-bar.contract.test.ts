@@ -190,9 +190,13 @@ describe("Top app bar responsive contract", () => {
     );
 
     expect(chrome).toContain("export function TopShellDropdownContent");
+    expect(chrome).toContain("export function TopShellPopoverContent");
     expect(chrome).toContain("centeredMobileAlignOffset");
     expect(chrome).toContain(
-      'querySelectorAll<HTMLElement>(\n      \'[data-slot="dropdown-menu-trigger"][data-state="open"]\'',
+      "'[data-slot=\"dropdown-menu-trigger\"][data-state=\"open\"]'",
+    );
+    expect(chrome).toContain(
+      "'[data-slot=\"popover-trigger\"][data-state=\"open\"]'",
     );
     expect(chrome).toContain("max-md:w-[calc(100vw-1.5rem)]");
     expect(chrome).toContain("max-md:min-w-[calc(100vw-1.5rem)]");

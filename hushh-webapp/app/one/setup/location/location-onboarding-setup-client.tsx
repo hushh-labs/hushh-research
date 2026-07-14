@@ -8,6 +8,7 @@ import {
   SetupCapabilityTerminalFooter,
   useSetupCapabilityCoordinator,
 } from "@/components/onboarding/setup/setup-capability-coordinator";
+import { ROUTES } from "@/lib/navigation/routes";
 
 export function LocationOnboardingSetupClient() {
   const [ready, setReady] = useState(false);
@@ -21,8 +22,11 @@ export function LocationOnboardingSetupClient() {
   if (!coordinator.isReady) return <SetupCapabilityLoading label="Preparing location setup…" />;
 
   return (
-    <div className="space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]">
-      <OneLocationAgentPage onSetupReadinessChange={setReady} />
+    <div className="space-y-4">
+      <OneLocationAgentPage
+        onSetupReadinessChange={setReady}
+        vaultPrerequisiteRouteKey={ROUTES.ONE_SETUP_LOCATION}
+      />
       <SetupCapabilityTerminalFooter
         capabilityId="location"
         isOperationallyReady={ready}

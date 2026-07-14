@@ -35,7 +35,6 @@ import {
   type CapabilityStatus,
 } from "@/lib/services/capability-setup-state-service";
 import { getCapabilityStatusDisplay } from "@/lib/onboarding/capability-status-display";
-import { cn } from "@/lib/utils";
 
 /**
  * OneSetupHub: the `/one/setup` hub screen.
@@ -187,7 +186,7 @@ export function OneSetupHub() {
     <AppPageShell
       as="main"
       width="standard"
-      className={cn("relative isolate", styles.setupShell)}
+      className="relative isolate"
       nativeTest={{
         routeId: "/one/setup",
         marker: "native-route-one-setup",

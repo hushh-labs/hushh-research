@@ -37,7 +37,6 @@ import asyncio
 import base64
 import json
 import logging
-import os
 import secrets
 import uuid
 from typing import Any, Optional
@@ -54,6 +53,12 @@ from fastapi import (
 from pydantic import BaseModel, Field
 
 from api.middlewares.rate_limit import RateLimits, limiter
+from api.routes.one.live_context import (
+    bounded_text,
+    compose_route_context_note,
+    sanitize_action_settlement,
+    sanitize_live_context,
+)
 from api.routes.one.relay_auth import (
     consume_relay_ticket_shared,
     issue_relay_ticket,
@@ -71,10 +76,14 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_VOICE_CONTEXT,
     get_one_runner,
 )
-from hushh_mcp.services.route_orchestration_index import resolve_route_orchestration_entry
-from hushh_mcp.services.voice_action_manifest import get_voice_manifest_action
 
 logger = logging.getLogger(__name__)
+
+# Back-compat aliases for the extracted trust boundary (live_context.py).
+_bounded_text = bounded_text
+_compose_route_context_note = compose_route_context_note
+_sanitize_action_settlement = sanitize_action_settlement
+_sanitize_live_context = sanitize_live_context
 
 router = APIRouter(prefix="/api/one/adk", tags=["One ADK"])
 
@@ -97,29 +106,13 @@ _ONBOARDING_SCREENS = frozenset(
 
 _INPUT_MIME_DEFAULT = "audio/pcm;rate=16000"
 _OUTPUT_MIME = "audio/pcm;rate=24000"
-_LIVE_CONTEXT_STRING_CAP = 64
-_LIVE_CONTEXT_ARRAY_CAP = 18
-_LIVE_MODULE_CAP = 10
-_LIVE_CAPABILITY_CAP = 10
-_ONBOARDING_PHASES = frozenset(
-    {
-        "anonymous_auth",
-        "phone_required",
-        "setup_hub",
-        "capability_setup",
-        "external_connector",
-        "root_completion",
-    }
-)
-_ONBOARDING_CALLBACK_STATES = frozenset({"none", "pending", "succeeded", "cancelled", "failed"})
-_ONBOARDING_CAPABILITIES = frozenset(
-    {"gmail", "location", "email", "finance", "ria", "connected-systems"}
-)
-_ACTION_SETTLEMENT_STATUSES = frozenset(
-    {"succeeded", "started", "blocked", "invalid", "failed", "noop"}
-)
 _INITIAL_GREETING_IDLE_SECONDS = 1.5
-_ROUTE_PLAYBOOK_TEXT_CAP = 480
+# Bounded wait for the first app_context frame before run_live opens. Audio
+# is buffered by LiveRequestQueue during the wait; raising this trades a few
+# hundred ms of first-response latency on slow clients for a correct action
+# inventory on the first turn (the 1.0s original lost the race on cold
+# connects and produced blanket action_unavailable refusals).
+_INITIAL_CONTEXT_WAIT_SECONDS = 2.5
 
 
 class _InitialGreetingGate:
@@ -208,296 +201,6 @@ def _event_audio_parts(event: Any) -> list[dict[str, Any]]:
     return parts
 
 
-def _bounded_text(value: Any, limit: int = _LIVE_CONTEXT_STRING_CAP) -> str:
-    return value.strip()[:limit] if isinstance(value, str) else ""
-
-
-def _bounded_text_list(value: Any, limit: int) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    result: list[str] = []
-    seen: set[str] = set()
-    for item in value:
-        clean = _bounded_text(item)
-        if not clean or clean in seen:
-            continue
-        result.append(clean)
-        seen.add(clean)
-        if len(result) >= limit:
-            break
-    return result
-
-
-def _sanitize_route_playbook(route_entry: Any) -> dict[str, Any] | None:
-    """Read only checked-in generated guidance; never trust browser prose."""
-    if (os.getenv("HUSHH_ROUTE_PLAYBOOKS_DISABLED") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-    }:
-        return None
-    if not isinstance(route_entry, dict):
-        return None
-    value = route_entry.get("voice_playbook")
-    if not isinstance(value, dict):
-        return None
-    proactivity = _bounded_text(value.get("proactivity"), 16)
-    return {
-        "playbook_id": _bounded_text(value.get("playbook_id"), 96),
-        "purpose": _bounded_text(value.get("purpose"), _ROUTE_PLAYBOOK_TEXT_CAP),
-        "screen": _bounded_text(value.get("screen"), 64),
-        "entry_cue": _bounded_text(value.get("entry_cue"), 240),
-        "proactivity": proactivity if proactivity in {"on_entry", "ambient"} else "ambient",
-        "primary_action_id": _bounded_text(value.get("primary_action_id"), 128) or None,
-        "completion_boundary": _bounded_text(
-            value.get("completion_boundary"), _ROUTE_PLAYBOOK_TEXT_CAP
-        ),
-        "next_route": _bounded_text(value.get("next_route"), 128) or None,
-        "return_policy": _bounded_text(value.get("return_policy"), 32),
-        "out_of_scope_behavior": _bounded_text(
-            value.get("out_of_scope_behavior"), _ROUTE_PLAYBOOK_TEXT_CAP
-        ),
-    }
-
-
-def _compose_route_context_note(context: dict[str, Any]) -> str | None:
-    """Build one bounded model note from server-resolved route intelligence."""
-    playbook = context.get("route_playbook")
-    if not isinstance(playbook, dict):
-        return None
-    if context.get("route_context_policy") == "suppress":
-        return None
-    purpose = str(playbook.get("purpose") or "Use the verified current screen.")
-    cue = str(playbook.get("entry_cue") or "")
-    primary = str(playbook.get("primary_action_id") or "")
-    active_actions = context.get("available_action_ids")
-    action_inventory = ", ".join(active_actions) if isinstance(active_actions, list) else ""
-    interaction_layer = context.get("interaction_layer")
-    layer_id = (
-        str(interaction_layer.get("layer_id") or "") if isinstance(interaction_layer, dict) else ""
-    )
-    proactive = playbook.get("proactivity") == "on_entry"
-    return (
-        "[App route context - not user speech] The verified current route is "
-        f"'{context.get('route_pattern') or context.get('route_family') or '/'}' "
-        f"and its purpose is: {purpose} "
-        "Generated actions and their guards remain the only execution authority. "
-        "For an explicit request matching a visible action, call list_app_actions "
-        "and run the exact returned id before any identity or greeting response. "
-        f"The currently visible generated action ids are: {action_inventory or 'none'}. "
-        f"The current top interaction layer is: {layer_id or 'none'}. "
-        f"The preferred action reference is '{primary or 'none'}'. "
-        + (
-            f"After route settlement, orient once with this intent: {cue} "
-            if proactive and cue
-            else "Use this context silently until the person speaks. "
-        )
-        + "Never claim completion before correlated browser settlement."
-    )
-
-
-def _sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
-    """Keep only bounded, redacted UI state for tool availability decisions."""
-    cache_freshness = _bounded_text(payload.get("cache_freshness"), 32)
-    route_family = _bounded_text(payload.get("route_family"))
-    route_entry = resolve_route_orchestration_entry(route_family)
-    route_action_ids = {
-        action_id
-        for action_id in (
-            route_entry.get("action_ids", []) if isinstance(route_entry, dict) else []
-        )
-        if isinstance(action_id, str) and get_voice_manifest_action(action_id) is not None
-    }
-    canonical_screen = (
-        _bounded_text(route_entry.get("canonical_screen"), 64)
-        if isinstance(route_entry, dict)
-        else ""
-    )
-    submitted_action_ids = [
-        action_id
-        for action_id in _bounded_text_list(
-            payload.get("available_action_ids"), _LIVE_CONTEXT_ARRAY_CAP
-        )
-        if action_id in route_action_ids
-    ]
-    interaction_layer = _sanitize_interaction_layer(
-        payload.get("interaction_layer"), submitted_action_ids
-    )
-    if interaction_layer and interaction_layer["modality"] in {"modal", "blocking"}:
-        layer_action_ids = set(interaction_layer["visible_action_ids"])
-        submitted_action_ids = [
-            action_id for action_id in submitted_action_ids if action_id in layer_action_ids
-        ]
-    return {
-        # The generated index is the server-side source of route policy.  A
-        # client may describe its current UI, but cannot invent a route
-        # instruction or route policy. Action execution remains independently
-        # guarded by the generated action gateway and surface metadata.
-        "route_family": route_family,
-        "route_pattern": route_entry.get("route_pattern")
-        if isinstance(route_entry, dict)
-        else None,
-        "route_instruction_id": route_entry.get("instruction_id")
-        if isinstance(route_entry, dict)
-        else None,
-        "route_context_policy": route_entry.get("context_policy")
-        if isinstance(route_entry, dict)
-        else "suppress",
-        "route_playbook": _sanitize_route_playbook(route_entry),
-        # A browser may describe a screen for presentation, but execution
-        # authority derives it from the generated route index. This prevents a
-        # stale render or forged frame from lending another route's actions to
-        # the active page.
-        "screen": canonical_screen or None,
-        "persona": _bounded_text(payload.get("persona")),
-        "voice_state": _bounded_text(payload.get("voice_state"), 32),
-        "available_action_ids": submitted_action_ids,
-        "visible_modules": _bounded_text_list(payload.get("visible_modules"), _LIVE_MODULE_CAP),
-        "visible_control_ids": _bounded_text_list(
-            payload.get("visible_control_ids"), _LIVE_MODULE_CAP
-        ),
-        "interaction_layer": interaction_layer,
-        "pending_settlement": payload.get("pending_settlement") is True,
-        "cache_freshness": cache_freshness
-        if cache_freshness in {"fresh_or_stale_safe", "locked", "missing"}
-        else "missing",
-        "vault_ready": payload.get("vault_ready") is True,
-        "portfolio_ready": payload.get("portfolio_ready") is True,
-        "busy_operations": _bounded_text_list(payload.get("busy_operations"), _LIVE_MODULE_CAP),
-        "onboarding": _sanitize_onboarding_context(payload.get("onboarding")),
-    }
-
-
-def _sanitize_interaction_layer(
-    value: Any, submitted_action_ids: list[str]
-) -> dict[str, Any] | None:
-    """Keep one bounded authored layer; never let it mint app authority."""
-    if not isinstance(value, dict):
-        return None
-    layer_id = _bounded_text(value.get("layer_id"), 128)
-    kind = _bounded_text(value.get("kind"), 64)
-    modality = _bounded_text(value.get("modality"), 16)
-    lifecycle = _bounded_text(value.get("lifecycle_state"), 16)
-    continuity = _bounded_text(value.get("agent_continuity"), 16)
-    if (
-        not layer_id
-        or not kind
-        or modality not in {"nonmodal", "modal", "blocking"}
-        or lifecycle not in {"opening", "open", "closing"}
-        or continuity not in {"interactive", "ambient", "suppressed"}
-    ):
-        return None
-    submitted = set(submitted_action_ids)
-    visible_action_ids = [
-        action_id
-        for action_id in _bounded_text_list(
-            value.get("visible_action_ids"), _LIVE_CONTEXT_ARRAY_CAP
-        )
-        if action_id in submitted and get_voice_manifest_action(action_id) is not None
-    ]
-    dismissible = value.get("dismissible") is True
-    dismiss_action_id: str | None = _bounded_text(value.get("dismiss_action_id"), 128) or None
-    if (
-        not dismissible
-        or not dismiss_action_id
-        or dismiss_action_id not in visible_action_ids
-        or get_voice_manifest_action(dismiss_action_id) is None
-    ):
-        dismiss_action_id = None
-    options: list[dict[str, Any]] = []
-    raw_options = value.get("options")
-    if isinstance(raw_options, list):
-        for option in raw_options[:10]:
-            if not isinstance(option, dict):
-                continue
-            option_id = _bounded_text(option.get("id"), 64)
-            label = _bounded_text(option.get("label"), 96)
-            action_id: str | None = _bounded_text(option.get("action_id"), 128) or None
-            if not option_id or not label:
-                continue
-            if action_id and action_id not in visible_action_ids:
-                action_id = None
-            options.append(
-                {
-                    "id": option_id,
-                    "label": label,
-                    "action_id": action_id,
-                    "description": _bounded_text(option.get("description"), 160) or None,
-                }
-            )
-    return {
-        "layer_id": layer_id,
-        "kind": kind,
-        "modality": modality,
-        "lifecycle_state": lifecycle,
-        "dismissible": dismissible and dismiss_action_id is not None,
-        "dismiss_action_id": dismiss_action_id,
-        "visible_action_ids": visible_action_ids,
-        "visible_control_ids": _bounded_text_list(
-            value.get("visible_control_ids"), _LIVE_MODULE_CAP
-        ),
-        "options": options,
-        "underlying_actions_available": (
-            value.get("underlying_actions_available") is True and modality == "nonmodal"
-        ),
-        "agent_continuity": continuity,
-    }
-
-
-def _sanitize_onboarding_context(value: Any) -> dict[str, Any]:
-    """Bound anonymous/new-user guidance to non-sensitive journey metadata."""
-    payload = value if isinstance(value, dict) else {}
-    phase = _bounded_text(payload.get("phase"), 32)
-    callback_state = _bounded_text(payload.get("callback_state"), 16)
-    active_capability = _bounded_text(payload.get("active_capability"), 32)
-    return {
-        "phase": phase if phase in _ONBOARDING_PHASES else "anonymous_auth",
-        "active_capability": active_capability
-        if active_capability in _ONBOARDING_CAPABILITIES
-        else None,
-        "root_resolved": payload.get("root_resolved") is True,
-        "return_route": "/one/setup",
-        "callback_state": callback_state
-        if callback_state in _ONBOARDING_CALLBACK_STATES
-        else "none",
-        "phone_verified": payload.get("phone_verified")
-        if isinstance(payload.get("phone_verified"), bool)
-        else None,
-        "setup_capability_ids": [
-            capability
-            for capability in _bounded_text_list(
-                payload.get("setup_capability_ids"), _LIVE_CAPABILITY_CAP
-            )
-            if capability in _ONBOARDING_CAPABILITIES
-        ],
-    }
-
-
-def _sanitize_action_settlement(
-    payload: Any, issued_directives: dict[str, str]
-) -> dict[str, str] | None:
-    """Validate a browser report against an action directive from this socket."""
-    if not isinstance(payload, dict):
-        return None
-    directive_id = _bounded_text(payload.get("directiveId"), 128)
-    action_id = _bounded_text(payload.get("actionId"), 128)
-    if not directive_id or issued_directives.get(directive_id) != action_id:
-        return None
-    status_value = _bounded_text(payload.get("status"), 16)
-    if status_value not in _ACTION_SETTLEMENT_STATUSES:
-        return None
-    issued_directives.pop(directive_id, None)
-    return {
-        "directive_id": directive_id,
-        "action_id": action_id,
-        "status": status_value,
-        "summary": _bounded_text(payload.get("summary"), 320) or "The app returned no detail.",
-        "reason": _bounded_text(payload.get("reason"), 96),
-        "route_after": _bounded_text(payload.get("routeAfter"), 128),
-        "screen_after": _bounded_text(payload.get("screenAfter"), 64),
-    }
-
-
 @router.websocket("/live")
 async def one_adk_live_relay(websocket: WebSocket) -> None:
     """Bridge the browser wire protocol onto Runner.run_live."""
@@ -535,6 +238,12 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             # never placed in URLs); tools fail closed until then.
             STATE_CONSENT_TOKEN: "",
             STATE_TIMEZONE: "",
+            # Live sessions start with an explicit pending marker so action
+            # tools can distinguish "browser context not yet arrived" (report
+            # context_not_ready, recoverable) from a non-live caller with no
+            # voice context at all (compat-permissive). The first app_context
+            # frame replaces this marker with the sanitized context.
+            STATE_VOICE_CONTEXT: {"context_pending": True},
         },
     )
 
@@ -753,6 +462,12 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 if settlement is None:
                     logger.info("one_adk_live_invalid_action_settlement")
                     continue
+                logger.info(
+                    "one_adk_live_action_settled action=%s directive=%s status=%s",
+                    settlement["action_id"],
+                    settlement["directive_id"],
+                    settlement["status"],
+                )
                 await runner.session_service.append_event(
                     session,
                     AdkEvent(
@@ -830,14 +545,20 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
 
     async def pump_events_to_browser() -> None:
         # ADK evaluates a callable system instruction when run_live opens.
-        # Wait briefly for the browser's first bounded app_context so the
-        # active server-resolved playbook is present for the first real turn.
-        # Legacy clients still start after the compatibility timeout; queued
-        # audio is retained by LiveRequestQueue during this bounded wait.
+        # Wait for the browser's first bounded app_context so the active
+        # server-resolved playbook AND the executable-action inventory are
+        # present for the first real turn. LiveRequestQueue retains queued
+        # audio during this wait, so nothing the visitor says is lost. A
+        # too-short window here made the first turn run with an empty
+        # inventory, so every requested action was refused as unavailable.
         try:
-            await asyncio.wait_for(initial_context_ready.wait(), timeout=1.0)
+            await asyncio.wait_for(
+                initial_context_ready.wait(), timeout=_INITIAL_CONTEXT_WAIT_SECONDS
+            )
         except TimeoutError:
-            pass
+            # Legacy/context-free clients still start; tools see an absent
+            # voice context and report context_not_ready instead of refusing.
+            logger.info("one_adk_live_started_without_initial_context")
         async for event in runner.run_live(
             user_id=session_user,
             session_id=session_id,
@@ -865,6 +586,12 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 )
             # Tools park client directives (navigation etc.) in their event's
             # state_delta; forward each exactly once, ordered with the stream.
+            # KNOWN LIMIT (verified against ADK): when a model turn makes
+            # PARALLEL tool calls, ADK deep-merges every call's state_delta
+            # into ONE merged event, so at most one pending directive survives
+            # per turn. The system instruction therefore requires at most one
+            # action-producing tool call per turn; do not rely on two parallel
+            # run_app_action calls both reaching the browser.
             actions = getattr(event, "actions", None)
             delta = getattr(actions, "state_delta", None) or {}
             directive = delta.get(STATE_PENDING_DIRECTIVE)
@@ -880,6 +607,11 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                             **directive,
                             "payload": {**payload, "directiveId": directive_id},
                         }
+                        logger.info(
+                            "one_adk_live_directive_issued action=%s directive=%s",
+                            action_id,
+                            directive_id,
+                        )
                 await websocket.send_text(json.dumps({"clientDirective": outgoing_directive}))
             if getattr(event, "turn_complete", False):
                 await websocket.send_text(json.dumps({"serverContent": {"turnComplete": True}}))

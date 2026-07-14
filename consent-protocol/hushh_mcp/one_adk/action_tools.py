@@ -28,6 +28,7 @@ from google.adk.tools.tool_context import ToolContext
 
 from hushh_mcp.services.voice_action_manifest import (
     get_voice_manifest_action,
+    is_navigation_action,
     list_voice_manifest_actions,
     select_voice_manifest_actions_for_prompt,
 )
@@ -113,14 +114,51 @@ async def run_app_action(
     clean_slots = {k: v for k, v in (slots or {}).items() if v not in (None, "")}
     entry = get_voice_manifest_action(clean_id)
     if entry is None:
+        logger.info("one_adk_action_decision action=%s status=unknown_action", clean_id[:128])
         return {
             "status": "unknown_action",
             "message": f"'{clean_id}' is not a known app action.",
             "suggestions": _suggest_action_ids(clean_id),
         }
 
+    context = tool_context.state.get(_STATE_VOICE_CONTEXT)
+    if isinstance(context, dict) and context.get("context_pending") is True:
+        # The live relay seeded this marker at session start; the browser's
+        # first app_context frame has not landed yet. Refusing outright here
+        # read as "actions never fire" on cold connects; instead report a
+        # recoverable status the model can retry after a beat.
+        logger.info("one_adk_action_decision action=%s status=context_not_ready", clean_id)
+        return {
+            "status": "context_not_ready",
+            "message": (
+                "The app is still publishing its screen state. Acknowledge the "
+                "request, wait a moment, and retry this exact action."
+            ),
+        }
+    if isinstance(context, dict) and context.get("pending_settlement") is True:
+        # A previous action or navigation has not settled yet. Executing
+        # against the outgoing screen's inventory would validate the request
+        # against stale state, so hold this turn instead of refusing it.
+        logger.info("one_adk_action_decision action=%s status=settling", clean_id)
+        return {
+            "status": "settling",
+            "message": (
+                "The previous action is still settling. Wait for the app's "
+                "settlement report, then run this action against the fresh "
+                "screen state."
+            ),
+        }
+
     available_action_ids = _available_action_ids(tool_context)
-    if available_action_ids is not None and clean_id not in available_action_ids:
+    # Navigation actions (route.*, allow_direct) are invocable from any
+    # screen by design; the browser's per-screen inventory does not bound
+    # them. All other actions must be declared by the current surface.
+    if (
+        available_action_ids is not None
+        and clean_id not in available_action_ids
+        and not is_navigation_action(entry)
+    ):
+        logger.info("one_adk_action_decision action=%s status=action_unavailable", clean_id)
         return {
             "status": "action_unavailable",
             "message": (
@@ -152,15 +190,21 @@ async def run_app_action(
     action_screens = {
         str(s).strip() for s in ((entry.get("scope") or {}).get("screens") or []) if str(s).strip()
     }
-    if current_screen and action_screens and current_screen not in action_screens:
+    if (
+        current_screen
+        and action_screens
+        and current_screen not in action_screens
+        and not is_navigation_action(entry)
+    ):
         label = str(entry.get("label") or clean_id)
         where = sorted(action_screens)[0]
+        logger.info("one_adk_action_decision action=%s status=wrong_screen", clean_id)
         return {
             "status": "wrong_screen",
             "message": (
                 f"{label} isn't available on the current screen; it lives on "
-                f"the {where} screen. Open that screen first (open_screen or the "
-                "matching route action) before running it."
+                f"the {where} screen. Run the matching route action to open "
+                "that screen first."
             ),
             "reachable_screens": sorted(action_screens),
         }
@@ -171,6 +215,7 @@ async def run_app_action(
     if policy == "manual_only":
         screens = (entry.get("scope") or {}).get("screens") or []
         where = f" It lives on the {screens[0]} screen." if screens else ""
+        logger.info("one_adk_action_decision action=%s status=manual_only", clean_id)
         return {
             "status": "manual_only",
             "message": (
@@ -180,6 +225,7 @@ async def run_app_action(
 
     missing = _missing_required_slot(entry, clean_slots)
     if missing is not None:
+        logger.info("one_adk_action_decision action=%s status=input_needed", clean_id)
         return {
             "status": "input_needed",
             "missing_slot": missing["slot"],
@@ -195,6 +241,7 @@ async def run_app_action(
             "kind": "action",
             "payload": directive_payload,
         }
+        logger.info("one_adk_action_decision action=%s status=confirm_pending", clean_id)
         return {
             "status": "confirm_pending",
             "message": (
@@ -208,6 +255,7 @@ async def run_app_action(
         "kind": "action",
         "payload": directive_payload,
     }
+    logger.info("one_adk_action_decision action=%s status=ok", clean_id)
     return {
         "status": "ok",
         "message": f"Running {label}.",
@@ -240,7 +288,14 @@ async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, A
     )
     available_action_ids = _available_action_ids(tool_context)
     if available_action_ids is not None:
-        ranked = [entry for entry in ranked if entry["action_id"] in available_action_ids]
+        # Navigation actions stay listable from any screen (matching the
+        # run_app_action acceptance rule) so "where can I go" and "go to X"
+        # remain answerable even on surfaces with no local controls.
+        ranked = [
+            entry
+            for entry in ranked
+            if entry["action_id"] in available_action_ids or is_navigation_action(entry)
+        ]
     results = []
     for entry in ranked:
         delegate_tool = _DELEGATE_TOOL_BY_AGENT_ID.get(str(entry.get("delegate_agent_id") or ""))
