@@ -101,6 +101,7 @@ import {
 } from "@/lib/services/one-kyc-client-zk-service";
 import {
   OneKycService,
+  type KycProposal,
   type OneKycScopeCandidate,
   type OneKycWorkflow,
   type OneKycWorkflowStatus,
@@ -116,6 +117,7 @@ const STATUS_LABELS: Record<OneKycWorkflowStatus, string> = {
   needs_client_connector: "Needs vault setup",
   needs_scope: "Needs access",
   needs_documents: "Needs documents",
+  needs_confirm: "Needs confirmation",
   drafting: "Drafting",
   waiting_on_user: "Needs review",
   waiting_on_counterparty: "Sent",
@@ -127,7 +129,7 @@ function statusVariant(
   status: OneKycWorkflowStatus,
 ): "default" | "secondary" | "destructive" | "outline" {
   if (status === "blocked") return "destructive";
-  if (status === "waiting_on_user" || status === "needs_scope")
+  if (status === "waiting_on_user" || status === "needs_scope" || status === "needs_confirm")
     return "default";
   if (status === "completed" || status === "waiting_on_counterparty")
     return "secondary";
@@ -138,7 +140,7 @@ function statusIcon(status: OneKycWorkflowStatus): LucideIcon {
   if (status === "blocked") return Ban;
   if (status === "completed" || status === "waiting_on_counterparty")
     return BadgeCheck;
-  if (status === "needs_scope" || status === "needs_client_connector")
+  if (status === "needs_scope" || status === "needs_client_connector" || status === "needs_confirm")
     return ShieldCheck;
   if (status === "waiting_on_user") return Send;
   return Clock3;
@@ -210,6 +212,7 @@ function emailWorkflowBusyLabel(busy: string | null): string | null {
   if (busy === "reject") return "Rejecting request...";
   if (busy === "redraft") return "Redrafting reply...";
   if (busy === "alias") return "Updating verified email...";
+  if (busy === "confirm-proposal") return "Confirming proposal...";
   return "Working...";
 }
 
@@ -239,6 +242,10 @@ function titleCase(value: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function shouldShowProposal(workflow: OneKycWorkflow): boolean {
+  return workflow.status === "needs_confirm" && Boolean(workflow.metadata?.kyc_proposal);
 }
 
 function shouldSyncWorkflowOnLoad(workflow: OneKycWorkflow): boolean {
@@ -370,6 +377,7 @@ export function OneKycWorkspace({
   const [autoSyncedNeedsScopeIds, setAutoSyncedNeedsScopeIds] = useState<
     Record<string, true>
   >({});
+  const [confirmSelection, setConfirmSelection] = useState<string[]>([]);
   const [connectorReady, setConnectorReady] = useState(false);
   const [emailAliases, setEmailAliases] = useState<AccountEmailAlias[]>([]);
   const [aliasEmail, setAliasEmail] = useState("");
@@ -434,6 +442,17 @@ export function OneKycWorkspace({
       selected.draft_status === "ready" &&
       selectedDraft,
   );
+
+  // Reset confirm-proposal selection when the selected workflow changes
+  useEffect(() => {
+    if (!selected || !shouldShowProposal(selected)) return;
+    const proposal = selected.metadata?.kyc_proposal as KycProposal | undefined;
+    const scopes = proposal?.requested_items?.map((item) => item.scope) ?? [];
+    setConfirmSelection(scopes);
+    // Intentionally depends only on identity/status change to avoid resetting mid-session
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.workflow_id, selected?.status]);
+
   const busyLabel = emailWorkflowBusyLabel(busy);
   const showInitialLoading = loading && workflows.length === 0;
   const listRefreshLabel =
@@ -1501,6 +1520,36 @@ export function OneKycWorkspace({
     });
   }, []);
 
+  const toggleConfirmScope = useCallback((scope: string) => {
+    setConfirmSelection((current) =>
+      current.includes(scope)
+        ? current.filter((item) => item !== scope)
+        : [...current, scope],
+    );
+  }, []);
+
+  const confirmProposal = useCallback(
+    async (workflow: OneKycWorkflow) => {
+      if (!auth.userId || !vaultOwnerToken) return;
+      setBusy("confirm-proposal");
+      setError(null);
+      try {
+        const next = await OneKycService.confirmProposal({
+          userId: auth.userId,
+          vaultOwnerToken,
+          workflowId: workflow.workflow_id,
+          approvedScopes: confirmSelection,
+        });
+        updateWorkflow(next);
+      } catch (err) {
+        setError(oneKycErrorMessage(err, "Unable to confirm proposal."));
+      } finally {
+        setBusy(null);
+      }
+    },
+    [auth.userId, confirmSelection, updateWorkflow, vaultOwnerToken],
+  );
+
   return (
     <AppPageShell
       width="content"
@@ -1727,6 +1776,69 @@ export function OneKycWorkspace({
                   />
                 </SettingsGroup>
               ) : null}
+
+              {shouldShowProposal(selected) ? (() => {
+                const proposal = selected.metadata?.kyc_proposal as KycProposal | undefined;
+                if (!proposal) return null;
+                return (
+                  <SettingsGroup
+                    embedded
+                    title="What One will share"
+                    description={proposal.reasoning}
+                  >
+                    {proposal.requested_items.map((item) => {
+                      const checked = confirmSelection.includes(item.scope);
+                      return (
+                        <SettingsRow
+                          key={item.scope}
+                          icon={ShieldCheck}
+                          title={item.label}
+                          description={item.rationale}
+                          trailing={
+                            <input
+                              type="checkbox"
+                              className="size-4 accent-foreground"
+                              checked={checked}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={() => toggleConfirmScope(item.scope)}
+                              aria-label={`Select ${item.label}`}
+                            />
+                          }
+                          onClick={() => toggleConfirmScope(item.scope)}
+                          stackTrailingOnMobile
+                        />
+                      );
+                    })}
+                    <div className="flex flex-wrap gap-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+                      <Button
+                        type="button"
+                        onClick={() => void confirmProposal(selected)}
+                        disabled={Boolean(busy) || confirmSelection.length === 0}
+                      >
+                        {busy === "confirm-proposal" ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <ShieldCheck className="size-4" />
+                        )}
+                        {busy === "confirm-proposal" ? "Confirming..." : "Confirm"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void runAction("reject", selected)}
+                        disabled={Boolean(busy)}
+                      >
+                        {busy === "reject" ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <XCircle className="size-4" />
+                        )}
+                        {busy === "reject" ? "Rejecting..." : "Reject"}
+                      </Button>
+                    </div>
+                  </SettingsGroup>
+                );
+              })() : null}
 
               {shouldShowDataSelection(selected) ? (
                 <SettingsGroup

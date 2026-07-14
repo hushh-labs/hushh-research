@@ -12,7 +12,23 @@ export type OneKycWorkflowStatus =
   | "waiting_on_user"
   | "waiting_on_counterparty"
   | "completed"
-  | "blocked";
+  | "blocked"
+  | "needs_confirm";
+
+export interface KycProposalItem {
+  label: string;
+  domain: string;
+  scope: string;
+  rationale: string;
+}
+
+export interface KycProposal {
+  classification: string;
+  requested_items: KycProposalItem[];
+  primary_domains: string[];
+  confidence: number;
+  reasoning: string;
+}
 
 export interface OneKycScopeCandidate {
   scope: string;
@@ -405,6 +421,25 @@ export class OneKycService {
           error_message: errorMessage,
         }),
       }
+    );
+  }
+
+  static confirmProposal({
+    userId,
+    vaultOwnerToken,
+    workflowId,
+    approvedScopes,
+  }: AuthInput & {
+    workflowId: string;
+    approvedScopes: string[];
+  }): Promise<OneKycWorkflow> {
+    return apiJson<OneKycWorkflow>(
+      `/api/one/kyc/workflows/${encodeURIComponent(workflowId)}/confirm-proposal`,
+      {
+        method: "POST",
+        headers: authHeaders(vaultOwnerToken),
+        body: JSON.stringify({ user_id: userId, approved_scopes: approvedScopes }),
+      },
     );
   }
 }
