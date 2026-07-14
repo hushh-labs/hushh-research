@@ -97,6 +97,7 @@ import {
   effectiveOneKycRequiredFields,
   OneKycClientZkService,
   runLlmRedraft,
+  runFullRedraft,
   type KycDraftBuildResult,
 } from "@/lib/services/one-kyc-client-zk-service";
 import {
@@ -1040,32 +1041,25 @@ export function OneKycWorkspace({
             setError("Prepare the email draft before revising it.");
             return;
           }
-          const exportPayloads = localExportPayloads[workflow.workflow_id] || [];
-          const result = await runLlmRedraft({
-            localDraft,
-            instruction: redraftInstructions.trim(),
-            workflow,
-            exportPayloads,
-            llmRewrite: (tokenizedTemplate, instruction) =>
-              OneKycService.redraftWithLlm({
-                ...input,
-                tokenizedTemplate,
-                instruction,
-              }).then((response) => response.rewritten_template),
-          });
-          if (!result.ok) {
-            setError(
-              result.errorCode === "TOKEN_INTEGRITY"
-                ? "AI output failed token integrity check — using original draft. Try again or use a simpler instruction."
-                : "AI output altered the consented field set — using original draft. Try again.",
-            );
-            setRedraftInstructions("");
-            return;
+          try {
+            const result = await runFullRedraft({
+              localDraft,
+              instruction: redraftInstructions.trim(),
+              workflow,
+              input,
+            });
+            if (!result.ok) {
+              setError("Redraft failed — please try again.");
+              setRedraftInstructions("");
+              return;
+            }
+            setLocalDrafts((current) => ({
+              ...current,
+              [workflow.workflow_id]: result.draft,
+            }));
+          } catch {
+            setError("Redraft failed — please try again.");
           }
-          setLocalDrafts((current) => ({
-            ...current,
-            [workflow.workflow_id]: result.draft,
-          }));
           setRedraftInstructions("");
           return;
         }

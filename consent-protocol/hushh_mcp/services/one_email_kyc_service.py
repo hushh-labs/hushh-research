@@ -4229,6 +4229,121 @@ class OneEmailKycService:
         # Step 9 — Return the rewritten template for client-side re-substitution.
         return {"rewritten_template": rewritten_template}
 
+    async def redraft_full(
+        self,
+        *,
+        user_id: str,
+        workflow_id: str,
+        draft_body: str,
+        instruction: str,
+        consent_token: str,
+    ) -> dict[str, Any]:
+        """Full-body LLM redraft for KYC (Task 8).
+
+        Sends the real ``draft_body`` (no tokenization) plus ``instruction`` to
+        server-side Gemini Vertex. The draft body is NEVER persisted or logged;
+        only the instruction hash + revision metadata are recorded.
+
+        Use this instead of ``redraft_llm`` when the caller is comfortable
+        sending the actual PII-containing draft body to the server (the body
+        is only held in memory for the duration of the Gemini call and is
+        discarded immediately after).
+        """
+        # Step 1 — Consent gate (DB-aware so revoked tokens are rejected).
+        valid, reason, _token_obj = await validate_token_with_db(
+            consent_token, ConsentScope.AGENT_KYC_DISCLOSE_LLM
+        )
+        if not valid:
+            raise PermissionError(f"KYC full redraft denied: {reason}")
+
+        # Step 2 — Workflow must be awaiting user review with a ready draft.
+        workflow = await self.get_workflow(user_id=user_id, workflow_id=workflow_id)
+        if workflow.get("status") != "waiting_on_user" or workflow.get("draft_status") != "ready":
+            raise OneEmailKycError(
+                "KYC draft is not ready for redraft.",
+                status_code=409,
+                code="ONE_KYC_DRAFT_NOT_READY",
+            )
+
+        # Step 3 — Scope-expansion guard. The LLM must not pull in new scopes.
+        if _redraft_requests_more_data(instruction):
+            raise OneEmailKycError(
+                "The instruction requests data outside the approved scopes.",
+                status_code=422,
+                code="ONE_KYC_LLM_SCOPE_EXPANSION_BLOCKED",
+            )
+
+        # Step 4 — Gemini readiness (lazy-inits the shared Vertex client).
+        if not _require_gemini_ready():
+            return _gemini_unavailable_payload("Gemini unavailable for KYC full redraft")
+
+        # Step 5 — System prompt that forbids hallucination.
+        system_instruction = (
+            "rewrite per the instruction; do not add facts not already present in the draft; "
+            "output only the rewritten email."
+        )
+        user_message = (
+            f"Instruction: {_truncate(instruction, 1000)}\n\nEmail to rewrite:\n{draft_body}"
+        )
+
+        # Step 6 — Call Gemini via the shared client (no new client instantiated).
+        client = _gemini_client if _gemini_client is not None else _kai_llm._gemini_client
+        model_name = _gemini_model_name or _kai_llm._gemini_model_name
+        types_mod = _genai_types if _genai_types is not None else _kai_llm.types
+        if client is None or types_mod is None:
+            return _gemini_unavailable_payload("Gemini unavailable for KYC full redraft")
+
+        config = types_mod.GenerateContentConfig(
+            system_instruction=system_instruction,
+            temperature=KAI_LLM_TEMPERATURE,
+            max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
+        )
+
+        def _invoke() -> Any:
+            return client.models.generate_content(
+                model=model_name,
+                contents=user_message,
+                config=config,
+            )
+
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(None, _invoke)
+        rewritten = getattr(response, "text", None)
+        if not rewritten:
+            candidates = getattr(response, "candidates", None) or []
+            if candidates:
+                parts = getattr(getattr(candidates[0], "content", None), "parts", None) or []
+                if parts:
+                    rewritten = getattr(parts[0], "text", None)
+        rewritten = (rewritten or "").strip()
+
+        # Step 7 — Log the instruction hash only. NEVER log the draft body.
+        instruction_hash = hashlib.sha256(instruction.encode("utf-8")).hexdigest()
+        logger.info(
+            "one.kyc.redraft_full user_id=%s workflow_id=%s instruction_hash=%s",
+            user_id,
+            workflow_id,
+            instruction_hash,
+        )
+
+        # Step 8 — Update workflow metadata only (no draft_body). Bump revision.
+        metadata = workflow.get("metadata", {})
+        revision = int(metadata.get("draft_revision") or 1) + 1
+        self._update_workflow(
+            workflow_id,
+            metadata={
+                **metadata,
+                "draft_revision": revision,
+                "last_redraft_source": "llm_full",
+                "last_redraft_at": _utcnow().isoformat(),
+                "last_redraft_instruction_hash": instruction_hash,
+                "client_draft_required": True,
+            },
+        )
+
+        # Step 9 — Return the rewritten body.
+        return {"rewritten_body": rewritten}
+
     @staticmethod
     def _draft_values_are_grounded(draft_body: str, extracted: list[dict[str, Any]]) -> bool:
         """Conservative v1 provenance guard: reject if the draft contains an email address

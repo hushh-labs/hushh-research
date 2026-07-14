@@ -339,6 +339,31 @@ export class OneKycService {
     );
   }
 
+  static redraftFull({
+    userId,
+    vaultOwnerToken,
+    workflowId,
+    draftBody,
+    instruction,
+  }: AuthInput & {
+    workflowId: string;
+    draftBody: string;
+    instruction: string;
+  }): Promise<{ rewritten_body: string }> {
+    return apiJson<{ rewritten_body: string }>(
+      `/api/one/kyc/workflows/${encodeURIComponent(workflowId)}/redraft-full`,
+      {
+        method: "POST",
+        headers: authHeaders(vaultOwnerToken),
+        body: JSON.stringify({
+          user_id: userId,
+          draft_body: draftBody,
+          instruction,
+        }),
+      }
+    );
+  }
+
   static getClientConnector({
     userId,
     vaultOwnerToken,

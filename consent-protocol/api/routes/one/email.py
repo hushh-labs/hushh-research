@@ -597,6 +597,35 @@ async def one_kyc_redraft_llm(
         raise _to_http_exception(exc, operation="redraft_llm") from exc
 
 
+class FullRedraftRequest(WorkflowUserRequest):
+    draft_body: str = Field(min_length=1, max_length=20000)
+    instruction: str = Field(min_length=1, max_length=1000)
+
+
+@router.post("/kyc/workflows/{workflow_id}/redraft-full")
+async def one_kyc_redraft_full(
+    workflow_id: str,
+    payload: FullRedraftRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verified_vault_user_id(token_data, payload.user_id)
+    try:
+        return await _service().redraft_full(
+            user_id=payload.user_id,
+            workflow_id=workflow_id,
+            draft_body=payload.draft_body,
+            instruction=payload.instruction,
+            consent_token=token_data.get("token", ""),
+        )
+    except Exception as exc:
+        logger.exception(
+            "one.kyc.redraft_full_failed user_id=%s workflow_id=%s",
+            payload.user_id,
+            workflow_id,
+        )
+        raise _to_http_exception(exc, operation="redraft_full") from exc
+
+
 @router.post("/kyc/workflows/{workflow_id}/extract-draft")
 async def one_kyc_extract_draft(
     workflow_id: str,

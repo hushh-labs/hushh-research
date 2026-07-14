@@ -1908,3 +1908,37 @@ export async function runLlmRedraft(params: {
     },
   };
 }
+
+/**
+ * Full-body KYC redraft orchestrator (Task 8 — no tokenization).
+ *
+ * Sends the real draft body to the server-side Gemini proxy and returns a
+ * rewritten draft. No PII redaction is performed in the browser — the actual
+ * draft body is transmitted to the server and discarded immediately after the
+ * LLM call. Only the instruction hash is recorded server-side.
+ */
+export async function runFullRedraft(params: {
+  localDraft: KycDraftBuildResult;
+  instruction: string;
+  workflow: OneKycWorkflow;
+  input: { userId: string; vaultOwnerToken: string; workflowId: string };
+}): Promise<LlmRedraftResult> {
+  const { localDraft, instruction, workflow, input } = params;
+
+  const { rewritten_body } = await OneKycService.redraftFull({
+    ...input,
+    workflowId: workflow.workflow_id,
+    draftBody: localDraft.body,
+    instruction,
+  });
+
+  return {
+    ok: true,
+    draft: {
+      ...localDraft,
+      body: rewritten_body,
+      htmlBody: renderLlmRedraftHtml(rewritten_body),
+      draftHash: await sha256Hex(rewritten_body),
+    },
+  };
+}
