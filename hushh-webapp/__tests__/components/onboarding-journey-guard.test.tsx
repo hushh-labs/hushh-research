@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import { render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -51,6 +54,21 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   },
 }));
 
+const WEBAPP_ROOT = path.resolve(__dirname, "../..");
+
+function read(relativePath: string) {
+  return fs.readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8");
+}
+
+function incompleteSetupState() {
+  return {
+    setupCompleted: false,
+    onboardingJourneyVersion: 1,
+    onboardingPhase: "setup_hub",
+    onboardingActiveCapability: null,
+  };
+}
+
 describe("OnboardingJourneyGuard", () => {
   beforeEach(() => {
     replace.mockReset();
@@ -61,11 +79,7 @@ describe("OnboardingJourneyGuard", () => {
   });
 
   it("admits a cached setup route without a bootstrap request or checking churn", async () => {
-    getCachedBootstrapStateMock.mockReturnValue({
-      setupCompleted: false,
-      onboardingJourneyVersion: 1,
-      onboardingPhase: "setup_hub",
-    });
+    getCachedBootstrapStateMock.mockReturnValue(incompleteSetupState());
 
     render(
       <OnboardingJourneyGuard>
@@ -81,14 +95,44 @@ describe("OnboardingJourneyGuard", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
+  it("redirects an explicitly incomplete One journey to the setup hub", async () => {
+    pathnameValue = "/one";
+    bootstrapStateMock.mockResolvedValue(incompleteSetupState());
+    getCachedBootstrapStateMock.mockReturnValue(null);
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>one home</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    await waitFor(() => {
+      expect(replace).toHaveBeenCalledWith("/one/setup?return_to=%2Fone");
+    });
+    expect(screen.getByText("Returning to setup...")).toBeTruthy();
+  });
+
+  it("admits the canonical setup hub even when setup is incomplete", async () => {
+    pathnameValue = "/one/setup";
+    bootstrapStateMock.mockResolvedValue(incompleteSetupState());
+    getCachedBootstrapStateMock.mockReturnValue(incompleteSetupState());
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>setup hub</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("setup hub")).toBeTruthy();
+    });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
   it("preserves a query-bearing route in one idempotent setup redirect", async () => {
     pathnameValue = "/one/location";
     searchValue = "tab=family";
-    bootstrapStateMock.mockResolvedValue({
-      setupCompleted: false,
-      onboardingJourneyVersion: 1,
-      onboardingPhase: "setup_hub",
-    });
+    bootstrapStateMock.mockResolvedValue(incompleteSetupState());
     getCachedBootstrapStateMock.mockReturnValue(null);
 
     const view = render(
@@ -108,5 +152,14 @@ describe("OnboardingJourneyGuard", () => {
       </OnboardingJourneyGuard>,
     );
     expect(replace).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a hard setup fallback when App Router navigation does not commit", () => {
+    const source = read("components/onboarding/onboarding-journey-guard.tsx");
+
+    expect(source).toContain("SETUP_REDIRECT_WATCHDOG_MS");
+    expect(source).toContain("router.replace(redirectTarget)");
+    expect(source).toContain("window.location.pathname !== ROUTES.ONE_SETUP");
+    expect(source).toContain("window.location.assign(redirectTarget)");
   });
 });

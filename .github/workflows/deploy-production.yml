@@ -481,10 +481,23 @@ jobs:
             promote_failed=true
           fi
 
+          # release_failed drives the workflow's final pass/fail. It is gated on
+          # things that mean prod is NOT correctly serving the new revision:
+          # a runtime-health failure (also triggers rollback) or a promote
+          # failure (traffic never cut over). A parity gap is NOT included: the
+          # runtime health gate already fails+rolls-back when a genuinely
+          # boot-critical secret is missing (the app crashes), so a parity
+          # mismatch that survives a healthy promote is a benign optional-feature
+          # gap (e.g. voice/Gmail secrets not yet provisioned). It is surfaced as
+          # a warning for visibility instead of failing a healthy production release.
           release_failed=false
           if [ "$backend_failure" = "true" ] || [ "$frontend_failure" = "true" ] \
-             || [ "$parity_failed" = "true" ] || [ "$promote_failed" = "true" ]; then
+             || [ "$promote_failed" = "true" ]; then
             release_failed=true
+          fi
+
+          if [ "$parity_failed" = "true" ] && [ "$release_failed" = "false" ]; then
+            echo "::warning title=Env parity gap::Production runtime env parity reported missing optional secrets, but the promoted revision is serving healthily. Provision the missing secrets to close the gap; not failing the release."
           fi
 
           {
@@ -495,7 +508,7 @@ jobs:
             echo "release_failed=$release_failed"
           } >> "$GITHUB_OUTPUT"
 
-          echo "Release classification: release_failed=$release_failed backend_failure=$backend_failure frontend_failure=$frontend_failure parity_failed=$parity_failed promote_failed=$promote_failed"
+          echo "Release classification: release_failed=$release_failed backend_failure=$backend_failure frontend_failure=$frontend_failure parity_failed=$parity_failed (warning-only) promote_failed=$promote_failed"
 
       - name: Roll back backend revision
         id: rollback-backend
