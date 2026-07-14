@@ -243,6 +243,7 @@ vi.mock("@/lib/profile/gmail-oauth-popup", () => ({
   clearGmailOAuthPopupAttempt: (...args: unknown[]) =>
     mocks.gmailOAuthPopup.clear(...args),
   isGmailOAuthPopupSettlement: () => false,
+  readGmailOAuthPopupSettlementFallback: () => null,
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({

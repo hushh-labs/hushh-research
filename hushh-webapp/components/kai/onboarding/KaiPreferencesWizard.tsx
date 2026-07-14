@@ -226,11 +226,14 @@ export function KaiPreferencesWizard(props: {
       : "Next";
 
   const reserveBackSlot = props.mode === "onboarding";
-  // In onboarding the Back control is always available: on step 0 it returns to
-  // the One setup hub (resuming the main onboarding) via props.onBack; on later
-  // steps it walks back through the questions. This replaces the old intra-step
-  // "Skip" button so a sub-step can never satisfy or skip the root flow.
-  const showBack = props.mode === "onboarding" && Boolean(props.onBack || step > 0);
+  // In onboarding, step 0 relies on the shared route-level TopAppBar back
+  // chevron to leave the flow entirely (this wizard is rendered under a
+  // "flow" layout route, which keeps that chrome visible) — showing a
+  // second "Back" pill here for step 0 would be a redundant, visually
+  // duplicate affordance for the exact same action. From step 1 onward the
+  // wizard's own Back pill is the only way to walk back through the
+  // questions (the TopAppBar cannot do that), so it stays visible there.
+  const showBack = props.mode === "onboarding" && step > 0;
   const canGoPrevious = step > 0;
   const isPageLayout = layout === "page";
 

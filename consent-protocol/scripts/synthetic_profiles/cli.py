@@ -62,9 +62,7 @@ def _cmd_stats(args: argparse.Namespace) -> int:
         print()
 
     expected = dict(REGION_WEIGHTS)
-    worst = max(
-        (abs(counters["region"][r] / args.count - w), r) for r, w in expected.items()
-    )
+    worst = max((abs(counters["region"][r] / args.count - w), r) for r, w in expected.items())
     print(f"max region deviation from target marginals: {worst[0]:.2%} ({worst[1]})")
     return 0
 
@@ -132,12 +130,18 @@ def _cmd_bench(args: argparse.Namespace) -> int:
     print(f"  latency/profile: p50 {pct(0.50):.1f}us  p99 {pct(0.99):.1f}us")
     print("  storage:       0 bytes — any of the 8B profiles is O(1) from its seed")
     print("  --- honest extrapolation at the measured single-core rate ---")
-    print(f"  1B baseline:   ~{core_hours(1_000_000_000):,.1f} core-hours "
-          f"(~{core_hours(1_000_000_000) / 64:,.1f}h on 64 cores)")
-    print(f"  full 8B space: ~{core_hours(ADDRESS_SPACE):,.1f} core-hours "
-          f"(~{core_hours(ADDRESS_SPACE) / 64:,.1f}h on 64 cores)")
-    print("  note: generation is embarrassingly parallel (pure function of seed); "
-          "throughput scales ~linearly with cores.")
+    print(
+        f"  1B baseline:   ~{core_hours(1_000_000_000):,.1f} core-hours "
+        f"(~{core_hours(1_000_000_000) / 64:,.1f}h on 64 cores)"
+    )
+    print(
+        f"  full 8B space: ~{core_hours(ADDRESS_SPACE):,.1f} core-hours "
+        f"(~{core_hours(ADDRESS_SPACE) / 64:,.1f}h on 64 cores)"
+    )
+    print(
+        "  note: generation is embarrassingly parallel (pure function of seed); "
+        "throughput scales ~linearly with cores."
+    )
     return 0
 
 
@@ -174,8 +178,13 @@ def _cmd_cohort(args: argparse.Namespace) -> int:
     for i in range(args.scan):
         p = generate((i * step) % ADDRESS_SPACE)
         if not cohort_match(
-            p, region=args.region, stance=args.stance, income_tier=args.income_tier,
-            sex=args.sex, min_age=args.min_age, max_age=args.max_age,
+            p,
+            region=args.region,
+            stance=args.stance,
+            income_tier=args.income_tier,
+            sex=args.sex,
+            min_age=args.min_age,
+            max_age=args.max_age,
         ):
             continue
         matches.append(p)
@@ -195,12 +204,16 @@ def _cmd_cohort(args: argparse.Namespace) -> int:
         for p in matches[:5]:
             idn = p["identity"]
             d = p["demographics"]
-            print(f"  {idn['display_name']:<26} {d['region']:<20} age {d['age']:<3} "
-                  f"{d['income_tier']:<20} {p['consent_posture']['privacy_stance']}")
+            print(
+                f"  {idn['display_name']:<26} {d['region']:<20} age {d['age']:<3} "
+                f"{d['income_tier']:<20} {p['consent_posture']['privacy_stance']}"
+            )
         if len(matches) > 5:
             print(f"  ... and {len(matches) - 5} more")
-    print(f"cohort yield: {len(matches)}/{args.scan} scanned = {yield_rate:.2%} "
-          f"→ ~{est_in_space:,} such humans across the 8B space")
+    print(
+        f"cohort yield: {len(matches)}/{args.scan} scanned = {yield_rate:.2%} "
+        f"→ ~{est_in_space:,} such humans across the 8B space"
+    )
     return 0
 
 
@@ -212,7 +225,9 @@ def main() -> int:
     p_gen.add_argument("--seed", type=int, required=True)
     p_gen.set_defaults(func=_cmd_generate)
 
-    p_sample = sub.add_parser("sample", help="write N profiles as JSONL, strided across the 8B space")
+    p_sample = sub.add_parser(
+        "sample", help="write N profiles as JSONL, strided across the 8B space"
+    )
     p_sample.add_argument("--count", type=int, default=1000)
     p_sample.add_argument("--offset", type=int, default=0)
     p_sample.add_argument("--out", type=str, required=True)
@@ -230,16 +245,26 @@ def main() -> int:
     p_bench.add_argument("--count", type=int, default=50000)
     p_bench.set_defaults(func=_cmd_bench)
 
-    p_cohort = sub.add_parser("cohort", help="address a sub-population by demographic/consent filters")
-    p_cohort.add_argument("--scan", type=int, default=20000, help="profiles to sweep across the 8B space")
-    p_cohort.add_argument("--limit", type=int, default=0, help="stop after this many matches (0 = no cap)")
+    p_cohort = sub.add_parser(
+        "cohort", help="address a sub-population by demographic/consent filters"
+    )
+    p_cohort.add_argument(
+        "--scan", type=int, default=20000, help="profiles to sweep across the 8B space"
+    )
+    p_cohort.add_argument(
+        "--limit", type=int, default=0, help="stop after this many matches (0 = no cap)"
+    )
     p_cohort.add_argument("--region", type=str, default=None)
-    p_cohort.add_argument("--stance", type=str, default=None, choices=["open", "pragmatic", "guarded", "fortress"])
+    p_cohort.add_argument(
+        "--stance", type=str, default=None, choices=["open", "pragmatic", "guarded", "fortress"]
+    )
     p_cohort.add_argument("--income-tier", dest="income_tier", type=str, default=None)
     p_cohort.add_argument("--sex", type=str, default=None, choices=["female", "male", "intersex"])
     p_cohort.add_argument("--min-age", dest="min_age", type=int, default=0)
     p_cohort.add_argument("--max-age", dest="max_age", type=int, default=105)
-    p_cohort.add_argument("--out", type=str, default=None, help="write matches as JSONL (else print a preview)")
+    p_cohort.add_argument(
+        "--out", type=str, default=None, help="write matches as JSONL (else print a preview)"
+    )
     p_cohort.set_defaults(func=_cmd_cohort)
 
     args = parser.parse_args()

@@ -1054,8 +1054,14 @@ export function AuthStep({
 
         {/* Frosted glass action sheet: translucent + backdrop-blurred so the
             dark ambient hero shows through behind it, while dark-on-light
-            controls stay legible. Matches the welcome ("/") glass sheet. */}
-        <div className="relative overflow-hidden rounded-t-[36px] border-t border-white/70 bg-white/55 px-6 pt-7 pb-[calc(132px+env(safe-area-inset-bottom,0px)+var(--app-screen-footer-pad))] shadow-[0_-1px_0_rgba(255,255,255,0.6)_inset,0_-24px_60px_-24px_rgba(23,19,12,0.22)] backdrop-blur-md backdrop-saturate-150 supports-[backdrop-filter]:bg-white/40 dark:border-white/10 dark:bg-[#141018]/60 dark:shadow-[0_-1px_0_rgba(255,255,255,0.06)_inset,0_-24px_60px_-24px_rgba(0,0,0,0.6)] dark:supports-[backdrop-filter]:bg-[#141018]/45">
+            controls stay legible. Matches the welcome ("/") glass sheet.
+            Bottom padding clears the persistent agent bar (pinned above the
+            safe area, ~56px tall + 20px gap) so the legal footnote inside
+            the sheet never tucks under it. The Terms/Privacy footnote lives
+            in this sheet's own flow (below), not absolutely positioned
+            outside it, so the sheet's height always matches its real
+            content instead of reserving dead scrollable space. */}
+        <div className="relative overflow-hidden rounded-t-[36px] border-t border-white/70 bg-white/55 px-6 pt-7 pb-[calc(20px+56px+env(safe-area-inset-bottom,0px)+var(--app-screen-footer-pad))] shadow-[0_-1px_0_rgba(255,255,255,0.6)_inset,0_-24px_60px_-24px_rgba(23,19,12,0.22)] backdrop-blur-md backdrop-saturate-150 supports-[backdrop-filter]:bg-white/40 dark:border-white/10 dark:bg-[#141018]/60 dark:shadow-[0_-1px_0_rgba(255,255,255,0.06)_inset,0_-24px_60px_-24px_rgba(0,0,0,0.6)] dark:supports-[backdrop-filter]:bg-[#141018]/45">
           {/* Glass highlight sheen along the top edge. */}
           <span
             aria-hidden
@@ -1110,35 +1116,32 @@ export function AuthStep({
             </div>
 
             <p className="type-footnote mx-auto max-w-[18.75rem] text-center text-[#86868b] dark:text-white/45">
-              A verified phone number is required before you continue.
+              You&apos;ll verify your phone number right after signing in.
+            </p>
+
+            <p className="type-footnote mx-auto max-w-[19.5rem] text-center text-[#86868b] dark:text-white/45">
+              By continuing, you agree to One&apos;s{" "}
+              <button
+                type="button"
+                onClick={() => void openLegalDoc("terms")}
+                data-voice-control-id="auth_terms"
+                className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+              >
+                Terms
+              </button>{" "}
+              and{" "}
+              <button
+                type="button"
+                onClick={() => void openLegalDoc("privacy")}
+                data-voice-control-id="auth_privacy"
+                className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+              >
+                Privacy Policy
+              </button>
+              .
             </p>
           </div>
         </div>
-        {/* Lifted to clear the persistent agent bar (pinned above the safe
-            area, ~44px tall + gap) so the legal footnote never tucks under it. */}
-        <footer className="absolute inset-x-6 bottom-[calc(20px+56px+env(safe-area-inset-bottom,0px)+var(--app-screen-footer-pad))] flex-none">
-          <p className="type-footnote mx-auto max-w-[19.5rem] text-center text-[#86868b] dark:text-white/45">
-            By continuing, you agree to One&apos;s{" "}
-            <button
-              type="button"
-              onClick={() => void openLegalDoc("terms")}
-              data-voice-control-id="auth_terms"
-              className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
-            >
-              Terms
-            </button>{" "}
-            and{" "}
-            <button
-              type="button"
-              onClick={() => void openLegalDoc("privacy")}
-              data-voice-control-id="auth_privacy"
-              className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
-            >
-              Privacy Policy
-            </button>
-            .
-          </p>
-        </footer>
       </div>
       <AuthLegalDialog
         docType={activeLegalDoc}

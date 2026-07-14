@@ -50,33 +50,33 @@ const SIZE_STYLES: Record<
     container: "min-h-[36px] p-0.5",
     button: "px-2 py-1 text-xs",
     icon: "xs",
-    label: "text-[11px] font-medium leading-none",
+    label: "text-[11px] leading-none",
     gap: "gap-1",
     stackedContainer: "min-h-[52px] p-0.5",
     stackedButton: "px-1 py-1",
-    stackedLabel: "text-[9.5px] font-medium leading-[1.05]",
+    stackedLabel: "text-[9.5px] leading-[1.05]",
     stackedGap: "gap-0.5",
   },
   shell: {
     container: "min-h-[42px] p-1",
     button: "px-2.5 py-1.5 text-xs",
     icon: "sm",
-    label: "text-xs font-medium leading-none",
+    label: "text-xs leading-none",
     gap: "gap-1.5",
     stackedContainer: "min-h-[58px] p-1",
     stackedButton: "px-1.5 py-1.5",
-    stackedLabel: "text-[11px] font-medium leading-none",
+    stackedLabel: "text-[11px] leading-none",
     stackedGap: "gap-1",
   },
   default: {
     container: "min-h-[45px] p-1",
     button: "px-3 py-2 text-sm",
     icon: "sm",
-    label: "text-sm font-medium",
+    label: "text-sm",
     gap: "gap-1.5",
     stackedContainer: "min-h-[66px] p-1",
     stackedButton: "px-2 py-2",
-    stackedLabel: "text-xs font-medium leading-tight",
+    stackedLabel: "text-xs leading-tight",
     stackedGap: "gap-1.5",
   },
 };
@@ -170,7 +170,7 @@ export const SegmentedPill = React.forwardRef<
                 onValueChange(option.value);
               }}
               className={cn(
-                "relative z-10 flex min-w-0 items-center justify-center overflow-hidden rounded-full text-center transition-[color,opacity,transform] duration-500 ease-[cubic-bezier(0.25,1,0.5,1)] disabled:cursor-not-allowed",
+                "press-scale relative z-10 flex min-w-0 items-center justify-center overflow-hidden rounded-full text-center transition-[color,opacity,transform] duration-500 ease-[cubic-bezier(0.25,1,0.5,1)] disabled:cursor-not-allowed",
                 "pointer-events-auto",
                 hitArea === "content"
                   ? "w-fit flex-none self-center"

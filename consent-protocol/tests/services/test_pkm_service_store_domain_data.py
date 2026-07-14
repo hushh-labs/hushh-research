@@ -5,10 +5,16 @@ from unittest.mock import AsyncMock
 import pytest
 
 import hushh_mcp.services.consent_db as consent_db_module
+from db.db_client import JsonParam
 from hushh_mcp.services.personal_knowledge_model_service import (
     PersonalKnowledgeModelIndex,
     PersonalKnowledgeModelService,
 )
+
+
+def _unwrap(value):
+    """Unwrap a JsonParam marker (used for JSONB-array RPC params) if present."""
+    return value.value if isinstance(value, JsonParam) else value
 
 
 def _confirmed_create_plan(*, user_id: str, domain: str, scope: str = "portfolio") -> dict:
@@ -200,11 +206,11 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
     params = rpc_call["params"]
     assert params["p_expected_content_revision"] == 0
     assert params["p_next_content_revision"] == 1
-    assert {row["segment_id"] for row in params["p_segment_rows"]} == {"root"}
+    assert {row["segment_id"] for row in _unwrap(params["p_segment_rows"])} == {"root"}
     assert params["p_manifest_row"]["path_count"] == 4
     assert params["p_manifest_row"]["externalizable_path_count"] == 2
-    assert len(params["p_path_rows"]) == 4
-    assert len(params["p_scope_rows"]) == 2
+    assert len(_unwrap(params["p_path_rows"])) == 4
+    assert len(_unwrap(params["p_scope_rows"])) == 2
     assert params["p_refresh_tokens"] == ["HCT:test-continuous"]
     summary_payload = params["p_summary_patch"]
     assert summary_payload["storage_mode"] == "per_domain_blob"
@@ -217,13 +223,14 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
         "Captured from: latest note",
     ]
 
-    assert [event["operation_type"] for event in params["p_event_rows"]] == [
+    event_rows = _unwrap(params["p_event_rows"])
+    assert [event["operation_type"] for event in event_rows] == [
         "structure_create",
         "content_write",
         "decision_projection",
     ]
-    assert params["p_event_rows"][2]["metadata"]["projection_mode"] == "replace_all"
-    assert params["p_event_rows"][2]["metadata"]["decisions"][0]["ticker"] == "AAPL"
+    assert event_rows[2]["metadata"]["projection_mode"] == "replace_all"
+    assert event_rows[2]["metadata"]["decisions"][0]["ticker"] == "AAPL"
 
 
 @pytest.mark.asyncio

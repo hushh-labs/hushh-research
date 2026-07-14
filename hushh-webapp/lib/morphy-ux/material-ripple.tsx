@@ -74,8 +74,8 @@ export const getMaterialRippleColors = (
     case "blue-gradient":
     case "multi":
       return {
-        hoverColor: "var(--morphy-primary-start)",
-        pressedColor: "var(--morphy-primary-start)",
+        hoverColor: "var(--app-accent)",
+        pressedColor: "var(--app-accent)",
         hoverOpacity: baseOpacity.hover,
         pressedOpacity: baseOpacity.pressed,
       };

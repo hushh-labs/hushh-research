@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Optional
 
-from db.db_client import get_db
+from db.db_client import JsonParam, get_db
 from hushh_mcp.consent.scope_helpers import scope_matches
 from hushh_mcp.services.domain_contracts import (
     CANONICAL_DOMAIN_REGISTRY,
@@ -2204,26 +2204,30 @@ class PersonalKnowledgeModelService:
                 "p_domain": domain,
                 "p_expected_content_revision": current_version,
                 "p_next_content_revision": next_version,
-                "p_segment_rows": [
-                    {
-                        "segment_id": segment_id,
-                        **segment,
-                        "manifest_revision": normalized_manifest.manifest_version,
-                        "size_bytes": len(segment["ciphertext"]),
-                    }
-                    for segment_id, segment in normalized_segments.items()
-                ],
+                "p_segment_rows": JsonParam(
+                    [
+                        {
+                            "segment_id": segment_id,
+                            **segment,
+                            "manifest_revision": normalized_manifest.manifest_version,
+                            "size_bytes": len(segment["ciphertext"]),
+                        }
+                        for segment_id, segment in normalized_segments.items()
+                    ]
+                ),
                 "p_manifest_row": manifest_row,
-                "p_path_rows": path_rows,
-                "p_scope_rows": scope_rows,
+                "p_path_rows": JsonParam(path_rows),
+                "p_scope_rows": JsonParam(scope_rows),
                 "p_summary_patch": discovery_summary,
-                "p_event_rows": event_rows,
+                "p_event_rows": JsonParam(event_rows),
                 "p_legacy_blob_present": legacy_blob_present,
                 "p_refresh_tokens": refresh_tokens,
-                "p_trigger_paths": sorted(
-                    set(
-                        normalized_manifest.externalizable_paths
-                        + normalized_manifest.top_level_scope_paths
+                "p_trigger_paths": JsonParam(
+                    sorted(
+                        set(
+                            normalized_manifest.externalizable_paths
+                            + normalized_manifest.top_level_scope_paths
+                        )
                     )
                 ),
             },

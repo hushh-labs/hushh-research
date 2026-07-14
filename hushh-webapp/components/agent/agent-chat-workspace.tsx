@@ -46,7 +46,6 @@ import {
   type SpecialistConsentActionItem,
   type SpecialistPendingConsentRequestItem,
 } from "@/components/agent/specialist-directive-card";
-import { MarketplacePublishDirectiveCard } from "@/components/agent/marketplace-publish-directive-card";
 import { OpportunityNudgeStack } from "@/components/agent/opportunity-nudge-card";
 import {
   OneOpportunityService,
@@ -55,7 +54,6 @@ import {
 import {
   OneMarketplaceService,
   type MarketplaceRequest,
-  type PublishableSlice,
 } from "@/lib/one-marketplace/service";
 import {
   ChatMarkdownLink,
@@ -262,6 +260,15 @@ const EMPTY_PKM_CONTEXT: AgentPkmContext = {
 };
 const AGENT_STREAM_RENDER_FRAME_MS = 32;
 const VOICE_PKM_CONTEXT_DEADLINE_MS = 650;
+
+// The Information Marketplace route is temporarily disabled; drop
+// `publish_slices` directives here so Agent Chat never surfaces a hand-off
+// card that would route into the disabled surface.
+function isDisabledMarketplaceDirective(event: SpecialistDirectiveEvent | null): boolean {
+  if (!event) return false;
+  const payload = event.directive.payload as Record<string, unknown>;
+  return payload?.type === "publish_slices";
+}
 
 function getConsentRequiredPayload(
   event: SpecialistDirectiveEvent | null,
@@ -1172,7 +1179,6 @@ export function AgentChatWorkspace({
   const [historyActionPendingId, setHistoryActionPendingId] = useState<string | null>(null);
   const [isVoiceConnecting, setIsVoiceConnecting] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [composerFocused, setComposerFocused] = useState(false);
   // Just-in-time vault unlock: the agent prompts to unlock in place (the same
   // reusable VaultUnlockDialog used by Kai / consent / connected-systems)
   // instead of bouncing the user to /profile. Opened only when a vault-gated
@@ -2719,7 +2725,7 @@ export function AgentChatWorkspace({
             ephemeral: false,
             streamEvents: [],
           }));
-          if (specialistDirective) {
+          if (specialistDirective && !isDisabledMarketplaceDirective(specialistDirective)) {
             setPendingSpecialistDirective(specialistDirective);
           }
           speakVoiceReceipt(goalResult.resultSummary.text);
@@ -2959,7 +2965,9 @@ export function AgentChatWorkspace({
                 return [{ ...message, status: "done", streamEvents: [] }];
               })
             );
-            setPendingSpecialistDirective(event);
+            if (!isDisabledMarketplaceDirective(event)) {
+              setPendingSpecialistDirective(event);
+            }
           },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
@@ -3193,7 +3201,9 @@ export function AgentChatWorkspace({
                 return [{ ...message, status: "done" }];
               })
             );
-            setPendingSpecialistDirective(event);
+            if (!isDisabledMarketplaceDirective(event)) {
+              setPendingSpecialistDirective(event);
+            }
           },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
@@ -3991,7 +4001,6 @@ export function AgentChatWorkspace({
         className
       )}
       data-agent-chat-workspace={variant}
-      data-composer-focused={composerFocused ? "true" : "false"}
     >
       <div
         className={cn(
@@ -4464,30 +4473,6 @@ export function AgentChatWorkspace({
                       });
                     }}
                   />
-                ) : String(
-                    (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
-                      .type ?? "",
-                  ) === "publish_slices" ? (
-                  // ── Information Marketplace publish card ──────────────────
-                  // propose_publish delivered over A2A. Publishing needs the vault
-                  // on the marketplace surface, so hand off there.
-                  <MarketplacePublishDirectiveCard
-                    topic={
-                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
-                        .topic as string | null | undefined
-                    }
-                    slices={
-                      ((pendingSpecialistDirective.directive.payload as Record<string, unknown>)
-                        .slices as PublishableSlice[]) ?? []
-                    }
-                    onOpenMarketplace={() => {
-                      setPendingSpecialistDirective(null);
-                      router.push(
-                        `${ROUTES.ONE_MARKETPLACE}?from=${pathname || ROUTES.ONE_HOME}`,
-                      );
-                    }}
-                    onDismiss={() => setPendingSpecialistDirective(null)}
-                  />
                 ) : pendingSpecialistDirective.delegateAgentId === "agent_connected_systems" ? (
                   <SpecialistDirectiveCard
                     summary={String(
@@ -4710,12 +4695,13 @@ export function AgentChatWorkspace({
           <form
             onSubmit={handleSubmit}
             className={cn(
-              "shrink-0 border-t border-border/70 bg-background/92 px-3 pt-3 backdrop-blur transition-[padding-bottom] duration-200 sm:px-5",
+              // CSS-only focus-within drives the padding shift in lockstep with
+              // the native keyboard resize (no React state/rerender round-trip
+              // in the path, which was the source of the visible lag on iOS).
+              "shrink-0 border-t border-border/70 bg-background/92 px-3 pt-3 backdrop-blur transition-[padding-bottom] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none sm:px-5",
               isPopover
                 ? "pb-[var(--agent-chat-composer-bottom)] sm:pb-3"
-                : composerFocused
-                  ? "pb-[var(--agent-chat-composer-focused-bottom)]"
-                  : "pb-[var(--agent-chat-composer-bottom)]"
+                : "pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]"
             )}
           >
             <div className="mx-auto w-full max-w-3xl">
@@ -4739,8 +4725,6 @@ export function AgentChatWorkspace({
                     aria-label="Message One"
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
-                    onFocus={() => setComposerFocused(true)}
-                    onBlur={() => setComposerFocused(false)}
                     onKeyDown={(event) => {
                       if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
                         return;

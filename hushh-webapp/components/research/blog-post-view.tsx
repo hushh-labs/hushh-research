@@ -5,6 +5,7 @@ import {
   AppPageHeaderRegion,
   AppPageContentRegion,
 } from "@/components/app-ui/app-page-shell";
+import { Figure } from "@/components/app-ui/sections";
 import { ProseMarkdown } from "@/components/research/prose-markdown";
 import { ROUTES } from "@/lib/navigation/routes";
 import type { BlogPost } from "@/lib/research/blog";
@@ -57,7 +58,7 @@ export function BlogPostView({ post }: { post: BlogPost }) {
       <AppPageContentRegion className="mt-8">
         <ProseMarkdown>{post.body}</ProseMarkdown>
 
-        <div className="mt-12 rounded-[var(--app-card-radius-feature)] border border-border/60 bg-muted/20 p-5">
+        <Figure className="mt-12">
           <p className="text-sm leading-6 text-muted-foreground">
             PCHP is an open standard, donated to the commons.{" "}
             <Link
@@ -75,7 +76,7 @@ export function BlogPostView({ post }: { post: BlogPost }) {
             </Link>
             .
           </p>
-        </div>
+        </Figure>
       </AppPageContentRegion>
     </AppPageShell>
   );

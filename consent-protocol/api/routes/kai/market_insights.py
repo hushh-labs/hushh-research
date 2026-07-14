@@ -9,7 +9,7 @@ import asyncio
 import logging
 import os
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from time import time
 from typing import Annotated, Any
 from zoneinfo import ZoneInfo
@@ -24,6 +24,7 @@ from hushh_mcp.operons.kai.fetchers import (
     fetch_market_data_batch,
     fetch_market_news,
 )
+from hushh_mcp.services.fmp_call_budget import is_budget_critical, record_fmp_call
 from hushh_mcp.services.market_cache_store import get_market_cache_store_service
 from hushh_mcp.services.market_insights_cache import market_insights_cache
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
@@ -49,6 +50,8 @@ SECTORS_FRESH_TTL_SECONDS = 600
 SECTORS_STALE_TTL_SECONDS = 1800
 NEWS_FRESH_TTL_SECONDS = 600
 NEWS_STALE_TTL_SECONDS = 1800
+SPARKLINES_FRESH_TTL_SECONDS = 600
+SPARKLINES_STALE_TTL_SECONDS = 1800
 RECOMMENDATION_FRESH_TTL_SECONDS = 600
 RECOMMENDATION_STALE_TTL_SECONDS = 1800
 FINANCIAL_SUMMARY_FRESH_TTL_SECONDS = 600
@@ -175,6 +178,7 @@ MARKET_PRICE_SENSITIVE_PREFIXES = (
     "movers:",
     "sectors:",
     "macro:",
+    "sparklines:",
     "market_status:",
     "market-status:",
 )
@@ -981,6 +985,7 @@ async def _fetch_vix_signal() -> dict[str, Any]:
                 "https://financialmodelingprep.com/stable/quote",
                 params={"symbol": "^VIX", "apikey": pmp_key},
             )
+            record_fmp_call(endpoint="/stable/quote:^VIX", status_code=res.status_code)
             if not res.is_success:
                 cooldown_seconds = _provider_cooldown_seconds(res.status_code)
                 if cooldown_seconds > 0:
@@ -1133,6 +1138,9 @@ async def _fetch_recommendation(symbol: str, quote_price: float | None) -> dict[
                     "https://financialmodelingprep.com/stable/price-target-consensus",
                     params={"symbol": symbol, "apikey": pmp_key},
                 )
+                record_fmp_call(
+                    endpoint="/stable/price-target-consensus", status_code=res.status_code
+                )
                 if not res.is_success:
                     cooldown_seconds = _provider_cooldown_seconds(res.status_code)
                     if cooldown_seconds > 0:
@@ -1281,6 +1289,7 @@ async def _fetch_pmp_json(paths: list[str], params: dict[str, Any]) -> list[dict
             req_params = {**params, "apikey": key}
             try:
                 res = await client.get(url, params=req_params)
+                record_fmp_call(endpoint=path, status_code=res.status_code)
                 if not res.is_success:
                     cooldown_seconds = _provider_cooldown_seconds(res.status_code)
                     if cooldown_seconds > 0:
@@ -1342,6 +1351,56 @@ def _normalize_mover_row(row: dict[str, Any], source: str) -> dict[str, Any] | N
     }
 
 
+async def _fetch_symbol_price_series(symbol: str) -> list[float] | None:
+    """Short recent daily close series for a single symbol via FMP's light
+    EOD chart endpoint. Returns None (never a fabricated shape) when the
+    provider has no data, is in cooldown, or the key is unavailable."""
+    rows = await _fetch_pmp_json(
+        ["/stable/historical-price-eod/light"],
+        {"symbol": symbol},
+    )
+    if not rows:
+        return None
+    closes: list[tuple[str, float]] = []
+    for row in rows:
+        price = _safe_float(row.get("price") or row.get("close"))
+        date_value = str(row.get("date") or "")
+        if price is None or not date_value:
+            continue
+        closes.append((date_value, price))
+    if not closes:
+        return None
+    closes.sort(key=lambda item: item[0])
+    return [price for _, price in closes[-20:]]
+
+
+async def _fetch_symbol_series_batch(symbols: list[str]) -> dict[str, list[float]]:
+    """Bounded-concurrency fan-out of `_fetch_symbol_price_series` across a
+    small symbol set (index benchmarks + current mover rows). Never issues
+    one request per row sequentially; capped in-flight requests instead."""
+    unique_symbols = sorted(
+        {str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()}
+    )
+    if not unique_symbols:
+        return {}
+
+    semaphore = asyncio.Semaphore(6)
+    results: dict[str, list[float]] = {}
+
+    async def fetch_one(symbol: str) -> None:
+        async with semaphore:
+            try:
+                series = await _fetch_symbol_price_series(symbol)
+            except Exception as exc:
+                logger.debug("[Kai Market] price series unavailable for %s: %r", symbol, exc)
+                series = None
+            if series:
+                results[symbol] = series
+
+    await asyncio.gather(*(fetch_one(symbol) for symbol in unique_symbols))
+    return results
+
+
 async def _fetch_movers_from_fmp() -> tuple[dict[str, Any], dict[str, str]]:
     status_map: dict[str, str] = {}
 
@@ -1377,12 +1436,23 @@ async def _fetch_movers_from_fmp() -> tuple[dict[str, Any], dict[str, str]]:
 
 
 async def _fetch_sector_rotation_from_fmp() -> tuple[list[dict[str, Any]], str]:
-    rows = await _fetch_pmp_json(
-        [
-            "/stable/sector-performance-snapshot",
-        ],
-        {},
-    )
+    # FMP's /stable/sector-performance-snapshot requires a `date` query param
+    # (confirmed against the official docs); the endpoint returns an empty/
+    # error payload without it. The snapshot lags real time (no data yet for
+    # the current session on some days, none at all on weekends/holidays), so
+    # walk back a few calendar days until one returns rows.
+    rows: list[dict[str, Any]] = []
+    resolved_date: str | None = None
+    today = datetime.now(timezone.utc).date()
+    for days_back in range(4):
+        candidate_date = (today - timedelta(days=days_back)).isoformat()
+        rows = await _fetch_pmp_json(
+            ["/stable/sector-performance-snapshot"],
+            {"date": candidate_date},
+        )
+        if rows:
+            resolved_date = candidate_date
+            break
 
     out: list[dict[str, Any]] = []
     for row in rows:
@@ -1393,9 +1463,12 @@ async def _fetch_sector_rotation_from_fmp() -> tuple[list[dict[str, Any]], str]:
             {
                 "sector": sector,
                 "change_pct": _safe_float(
-                    row.get("changesPercentage") or row.get("changePercentage") or row.get("change")
+                    row.get("changesPercentage")
+                    or row.get("changePercentage")
+                    or row.get("averageChange")
+                    or row.get("change")
                 ),
-                "as_of": None,
+                "as_of": resolved_date,
                 "source_tags": ["PMP/FMP"],
                 "degraded": False,
             }
@@ -1564,7 +1637,10 @@ def _build_market_overview(
     qqq_quote: dict[str, Any] | None,
     vix_payload: dict[str, Any],
     status_payload: dict[str, Any],
+    sparklines: dict[str, list[float]] | None = None,
 ) -> list[dict[str, Any]]:
+    sparklines = sparklines or {}
+
     def metric_from_quote(
         label: str, symbol: str, quote: dict[str, Any] | None, degraded: bool
     ) -> dict[str, Any]:
@@ -1578,6 +1654,7 @@ def _build_market_overview(
             "as_of": quote.get("fetched_at") if isinstance(quote.get("fetched_at"), str) else None,
             "source": str(quote.get("source") or "Unavailable"),
             "degraded": degraded,
+            "sparkline": sparklines.get(symbol) or None,
         }
 
     out = [
@@ -1766,10 +1843,18 @@ def _market_refresh_enabled() -> bool:
 def _market_refresh_interval_seconds() -> int:
     raw = str(os.getenv("KAI_MARKET_REFRESH_INTERVAL_SECONDS", "600")).strip()
     try:
-        value = int(raw)
-        return max(120, value)
+        base_interval = max(120, int(raw))
     except ValueError:
-        return 600
+        base_interval = 600
+    # Same open/closed split as _market_aware_fresh_ttl: refresh more often
+    # while the market is actually moving, back off the background loop cadence
+    # (not just individual TTLs) when it is closed, since there is nothing new
+    # to warm outside regular hours. This is the loop-level half of the
+    # market-hours-aware call budget; the fresh/stale TTLs above are the
+    # per-module half.
+    if _us_market_is_open():
+        return base_interval
+    return max(base_interval, MARKET_CLOSED_FRESH_TTL_SECONDS)
 
 
 def _market_startup_warm_timeout_seconds() -> float:
@@ -1783,6 +1868,16 @@ def _market_startup_warm_timeout_seconds() -> float:
 
 async def _refresh_public_market_modules_once() -> None:
     refresh_summary: list[str] = []
+
+    if is_budget_critical():
+        # Preserve remaining daily FMP quota for real user requests: skip this
+        # proactive background warm cycle entirely once we are down to the
+        # last ~10% of the daily call budget. Real requests still fall back to
+        # cache/stale-serving as usual; they are never blocked by this check.
+        logger.warning(
+            "[Kai Market] background warm refresh skipped - FMP daily call budget critical"
+        )
+        return
 
     try:
         _, stale, age_seconds, tier, cache_hit = await _get_or_refresh_public_module(
@@ -2548,7 +2643,47 @@ async def _get_market_insights_payload(
                 continue
             news_by_symbol[symbol] = news
 
-        market_overview = _build_market_overview(spy_quote, qqq_quote, vix_payload, status_payload)
+        mover_symbols = [
+            str(row.get("symbol") or "").strip().upper()
+            for bucket in ("gainers", "losers", "active")
+            for row in (movers_payload.get(bucket) or [])
+            if isinstance(row, dict) and str(row.get("symbol") or "").strip()
+        ]
+        sparkline_symbol_set = sorted({"SPY", "QQQ", *mover_symbols})
+        # Movers itself is cached (key "movers:us"), so this symbol set is
+        # stable for the lifetime of that cache entry. Cache the batch series
+        # fetch the same way instead of hitting FMP on every request - this is
+        # the single highest-volume call site on this page (up to ~26 symbols)
+        # and must not bypass the shared L1/L2 cache like the rest of the file.
+        sparkline_cache_key = f"sparklines:{','.join(sparkline_symbol_set)}"
+        (
+            symbol_series_raw,
+            _sparklines_stale,
+            _sparklines_age,
+            sparklines_tier,
+            sparklines_cache_hit,
+        ) = await _get_or_refresh_public_module(
+            key=sparkline_cache_key,
+            fresh_ttl_seconds=SPARKLINES_FRESH_TTL_SECONDS,
+            stale_ttl_seconds=SPARKLINES_STALE_TTL_SECONDS,
+            fetcher=lambda: _fetch_symbol_series_batch(sparkline_symbol_set),
+            warm_source=warm_source,
+            serve_stale_while_revalidate=True,
+        )
+        symbol_series = symbol_series_raw if isinstance(symbol_series_raw, dict) else {}
+        aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, sparklines_tier)
+        aggregated_cache_hit = aggregated_cache_hit and sparklines_cache_hit
+        if symbol_series:
+            for bucket in ("gainers", "losers", "active"):
+                for row in movers_payload.get(bucket) or []:
+                    if not isinstance(row, dict):
+                        continue
+                    series = symbol_series.get(str(row.get("symbol") or "").strip().upper())
+                    row["sparkline"] = series or None
+
+        market_overview = _build_market_overview(
+            spy_quote, qqq_quote, vix_payload, status_payload, sparklines=symbol_series
+        )
 
         sparkline_points, sparkline_degraded, sparkline_sources = await _build_sparkline_points(
             spy_quote

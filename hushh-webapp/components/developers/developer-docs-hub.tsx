@@ -1185,24 +1185,12 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                   description="Use the UAT streamable MCP endpoint to discover user-specific scopes, request consent inside Kai, and read only approved encrypted exports through one small contract."
                   icon={Code2}
                   accent="consent"
-                  actions={
-                    <>
-                      <Badge variant="outline">{runtime.environmentLabel}</Badge>
-                      <Badge variant="outline">Streamable MCP</Badge>
-                      <Badge variant="outline">{PUBLIC_TOOL_NAMES.length} public tools</Badge>
-                    </>
-                  }
                 />
               </AppPageHeaderRegion>
 
               <SurfaceCard tone="feature" className="min-w-0">
                 <SurfaceCardHeader>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge className="bg-primary text-primary-foreground">{runtime.environmentLabel}</Badge>
-                    <Badge variant="outline">Remote MCP first</Badge>
-                    <Badge variant="outline">UAT public beta</Badge>
-                  </div>
-                  <SurfaceCardTitle className="pt-1 text-base sm:text-lg">
+                  <SurfaceCardTitle className="text-base sm:text-lg">
                     Quick start: connect a remote-capable MCP host
                   </SurfaceCardTitle>
                   <SurfaceCardDescription className="max-w-3xl text-sm leading-6">
@@ -1277,202 +1265,6 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                 </SurfaceCardContent>
               </SurfaceCard>
             </section>
-
-            <DeveloperSectionShell
-              sectionId="overview"
-              isMobile={isMobile}
-              mobileOpenSections={mobileOpenSections}
-              onMobileSectionChange={handleMobileSectionChange}
-              header={
-                <SectionHeader
-                  eyebrow="Overview"
-                  title="The trust model stays simple"
-                  description="Authentication identifies your developer app. User consent in Kai is the separate programmable boundary that grants access to a discovered scope."
-                  icon={ShieldCheck}
-                  accent="emerald"
-                />
-              }
-            >
-              <div className="grid gap-4 md:grid-cols-2">
-                <SurfaceCard className="min-w-0">
-                  <SurfaceCardHeader>
-                    <SurfaceCardTitle>What the user sees</SurfaceCardTitle>
-                  </SurfaceCardHeader>
-                  <SurfaceCardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
-                    <p>
-                      Consent prompts show your app display name, support link, and policy link so
-                      the user understands who is asking and why.
-                    </p>
-                    <p>
-                      Access is always per scope. Signing in, enabling developer access, or running
-                      your agent does not bypass consent.
-                    </p>
-                  </SurfaceCardContent>
-                </SurfaceCard>
-                <SurfaceCard className="min-w-0">
-                  <SurfaceCardHeader>
-                    <SurfaceCardTitle>What the developer gets</SurfaceCardTitle>
-                  </SurfaceCardHeader>
-                  <SurfaceCardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
-                    <p>
-                      One self-serve app per Kai account, one active token, and the same contract
-                      surfaced through remote MCP, the API, and the npm bridge.
-                    </p>
-                    <p>
-                      The data path is the same everywhere: discover scopes, request consent, poll
-                      status, then read approved scoped data.
-                    </p>
-                  </SurfaceCardContent>
-                </SurfaceCard>
-              </div>
-            </DeveloperSectionShell>
-
-            <DeveloperSectionShell
-              sectionId="modes"
-              isMobile={isMobile}
-              mobileOpenSections={mobileOpenSections}
-              onMobileSectionChange={handleMobileSectionChange}
-              header={
-                <SectionHeader
-                  eyebrow="Advanced"
-                  title="Use REST or npm only when the host needs it"
-                  description="Remote MCP is the recommended path. These options stay available for direct HTTP integrations and stdio-only MCP hosts."
-                  icon={Cable}
-                  accent="sky"
-                />
-              }
-            >
-              <SettingsGroup
-                eyebrow="Transport options"
-                title="Remote MCP first"
-                description="All modes use the same consent contract. The transport choice only changes how your host connects."
-              >
-                {integrationModes.map((mode) => (
-                  <SettingsRow
-                    key={mode.id}
-                    title={mode.title}
-                    description={mode.summary}
-                    trailing={integrationTab === mode.id ? <Badge variant="default">Active</Badge> : undefined}
-                    stackTrailingOnMobile
-                    onClick={() => setIntegrationTab(mode.id)}
-                  />
-                ))}
-              </SettingsGroup>
-            </DeveloperSectionShell>
-
-            <DeveloperSectionShell
-              sectionId="dynamic-scopes"
-              isMobile={isMobile}
-              mobileOpenSections={mobileOpenSections}
-              onMobileSectionChange={handleMobileSectionChange}
-              header={
-                <SectionHeader
-                  eyebrow="Dynamic Scopes"
-                  title="Scopes are discovered from the user’s indexed PKM"
-                  description="The public grammar is fixed, but the user-specific scope strings are generated from the indexed Personal Knowledge Model and the domain registry."
-                  icon={ScanSearch}
-                  accent="violet"
-                  actions={
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <MorphyButton variant="none" effect="glass" size="sm">
-                          Why dynamic?
-                        </MorphyButton>
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-xs text-sm leading-6">
-                        Dynamic scopes let the backend publish only the domains and paths the user
-                        actually has, rather than pretending every user has the same data graph.
-                      </TooltipContent>
-                    </Tooltip>
-                  }
-                />
-              }
-            >
-              <SurfaceCard className="min-w-0">
-                <SurfaceCardContent className="space-y-5 pt-6">
-                  <SurfaceInset className="space-y-3">
-                    <p className="text-sm font-semibold text-foreground">Current status</p>
-                    <div className="space-y-2">
-                      {DEVELOPER_SCOPE_NOTES.map((note) => (
-                        <p key={note} className="text-sm leading-6 text-muted-foreground">
-                          {note}
-                        </p>
-                      ))}
-                    </div>
-                  </SurfaceInset>
-                  <div className="flex flex-wrap gap-2">
-                    {PUBLIC_SCOPE_PATTERNS.map((scopePattern) => (
-                      <Badge key={scopePattern} variant="outline">
-                        {scopePattern}
-                      </Badge>
-                    ))}
-                  </div>
-                  {liveDocsLoading ? (
-                    <div className="grid gap-3 lg:grid-cols-2">
-                      <Skeleton className="h-28 rounded-3xl" />
-                      <Skeleton className="h-28 rounded-3xl" />
-                    </div>
-                  ) : liveDocs?.scopes?.length ? (
-                    <div className="grid gap-3 lg:grid-cols-2">
-                      {liveDocs.scopes.map((scope) => (
-                        <SurfaceInset key={scope.name} className="min-w-0 space-y-2">
-                          <p className="text-sm font-semibold text-foreground">{scope.name}</p>
-                          <p className="text-sm leading-6 text-muted-foreground">{scope.description}</p>
-                        </SurfaceInset>
-                      ))}
-                    </div>
-                  ) : null}
-                  <Accordion type="single" collapsible className="rounded-2xl border border-border/65 px-4">
-                    <AccordionItem value="payload-examples" className="border-b-0">
-                      <AccordionTrigger className="py-4 text-sm font-semibold hover:no-underline">
-                        Advanced payload examples
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className="grid min-w-0 gap-4 pb-4 xl:grid-cols-2">
-                          {DEVELOPER_SAMPLE_PAYLOADS.map((sample) => (
-                            <SnippetCard
-                              key={sample.title}
-                              title={sample.title}
-                              description={sample.description}
-                              code={sample.code}
-                              copyLabel={sample.title}
-                            />
-                          ))}
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  </Accordion>
-                </SurfaceCardContent>
-              </SurfaceCard>
-            </DeveloperSectionShell>
-
-            <DeveloperSectionShell
-              sectionId="consent-flow"
-              isMobile={isMobile}
-              mobileOpenSections={mobileOpenSections}
-              onMobileSectionChange={handleMobileSectionChange}
-              header={
-                <SectionHeader
-                  eyebrow="Consent Flow"
-                  title="The user journey stays explicit"
-                  description="External agents can ask, but only Kai can approve. That separation is what keeps the contract trustworthy."
-                  icon={Workflow}
-                  accent="amber"
-                />
-              }
-            >
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                {CONSENT_FLOW_STEPS.map((step, index) => (
-                  <SurfaceCard key={step.title} className="min-w-0">
-                    <SurfaceCardContent className="space-y-3 pt-6">
-                      <Badge variant="outline">Step {index + 1}</Badge>
-                      <h3 className="text-base font-semibold text-foreground">{step.title}</h3>
-                      <p className="text-sm leading-6 text-muted-foreground">{step.detail}</p>
-                    </SurfaceCardContent>
-                  </SurfaceCard>
-                ))}
-              </div>
-            </DeveloperSectionShell>
 
             <DeveloperSectionShell
               sectionId="mcp"
@@ -1594,70 +1386,6 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
             </DeveloperSectionShell>
 
             <DeveloperSectionShell
-              sectionId="api"
-              isMobile={isMobile}
-              mobileOpenSections={mobileOpenSections}
-              onMobileSectionChange={handleMobileSectionChange}
-              header={
-                <SectionHeader
-                  eyebrow="REST API"
-                  title="Versioned endpoints for discovery and consent"
-                  description="The public API is intentionally small. Everything else builds on top of these primitives."
-                  icon={Globe}
-                  accent="sky"
-                />
-              }
-            >
-              <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-                <SurfaceCard className="min-w-0">
-                  <SurfaceCardContent className="space-y-3 pt-6">
-                    <SettingsGroup
-                      eyebrow="Endpoint map"
-                      title="Small on purpose"
-                      description="Everything public builds on these primitives for discovery, consent, status, and scoped reads."
-                    >
-                      {REST_ENDPOINTS.map((endpoint) => (
-                        <SettingsRow
-                          key={endpoint.path}
-                          leading={<Badge variant="outline">{endpoint.method}</Badge>}
-                          title={<code className="text-xs sm:text-[13px]">{endpoint.path}</code>}
-                          description={
-                            <div className="space-y-1">
-                              <p>{endpoint.purpose}</p>
-                              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/80">
-                                {endpoint.auth}
-                              </p>
-                            </div>
-                          }
-                        />
-                      ))}
-                    </SettingsGroup>
-                  </SurfaceCardContent>
-                </SurfaceCard>
-                <div className="min-w-0 space-y-4">
-                  <SnippetCard
-                    title="Discover user scopes"
-                    description="Always start by inspecting the actual scope strings available for the target user."
-                    code={restSnippets.discover}
-                    copyLabel="Discover scopes curl"
-                  />
-                  <SnippetCard
-                    title="Request consent"
-                    description="Send a single scope request and let Kai handle approval."
-                    code={restSnippets.requestConsent}
-                    copyLabel="Request consent curl"
-                  />
-                  <SnippetCard
-                    title="Poll consent status"
-                    description="Check whether the user has approved, denied, or revoked the request."
-                    code={restSnippets.checkStatus}
-                    copyLabel="Consent status curl"
-                  />
-                </div>
-              </div>
-            </DeveloperSectionShell>
-
-            <DeveloperSectionShell
               sectionId="access"
               isMobile={isMobile}
               mobileOpenSections={mobileOpenSections}
@@ -1720,13 +1448,273 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                     isMobile={isMobile}
                   />
                   <RuntimeValueRow
-                    label="REST"
-                    value={workspaceSnippets.restQuery}
-                    copyLabel="REST token query"
+                    label="Auth header"
+                    value={workspaceSnippets.authHeader}
+                    copyLabel="Authorization header"
                     isMobile={isMobile}
                   />
                 </SurfaceCardContent>
               </SurfaceCard>
+            </DeveloperSectionShell>
+
+            <DeveloperSectionShell
+              sectionId="overview"
+              isMobile={isMobile}
+              mobileOpenSections={mobileOpenSections}
+              onMobileSectionChange={handleMobileSectionChange}
+              header={
+                <SectionHeader
+                  eyebrow="Overview"
+                  title="The trust model stays simple"
+                  description="Authentication identifies your developer app. User consent in Kai is the separate programmable boundary that grants access to a discovered scope."
+                  icon={ShieldCheck}
+                  accent="emerald"
+                />
+              }
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <SurfaceCard className="min-w-0">
+                  <SurfaceCardHeader>
+                    <SurfaceCardTitle>What the user sees</SurfaceCardTitle>
+                  </SurfaceCardHeader>
+                  <SurfaceCardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
+                    <p>
+                      Consent prompts show your app display name, support link, and policy link so
+                      the user understands who is asking and why.
+                    </p>
+                    <p>
+                      Access is always per scope. Signing in, enabling developer access, or running
+                      your agent does not bypass consent.
+                    </p>
+                  </SurfaceCardContent>
+                </SurfaceCard>
+                <SurfaceCard className="min-w-0">
+                  <SurfaceCardHeader>
+                    <SurfaceCardTitle>What the developer gets</SurfaceCardTitle>
+                  </SurfaceCardHeader>
+                  <SurfaceCardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
+                    <p>
+                      One self-serve app per Kai account, one active token, and the same contract
+                      surfaced through remote MCP, the API, and the npm bridge.
+                    </p>
+                    <p>
+                      The data path is the same everywhere: discover scopes, request consent, poll
+                      status, then read approved scoped data.
+                    </p>
+                  </SurfaceCardContent>
+                </SurfaceCard>
+              </div>
+            </DeveloperSectionShell>
+
+            <DeveloperSectionShell
+              sectionId="dynamic-scopes"
+              isMobile={isMobile}
+              mobileOpenSections={mobileOpenSections}
+              onMobileSectionChange={handleMobileSectionChange}
+              header={
+                <SectionHeader
+                  eyebrow="Dynamic Scopes"
+                  title="Scopes are discovered from the user’s indexed PKM"
+                  description="The public grammar is fixed, but the user-specific scope strings are generated from the indexed Personal Knowledge Model and the domain registry."
+                  icon={ScanSearch}
+                  accent="violet"
+                  actions={
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <MorphyButton variant="none" effect="glass" size="sm">
+                          Why dynamic?
+                        </MorphyButton>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs text-sm leading-6">
+                        Dynamic scopes let the backend publish only the domains and paths the user
+                        actually has, rather than pretending every user has the same data graph.
+                      </TooltipContent>
+                    </Tooltip>
+                  }
+                />
+              }
+            >
+              <SurfaceCard className="min-w-0">
+                <SurfaceCardContent className="space-y-5 pt-6">
+                  <SurfaceInset className="space-y-3">
+                    <p className="text-sm font-semibold text-foreground">Current status</p>
+                    <div className="space-y-2">
+                      {DEVELOPER_SCOPE_NOTES.map((note) => (
+                        <p key={note} className="text-sm leading-6 text-muted-foreground">
+                          {note}
+                        </p>
+                      ))}
+                    </div>
+                  </SurfaceInset>
+                  <div className="flex flex-wrap gap-2">
+                    {PUBLIC_SCOPE_PATTERNS.map((scopePattern) => (
+                      <Badge key={scopePattern} variant="outline">
+                        {scopePattern}
+                      </Badge>
+                    ))}
+                  </div>
+                  {liveDocsLoading ? (
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <Skeleton className="h-28 rounded-3xl" />
+                      <Skeleton className="h-28 rounded-3xl" />
+                    </div>
+                  ) : liveDocs?.scopes?.length ? (
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      {liveDocs.scopes.map((scope) => (
+                        <SurfaceInset key={scope.name} className="min-w-0 space-y-2">
+                          <p className="text-sm font-semibold text-foreground">{scope.name}</p>
+                          <p className="text-sm leading-6 text-muted-foreground">{scope.description}</p>
+                        </SurfaceInset>
+                      ))}
+                    </div>
+                  ) : null}
+                  <Accordion type="single" collapsible className="rounded-2xl border border-border/65 px-4">
+                    <AccordionItem value="payload-examples" className="border-b-0">
+                      <AccordionTrigger className="py-4 text-sm font-semibold hover:no-underline">
+                        Advanced payload examples
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="grid min-w-0 gap-4 pb-4 xl:grid-cols-2">
+                          {DEVELOPER_SAMPLE_PAYLOADS.map((sample) => (
+                            <SnippetCard
+                              key={sample.title}
+                              title={sample.title}
+                              description={sample.description}
+                              code={sample.code}
+                              copyLabel={sample.title}
+                            />
+                          ))}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+                </SurfaceCardContent>
+              </SurfaceCard>
+            </DeveloperSectionShell>
+
+            <DeveloperSectionShell
+              sectionId="consent-flow"
+              isMobile={isMobile}
+              mobileOpenSections={mobileOpenSections}
+              onMobileSectionChange={handleMobileSectionChange}
+              header={
+                <SectionHeader
+                  eyebrow="Consent Flow"
+                  title="The user journey stays explicit"
+                  description="External agents can ask, but only Kai can approve. That separation is what keeps the contract trustworthy."
+                  icon={Workflow}
+                  accent="amber"
+                />
+              }
+            >
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {CONSENT_FLOW_STEPS.map((step, index) => (
+                  <SurfaceCard key={step.title} className="min-w-0">
+                    <SurfaceCardContent className="space-y-3 pt-6">
+                      <Badge variant="outline">Step {index + 1}</Badge>
+                      <h3 className="text-base font-semibold text-foreground">{step.title}</h3>
+                      <p className="text-sm leading-6 text-muted-foreground">{step.detail}</p>
+                    </SurfaceCardContent>
+                  </SurfaceCard>
+                ))}
+              </div>
+            </DeveloperSectionShell>
+
+            <DeveloperSectionShell
+              sectionId="modes"
+              isMobile={isMobile}
+              mobileOpenSections={mobileOpenSections}
+              onMobileSectionChange={handleMobileSectionChange}
+              header={
+                <SectionHeader
+                  eyebrow="Advanced"
+                  title="Use REST or npm only when the host needs it"
+                  description="Remote MCP is the recommended path. These options stay available for direct HTTP integrations and stdio-only MCP hosts."
+                  icon={Cable}
+                  accent="sky"
+                />
+              }
+            >
+              <SettingsGroup
+                eyebrow="Transport options"
+                title="Remote MCP first"
+                description="All modes use the same consent contract. The transport choice only changes how your host connects."
+              >
+                {integrationModes.map((mode) => (
+                  <SettingsRow
+                    key={mode.id}
+                    title={mode.title}
+                    description={mode.summary}
+                    trailing={integrationTab === mode.id ? <Badge variant="default">Active</Badge> : undefined}
+                    stackTrailingOnMobile
+                    onClick={() => setIntegrationTab(mode.id)}
+                  />
+                ))}
+              </SettingsGroup>
+            </DeveloperSectionShell>
+
+            <DeveloperSectionShell
+              sectionId="api"
+              isMobile={isMobile}
+              mobileOpenSections={mobileOpenSections}
+              onMobileSectionChange={handleMobileSectionChange}
+              header={
+                <SectionHeader
+                  eyebrow="REST API"
+                  title="Versioned endpoints for discovery and consent"
+                  description="The public API is intentionally small. Everything else builds on top of these primitives."
+                  icon={Globe}
+                  accent="sky"
+                />
+              }
+            >
+              <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+                <SurfaceCard className="min-w-0">
+                  <SurfaceCardContent className="space-y-3 pt-6">
+                    <SettingsGroup
+                      eyebrow="Endpoint map"
+                      title="Small on purpose"
+                      description="Everything public builds on these primitives for discovery, consent, status, and scoped reads."
+                    >
+                      {REST_ENDPOINTS.map((endpoint) => (
+                        <SettingsRow
+                          key={endpoint.path}
+                          leading={<Badge variant="outline">{endpoint.method}</Badge>}
+                          title={<code className="text-xs sm:text-[13px]">{endpoint.path}</code>}
+                          description={
+                            <div className="space-y-1">
+                              <p>{endpoint.purpose}</p>
+                              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/80">
+                                {endpoint.auth}
+                              </p>
+                            </div>
+                          }
+                        />
+                      ))}
+                    </SettingsGroup>
+                  </SurfaceCardContent>
+                </SurfaceCard>
+                <div className="min-w-0 space-y-4">
+                  <SnippetCard
+                    title="Discover user scopes"
+                    description="Always start by inspecting the actual scope strings available for the target user."
+                    code={restSnippets.discover}
+                    copyLabel="Discover scopes curl"
+                  />
+                  <SnippetCard
+                    title="Request consent"
+                    description="Send a single scope request and let Kai handle approval."
+                    code={restSnippets.requestConsent}
+                    copyLabel="Request consent curl"
+                  />
+                  <SnippetCard
+                    title="Poll consent status"
+                    description="Check whether the user has approved, denied, or revoked the request."
+                    code={restSnippets.checkStatus}
+                    copyLabel="Consent status curl"
+                  />
+                </div>
+              </div>
             </DeveloperSectionShell>
 
             <DeveloperSectionShell

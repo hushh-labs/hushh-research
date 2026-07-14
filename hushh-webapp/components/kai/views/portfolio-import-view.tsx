@@ -362,7 +362,9 @@ export function PortfolioImportView({
         </div>
       ) : null}
 
-      {/* Skip Option */}
+      {/* Distinct from the setup wizard's own "Skip finance setup" control:
+          this only skips linking an account right now, it does not skip the
+          whole finance capability. */}
       <div className="text-center pt-1">
         <MorphyButton
           variant="none"
@@ -371,7 +373,7 @@ export function PortfolioImportView({
           disabled={isUploading || isPreloadingSchema}
           className="type-subhead h-10 rounded-full px-5 text-muted-foreground hover:text-foreground"
         >
-          Skip for now
+          I&apos;ll link this later
         </MorphyButton>
       </div>
     </div>

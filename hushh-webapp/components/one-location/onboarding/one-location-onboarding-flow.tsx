@@ -79,7 +79,6 @@ const ONBOARDING_IMAGE_SOURCES = [
   "/one-location/onboarding/arrival-backpack.webp",
   "/one-location/onboarding/checkin-pin.webp",
   "/one-location/onboarding/sos-shield.webp",
-  "/one-location/onboarding/contact-avatars.webp",
 ] as const;
 
 
@@ -277,23 +276,15 @@ function WelcomeRadar({ people }: { people: DirectoryPerson[] }) {
   );
 }
 
-
-const DUMMY_AVATAR_POSITIONS = ["0% 0%", "100% 0%", "0% 100%", "100% 100%"];
+// Generic placeholder names for the onboarding teaser illustrations. These
+// screens show a fake product preview before any real contacts are chosen,
+// so the avatar must read as obviously generic (initials only, no photo)
+// rather than implying a specific real connected person.
+const DUMMY_CONTACT_NAMES = ["Alex", "Maya", "Sam", "Jordan"];
 
 function DummyContactAvatar({ index = 0, large = false }: { index?: number; large?: boolean }) {
-  return (
-    <span
-      className={cn(
-        "block shrink-0 rounded-full border-[3px] border-white bg-cover shadow-[0_8px_22px_rgba(24,57,91,0.18)]",
-        large ? "h-16 w-16" : "h-11 w-11",
-      )}
-      style={{
-        backgroundImage: "url('/one-location/onboarding/contact-avatars.webp')",
-        backgroundPosition: DUMMY_AVATAR_POSITIONS[index % DUMMY_AVATAR_POSITIONS.length],
-        backgroundSize: "200% 200%",
-      }}
-    />
-  );
+  const name = DUMMY_CONTACT_NAMES[index % DUMMY_CONTACT_NAMES.length]!;
+  return <Avatar name={name} size={large ? "lg" : "sm"} />;
 }
 
 function FeatureAlert({

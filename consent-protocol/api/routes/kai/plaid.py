@@ -31,6 +31,10 @@ class PlaidLinkTokenRequest(BaseModel):
     user_id: str = Field(..., min_length=1, max_length=256)
     item_id: Optional[str] = Field(default=None, max_length=512)
     redirect_uri: Optional[str] = Field(default=None, max_length=2048)
+    # Optional Plaid environment override (e.g. "production"). Only takes
+    # effect on a local backend (ENVIRONMENT=development) with a matching
+    # PLAID_LOCAL_PRODUCTION_SECRET configured; ignored everywhere else.
+    environment: Optional[str] = Field(default=None, max_length=32)
 
 
 class PlaidPublicTokenExchangeRequest(BaseModel):
@@ -41,6 +45,9 @@ class PlaidPublicTokenExchangeRequest(BaseModel):
     terms_version: str | None = Field(default=None, max_length=64)
     consent_timestamp: str | None = Field(default=None, max_length=64)
     alpaca_account_id: str | None = Field(default=None, max_length=256)
+    # Must match whatever environment the originating link-token request
+    # used. Only takes effect on a local backend; see PlaidLinkTokenRequest.
+    environment: Optional[str] = Field(default=None, max_length=32)
 
 
 class PlaidOAuthResumeRequest(BaseModel):
@@ -282,6 +289,7 @@ async def create_plaid_link_token(
             user_id=payload.user_id,
             item_id=payload.item_id,
             redirect_uri=payload.redirect_uri,
+            environment=payload.environment,
         )
     except Exception as exc:
         logger.exception("kai.plaid.link_token_failed user_id=%s", payload.user_id)
@@ -307,6 +315,7 @@ async def create_plaid_update_link_token(
             user_id=request.user_id,
             item_id=request.item_id,
             redirect_uri=request.redirect_uri,
+            environment=request.environment,
         )
     except Exception as exc:
         logger.exception("kai.plaid.update_link_token_failed user_id=%s", request.user_id)
@@ -332,6 +341,7 @@ async def exchange_plaid_public_token(
             public_token=payload.public_token,
             metadata=payload.metadata,
             resume_session_id=payload.resume_session_id,
+            environment=payload.environment,
         )
     except Exception as exc:
         _raise_logged_http_exception("kai.plaid.exchange_failed", payload.user_id, exc)

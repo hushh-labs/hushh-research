@@ -27,39 +27,38 @@ import { ROUTES } from "@/lib/navigation/routes";
 const TOUR_STEPS = [
   {
     id: "nav-role-switch",
-    title: "Role Menu",
-    description: "Switch between Investor and RIA from the top app bar without leaving the page.",
+    title: "Switch views",
+    description: "Tap here to switch between your investor view and your advisor view, right from the top bar.",
     icon: MenuSquare,
   },
   {
     id: "kai-command-bar",
-    title: "Command Bar",
-    description:
-      "Use this to analyze tickers, jump routes, and run Kai actions from one place.",
+    title: "Ask Kai",
+    description: "Search a ticker, jump to a section, or ask Kai a question. All from one place.",
     icon: Command,
   },
   {
     id: "nav-market",
     title: "Market",
-    description: "Return to the market home, watchlists, and discovery flow.",
+    description: "See how the market is doing today and browse your watchlist.",
     icon: Store,
   },
   {
     id: "nav-portfolio",
     title: "Portfolio",
-    description: "Jump straight to your portfolio view, sources, and current state.",
+    description: "Check your holdings, where they came from, and how they're doing.",
     icon: LayoutDashboard,
   },
   {
     id: "nav-analysis",
     title: "Analysis",
-    description: "Open your analysis history and deeper Kai reasoning surfaces.",
+    description: "Review past research and get Kai's take on your investments.",
     icon: LineChart,
   },
   {
     id: "nav-profile",
     title: "Profile",
-    description: "Open settings, privacy, consents, and vault controls from one place.",
+    description: "Manage your settings, privacy choices, and account security here.",
     icon: UserRound,
   },
 ] as const;
@@ -119,6 +118,15 @@ export function KaiNavTour() {
       }
 
       if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
+        if (vaultKey && !vaultOwnerToken) {
+          // A vault key already exists, so the vault is auto-unlocking right
+          // now and the owner token will land within this same session. Wait
+          // for that and let the vault-backed check below run instead of
+          // opening on the incomplete pre-vault snapshot and then closing a
+          // moment later once the real (encrypted) profile state resolves.
+          return;
+        }
+
         const remoteState = await PreVaultUserStateService.bootstrapState(user.uid).catch(
           () => null
         );
@@ -423,7 +431,7 @@ export function KaiNavTour() {
             <div className="flex items-center justify-between">
               <div className="inline-flex min-w-0 items-center gap-2">
                 <Icon icon={activeStep.icon} size="sm" className="text-[var(--brand-600)]" />
-                <p className="truncate text-sm font-semibold">Kai Navigation Tour</p>
+                <p className="truncate text-sm font-semibold">Quick tour</p>
               </div>
               <p className="ml-2 shrink-0 text-xs text-muted-foreground tabular-nums">
                 {stepIndex + 1}/{TOUR_STEPS.length} · {progress}%

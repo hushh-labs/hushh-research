@@ -303,9 +303,13 @@ class PkmUpgradeService:
             except Exception:
                 available_domains = []
 
+        # A user with no pkm_index row yet has nothing to be "behind" on: treat
+        # them as already current instead of manufacturing a permanent
+        # stored-vs-effective version gap that can never be repaired (there is
+        # no index row for `_maybe_reconcile_current_index` to write to).
         stored_model_version = self._to_int(
             getattr(index, "model_version", None),
-            max(CURRENT_PKM_MODEL_VERSION - 1, 1),
+            CURRENT_PKM_MODEL_VERSION,
         )
         domain_states: list[dict[str, Any]] = []
         domain_summaries = index.domain_summaries if index else {}

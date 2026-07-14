@@ -51,6 +51,28 @@ managed by `lib/theme/accent.ts`, applied pre-paint by the inline script in
    from these instead of forking their own copies; the One Location redesign
    was the reference implementation and now consumes the promoted modules.
 
+## Apple design grammar (material effects)
+
+Morphy adopts the Apple web design principles as enforceable grammar
+(`npm run verify:accent-tokens` fails violations):
+
+1. **Press physics.** Every control carries the same tactile weight: the
+   `.press-scale` utility (`transform: scale(var(--motion-press-scale))` on
+   active, reduced-motion aware) layered WITH the md-ripple. Button and all
+   segmented primitives ship it; never write per-component press styles.
+2. **Radius grammar.** `--app-radius-pill` = action signal; `--app-radius-lg`
+   = compact utility cards; `--app-radius-sm` = compact utility rects. The
+   shipped `--app-card-radius-*` contract stays canonical for app cards. No
+   in-between radii in new primitives.
+3. **Weight ladder.** 300 / 400 / 600 / 700 only; `font-medium` (500) is
+   deliberately absent from this folder. Labels 400, emphasis 600, weight 300
+   is the rare "airy" cue.
+4. **Elevation doctrine.** No shadows on chrome; elevation = surface change +
+   backdrop blur (`--app-blur-frosted`). The single photographic shadow is
+   `--app-shadow-product`, reserved for imagery resting on a surface.
+5. **Fonts are system-stack only.** `--font-app-*` resolves SF Pro on Apple
+   platforms; never bundle Apple font files.
+
 ## Motion system (single source of truth)
 
 All motion in the app is driven by CSS custom properties declared once in

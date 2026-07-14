@@ -91,6 +91,28 @@ function snapshotKey(userId: string): string {
   return `${PKM_UPGRADE_SNAPSHOT_PREFIX}:${userId}`;
 }
 
+const PKM_UPGRADE_METADATA_REPAIR_ACK_PREFIX = "pkm_upgrade_metadata_repair_ack_v1";
+
+function metadataRepairAckKey(userId: string): string {
+  return `${PKM_UPGRADE_METADATA_REPAIR_ACK_PREFIX}:${userId}`;
+}
+
+/**
+ * Metadata-only reconciliation (no real domain to upgrade) always resolves to
+ * the same stored/effective version pair for a given user until real
+ * progress happens server-side. Without this guard, any backend edge case
+ * that leaves that gap unrepaired (e.g. no PKM index row yet) would replay
+ * the "up to date" toast on every single app load. Track the last pair we
+ * already surfaced and skip re-notifying for the same one.
+ */
+function hasAlreadyAckedMetadataRepair(userId: string, versionPairKey: string): boolean {
+  return getLocalItem(metadataRepairAckKey(userId)) === versionPairKey;
+}
+
+function ackMetadataRepair(userId: string, versionPairKey: string): void {
+  setLocalItem(metadataRepairAckKey(userId), versionPairKey);
+}
+
 function rehearsalSessionKey(userId: string): string {
   return `${PKM_UPGRADE_REHEARSAL_SESSION_PREFIX}:${userId}`;
 }
@@ -487,7 +509,10 @@ export class PkmUpgradeOrchestrator {
       throw error;
     }
 
-    const needsMetadataRepair = needsVisibleMetadataReconciliation(priorStatus);
+    const versionPairKey = `${priorStatus.storedModelVersion}->${priorStatus.effectiveModelVersion}`;
+    const needsMetadataRepair =
+      needsVisibleMetadataReconciliation(priorStatus) &&
+      !hasAlreadyAckedMetadataRepair(params.userId, versionPairKey);
     if (!priorStatus.run && priorStatus.upgradableDomains.length === 0 && !needsMetadataRepair) {
       const snapshot = readSnapshot(params.userId);
       if (snapshot?.taskId) {
@@ -500,6 +525,10 @@ export class PkmUpgradeOrchestrator {
       }
       clearSnapshot(params.userId);
       return;
+    }
+
+    if (needsMetadataRepair) {
+      ackMetadataRepair(params.userId, versionPairKey);
     }
 
     const repairTaskId = needsMetadataRepair
