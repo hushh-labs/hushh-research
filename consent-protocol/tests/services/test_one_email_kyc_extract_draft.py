@@ -255,3 +255,77 @@ async def test_extract_draft_malformed_null_scope():
                 consent_token="tok",  # noqa: S106
             )
     assert exc.value.code == "ONE_KYC_EXTRACT_MALFORMED"
+
+
+@pytest.mark.asyncio
+async def test_extract_draft_prompt_framing():
+    """Assert the prompt sent to the LLM contains the correct role/disclosure framing.
+
+    The prompt must:
+    - instruct the LLM to reply ON BEHALF OF the user (data owner)
+    - write FROM the user's first-person perspective
+    - make clear the reply DISCLOSES the requested information
+    - NOT write from the requester's perspective
+    """
+    service = get_one_email_kyc_service()
+    captured_prompts: list[str] = []
+
+    llm_out = {
+        "extracted": [{"scope": "attr.identity.name", "label": "Full name", "value": "Jane Doe"}],
+        "missing": [],
+        "draft": {"subject": "Re: KYC Request", "body": "My name is Jane Doe."},
+    }
+    workflow = {
+        "workflow_id": "wf-prompt",
+        "status": "waiting_on_user",
+        "draft_status": "ready",
+        "metadata": {},
+    }
+
+    async def capture_prompt(**kwargs):
+        captured_prompts.append(kwargs.get("prompt", ""))
+        return llm_out
+
+    with (
+        patch.object(service, "get_workflow", new=AsyncMock(return_value=workflow)),
+        patch.object(
+            service, "_llm_generate_structured", new=AsyncMock(side_effect=capture_prompt)
+        ),
+        patch.object(service, "_update_workflow", return_value=workflow),
+        patch(
+            "hushh_mcp.services.one_email_kyc_service.validate_token_with_db",
+            new=AsyncMock(return_value=(True, "ok", None)),
+        ),
+    ):
+        await service.extract_and_draft(
+            user_id="u1",
+            workflow_id="wf-prompt",
+            domain="identity",
+            domain_data={"full_name": "Jane Doe"},
+            approved_scopes=["attr.identity.name"],
+            request_text="Please provide your full name for KYC.",
+            consent_token="tok",  # noqa: S106
+        )
+
+    assert len(captured_prompts) == 1, "Expected exactly one LLM call"
+    prompt = captured_prompts[0]
+
+    # Role framing: reply is on behalf of the data owner, from the user's perspective
+    assert "ON BEHALF OF the user" in prompt, "Prompt must instruct reply on behalf of the user"
+    assert "first-person perspective" in prompt, "Prompt must specify first-person perspective"
+    assert "Do NOT write from the requester's perspective" in prompt, (
+        "Prompt must explicitly forbid writing from requester's perspective"
+    )
+
+    # Disclosure goal: the reply must present the actual data
+    assert "DISCLOSE the requested information" in prompt, (
+        "Prompt must state the goal is to disclose the requested information"
+    )
+    assert "Present each approved field with its real extracted value" in prompt, (
+        "Prompt must instruct presenting each field with its real value"
+    )
+
+    # Anti-hallucination: no fabrication, no requester sign-off
+    assert "Do NOT sign as the requester" in prompt, (
+        "Prompt must forbid signing as the requester's organisation"
+    )
