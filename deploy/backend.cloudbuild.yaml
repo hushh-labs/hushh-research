@@ -2,39 +2,38 @@
 # Deploy to: Cloud Run (service name configurable via substitutions)
 
 steps:
-  # Step 1: Build Docker image
+  # Step 1: Build + push with a registry LAYER CACHE (buildx, mode=max).
+  #
+  # Why: Cloud Build workers are ephemeral, so a plain `docker build` starts with an
+  # empty cache every run and reinstalls all ~159 pinned deps from scratch (20-35 min).
+  # buildx `--cache-to type=registry,mode=max` exports EVERY stage's layers (incl. the
+  # builder's `uv pip install` layer) to `:buildcache`; `--cache-from` restores them on
+  # the next run. Because the Dockerfile copies requirements.txt before the app source,
+  # an unchanged requirements.txt turns the dependency install into a cache HIT, so a
+  # code-only deploy drops to a couple of minutes.
+  #
+  # NOTE: the FIRST build after this lands is still cold — it seeds `:buildcache`.
+  # The payoff shows on the next backend deploy.
   - name: "gcr.io/cloud-builders/docker"
+    entrypoint: "bash"
     args:
-      - "build"
-      - "-t"
-      - "gcr.io/$PROJECT_ID/consent-protocol:manual"
-      - "-t"
-      - "gcr.io/$PROJECT_ID/consent-protocol:latest"
-      - "-t"
-      - "gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
-      - "-f"
-      - "consent-protocol/Dockerfile"
-      - "consent-protocol"
+      - "-c"
+      - |
+        set -euo pipefail
+        # Ensure gcr.io auth is available to the buildx container driver.
+        gcloud auth configure-docker gcr.io --quiet || true
+        docker buildx create --use --name hushh-builder --driver docker-container \
+          >/dev/null 2>&1 || docker buildx use hushh-builder
+        docker buildx build \
+          --cache-from=type=registry,ref=gcr.io/$PROJECT_ID/consent-protocol:buildcache \
+          --cache-to=type=registry,ref=gcr.io/$PROJECT_ID/consent-protocol:buildcache,mode=max \
+          --tag gcr.io/$PROJECT_ID/consent-protocol:manual \
+          --tag gcr.io/$PROJECT_ID/consent-protocol:latest \
+          --tag gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG} \
+          --file consent-protocol/Dockerfile \
+          --push \
+          consent-protocol
     id: "build-backend-image"
-
-  # Step 2: Push Docker image to Container Registry
-  - name: "gcr.io/cloud-builders/docker"
-    args:
-      - "push"
-      - "gcr.io/$PROJECT_ID/consent-protocol:manual"
-    id: "push-backend-image"
-
-  - name: "gcr.io/cloud-builders/docker"
-    args:
-      - "push"
-      - "gcr.io/$PROJECT_ID/consent-protocol:latest"
-    id: "push-backend-latest"
-
-  - name: "gcr.io/cloud-builders/docker"
-    args:
-      - "push"
-      - "gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
-    id: "push-backend-version"
 
   # Step 3: Deploy to Cloud Run
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
@@ -163,14 +162,12 @@ steps:
         "${cmd[@]}"
     id: "deploy-backend"
 
-# Images to store in Container Registry
-images:
-  - "gcr.io/$PROJECT_ID/consent-protocol:manual"
-  - "gcr.io/$PROJECT_ID/consent-protocol:latest"
-  - "gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
+# NOTE: no top-level `images:` block — `docker buildx build --push` (Step 1) already
+# pushes every tag. Listing images here would make Cloud Build try to re-push them from
+# the local daemon, which is empty under the buildx docker-container driver, and fail.
 
-# Build timeout
-timeout: "1200s"
+# Build timeout: 1800s headroom for the one-time cold seeding build; cached builds are minutes.
+timeout: "1800s"
 
 substitutions:
   _BACKEND_SERVICE: consent-protocol
