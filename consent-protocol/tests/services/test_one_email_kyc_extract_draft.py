@@ -171,6 +171,55 @@ async def test_extract_draft_not_ready_non_waiting_status():
 
 
 @pytest.mark.asyncio
+async def test_extract_draft_wildcard_scope_allows_granular_sub_scopes():
+    """Regression: approved wildcard 'attr.identity.*' must accept granular sub-scopes.
+
+    Before the fix the string-issubset check would raise ONE_KYC_EXTRACT_SUBSET_VIOLATION
+    because 'attr.identity.name' != 'attr.identity.*'. The scope_matches-based check
+    correctly recognises the granular scope as covered by the wildcard.
+    """
+    service = get_one_email_kyc_service()
+    llm_out = {
+        "extracted": [
+            {"scope": "attr.identity.name", "label": "Full name", "value": "Jane Doe"},
+            {"scope": "attr.identity.dob", "label": "Date of birth", "value": "1990-01-01"},
+        ],
+        "missing": [],
+        "draft": {
+            "subject": "Re: KYC",
+            "body": "My name is Jane Doe and my date of birth is 1990-01-01.",
+        },
+    }
+    workflow = {
+        "workflow_id": "wf-reg",
+        "status": "waiting_on_user",
+        "draft_status": "ready",
+        "metadata": {},
+    }
+    with (
+        patch.object(service, "get_workflow", new=AsyncMock(return_value=workflow)),
+        patch.object(service, "_llm_generate_structured", new=AsyncMock(return_value=llm_out)),
+        patch.object(service, "_update_workflow", return_value=workflow),
+        patch(
+            "hushh_mcp.services.one_email_kyc_service.validate_token_with_db",
+            new=AsyncMock(return_value=(True, "ok", None)),
+        ),
+    ):
+        result = await service.extract_and_draft(
+            user_id="u1",
+            workflow_id="wf-reg",
+            domain="identity",
+            domain_data={"full_name": "Jane Doe", "dob": "1990-01-01"},
+            approved_scopes=["attr.identity.*"],
+            request_text="Please share your identity details.",
+            consent_token="tok",  # noqa: S106
+        )
+    assert result["extracted"][0]["value"] == "Jane Doe"
+    assert result["extracted"][1]["value"] == "1990-01-01"
+    assert "Jane Doe" in result["draft"]["body"]
+
+
+@pytest.mark.asyncio
 async def test_extract_draft_malformed_null_scope():
     """LLM returns an extracted item with scope=None → ONE_KYC_EXTRACT_MALFORMED."""
     service = get_one_email_kyc_service()

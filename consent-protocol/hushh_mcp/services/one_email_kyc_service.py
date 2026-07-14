@@ -4428,10 +4428,13 @@ class OneEmailKycService:
             f"Approved scopes (extract only these): {json.dumps(sorted(approved_set))}\n"
             f"User data for domain '{domain}':\n{json.dumps(domain_data)}\n\n"
             f"Original request:\n{_truncate(request_text, 4000)}\n\n"
-            "Rules: (1) 'extracted' must contain ONLY approved scopes. (2) If an "
-            "approved field is absent from the data, list its scope in 'missing' and "
-            "do not fabricate a value. (3) 'draft.body' must use only the extracted "
-            "values — never invent data. Return the JSON."
+            "Rules: (1) Every item's 'scope' must be one of the approved scopes OR a "
+            "more specific sub-scope under an approved wildcard (e.g. under "
+            "'attr.identity.*' you may return 'attr.identity.name'). Never return a "
+            "scope outside the approved set. (2) If an approved field is absent from "
+            "the data, list its scope in 'missing' and do not fabricate a value. "
+            "(3) 'draft.body' must use only the extracted values — never invent data. "
+            "Return the JSON."
         )
         result = await self._llm_generate_structured(
             prompt=prompt, response_schema=_KYC_EXTRACT_DRAFT_SCHEMA
@@ -4448,12 +4451,17 @@ class OneEmailKycService:
                 code="ONE_KYC_EXTRACT_MALFORMED",
             )
         out_scopes = {str(item["scope"]) for item in extracted if item.get("scope") is not None}
-        if not out_scopes.issubset(approved_set):
+        unexpected = sorted(
+            s
+            for s in out_scopes
+            if not any(scope_matches(approved, s) for approved in approved_set)
+        )
+        if unexpected:
             raise OneEmailKycError(
                 "Extraction returned data outside the approved scopes.",
                 status_code=422,
                 code="ONE_KYC_EXTRACT_SUBSET_VIOLATION",
-                payload={"unexpected": sorted(out_scopes - approved_set)},
+                payload={"unexpected": unexpected},
             )
 
         # Step 6 — Provenance guard: draft body must not contain ungrounded PII tokens.
