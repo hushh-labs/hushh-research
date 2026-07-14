@@ -810,10 +810,46 @@ export function OneKycWorkspace({
         // Private KYC draft context is exclusively sourced from exact approved
         // encrypted exports. Public-profile resources never authorize PKM reads.
         const draftPayloads: Array<{ scope?: string | null; payload: Record<string, unknown> }> = exportPayloads;
-        const draft = await OneKycClientZkService.buildDraft({
+        // Deterministic draft — used as-is or as fallback if LLM Pass 2 fails.
+        let draft = await OneKycClientZkService.buildDraft({
           workflow: selected,
           exportPayloads: draftPayloads,
         });
+        // Pass 2: send the decrypted approved domain data to the LLM endpoint and
+        // replace the draft with the LLM-composed version. On any error, log a
+        // non-fatal message and leave the deterministic draft intact so the user
+        // still gets a valid draft to approve.
+        try {
+          const decryptedDomains = exportPayloads.map((ep) => ({
+            domain:
+              String(ep.scope ?? "identity")
+                .replace(/^attr\./, "")
+                .replace(/\.\*$/, "")
+                .split(".")[0] ?? "identity",
+            scope: ep.scope ?? null,
+            data: ep.payload,
+          }));
+          const approvedScopes =
+            selected.selected_scopes ??
+            selected.requested_scopes ??
+            (selected.requested_scope ? [selected.requested_scope] : []);
+          const requestText = [selected.subject, selected.snippet]
+            .filter(Boolean)
+            .join("\n\n");
+          draft = await OneKycClientZkService.buildDraftViaLlm({
+            workflow: selected,
+            input: { userId, vaultOwnerToken },
+            decryptedDomains,
+            approvedScopes,
+            requestText,
+          });
+        } catch (llmErr) {
+          if (!cancelled) {
+            setError(
+              oneKycErrorMessage(llmErr, "LLM draft unavailable; using deterministic draft."),
+            );
+          }
+        }
         if (!cancelled) {
           setLocalDrafts((current) => ({
             ...current,

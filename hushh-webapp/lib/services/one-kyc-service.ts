@@ -442,4 +442,39 @@ export class OneKycService {
       },
     );
   }
+
+  static extractDraft({
+    userId,
+    vaultOwnerToken,
+    workflowId,
+    domain,
+    domainData,
+    approvedScopes,
+    requestText,
+  }: AuthInput & {
+    workflowId: string;
+    domain: string;
+    domainData: Record<string, unknown>;
+    approvedScopes: string[];
+    requestText: string;
+  }): Promise<{
+    extracted: Array<{ scope: string; label: string; value: string }>;
+    missing: string[];
+    draft: { subject: string; body: string };
+  }> {
+    return apiJson(
+      `/api/one/kyc/workflows/${encodeURIComponent(workflowId)}/extract-draft`,
+      {
+        method: "POST",
+        headers: authHeaders(vaultOwnerToken),
+        body: JSON.stringify({
+          user_id: userId,
+          domain,
+          domain_data: domainData,
+          approved_scopes: approvedScopes,
+          request_text: requestText,
+        }),
+      },
+    );
+  }
 }

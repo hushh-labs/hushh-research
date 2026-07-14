@@ -1500,15 +1500,13 @@ export class OneKycClientZkService {
       });
     }
     const style = redraftTransformFromInstructions(params.instructions);
-    const renderModel: KycDraftRenderModel = {
-      contractId: APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID,
-      contractVersion: "1.0.0",
-      accountHolder: accountHolderLabel(params.workflow),
-      style,
+    const renderModel = OneKycClientZkService.buildFallbackRenderModel(
+      params.workflow,
       sections,
       missingFields,
       missingPresentationMetadata,
-    };
+      style,
+    );
     const body = buildApprovedDisclosurePlainText(renderModel);
     const htmlBody = buildApprovedDisclosureHtml(renderModel);
     return {
@@ -1517,6 +1515,103 @@ export class OneKycClientZkService {
       htmlBody,
       approvedValues,
       missingFields,
+      renderModel,
+      scopeSummaries,
+      draftHash: await sha256Hex(body),
+    };
+  }
+
+  /**
+   * Shared helper: constructs an `ApprovedDisclosureRenderModel` from pre-computed
+   * sections. Used by both `buildDraft` (deterministic path) and `buildDraftViaLlm`
+   * (LLM Pass 2 path) so the render-model shape stays in one place.
+   */
+  static buildFallbackRenderModel(
+    workflow: OneKycWorkflow,
+    sections: KycDraftRenderSection[],
+    missingFields: string[],
+    missingPresentationMetadata: string[],
+    style?: RedraftTransform,
+  ): KycDraftRenderModel {
+    return {
+      contractId: APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID,
+      contractVersion: "1.0.0",
+      accountHolder: accountHolderLabel(workflow),
+      style: style ?? redraftTransformFromInstructions(undefined),
+      sections,
+      missingFields,
+      missingPresentationMetadata,
+    };
+  }
+
+  /**
+   * Pass 2: send the decrypted approved domain data to the backend LLM endpoint
+   * and assemble a `KycDraftBuildResult` whose `body` is the LLM-composed draft.
+   *
+   * Uses the first decrypted domain for v1 (one domain per confirm flow).
+   * Falls back gracefully — the caller in page.tsx catches any thrown error and
+   * falls back to the deterministic `buildDraft` result.
+   */
+  static async buildDraftViaLlm(params: {
+    workflow: OneKycWorkflow;
+    input: { userId: string; vaultOwnerToken: string };
+    decryptedDomains: Array<{ domain: string; scope: string | null; data: Record<string, unknown> }>;
+    approvedScopes: string[];
+    requestText: string;
+  }): Promise<KycDraftBuildResult> {
+    const primary = params.decryptedDomains[0];
+    const response = await OneKycService.extractDraft({
+      ...params.input,
+      workflowId: params.workflow.workflow_id,
+      domain: primary?.domain ?? "identity",
+      domainData: primary?.data ?? {},
+      approvedScopes: params.approvedScopes,
+      requestText: params.requestText,
+    });
+
+    const approvedValues: Record<string, string> = {};
+    for (const item of response.extracted) approvedValues[item.scope] = item.value;
+
+    const body = response.draft.body;
+    const primaryScope =
+      primary?.scope ?? params.workflow.requested_scope ?? "attr.identity.*";
+    const sections: KycDraftRenderSection[] = [
+      {
+        scope: primaryScope,
+        title: workflowScopeTitle(params.workflow, primaryScope),
+        entries: response.extracted.map((e) => ({
+          field: e.scope,
+          label: e.label,
+          value: e.value,
+          scope: e.scope,
+        })),
+        missingFields: response.missing,
+        presentationSource: presentationSourceForScope(params.workflow, primaryScope),
+      },
+    ];
+
+    const renderModel = OneKycClientZkService.buildFallbackRenderModel(
+      params.workflow,
+      sections,
+      response.missing,
+      [],
+      undefined,
+    );
+
+    const scopeSummaries = params.approvedScopes.map((scope) => ({
+      scope,
+      approvedFields: response.extracted
+        .filter((e) => e.scope === scope)
+        .map((e) => e.label),
+      missingFields: response.missing.filter((m) => m === scope),
+    }));
+
+    return {
+      subject: response.draft.subject,
+      body,
+      htmlBody: renderLlmRedraftHtml(body),
+      approvedValues,
+      missingFields: response.missing,
       renderModel,
       scopeSummaries,
       draftHash: await sha256Hex(body),
