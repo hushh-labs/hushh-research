@@ -446,7 +446,7 @@ export function OneKycWorkspace({
   // Reset confirm-proposal selection when the selected workflow changes
   useEffect(() => {
     if (!selected || !shouldShowProposal(selected)) return;
-    const proposal = selected.metadata?.kyc_proposal as KycProposal | undefined;
+    const proposal = selected.metadata?.kyc_proposal;
     const scopes = proposal?.requested_items?.map((item) => item.scope) ?? [];
     setConfirmSelection(scopes);
     // Intentionally depends only on identity/status change to avoid resetting mid-session
@@ -1778,7 +1778,7 @@ export function OneKycWorkspace({
               ) : null}
 
               {shouldShowProposal(selected) ? (() => {
-                const proposal = selected.metadata?.kyc_proposal as KycProposal | undefined;
+                const proposal = selected.metadata?.kyc_proposal;
                 if (!proposal) return null;
                 return (
                   <SettingsGroup
@@ -1825,15 +1825,15 @@ export function OneKycWorkspace({
                       <Button
                         type="button"
                         variant="outline"
-                        onClick={() => void runAction("reject", selected)}
-                        disabled={Boolean(busy)}
+                        onClick={() => setArchiveTarget(selected)}
+                        disabled={Boolean(archivingWorkflowId)}
                       >
-                        {busy === "reject" ? (
+                        {archivingWorkflowId === selected.workflow_id ? (
                           <Loader2 className="size-4 animate-spin" />
                         ) : (
                           <XCircle className="size-4" />
                         )}
-                        {busy === "reject" ? "Rejecting..." : "Reject"}
+                        {archivingWorkflowId === selected.workflow_id ? "Removing..." : "Reject"}
                       </Button>
                     </div>
                   </SettingsGroup>

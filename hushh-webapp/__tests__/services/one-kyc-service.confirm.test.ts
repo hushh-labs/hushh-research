@@ -24,3 +24,19 @@ describe("OneKycService.confirmProposal", () => {
     );
   });
 });
+
+describe("OneKycService.archiveWorkflow", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("DELETEs the workflow with user_id in query", async () => {
+    await OneKycService.archiveWorkflow({
+      userId: "u1", vaultOwnerToken: "tok", workflowId: "wf-2",
+    });
+    expect(apiJson).toHaveBeenCalledWith(
+      expect.stringContaining("/api/one/kyc/workflows/wf-2"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    const [url] = (apiJson as ReturnType<typeof vi.fn>).mock.calls[0] as [string, ...unknown[]];
+    expect(url).toContain("user_id=u1");
+  });
+});

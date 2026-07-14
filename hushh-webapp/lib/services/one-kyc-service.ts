@@ -89,7 +89,7 @@ export interface OneKycWorkflow {
   pkm_writeback_completed_at?: string | null;
   last_error_code?: string | null;
   last_error_message?: string | null;
-  metadata?: Record<string, unknown>;
+  metadata?: { kyc_proposal?: KycProposal } & Record<string, unknown>;
   created_at?: string | null;
   updated_at?: string | null;
 }
