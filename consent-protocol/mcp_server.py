@@ -65,6 +65,7 @@ from mcp_modules.tools import (
     handle_list_scopes,
     handle_prepare_campaign_context,
     handle_request_consent,
+    handle_search_user_scopes,
     handle_validate_token,
 )
 from mcp_modules.transport_context import mark_local_stdio_transport
@@ -120,6 +121,7 @@ HANDLERS = {
     "get_encrypted_scoped_export": handle_get_encrypted_scoped_export,
     "list_scopes": handle_list_scopes,
     "discover_user_domains": handle_discover_user_domains,
+    "search_user_scopes": handle_search_user_scopes,
     "check_consent_status": handle_check_consent_status,
     # ── RIA / Marketplace tools ───────────────────────────────────────────────
     "list_ria_profiles": handle_list_ria_profiles,

@@ -460,6 +460,121 @@ def test_user_scopes_omits_private_entries_and_marks_default_available(monkeypat
     ]
 
 
+def _search_pkm_service():
+    class _FakeScopeGenerator:
+        async def get_available_scopes(self, user_id: str) -> list[str]:
+            assert user_id == "user_123"
+            return [
+                "attr.financial.profile.*",
+                "attr.financial.portfolio.*",
+                "attr.health.metrics.*",
+            ]
+
+        async def get_available_scope_entries(self, user_id: str) -> list[dict]:
+            assert user_id == "user_123"
+            # Only externally-requestable scopes (attr.{domain}.{path}.*) survive
+            # the snapshot filter; bare domain wildcards like attr.financial.* are
+            # intentionally not external-requestable.
+            return [
+                {
+                    "scope": "attr.financial.profile.*",
+                    "domain": "financial",
+                    "path": "profile",
+                    "wildcard": True,
+                    "source_kind": "pkm_manifests.top_level_scope_paths",
+                    "registry_handle": "s_financial_profile",
+                    "label": "Profile",
+                    "exposure_eligibility": True,
+                },
+                {
+                    "scope": "attr.financial.portfolio.*",
+                    "domain": "financial",
+                    "path": "portfolio",
+                    "wildcard": True,
+                    "source_kind": "pkm_manifests.top_level_scope_paths",
+                    "registry_handle": "s_financial_portfolio",
+                    "label": "Portfolio",
+                    "exposure_eligibility": True,
+                },
+                {
+                    "scope": "attr.health.metrics.*",
+                    "domain": "health",
+                    "path": "metrics",
+                    "wildcard": True,
+                    "source_kind": "pkm_manifests.top_level_scope_paths",
+                    "registry_handle": "s_health_metrics",
+                    "label": "Health Metrics",
+                    "exposure_eligibility": True,
+                },
+            ]
+
+    class _FakeIndex:
+        available_domains = ["financial", "health"]
+
+    class _FakePkmService:
+        scope_generator = _FakeScopeGenerator()
+
+        async def resolve_metadata_index(self, user_id: str):
+            assert user_id == "user_123"
+            return _FakeIndex()
+
+    return _FakePkmService()
+
+
+def test_search_user_scopes_ranks_least_privilege_first(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "get_pkm_service", lambda: _search_pkm_service())
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    client = TestClient(_build_app())
+    response = client.get("/api/v1/user-scopes/user_123/search?token=hdk_demo&query=financial")
+
+    assert response.status_code == 200
+    payload = response.json()
+    scopes = [m["scope"] for m in payload["matches"]]
+    # Both financial scopes match the domain exactly and have equal specificity,
+    # so the tie breaks alphabetically for deterministic ordering.
+    assert scopes == ["attr.financial.portfolio.*", "attr.financial.profile.*"]
+    assert all(m["match_reason"] == "exact_domain_match" for m in payload["matches"])
+    assert payload["available_domains"] == ["financial", "health"]
+    assert payload["scopes_are_dynamic"] is True
+    assert payload["app_display_name"] == "Demo App"
+
+
+def test_search_user_scopes_unknown_query_returns_empty_gracefully(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "get_pkm_service", lambda: _search_pkm_service())
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/user-scopes/user_123/search?token=hdk_demo&query=zzz-nope&domain=nope"
+    )
+
+    # Graceful: an unknown lookup is a 200 with no matches, never a 4xx/5xx.
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["matches"] == []
+    assert payload["available_domains"] == ["financial", "health"]
+
+
+def test_search_user_scopes_requires_developer_key(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    client = TestClient(_build_app())
+    response = client.get("/api/v1/user-scopes/user_123/search")
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["error_code"] == "DEVELOPER_TOKEN_REQUIRED"
+
+
 def test_user_scopes_verbose_still_hides_internal_exact_paths(monkeypatch):
     class _FakeScopeGenerator:
         async def get_available_scopes(self, user_id: str) -> list[str]:
