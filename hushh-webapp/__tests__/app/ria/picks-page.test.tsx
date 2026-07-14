@@ -461,7 +461,7 @@ describe("RiaPicksPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /my list/i }));
 
     expect(
-      await screen.findByText("Build your live advisor package"),
+      await screen.findByText("Build your live package"),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: /^edit$/i })).toBeTruthy();
     expect(

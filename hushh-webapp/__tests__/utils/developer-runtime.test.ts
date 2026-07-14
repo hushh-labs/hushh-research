@@ -60,6 +60,17 @@ describe("developer runtime resolution", () => {
     expect(runtime.apiBaseUrl).toBe("https://developer-api.example.com/api/v1");
   });
 
+  it("keeps the production API on its established api.hushh.ai authority", async () => {
+    const { resolveDeveloperRuntime } = await loadRuntime();
+    const runtime = resolveDeveloperRuntime("https://one.hushh.ai");
+
+    expect(runtime.environment).toBe("production");
+    expect(runtime.appUrl).toBe("https://one.hushh.ai");
+    expect(runtime.apiOrigin).toBe("https://api.hushh.ai");
+    expect(runtime.apiBaseUrl).toBe("https://api.hushh.ai/api/v1");
+    expect(runtime.mcpUrl).toBe("https://api.hushh.ai/mcp/");
+  });
+
   it("preserves explicit MCP URL paths while normalizing the trailing slash", async () => {
     process.env.NEXT_PUBLIC_DEVELOPER_MCP_URL = "https://mcp.example.com/custom-mount";
 

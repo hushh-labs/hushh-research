@@ -37,6 +37,20 @@ const LEGACY_ROUTE_REDIRECTS: Record<string, string> = {
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const host = request.headers.get("host") || "";
+
+  const legacyHostTargets: Record<string, string> = {
+    "uat.kai.hushh.ai": "uat.one.hushh.ai",
+    "dev.kai.hushh.ai": "dev.one.hushh.ai",
+    "kai.hushh.ai": "one.hushh.ai",
+  };
+  const legacyHostTarget = legacyHostTargets[host];
+  if (legacyHostTarget) {
+    const url = request.nextUrl.clone();
+    url.host = legacyHostTarget;
+    url.protocol = "https:";
+    return NextResponse.redirect(url, 301);
+  }
 
   const legacyRedirectTarget = LEGACY_ROUTE_REDIRECTS[pathname];
   if (legacyRedirectTarget) {

@@ -211,7 +211,6 @@ export class GmailReceiptsService {
   static async startConnect(params: {
     idToken: string;
     userId: string;
-    redirectUri: string;
     loginHint?: string | null;
     includeGrantedScopes: boolean;
   }): Promise<GmailConnectStartResponse> {
@@ -228,7 +227,6 @@ export class GmailReceiptsService {
       },
       body: JSON.stringify({
         user_id: params.userId,
-        redirect_uri: params.redirectUri,
         login_hint: params.loginHint || null,
         include_granted_scopes: params.includeGrantedScopes,
       }),
@@ -254,7 +252,6 @@ export class GmailReceiptsService {
     userId: string;
     code: string;
     state: string;
-    redirectUri: string;
   }): Promise<GmailConnectionStatus> {
     const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.connectComplete, {
       method: "POST",
@@ -266,7 +263,6 @@ export class GmailReceiptsService {
         user_id: params.userId,
         code: params.code,
         state: params.state,
-        redirect_uri: params.redirectUri,
       }),
     });
 

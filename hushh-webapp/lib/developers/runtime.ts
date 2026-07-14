@@ -42,7 +42,7 @@ function resolveEnvironment(origin: string | null): DeveloperEnvironment {
   ) {
     return "uat";
   }
-  if (hostname === "one.hushh.ai" || hostname === "api.one.hushh.ai") {
+  if (hostname === "one.hushh.ai" || hostname === "api.hushh.ai") {
     return "production";
   }
   if (hostname === "localhost" || hostname === "127.0.0.1") {
@@ -76,8 +76,11 @@ function defaultRuntimeForEnvironment(
 
   return {
     appUrl: "https://one.hushh.ai",
-    apiOrigin: "https://api.one.hushh.ai",
-    mcpUrl: "https://api.one.hushh.ai/mcp/",
+    // The public web surface moved from Kai to One. The API remains on its
+    // established `api.hushh.ai` authority, which is the live Cloud Run
+    // mapping and avoids publishing an unprovisioned api.one host.
+    apiOrigin: "https://api.hushh.ai",
+    mcpUrl: "https://api.hushh.ai/mcp/",
     npmPackage: "@hushh/mcp",
   };
 }

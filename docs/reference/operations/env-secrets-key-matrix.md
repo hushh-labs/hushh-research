@@ -74,7 +74,7 @@ Profile bootstrap rule:
 | `DB_PASSWORD` | `consent-protocol/db/connection.py` | Y | N | Y | secret | N | secret | N | required |
 | `GMAIL_OAUTH_CLIENT_ID` | `consent-protocol/hushh_mcp/services/gmail_receipts_service.py` | Y | N | Y | secret | N | secret | N | required |
 | `GMAIL_OAUTH_CLIENT_SECRET` | `consent-protocol/hushh_mcp/services/gmail_receipts_service.py` | Y | N | Y | secret | N | secret | N | required |
-| `GMAIL_OAUTH_REDIRECT_URI` | `consent-protocol/hushh_mcp/services/gmail_receipts_service.py` | Y | N | Y | secret | N | secret | N | required |
+| `GMAIL_OAUTH_REDIRECT_URI` | `consent-protocol/hushh_mcp/services/gmail_receipts_service.py` | Y | N | Y | secret | N | secret | N | required; exact `APP_FRONTEND_ORIGIN + /profile/gmail/oauth/return` |
 | `GMAIL_OAUTH_TOKEN_KEY` | `consent-protocol/hushh_mcp/services/gmail_receipts_service.py` | Y | N | Y | secret | N | secret | N | required |
 | `OPENAI_API_KEY` | `consent-protocol/api/routes/kai/agent_realtime.py`, `consent-protocol/hushh_mcp/services/voice_intent_service.py` | Y | N | Y | secret | N | secret | N | required |
 | `VOICE_RUNTIME_CONFIG_JSON` | `consent-protocol/hushh_mcp/runtime_settings.py`, `consent-protocol/api/routes/kai/voice.py`, `consent-protocol/hushh_mcp/services/voice_intent_service.py` | Y | N | Y | secret | N | secret | N | required |
