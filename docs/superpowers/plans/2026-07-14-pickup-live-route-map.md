@@ -232,6 +232,7 @@ function grant(over: Partial<OneLocationGrant>): OneLocationGrant {
     recipientUserId: "me",
     shareKind: "pick_me_up",
     status: "active",
+    ...over,
   } as unknown as OneLocationGrant;
 }
 
