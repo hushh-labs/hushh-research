@@ -98,10 +98,6 @@ import {
   transcribeAgentVoice,
 } from "@/lib/services/agent-voice-client";
 import {
-  AgentRealtimeClient,
-  type AgentRealtimeVoiceState,
-} from "@/lib/services/agent-realtime-client";
-import {
   useAgentVoiceState,
   type AgentVoiceStatus,
 } from "@/lib/agent/agent-voice-state";
@@ -109,11 +105,8 @@ import { handleAgentVoiceTranscriptTurn } from "@/lib/agent/agent-voice-turn";
 import { AgentTtsQueue, markdownToSpeechText } from "@/lib/agent/agent-voice-tts";
 import {
   AGENT_CONVERSATION_REQUEST_EVENT,
-  AGENT_VOICE_SETTINGS_CHANGED_EVENT,
+  DEFAULT_AGENT_GEMINI_TTS_VOICE,
   isAgentGeminiVoiceEnabled,
-  isAgentRealtimeVoiceEnabled,
-  readAgentVoiceSettings,
-  type AgentGeminiTtsVoice,
 } from "@/lib/agent/agent-voice-settings";
 import {
   deleteAgentChatConversation,
@@ -643,13 +636,13 @@ function AgentWelcomePanel({
               type="button"
               disabled={disabled}
               onClick={() => onPromptSelect(prompt)}
-              className="group min-h-24 rounded-xl border border-black/10 bg-white/80 p-4 text-left text-sm font-medium text-[#1d1d1f] shadow-sm shadow-black/[0.03] transition hover:border-primary/40 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50 max-sm:rounded-2xl max-sm:font-[family-name:var(--font-app-body)] max-sm:hover:border-[rgba(156,116,52,0.45)] max-sm:focus-visible:ring-[rgba(156,116,52,0.40)] dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-200 dark:hover:bg-white/[0.06]"
+              className="group min-h-24 rounded-xl border border-black/10 bg-white/80 p-4 text-left text-sm font-medium text-[#1d1d1f] shadow-sm shadow-black/[0.03] transition hover:border-primary/40 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50 max-sm:rounded-2xl max-sm:font-[family-name:var(--font-app-body)] max-sm:hover:border-[color:var(--app-accent-ring)] max-sm:focus-visible:ring-[color:var(--app-accent-ring)] dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-200 dark:hover:bg-white/[0.06]"
             >
               <span className="block leading-5">{prompt}</span>
               <span className="mt-4 flex items-center justify-between">
-                <span className="block h-px w-10 bg-primary/50 transition group-hover:w-14 max-sm:bg-[#9C7434] dark:max-sm:bg-[#D4AF6A]" />
+                <span className="block h-px w-10 bg-primary/50 transition group-hover:w-14 max-sm:bg-[color:var(--app-accent)] dark:max-sm:bg-[color:var(--app-accent)]" />
                 <ChevronRight
-                  className="hidden h-4 w-4 text-[#9C7434] dark:text-[#D4AF6A] max-sm:block"
+                  className="hidden h-4 w-4 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)] max-sm:block"
                   aria-hidden
                 />
               </span>
@@ -1209,18 +1202,11 @@ export function AgentChatWorkspace({
   const [voiceState, setVoiceState] = useState<AgentVoiceStatus>("idle");
   const [voiceTranscriptReview, setVoiceTranscriptReview] =
     useState<AgentVoiceTranscriptReview | null>(null);
-  const [selectedVoice, setSelectedVoice] = useState<AgentGeminiTtsVoice>(() =>
-    readAgentVoiceSettings().ttsVoice
-  );
   const [hasPortfolioData, setHasPortfolioData] = useState(false);
   const [backgroundTaskState, setBackgroundTaskState] = useState(() =>
     AppBackgroundTaskService.getState()
   );
   const voiceClientRef = useRef<AgentVoiceClient | null>(null);
-  const realtimeVoiceClientRef = useRef<AgentRealtimeClient | null>(null);
-  const realtimeVoiceActiveRef = useRef(false);
-  const realtimeUserTranscriptIdRef = useRef<string | null>(null);
-  const realtimeAssistantMessageIdRef = useRef<string | null>(null);
   const voiceTtsQueueRef = useRef<AgentTtsQueue | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1273,7 +1259,6 @@ export function AgentChatWorkspace({
   const isPkmMemoryWorking = activePkmToolCount > 0;
   const tokenIsFresh = !tokenExpiresAt || Date.now() < tokenExpiresAt;
   const agentVoiceEnabled = isAgentGeminiVoiceEnabled();
-  const agentRealtimeVoiceEnabled = isAgentRealtimeVoiceEnabled();
   const abortAgentTurnWork = useCallback(() => {
     streamAbortControllerRef.current?.abort();
     streamAbortControllerRef.current = null;
@@ -1456,7 +1441,7 @@ export function AgentChatWorkspace({
     !voiceActive &&
     input.trim().length > 0;
   const canToggleVoice =
-    (agentRealtimeVoiceEnabled || agentVoiceEnabled) &&
+    agentVoiceEnabled &&
     hasChatAccess &&
     (!isVoiceConnecting || voiceActive);
   const historyInteractionDisabled =
@@ -1559,26 +1544,11 @@ export function AgentChatWorkspace({
       abortAgentTurnWork();
       void voiceClientRef.current?.stop();
       voiceClientRef.current = null;
-      realtimeVoiceActiveRef.current = false;
-      realtimeVoiceClientRef.current?.close();
-      realtimeVoiceClientRef.current = null;
       voiceTtsQueueRef.current?.cancel();
       voiceTtsQueueRef.current = null;
       resetGlobalVoiceState();
     };
   }, [abortAgentTurnWork, resetGlobalVoiceState]);
-
-  useEffect(() => {
-    const syncVoiceSettings = () => {
-      setSelectedVoice(readAgentVoiceSettings().ttsVoice);
-    };
-    window.addEventListener(AGENT_VOICE_SETTINGS_CHANGED_EVENT, syncVoiceSettings);
-    window.addEventListener("storage", syncVoiceSettings);
-    return () => {
-      window.removeEventListener(AGENT_VOICE_SETTINGS_CHANGED_EVENT, syncVoiceSettings);
-      window.removeEventListener("storage", syncVoiceSettings);
-    };
-  }, []);
 
   useEffect(() => {
     const unsubscribe = AppBackgroundTaskService.subscribe((state) => {
@@ -2238,7 +2208,9 @@ export function AgentChatWorkspace({
       voiceTtsQueueRef.current = new AgentTtsQueue({
         userId,
         vaultOwnerToken: token,
-        voice: selectedVoice,
+        // One speaks with a single fixed voice identity across surfaces
+        // (matches the Gemini Live relay's server-side voice posture).
+        voice: DEFAULT_AGENT_GEMINI_TTS_VOICE,
         onStateChange: (state) => {
           if (state === "speaking") {
             voiceTtsSpeakingRef.current = true;
@@ -3733,155 +3705,10 @@ export function AgentChatWorkspace({
     }
   };
 
-  // Realtime full-duplex voice for One. Opt-in (NEXT_PUBLIC_AGENT_REALTIME_VOICE_ENABLED)
-  // and fail-closed: when the flag is off we never construct the realtime client and the
-  // conversational-mode control falls back to the turn-based path. Reuses the existing
-  // AgentRealtimeClient adapter over /agent/realtime/session (no new mic/STT/TTS code) and
-  // maps its voice state onto the shared agent voice store so the wave input renders as-is.
-  const mapRealtimeVoiceState = useCallback(
-    (state: AgentRealtimeVoiceState): AgentVoiceStatus => {
-      switch (state) {
-        case "connecting":
-          return "connecting";
-        case "listening":
-          return "listening";
-        case "thinking":
-          return "thinking";
-        case "speaking":
-          return "speaking";
-        case "idle":
-        default:
-          return "idle";
-      }
-    },
-    [],
-  );
-
-  const handleCancelRealtimeVoice = useCallback(async () => {
-    realtimeVoiceActiveRef.current = false;
-    realtimeUserTranscriptIdRef.current = null;
-    realtimeAssistantMessageIdRef.current = null;
-    realtimeVoiceClientRef.current?.close();
-    realtimeVoiceClientRef.current = null;
-    setIsVoiceConnecting(false);
-    setVoiceState("idle");
-    resetGlobalVoiceState();
-  }, [resetGlobalVoiceState]);
-
-  const handleToggleRealtimeVoice = async () => {
-    if (!agentRealtimeVoiceEnabled) {
-      addErrorMessage("Realtime voice is disabled for this environment.");
-      return;
-    }
-    if (!hasChatAccess || !user?.uid) return;
-
-    if (realtimeVoiceActiveRef.current) {
-      await handleCancelRealtimeVoice();
-      return;
-    }
-
-    const token = getVaultOwnerToken();
-    if (!token) {
-      addErrorMessage("Vault access expired. Unlock again to continue.");
-      return;
-    }
-
-    setIsVoiceConnecting(true);
-    setGlobalVoiceActive(true);
-    setAgentVoiceStatus("connecting");
-    realtimeVoiceActiveRef.current = true;
-
-    const client = new AgentRealtimeClient();
-    realtimeVoiceClientRef.current = client;
-
-    try {
-      await client.connect({ userId: user.uid, vaultOwnerToken: token });
-      await client.startMicrophone({
-        onVoiceState: (state) => {
-          if (!realtimeVoiceActiveRef.current) return;
-          if (state !== "connecting") {
-            setIsVoiceConnecting(false);
-          }
-          setAgentVoiceStatus(mapRealtimeVoiceState(state));
-        },
-        onInputTranscriptDelta: (delta) => {
-          if (!realtimeVoiceActiveRef.current || !delta) return;
-          const existingId = realtimeUserTranscriptIdRef.current;
-          if (existingId) {
-            updateMessage(existingId, (message) => ({
-              ...message,
-              text: `${message.text}${delta}`,
-            }));
-            return;
-          }
-          const id = `msg-${Date.now()}-user-voice`;
-          realtimeUserTranscriptIdRef.current = id;
-          appendMessage({
-            id,
-            role: "user",
-            text: delta,
-            timestamp: formatNow(),
-          });
-        },
-        onInputTranscriptDone: (text) => {
-          const existingId = realtimeUserTranscriptIdRef.current;
-          if (existingId && text.trim()) {
-            updateMessage(existingId, (message) => ({ ...message, text }));
-          }
-          realtimeUserTranscriptIdRef.current = null;
-        },
-        onResponseStart: () => {
-          if (!realtimeVoiceActiveRef.current) return;
-          const id = `msg-${Date.now()}-assistant-voice`;
-          realtimeAssistantMessageIdRef.current = id;
-          appendMessage({
-            id,
-            role: "assistant",
-            text: "",
-            timestamp: formatNow(),
-            status: "streaming",
-          });
-        },
-        onResponseDelta: (delta) => {
-          const existingId = realtimeAssistantMessageIdRef.current;
-          if (!existingId || !delta) return;
-          updateMessage(existingId, (message) => ({
-            ...message,
-            text: `${message.text}${delta}`,
-          }));
-        },
-        onResponseDone: (text) => {
-          const existingId = realtimeAssistantMessageIdRef.current;
-          if (existingId) {
-            updateMessage(existingId, (message) => ({
-              ...message,
-              text: text.trim() ? text : message.text,
-              status: "done",
-            }));
-          }
-          realtimeAssistantMessageIdRef.current = null;
-        },
-        onError: (message) => {
-          if (!realtimeVoiceActiveRef.current) return;
-          addErrorMessage(message);
-          setAgentVoiceStatus("error", message);
-          void handleCancelRealtimeVoice();
-        },
-      });
-    } catch (error) {
-      const message =
-        error instanceof Error && error.message
-          ? error.message
-          : "Realtime voice session failed.";
-      addErrorMessage(message);
-      await handleCancelRealtimeVoice();
-    }
-  };
-
   useEffect(() => {
     if (!voiceActive) return;
     if (
-      (agentVoiceEnabled || agentRealtimeVoiceEnabled) &&
+      agentVoiceEnabled &&
       user?.uid &&
       isVaultUnlocked &&
       vaultOwnerToken &&
@@ -3889,15 +3716,9 @@ export function AgentChatWorkspace({
     ) {
       return;
     }
-    if (realtimeVoiceActiveRef.current) {
-      void handleCancelRealtimeVoice();
-      return;
-    }
     void handleCancelVoice();
   }, [
     agentVoiceEnabled,
-    agentRealtimeVoiceEnabled,
-    handleCancelRealtimeVoice,
     handleCancelVoice,
     isVaultUnlocked,
     tokenIsFresh,
@@ -3907,11 +3728,10 @@ export function AgentChatWorkspace({
   ]);
 
   // Keep a live reference to the latest voice toggle so the conversation-request
-  // listener (registered once) always invokes the current handler. When realtime
-  // voice is enabled the conversational-mode control prefers the realtime path;
-  // otherwise it falls back to the turn-based toggle (fail-closed default).
-  const startConversationalVoice = () =>
-    agentRealtimeVoiceEnabled ? handleToggleRealtimeVoice() : handleToggleVoice();
+  // listener (registered once) always invokes the current handler. Full-duplex
+  // realtime voice lives on the One ADK live relay (AgentBar / gemini-live-client);
+  // this workspace owns only the turn-based chat voice path.
+  const startConversationalVoice = () => handleToggleVoice();
   const handleToggleVoiceRef = useRef(startConversationalVoice);
   handleToggleVoiceRef.current = startConversationalVoice;
 
@@ -3919,7 +3739,7 @@ export function AgentChatWorkspace({
   // opening the surface. Auto-start a voice turn once the workspace is ready and
   // not already in a voice session. Honors the same access gates as the in-chat
   // voice button (vault unlock, fresh token, voice feature flag).
-  const conversationVoiceEnabled = agentRealtimeVoiceEnabled || agentVoiceEnabled;
+  const conversationVoiceEnabled = agentVoiceEnabled;
   const conversationReady =
     conversationVoiceEnabled && hasChatAccess && !voiceActive && !isVoiceConnecting;
   const conversationReadyRef = useRef(conversationReady);
@@ -4245,7 +4065,7 @@ export function AgentChatWorkspace({
                   onClick={onMinimize}
                   aria-label="Back"
                   title="Back"
-                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-black/[0.04] text-[rgba(0,0,0,0.62)] transition-colors hover:bg-black/[0.07] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(156,116,52,0.35)] dark:bg-white/[0.06] dark:text-zinc-300 dark:hover:bg-white/[0.10] sm:hidden"
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-black/[0.04] text-[rgba(0,0,0,0.62)] transition-colors hover:bg-black/[0.07] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] dark:bg-white/[0.06] dark:text-zinc-300 dark:hover:bg-white/[0.10] sm:hidden"
                 >
                   <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
                 </button>
@@ -4906,24 +4726,14 @@ export function AgentChatWorkspace({
                     level={voiceLevel}
                     muted={voiceMuted}
                     disabled={!hasChatAccess || isVoiceConnecting}
-                    onToggleMute={
-                      realtimeVoiceActiveRef.current
-                        ? () => {
-                            void handleCancelRealtimeVoice();
-                          }
-                        : handleToggleVoice
-                    }
+                    onToggleMute={handleToggleVoice}
                     onCancel={() => {
-                      if (realtimeVoiceActiveRef.current) {
-                        void handleCancelRealtimeVoice();
-                        return;
-                      }
                       void handleCancelVoice();
                     }}
                   />
                 </div>
               ) : (
-                <div className="flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-black/10 bg-[#f5f5f7] px-3 py-2 shadow-lg shadow-black/[0.06] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 max-sm:focus-within:border-[#9C7434] max-sm:focus-within:ring-[rgba(156,116,52,0.20)] dark:border-white/12 dark:bg-[#0f1116] dark:shadow-black/15">
+                <div className="flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-black/10 bg-[#f5f5f7] px-3 py-2 shadow-lg shadow-black/[0.06] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 max-sm:focus-within:border-[color:var(--app-accent)] max-sm:focus-within:ring-[color:var(--app-accent-ring)] dark:border-white/12 dark:bg-[#0f1116] dark:shadow-black/15">
                   <textarea
                     ref={composerTextareaRef}
                     aria-label="Message One"
@@ -4945,14 +4755,14 @@ export function AgentChatWorkspace({
                     rows={1}
                     className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-[16px] leading-6 text-[#1d1d1f] outline-none placeholder:text-[rgba(0,0,0,0.42)] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm dark:text-zinc-100 dark:placeholder:text-zinc-500"
                   />
-                  {agentRealtimeVoiceEnabled || agentVoiceEnabled ? (
+                  {agentVoiceEnabled ? (
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
                       data-native-voice-control-id="one_voice_agent_chat_start"
                       data-testid="one-voice-agent-chat-start"
-                      className="h-9 w-9 shrink-0 rounded-xl text-[rgba(0,0,0,0.50)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:text-[#9C7434] max-sm:focus-visible:ring-[rgba(156,116,52,0.35)] dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:max-sm:text-[#D4AF6A]"
+                      className="h-9 w-9 shrink-0 rounded-xl text-[rgba(0,0,0,0.50)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:text-[color:var(--app-accent-deep)] max-sm:focus-visible:ring-[color:var(--app-accent-ring)] dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:max-sm:text-[color:var(--app-accent-deep)]"
                       disabled={!canToggleVoice}
                       onClick={() => {
                         void startConversationalVoice();
@@ -4966,7 +4776,7 @@ export function AgentChatWorkspace({
                   <Button
                     type="submit"
                     size="icon"
-                    className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:rounded-full max-sm:enabled:bg-[#9C7434] max-sm:enabled:text-white max-sm:enabled:shadow-[rgba(156,116,52,0.25)] max-sm:enabled:hover:bg-[#835f27] max-sm:focus-visible:ring-[rgba(156,116,52,0.45)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] disabled:shadow-none dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500 dark:max-sm:enabled:bg-[#D4AF6A] dark:max-sm:enabled:text-[#1d1d1f]"
+                    className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:rounded-full max-sm:enabled:bg-[color:var(--app-accent)] max-sm:enabled:text-[color:var(--app-accent-fg)] max-sm:enabled:shadow-[var(--app-accent-ring)] max-sm:enabled:hover:bg-[color:var(--app-accent-deep)] max-sm:focus-visible:ring-[color:var(--app-accent-ring)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] disabled:shadow-none dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500 dark:max-sm:enabled:bg-[color:var(--app-accent)] dark:max-sm:enabled:text-[color:var(--app-accent-fg)]"
                     disabled={!canSend}
                     aria-label="Send message"
                   >

@@ -9,12 +9,22 @@
  */
 
 import { useEffect, useRef } from "react";
+import { useTheme } from "next-themes";
 
 import { useGoogleMaps } from "@/lib/one-location/use-google-maps";
 import { googleMapsDirectionsEmbedUrl } from "@/lib/one-location/maps-urls";
 import type { LatLngLiteral } from "@/lib/one-location/marker-interpolation";
 import type { DriveDestination, RouteEta } from "@/lib/one-location/types";
 import { cn } from "@/lib/utils";
+
+/** Google Maps JS API needs concrete colors; resolve the live accent token. */
+function resolveAccentColor(): string {
+  if (typeof window === "undefined") return "#007aff";
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue("--app-accent")
+    .trim();
+  return value || "#007aff";
+}
 
 export function driveBadgeText(eta: RouteEta): {
   primary: string;
@@ -57,6 +67,9 @@ export function DriveRouteMap({
   className,
 }: DriveRouteMapProps) {
   const { status } = useGoogleMaps();
+  const { resolvedTheme } = useTheme();
+  // Follow the APP theme so the route map matches surrounding dark surfaces.
+  const colorScheme = resolvedTheme === "dark" ? "DARK" : "LIGHT";
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
   const markersRef = useRef<google.maps.Marker[]>([]);
@@ -74,8 +87,9 @@ export function DriveRouteMap({
 
     // Reuse the existing map across origin/destination changes (live location
     // moves often). Only build a new one if none exists or the previous map is
-    // bound to a stale container node (e.g. after a ready→error→ready cycle
-    // remounted the div).
+    // bound to a stale container node (e.g. after a ready→error→ready cycle or
+    // a theme flip remounted the keyed div — colorScheme applies only at
+    // construction).
     const existing = mapRef.current;
     const map =
       existing && existing.getDiv() === containerRef.current
@@ -84,6 +98,7 @@ export function DriveRouteMap({
             disableDefaultUI: true,
             clickableIcons: false,
             gestureHandling: "greedy",
+            colorScheme,
           });
     mapRef.current = map;
 
@@ -95,6 +110,7 @@ export function DriveRouteMap({
       routeRef.current = null;
     }
 
+    const accentColor = resolveAccentColor();
     const dot = (fill: string) => ({
       path: google.maps.SymbolPath.CIRCLE,
       scale: 7,
@@ -104,7 +120,7 @@ export function DriveRouteMap({
       strokeWeight: 2.5,
     });
     markersRef.current.push(
-      new google.maps.Marker({ map, position: origin, icon: dot("#007AFF") }),
+      new google.maps.Marker({ map, position: origin, icon: dot(accentColor) }),
     );
     markersRef.current.push(
       new google.maps.Marker({ map, position: dest, icon: dot("#1d1d1f") }),
@@ -120,7 +136,7 @@ export function DriveRouteMap({
       suppressMarkers: true,
       preserveViewport: true,
       polylineOptions: {
-        strokeColor: "#007AFF",
+        strokeColor: accentColor,
         strokeWeight: 4.5,
         strokeOpacity: 1,
       },
@@ -143,7 +159,7 @@ export function DriveRouteMap({
           routeRef.current = new google.maps.Polyline({
             map,
             path: [origin, dest],
-            strokeColor: "#007AFF",
+            strokeColor: accentColor,
             strokeWeight: 4.5,
             strokeOpacity: 1,
           });
@@ -161,7 +177,7 @@ export function DriveRouteMap({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, origin.lat, origin.lng, dest.lat, dest.lng]);
+  }, [status, origin.lat, origin.lng, dest.lat, dest.lng, colorScheme]);
 
   const badge = eta ? driveBadgeText(eta) : null;
 
@@ -173,7 +189,7 @@ export function DriveRouteMap({
           src={googleMapsDirectionsEmbedUrl(origin, dest)}
           loading="lazy"
           referrerPolicy="no-referrer-when-downgrade"
-          className="h-full w-full border-0"
+          className="h-full w-full border-0 dark:[filter:invert(0.9)_hue-rotate(180deg)_saturate(0.85)]"
         />
         {badge ? <RouteBadge {...badge} /> : null}
       </div>
@@ -182,7 +198,7 @@ export function DriveRouteMap({
 
   return (
     <div className={cn("relative", className)}>
-      <div ref={containerRef} className="h-full w-full" />
+      <div key={colorScheme} ref={containerRef} className="h-full w-full" />
       {badge ? <RouteBadge {...badge} /> : null}
     </div>
   );

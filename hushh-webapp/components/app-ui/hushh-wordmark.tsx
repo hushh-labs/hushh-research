@@ -1,13 +1,14 @@
 import { cn } from "@/lib/utils";
 
 /**
- * Hushh wordmark — the brand logo. "hu" in ink, "ssh" in Foundation gold
- * (the Hu_SSH protocol moat made visual). Mirrors the hushh-search-console
- * wordmark (`public/brand/hussh-wordmark-ssh-gold.svg`) but renders inline SVG
- * driven by Foundation CSS variables, so it is automatically theme-aware:
- *   - light: hu = #1d1d1f (ink),      ssh = #b8894d (deep gold)
- *   - dark:  hu = #f5f5f7 (off-white), ssh = #d4a574 (bright gold)
- * No raster, no duplicate light/dark assets.
+ * Hushh wordmark — the brand logo. "hu" in ink, "ssh" in the app accent
+ * (the Hu_SSH protocol moat made visual). Renders inline SVG driven by
+ * Foundation CSS variables so it is automatically theme-aware AND follows
+ * the accent preference (iOS Blue default, Molten Gold opt-in):
+ *   - "hu"  = var(--foundation-ink)      (ink / off-white per theme)
+ *   - "ssh" = var(--foundation-gold-deep) (aliases --app-accent-deep)
+ * No raster, no duplicate light/dark assets. Static public/brand SVG assets
+ * keep the historical gold identity.
  */
 export function HushhWordmark({ className }: { className?: string }) {
   return (

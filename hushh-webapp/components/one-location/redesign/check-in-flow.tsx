@@ -136,7 +136,7 @@ function ContactRow({
         className={cn(
           "flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors",
           checked
-            ? "bg-[#007aff] text-white"
+            ? "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
             : "border-[1.5px] border-black/25 dark:border-white/25",
         )}
       >
@@ -236,7 +236,7 @@ export function CheckInFlow({
         <button
           type="button"
           onClick={onClose}
-          className="shrink-0 pt-1 text-[15px] text-[#007aff] dark:text-[#4a9eff]"
+          className="shrink-0 pt-1 text-[15px] text-[color:var(--app-accent)] dark:text-[color:var(--app-accent)]"
         >
           Cancel
         </button>
@@ -260,7 +260,7 @@ export function CheckInFlow({
             type="button"
             onClick={vm.onShowMyLocation}
             disabled={vm.busy === "selfLocation"}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-black/[0.14] px-[13px] py-[7px] text-[13px] font-semibold text-[#007aff] disabled:opacity-60 dark:border-white/20 dark:text-[#4a9eff]"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-black/[0.14] px-[13px] py-[7px] text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-60 dark:border-white/20 dark:text-[color:var(--app-accent)]"
           >
             <RefreshCw
               className={cn(
@@ -376,7 +376,7 @@ export function CheckInFlow({
         }
         disabled={!canSubmit || busy}
         className={cn(
-          "flex w-full items-center justify-center gap-2 rounded-full bg-[#007aff] py-4 text-[17px] font-medium text-white transition-opacity",
+          "flex w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] py-4 text-[17px] font-medium text-[color:var(--app-accent-fg)] transition-opacity",
           (!canSubmit || busy) && "opacity-50",
         )}
       >

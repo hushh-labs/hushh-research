@@ -2,6 +2,7 @@
 
 import {
   type CSSProperties,
+  type FormEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -50,7 +51,7 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
 const E164_PHONE_PATTERN = /^\+[1-9]\d{7,14}$/;
 const DEFAULT_COUNTRY_VALUE = "US";
 const FLOW_CONTROL_SHELL_CLASS_NAME =
-  "h-[54px] overflow-hidden rounded-[15px] border-black/10 bg-[#f5f5f7]/92 shadow-xs transition-[border-color,box-shadow] focus-within:border-[#9C7434] focus-within:ring-4 focus-within:ring-[rgba(156,116,52,0.12)] dark:border-white/10 dark:bg-white/[0.08]";
+  "h-[54px] overflow-hidden rounded-[15px] border-black/10 bg-[#f5f5f7]/92 shadow-xs transition-[border-color,box-shadow] focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)] dark:border-white/10 dark:bg-white/[0.08]";
 const FLOW_CONTROL_CLASS_NAME =
   "type-callout h-full rounded-[inherit] border-0 bg-transparent px-4 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent";
 const FLOW_SURFACE_RADIUS_CLASS_NAME = "rounded-[18px]";
@@ -79,7 +80,14 @@ type PhoneVerificationFlowProps = {
 
 type VerificationStep = "phone" | "code" | "linked";
 type StartVerificationOutcome =
-  "code_sent" | "auto_verified" | "already_linked" | "invalid" | "failed";
+  | "code_sent"
+  | "auto_verified"
+  | "already_linked"
+  | "invalid"
+  | "failed"
+  | "busy";
+
+type ConfirmVerificationOutcome = "verified" | "invalid" | "failed" | "busy";
 
 function getCountryOptionLabel(option: {
   label: string;
@@ -204,6 +212,11 @@ export function PhoneVerificationFlow({
     mode === "link" && currentPhoneNumber ? "linked" : "phone",
   );
   const [busy, setBusy] = useState(false);
+  // State updates do not land until after the current event. These refs keep
+  // an Enter keypress and a pointer activation from starting two auth attempts
+  // in the same turn.
+  const startVerificationAttemptRef = useRef(false);
+  const confirmVerificationAttemptRef = useRef(false);
 
   useEffect(() => {
     const nextFields = derivePhoneFields(currentPhoneNumber);
@@ -403,6 +416,9 @@ export function PhoneVerificationFlow({
       resendCode = false,
       phoneNumberOverride?: string,
     ): Promise<StartVerificationOutcome> => {
+      if (busy || startVerificationAttemptRef.current) {
+        return "busy";
+      }
       const normalizedPhone = (
         phoneNumberOverride ?? normalizedPhoneInput
       ).trim();
@@ -423,6 +439,7 @@ export function PhoneVerificationFlow({
         return "already_linked";
       }
 
+      startVerificationAttemptRef.current = true;
       setBusy(true);
       try {
         const result = await startVerification(normalizedPhone, { resendCode });
@@ -468,6 +485,7 @@ export function PhoneVerificationFlow({
         );
         return "failed";
       } finally {
+        startVerificationAttemptRef.current = false;
         setBusy(false);
       }
     },
@@ -477,6 +495,7 @@ export function PhoneVerificationFlow({
       normalizedPhoneInput,
       onCompleted,
       startVerification,
+      busy,
     ],
   );
 
@@ -525,6 +544,12 @@ export function PhoneVerificationFlow({
           summary: "That phone number could not be verified.",
         };
       }
+      if (outcome === "busy") {
+        return {
+          status: "blocked",
+          summary: "The phone verification is already in progress.",
+        };
+      }
       return {
         status: "succeeded",
         summary:
@@ -535,42 +560,65 @@ export function PhoneVerificationFlow({
     },
   );
 
-  const handleConfirmVerification = useCallback(async () => {
-    const normalizedCode = verificationCode.trim();
-    if (!normalizedCode) {
-      morphyToast.error("Enter the verification code you received.");
-      return;
-    }
+  const submitVerificationCode = useCallback(
+    async (
+      code: string,
+      options: { notify: boolean },
+    ): Promise<ConfirmVerificationOutcome> => {
+      const normalizedCode = code.replace(/\D/g, "").slice(0, 6);
+      if (normalizedCode.length !== 6) {
+        if (options.notify) {
+          morphyToast.error("Enter the six-digit verification code you received.");
+        }
+        return "invalid";
+      }
+      if (busy || confirmVerificationAttemptRef.current) {
+        return "busy";
+      }
 
-    setBusy(true);
-    try {
-      const verifiedUser = await confirmVerification(normalizedCode);
-      trackEvent("phone_verification_completed", {
-        action: mode,
-        result: "success",
-      });
-      morphyToast.success(
-        mode === "replace" ? "Phone number updated." : "Phone number verified.",
-      );
-      await onCompleted(verifiedUser);
-    } catch (error) {
-      console.error(
-        "[PhoneVerificationFlow] Failed to confirm verification code:",
-        error,
-      );
-      trackEvent("phone_verification_completed", {
-        action: mode,
-        result: "error",
-      });
-      morphyToast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to verify the phone number.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }, [confirmVerification, mode, onCompleted, verificationCode]);
+      confirmVerificationAttemptRef.current = true;
+      setBusy(true);
+      try {
+        const verifiedUser = await confirmVerification(normalizedCode);
+        trackEvent("phone_verification_completed", {
+          action: mode,
+          result: "success",
+        });
+        await onCompleted(verifiedUser);
+        if (options.notify) {
+          morphyToast.success(
+            mode === "replace" ? "Phone number updated." : "Phone number verified.",
+          );
+        }
+        return "verified";
+      } catch (error) {
+        console.error(
+          "[PhoneVerificationFlow] Failed to confirm verification code:",
+          error,
+        );
+        trackEvent("phone_verification_completed", {
+          action: mode,
+          result: "error",
+        });
+        if (options.notify) {
+          morphyToast.error(
+            error instanceof Error
+              ? error.message
+              : "Failed to verify the phone number.",
+          );
+        }
+        return "failed";
+      } finally {
+        confirmVerificationAttemptRef.current = false;
+        setBusy(false);
+      }
+    },
+    [busy, confirmVerification, mode, onCompleted],
+  );
+
+  const handleConfirmVerification = useCallback(async () => {
+    await submitVerificationCode(verificationCode, { notify: true });
+  }, [submitVerificationCode, verificationCode]);
 
   useLocalOnboardingActionHandler(
     "phone_mandate.submit_code",
@@ -590,36 +638,52 @@ export function PhoneVerificationFlow({
           summary: "Please provide the six-digit verification code.",
         };
       }
-      setVerificationCode(code);
-      setBusy(true);
-      try {
-        const verifiedUser = await confirmVerification(code);
-        trackEvent("phone_verification_completed", {
-          action: mode,
-          result: "success",
-        });
-        await onCompleted(verifiedUser);
+      const outcome = await submitVerificationCode(code, { notify: false });
+      if (outcome === "verified") {
         return {
           status: "succeeded",
           summary: "Phone verified. Continuing setup.",
         };
-      } catch (error) {
-        console.error(
-          "[PhoneVerificationFlow] Voice code verification failed:",
-          error,
-        );
-        trackEvent("phone_verification_completed", {
-          action: mode,
-          result: "error",
-        });
+      }
+      if (outcome === "busy") {
         return {
-          status: "failed",
-          summary: "That code could not be verified.",
+          status: "blocked",
+          summary: "The code is already being verified.",
         };
-      } finally {
-        setBusy(false);
+      }
+      if (outcome === "invalid") {
+        return {
+          status: "blocked",
+          summary: "Please provide the six-digit verification code.",
+        };
+      }
+      return {
+        status: "failed",
+        summary: "That code could not be verified.",
+      };
+    },
+  );
+
+  const handleSubmit = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      // Enter is used to choose a country while the authored combobox is open;
+      // it must not also send an SMS.
+      if (countryComboboxOpen) return;
+      if (step === "phone") {
+        void handleStartVerification(false);
+        return;
+      }
+      if (step === "code") {
+        void handleConfirmVerification();
       }
     },
+    [
+      countryComboboxOpen,
+      handleConfirmVerification,
+      handleStartVerification,
+      step,
+    ],
   );
 
   if (step === "linked") {
@@ -652,7 +716,8 @@ export function PhoneVerificationFlow({
   }
 
   return (
-    <FieldSet className={className} style={style}>
+    <form className={className} style={style} noValidate onSubmit={handleSubmit}>
+      <FieldSet>
       {step === "phone" ? (
         <>
           <FieldGroup className="gap-5">
@@ -749,7 +814,7 @@ export function PhoneVerificationFlow({
           </FieldDescription>
           <div className="grid gap-3">
             <Button
-              onClick={() => void handleStartVerification(false)}
+              type="submit"
               loading={busy}
               variant="none"
               effect="fill"
@@ -765,6 +830,7 @@ export function PhoneVerificationFlow({
             </Button>
             {onCancel ? (
               <Button
+                type="button"
                 onClick={onCancel}
                 variant="none"
                 effect="fade"
@@ -814,14 +880,14 @@ export function PhoneVerificationFlow({
                       className={cn(
                         "flex h-[58px] flex-1 items-center justify-center rounded-2xl border-[1.5px] text-[24px] font-bold text-[#0A0A0A] transition-colors dark:text-white",
                         active
-                          ? "border-[#9C7434] bg-white shadow-[0_0_0_4px_rgba(156,116,52,0.12)] dark:bg-white/[0.06]"
+                          ? "border-[color:var(--app-accent)] bg-white shadow-[0_0_0_4px_var(--app-accent-ring)] dark:bg-white/[0.06]"
                           : "border-black/10 bg-black/[0.02] dark:border-white/15 dark:bg-white/[0.04]",
                       )}
                     >
                       {filled ? (
                         verificationCode[index]
                       ) : active ? (
-                        <span className="h-6 w-px animate-pulse bg-[#9C7434]" />
+                        <span className="h-6 w-px animate-pulse bg-[color:var(--app-accent)]" />
                       ) : null}
                     </div>
                   );
@@ -841,14 +907,16 @@ export function PhoneVerificationFlow({
                   )
                 }
                 autoFocus
+                enterKeyHint="done"
                 className="absolute inset-0 h-full w-full cursor-default rounded-2xl opacity-0 outline-none"
               />
             </div>
           </Field>
 
           <Button
-            onClick={() => void handleConfirmVerification()}
+            type="submit"
             loading={busy}
+            disabled={busy || verificationCode.length !== 6}
             variant="none"
             effect="fill"
             size="default"
@@ -867,7 +935,7 @@ export function PhoneVerificationFlow({
               type="button"
               onClick={() => void handleStartVerification(true)}
               disabled={busy}
-              className="font-bold text-[#9C7434] transition-colors hover:text-[#835f27] disabled:opacity-50 dark:text-[#D4AF6A]"
+              className="font-bold text-[color:var(--app-accent-deep)] transition-colors hover:text-[color:var(--app-accent-deep)] disabled:opacity-50 dark:text-[color:var(--app-accent-deep)]"
             >
               Resend code
             </button>
@@ -885,6 +953,7 @@ export function PhoneVerificationFlow({
           </div>
         </>
       )}
-    </FieldSet>
+      </FieldSet>
+    </form>
   );
 }

@@ -103,7 +103,7 @@ export function MarketOverviewGrid({
                       metric.tone === "warning" &&
                         "border-[#ff9500]/25 bg-[#ff9500]/14 text-[#a05a00] dark:text-[#ffd60a]",
                       metric.tone === "neutral" &&
-                        "border-[#0071e3]/18 bg-[#0071e3]/10 text-[#0071e3] dark:text-[#0a84ff]"
+                        "border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]"
                     )}
                   >
                     <Icon icon={metric.icon || FALLBACK_ICON[metric.tone]} size="sm" />

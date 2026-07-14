@@ -9,6 +9,10 @@ import { useAuth } from "@/hooks/use-auth";
 import { VaultService } from "@/lib/services/vault-service";
 import { useVault } from "@/lib/vault/vault-context";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import {
+  preferPassphraseUnlockForAutomation,
+  useNativeTestConfig,
+} from "@/lib/testing/native-test";
 
 import { VaultUnlockDialog } from "./vault-unlock-dialog";
 
@@ -41,11 +45,13 @@ export function CapabilityVaultPrerequisite({
 }: CapabilityVaultPrerequisiteProps) {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const nativeTestConfig = useNativeTestConfig();
   const userId = user?.uid ?? null;
   const { vaultOwnerToken } = useVault();
   const [state, setState] = useState<VaultPrerequisiteState>("checking");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
+  const [vaultHandoffPending, setVaultHandoffPending] = useState(false);
   const autoPresentedRef = useRef(false);
 
   useEffect(() => {
@@ -55,15 +61,25 @@ export function CapabilityVaultPrerequisite({
 
   useEffect(() => {
     if (authLoading) {
+      setVaultHandoffPending(false);
       setState("checking");
       return;
     }
     if (!userId) {
+      setVaultHandoffPending(false);
       setState("failed");
       return;
     }
     if (vaultOwnerToken) {
+      setVaultHandoffPending(false);
       setState("ready");
+      return;
+    }
+    // VaultFlow has already issued the owner token and asked the shared vault
+    // context to publish it. Keep this capability inert until that memory-only
+    // authority arrives; a second presence check would mistake the new vault
+    // for a locked vault and strand the setup route behind stale UI.
+    if (vaultHandoffPending) {
       return;
     }
 
@@ -81,7 +97,7 @@ export function CapabilityVaultPrerequisite({
     return () => {
       active = false;
     };
-  }, [authLoading, retryKey, userId, vaultOwnerToken]);
+  }, [authLoading, retryKey, userId, vaultHandoffPending, vaultOwnerToken]);
 
   useEffect(() => {
     if (
@@ -128,6 +144,9 @@ export function CapabilityVaultPrerequisite({
   }
   if (state === "checking") {
     return <RouteLoadingState label={`Preparing ${capabilityLabel}…`} />;
+  }
+  if (vaultHandoffPending) {
+    return <RouteLoadingState label={`Opening ${capabilityLabel}…`} />;
   }
 
   const failed = state === "failed";
@@ -184,9 +203,12 @@ export function CapabilityVaultPrerequisite({
           onOpenChange={setDialogOpen}
           title={`${actionLabel} for ${capabilityLabel}`}
           description={`${actionLabel} before ${capabilityLabel} starts using encrypted information.`}
+          enableGeneratedDefault={
+            !preferPassphraseUnlockForAutomation(nativeTestConfig)
+          }
           onSuccess={() => {
+            setVaultHandoffPending(true);
             setDialogOpen(false);
-            setRetryKey((value) => value + 1);
           }}
         />
       ) : null}

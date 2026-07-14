@@ -40,8 +40,8 @@ import {
 } from "@/lib/agent/agent-voice-state";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { validateMorphyAxAssessment } from "@/lib/morphy-ax";
-import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
+import { useKaiBottomChromeElementTranslation } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import {
   ROUTES,
   isFoundationPublicRoute,
@@ -190,6 +190,7 @@ function resolveAgentBarHint(pathname: string | null): string {
 }
 
 export function AgentBar() {
+  const agentBarShellRef = useRef<HTMLDivElement | null>(null);
   const pathname = usePathname();
   const router = useRouter();
   const agentPopover = useOptionalAgentPopover();
@@ -923,14 +924,18 @@ export function AgentBar() {
     isLoginRoute ||
     isFoundationPublic;
 
-  // Hide/show in lockstep with the rest of the bottom chrome (nav + search).
-  const allowScrollHide = !useOnboardingChrome;
-  const { progress: hideBottomChromeProgress } =
-    useKaiBottomChromeVisibility(allowScrollHide);
   // RIA sub-agent = Apple-style ALWAYS-PINNED ask-bar (matches the pinned nav).
   // This is route-scoped, not persona-scoped: /one must keep the build-48
   // shared ask bar even if the last active persona is RIA.
   const isRiaChrome = isRiaRoute(pathname ?? "");
+
+  // The bar is mounted above the scroll root, so it cannot rely on inherited
+  // route-shell geometry. Bind its transform directly to the shared motion
+  // state without pulling scroll frames through the voice tree.
+  useKaiBottomChromeElementTranslation(
+    agentBarShellRef,
+    !useOnboardingChrome && !isRiaChrome,
+  );
 
   const hint = useMemo(() => resolveAgentBarHint(pathname), [pathname]);
 
@@ -1220,41 +1225,20 @@ export function AgentBar() {
 
   return (
     <div
+      ref={agentBarShellRef}
+      data-agent-bar-shell
       className={cn(
         "pointer-events-none fixed inset-x-0 flex flex-col items-center gap-3 px-4 transform-gpu",
         elevatedForInteractionLayer ? "z-[540]" : "z-[118]",
       )}
       style={
         {
-          // Sit just above the visible bottom nav and ride the same scroll-hide
-          // translation as the rest of the bottom chrome.
-          //
-          // --app-bottom-inset already = measured nav height
-          // (--app-bottom-fixed-ui) + safe-area + lift, so it is the full
-          // clearance above the nav on its own. We add a single small visual gap
-          // (0.5rem) above that — do NOT re-add the safe area (it is already
-          // baked into --app-bottom-inset) and do NOT floor against the static
-          // 88px fallback. Both of those were double-counting and inflated the
-          // gap. The transient-zero case is already handled upstream: the navbar
-          // preserves its last measured --app-bottom-fixed-ui while temporarily
-          // unmounted, and this bar only renders when the nav is present, so the
-          // inset is always the real measured value here.
-          //
-          // During onboarding the bottom nav is intentionally hidden, so
-          // --app-bottom-inset is not the right clearance there (it can be stale
-          // or near-zero). In that case pin the bar directly above the safe area
-          // with the same small visual gap, and do not ride the scroll-hide
-          // translation (there is no nav to hide in lockstep with).
+          // --app-bottom-inset includes the measured nav, safe area, and lift.
+          // The motion hook above translates this fixed sibling imperatively;
+          // it does not re-render the voice tree as the page scrolls.
           bottom: useOnboardingChrome
             ? "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)"
             : "calc(var(--app-bottom-inset) + 0.5rem)",
-          transform:
-            useOnboardingChrome || isRiaChrome
-              ? undefined
-              : "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height))), 0)",
-          "--bottom-chrome-progress": isRiaChrome
-            ? "0"
-            : String(hideBottomChromeProgress),
         } as CSSProperties
       }
       aria-hidden={barHidden}

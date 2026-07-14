@@ -1044,7 +1044,7 @@ export function AuthStep({
             aria-label="Welcome to One"
             className="mt-6 font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#17130C] dark:text-[#FAF6EE]"
           >
-            Welcome to One<span style={{ color: "#D4AF6A" }}>.</span>
+            Welcome to One<span style={{ color: "var(--app-accent)" }}>.</span>
           </h1>
           <p className="mt-3 max-w-[19rem] text-[16px] leading-[1.45] text-[rgba(23,19,12,0.6)] dark:text-[rgba(250,246,238,0.62)]">
             Sign in to open your private vault. It unlocks with you, and only
@@ -1102,9 +1102,9 @@ export function AuthStep({
               <Icon
                 icon={Shield}
                 size="sm"
-                className="text-[#9C7434] dark:text-[#D4AF6A]"
+                className="text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]"
               />
-              <span className="type-footnote text-[#8a6a2f] dark:text-[#D4AF6A]">
+              <span className="type-footnote text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]">
                 Consent-first. Nothing moves without your yes.
               </span>
             </div>
@@ -1123,7 +1123,7 @@ export function AuthStep({
               type="button"
               onClick={() => void openLegalDoc("terms")}
               data-voice-control-id="auth_terms"
-              className="font-semibold text-[#9C7434] transition-opacity hover:opacity-70 dark:text-[#D4AF6A]"
+              className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
             >
               Terms
             </button>{" "}
@@ -1132,7 +1132,7 @@ export function AuthStep({
               type="button"
               onClick={() => void openLegalDoc("privacy")}
               data-voice-control-id="auth_privacy"
-              className="font-semibold text-[#9C7434] transition-opacity hover:opacity-70 dark:text-[#D4AF6A]"
+              className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
             >
               Privacy Policy
             </button>

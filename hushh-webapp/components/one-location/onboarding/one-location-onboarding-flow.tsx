@@ -148,7 +148,9 @@ function TopNavigation({
           onClick={onBack}
           className={cn(
             "inline-flex h-11 w-11 items-center justify-center transition-transform active:scale-95",
-            light ? "rounded-full bg-white/15 text-white" : "text-[#1f2b3d]",
+            light
+              ? "rounded-full bg-white/18 text-white shadow-[0_8px_20px_rgba(3,31,76,0.16)]"
+              : "text-[#1f2b3d] dark:text-[#f4f7fb]",
           )}
           aria-label="Go back"
         >
@@ -164,7 +166,7 @@ function TopNavigation({
           onClick={onSkip}
           className={cn(
             "min-h-11 rounded-full px-4 text-[16px] font-semibold transition-opacity active:opacity-70",
-            light ? "text-white" : "text-[#1f2b3d]",
+            light ? "text-white" : "text-[#1f2b3d] dark:text-[#f4f7fb]",
           )}
         >
           Skip
@@ -195,8 +197,8 @@ function PrimaryButton({
       className={cn(
         "flex h-14 w-full items-center justify-center rounded-full px-6 text-[17px] font-bold shadow-[0_10px_28px_rgba(0,122,255,0.24)] transition-transform active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-55",
         inverse
-          ? "bg-white text-[#087cf0]"
-          : "bg-[#087cf0] text-white hover:bg-[#006fdc]",
+          ? "bg-white text-[#087cf0] dark:bg-[#101722] dark:text-[color:var(--app-accent-bright)] dark:shadow-[0_12px_28px_rgba(0,0,0,0.32)]"
+          : "bg-[#087cf0] text-white hover:bg-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent)] dark:text-[#07111f] dark:hover:bg-[#94c7ff]",
       )}
     >
       {children}
@@ -212,7 +214,9 @@ function ProgressDots({ activeIndex }: { activeIndex: number }) {
           key={index}
           className={cn(
             "h-2 rounded-full transition-all",
-            index === activeIndex ? "w-7 bg-[#26334f]" : "w-2 bg-[#c9cbd0]",
+            index === activeIndex
+              ? "w-7 bg-[#26334f] dark:bg-[color:var(--app-accent-bright)]"
+              : "w-2 bg-[#c9cbd0] dark:bg-white/24",
           )}
         />
       ))}
@@ -232,18 +236,22 @@ function WelcomeRadar({ people }: { people: DirectoryPerson[] }) {
 
   return (
     <div
-      className="relative mx-auto aspect-square w-[min(72vw,32dvh,340px)]"
+      className="relative mx-auto aspect-square w-[min(72vw,32dvh,340px)] drop-shadow-[0_24px_36px_rgba(0,42,102,0.2)]"
       aria-hidden="true"
     >
+      <span className="absolute inset-[17%] rounded-full bg-white/10 blur-2xl" />
       {["inset-[6%]", "inset-[22%]", "inset-[38%]"].map((position) => (
         <span
           key={position}
-          className={cn("absolute rounded-full border border-white/28", position)}
+          className={cn(
+            "absolute rounded-full border border-white/42 shadow-[0_0_20px_rgba(255,255,255,0.08)]",
+            position,
+          )}
         />
       ))}
-      <span className="absolute inset-[48%] rounded-full bg-white/24 shadow-[0_0_38px_rgba(255,255,255,0.35)]" />
-      <span className="absolute left-1/2 top-1/2 flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-4 border-white/70 bg-white text-[#087cf0] shadow-lg">
-        <MapPin className="h-6 w-6 fill-[#087cf0]/12" />
+      <span className="absolute inset-[42%] rounded-full bg-white/28 blur-sm shadow-[0_0_42px_rgba(255,255,255,0.5)]" />
+      <span className="absolute left-1/2 top-1/2 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-[5px] border-white/85 bg-white text-[#087cf0] shadow-[0_14px_30px_rgba(0,35,93,0.3)]">
+        <MapPin className="h-8 w-8 fill-[#087cf0]/12" strokeWidth={2.25} />
       </span>
       {shown.length > 0
         ? shown.map((person, index) => (
@@ -256,7 +264,7 @@ function WelcomeRadar({ people }: { people: DirectoryPerson[] }) {
             <span
               key={position}
               className={cn(
-                "absolute flex h-14 w-14 items-center justify-center rounded-full border-[3px] border-white/80 bg-white/20 text-white",
+                "absolute flex h-14 w-14 items-center justify-center rounded-full border-[3px] border-white/90 bg-white/22 text-white shadow-[0_10px_22px_rgba(0,38,95,0.22)] backdrop-blur-sm",
                 position,
               )}
             >
@@ -454,14 +462,14 @@ function FeatureScreen({
   }[screen];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-[#fbf8f3]">
+    <div className="flex min-h-0 flex-1 flex-col bg-[#fbf8f3] dark:bg-[#14171d]">
       <TopNavigation onBack={onBack} onSkip={onSkip} />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pb-3">
-        <h1 className="mx-auto mb-3 max-w-[360px] text-center text-[31px] font-bold leading-[1.12] text-[#1e2a3d]">
+        <h1 className="mx-auto mb-3 max-w-[360px] text-center text-[31px] font-bold leading-[1.12] text-[#1e2a3d] dark:text-[#f5f7fb]">
           {content.title}
         </h1>
         <div className="my-auto">{content.visual}</div>
-        <p className="mx-auto mt-3 max-w-[375px] text-center text-[17px] font-semibold leading-[1.45] text-[#263447]">
+        <p className="mx-auto mt-3 max-w-[375px] text-center text-[17px] font-semibold leading-[1.45] text-[#263447] dark:text-[#c7cfdb]">
           {content.body}
         </p>
       </div>
@@ -481,7 +489,7 @@ function SelectionMark({ selected }: { selected: boolean }) {
       className={cn(
         "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
         selected
-          ? "border-[#0a84ff] bg-[#0a84ff] text-white"
+          ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
           : "border-[#c9cdd3] bg-white text-transparent",
       )}
       aria-hidden="true"
@@ -550,18 +558,18 @@ function PeopleScreen({
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-white">
+    <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]">
       <TopNavigation onBack={onBack} onSkip={onSkip} />
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
-        <h1 className="mt-3 text-[38px] font-bold leading-[1.05] text-[#151b26]">Add people</h1>
-        <p className="mt-3 text-[17px] leading-6 text-[#73777f]">
+        <h1 className="mt-3 text-[38px] font-bold leading-[1.05] text-[#151b26] dark:text-[#f5f7fb]">Add people</h1>
+        <p className="mt-3 text-[17px] leading-6 text-[#73777f] dark:text-[#b5bfcc]">
           Invite the people you want to keep connected with.
         </p>
-        <h2 className="mt-9 text-[13px] font-bold uppercase text-[#96999e]">
+        <h2 className="mt-9 text-[13px] font-bold uppercase text-[#96999e] dark:text-[#8d99a8]">
           Recommended contacts
         </h2>
 
-        <div className="mt-3 overflow-hidden rounded-[24px] bg-[#f8f9fb] px-4 shadow-[0_10px_30px_rgba(29,45,68,0.08)]">
+        <div className="mt-3 overflow-hidden rounded-[24px] bg-[#f8f9fb] px-4 shadow-[0_10px_30px_rgba(29,45,68,0.08)] dark:bg-[#1c212a] dark:shadow-[0_10px_30px_rgba(0,0,0,0.22)]">
           {loading ? (
             <div className="flex min-h-44 items-center justify-center gap-2 text-sm text-[#777d86]">
               <Loader2 className="h-5 w-5 animate-spin" /> Finding your people
@@ -592,17 +600,17 @@ function PeopleScreen({
                   disabled={pending}
                   className={cn(
                     "flex min-h-[88px] w-full items-center gap-3 py-3 text-left",
-                    index > 0 && "border-t border-[#e4e6e9]",
+                    index > 0 && "border-t border-[#e4e6e9] dark:border-white/[0.08]",
                   )}
                   aria-pressed={selected}
                   aria-label={`${selected ? "Remove" : "Add"} ${safeName(person.displayName)}${pending ? ", request pending" : ""}`}
                 >
                   <Avatar name={safeName(person.displayName)} photoUrl={person.photoUrl} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[17px] font-bold text-[#171d28]">
+                    <span className="block truncate text-[17px] font-bold text-[#171d28] dark:text-[#f3f6fb]">
                       {safeName(person.displayName)}
                     </span>
-                    <span className="block truncate text-[14px] text-[#999ca2]">
+                    <span className="block truncate text-[14px] text-[#999ca2] dark:text-[#9ca8b7]">
                       {pending
                         ? "Connection request pending"
                         : person.relationship === "connected"
@@ -622,7 +630,7 @@ function PeopleScreen({
             })
           )}
         </div>
-        <p className="mx-auto mt-4 max-w-[350px] text-center text-[12px] leading-5 text-[#96999e]">
+        <p className="mx-auto mt-4 max-w-[350px] text-center text-[12px] leading-5 text-[#96999e] dark:text-[#8d99a8]">
           New people receive a Connect request. Location is never shared until you approve it.
         </p>
       </div>
@@ -673,11 +681,11 @@ function CircleScreen({
   ];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-white">
+    <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]">
       <TopNavigation onBack={onBack} />
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
-        <h1 className="mt-3 text-[37px] font-bold leading-[1.08] text-[#151b26]">{title}</h1>
-        <p className="mt-3 text-[17px] text-[#777b82]">{subtitle}</p>
+        <h1 className="mt-3 text-[37px] font-bold leading-[1.08] text-[#151b26] dark:text-[#f5f7fb]">{title}</h1>
+        <p className="mt-3 text-[17px] text-[#777b82] dark:text-[#b5bfcc]">{subtitle}</p>
 
         <div className="relative mx-auto mt-8 aspect-square w-full max-w-[390px]" aria-label="Your private circle">
           <span className="absolute inset-[12%] rounded-full border-2 border-dashed border-[#b9dcfb]" />
@@ -688,7 +696,7 @@ function CircleScreen({
           {shown.map((member, index) => (
             <span key={member.userId} className={cn("absolute flex flex-col items-center", positions[index])}>
               <Avatar name={member.displayName} photoUrl={member.photoUrl} />
-              <span className="mt-1 max-w-20 truncate text-[12px] font-bold text-[#202736]">
+              <span className="mt-1 max-w-20 truncate text-[12px] font-bold text-[#202736] dark:text-[#e9eef7]">
                 {member.displayName.split(" ")[0]}
               </span>
               {member.status === "pending" ? (
@@ -705,13 +713,13 @@ function CircleScreen({
           ) : null}
         </div>
 
-        <div className="mt-5 flex gap-4 rounded-[22px] bg-[#f5f8fb] px-5 py-5 shadow-[0_8px_24px_rgba(35,55,78,0.08)]">
+        <div className="mt-5 flex gap-4 rounded-[22px] bg-[#f5f8fb] px-5 py-5 shadow-[0_8px_24px_rgba(35,55,78,0.08)] dark:bg-[#1c212a] dark:shadow-[0_8px_24px_rgba(0,0,0,0.2)]">
           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#dff0ff] text-[#087cf0]">
             <ShieldCheck className="h-6 w-6" />
           </span>
           <div>
-            <h2 className="text-[16px] font-bold text-[#202736]">Your circle is private</h2>
-            <p className="mt-1 text-[14px] leading-5 text-[#747981]">
+            <h2 className="text-[16px] font-bold text-[#202736] dark:text-[#edf2fa]">Your circle is private</h2>
+            <p className="mt-1 text-[14px] leading-5 text-[#747981] dark:text-[#aeb9c7]">
               Only people you approve can see your location. Add or remove people anytime in Connect.
             </p>
           </div>
@@ -852,10 +860,10 @@ function PermissionsScreen({
     : "Requests, check-ins, and SOS alerts from your people.";
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-white">
+    <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]">
       <TopNavigation onBack={canGoBack ? onBack : undefined} onSkip={onComplete} />
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
-        <h1 className="mt-3 max-w-[390px] text-[38px] font-bold leading-[1.06] text-[#151b26]">
+        <h1 className="mt-3 max-w-[390px] text-[38px] font-bold leading-[1.06] text-[#151b26] dark:text-[#f5f7fb]">
           A few permissions.<br />Nothing more.
         </h1>
         <div className="mt-6">
@@ -879,7 +887,7 @@ function PermissionsScreen({
       </div>
 
       <footer className="shrink-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-2">
-        <p className="mb-4 flex items-center justify-center gap-2 text-center text-[12px] leading-4 text-[#8b8f96]">
+        <p className="mb-4 flex items-center justify-center gap-2 text-center text-[12px] leading-4 text-[#8b8f96] dark:text-[#98a5b5]">
           <LockKeyhole className="h-4 w-4 shrink-0" />
           Your location is never sold. Sharing always requires your approval.
         </p>
@@ -1001,15 +1009,15 @@ export function OneLocationOnboardingFlow({
 
   return (
     <main
-      className="fixed inset-0 z-[540] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[#eef3f8] text-[#171d28]"
+      className="fixed inset-0 z-[540] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[#eef3f8] text-[#171d28] dark:bg-[#0c1017] dark:text-[#f4f7fb]"
       data-no-route-swipe
       data-testid="one-location-onboarding"
     >
       <NativeTestBeacon {...nativeTest} />
-      <section className="flex h-full min-h-0 w-full max-w-[480px] flex-col overflow-hidden bg-white shadow-[0_0_40px_rgba(24,57,91,0.08)]">
+      <section className="flex h-full min-h-0 w-full max-w-[480px] flex-col overflow-hidden bg-white shadow-[0_0_40px_rgba(24,57,91,0.08)] dark:bg-[#14171d] dark:shadow-[0_0_44px_rgba(0,0,0,0.48)]">
         <div className="h-[env(safe-area-inset-top,0px)] shrink-0" />
         {screen === "welcome" ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-[#087cf0] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] text-white">
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-[#087cf0] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] text-white dark:bg-[#0b4c8e]">
             <div className="flex min-h-full flex-1 flex-col">
               <div className="pt-6 text-center sm:pt-12">
                 <p className="inline-flex items-center gap-2 text-[19px] font-bold">
