@@ -12,6 +12,12 @@ describe("home shell contract", () => {
     expect(getKaiChromeState(ROUTES.ONE_HOME).hideCommandBar).toBe(false);
   });
 
+  it("keeps Connect inside the standard signed-in shell", () => {
+    expect(resolveAppRouteLayout(ROUTES.CONNECT).mode).toBe("standard");
+    expect(resolveTopShellMetrics(ROUTES.CONNECT).shellVisible).toBe(true);
+    expect(getKaiChromeState(ROUTES.CONNECT).hideCommandBar).toBe(false);
+  });
+
   it("keeps auth-only routes out of the shared command surface", () => {
     expect(getKaiChromeState(ROUTES.LOGIN).hideCommandBar).toBe(true);
     expect(resolveTopShellMetrics(ROUTES.LOGIN).shellVisible).toBe(false);

@@ -5,6 +5,7 @@ import {
   onScroll,
   resetKaiBottomChromeVisibility,
   syncKaiBottomChromeVisibilityToScroll,
+  useKaiBottomChromeElementTranslation,
   useKaiBottomChromeVisibility,
 } from "@/lib/navigation/kai-bottom-chrome-visibility";
 
@@ -16,6 +17,18 @@ function flushAnimation(frames = 60, frameMs = 16) {
       vi.advanceTimersByTime(frameMs);
     });
   }
+}
+
+function mountScrollRoot(initialScrollTop = 0): HTMLDivElement {
+  const root = document.createElement("div");
+  root.dataset.appScrollRoot = "true";
+  Object.defineProperty(root, "scrollTop", {
+    configurable: true,
+    writable: true,
+    value: initialScrollTop,
+  });
+  document.body.append(root);
+  return root;
 }
 
 describe("kai bottom chrome visibility singleton", () => {
@@ -37,6 +50,9 @@ describe("kai bottom chrome visibility singleton", () => {
 
   afterEach(() => {
     resetKaiBottomChromeVisibility();
+    document.querySelectorAll('[data-app-scroll-root="true"]').forEach((root) => {
+      root.remove();
+    });
     vi.useRealTimers();
   });
 
@@ -53,6 +69,22 @@ describe("kai bottom chrome visibility singleton", () => {
     act(() => onScroll(40));
     flushAnimation();
     expect(result.current.progress).toBeLessThan(0.1);
+  });
+
+  it("settles a fixed sibling into the bottom-nav slot through shared CSS motion", () => {
+    const probe = document.createElement("div");
+    document.body.append(probe);
+    const elementRef = { current: probe };
+    const { unmount } = renderHook(() =>
+      useKaiBottomChromeElementTranslation(elementRef, true),
+    );
+
+    expect(probe.style.transform).toBe(
+      "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height))), 0)",
+    );
+
+    unmount();
+    probe.remove();
   });
 
   it("returns to mean position when a transient consumer remounts at the top after the singleton was left stuck hidden", () => {
@@ -112,5 +144,38 @@ describe("kai bottom chrome visibility singleton", () => {
     expect(longLived.result.current.progress).toBeGreaterThan(0.9);
 
     longLived.unmount();
+  });
+
+  it("rebinds when route settlement replaces the app scroll root", async () => {
+    const firstRoot = mountScrollRoot();
+    const { result, unmount } = renderHook(() =>
+      useKaiBottomChromeVisibility(true),
+    );
+
+    act(() => {
+      firstRoot.scrollTop = 0;
+      firstRoot.dispatchEvent(new Event("scroll"));
+      firstRoot.scrollTop = 160;
+      firstRoot.dispatchEvent(new Event("scroll"));
+    });
+    flushAnimation();
+    expect(result.current.progress).toBeGreaterThan(0.9);
+
+    firstRoot.remove();
+    const secondRoot = mountScrollRoot();
+    await act(async () => {
+      await Promise.resolve();
+      vi.advanceTimersByTime(16);
+    });
+    expect(result.current.progress).toBeLessThan(0.1);
+
+    act(() => {
+      secondRoot.scrollTop = 120;
+      secondRoot.dispatchEvent(new Event("scroll"));
+    });
+    flushAnimation();
+    expect(result.current.progress).toBeGreaterThan(0.9);
+
+    unmount();
   });
 });

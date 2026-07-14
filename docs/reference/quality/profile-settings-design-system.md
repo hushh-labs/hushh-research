@@ -96,7 +96,7 @@ Rules:
 
 ### Typography
 
-1. Titles are compact and medium weight.
+1. Row titles follow the calm iPhone Settings optical baseline for this web shell: 15px SF Text at regular weight. The shared CSS exception must keep them out of generic title-slot sizing; reserve semibold for explicit hierarchy rather than ordinary rows.
 2. Supporting text is smaller and tighter than titles.
 3. Avoid oversized subtitles.
 4. Supporting text should explain action or state in one short sentence.

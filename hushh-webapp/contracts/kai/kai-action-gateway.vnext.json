@@ -5459,7 +5459,7 @@
         "gmail",
         "connector"
       ],
-      "meaning": "Starts the Gmail connector from the current setup workspace.",
+      "meaning": "Presents the exact Connect Gmail action so a confirming tap can open the secure Gmail popup while the private-agent session remains active.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -5482,7 +5482,7 @@
       ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
-      "activation_policy": "none",
+      "activation_policy": "trusted_activation_required",
       "execution_target": {
         "status": "wired",
         "path": "local_handler",

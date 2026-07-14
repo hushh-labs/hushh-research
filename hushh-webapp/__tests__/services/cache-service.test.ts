@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CacheService } from "@/lib/services/cache-service";
+import {
+  CACHE_KEYS,
+  CACHE_TTL,
+  CacheService,
+} from "@/lib/services/cache-service";
 
 describe("CacheService", () => {
   beforeEach(() => {
@@ -88,5 +92,16 @@ describe("CacheService", () => {
     const secondSnapshot = cache.peek<{ stable: boolean }>("portfolio-feed");
 
     expect(secondSnapshot).toStrictEqual(firstSnapshot);
+  });
+
+  it("clears a user's Location presentation snapshot with the rest of their session", () => {
+    const cache = CacheService.getInstance();
+    const userId = "location-cache-owner";
+    const key = CACHE_KEYS.ONE_LOCATION_STATE(userId);
+
+    cache.set(key, { recipients: [] }, CACHE_TTL.SHORT);
+    cache.invalidateUser(userId);
+
+    expect(cache.peek(key)).toBeNull();
   });
 });

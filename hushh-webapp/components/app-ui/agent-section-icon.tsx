@@ -46,14 +46,14 @@ type AgentSectionIconSize = keyof typeof ICON_SIZE_CLASS;
 const CAPABILITY_ICON_STYLE_BY_TONE: Partial<
   Record<OneCapabilityTone, CSSProperties>
 > = {
-  finance: { backgroundColor: "#B85CF6", color: "#ffffff" }, // Lavender Mist
-  ria: { backgroundColor: "#60A5FA", color: "#ffffff" }, // Sky Blue
+  finance: { backgroundColor: "#B85CF6" }, // Lavender Mist
+  ria: { backgroundColor: "#60A5FA" }, // Sky Blue
   gmail: { backgroundColor: "#ffffff" }, // Cloud White (multicolor logo)
-  email: { backgroundColor: "#14B8A6", color: "#ffffff" }, // Mint Teal
-  location: { backgroundColor: "#A7D7A1", color: "#ffffff" }, // Sage Green
-  pkm: { backgroundColor: "#B85CF6", color: "#ffffff" }, // Lavender Mist (Memory + Information)
-  consent: { backgroundColor: "#C8923A", color: "#ffffff" }, // Warm Gold
-  connected: { backgroundColor: "#94A3B8", color: "#ffffff" }, // Slate Blue-Gray
+  email: { backgroundColor: "#14B8A6" }, // Mint Teal
+  location: { backgroundColor: "#A7D7A1" }, // Sage Green
+  pkm: { backgroundColor: "#B85CF6" }, // Lavender Mist (Memory + Information)
+  consent: { backgroundColor: "#C8923A" }, // Warm Gold
+  connected: { backgroundColor: "#94A3B8" }, // Slate Blue-Gray
 };
 
 function GmailBrandIcon({ className }: { className?: string }) {
@@ -121,7 +121,18 @@ export function AgentSectionIcon({
       {id === "gmail" ? (
         <GmailBrandIcon className={classes.gmail} />
       ) : (
-        <Icon className={classes.lucide} aria-hidden />
+        <Icon
+          // cmdk applies a muted foreground to bare SVGs. Give this icon an
+          // explicit, important theme-aware foreground so a command/menu
+          // ancestor cannot override the requested contrast. Branded chips
+          // use dark glyphs in light mode and light glyphs in dark mode; the
+          // same primitive drives the dashboard grid and the top switcher.
+          className={cn(
+            classes.lucide,
+            tone ? "!text-[#1d1d1f] dark:!text-white" : "text-current",
+          )}
+          aria-hidden
+        />
       )}
     </span>
   );

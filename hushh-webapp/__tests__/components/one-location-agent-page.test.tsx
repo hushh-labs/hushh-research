@@ -488,10 +488,15 @@ async function openTemporaryLinkFlow() {
 }
 
 describe("OneLocationAgentPage", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     Element.prototype.scrollIntoView = vi.fn();
     window.localStorage.clear();
+    // The workspace now seeds from the memory-only OneLocationStateResource
+    // (CacheService singleton); clear it so a prior test's server-state
+    // snapshot cannot leak into the next test's initial render.
+    const { CacheService } = await import("@/lib/services/cache-service");
+    CacheService.getInstance().clear();
     mockSearchParamsGet.mockReturnValue(null);
     mockUseRequireAuth.mockReturnValue({
       loading: false,

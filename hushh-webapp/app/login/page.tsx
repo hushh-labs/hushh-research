@@ -5,7 +5,6 @@ import { useSearchParams } from "next/navigation";
 
 import { AuthStep } from "@/components/onboarding/AuthStep";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
-import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
 import { ROUTES } from "@/lib/navigation/routes";
 
 function LoginContent() {
@@ -28,11 +27,7 @@ export default function LoginPage() {
         authState="anonymous"
         dataState="loaded"
       />
-      <Suspense
-        fallback={
-          <RouteLoadingState surface="onboarding" label="Preparing sign in…" />
-        }
-      >
+      <Suspense fallback={null}>
         <LoginContent />
       </Suspense>
     </>

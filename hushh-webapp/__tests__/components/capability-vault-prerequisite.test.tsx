@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CapabilityVaultPrerequisite } from "@/components/vault/capability-vault-prerequisite";
@@ -29,8 +29,28 @@ vi.mock("@/lib/services/vault-service", () => ({
 }));
 
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({
-  VaultUnlockDialog: ({ open, title }: { open: boolean; title: string }) =>
-    open ? <div role="dialog" aria-label={title} /> : null,
+  VaultUnlockDialog: ({
+    open,
+    title,
+    enableGeneratedDefault,
+    onSuccess,
+  }: {
+    open: boolean;
+    title: string;
+    enableGeneratedDefault?: boolean;
+    onSuccess: () => void;
+  }) =>
+    open ? (
+      <div
+        role="dialog"
+        aria-label={title}
+        data-generated-default={String(enableGeneratedDefault)}
+      >
+        <button type="button" onClick={onSuccess}>
+          Complete vault setup
+        </button>
+      </div>
+    ) : null,
 }));
 
 describe("CapabilityVaultPrerequisite", () => {
@@ -85,12 +105,43 @@ describe("CapabilityVaultPrerequisite", () => {
 
     await waitFor(() => expect(vaultMocks.checkVault).toHaveBeenCalledWith("user_1"));
     expect(await screen.findByRole("dialog", { name: /set up your private vault for location/i })).toBeTruthy();
+    expect(
+      screen.getByRole("dialog", {
+        name: /set up your private vault for location/i,
+      }).getAttribute("data-generated-default"),
+    ).toBe("true");
     expect(screen.queryByText("Location workspace")).toBeNull();
     expect(getVoiceSurfaceMetadata()?.interactionLayer).toMatchObject({
       kind: "vault_setup",
       modality: "blocking",
       agentContinuity: "suppressed",
     });
+  });
+
+  it("waits for the in-memory vault authority after creation instead of rechecking a new vault", async () => {
+    const { rerender } = render(
+      <CapabilityVaultPrerequisite capabilityLabel="Location" routeKey="/one/setup/location">
+        <div>Location workspace</div>
+      </CapabilityVaultPrerequisite>,
+    );
+
+    await screen.findByRole("dialog", {
+      name: /set up your private vault for location/i,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Complete vault setup" }));
+
+    expect(await screen.findByText("Opening Location…")).toBeTruthy();
+    expect(vaultMocks.checkVault).toHaveBeenCalledTimes(1);
+
+    vaultMocks.vaultOwnerToken = "owner-token";
+    rerender(
+      <CapabilityVaultPrerequisite capabilityLabel="Location" routeKey="/one/setup/location">
+        <div>Location workspace</div>
+      </CapabilityVaultPrerequisite>,
+    );
+
+    expect(await screen.findByText("Location workspace")).toBeTruthy();
+    expect(vaultMocks.checkVault).toHaveBeenCalledTimes(1);
   });
 
   it("uses opening language when an existing vault needs to be unlocked", async () => {

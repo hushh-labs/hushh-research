@@ -643,8 +643,17 @@
   },
   {
     "route": "/connect",
-    "mode": "hidden",
-    "exemptionReason": "Standalone people-connection route intentionally bypasses the signed-in app shell while still exposing its own native test beacon.",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/connect/page-client.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
     "voicePlaybook": {
       "playbookId": "route.connect",
       "purpose": "Help the person understand and use the connect screen through its generated controls.",

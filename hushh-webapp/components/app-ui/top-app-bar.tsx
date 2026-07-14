@@ -635,6 +635,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
 
   return (
     <div
+      data-app-top-bar
       className={cn(
         "fixed inset-x-0 top-0 pointer-events-none",
         // While the vault unlock gate is showing, ride ABOVE the dialog overlay

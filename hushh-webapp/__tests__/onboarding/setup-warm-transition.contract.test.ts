@@ -40,6 +40,10 @@ describe("setup warm-transition contract", () => {
     expect(tile).toContain("onPointerEnter={prefetchRoute}");
     expect(tile).toContain("onTouchStart={prefetchRoute}");
     expect(coordinator).toContain('surface="onboarding"');
-    expect(loading).toContain('surface="onboarding"');
+    // The segment-level loader is deliberately inert: setup workspaces share a
+    // cached journey record, so route adapters own the cold-state wait and a
+    // segment skeleton would flash on every capability switch.
+    expect(loading).toContain("return null");
+    expect(loading).not.toContain("RouteLoadingState");
   });
 });

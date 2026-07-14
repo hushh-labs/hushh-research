@@ -64,7 +64,6 @@ import { NativeTestRouter } from "@/components/app-ui/native-test-router";
 import { RiaSurfaceScopeSync } from "@/components/ria/ria-surface-scope-sync";
 import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
 import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-status";
-import { VaultMethodPrompt } from "@/components/vault/vault-method-prompt";
 import {
   INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
   type InternalAppNavigationRequest,
@@ -184,8 +183,6 @@ function AppShellFrame({ children }: ProvidersProps) {
   );
   const showSharedBottomChromeGlass =
     topShellMetrics.shellVisible && !isFullscreenTopFlow;
-  const showVaultMethodPrompt =
-    isAuthenticated && topShellMetrics.shellVisible && !isFullscreenTopFlow;
   // Drive the bottom-chrome hide animation through a CSS variable instead of a
   // render-coupled value. Reading the continuous scroll progress in this root
   // shell re-rendered the entire provider subtree on every scroll frame, which
@@ -197,7 +194,13 @@ function AppShellFrame({ children }: ProvidersProps) {
   // disabled branch writes --bottom-chrome-progress:0). Path-based gate — this
   // shell renders above PersonaProvider, so persona isn't available here.
   const riaPinnedChrome = isRiaRoute(pathname);
-  useKaiBottomChromeProgressCssVar(showSharedBottomChromeGlass && !riaPinnedChrome);
+  // Motion authority follows the bottom navigation, not the optional
+  // decorative bottom glass. Hidden-shell and flow routes can retain the nav
+  // while omitting that glass, and the persistent Agent Bar must still travel
+  // with it. This matches Navbar's non-onboarding scroll-hide policy.
+  useKaiBottomChromeProgressCssVar(
+    !chromeState.useOnboardingChrome && !riaPinnedChrome,
+  );
   const pageRef = useRef<HTMLDivElement | null>(null);
   const isKaiRoute = useMemo(
     () =>
@@ -297,6 +300,15 @@ function AppShellFrame({ children }: ProvidersProps) {
       "--app-fullscreen-flow-content-offset",
       "--app-top-shell-visible",
       "--app-top-offset-mode",
+      // AgentBar is an app-level fixed sibling of the route shell, not its
+      // descendant. Mirror the complete bottom-chrome geometry to :root so it
+      // resolves the same hide distance as the navbar and bottom glass instead
+      // of falling through an unresolved sibling-only custom property.
+      "--bottom-chrome-stack-height",
+      "--bottom-chrome-full-height",
+      "--bottom-chrome-search-height",
+      "--bottom-chrome-visual-height",
+      "--bottom-chrome-hide-distance",
     ];
     const previousValues = new Map<string, string>();
 
@@ -354,6 +366,10 @@ function AppShellFrame({ children }: ProvidersProps) {
                 route switch. Both are fixed overlays, so position is unaffected. */}
               <AgentVoiceEdgeGlow />
               <AgentBar />
+              {/* This bridge owns one post-unlock reconciliation for the whole
+                app. Keeping it outside the route Suspense boundary prevents
+                fallback/resolved remounts from launching the same sync twice. */}
+              <PostAuthOnboardingSyncBridge />
               <Suspense
                 fallback={
                   <>
@@ -395,7 +411,6 @@ function AppShellFrame({ children }: ProvidersProps) {
                           ) : null
                         }
                       </VaultContext.Consumer>
-                      <PostAuthOnboardingSyncBridge />
                       <Suspense fallback={null}>
                         <KaiCommandBarGlobal />
                       </Suspense>
@@ -475,12 +490,8 @@ function AppShellFrame({ children }: ProvidersProps) {
                           ) : null
                         }
                       </VaultContext.Consumer>
-                      <PostAuthOnboardingSyncBridge />
                       <Suspense fallback={null}>
                         <KaiCommandBarGlobal />
-                      </Suspense>
-                      <Suspense fallback={null}>
-                        <VaultMethodPrompt enabled={showVaultMethodPrompt} />
                       </Suspense>
                       {/* Main scroll container: extends under fixed bar so content can scroll behind it; padding clears bar height */}
                       <div

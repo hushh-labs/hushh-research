@@ -90,6 +90,21 @@ function containsInteractiveNode(node: ReactNode): boolean {
 
 export const SettingsSegmentedTabs = SegmentedTabs;
 
+const SETTINGS_ICON_TONE_CLASSNAME = {
+  accent: "bg-accent/12 text-accent-strong dark:bg-accent/20",
+  blue: "bg-sky-500/12 text-sky-700 dark:bg-sky-400/20 dark:text-sky-200",
+  purple:
+    "bg-violet-500/12 text-violet-700 dark:bg-violet-400/20 dark:text-violet-200",
+  green:
+    "bg-emerald-500/12 text-emerald-700 dark:bg-emerald-400/20 dark:text-emerald-200",
+  orange:
+    "bg-orange-500/12 text-orange-700 dark:bg-orange-400/20 dark:text-orange-200",
+  red: "bg-destructive/10 text-destructive dark:bg-destructive/20",
+  gray: "bg-muted/65 text-muted-foreground",
+} as const;
+
+type SettingsIconTone = keyof typeof SETTINGS_ICON_TONE_CLASSNAME;
+
 export function SettingsGroup({
   eyebrow,
   title,
@@ -184,6 +199,7 @@ export function SettingsRow({
   chevron = false,
   disabled = false,
   tone = "default",
+  iconTone = "gray",
   density = "comfortable",
   stackTrailingOnMobile = false,
   className,
@@ -204,6 +220,8 @@ export function SettingsRow({
   chevron?: boolean;
   disabled?: boolean;
   tone?: "default" | "destructive";
+  /** Semantic leading-icon treatment; independent from destructive action tone. */
+  iconTone?: SettingsIconTone;
   /** Compact, single-line settings rows for dense grouped menus. */
   density?: "compact" | "comfortable";
   stackTrailingOnMobile?: boolean;
@@ -239,6 +257,8 @@ export function SettingsRow({
     disabled && "cursor-not-allowed opacity-60",
     className,
   );
+  const resolvedIconTone: SettingsIconTone =
+    tone === "destructive" ? "red" : iconTone;
   const mainContent = (
     <div
       className={cn(
@@ -251,10 +271,11 @@ export function SettingsRow({
       ) : icon ? (
         <span
           data-slot="settings-row-icon"
+          data-icon-tone={resolvedIconTone}
           className={cn(
-            "inline-flex h-8 w-8 shrink-0 items-center justify-center self-center rounded-2xl bg-muted/65 text-muted-foreground",
+            "inline-flex h-8 w-8 shrink-0 items-center justify-center self-center rounded-2xl",
             density !== "compact" && "sm:h-10 sm:w-10",
-            tone === "destructive" && "bg-destructive/10 text-destructive",
+            SETTINGS_ICON_TONE_CLASSNAME[resolvedIconTone],
           )}
         >
           <Icon icon={icon} size="md" />
@@ -264,7 +285,7 @@ export function SettingsRow({
         <div
           data-slot="settings-row-title"
           className={cn(
-            "text-[14px] font-medium tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[15px]",
+            "text-[15px] font-normal leading-tight tracking-normal text-foreground [overflow-wrap:anywhere]",
             tone === "destructive" && "text-destructive",
           )}
         >

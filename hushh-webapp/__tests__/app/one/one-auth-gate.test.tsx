@@ -8,6 +8,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   usePathname: () => mocks.pathname,
+  useRouter: () => ({ replace: vi.fn() }),
+}));
+
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({ user: { uid: "user_1" }, loading: false }),
 }));
 
 vi.mock("@/components/vault/vault-lock-guard", () => ({
@@ -52,7 +57,7 @@ describe("OneAuthGate", () => {
     expect(screen.queryByTestId("phone-mandate-guard")).toBeNull();
   });
 
-  it("keeps private One routes behind the vault + phone login guards", () => {
+  it("lets Location own its contextual vault setup while retaining sign-in and phone admission", () => {
     mocks.pathname = "/one/location";
 
     render(
@@ -61,7 +66,7 @@ describe("OneAuthGate", () => {
       </OneAuthGate>,
     );
 
-    expect(screen.getByTestId("vault-lock-guard")).toBeTruthy();
+    expect(screen.queryByTestId("vault-lock-guard")).toBeNull();
     expect(screen.getByTestId("phone-mandate-guard")).toBeTruthy();
     expect(screen.getByText("private one surface")).toBeTruthy();
   });

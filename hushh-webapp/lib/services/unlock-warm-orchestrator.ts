@@ -11,7 +11,6 @@ import {
   ConsentCenterService,
   CONSENT_CENTER_PAGE_SIZE,
 } from "@/lib/services/consent-center-service";
-import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
 import { bootstrapCurrentUserMarketplaceRecipientKey } from "@/lib/one-marketplace/key-bootstrap";
@@ -150,21 +149,6 @@ export class UnlockWarmOrchestrator {
     string,
     { completedAt: number; result: UnlockWarmResult }
   >();
-
-  private static queuePkmUpgrade(params: {
-    userId: string;
-    vaultKey: string;
-    vaultOwnerToken: string;
-  }): void {
-    void PkmUpgradeOrchestrator.ensureRunning({
-      userId: params.userId,
-      vaultKey: params.vaultKey,
-      vaultOwnerToken: params.vaultOwnerToken,
-      initiatedBy: "unlock_warm",
-    }).catch((error) => {
-      console.warn("[UnlockWarmOrchestrator] PKM upgrade orchestration failed:", error);
-    });
-  }
 
   private static locationKeyBootstrappedByUser = new Set<string>();
 
@@ -630,7 +614,10 @@ export class UnlockWarmOrchestrator {
       );
     }
 
-    this.queuePkmUpgrade(params);
+    // VaultProvider owns the one idle PKM upgrade kickoff for a newly opened
+    // vault. Warm orchestration can be invoked again by route/cache refreshes,
+    // so it must not independently start the same long-running upgrade or
+    // repeat its completion notice.
     // Provision the One Location recipient key for every user on every unlock,
     // regardless of which route they unlocked on, so receiving/requesting
     // location never requires visiting the One Location page first.

@@ -1,4 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { LogOut, Phone } from "lucide-react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -88,6 +91,65 @@ describe("SettingsRow", () => {
     const rowShell = container.querySelector('[data-testid="settings-row"]');
     expect(rowShell?.className).toContain("[--settings-row-py:0.5rem]");
     expect(screen.queryByTestId("settings-row-description")).toBeNull();
+  });
+
+  it("uses the calm iPhone settings list label by default", () => {
+    const { container } = render(
+      <SettingsRow title="Security & privacy" density="compact" />,
+    );
+
+    const title = container.querySelector('[data-slot="settings-row-title"]');
+    expect(title?.className).toContain("text-[15px]");
+    expect(title?.className).toContain("font-normal");
+    expect(title?.className).not.toContain("font-semibold");
+  });
+
+  it("protects row labels from the global title-slot typography", () => {
+    const globalsCss = readFileSync(
+      join(process.cwd(), "app/globals.css"),
+      "utf8",
+    );
+
+    expect(globalsCss).toContain('[data-slot="settings-row-title"] {');
+    expect(globalsCss).toContain("font-size: 0.9375rem !important;");
+    expect(globalsCss).toContain("font-weight: 400 !important;");
+  });
+
+  it("publishes semantic icon tone while destructive actions retain red", () => {
+    const { container, rerender } = render(
+      <SettingsRow icon={undefined} iconTone="blue" title="Account" />,
+    );
+
+    expect(
+      container.querySelector('[data-slot="settings-row-icon"]'),
+    ).toBeNull();
+
+    rerender(
+      <SettingsRow
+        icon={Phone}
+        iconTone="blue"
+        title="Account"
+      />,
+    );
+    expect(
+      container
+        .querySelector('[data-slot="settings-row-icon"]')
+        ?.getAttribute("data-icon-tone"),
+    ).toBe("blue");
+
+    rerender(
+      <SettingsRow
+        icon={LogOut}
+        iconTone="blue"
+        title="Sign out"
+        tone="destructive"
+      />,
+    );
+    expect(
+      container
+        .querySelector('[data-slot="settings-row-icon"]')
+        ?.getAttribute("data-icon-tone"),
+    ).toBe("red");
   });
 
   it("supports asChild rows without losing row content", () => {

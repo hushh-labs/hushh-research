@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("setup completion footer contract", () => {
-  it("delegates fixed-chrome clearance to the shared onboarding scroll root", () => {
+  it("owns a guaranteed trailing clearance derived from the shared scroll tokens", () => {
     const source = readFileSync(
       join(
         process.cwd(),
@@ -14,7 +14,12 @@ describe("setup completion footer contract", () => {
     );
 
     expect(source).not.toContain("var(--onboarding-agent-bar-clearance)");
-    expect(source).not.toContain("var(--app-bottom-inset)");
+    // Trailing clearance prefers the shared scroll-root token and falls back
+    // to the app bottom inset, so the CTA never hides under fixed chrome even
+    // on routes without the onboarding scroll root.
+    expect(source).toContain(
+      "var(--app-scroll-bottom-pad,var(--app-bottom-inset))",
+    );
     expect(source).toContain('"h-12 text-base"');
     expect(source).toContain("bg-transparent");
     expect(source).not.toContain("SurfaceInset");

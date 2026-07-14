@@ -333,14 +333,7 @@ export function PhoneMandatePageContent() {
 
 export default function RegisterPhonePage() {
   return (
-    <Suspense
-      fallback={
-        <HushhLoader
-          label="Loading phone verification..."
-          variant="fullscreen"
-        />
-      }
-    >
+    <Suspense fallback={null}>
       <PhoneMandatePageContent />
     </Suspense>
   );
