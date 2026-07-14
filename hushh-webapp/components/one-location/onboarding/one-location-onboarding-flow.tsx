@@ -79,7 +79,12 @@ const ONBOARDING_IMAGE_SOURCES = [
   "/one-location/onboarding/arrival-backpack.webp",
   "/one-location/onboarding/checkin-pin.webp",
   "/one-location/onboarding/sos-shield.webp",
+  "/one-location/onboarding/akshat.webp",
+  "/one-location/onboarding/neelesh.webp",
+  "/one-location/onboarding/ankit.webp",
+  "/one-location/onboarding/kushal.webp",
 ] as const;
+
 
 
 function initials(name: string): string {
@@ -232,38 +237,59 @@ function WelcomeRadar({ people }: { people: DirectoryPerson[] }) {
   // dummy contact avatars so the radar never looks empty and keeps consistent
   // distancing from the middle on every device.
   const slots = [0, 1, 2].map((index) => connected[index] ?? null);
+  // Three avatars sit on a single ring, spaced an exact 120° apart in a perfect
+  // equilateral triangle around the center pin, so they are truly EQUIDISTANT
+  // from the middle and from each other. Each avatar is centered on its ring
+  // point via a uniform `-translate-x-1/2 -translate-y-1/2`, and the points use
+  // the same radius (top at 12%, the two lower ones at 69% / ±33% from center),
+  // which gives an identical ~38% center distance for all three.
   const positions = [
-    "left-1/2 top-[3%] -translate-x-1/2",
-    "left-[9%] bottom-[15%]",
-    "right-[9%] bottom-[15%]",
+    "left-1/2 top-[12%] -translate-x-1/2 -translate-y-1/2",
+    "left-[17%] top-[69%] -translate-x-1/2 -translate-y-1/2",
+    "left-[83%] top-[69%] -translate-x-1/2 -translate-y-1/2",
   ];
+
 
   return (
     <div
-      className="relative mx-auto aspect-square w-[min(72vw,32dvh,340px)] drop-shadow-[0_24px_36px_rgba(0,42,102,0.2)]"
+      className="relative mx-auto aspect-square w-[min(80vw,34dvh,340px)] drop-shadow-[0_24px_36px_rgba(0,42,102,0.2)]"
       aria-hidden="true"
     >
-      <span className="absolute inset-[17%] rounded-full bg-white/10 blur-2xl" />
-      {["inset-[6%]", "inset-[22%]", "inset-[38%]"].map((position) => (
+      {/* Soft radial glow behind everything */}
+      <span className="absolute inset-[14%] rounded-full bg-white/10 blur-2xl" />
+
+      {/* Concentric radar rings — evenly stepped radii so the "diameter" reads
+          clearly, like a location radar. */}
+      {["inset-[3%]", "inset-[19%]", "inset-[35%]"].map((position) => (
         <span
           key={position}
           className={cn(
-            "absolute rounded-full border border-white/42 shadow-[0_0_20px_rgba(255,255,255,0.08)]",
+            "absolute rounded-full border border-white/45 shadow-[0_0_20px_rgba(255,255,255,0.08)]",
             position,
           )}
         />
       ))}
+
+      {/* Animated radar pulse on the outer ring for a subtle "live" feel.
+          Opacity-only (no transform scale) so it never grows past the radar
+          bounds and can never introduce an unwanted scrollbar. */}
+      <span className="absolute inset-[3%] rounded-full border border-white/40 [animation:oneRadarPulse_3s_ease-in-out_infinite]" />
+      <style>{`@keyframes oneRadarPulse{0%,100%{opacity:.15}50%{opacity:.6}}`}</style>
+
+      {/* Center hub glow + pin */}
+
       <span className="absolute inset-[42%] rounded-full bg-white/28 blur-sm shadow-[0_0_42px_rgba(255,255,255,0.5)]" />
       <span className="absolute left-1/2 top-1/2 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-[5px] border-white/85 bg-white text-[#087cf0] shadow-[0_14px_30px_rgba(0,35,93,0.3)]">
         <MapPin className="h-8 w-8 fill-[#087cf0]/12" strokeWidth={2.25} />
       </span>
+
       {slots.map((person, index) => (
         <span
           key={person?.userId ?? `dummy-${index}`}
           className={cn("absolute", positions[index])}
         >
           {person ? (
-            <Avatar name={safeName(person.displayName)} photoUrl={person.photoUrl} />
+            <Avatar name={safeName(person.displayName)} photoUrl={person.photoUrl} size="lg" />
           ) : (
             <DummyContactAvatar index={index} large />
           )}
@@ -276,16 +302,46 @@ function WelcomeRadar({ people }: { people: DirectoryPerson[] }) {
   );
 }
 
-// Generic placeholder names for the onboarding teaser illustrations. These
-// screens show a fake product preview before any real contacts are chosen,
-// so the avatar must read as obviously generic (initials only, no photo)
-// rather than implying a specific real connected person.
-const DUMMY_CONTACT_NAMES = ["Alex", "Maya", "Sam", "Jordan"];
+
+
+// Real Hushh team faces used for the onboarding teaser illustrations. These
+// screens show a sample product preview before any real contacts are chosen, so
+// we render actual team photos (not AI art) to keep the UI premium and genuine.
+// The images are pre-optimized to small square WebP (240px, ~5KB each) and
+// preloaded on mount, so they appear instantly with no layout shift.
+const TEAM_AVATAR_SOURCES = [
+  "/one-location/onboarding/akshat.webp",
+  "/one-location/onboarding/neelesh.webp",
+  "/one-location/onboarding/ankit.webp",
+  "/one-location/onboarding/kushal.webp",
+] as const;
 
 function DummyContactAvatar({ index = 0, large = false }: { index?: number; large?: boolean }) {
-  const name = DUMMY_CONTACT_NAMES[index % DUMMY_CONTACT_NAMES.length]!;
-  return <Avatar name={name} size={large ? "lg" : "sm"} />;
+  // Match the real <Avatar> circle sizes so sample and real avatars sit on the
+  // same radius and never look mismatched when mixed on a screen.
+  const sizeClass = large ? "h-20 w-20" : "h-11 w-11";
+  const src = TEAM_AVATAR_SOURCES[index % TEAM_AVATAR_SOURCES.length]!;
+  return (
+    <span
+      className={cn(
+        "block shrink-0 overflow-hidden rounded-full border-[3px] border-white bg-[#dce8f6] shadow-[0_8px_22px_rgba(24,57,91,0.18)]",
+        sizeClass,
+      )}
+      aria-hidden="true"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- Local static team art must render in Capacitor static export. */}
+      <img
+        src={src}
+        alt=""
+        loading="eager"
+        decoding="async"
+        className="h-full w-full object-cover"
+      />
+    </span>
+  );
 }
+
+
 
 function FeatureAlert({
   person,
@@ -300,7 +356,8 @@ function FeatureAlert({
   accent: "violet" | "teal";
   dummyIndex: number;
 }) {
-  const name = safeName(person?.displayName, dummyIndex === 0 ? "Alex" : "Maya");
+  const name = safeName(person?.displayName, dummyIndex === 0 ? "Akshat" : "Ankit");
+
   return (
     <div className="absolute left-[6%] top-[7%] z-10 flex min-w-[192px] items-center gap-3 rounded-[16px] bg-white px-3 py-2.5 shadow-[0_12px_28px_rgba(28,42,68,0.18)]">
       <span className="absolute -left-1 -top-4 h-3 w-3">
@@ -322,10 +379,47 @@ function FeatureAlert({
   );
 }
 
+// Feature illustrations render EDGE-TO-EDGE (full-bleed). The `-mx-5` cancels the
+// screen's horizontal padding so the art spans the full card width. Each screen's
+// solid background is set to this illustration's own backdrop tone (sampled from
+// the artwork), and we paint soft top/bottom fade overlays IN THAT SAME TONE so
+// the image dissolves into the screen with zero visible box or crop seam. The
+// wrapper has no border, no rounded corner, and no contrasting box color.
+//
+// `topColor`/`bottomColor` MUST match the FeatureScreen gradient's top and bottom
+// stops for that screen. The image is `object-cover` filling a flexible area, so
+// its own edges are cropped; these overlays fade the cropped top and bottom into
+// the exact screen colors above/below, giving one uniform seamless background.
+function IllustrationFade({
+  topColor,
+  bottomColor,
+}: {
+  topColor: string;
+  bottomColor: string;
+}) {
+  return (
+    <>
+      <span
+        className="pointer-events-none absolute inset-x-0 top-0 h-24"
+        style={{ backgroundImage: `linear-gradient(to bottom, ${topColor}, rgba(0,0,0,0))` }}
+      />
+      <span
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-28"
+        style={{ backgroundImage: `linear-gradient(to top, ${bottomColor}, rgba(0,0,0,0))` }}
+      />
+    </>
+  );
+}
+
+
+// Each illustration fills the flexible area given to it by FeatureScreen
+// (`absolute inset-0`), so it grows/shrinks to fit ANY device height and never
+// forces the screen to scroll. `-left-5 -right-5` bleeds it past the screen's
+// horizontal padding for a true full-width image.
 function ArrivalIllustration({ person }: { person?: DirectoryPerson }) {
   return (
     <div
-      className="relative mx-auto h-[clamp(300px,48dvh,410px)] w-full max-w-[410px] overflow-hidden bg-[#fbf9f5]"
+      className="absolute inset-0 -left-5 -right-5 overflow-hidden"
       data-testid="arrival-product-preview"
       aria-hidden="true"
     >
@@ -336,6 +430,7 @@ function ArrivalIllustration({ person }: { person?: DirectoryPerson }) {
         className="absolute inset-0 h-full w-full object-cover"
         style={{ objectPosition: "center 58%" }}
       />
+      <IllustrationFade topColor="#f6f1f0" bottomColor="#eae7ef" />
       <FeatureAlert
         person={person}
         action="arrived"
@@ -350,7 +445,7 @@ function ArrivalIllustration({ person }: { person?: DirectoryPerson }) {
 function CheckinIllustration({ person }: { person?: DirectoryPerson }) {
   return (
     <div
-      className="relative mx-auto h-[clamp(300px,48dvh,410px)] w-full max-w-[410px] overflow-hidden bg-[#fbf8f3]"
+      className="absolute inset-0 -left-5 -right-5 overflow-hidden"
       data-testid="checkin-product-preview"
       aria-hidden="true"
     >
@@ -361,6 +456,7 @@ function CheckinIllustration({ person }: { person?: DirectoryPerson }) {
         className="absolute inset-0 h-full w-full object-cover"
         style={{ objectPosition: "center 58%" }}
       />
+      <IllustrationFade topColor="#faf2eb" bottomColor="#f5ede9" />
       <FeatureAlert
         person={person}
         action="checked in"
@@ -375,7 +471,7 @@ function SosIllustration({ people }: { people: DirectoryPerson[] }) {
   const recipients = [people[0], people[1]];
   return (
     <div
-      className="relative mx-auto h-[clamp(300px,48dvh,410px)] w-full max-w-[410px] overflow-hidden bg-[#fbf8f3]"
+      className="absolute inset-0 -left-5 -right-5 overflow-hidden"
       data-testid="sos-product-preview"
       aria-hidden="true"
     >
@@ -386,7 +482,11 @@ function SosIllustration({ people }: { people: DirectoryPerson[] }) {
         className="absolute inset-0 h-full w-full object-cover"
         style={{ objectPosition: "center 55%" }}
       />
+      <IllustrationFade topColor="#f5efed" bottomColor="#eae6e8" />
+
       <span className="absolute left-[8%] top-[53%]">
+
+
         {recipients[0]?.photoUrl ? (
           <Avatar name={safeName(recipients[0].displayName)} photoUrl={recipients[0].photoUrl} size="lg" />
         ) : (
@@ -426,58 +526,69 @@ function FeatureScreen({
   const connectedPeople = people.filter(
     (person) => person.relationship === "connected",
   );
-  const arrivalName = safeName(connectedPeople[0]?.displayName, "Alex");
+  const arrivalName = safeName(connectedPeople[0]?.displayName, "Akshat");
   const checkinName = safeName(
     connectedPeople[1]?.displayName ?? connectedPeople[0]?.displayName,
-    "Maya",
+    "Ankit",
   );
+
   const content = {
     arrival: {
       title: "Know when they arrive",
       body: `"${arrivalName} arrived at Office" - get a quiet alert the moment your people reach the places that matter.`,
       visual: <ArrivalIllustration person={connectedPeople[0]} />,
-      // Near-white gradient tuned to each illustration's own light backdrop so
-      // the art blends seamlessly into the screen with no visible image edge.
-      gradient: "from-[#f6f7fa] to-[#eef0f4] dark:from-[#14171d] dark:to-[#14171d]",
+      // The whole screen background is set to the EXACT top/bottom backdrop
+      // colors sampled from this illustration's own edges. Combined with the
+      // full-bleed (edge-to-edge, no box, no rounded corner) image, the art
+      // dissolves into the screen with zero visible seam. Update these together
+      // if the artwork is ever re-exported.
+      gradient: "from-[#f6f1f0] to-[#eae7ef] dark:from-[#14171d] dark:to-[#14171d]",
       cta: "Continue",
     },
     checkin: {
       title: "Let them know you're here",
       body: `"${checkinName} checked in" - one tap tells your trusted people where you are. No call needed.`,
       visual: <CheckinIllustration person={connectedPeople[1] ?? connectedPeople[0]} />,
-      gradient: "from-[#faf9f6] to-[#f2efea] dark:from-[#14171d] dark:to-[#14171d]",
+      gradient: "from-[#faf2eb] to-[#f5ede9] dark:from-[#14171d] dark:to-[#14171d]",
       cta: "Continue",
     },
     sos: {
       title: "Help when it matters most",
       body: `"Help sent" - SOS shares your live location with selected people, instantly.`,
       visual: <SosIllustration people={connectedPeople} />,
-      gradient: "from-[#faf8f6] to-[#f2efea] dark:from-[#14171d] dark:to-[#14171d]",
+      gradient: "from-[#f5efed] to-[#eae6e8] dark:from-[#14171d] dark:to-[#14171d]",
       cta: "Create my circle",
     },
+
   }[screen];
 
+  // Fixed, non-scrolling layout: the title and body text are fixed-height rows,
+  // and the illustration fills all remaining vertical space (flex-1 + relative)
+  // so the whole screen always fits in one viewport on every device — no
+  // scrollbar is ever generated. `overflow-hidden` guards against any stray
+  // overflow from the full-bleed art or its fades.
   return (
-    <div className={cn("flex min-h-0 flex-1 flex-col bg-gradient-to-b", content.gradient)}>
+    <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden bg-gradient-to-b", content.gradient)}>
       <TopNavigation onBack={onBack} onSkip={onSkip} />
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pb-3">
-        <h1 className="mx-auto mb-3 max-w-[360px] text-center text-[31px] font-bold leading-[1.12] text-[#1e2a3d] dark:text-[#f5f7fb]">
+      <div className="flex min-h-0 flex-1 flex-col px-5 pb-2">
+        <h1 className="mx-auto mb-2 max-w-[360px] shrink-0 text-center text-[clamp(26px,3.4dvh,31px)] font-bold leading-[1.12] text-[#1e2a3d] dark:text-[#f5f7fb]">
           {content.title}
         </h1>
-        <div className="my-auto">{content.visual}</div>
-        <p className="mx-auto mt-3 max-w-[375px] text-center text-[17px] font-semibold leading-[1.45] text-[#263447] dark:text-[#c7cfdb]">
+        <div className="relative min-h-0 flex-1">{content.visual}</div>
+        <p className="mx-auto mt-2 max-w-[375px] shrink-0 text-center text-[clamp(15px,1.9dvh,17px)] font-semibold leading-[1.4] text-[#263447] dark:text-[#c7cfdb]">
           {content.body}
         </p>
       </div>
-      <footer className="shrink-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] pt-2">
+      <footer className="shrink-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+16px)] pt-2">
         <ProgressDots activeIndex={featureIndex} />
-        <div className="mt-3">
+        <div className="mt-2.5">
           <PrimaryButton onClick={onContinue}>{content.cta}</PrimaryButton>
         </div>
       </footer>
     </div>
   );
 }
+
 
 function SelectionMark({ selected }: { selected: boolean }) {
   return (
@@ -562,8 +673,9 @@ function PeopleScreen({
           Invite the people you want to keep connected with.
         </p>
         <h2 className="mt-9 text-[13px] font-bold uppercase text-[#96999e] dark:text-[#8d99a8]">
-          Recommended contacts
+          Contacts
         </h2>
+
 
         <div className="mt-3 overflow-hidden rounded-[24px] bg-[#f8f9fb] px-4 shadow-[0_10px_30px_rgba(29,45,68,0.08)] dark:bg-[#1c212a] dark:shadow-[0_10px_30px_rgba(0,0,0,0.22)]">
           {loading ? (
@@ -930,18 +1042,36 @@ export function OneLocationOnboardingFlow({
     setScreen(startAt);
   }, [startAt]);
 
-  // Warm the browser cache with every onboarding illustration as soon as the
-  // flow mounts. Without this, each feature screen only fetches its art the
-  // first time it renders, which shows a blank frame (pop-in) on slower
-  // connections. Decoding ahead of time keeps screen transitions instant.
+  // Warm the browser cache with every onboarding image the instant the flow
+  // mounts. We inject high-priority `<link rel="preload" as="image">` tags
+  // (fetched sooner and at higher priority than a plain `new Image()`), and
+  // also kick off an eager decode, so the team avatars and illustrations are
+  // ready before their screen renders — no slow load or pop-in.
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof document === "undefined") return;
+    const links: HTMLLinkElement[] = [];
     for (const source of ONBOARDING_IMAGE_SOURCES) {
+      const link = document.createElement("link");
+      link.rel = "preload";
+      link.as = "image";
+      link.href = source;
+      // `fetchpriority` isn't in every TS DOM lib version as a typed property,
+      // so set it via attribute to stay portable while still hinting priority.
+      link.setAttribute("fetchpriority", "high");
+      document.head.appendChild(link);
+      links.push(link);
+
       const image = new window.Image();
       image.decoding = "async";
+      image.setAttribute("fetchpriority", "high");
       image.src = source;
     }
+
+    return () => {
+      for (const link of links) link.remove();
+    };
   }, []);
+
 
   const goBackFromFeature = () => {
     if (screen === "arrival") setScreen("welcome");
@@ -1021,26 +1151,29 @@ export function OneLocationOnboardingFlow({
       <section className="flex h-full min-h-0 w-full max-w-[480px] flex-col overflow-hidden bg-white shadow-[0_0_40px_rgba(24,57,91,0.08)] dark:bg-[#14171d] dark:shadow-[0_0_44px_rgba(0,0,0,0.48)]">
         <div className="h-[env(safe-area-inset-top,0px)] shrink-0" />
         {screen === "welcome" ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-[#087cf0] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] text-white dark:bg-[#0b4c8e]">
-            <div className="flex min-h-full flex-1 flex-col">
-              <div className="pt-6 text-center sm:pt-12">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#087cf0] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] text-white dark:bg-[#0b4c8e]">
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="shrink-0 pt-6 text-center sm:pt-10">
                 <p className="inline-flex items-center gap-2 text-[19px] font-bold">
                   <LocateFixed className="h-6 w-6" /> Onepoint
                 </p>
-                <h1 className="mx-auto mt-8 max-w-[390px] text-[38px] font-bold leading-[1.08]">
+                <h1 className="mx-auto mt-6 max-w-[390px] text-[clamp(30px,4.6dvh,38px)] font-bold leading-[1.08]">
                   The people you love.<br />Always in reach.
                 </h1>
-                <p className="mx-auto mt-4 max-w-[370px] text-[18px] leading-7 text-white/82">
+                <p className="mx-auto mt-4 max-w-[370px] text-[clamp(16px,2dvh,18px)] leading-7 text-white/82">
                   Private by default. Nothing is shared until you approve it.
                 </p>
               </div>
-              <div className="my-auto py-3 sm:py-5">
+              <div className="flex min-h-0 flex-1 items-center justify-center py-2">
                 <WelcomeRadar people={people} />
               </div>
-              <PrimaryButton inverse onClick={() => setScreen("arrival")}>Get started</PrimaryButton>
+              <div className="shrink-0">
+                <PrimaryButton inverse onClick={() => setScreen("arrival")}>Get started</PrimaryButton>
+              </div>
             </div>
           </div>
         ) : null}
+
 
         {screen === "arrival" || screen === "checkin" || screen === "sos" ? (
           <FeatureScreen
