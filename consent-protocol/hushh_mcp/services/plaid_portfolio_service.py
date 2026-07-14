@@ -28,6 +28,7 @@ from hushh_mcp.integrations.plaid import (
     PlaidHttpClient,
     PlaidRuntimeConfig,
 )
+from hushh_mcp.integrations.plaid.config import local_plaid_environment_choices
 from hushh_mcp.kai_import import build_financial_analytics_v2
 from hushh_mcp.runtime_settings import get_optional_plaid_access_token_key
 
@@ -239,7 +240,11 @@ class PlaidPortfolioService:
         return self.config.configured
 
     def configuration_status(self) -> dict[str, Any]:
-        return self.config.to_status()
+        status = self.config.to_status()
+        available_environments = local_plaid_environment_choices()
+        status["available_environments"] = available_environments
+        status["local_dual_environment_enabled"] = len(available_environments) > 1
+        return status
 
     def _country_codes(self) -> list[str]:
         return list(self.config.country_codes)
@@ -729,7 +734,11 @@ class PlaidPortfolioService:
         status = _clean_text(row.get("status"), default="active")
         if status != "removed":
             access_token = self._decrypt_access_token(row)
-            await self._post("/item/remove", {"access_token": access_token})
+            await self._post(
+                "/item/remove",
+                {"access_token": access_token},
+                environment=_clean_text(row.get("plaid_env")) or None,
+            )
 
         metadata = self._row_metadata(row)
         metadata.update(
@@ -1344,7 +1353,12 @@ class PlaidPortfolioService:
         canonical_portfolio["analytics_v2"] = analytics
         return canonical_portfolio
 
-    async def _fetch_all_investment_transactions(self, access_token: str) -> list[dict[str, Any]]:
+    async def _fetch_all_investment_transactions(
+        self,
+        access_token: str,
+        *,
+        environment: str | None = None,
+    ) -> list[dict[str, Any]]:
         start_date = (date.today() - timedelta(days=self._tx_history_days())).isoformat()
         end_date = date.today().isoformat()
         offset = 0
@@ -1361,6 +1375,7 @@ class PlaidPortfolioService:
                     "count": count,
                     "offset": offset,
                 },
+                environment=environment,
             )
             rows = payload.get("investment_transactions")
             page_rows = rows if isinstance(rows, list) else []
@@ -1381,13 +1396,18 @@ class PlaidPortfolioService:
         institution_name: str | None,
         status: str = "active",
         sync_status: str = "completed",
+        environment: str | None = None,
+        plaid_env: str | None = None,
     ) -> dict[str, Any]:
         holdings_payload = await self._post(
             "/investments/holdings/get",
             {"access_token": access_token},
+            environment=environment,
         )
         try:
-            transactions = await self._fetch_all_investment_transactions(access_token)
+            transactions = await self._fetch_all_investment_transactions(
+                access_token, environment=environment
+            )
         except PlaidApiError as exc:
             logger.warning(
                 "plaid.transactions_sync_failed user_id=%s item_id=%s error_code=%s status=%s",
@@ -1553,7 +1573,7 @@ class PlaidPortfolioService:
                 "access_token_algorithm": envelope["algorithm"],
                 "institution_id": institution_id,
                 "institution_name": institution_name,
-                "plaid_env": self._plaid_env(),
+                "plaid_env": plaid_env or self._plaid_env(),
                 "status": status,
                 "sync_status": sync_status,
                 "latest_accounts_json": json.dumps(normalized_accounts),
@@ -1713,10 +1733,18 @@ class PlaidPortfolioService:
         user_id: str,
         item_id: str | None = None,
         redirect_uri: str | None = None,
+        environment: str | None = None,
     ) -> dict[str, Any]:
-        if not self.is_configured():
+        """Create a Plaid Link token.
+
+        ``environment`` optionally overrides which Plaid environment to use
+        (e.g. "production" from local dev's secondary connect button). It
+        only takes effect locally; see `PlaidRuntimeConfig.from_env`.
+        """
+        config = self._config_for(environment)
+        if not config.configured:
             return {
-                **self.configuration_status(),
+                **config.to_status(),
                 "mode": "unconfigured",
                 "link_token": None,
                 "expiration": None,
@@ -1751,10 +1779,15 @@ class PlaidPortfolioService:
             payload["access_token"] = self._decrypt_access_token(existing)
             payload["update"] = {"account_selection_enabled": True}
             mode = "update"
+            # Update mode must use the environment the item was originally
+            # created under, not whatever the caller requested, since the
+            # access token is only valid against its original client/secret.
+            environment = _clean_text(existing.get("plaid_env")) or environment
+            config = self._config_for(environment)
         else:
             payload["products"] = ["investments"]
 
-        response = await self._post("/link/token/create", payload)
+        response = await self._post("/link/token/create", payload, environment=environment)
         link_token = _clean_text(response.get("link_token")) or None
         expiration = _clean_text(response.get("expiration")) or None
         resume_session_id = None
@@ -1769,7 +1802,7 @@ class PlaidPortfolioService:
             )
             resume_session_id = _clean_text(session.get("resume_session_id")) or None
         return {
-            **self.configuration_status(),
+            **config.to_status(),
             "mode": mode,
             "link_token": link_token,
             "expiration": expiration,
@@ -1810,13 +1843,23 @@ class PlaidPortfolioService:
         public_token: str,
         metadata: dict[str, Any] | None = None,
         resume_session_id: str | None = None,
+        environment: str | None = None,
     ) -> dict[str, Any]:
-        if not self.is_configured():
+        """Exchange a Link public_token for an access_token and sync the item.
+
+        ``environment`` must match whatever environment the originating
+        `create_link_token` call used, since the public_token is only valid
+        against the matching client_id/secret pair (local dev's secondary
+        connect button only).
+        """
+        config = self._config_for(environment)
+        if not config.configured:
             return self._aggregate_status_payload(user_id=user_id)
 
         exchange = await self._post(
             "/item/public_token/exchange",
             {"public_token": public_token},
+            environment=environment,
         )
         item_id = _clean_text(exchange.get("item_id"))
         access_token = _clean_text(exchange.get("access_token"))
@@ -1850,6 +1893,8 @@ class PlaidPortfolioService:
             institution_name=institution_name,
             status="active",
             sync_status="completed",
+            environment=environment,
+            plaid_env=config.environment,
         )
 
         current_source = self.get_active_source(user_id)
@@ -2745,6 +2790,7 @@ class PlaidPortfolioService:
         run_id: str,
     ) -> None:
         item_id = _clean_text(item_row.get("item_id"))
+        item_environment = _clean_text(item_row.get("plaid_env")) or None
         self._update_refresh_run(
             run_id=run_id,
             status="running",
@@ -2755,7 +2801,11 @@ class PlaidPortfolioService:
             refresh_method = "investments_refresh"
             fallback_reason = None
             try:
-                await self._post("/investments/refresh", {"access_token": access_token})
+                await self._post(
+                    "/investments/refresh",
+                    {"access_token": access_token},
+                    environment=item_environment,
+                )
             except PlaidApiError as exc:
                 if exc.error_code == "PRODUCT_NOT_SUPPORTED":
                     refresh_method = "holdings_get_fallback"
@@ -2785,6 +2835,8 @@ class PlaidPortfolioService:
                 institution_name=_clean_text(item_row.get("institution_name")) or None,
                 status="active",
                 sync_status="completed",
+                environment=item_environment,
+                plaid_env=item_environment,
             )
             result_summary = sync_result.get("summary") if isinstance(sync_result, dict) else {}
             if self._is_refresh_run_canceled(run_id=run_id):
