@@ -19,6 +19,7 @@ from hushh_mcp.consent.export_envelope import (
     canonical_envelope_submission_bytes,
     ciphertext_digest_from_base64,
     digest_bytes,
+    scope_handle_for_machine_scope,
 )
 from hushh_mcp.consent.scope_helpers import scope_matches
 from hushh_mcp.services.one_email_kyc_service import (
@@ -785,6 +786,12 @@ async def test_process_message_creates_scoped_kyc_consent_without_storing_raw_bo
     assert consent_db.events[0]["request_id"] == selected["consent_request_id"]
     assert consent_db.events[0]["metadata"]["requester_actor_type"] == "developer"
     assert consent_db.events[0]["metadata"]["connector_public_key"] == _CONNECTOR_PUBLIC_B64
+    assert consent_db.events[0]["metadata"]["developer_app_id"] == "agent_kyc"
+    _expected_scope_handle = scope_handle_for_machine_scope("user_123", "attr.identity.*")
+    assert consent_db.events[0]["metadata"]["scope_handle"] == _expected_scope_handle
+    import re
+
+    assert re.match(r"^(?:s|scope)_[A-Za-z0-9_-]{6,128}$", _expected_scope_handle)
 
 
 @pytest.mark.asyncio

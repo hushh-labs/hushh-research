@@ -32,6 +32,7 @@ from google.oauth2 import service_account
 
 from api.utils.firebase_admin import ensure_firebase_auth_admin, get_firebase_auth_app
 from db.db_client import get_db
+from hushh_mcp.consent.export_envelope import scope_handle_for_machine_scope
 from hushh_mcp.consent.scope_generator import get_scope_generator
 from hushh_mcp.consent.scope_helpers import scope_matches
 from hushh_mcp.consent.token import validate_token_with_db
@@ -2518,6 +2519,10 @@ class OneEmailKycService:
             poll_timeout_at=expires_at,
             metadata={
                 "request_source": _KYC_REQUEST_SOURCE,
+                "developer_app_id": _KYC_AGENT_ID,
+                "scope_handle": scope_handle_for_machine_scope(
+                    workflow["user_id"], requested_scope
+                ),
                 "requester_actor_type": "developer",
                 "requester_label": "One",
                 "developer_app_display_name": "One",
