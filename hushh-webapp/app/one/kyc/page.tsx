@@ -7,6 +7,7 @@ import {
   BadgeCheck,
   Ban,
   BriefcaseBusiness,
+  Check,
   CheckCircle2,
   Clock3,
   Eye,
@@ -60,6 +61,7 @@ import {
 } from "@/lib/consent/consent-events";
 import { useConsentActions, type PendingConsent } from "@/lib/consent";
 import { ROUTES } from "@/lib/navigation/routes";
+import { cn } from "@/lib/utils";
 import {
   hasApprovedKycWorkflowAccess,
   isKycClientDraftReady,
@@ -111,6 +113,13 @@ import {
   usePublishVoiceSurfaceMetadata,
   type VoiceSurfacePublisherRole,
 } from "@/lib/voice/voice-surface-metadata";
+import {
+  BTN_OUTLINE,
+  BTN_PRIMARY,
+  SELECT_CIRCLE_BASE,
+  SELECT_CIRCLE_OFF,
+  SELECT_CIRCLE_ON,
+} from "./tokens";
 
 const STATUS_LABELS: Record<OneKycWorkflowStatus, string> = {
   needs_client_connector: "Needs vault setup",
@@ -1629,17 +1638,17 @@ export function OneKycWorkspace({
           accent="neutral"
           actions={
             <div className="flex flex-wrap justify-end gap-2">
-              <Button
-                variant="outline"
-                size="sm"
+              <button
+                type="button"
+                className={cn(BTN_PRIMARY)}
                 onClick={() => setAliasPanelOpen(true)}
               >
                 <MailPlus className="size-4" />
                 Email aliases
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
+              </button>
+              <button
+                type="button"
+                className={cn(BTN_PRIMARY)}
                 onClick={() => void load({ syncMailbox: true })}
                 disabled={loading}
               >
@@ -1647,7 +1656,7 @@ export function OneKycWorkspace({
                   className={loading ? "size-4 animate-spin" : "size-4"}
                 />
                 Refresh
-              </Button>
+              </button>
             </div>
           }
         />
@@ -1741,10 +1750,9 @@ export function OneKycWorkspace({
             </SettingsGroup>
             {hasMoreWorkflows ? (
               <div className="flex justify-center">
-                <Button
+                <button
                   type="button"
-                  variant="outline"
-                  size="sm"
+                  className={cn(BTN_OUTLINE)}
                   onClick={() => void loadMore()}
                   disabled={loadingMore}
                 >
@@ -1754,7 +1762,7 @@ export function OneKycWorkspace({
                     <RefreshCw className="size-4" />
                   )}
                   {loadingMore ? "Loading..." : "Load more"}
-                </Button>
+                </button>
               </div>
             ) : null}
           </div>
@@ -1853,14 +1861,21 @@ export function OneKycWorkspace({
                           title={item.label}
                           description={item.rationale}
                           trailing={
-                            <input
-                              type="checkbox"
-                              className="size-4 accent-foreground"
-                              checked={checked}
-                              onClick={(event) => event.stopPropagation()}
-                              onChange={() => toggleConfirmScope(item.scope)}
+                            <button
+                              type="button"
+                              role="checkbox"
+                              aria-checked={checked}
                               aria-label={`Select ${item.label}`}
-                            />
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                toggleConfirmScope(item.scope);
+                              }}
+                              className="flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007aff]/40 focus-visible:ring-offset-1"
+                            >
+                              <span className={cn(SELECT_CIRCLE_BASE, checked ? SELECT_CIRCLE_ON : SELECT_CIRCLE_OFF)}>
+                                {checked ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : null}
+                              </span>
+                            </button>
                           }
                           onClick={() => toggleConfirmScope(item.scope)}
                           stackTrailingOnMobile
@@ -1868,8 +1883,9 @@ export function OneKycWorkspace({
                       );
                     })}
                     <div className="flex flex-wrap gap-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-                      <Button
+                      <button
                         type="button"
+                        className={cn(BTN_PRIMARY)}
                         onClick={() => void confirmProposal(selected)}
                         disabled={Boolean(busy) || confirmSelection.length === 0}
                       >
@@ -1879,10 +1895,10 @@ export function OneKycWorkspace({
                           <ShieldCheck className="size-4" />
                         )}
                         {busy === "confirm-proposal" ? "Confirming..." : "Confirm"}
-                      </Button>
-                      <Button
+                      </button>
+                      <button
                         type="button"
-                        variant="outline"
+                        className={cn(BTN_OUTLINE)}
                         onClick={() => setArchiveTarget(selected)}
                         disabled={Boolean(archivingWorkflowId)}
                       >
@@ -1892,7 +1908,7 @@ export function OneKycWorkspace({
                           <XCircle className="size-4" />
                         )}
                         {archivingWorkflowId === selected.workflow_id ? "Removing..." : "Reject"}
-                      </Button>
+                      </button>
                     </div>
                   </SettingsGroup>
                 );
@@ -1946,16 +1962,21 @@ export function OneKycWorkspace({
                             >
                               <Eye className="size-4" />
                             </Button>
-                            <input
-                              type="checkbox"
-                              className="size-4 accent-foreground"
-                              checked={checked}
-                              onClick={(event) => event.stopPropagation()}
-                              onChange={() =>
-                                toggleScope(selected, candidate.scope)
-                              }
+                            <button
+                              type="button"
+                              role="checkbox"
+                              aria-checked={checked}
                               aria-label={`Select ${candidateLabel}`}
-                            />
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                toggleScope(selected, candidate.scope);
+                              }}
+                              className="flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007aff]/40 focus-visible:ring-offset-1"
+                            >
+                              <span className={cn(SELECT_CIRCLE_BASE, checked ? SELECT_CIRCLE_ON : SELECT_CIRCLE_OFF)}>
+                                {checked ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : null}
+                              </span>
+                            </button>
                           </div>
                         }
                         onClick={() => toggleScope(selected, candidate.scope)}
@@ -1965,8 +1986,9 @@ export function OneKycWorkspace({
                   })}
                   <div className="flex flex-wrap gap-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
                     {selectedScopeSelectionChanged ? (
-                      <Button
+                      <button
                         type="button"
+                        className={cn(BTN_PRIMARY)}
                         onClick={() => void applyScopeSelection(selected)}
                         disabled={Boolean(busy) || selectedScopeSelection.length === 0}
                       >
@@ -1976,11 +1998,12 @@ export function OneKycWorkspace({
                           <RefreshCw className="size-4" />
                         )}
                         {busy === "refresh" ? "Updating..." : "Update draft"}
-                      </Button>
+                      </button>
                     ) : selectedNeedsAccessApproval ? (
                       <>
-                        <Button
+                        <button
                           type="button"
+                          className={cn(BTN_PRIMARY)}
                           onClick={() => void approveWorkflowConsent(selected)}
                           disabled={
                             Boolean(busy) ||
@@ -2000,10 +2023,10 @@ export function OneKycWorkspace({
                           {busy === "consent-approve"
                             ? "Approving..."
                             : "Approve access"}
-                        </Button>
-                        <Button
+                        </button>
+                        <button
                           type="button"
-                          variant="outline"
+                          className={cn(BTN_OUTLINE)}
                           onClick={() => void denyWorkflowConsent(selected)}
                           disabled={
                             Boolean(busy) ||
@@ -2021,12 +2044,12 @@ export function OneKycWorkspace({
                             <XCircle className="size-4" />
                           )}
                           {busy === "consent-deny" ? "Denying..." : "Deny"}
-                        </Button>
+                        </button>
                       </>
                     ) : selectedAccessApproved && selected.status === "needs_scope" ? (
-                      <Button
+                      <button
                         type="button"
-                        variant="outline"
+                        className={cn(BTN_PRIMARY)}
                         onClick={() => void runAction("refresh", selected)}
                         disabled={Boolean(busy)}
                         data-voice-control-id="one-kyc-sync-status"
@@ -2038,7 +2061,7 @@ export function OneKycWorkspace({
                           }
                         />
                         {busy === "refresh" ? "Preparing..." : "Prepare draft"}
-                      </Button>
+                      </button>
                     ) : (
                       <span className="text-sm text-muted-foreground">
                         The draft will use the selected data.
@@ -2121,8 +2144,9 @@ export function OneKycWorkspace({
                       className="min-h-24"
                       data-voice-control-id="one-kyc-redraft-instructions"
                     />
-                    <Button
-                      variant="outline"
+                    <button
+                      type="button"
+                      className={cn(BTN_PRIMARY)}
                       onClick={() => void runAction("redraft", selected)}
                       disabled={
                         Boolean(busy) ||
@@ -2138,7 +2162,7 @@ export function OneKycWorkspace({
                         <PenLine className="size-4" />
                       )}
                       {busy === "redraft" ? "Redrafting..." : "Redraft"}
-                    </Button>
+                    </button>
                   </div>
                 </SettingsGroup>
               ) : null}
@@ -2192,8 +2216,9 @@ export function OneKycWorkspace({
               ) : (
                 <SettingsGroup embedded title="Actions">
                   <div className="flex flex-wrap gap-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-                    <Button
-                      variant="outline"
+                    <button
+                      type="button"
+                      className={cn(BTN_OUTLINE)}
                       onClick={() => void runAction("refresh", selected)}
                       disabled={Boolean(busy)}
                       data-voice-control-id="one-kyc-sync-status"
@@ -2205,8 +2230,10 @@ export function OneKycWorkspace({
                         }
                       />
                       {busy === "refresh" ? "Syncing..." : "Sync status"}
-                    </Button>
-                    <Button
+                    </button>
+                    <button
+                      type="button"
+                      className={cn(BTN_PRIMARY)}
                       onClick={() => void runAction("approve", selected)}
                       disabled={Boolean(busy) || !selectedCanReviewDraft}
                       data-voice-control-id="one-kyc-approve-send"
@@ -2218,9 +2245,10 @@ export function OneKycWorkspace({
                         <Send className="size-4" />
                       )}
                       {busy === "approve" ? "Sending..." : "Approve send"}
-                    </Button>
-                    <Button
-                      variant="outline"
+                    </button>
+                    <button
+                      type="button"
+                      className={cn(BTN_OUTLINE)}
                       onClick={() => void runAction("reject", selected)}
                       disabled={
                         Boolean(busy) || selected.status !== "waiting_on_user"
@@ -2234,7 +2262,7 @@ export function OneKycWorkspace({
                         <XCircle className="size-4" />
                       )}
                       {busy === "reject" ? "Rejecting..." : "Reject"}
-                    </Button>
+                    </button>
                   </div>
                 </SettingsGroup>
               )}
@@ -2401,13 +2429,11 @@ export function OneKycWorkspace({
                   </p>
                 ) : null}
                 <div className="grid gap-2 sm:flex sm:flex-wrap">
-                  <Button
+                  <button
                     type="button"
-                    variant="outline"
-                    size="sm"
+                    className={cn(BTN_OUTLINE, "w-full sm:w-auto")}
                     onClick={() => void startAliasVerification()}
                     disabled={Boolean(busy) || !aliasEmail.trim()}
-                    className="w-full sm:w-auto"
                   >
                     {busy === "alias" ? (
                       <Loader2 className="size-4 animate-spin" />
@@ -2415,15 +2441,14 @@ export function OneKycWorkspace({
                       <MailPlus className="size-4" />
                     )}
                     {busy === "alias" ? "Sending..." : "Send code"}
-                  </Button>
-                  <Button
+                  </button>
+                  <button
                     type="button"
-                    size="sm"
+                    className={cn(BTN_PRIMARY, "w-full sm:w-auto")}
                     onClick={() => void confirmAliasVerification()}
                     disabled={
                       Boolean(busy) || !aliasChallenge || !aliasCode.trim()
                     }
-                    className="w-full sm:w-auto"
                   >
                     {busy === "alias" ? (
                       <Loader2 className="size-4 animate-spin" />
@@ -2431,7 +2456,7 @@ export function OneKycWorkspace({
                       <BadgeCheck className="size-4" />
                     )}
                     {busy === "alias" ? "Verifying..." : "Verify email"}
-                  </Button>
+                  </button>
                 </div>
               </div>
             </SettingsGroup>
