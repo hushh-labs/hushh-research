@@ -122,7 +122,7 @@ DATASET: list[dict[str, Any]] = [
             },
         },
         "expected_domain": "identity",
-        "expected_classification": "kyc",
+        "expected_classification": "kyc_financial",
     },
     # Case 6 — travel preference survey (unsupported: asks about preferences, not KYC)
     {
