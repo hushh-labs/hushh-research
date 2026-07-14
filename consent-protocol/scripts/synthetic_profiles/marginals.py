@@ -1,0 +1,283 @@
+"""World marginals for HumanProfile v0 — the representativeness layer.
+
+Approximate 2026 world-population distributions, coarse by design. These are
+editable data, not gospel: refine any band and every profile regenerated from
+the same seed shifts with it (the generator is a pure function of seed +
+marginals version). Values are rounded from public, commonly-cited population
+statistics; the point is honest coverage of ALL kinds of humans — not just the
+rich, urban, extremely-online sliver most test data over-represents.
+
+MARGINALS_VERSION participates in determinism: bump it when you change data so
+downstream consumers know profiles moved.
+"""
+
+from __future__ import annotations
+
+MARGINALS_VERSION = "2026.07-v1"
+
+# Region shares of world population (sums to 1.0).
+REGION_WEIGHTS: list[tuple[str, float]] = [
+    ("south_asia", 0.25),
+    ("east_asia", 0.20),
+    ("sub_saharan_africa", 0.15),
+    ("southeast_asia", 0.09),
+    ("europe", 0.09),
+    ("latam_caribbean", 0.08),
+    ("mena", 0.07),
+    ("north_america", 0.05),
+    ("central_asia_oceania", 0.02),
+]
+
+# Coarse sub-region labels per region (uniform within region).
+COUNTRY_ZONES: dict[str, list[str]] = {
+    "south_asia": ["indo_gangetic", "deccan", "himalayan", "bengal_delta", "indus_valley"],
+    "east_asia": ["north_china_plain", "yangtze_delta", "pearl_delta", "japan_archipelago", "korean_peninsula", "inner_continental"],
+    "sub_saharan_africa": ["west_african_coast", "sahel", "horn", "great_lakes", "southern_cone_africa"],
+    "southeast_asia": ["mekong", "malay_archipelago", "philippine_islands", "mainland_highlands"],
+    "europe": ["western", "southern", "northern", "central_eastern", "balkans"],
+    "latam_caribbean": ["mexico_central_america", "andes", "southern_cone", "brazil_atlantic", "caribbean"],
+    "mena": ["maghreb", "nile_valley", "levant", "gulf", "anatolia_iran_plateau"],
+    "north_america": ["us_coastal", "us_interior", "canada_corridor", "us_south"],
+    "central_asia_oceania": ["steppe", "oceania_pacific", "australia_nz"],
+}
+
+# Age-band weights (world). (band_lo, band_hi, weight)
+AGE_BANDS: list[tuple[int, int, float]] = [
+    (0, 14, 0.25),
+    (15, 24, 0.15),
+    (25, 39, 0.23),
+    (40, 54, 0.17),
+    (55, 69, 0.13),
+    (70, 90, 0.065),
+    (91, 105, 0.005),
+]
+
+SEX_WEIGHTS: list[tuple[str, float]] = [
+    ("male", 0.504),
+    ("female", 0.494),
+    ("intersex", 0.002),
+]
+
+# Urbanicity by region.
+URBANICITY: dict[str, list[tuple[str, float]]] = {
+    "south_asia": [("urban", 0.36), ("peri_urban", 0.14), ("rural", 0.50)],
+    "east_asia": [("urban", 0.64), ("peri_urban", 0.12), ("rural", 0.24)],
+    "sub_saharan_africa": [("urban", 0.42), ("peri_urban", 0.13), ("rural", 0.45)],
+    "southeast_asia": [("urban", 0.50), ("peri_urban", 0.14), ("rural", 0.36)],
+    "europe": [("urban", 0.75), ("peri_urban", 0.10), ("rural", 0.15)],
+    "latam_caribbean": [("urban", 0.81), ("peri_urban", 0.08), ("rural", 0.11)],
+    "mena": [("urban", 0.66), ("peri_urban", 0.12), ("rural", 0.22)],
+    "north_america": [("urban", 0.82), ("peri_urban", 0.10), ("rural", 0.08)],
+    "central_asia_oceania": [("urban", 0.58), ("peri_urban", 0.10), ("rural", 0.32)],
+}
+
+# Income tier weights by region (per-capita/day PPP-style tiers).
+INCOME_TIERS: dict[str, list[tuple[str, float]]] = {
+    "south_asia": [("t1_under_2usd_day", 0.10), ("t2_2_to_10usd_day", 0.62), ("t3_10_to_50usd_day", 0.24), ("t4_50_to_200usd_day", 0.035), ("t5_over_200usd_day", 0.005)],
+    "east_asia": [("t1_under_2usd_day", 0.01), ("t2_2_to_10usd_day", 0.22), ("t3_10_to_50usd_day", 0.55), ("t4_50_to_200usd_day", 0.20), ("t5_over_200usd_day", 0.02)],
+    "sub_saharan_africa": [("t1_under_2usd_day", 0.35), ("t2_2_to_10usd_day", 0.48), ("t3_10_to_50usd_day", 0.14), ("t4_50_to_200usd_day", 0.027), ("t5_over_200usd_day", 0.003)],
+    "southeast_asia": [("t1_under_2usd_day", 0.04), ("t2_2_to_10usd_day", 0.48), ("t3_10_to_50usd_day", 0.40), ("t4_50_to_200usd_day", 0.075), ("t5_over_200usd_day", 0.005)],
+    "europe": [("t1_under_2usd_day", 0.002), ("t2_2_to_10usd_day", 0.05), ("t3_10_to_50usd_day", 0.42), ("t4_50_to_200usd_day", 0.48), ("t5_over_200usd_day", 0.048)],
+    "latam_caribbean": [("t1_under_2usd_day", 0.04), ("t2_2_to_10usd_day", 0.32), ("t3_10_to_50usd_day", 0.48), ("t4_50_to_200usd_day", 0.15), ("t5_over_200usd_day", 0.01)],
+    "mena": [("t1_under_2usd_day", 0.05), ("t2_2_to_10usd_day", 0.34), ("t3_10_to_50usd_day", 0.44), ("t4_50_to_200usd_day", 0.155), ("t5_over_200usd_day", 0.015)],
+    "north_america": [("t1_under_2usd_day", 0.002), ("t2_2_to_10usd_day", 0.02), ("t3_10_to_50usd_day", 0.30), ("t4_50_to_200usd_day", 0.58), ("t5_over_200usd_day", 0.098)],
+    "central_asia_oceania": [("t1_under_2usd_day", 0.03), ("t2_2_to_10usd_day", 0.30), ("t3_10_to_50usd_day", 0.42), ("t4_50_to_200usd_day", 0.23), ("t5_over_200usd_day", 0.02)],
+}
+
+# Education by (region-tier proxy): keyed on income tier for simplicity.
+EDUCATION_BY_TIER: dict[str, list[tuple[str, float]]] = {
+    "t1_under_2usd_day": [("none_or_primary", 0.55), ("secondary", 0.35), ("vocational", 0.06), ("tertiary", 0.035), ("postgraduate", 0.005)],
+    "t2_2_to_10usd_day": [("none_or_primary", 0.28), ("secondary", 0.45), ("vocational", 0.12), ("tertiary", 0.13), ("postgraduate", 0.02)],
+    "t3_10_to_50usd_day": [("none_or_primary", 0.08), ("secondary", 0.38), ("vocational", 0.17), ("tertiary", 0.30), ("postgraduate", 0.07)],
+    "t4_50_to_200usd_day": [("none_or_primary", 0.02), ("secondary", 0.22), ("vocational", 0.14), ("tertiary", 0.44), ("postgraduate", 0.18)],
+    "t5_over_200usd_day": [("none_or_primary", 0.01), ("secondary", 0.10), ("vocational", 0.07), ("tertiary", 0.47), ("postgraduate", 0.35)],
+}
+
+# Occupation groups by urbanicity (adults; the generator handles child/student/retired by age first).
+OCCUPATION_BY_URBANICITY: dict[str, list[tuple[str, float]]] = {
+    "urban": [
+        ("services_and_sales", 0.22), ("trades_and_industry", 0.13), ("clerical_admin", 0.09),
+        ("professional", 0.09), ("technical_engineering", 0.07), ("health_care", 0.05),
+        ("education", 0.05), ("creative_media", 0.03), ("public_service", 0.04),
+        ("management", 0.05), ("informal_gig", 0.13), ("homemaker", 0.03), ("unemployed", 0.02),
+    ],
+    "peri_urban": [
+        ("services_and_sales", 0.20), ("trades_and_industry", 0.16), ("agriculture", 0.08),
+        ("clerical_admin", 0.06), ("professional", 0.05), ("technical_engineering", 0.05),
+        ("health_care", 0.04), ("education", 0.05), ("creative_media", 0.02),
+        ("public_service", 0.04), ("management", 0.03), ("informal_gig", 0.15),
+        ("homemaker", 0.04), ("unemployed", 0.03),
+    ],
+    "rural": [
+        ("agriculture", 0.38), ("trades_and_industry", 0.10), ("services_and_sales", 0.12),
+        ("education", 0.04), ("health_care", 0.02), ("public_service", 0.03),
+        ("informal_gig", 0.18), ("homemaker", 0.08), ("unemployed", 0.05),
+    ],
+}
+
+OCCUPATION_TITLES: dict[str, list[str]] = {
+    "agriculture": ["smallholder farmer", "dairy farmer", "orchard keeper", "fisher", "agri-equipment operator"],
+    "trades_and_industry": ["electrician", "garment worker", "machinist", "construction lead", "welder", "auto mechanic"],
+    "services_and_sales": ["shopkeeper", "retail associate", "restaurant server", "salon owner", "delivery rider", "hotel front desk"],
+    "clerical_admin": ["office administrator", "bookkeeper", "logistics coordinator", "bank teller"],
+    "professional": ["accountant", "lawyer", "financial analyst", "consultant", "architect"],
+    "technical_engineering": ["software engineer", "data analyst", "civil engineer", "IT support specialist", "electronics technician"],
+    "health_care": ["nurse", "community health worker", "pharmacist", "physiotherapist", "physician"],
+    "education": ["primary school teacher", "secondary school teacher", "tutor", "university lecturer"],
+    "creative_media": ["graphic designer", "video editor", "musician", "photographer", "content writer"],
+    "public_service": ["municipal clerk", "police officer", "postal worker", "social worker"],
+    "management": ["operations manager", "store manager", "product manager", "site supervisor"],
+    "informal_gig": ["rideshare driver", "street vendor", "domestic worker", "freelance laborer", "market porter"],
+    "student": ["student"],
+    "homemaker": ["homemaker"],
+    "retired": ["retired"],
+    "unemployed": ["between jobs"],
+}
+
+# Household type by age band of the profile owner.
+HOUSEHOLD_BY_AGE: list[tuple[int, list[tuple[str, float]]]] = [
+    (17, [("nuclear_family", 0.62), ("multigenerational", 0.24), ("single_parent", 0.12), ("institutional", 0.02)]),
+    (29, [("shared", 0.22), ("single", 0.16), ("couple", 0.16), ("nuclear_family", 0.26), ("multigenerational", 0.18), ("single_parent", 0.02)]),
+    (54, [("nuclear_family", 0.44), ("couple", 0.18), ("multigenerational", 0.20), ("single", 0.10), ("single_parent", 0.08)]),
+    (105, [("couple", 0.36), ("single", 0.26), ("multigenerational", 0.30), ("nuclear_family", 0.06), ("institutional", 0.02)]),
+]
+
+# Languages by region (first = mother-tongue cluster; profiles get 1-3).
+LANGUAGES: dict[str, list[str]] = {
+    "south_asia": ["Hindi", "Bengali", "Urdu", "Tamil", "Telugu", "Marathi", "Punjabi", "English"],
+    "east_asia": ["Mandarin", "Cantonese", "Japanese", "Korean", "English"],
+    "sub_saharan_africa": ["Swahili", "Hausa", "Yoruba", "Amharic", "Zulu", "French", "English", "Portuguese"],
+    "southeast_asia": ["Indonesian", "Vietnamese", "Thai", "Filipino", "Burmese", "Khmer", "English"],
+    "europe": ["English", "German", "French", "Spanish", "Italian", "Polish", "Ukrainian", "Dutch"],
+    "latam_caribbean": ["Spanish", "Portuguese", "Haitian Creole", "Quechua", "English"],
+    "mena": ["Arabic", "Turkish", "Farsi", "Kurdish", "French", "English"],
+    "north_america": ["English", "Spanish", "French"],
+    "central_asia_oceania": ["Russian", "Kazakh", "Uzbek", "English", "Maori", "Tok Pisin"],
+}
+
+# Name banks per region: composed synthetic banks (given, family). Uniqueness at
+# 8B scale comes from the seed-derived ids, not name collisions.
+NAME_BANKS: dict[str, tuple[list[str], list[str]]] = {
+    "south_asia": (
+        ["Aarav", "Ananya", "Rohan", "Priya", "Kavya", "Arjun", "Meera", "Farhan", "Zara", "Ishaan", "Diya", "Nikhil"],
+        ["Sharma", "Patel", "Reddy", "Khan", "Iyer", "Das", "Chowdhury", "Kaur", "Fernandes", "Bhatt"],
+    ),
+    "east_asia": (
+        ["Wei", "Mei", "Jian", "Xiu", "Haruto", "Yuna", "Minjun", "Seoyeon", "Takeshi", "Li", "Hana", "Cheng"],
+        ["Wang", "Li", "Zhang", "Chen", "Sato", "Tanaka", "Kim", "Park", "Nakamura", "Liu"],
+    ),
+    "sub_saharan_africa": (
+        ["Kwame", "Amara", "Chidi", "Zainab", "Tendai", "Abebe", "Nia", "Sekou", "Fatou", "Thabo", "Adaeze", "Kofi"],
+        ["Okafor", "Mensah", "Diallo", "Abebe", "Ndlovu", "Mwangi", "Traore", "Banda", "Osei", "Achieng"],
+    ),
+    "southeast_asia": (
+        ["Nguyen", "Siti", "Andi", "Maya", "Thanh", "Dewi", "Jose", "Ling", "Arif", "Chan", "Mai", "Rizal"],
+        ["Nguyen", "Tran", "Santos", "Reyes", "Wijaya", "Tan", "Lim", "Pham", "Susanto", "Cruz"],
+    ),
+    "europe": (
+        ["Lukas", "Emma", "Mateusz", "Sofia", "Liam", "Chloe", "Marco", "Elena", "Jonas", "Ida", "Pavlo", "Greta"],
+        ["Müller", "Novak", "Rossi", "Dubois", "Kowalski", "Andersson", "Papadopoulos", "Shevchenko", "Smith", "Jansen"],
+    ),
+    "latam_caribbean": (
+        ["Mateo", "Valentina", "Diego", "Camila", "Thiago", "Lucia", "Joao", "Isabela", "Andres", "Fernanda", "Rafael", "Ximena"],
+        ["Garcia", "Silva", "Rodriguez", "Souza", "Martinez", "Pereira", "Lopez", "Ramirez", "Castro", "Mendoza"],
+    ),
+    "mena": (
+        ["Omar", "Layla", "Youssef", "Amira", "Mehmet", "Yasmin", "Ali", "Nour", "Reza", "Dalia", "Karim", "Elif"],
+        ["Hassan", "Al-Sayed", "Yilmaz", "Haddad", "Farouk", "Rahimi", "Mansour", "Aziz", "Demir", "Nasser"],
+    ),
+    "north_america": (
+        ["James", "Olivia", "Noah", "Ava", "Ethan", "Maria", "Tyler", "Grace", "Carlos", "Emily", "Jamal", "Hannah"],
+        ["Johnson", "Williams", "Garcia", "Brown", "Martin", "Lee", "Thompson", "Rodriguez", "Wilson", "Tremblay"],
+    ),
+    "central_asia_oceania": (
+        ["Aigerim", "Timur", "Aroha", "Jack", "Nurlan", "Mia", "Rustam", "Moana", "Erlan", "Ruby", "Aziz", "Tane"],
+        ["Nazarbayeva", "Ibragimov", "Walker", "Ngata", "Karimov", "Taylor", "Abdullaev", "Kelly", "Smith", "Parata"],
+    ),
+}
+
+# Gender of each given name in NAME_BANKS, so a profile's ``sex`` is coherent with
+# its name (a "Priya" is not emitted as male). Intersex profiles keep their drawn
+# sex and they/them pronouns regardless of the name. Names absent here fall back to
+# the drawn sex. Keep in lock-step with the given-name pools above.
+GIVEN_NAME_SEX: dict[str, str] = {
+    # south_asia
+    "Aarav": "male", "Rohan": "male", "Arjun": "male", "Farhan": "male", "Ishaan": "male", "Nikhil": "male",
+    "Ananya": "female", "Priya": "female", "Kavya": "female", "Meera": "female", "Zara": "female", "Diya": "female",
+    # east_asia
+    "Wei": "male", "Jian": "male", "Haruto": "male", "Minjun": "male", "Takeshi": "male", "Li": "male", "Cheng": "male",
+    "Mei": "female", "Xiu": "female", "Yuna": "female", "Seoyeon": "female", "Hana": "female",
+    # sub_saharan_africa
+    "Kwame": "male", "Chidi": "male", "Tendai": "male", "Abebe": "male", "Sekou": "male", "Thabo": "male", "Kofi": "male",
+    "Amara": "female", "Zainab": "female", "Nia": "female", "Fatou": "female", "Adaeze": "female", "Achieng": "female",
+    # southeast_asia
+    "Nguyen": "male", "Andi": "male", "Thanh": "male", "Jose": "male", "Arif": "male", "Chan": "male", "Rizal": "male",
+    "Siti": "female", "Maya": "female", "Dewi": "female", "Ling": "female", "Mai": "female",
+    # europe
+    "Lukas": "male", "Mateusz": "male", "Liam": "male", "Marco": "male", "Jonas": "male", "Pavlo": "male",
+    "Emma": "female", "Sofia": "female", "Chloe": "female", "Elena": "female", "Ida": "female", "Greta": "female",
+    # latam_caribbean
+    "Mateo": "male", "Diego": "male", "Thiago": "male", "Joao": "male", "Andres": "male", "Rafael": "male",
+    "Valentina": "female", "Camila": "female", "Lucia": "female", "Isabela": "female", "Fernanda": "female", "Ximena": "female",
+    # mena
+    "Omar": "male", "Youssef": "male", "Mehmet": "male", "Ali": "male", "Reza": "male", "Karim": "male",
+    "Layla": "female", "Amira": "female", "Yasmin": "female", "Nour": "female", "Dalia": "female", "Elif": "female",
+    # north_america
+    "James": "male", "Noah": "male", "Ethan": "male", "Tyler": "male", "Carlos": "male", "Jamal": "male",
+    "Olivia": "female", "Ava": "female", "Maria": "female", "Grace": "female", "Emily": "female", "Hannah": "female",
+    # central_asia_oceania
+    "Timur": "male", "Jack": "male", "Nurlan": "male", "Rustam": "male", "Erlan": "male", "Aziz": "male", "Tane": "male",
+    "Aigerim": "female", "Aroha": "female", "Mia": "female", "Moana": "female", "Ruby": "female",
+}
+
+VALUES_POOL = [
+    "family first", "financial security", "faith and tradition", "learning and growth",
+    "community standing", "independence", "health and longevity", "creativity",
+    "fairness", "adventure", "stability", "generosity", "craftsmanship", "privacy",
+]
+
+ASPIRATIONS_POOL = [
+    "own a home", "children's education", "start a business", "get out of debt",
+    "retire comfortably", "move to the city", "move closer to family", "travel abroad",
+    "master a new skill", "grow the farm", "buy a vehicle", "build savings buffer",
+    "career promotion", "give back to the community", "write or create something lasting",
+]
+
+STRESSORS_POOL = [
+    "rising cost of living", "job insecurity", "health costs", "elder care",
+    "children's future", "debt payments", "long commute", "housing costs",
+    "climate and weather shocks", "family expectations", "workload", "safety",
+]
+
+INTERESTS_POOL = [
+    "cricket", "football", "cooking", "gardening", "street food", "music",
+    "movies and series", "reading", "board games", "motorcycles", "sewing and crafts",
+    "fishing", "photography", "volunteering", "chess", "history", "languages",
+    "gaming", "fitness", "tea and coffee culture", "markets and bargains", "poetry",
+]
+
+JOBS_TO_BE_DONE_POOL = [
+    "stretch the monthly budget", "send money to family safely", "find better work",
+    "keep documents in one place", "prepare taxes without stress", "compare loan offers",
+    "track the harvest and sales", "manage the shop's inventory", "plan children's school fees",
+    "stay on top of medical visits", "coordinate the household", "learn new skills cheaply",
+    "grow savings safely", "keep in touch across distance", "navigate government paperwork",
+]
+
+MEDIA_DIET_POOL = [
+    "short video", "messaging groups", "radio", "TV serials", "news apps", "podcasts",
+    "social feeds", "long-form video", "print newspaper", "streaming music", "forums",
+]
+
+DEVICES_BY_TIER: dict[str, list[tuple[str, float]]] = {
+    "t1_under_2usd_day": [("feature_phone", 0.45), ("android_low", 0.30), ("shared_device", 0.15), ("none", 0.10)],
+    "t2_2_to_10usd_day": [("android_low", 0.52), ("android_mid", 0.25), ("feature_phone", 0.15), ("shared_device", 0.08)],
+    "t3_10_to_50usd_day": [("android_mid", 0.48), ("android_low", 0.18), ("iphone", 0.16), ("laptop", 0.14), ("tablet", 0.04)],
+    "t4_50_to_200usd_day": [("iphone", 0.34), ("android_mid", 0.26), ("laptop", 0.26), ("wearable", 0.08), ("tablet", 0.06)],
+    "t5_over_200usd_day": [("iphone", 0.38), ("laptop", 0.30), ("wearable", 0.14), ("android_mid", 0.10), ("desktop", 0.08)],
+}
+
+SCOPE_FAMILIES = [
+    "attr.financial", "attr.health", "attr.professional", "attr.social",
+    "attr.location", "attr.identity", "attr.shopping", "attr.entertainment",
+]

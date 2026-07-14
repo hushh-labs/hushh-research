@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hushh.ai/schemas/humanprofile/v0/profile.json",
+  "title": "HumanProfile v0",
+  "description": "The world's simplest deep representation of a synthetic human for development and baselining. Every profile is generated — no real person's data. One document, readable in one sitting: identity, demographics, psychographics, world model, personal knowledge model, behavioral signals, and consent posture.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "synthetic",
+    "marginals_version",
+    "seed",
+    "profile_id",
+    "identity",
+    "demographics",
+    "psychographics",
+    "world_model",
+    "knowledge_model",
+    "behavioral_signals",
+    "consent_posture"
+  ],
+  "properties": {
+    "schema_version": { "const": "humanprofile/v0" },
+    "synthetic": {
+      "const": true,
+      "description": "Always true. Marks the document as generated data so no synthetic profile can ever be mistaken for a real person's record."
+    },
+    "marginals_version": {
+      "type": "string",
+      "description": "The world-distribution version that produced this profile. (seed + marginals_version) fully reproduces the document, so the JSON is self-describing."
+    },
+    "seed": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The deterministic seed. profile(seed) is a pure function: same seed, same profile, forever. The 8B address space is seeds [0, 8e9)."
+    },
+    "profile_id": {
+      "type": "string",
+      "pattern": "^synth_[0-9a-f]{24}$",
+      "description": "Stable synthetic user id (doubles as the Firebase-UID-shaped user_id in app tables)."
+    },
+    "identity": {
+      "type": "object",
+      "required": ["display_name", "given_name", "family_name", "email", "locale"],
+      "properties": {
+        "display_name": { "type": "string" },
+        "given_name": { "type": "string" },
+        "family_name": { "type": "string" },
+        "email": {
+          "type": "string",
+          "description": "Synthetic anchor at a reserved documentation domain — never a deliverable address."
+        },
+        "phone_anchor": {
+          "type": "string",
+          "description": "Synthetic E.164-shaped anchor using reserved/fictional ranges."
+        },
+        "locale": { "type": "string", "description": "BCP-47, e.g. en-IN, pt-BR." },
+        "pronouns": { "type": "string" }
+      }
+    },
+    "demographics": {
+      "type": "object",
+      "required": ["region", "country_zone", "age", "sex", "urbanicity", "household", "education_level", "occupation", "income_tier", "languages"],
+      "properties": {
+        "region": {
+          "enum": ["south_asia", "east_asia", "southeast_asia", "sub_saharan_africa", "mena", "europe", "latam_caribbean", "north_america", "central_asia_oceania"]
+        },
+        "country_zone": { "type": "string", "description": "Coarse sub-region label, not a specific person's country of record." },
+        "age": { "type": "integer", "minimum": 0, "maximum": 105 },
+        "sex": { "enum": ["female", "male", "intersex"] },
+        "urbanicity": { "enum": ["urban", "peri_urban", "rural"] },
+        "household": {
+          "type": "object",
+          "required": ["size", "type"],
+          "properties": {
+            "size": { "type": "integer", "minimum": 1, "maximum": 14 },
+            "type": { "enum": ["single", "couple", "nuclear_family", "multigenerational", "single_parent", "shared", "institutional"] },
+            "dependents": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "education_level": { "enum": ["none_or_primary", "secondary", "vocational", "tertiary", "postgraduate"] },
+        "occupation": {
+          "type": "object",
+          "required": ["group", "title", "status"],
+          "properties": {
+            "group": { "enum": ["agriculture", "trades_and_industry", "services_and_sales", "clerical_admin", "professional", "technical_engineering", "health_care", "education", "creative_media", "public_service", "management", "informal_gig", "student", "homemaker", "retired", "unemployed"] },
+            "title": { "type": "string" },
+            "status": { "enum": ["employed", "self_employed", "gig", "student", "homemaker", "retired", "unemployed"] }
+          }
+        },
+        "income_tier": {
+          "enum": ["t1_under_2usd_day", "t2_2_to_10usd_day", "t3_10_to_50usd_day", "t4_50_to_200usd_day", "t5_over_200usd_day"],
+          "description": "Global income tiers (per-capita/day, PPP-style) so the population is honest about the world, not just the rich web."
+        },
+        "languages": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "disability": { "type": "array", "items": { "enum": ["vision", "hearing", "mobility", "cognitive", "chronic_pain", "none"] } }
+      }
+    },
+    "psychographics": {
+      "type": "object",
+      "required": ["traits", "values", "aspirations", "stressors"],
+      "properties": {
+        "traits": {
+          "type": "object",
+          "description": "0-100 axes (five-factor-style) with mild realistic correlations.",
+          "required": ["openness", "conscientiousness", "extraversion", "agreeableness", "emotional_stability"],
+          "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 100 }
+        },
+        "values": { "type": "array", "minItems": 2, "items": { "type": "string" } },
+        "aspirations": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "stressors": { "type": "array", "items": { "type": "string" } },
+        "risk_tolerance": { "type": "integer", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "world_model": {
+      "type": "object",
+      "description": "The person's lived world: who, where, and the rhythm of their days.",
+      "required": ["relationships", "places", "routines", "devices"],
+      "properties": {
+        "relationships": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["role", "closeness"],
+            "properties": {
+              "role": { "type": "string" },
+              "name": { "type": "string" },
+              "closeness": { "enum": ["inner_circle", "close", "regular", "peripheral"] },
+              "trusted_for": { "type": "array", "items": { "type": "string" }, "description": "Scope families this person would plausibly be granted (feeds connection/consent test data)." }
+            }
+          }
+        },
+        "places": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {
+              "kind": { "enum": ["home", "work", "school", "worship", "market", "clinic", "gym", "third_place"] },
+              "label": { "type": "string" }
+            }
+          }
+        },
+        "routines": { "type": "array", "items": { "type": "string" } },
+        "devices": {
+          "type": "array",
+          "items": { "enum": ["feature_phone", "android_low", "android_mid", "iphone", "laptop", "desktop", "tablet", "wearable", "shared_device", "none"] }
+        }
+      }
+    },
+    "knowledge_model": {
+      "type": "object",
+      "description": "Per-domain personal knowledge, aligned to the shipped PKM domain registry so profiles exercise real product paths (attr.{domain}.* scopes).",
+      "required": ["financial", "professional", "social", "health", "interests"],
+      "properties": {
+        "financial": {
+          "type": "object",
+          "required": ["has_bank_account", "risk_profile"],
+          "properties": {
+            "has_bank_account": { "type": "boolean" },
+            "risk_profile": { "enum": ["conservative", "balanced", "growth", "aggressive"] },
+            "risk_score": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "holdings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["ticker", "asset_class", "value_usd"],
+                "properties": {
+                  "ticker": { "type": "string" },
+                  "asset_class": { "enum": ["equity", "etf", "bond", "cash", "gold", "crypto", "real_estate", "livestock", "informal_savings"] },
+                  "value_usd": { "type": "number", "minimum": 0 }
+                }
+              }
+            },
+            "total_value_usd": { "type": "number", "minimum": 0 },
+            "debts": { "type": "array", "items": { "type": "string" } },
+            "money_goals": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "professional": {
+          "type": "object",
+          "properties": {
+            "skills": { "type": "array", "items": { "type": "string" } },
+            "years_experience": { "type": "integer", "minimum": 0 },
+            "work_style": { "type": "string" }
+          }
+        },
+        "social": {
+          "type": "object",
+          "properties": {
+            "community_roles": { "type": "array", "items": { "type": "string" } },
+            "network_size_bucket": { "enum": ["tight", "moderate", "wide", "very_wide"] }
+          }
+        },
+        "health": {
+          "type": "object",
+          "description": "Broad synthetic categories only — depth without diagnosis-level specificity.",
+          "properties": {
+            "fitness_habit": { "enum": ["sedentary", "light", "moderate", "active", "athlete"] },
+            "conditions_bucket": { "type": "array", "items": { "enum": ["none", "metabolic", "cardio", "respiratory", "musculoskeletal", "mental_wellness", "vision_hearing"] } },
+            "sleep_pattern": { "enum": ["short", "irregular", "regular", "long"] }
+          }
+        },
+        "interests": { "type": "array", "minItems": 2, "items": { "type": "string" } }
+      }
+    },
+    "behavioral_signals": {
+      "type": "object",
+      "description": "The needs/wants/desires layer: how this person actually behaves with technology and money day to day.",
+      "required": ["digital_hours_per_day", "primary_jobs_to_be_done", "shopping_style", "media_diet"],
+      "properties": {
+        "digital_hours_per_day": { "type": "number", "minimum": 0, "maximum": 18 },
+        "primary_jobs_to_be_done": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "shopping_style": { "enum": ["necessity_only", "value_hunter", "planner", "impulse", "premium", "ethical"] },
+        "media_diet": { "type": "array", "items": { "type": "string" } },
+        "agent_use_cases": { "type": "array", "items": { "type": "string" }, "description": "What a personal private agent would most help this human with." }
+      }
+    },
+    "consent_posture": {
+      "type": "object",
+      "description": "How this person tends to grant, deny, and revoke — drives realistic PCHP handshake test traffic.",
+      "required": ["privacy_stance", "default_grant_duration_days", "share_willingness"],
+      "properties": {
+        "privacy_stance": { "enum": ["open", "pragmatic", "guarded", "fortress"] },
+        "default_grant_duration_days": { "type": "integer", "minimum": 1, "maximum": 365 },
+        "share_willingness": {
+          "type": "object",
+          "description": "0-100 willingness to share each scope family with a trusted requester.",
+          "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 100 }
+        },
+        "revocation_tendency": { "enum": ["rarely", "sometimes", "often"] }
+      }
+    }
+  }
+}
