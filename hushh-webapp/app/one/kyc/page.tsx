@@ -1870,7 +1870,7 @@ export function OneKycWorkspace({
                                 event.stopPropagation();
                                 toggleConfirmScope(item.scope);
                               }}
-                              className="flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007aff]/40 focus-visible:ring-offset-1"
+                              className="flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-1"
                             >
                               <span className={cn(SELECT_CIRCLE_BASE, checked ? SELECT_CIRCLE_ON : SELECT_CIRCLE_OFF)}>
                                 {checked ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : null}
@@ -1971,7 +1971,7 @@ export function OneKycWorkspace({
                                 event.stopPropagation();
                                 toggleScope(selected, candidate.scope);
                               }}
-                              className="flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007aff]/40 focus-visible:ring-offset-1"
+                              className="flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-1"
                             >
                               <span className={cn(SELECT_CIRCLE_BASE, checked ? SELECT_CIRCLE_ON : SELECT_CIRCLE_OFF)}>
                                 {checked ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : null}
