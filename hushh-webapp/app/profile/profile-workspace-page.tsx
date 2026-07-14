@@ -13,7 +13,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   Bug,
-  Cloud,
+  CodeXml,
   Code2,
   ClipboardCheck,
   ExternalLink,
@@ -25,13 +25,17 @@ import {
   LogOut,
   Mail,
   MapPin,
+  MessageCircleQuestion,
   Monitor,
   Phone,
+  Palette,
   RefreshCw,
   SendHorizontal,
+  ShieldCheck,
+  SlidersHorizontal,
   Trash2,
   User,
-  Volume2,
+  UserRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -191,16 +195,19 @@ import {
 import { useVault } from "@/lib/vault/vault-context";
 import { resolveVaultAvailabilityState } from "@/lib/vault/vault-access-policy";
 import { useConsentActions } from "@/lib/consent";
-import {
-  AGENT_GEMINI_TTS_VOICES,
-  DEFAULT_AGENT_GEMINI_TTS_VOICE,
-  readAgentVoiceSettings,
-  writeAgentVoiceSettings,
-  type AgentGeminiTtsVoice,
-} from "@/lib/agent/agent-voice-settings";
+import { useAccent, writeAccent, type AppAccent } from "@/lib/theme/accent";
 
 type FinancialContextCategory =
   "general" | "portfolio" | "risk" | "kyc" | "tax" | "documents";
+
+const PROFILE_LABELS = {
+  account: "Your account",
+  preferences: "Appearance & preferences",
+  security: "Security & privacy",
+  support: "Help & feedback",
+  developerTools: "Developer tools",
+  accountAccess: "Account access",
+} as const;
 
 function cloneManifest(manifest: DomainManifest | null): DomainManifest | null {
   if (!manifest) return null;
@@ -522,6 +529,7 @@ function profileRouteNeedsWorkspaceData(panel: ProfilePanel | null): boolean {
 
 function ProfilePageContent() {
   const canShowPkmAgentLab = resolveDeveloperRuntime().environment === "local";
+  const appAccent = useAccent();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -543,9 +551,7 @@ function ProfilePageContent() {
   const { registerSteps, completeStep, reset } = useStepProgress();
 
   const [showVaultUnlock, setShowVaultUnlock] = useState(false);
-  const [agentTtsVoice, setAgentTtsVoice] = useState<AgentGeminiTtsVoice>(
-    () => readAgentVoiceSettings().ttsVoice,
-  );
+
   const [vaultUnlockReason, setVaultUnlockReason] = useState<
     "profile_data" | "delete_account" | "reset_account"
   >("profile_data");
@@ -1979,9 +1985,6 @@ function ProfilePageContent() {
     ? maskPhoneNumber(phoneNumber)
     : "No phone number linked yet";
   const emailVerified = Boolean(user?.emailVerified);
-  const emailVerificationText = emailVerified
-    ? "Verified email"
-    : "Email not verified";
 
   const gmailStatusLabel = gmailPresentation.badgeLabel;
   const gmailStatusSummary = useMemo(
@@ -2051,8 +2054,8 @@ function ProfilePageContent() {
       },
       {
         id: "profile_security",
-        label: "Security",
-        purpose: "opens vault, session, and account deletion controls.",
+        label: PROFILE_LABELS.security,
+        purpose: "opens vault, account access, and account deletion controls.",
         actionId: "route.profile_security_panel",
         role: "card",
         voiceAliases: [
@@ -2083,7 +2086,7 @@ function ProfilePageContent() {
         : []),
       {
         id: "profile_account",
-        label: "Account",
+        label: PROFILE_LABELS.account,
         purpose: "opens account identity, email, and phone management.",
         actionId: "route.profile",
         role: "card",
@@ -2099,7 +2102,7 @@ function ProfilePageContent() {
       },
       {
         id: "profile_support",
-        label: "Support & feedback",
+        label: PROFILE_LABELS.support,
         purpose: "opens support routing and compose flows.",
         actionId: "route.profile_support_panel",
         role: "card",
@@ -2108,7 +2111,7 @@ function ProfilePageContent() {
       {
         id: "profile_sign_out",
         label: "Sign out",
-        purpose: "ends this session on the current device.",
+        purpose: "signs you out of this device.",
         actionId: "profile.sign_out",
         role: "button",
         voiceAliases: ["sign out", "log out"],
@@ -2125,8 +2128,8 @@ function ProfilePageContent() {
         ? [
             {
               id: "profile_pkm_agent_lab",
-              label: "PKM Agent Lab",
-              purpose: "opens the developer-facing PKM workspace.",
+              label: PROFILE_LABELS.developerTools,
+              purpose: "opens the local developer workspace.",
               actionId: "route.profile_pkm_agent_lab",
               role: "card",
               voiceAliases: ["pkm agent lab", "memory lab"],
@@ -2144,26 +2147,6 @@ function ProfilePageContent() {
         role: "control",
         voiceAliases: ["theme", "appearance", "dark mode", "light mode"],
       },
-      {
-        id: "profile_agent_voice",
-        label: "Agent voice",
-        type: "select",
-        state: agentTtsVoice,
-        purpose:
-          "shows the Gemini-compatible local voice selector used for Agent speech on this device.",
-        role: "control",
-        voiceAliases: ["agent voice", "gemini voice", "tts voice", "voice"],
-      },
-      {
-        id: "profile_device_controls",
-        label: "Device controls",
-        type: "status",
-        state: "coming_soon",
-        purpose:
-          "indicates that device controls are not available yet, so One should not offer them as executable voice actions.",
-        role: "status",
-        voiceAliases: ["device controls", "device preferences"],
-      },
     ];
     const controls =
       activePanel === "preferences" ? preferenceControls : profileHomeControls;
@@ -2174,7 +2157,7 @@ function ProfilePageContent() {
     const visibleModules = activePanel
       ? [
           activePanel === "account"
-            ? "Account"
+            ? PROFILE_LABELS.account
             : activePanel === "my-data"
               ? "Memory"
               : activePanel === "access"
@@ -2182,21 +2165,21 @@ function ProfilePageContent() {
                 : activePanel === "connected-systems"
                   ? "Connected Systems"
                   : activePanel === "preferences"
-                    ? "Preferences"
+                    ? PROFILE_LABELS.preferences
                     : activePanel === "security"
-                      ? "Security"
+                      ? PROFILE_LABELS.security
                       : activePanel === "gmail"
                         ? "Gmail receipts"
-                        : "Support & feedback",
+                        : PROFILE_LABELS.support,
           ...(activeDetail ? [activeDetail] : []),
         ]
       : [
-          "Account",
+          PROFILE_LABELS.account,
           ...(shouldShowRiaRegulatoryRow ? ["Regulatory profile"] : []),
-          "Preferences",
-          "Security",
-          "Support & feedback",
-          ...(canShowPkmAgentLab ? ["PKM Agent Lab"] : []),
+          PROFILE_LABELS.preferences,
+          PROFILE_LABELS.security,
+          PROFILE_LABELS.support,
+          ...(canShowPkmAgentLab ? [PROFILE_LABELS.developerTools] : []),
         ];
     const availableActions =
       activePanel === "gmail"
@@ -2231,12 +2214,12 @@ function ProfilePageContent() {
                       "Delete account",
                     ]
                   : [
-                      "Open Account",
-                      "Open Security",
+                      "Open your account",
+                      "Open security & privacy",
                       ...(shouldShowRiaRegulatoryRow
                         ? ["Update license information"]
                         : []),
-                      "Open Support",
+                      "Open help & feedback",
                     ];
 
     return {
@@ -2244,7 +2227,7 @@ function ProfilePageContent() {
         screenId: activePanel ? `profile_${activePanel}` : "profile_home",
         title: activePanel
           ? activePanel === "account"
-            ? "Account"
+            ? PROFILE_LABELS.account
             : activePanel === "my-data"
               ? "Memory"
               : activePanel === "access"
@@ -2252,34 +2235,34 @@ function ProfilePageContent() {
                 : activePanel === "connected-systems"
                   ? "Connected Systems"
                   : activePanel === "preferences"
-                    ? "Preferences"
+                    ? PROFILE_LABELS.preferences
                     : activePanel === "security"
-                      ? "Security"
+                      ? PROFILE_LABELS.security
                       : activePanel === "gmail"
                         ? "Gmail receipts"
-                        : "Support & feedback"
+                        : PROFILE_LABELS.support
           : "Profile",
         purpose:
-          "This surface manages account identity, preferences, support, and vault security.",
+          "This surface manages account details, appearance, help, and vault privacy.",
         sections: [
           {
             id: "account",
-            title: "Account",
+            title: PROFILE_LABELS.account,
             purpose: "Email, phone, and sign-in identity.",
           },
           {
             id: "preferences",
-            title: "Preferences",
-            purpose: "Shell, theme, and device preferences.",
+            title: PROFILE_LABELS.preferences,
+            purpose: "Theme and accent preferences.",
           },
           {
             id: "security",
-            title: "Security",
-            purpose: "Vault and destructive account actions.",
+            title: PROFILE_LABELS.security,
+            purpose: "Vault and account access controls.",
           },
           {
             id: "support",
-            title: "Support & feedback",
+            title: PROFILE_LABELS.support,
             purpose: "Support routing and compose flows.",
           },
         ],
@@ -2341,7 +2324,6 @@ function ProfilePageContent() {
         security_summary: securitySummaryText,
         phone_verified: Boolean(phoneNumber),
         email_verified: emailVerified,
-        agent_tts_voice: agentTtsVoice,
         preference_voice_actions_available:
           activePanel === "preferences" ? false : null,
       },
@@ -2349,7 +2331,6 @@ function ProfilePageContent() {
   }, [
     activeDetail,
     activePanel,
-    agentTtsVoice,
     activeVoiceControlId,
     canShowPkmAgentLab,
     currentRiaLicenseNumber,
@@ -3172,13 +3153,6 @@ function ProfilePageContent() {
 
   const accountContent = (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        <Badge variant="secondary">{provider.name}</Badge>
-        <Badge variant="secondary">{emailVerificationText}</Badge>
-        <Badge variant="secondary">
-          {phoneNumber ? "Phone verified" : "Phone required"}
-        </Badge>
-      </div>
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={User}
@@ -3213,7 +3187,7 @@ function ProfilePageContent() {
           description={provider.name}
         />
       </SettingsGroup>
-      <SettingsGroup title="Actions">
+      <SettingsGroup title="Account actions">
         <SettingsRow
           icon={Phone}
           title={phoneNumber ? "Change phone number" : "Add phone number"}
@@ -3249,10 +3223,6 @@ function ProfilePageContent() {
 
   const preferencesContent = (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        <Badge variant="secondary">Appearance</Badge>
-        <Badge variant="secondary">Device controls soon</Badge>
-      </div>
       <SettingsGroup>
         <SettingsRow
           icon={Monitor}
@@ -3264,50 +3234,34 @@ function ProfilePageContent() {
           stackTrailingOnMobile
         />
         <SettingsRow
-          icon={Volume2}
-          title="Agent voice"
-          description="Choose the Gemini TTS voice Agent uses for spoken replies on this device."
+          icon={Palette}
+          title="Accent"
+          description="The highlight color One uses across the app."
           trailing={
             <Select
-              value={agentTtsVoice}
+              value={appAccent}
               onValueChange={(value) => {
-                const next = writeAgentVoiceSettings({
-                  ttsVoice: value as AgentGeminiTtsVoice,
-                }).ttsVoice;
-                setAgentTtsVoice(next);
-                toast.success(`Agent voice set to ${next}.`);
+                const next = writeAccent(value as AppAccent);
+                toast.success(
+                  next === "gold"
+                    ? "Accent set to Molten Gold."
+                    : "Accent set to iOS Blue.",
+                );
               }}
             >
               <SelectTrigger
                 className="w-full min-w-[11rem] sm:w-[228px]"
-                aria-label="Agent TTS voice"
+                aria-label="App accent color"
               >
-                <SelectValue placeholder={DEFAULT_AGENT_GEMINI_TTS_VOICE} />
+                <SelectValue placeholder="iOS Blue" />
               </SelectTrigger>
               <SelectContent>
-                {AGENT_GEMINI_TTS_VOICES.map((voice) => (
-                  <SelectItem key={voice} value={voice}>
-                    {voice}
-                  </SelectItem>
-                ))}
+                <SelectItem value="blue">iOS Blue</SelectItem>
+                <SelectItem value="gold">Molten Gold</SelectItem>
               </SelectContent>
             </Select>
           }
           stackTrailingOnMobile
-        />
-        <SettingsRow
-          icon={Cloud}
-          title="On-device first"
-          description="Device-first controls."
-          trailing={<Badge variant="secondary">Coming soon</Badge>}
-          chevron
-          stackTrailingOnMobile
-          onClick={() =>
-            updateProfileView(
-              { panel: "preferences", detail: "device" },
-              "push",
-            )
-          }
         />
       </SettingsGroup>
     </div>
@@ -3315,20 +3269,6 @@ function ProfilePageContent() {
 
   const securityContent = (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        <Badge variant="secondary">
-          {vaultAccess.hasVault
-            ? vaultAccess.needsUnlock
-              ? "Vault locked"
-              : "Vault unlocked"
-            : "No vault"}
-        </Badge>
-        {displayedUnlockMethod ? (
-          <Badge variant="secondary">
-            {readableMethod(displayedUnlockMethod)}
-          </Badge>
-        ) : null}
-      </div>
       <SettingsGroup>
         <SettingsRow
           icon={Fingerprint}
@@ -3377,12 +3317,6 @@ function ProfilePageContent() {
 
   const gmailContent = (
     <div className="space-y-4 sm:space-y-5">
-      <div className="flex flex-wrap gap-2">
-        <Badge variant="secondary">{gmailStatusLabel}</Badge>
-        {gmailLastSyncText && gmailLastSyncText !== "Not synced yet" ? (
-          <Badge variant="secondary">{gmailLastSyncText}</Badge>
-        ) : null}
-      </div>
       <SettingsGroup>
         <SettingsRow
           icon={Mail}
@@ -4000,8 +3934,8 @@ function ProfilePageContent() {
   } else if (!routeBlockedByVault && activePanel === "preferences") {
     profileStackEntries.push({
       key: "panel:preferences",
-      title: "Preferences",
-      description: "Appearance, theme, and device behavior.",
+      title: PROFILE_LABELS.preferences,
+      description: "Choose the app theme and accent color.",
       content: preferencesContent,
     });
     if (activeDetail === "kai-preferences") {
@@ -4019,29 +3953,12 @@ function ProfilePageContent() {
           />
         ),
       });
-    } else if (activeDetail === "device") {
-      profileStackEntries.push({
-        key: "detail:device",
-        title: "On-device first",
-        description: "Local-device controls and upcoming options.",
-        content: (
-          <SettingsGroup title="Device">
-            <SettingsRow
-              icon={Cloud}
-              title="Bring your own key"
-              description="Planned."
-              trailing={<Badge variant="secondary">Coming soon</Badge>}
-              stackTrailingOnMobile
-            />
-          </SettingsGroup>
-        ),
-      });
     }
   } else if (!routeBlockedByVault && activePanel === "security") {
     profileStackEntries.push({
       key: "panel:security",
-      title: "Security",
-      description: "Vault methods and session controls.",
+      title: PROFILE_LABELS.security,
+      description: "Vault methods and account access controls.",
       content: securityContent,
     });
     if (activeDetail === "vault") {
@@ -4054,14 +3971,14 @@ function ProfilePageContent() {
     } else if (activeDetail === "session") {
       profileStackEntries.push({
         key: "detail:session",
-        title: "Session",
-        description: "Manage the current session on this device.",
+        title: PROFILE_LABELS.accountAccess,
+        description: "Manage sign-in on this device.",
         content: (
-          <SettingsGroup title="Session">
+          <SettingsGroup title={PROFILE_LABELS.accountAccess}>
             <SettingsRow
               icon={LogOut}
               title="Sign out"
-              description="End this session on the current device."
+              description="Sign out on this device."
               onClick={() => void handleSignOut()}
               chevron
             />
@@ -4094,7 +4011,7 @@ function ProfilePageContent() {
   } else if (!routeBlockedByVault && activePanel === "support") {
     profileStackEntries.push({
       key: "panel:support",
-      title: "Support & feedback",
+      title: PROFILE_LABELS.support,
       description: "Get help, report bugs, or send product feedback.",
       content: supportContent,
     });
@@ -4161,10 +4078,11 @@ function ProfilePageContent() {
       <AppPageContentRegion>
         <SurfaceStack compact>
           <div className="space-y-4 sm:space-y-5">
-            <SettingsGroup title="Settings" separatorInset>
+            <SettingsGroup title="Your settings" separatorInset>
               {shouldShowRiaRegulatoryRow ? (
                 <SettingsRow
                   icon={ClipboardCheck}
+                  iconTone="blue"
                   title={riaRegulatoryRow.title}
                   trailing={
                     <Badge variant="secondary">{riaRegulatoryRow.badge}</Badge>
@@ -4180,33 +4098,37 @@ function ProfilePageContent() {
                 />
               ) : null}
               <SettingsRow
-                icon={Phone}
-                title="Account"
+                icon={UserRound}
+                iconTone="blue"
+                title={PROFILE_LABELS.account}
                 chevron
                 density="compact"
                 onClick={openAccountPanel}
               />
               <SettingsRow
-                icon={RefreshCw}
-                title="Preferences"
+                icon={SlidersHorizontal}
+                iconTone="purple"
+                title={PROFILE_LABELS.preferences}
                 chevron
                 density="compact"
                 onClick={openPreferencesPanel}
               />
               <SettingsRow
-                icon={Fingerprint}
-                title="Security"
+                icon={ShieldCheck}
+                iconTone="green"
+                title={PROFILE_LABELS.security}
                 chevron
                 density="compact"
                 voiceControlId="profile_security"
                 voiceActionId="route.profile_security_panel"
-                voiceLabel="Security"
-                voicePurpose="Opens vault, session, and account deletion controls."
+                voiceLabel={PROFILE_LABELS.security}
+                voicePurpose="Opens vault, account access, and account deletion controls."
                 onClick={openSecurityPanel}
               />
               <SettingsRow
-                icon={LifeBuoy}
-                title="Support & feedback"
+                icon={MessageCircleQuestion}
+                iconTone="orange"
+                title={PROFILE_LABELS.support}
                 chevron
                 density="compact"
                 onClick={() =>
@@ -4215,8 +4137,9 @@ function ProfilePageContent() {
               />
               {canShowPkmAgentLab ? (
                 <SettingsRow
-                  icon={Code2}
-                  title="PKM Agent Lab"
+                  icon={CodeXml}
+                  iconTone="purple"
+                  title={PROFILE_LABELS.developerTools}
                   trailing={<Badge variant="secondary">Local</Badge>}
                   chevron
                   density="compact"
@@ -4225,7 +4148,7 @@ function ProfilePageContent() {
               ) : null}
             </SettingsGroup>
 
-            <SettingsGroup title="Session" separatorInset>
+            <SettingsGroup title={PROFILE_LABELS.accountAccess} separatorInset>
               <SettingsRow
                 icon={LogOut}
                 title="Sign out"

@@ -109,6 +109,8 @@ scrolled fully above fixed chrome on compact viewports.
 22. Route-local inline back buttons are reserved for contexts that do not participate in the shared shell, such as modal, sheet, or fullscreen-flow surfaces.
 23. Signed-in route verification is contract-driven. `hushh-webapp/lib/navigation/app-route-layout.contract.json` is the browser coverage source of truth for `npm run verify:routes`.
 24. Signed-in route work is not complete until the route-contract Playwright sweep passes with the reviewer login and vault-unlock path.
+25. Top-shell menus and popovers use the shared top-shell content wrappers. They share width, collision padding, visual treatment, and mobile centering; a centered trigger must not own a route-local panel offset.
+26. The Agent Bar binds to the shared bottom-chrome motion state and measures its own viewport-clear distance. Do not subscribe the voice tree to scroll frames or calculate a second route-local bottom offset.
 
 ## Pixel Grid And Symmetry Contract
 
@@ -117,8 +119,8 @@ Repeated visual systems must sit on explicit gridlines. Treat broken symmetry as
 Rules:
 
 1. Section headings, progress strips, app-icon launchers, repeated tabs, and their first visible item must share the same horizontal inset inside a route section.
-2. App-icon launcher cells use fixed tracks and `justify-start`; do not stretch a small number of app icons across a wide card with `grid-cols-3 sm:grid-cols-4 ...` when that causes uneven starts.
-3. The tile cell owns a stable width; the icon well, label, and status text align within that cell. Status badges may protrude from the icon well, but the base tile geometry must remain equal across rows.
+2. App-icon launcher cells use fixed tracks; center a finite launcher roster on a wide canvas and use `justify-start` only when it belongs to a larger, left-anchored collection. Do not stretch a small number of app icons across a wide card with `grid-cols-3 sm:grid-cols-4 ...` when that causes uneven starts.
+3. The tile cell owns a stable width; the icon well, label, and status text align within that cell. Agent-roster status is expressed by its text, not a badge protruding from the icon well; the base tile geometry must remain equal across rows.
 4. Content-aware tabs and dropdowns should appear only where they add navigation value. If the route body already shows the same launcher choices, hide the duplicate top selector.
 5. Progress and setup strips must be full-width within the same content column and use `overflow-hidden` only on the strip itself when needed to prevent visual bleed.
 6. When changing a shared visual pattern, update the owning component test to lock the layout primitive that prevents drift, such as fixed cell width, shared inset, or selector visibility.
@@ -253,56 +255,64 @@ Rules:
 
 ## Foundation Color Contract
 
-The app's color identity is the **Foundation** system, established in
-hushh-research by the `feat/foundation-design-unification` work (theme-aware
-wordmark, tokens, and the blue→gold sweep across shadcn/brand/morphy primitives
-and feature components). The CSS tokens live in `hushh-webapp/app/globals.css`
-(`--foundation-*`, `--color-accent-*`) and flip automatically in `.dark`. (The
-underlying gold/ink palette hexes were adopted from the hushh-search-console
-palette; see the note in `globals.css`.) This contract governs how those tokens
-are USED in component code so the palette stays consistent across every surface
-and engineer.
+The app's color identity is the **Foundation** system with ONE switchable
+accent. The `--app-accent-*` family in `hushh-webapp/app/globals.css` is the
+single accent source of truth: **iOS Blue by default**, **Molten Gold** when
+the user opts in (Profile → Preferences → Accent; persisted at
+`hushh.app.accent.v1`, applied pre-paint via `html[data-accent="gold"]` by the
+inline script in `app/layout.tsx`, managed by `lib/theme/accent.ts`). All
+legacy accent names (`--foundation-gold-*`, `--color-accent-*`, `--brand-*`,
+`--morphy-primary-*`, `--tone-blue*`, `--accent`, `--ring`) alias the family
+and flip automatically in `.dark`, so existing consumers follow the preference
+with zero churn. The RIA persona surface (`body[data-persona-surface="ria"]`)
+intentionally keeps its own gold identity regardless of the accent preference.
+This contract governs how the tokens are USED in component code.
 
 ### The Foundation law
 
-1. **Gold is emphasis / accent ONLY — never decoration and never primary.** Ink
+1. **Accent is emphasis ONLY — never decoration and never primary.** Ink
    (near-black, `--primary`/`text-foreground`) carries primary; gray
-   (`text-muted-foreground`) carries support. Gold marks the ONE thing that
-   deserves attention on a surface (active state, key metric, brand chrome).
+   (`text-muted-foreground`) carries support. The accent marks the ONE thing
+   that deserves attention on a surface (active state, key metric, brand chrome).
 2. **Use semantic tokens, not raw hex.** Prefer `text-accent-strong`,
-   `bg-accent`, `bg-accent-surface`, `border-accent-border`, `ring-accent`,
-   `text-foreground`, `text-muted-foreground`, `bg-primary` over literal
-   `#b8894d`/`#d4a574` or `text-yellow-*`. The tokens are theme-aware; raw hex is
-   not and drifts in dark mode.
-3. **`text-accent-strong` already flips for dark** (it is
-   `var(--foundation-gold-deep)`: `#b8894d` light → `#e6b366` dark). Use it
-   WITHOUT a `dark:` variant — adding one fights the token.
-4. **No off-palette brand blue.** `blue-*`, `sky-*`, `indigo-*`, `cyan-*` Tailwind
-   classes and hardcoded blue hexes (`#0071e3`, `#0a84ff`, `#0066cc`, `#2997ff`,
-   `#3b82f6`, …) are NOT part of Foundation. New code must not introduce them as
-   brand accent; existing ones get swept to gold per the rule below.
-5. **Never `#FFD700` / garish gold.** Stay in the Foundation family
-   (`#b8894d`/`#d4a574` light, `#e6b366` dark) even when a vision critic pushes
-   for a brighter gold.
+   `bg-accent`, `bg-accent-surface`, `border-accent-border`, `ring-accent`, or
+   the neutral family directly (`text-[color:var(--app-accent)]`,
+   `bg-[color:var(--app-accent-tint)]`, `text-[color:var(--app-accent-deep)]`,
+   …) over literal accent hexes. Raw hexes break BOTH dark mode and the accent
+   preference; `npm run verify:accent-tokens` fails the build on them.
+3. **`text-accent-strong` / `--app-accent-deep` already flip for dark.** Use
+   them WITHOUT a `dark:` variant — adding one fights the token.
+4. **No off-palette accent colors.** `blue-*`, `sky-*`, `indigo-*`, `cyan-*`
+   Tailwind classes and hardcoded hexes from either accent palette are NOT
+   allowed as brand accent in component source. New code consumes the token
+   family; the enforcement script allowlists only `globals.css`, the static
+   Foundation reference, absence tests, and two documented runtime exceptions.
+5. **Token roles:** `--app-accent` = solid fills/CTAs, `--app-accent-deep` =
+   text/icons on light (bright partner on dark), `--app-accent-bright` =
+   gradient/dark partner, `--app-accent-tint`/`-surface`/`-surface-strong` =
+   fills, `--app-accent-border`/`-ring` = hairlines and focus, `--app-accent-fg`
+   = text on solid accent, `--app-accent-hero-*` = hero gradient stops.
 
 ### Brand-accent vs semantic-status (the one rule that governs every color sweep)
 
-When removing off-palette blue, every blue is EITHER brand chrome (→ gold) OR a
-semantic status/data-viz color (→ LEAVE IT). Gold-ifying a status blue actively
-breaks the color language because gold collides with the amber/warning semantic.
+When removing off-palette color, every usage is EITHER brand chrome (→ accent
+tokens) OR a semantic status/data-viz color (→ LEAVE IT). Accent-ifying a status
+color actively breaks the color language (e.g. under the gold accent it would
+collide with the amber/warning semantic).
 
-- **Brand accent → GOLD:** buttons, links, active tab/indicator, focus ring,
-  brand gradient, a lone decorative panel/icon accent, a category "info" chip
-  that is NOT part of a status set.
+- **Brand accent → ACCENT TOKENS:** buttons, links, active tab/indicator, focus
+  ring, brand gradient, a lone decorative panel/icon accent, a category "info"
+  chip that is NOT part of a status set.
 - **Semantic status / data-viz → LEAVE:** an "info" state sitting in a
   success(green)/warning(amber)/error(red) set, a distinct chart-series color,
   bullish/bearish/neutral, a tier/persona category color, an
   in-progress/refreshing status (sky paired with emerald=done/rose=failed).
-- **The fast tell:** look at what the blue is grouped WITH in the same
+- **The fast tell:** look at what the color is grouped WITH in the same
   map/ternary/object. Grouped with emerald+red+amber → STATUS → leave. The only
   accent on a header/icon/border/active-indicator, or paired with category chips
-  → BRAND CHROME → gold. When unsure, LEAVE a clearly-semantic status blue: a
-  missed brand accent is cosmetic, a gold-ified status color is a broken semantic.
+  → BRAND CHROME → accent tokens. When unsure, LEAVE a clearly-semantic status
+  color: a missed brand accent is cosmetic, an accent-ified status color is a
+  broken semantic.
 
 ### Mapping cheat-sheet
 
@@ -315,7 +325,7 @@ breaks the color language because gold collides with the amber/warning semantic.
 | `border-blue-*` | `border-accent-border` |
 | `ring-blue-*`, `focus:ring-blue-*` | `ring-accent` / `focus-visible:ring-accent/70` |
 | `from-blue-500 to-purple-600` brand gradient | `from-[var(--morphy-primary-start)] to-[var(--morphy-primary-end)]` |
-| brand hex `#0071e3`/`#0066cc` (+ dark `#0a84ff`/`#2997ff`) | `#b8894d` text / `#d4a574` fill (dark → `#d4a574`/`#e6b366`) |
+| brand hex `#0071e3`/`#0066cc` (+ dark `#0a84ff`/`#2997ff`) | `text-[color:var(--app-accent-deep)]` text / `bg-[color:var(--app-accent)]` fill |
 
 NOTE: `MaterialRipple variant="blue"` and the `morphy-ux` `gradients.primary`
 already resolve to `var(--morphy-primary-*)` (gold) — these are legacy NAMES, not
@@ -345,7 +355,8 @@ Every floating surface that takes modal focus shares one backdrop language so op
 Rules:
 
 1. The canonical scrim is `bg-black/22 backdrop-blur-[8px]` plus the `-webkit-backdrop-filter` fallback, sitting at `z-[499]` directly below the surface at `z-[500]`. Radix overlays (`DialogOverlay`, sheet, drawer, alert dialog) already carry this via their `data-state` motion classes.
-2. Dialogs, sheets, drawers, the command palette, and the vault unlock dialog inherit the scrim through `DialogOverlay`; do not add a second hand-rolled scrim on top.
+2. Dialogs, sheets, drawers, the command palette, and contextual vault unlock prompts inherit the scrim through `DialogOverlay`; do not add a second hand-rolled scrim on top. Every vault unlock sheet suppresses persistent top chrome, bottom navigation, and the Agent Bar while it is open. The non-dismissible `VaultLockGuard` is the credential-gate exception: its drawer uses one opaque theme canvas without blur or backdrop fade, so route chrome and Agent Bar are fully covered rather than visibly competing beneath an unlock form.
+   Passkey or biometric enrollment is an explicit choice within vault setup or Security; never auto-open that prompt merely because a person navigated to a signed-in route.
 3. Popovers that take modal focus opt into the same backdrop with `PopoverContent withBackdrop`. The scrim renders as `data-slot="popover-scrim"` and animates through the shared `overlay-scrim-in` / `overlay-scrim-out` keyframes registered in `globals.css`. Do not hand-roll a popover scrim with ad hoc opacity or blur values.
 4. Scrim animation tokens (`--motion-overlay-*`) are shared. Do not override per-surface enter/exit durations, and honor the reduced-motion media query already wired in `globals.css`.
 5. Non-modal helper popovers (tooltips, inline hint bubbles, hover cards) do not take a backdrop. Reserve `withBackdrop` for surfaces that should pull focus away from the page.

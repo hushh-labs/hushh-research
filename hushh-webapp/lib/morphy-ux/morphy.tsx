@@ -117,11 +117,12 @@ export const typography = {
 // ============================================================================
 
 export const colorTokens = {
-  // Primary brand color - Foundation gold (deep→accent). Dark mode flips via
-  // CSS variables in globals.css.
+  // Primary brand color - follows the app accent family (iOS Blue default,
+  // Molten Gold under html[data-accent="gold"]). The runtime source of truth
+  // is the --app-accent-* / --morphy-* CSS variables in globals.css.
   primary: {
-    start: "#b8894d", // Foundation gold deep
-    end: "#d4a574", // Foundation gold accent
+    start: "var(--app-accent-deep)",
+    end: "var(--app-accent)",
   },
   // Secondary colors - Silver for subtle backgrounds (FAQ style)
   secondary: {

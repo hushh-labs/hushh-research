@@ -94,6 +94,14 @@ export default function RootLayout({
           crossOrigin="anonymous"
         />
         <JsonLd data={buildOrganizationGraph()} />
+        {/* Accent no-FOUC: apply the persisted accent preference before first
+            paint (default iOS Blue needs no attribute; gold sets data-accent).
+            Body mirrors ACCENT_NO_FOUC_SCRIPT in lib/theme/accent.ts. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var a=localStorage.getItem("hushh.app.accent.v1");if(a==="gold"){document.documentElement.setAttribute("data-accent","gold");}}catch(e){}`,
+          }}
+        />
         <style>{`
           html.dark body,
           html.dark .morphy-app-bg {

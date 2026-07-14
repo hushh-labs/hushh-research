@@ -206,6 +206,23 @@ describe("Morphy AX contract", () => {
     });
   });
 
+  it("carries the accent as presentation-only state that never changes policy", () => {
+    const baseline = voiceFixture();
+    const blue = buildMorphyAxSnapshot(baseline, { accent: "blue" });
+    const gold = buildMorphyAxSnapshot(baseline, { accent: "gold" });
+
+    expect(blue.access.accent).toBe("blue");
+    expect(gold.access.accent).toBe("gold");
+    // Defaults to blue when the caller does not supply a preference.
+    expect(buildMorphyAxSnapshot(baseline).access.accent).toBe("blue");
+    // Identical policy decisions under both accents: accent is not authority.
+    expect(validateMorphyAxAssessment(assessment(), blue)).toEqual(
+      validateMorphyAxAssessment(assessment(), gold),
+    );
+    // The accent never leaks onto the One Voice wire shape.
+    expect(toOneVoiceContextSnapshot(gold, baseline)).toEqual(baseline);
+  });
+
   it("maps the existing voice FSM without creating another transition authority", () => {
     expect(resolveMorphyAxPresentation("listening")).toBe("listening");
     expect(resolveMorphyAxPresentation("needs_consent")).toBe("confirming");
