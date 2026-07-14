@@ -16,7 +16,6 @@ const { replace, bootstrapStateMock, getCachedBootstrapStateMock } = vi.hoisted(
 );
 
 let pathnameValue = "/one/setup";
-let searchValue = "";
 
 // App Router returns a stable router instance; an unstable identity would
 // spuriously re-run the guard effect (its deps include `router`).
@@ -25,7 +24,6 @@ const stableRouter = { replace };
 vi.mock("next/navigation", () => ({
   usePathname: () => pathnameValue,
   useRouter: () => stableRouter,
-  useSearchParams: () => new URLSearchParams(searchValue),
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -79,7 +77,7 @@ describe("OnboardingJourneyGuard", () => {
     bootstrapStateMock.mockReset();
     getCachedBootstrapStateMock.mockReset();
     pathnameValue = "/one/setup";
-    searchValue = "";
+    window.history.replaceState(null, "", "/one/setup");
   });
 
   it("admits a cached setup route without a bootstrap request or checking churn", async () => {
@@ -135,7 +133,7 @@ describe("OnboardingJourneyGuard", () => {
 
   it("preserves a query-bearing route in one idempotent setup redirect", async () => {
     pathnameValue = "/one/location";
-    searchValue = "tab=family";
+    window.history.replaceState(null, "", "/one/location?tab=family");
     bootstrapStateMock.mockResolvedValue(incompleteSetupState());
     getCachedBootstrapStateMock.mockReturnValue(null);
 

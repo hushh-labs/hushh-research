@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { Button } from "@/lib/morphy-ux/button";
@@ -58,7 +58,6 @@ export function OnboardingJourneyGuard({
 }) {
   const pathname = usePathname() || "/";
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
   const userId = user?.uid ?? null;
   const exempt = isOnboardingAdmissionExemptRoute(pathname);
@@ -72,11 +71,14 @@ export function OnboardingJourneyGuard({
     null,
   );
 
+  // Read query/hash from window at redirect time instead of useSearchParams:
+  // this guard wraps every route (including the 404 shell) and a CSR bailout
+  // from useSearchParams would break static prerender of /_not-found. The
+  // href is only consumed client-side inside the effect below.
   const currentHref = useMemo(() => {
-    const query = searchParams.toString();
-    const route = query ? `${pathname}?${query}` : pathname;
-    return typeof window === "undefined" ? route : `${route}${window.location.hash}`;
-  }, [pathname, searchParams]);
+    if (typeof window === "undefined") return pathname;
+    return `${pathname}${window.location.search}${window.location.hash}`;
+  }, [pathname]);
   const cachedState = userId
     ? PreVaultUserStateService.getCachedBootstrapState?.(userId) ?? null
     : null;
