@@ -439,27 +439,34 @@ function FeatureScreen({
       title: "Know when they arrive",
       body: `"${arrivalName} arrived at Office" - get a quiet alert the moment your people reach the places that matter.`,
       visual: <ArrivalIllustration person={connectedPeople[0]} />,
+      // Soft lavender/purple — matches the tone behind the walking-bag art.
+      gradient: "from-[#f1ecfb] via-[#eae3f7] to-[#f4eefb]",
       cta: "Continue",
     },
     checkin: {
       title: "Let them know you're here",
       body: `"${checkinName} checked in" - one tap tells your trusted people where you are. No call needed.`,
       visual: <CheckinIllustration person={connectedPeople[1] ?? connectedPeople[0]} />,
+      // Warm cream — matches the check-in pin illustration's background.
+      gradient: "from-[#fdfaf4] via-[#f6eee2] to-[#efe4d5]",
       cta: "Continue",
     },
     sos: {
       title: "Help when it matters most",
       body: `"Help sent" - SOS shares your live location with selected people, instantly.`,
       visual: <SosIllustration people={connectedPeople} />,
+      // Warm peach/cream — matches the SOS shield illustration's background.
+      gradient: "from-[#fdf5f1] via-[#f8e9e2] to-[#f3e2da]",
       cta: "Create my circle",
     },
   }[screen];
 
   return (
-    // Warm cream-to-beige gradient behind all three onboarding sliders so the
-    // whole screen blends seamlessly with the warm-toned illustration art
-    // (matching the reference image) instead of a flat background color.
-    <div className="flex min-h-0 flex-1 flex-col bg-gradient-to-b from-[#fdfaf4] via-[#faf1e3] to-[#f3e2cd]">
+    // Each onboarding slide uses a gradient tuned to its own illustration's
+    // background tone (arrival = lavender behind the bag; check-in / SOS = warm
+    // cream/peach) so the whole screen blends seamlessly with the art.
+    <div className={cn("flex min-h-0 flex-1 flex-col bg-gradient-to-b", content.gradient)}>
+
       <TopNavigation onBack={onBack} onSkip={onSkip} />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pb-3">
         <h1 className="mx-auto mb-3 max-w-[360px] text-center text-[31px] font-bold leading-[1.12] text-[#1e2a3d]">
