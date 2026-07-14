@@ -19,6 +19,7 @@ export function GmailOnboardingSetupClient() {
     isOperationallyReady: connected,
     finishActionId: "setup.finish_gmail",
     skipActionId: "setup.skip_gmail",
+    resumeReadinessFromCallback: true,
     terminalControlId: (ready) =>
       ready ? "finish_gmail_setup" : "skip_gmail_setup",
   });
