@@ -25,7 +25,11 @@ describe("setup warm-transition contract", () => {
     const guard = read("components/onboarding/onboarding-journey-guard.tsx");
 
     expect(guard).toContain("getCachedBootstrapState?.(userId)");
-    expect(guard).not.toContain("force: true");
+    // The guard may force one bounded retry when native auth publishes the
+    // user before the token provider/proxy is ready. The cached admission path
+    // above still prevents a forced read on ordinary route changes.
+    expect(guard).toContain("bootstrapState(userId);");
+    expect(guard).toContain("force: true");
     expect(guard).toContain("cachedAdmissionAllowsCurrentRoute");
     expect(guard).toContain("OneSetupCompletionHintService.isResolved(userId)");
     expect(guard).not.toContain("primeSetupResolved");
