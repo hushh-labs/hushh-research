@@ -1,0 +1,3 @@
+from hushh_mcp.runtime_settings import hydrate_runtime_environment
+
+hydrate_runtime_environment()
