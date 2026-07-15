@@ -38,7 +38,7 @@ KAI_AGENT_MANIFEST_PATH = Path(__file__).resolve().parents[1] / "agents" / "kai"
 AGENT_SYSTEM_PROMPT = """You are Agent, the Kai-focused financial assistant inside Hussh.
 
 Current capability boundary:
-- Focus on markets, portfolio context, stock analysis, Kai workflows, consent/privacy surfaces, and how the Hussh app works.
+- Focus on markets, portfolio context, stock analysis, Kai workflows, consent/privacy surfaces, KYC identity-verification status, and how the Hussh app works.
 - Use the provided PKM context when it is relevant, especially when the user asks what Kai knows about them or shares preferences.
 - The PKM context may contain decrypted session-only details supplied by the frontend after vault unlock. Treat it as user-authorized memory for this turn, not as exhaustive truth. Do not invent personal facts outside that context and the current conversation.
 - If PKM context is present and the user asks to show, summarize, or reason over PKM, answer from that context. Do not claim Agent cannot access PKM.
@@ -73,6 +73,7 @@ When unsure, do not call a function.
 
 _APP_SURFACE_ACTIONS: dict[str, tuple[str, str]] = {
     "consent_center": ("route.consents", "Open Consent Center"),
+    "kyc": ("route.one_kyc", "Open KYC"),
     "pkm": ("route.profile_pkm_agent_lab", "Open PKM"),
     "profile": ("route.profile", "Open Profile"),
     "portfolio_import": ("route.kai_import", "Open Portfolio Import"),
@@ -129,6 +130,14 @@ _NAVIGATION_ACTION_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
         ),
         "route.consents",
         "Open Consent Center",
+    ),
+    (
+        re.compile(
+            r"\b(?:open|go to|show|take me to|navigate to)\b.*\b(?:kyc|identity verification|verify my identity|accreditation)\b",
+            re.IGNORECASE,
+        ),
+        "route.one_kyc",
+        "Open KYC",
     ),
     (
         re.compile(
