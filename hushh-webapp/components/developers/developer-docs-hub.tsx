@@ -5,12 +5,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Cable,
   ClipboardCopy,
-  Code2,
   Globe,
   KeyRound,
   LifeBuoy,
   LockKeyhole,
-  Menu,
   RefreshCcw,
   ScanSearch,
   ShieldCheck,
@@ -32,7 +30,6 @@ import {
   DEVELOPER_ACCESS_NOTES,
   DEVELOPER_SAMPLE_PAYLOADS,
   DEVELOPER_SECTIONS,
-  DEVELOPER_SCOPE_NOTES,
   FAQ_ITEMS,
   MCP_PUBLIC_LINKS,
   PUBLIC_SCOPE_PATTERNS,
@@ -59,7 +56,9 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { PageHeader, SectionHeader } from "@/components/app-ui/page-sections";
+import { PublicKnowledgeNav } from "@/components/app-ui/public-knowledge-nav";
+import { Hero } from "@/components/app-ui/sections";
+import { SectionHeader } from "@/components/app-ui/page-sections";
 import {
   SurfaceCard,
   SurfaceCardContent,
@@ -75,8 +74,6 @@ import {
   SettingsSegmentedTabs,
 } from "@/components/profile/settings-ui";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Badge } from "@/components/ui/badge";
-import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import {
   Empty,
   EmptyContent,
@@ -120,7 +117,7 @@ const EMPTY_PROFILE_DRAFT: ProfileDraft = {
   policy_url: "",
 };
 
-const MOBILE_DEFAULT_OPEN_SECTIONS = ["start", "mcp", "access", "faq"];
+const DEFAULT_OPEN_SECTIONS = DEVELOPER_SECTIONS.map((section) => section.id);
 
 function formatDeveloperAccessError(
   error: unknown,
@@ -181,55 +178,6 @@ function findDeveloperSection(sectionId: string) {
   return DEVELOPER_SECTIONS.find((section) => section.id === sectionId);
 }
 
-function ContentsNav({
-  onSelectSection,
-  framed = true,
-  compact = false,
-  showSummaries = true,
-}: {
-  onSelectSection: (sectionId: string) => void;
-  framed?: boolean;
-  compact?: boolean;
-  showSummaries?: boolean;
-}) {
-  const rows = DEVELOPER_SECTIONS.map((section) => (
-    <SettingsRow
-      key={section.id}
-      title={
-        <span className={compact ? "text-[13px] sm:text-sm" : undefined}>{section.label}</span>
-      }
-      description={
-        showSummaries ? (
-          <span className={compact ? "line-clamp-1 text-[11px] leading-5" : undefined}>
-            {section.summary}
-          </span>
-        ) : undefined
-      }
-      chevron
-      className={compact ? "px-3 py-2 sm:px-3.5 sm:py-2.5" : undefined}
-      onClick={() => onSelectSection(section.id)}
-    />
-  ));
-
-  if (!framed) {
-    return (
-      <SettingsGroup embedded className="space-y-0">
-        {rows}
-      </SettingsGroup>
-    );
-  }
-
-  return (
-    <SettingsGroup
-      eyebrow="Contents"
-      title="Jump between sections"
-      description="Use the same page for the contract, setup snippets, and self-serve access."
-    >
-      {rows}
-    </SettingsGroup>
-  );
-}
-
 function RuntimeValueRow({
   label,
   value,
@@ -282,6 +230,18 @@ function RuntimeValueRow({
   );
 }
 
+function CodeList({ values }: { values: readonly string[] }) {
+  return (
+    <div className="divide-y divide-border/60 rounded-2xl border border-border/60 bg-background/70">
+      {values.map((value) => (
+        <code key={value} className="block overflow-x-auto px-3 py-2.5 text-xs text-foreground">
+          {value}
+        </code>
+      ))}
+    </div>
+  );
+}
+
 function SnippetCard({
   title,
   description,
@@ -331,14 +291,12 @@ function DeveloperSectionShell({
   sectionId,
   header,
   children,
-  isMobile,
   mobileOpenSections,
   onMobileSectionChange,
 }: {
   sectionId: string;
   header: React.ReactNode;
   children: React.ReactNode;
-  isMobile: boolean;
   mobileOpenSections: string[];
   onMobileSectionChange: (sectionId: string, isOpen: boolean) => void;
 }) {
@@ -346,18 +304,6 @@ function DeveloperSectionShell({
 
   if (!section) {
     return null;
-  }
-
-  if (!isMobile) {
-    return (
-      <section
-        id={sectionId}
-        className="scroll-mt-28 space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-500"
-      >
-        {header}
-        {children}
-      </section>
-    );
   }
 
   const isOpen = mobileOpenSections.includes(sectionId);
@@ -711,9 +657,9 @@ function AccessWorkspace({
                   <RefreshCcw className="size-4" />
                   Rotate token
                 </MorphyButton>
-                <Badge variant="outline" className="justify-center px-3 py-1.5 text-xs sm:w-auto">
+                <code className="text-xs text-muted-foreground">
                   Prefix: {access.active_token?.token_prefix}
-                </Badge>
+                </code>
               </div>
             </div>
           ) : null}
@@ -806,100 +752,17 @@ function AccessWorkspace({
             <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
               <SurfaceInset className="space-y-3">
                 <p className="text-sm font-semibold text-foreground">Public beta tools</p>
-                <div className="flex flex-wrap gap-2">
-                  {PUBLIC_TOOL_NAMES.map((toolName) => (
-                    <Badge key={toolName} variant="outline">
-                      {toolName}
-                    </Badge>
-                  ))}
-                </div>
+                <CodeList values={PUBLIC_TOOL_NAMES} />
               </SurfaceInset>
               <SurfaceInset className="space-y-3">
                 <p className="text-sm font-semibold text-foreground">Dynamic scope grammar</p>
-                <div className="flex flex-wrap gap-2">
-                  {PUBLIC_SCOPE_PATTERNS.map((scope) => (
-                    <Badge key={scope} variant="outline">
-                      {scope}
-                    </Badge>
-                  ))}
-                </div>
+                <CodeList values={PUBLIC_SCOPE_PATTERNS} />
               </SurfaceInset>
             </div>
           ) : null}
         </div>
       </SurfaceCardContent>
     </SurfaceCard>
-  );
-}
-
-function DesktopContentsRail({
-  onSelectSection,
-}: {
-  onSelectSection: (sectionId: string) => void;
-}) {
-  return (
-    <aside className="hidden lg:sticky lg:top-0 lg:block lg:self-start">
-      <SurfaceCard className="flex max-h-[calc(100dvh-3rem)] flex-col">
-        <SurfaceCardHeader className="gap-1 pb-2.5">
-          <SurfaceCardTitle>Sections</SurfaceCardTitle>
-          <SurfaceCardDescription>Jump anywhere on the page.</SurfaceCardDescription>
-        </SurfaceCardHeader>
-        <SurfaceCardContent className="pt-0 pb-3">
-          <ScrollArea className="max-h-[calc(100dvh-10rem)] pr-2">
-            <ContentsNav
-              onSelectSection={onSelectSection}
-              framed={false}
-              compact
-              showSummaries={false}
-            />
-          </ScrollArea>
-        </SurfaceCardContent>
-      </SurfaceCard>
-    </aside>
-  );
-}
-
-function MobileSectionsFab({
-  open,
-  onOpenChange,
-  onSelectSection,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSelectSection: (sectionId: string) => void;
-}) {
-  return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
-      <div className="fixed right-4 z-[160] md:hidden" style={{ bottom: "calc(max(var(--app-safe-area-bottom-effective), 0.75rem) + 1rem)" }}>
-        <MorphyButton
-          variant="yellow-gradient"
-          effect="fill"
-          size="sm"
-          className="rounded-full px-4 shadow-[0_18px_60px_var(--morphy-cta-shadow)]"
-          onClick={() => onOpenChange(true)}
-        >
-          <Menu className="size-4" />
-          Sections
-        </MorphyButton>
-      </div>
-      <DrawerContent className="max-h-[78vh] rounded-t-[28px] border-t border-border/80 bg-background/98 md:hidden">
-        <DrawerHeader className="border-b border-border/80 bg-background/96 px-4 py-4 text-left backdrop-blur-xl">
-          <DrawerTitle>Jump to a section</DrawerTitle>
-          <DrawerDescription>
-            Move through the developer contract without scrolling the whole page.
-          </DrawerDescription>
-        </DrawerHeader>
-        <ScrollArea className="max-h-[56vh] px-4 py-4">
-          <ContentsNav
-            onSelectSection={(sectionId) => {
-              onSelectSection(sectionId);
-              onOpenChange(false);
-            }}
-            framed={false}
-          />
-        </ScrollArea>
-      </DrawerContent>
-    </Drawer>
   );
 }
 
@@ -914,8 +777,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
   const [integrationTab, setIntegrationTab] = useState<"rest" | "remote-mcp" | "npm">(
     "remote-mcp"
   );
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [mobileOpenSections, setMobileOpenSections] = useState<string[]>(MOBILE_DEFAULT_OPEN_SECTIONS);
+  const [mobileOpenSections, setMobileOpenSections] = useState<string[]>(DEFAULT_OPEN_SECTIONS);
   const [liveDocs, setLiveDocs] = useState<LiveDocsResponse | null>(null);
   const [liveDocsLoading, setLiveDocsLoading] = useState(true);
   const [access, setAccess] = useState<DeveloperPortalAccess | null>(null);
@@ -933,6 +795,11 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
   const apiRootReady = Boolean(liveDocs?.apiRoot);
   const toolCatalogReady = Boolean(liveDocs?.tools?.length);
   const scopeCatalogReady = Boolean(liveDocs?.scopes?.length);
+  const liveContractStatus = liveDocsLoading
+    ? "Checking live contract…"
+    : apiRootReady && toolCatalogReady && scopeCatalogReady
+      ? "Live contract available"
+      : "Live contract unavailable";
 
   useEffect(() => {
     let cancelled = false;
@@ -979,11 +846,6 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
   }, [access?.app]);
 
   useEffect(() => {
-    if (!isMobile) {
-      setMobileNavOpen(false);
-      return;
-    }
-
     if (initialHashHandledRef.current) {
       return;
     }
@@ -1002,7 +864,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
     }, 160);
 
     return () => window.clearTimeout(timer);
-  }, [isMobile]);
+  }, []);
 
   const refreshAccess = useCallback(async (currentUser = user) => {
     if (!currentUser) {
@@ -1153,20 +1015,11 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
     );
   }
 
-  function handleSectionSelect(sectionId: string) {
-    setMobileOpenSections((current) => addOpenSection(current, sectionId));
-    setMobileNavOpen(false);
-    window.setTimeout(() => {
-      scrollToSection(sectionId);
-    }, isMobile ? 180 : 0);
-  }
-
   return (
     <TooltipProvider>
       <AppPageShell
-        data-app-shell-top-spacer="true"
-        width="standard"
-        className="pb-[calc(6rem+var(--app-safe-area-bottom-effective))] md:pb-12 lg:pb-6"
+        width="reading"
+        className="pb-6 pt-0 sm:pb-10"
         nativeTest={{
           routeId: "/developers",
           marker: "native-route-developers",
@@ -1174,71 +1027,54 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
           dataState: "loaded",
         }}
       >
-        <AppPageContentRegion className="grid gap-6 lg:grid-cols-[248px_minmax(0,1fr)] xl:grid-cols-[272px_minmax(0,1fr)] 2xl:grid-cols-[288px_minmax(0,1fr)] 2xl:gap-8">
-          <DesktopContentsRail onSelectSection={handleSectionSelect} />
+        <AppPageHeaderRegion>
+          <div className="mb-5">
+            <PublicKnowledgeNav />
+          </div>
+          <Hero
+            kicker="Developers"
+            title="Build with consent, not around it."
+            lede="Connect with Remote MCP, request a scope, and read only the information the person approved."
+          />
+        </AppPageHeaderRegion>
 
-          <div className="min-w-0 space-y-6 md:space-y-8 lg:pr-2">
+        <AppPageContentRegion className="mt-8">
+          <div className="min-w-0 space-y-9">
             <section id="start" className="scroll-mt-24 space-y-6 md:space-y-8">
-              <AppPageHeaderRegion>
-                <PageHeader
-                  eyebrow="Developer Hub"
-                  title="Connect to Hussh with Remote MCP"
-                  description="Use the UAT streamable MCP endpoint to discover user-specific scopes, request consent inside Kai, and read only approved encrypted exports through one small contract."
-                  icon={Code2}
-                  accent="consent"
-                />
-              </AppPageHeaderRegion>
-
-              <SurfaceCard tone="feature" className="min-w-0">
+              <SurfaceCard className="min-w-0">
                 <SurfaceCardHeader>
                   <SurfaceCardTitle className="text-base sm:text-lg">
-                    Quick start: connect a remote-capable MCP host
+                    Connect with Remote MCP
                   </SurfaceCardTitle>
                   <SurfaceCardDescription className="max-w-3xl text-sm leading-6">
-                    The recommended path is the slash-safe streamable MCP URL. Sign in only when you
-                    want a personal developer token and app identity for consent prompts.
+                    Use the endpoint below with a developer token.
                   </SurfaceCardDescription>
                 </SurfaceCardHeader>
                 <SurfaceCardContent className="space-y-5">
-                  <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+                  <div className="grid min-w-0 gap-5">
                     <SnippetCard
-                      title="Connect with Remote MCP"
-                      description="Paste this into any host that supports streamable HTTP MCP. Replace the placeholder with the developer token revealed from your workspace."
+                      title="Host configuration"
+                      description="Paste this into a streamable HTTP MCP host."
                       code={mcpSnippets.remote}
                       copyLabel="Remote MCP config"
                     />
-                    <div className="min-w-0 space-y-4">
-                      <SurfaceInset className="space-y-3">
-                        <p className="text-sm font-semibold text-foreground">Test server</p>
-                        <RuntimeValueRow
-                          label="MCP"
-                          value={workspaceSnippets.remoteUrl}
-                          copyLabel="Remote MCP URL"
-                          isMobile={isMobile}
-                        />
-                        <RuntimeValueRow
-                          label="Env"
-                          value={workspaceSnippets.envVar}
-                          copyLabel="Developer env var"
-                          isMobile={isMobile}
-                        />
-                      </SurfaceInset>
-                      <SurfaceInset className="space-y-3">
-                        <p className="text-sm font-semibold text-foreground">Live status</p>
-                        <div className="flex flex-wrap gap-2">
-                          <Badge variant={apiRootReady ? "default" : "outline"}>
-                            API root {liveDocsLoading ? "checking" : apiRootReady ? "ready" : "unavailable"}
-                          </Badge>
-                          <Badge variant={toolCatalogReady ? "default" : "outline"}>
-                            Tool catalog {liveDocsLoading ? "checking" : toolCatalogReady ? "ready" : "unavailable"}
-                          </Badge>
-                          <Badge variant={scopeCatalogReady ? "default" : "outline"}>
-                            Scope catalog {liveDocsLoading ? "checking" : scopeCatalogReady ? "ready" : "unavailable"}
-                          </Badge>
-                          <Badge variant="secondary">MCP requires token</Badge>
-                        </div>
-                      </SurfaceInset>
-                    </div>
+                    <SurfaceInset className="space-y-3">
+                      <p role="status" className="text-sm font-semibold text-foreground">
+                        {liveContractStatus}
+                      </p>
+                      <RuntimeValueRow
+                        label="MCP"
+                        value={workspaceSnippets.remoteUrl}
+                        copyLabel="Remote MCP URL"
+                        isMobile={isMobile}
+                      />
+                      <RuntimeValueRow
+                        label="Env"
+                        value={workspaceSnippets.envVar}
+                        copyLabel="Developer env var"
+                        isMobile={isMobile}
+                      />
+                    </SurfaceInset>
                   </div>
                   <Accordion type="single" collapsible className="rounded-2xl border border-border/65 px-4">
                     <AccordionItem value="advanced-start" className="border-b-0">
@@ -1269,14 +1105,13 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
 
             <DeveloperSectionShell
               sectionId="mcp"
-              isMobile={isMobile}
               mobileOpenSections={mobileOpenSections}
               onMobileSectionChange={handleMobileSectionChange}
               header={
                 <SectionHeader
                   eyebrow="MCP"
-                  title="Remote MCP when possible, npm bridge when needed"
-                  description="Hosts that support HTTP MCP can connect directly. Everyone else can still use the npm launcher with the same developer token."
+                  title="Remote MCP first"
+                  description="Use the npm bridge only when a host requires stdio."
                   icon={Cable}
                   accent="consent"
                 />
@@ -1343,20 +1178,8 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                         {PUBLIC_MCP_ENVIRONMENT.remoteUrlTemplate}
                       </div>
                     </SurfaceInset>
-                    <div className="flex flex-wrap gap-2">
-                      {PUBLIC_TOOL_NAMES.map((toolName) => (
-                        <Badge key={toolName} variant="outline">
-                          {toolName}
-                        </Badge>
-                      ))}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {PUBLIC_RESOURCE_URIS.map((resourceUri) => (
-                        <Badge key={resourceUri} variant="secondary">
-                          {resourceUri}
-                        </Badge>
-                      ))}
-                    </div>
+                    <CodeList values={PUBLIC_TOOL_NAMES} />
+                    <CodeList values={PUBLIC_RESOURCE_URIS} />
                     {liveDocs?.tools?.length ? (
                       <ScrollArea className="h-64 rounded-2xl border border-border/65 sm:h-72">
                         <div className="space-y-3 p-4">
@@ -1388,14 +1211,13 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
 
             <DeveloperSectionShell
               sectionId="access"
-              isMobile={isMobile}
               mobileOpenSections={mobileOpenSections}
               onMobileSectionChange={handleMobileSectionChange}
               header={
                 <SectionHeader
-                  eyebrow="Developer Access"
-                  title="Turn the docs into a working integration workspace"
-                  description="The page is fully readable without login. Sign in only when you want self-serve tokens and app identity controls."
+                  eyebrow="Access"
+                  title="Developer access"
+                  description="Sign in only to create a token or edit your app identity."
                   icon={KeyRound}
                   accent="emerald"
                 />
@@ -1460,14 +1282,13 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
 
             <DeveloperSectionShell
               sectionId="overview"
-              isMobile={isMobile}
               mobileOpenSections={mobileOpenSections}
               onMobileSectionChange={handleMobileSectionChange}
               header={
                 <SectionHeader
                   eyebrow="Overview"
-                  title="The trust model stays simple"
-                  description="Authentication identifies your developer app. User consent in Kai is the separate programmable boundary that grants access to a discovered scope."
+                  title="Authentication is not consent"
+                  description="A token identifies the app. The person approves each scope."
                   icon={ShieldCheck}
                   accent="emerald"
                 />
@@ -1509,14 +1330,13 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
 
             <DeveloperSectionShell
               sectionId="dynamic-scopes"
-              isMobile={isMobile}
               mobileOpenSections={mobileOpenSections}
               onMobileSectionChange={handleMobileSectionChange}
               header={
                 <SectionHeader
                   eyebrow="Dynamic Scopes"
-                  title="Scopes are discovered from the user’s indexed PKM"
-                  description="The public grammar is fixed, but the user-specific scope strings are generated from the indexed Personal Knowledge Model and the domain registry."
+                  title="Discover scopes first"
+                  description="Available scopes come from the person’s indexed information."
                   icon={ScanSearch}
                   accent="violet"
                   actions={
@@ -1537,23 +1357,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
             >
               <SurfaceCard className="min-w-0">
                 <SurfaceCardContent className="space-y-5 pt-6">
-                  <SurfaceInset className="space-y-3">
-                    <p className="text-sm font-semibold text-foreground">Current status</p>
-                    <div className="space-y-2">
-                      {DEVELOPER_SCOPE_NOTES.map((note) => (
-                        <p key={note} className="text-sm leading-6 text-muted-foreground">
-                          {note}
-                        </p>
-                      ))}
-                    </div>
-                  </SurfaceInset>
-                  <div className="flex flex-wrap gap-2">
-                    {PUBLIC_SCOPE_PATTERNS.map((scopePattern) => (
-                      <Badge key={scopePattern} variant="outline">
-                        {scopePattern}
-                      </Badge>
-                    ))}
-                  </div>
+                  <CodeList values={PUBLIC_SCOPE_PATTERNS} />
                   {liveDocsLoading ? (
                     <div className="grid gap-3 lg:grid-cols-2">
                       <Skeleton className="h-28 rounded-3xl" />
@@ -1595,14 +1399,13 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
 
             <DeveloperSectionShell
               sectionId="consent-flow"
-              isMobile={isMobile}
               mobileOpenSections={mobileOpenSections}
               onMobileSectionChange={handleMobileSectionChange}
               header={
                 <SectionHeader
                   eyebrow="Consent Flow"
-                  title="The user journey stays explicit"
-                  description="External agents can ask, but only Kai can approve. That separation is what keeps the contract trustworthy."
+                  title="Discover, request, approve, read"
+                  description="Every read follows a person-approved scope."
                   icon={Workflow}
                   accent="amber"
                 />
@@ -1612,7 +1415,9 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                 {CONSENT_FLOW_STEPS.map((step, index) => (
                   <SurfaceCard key={step.title} className="min-w-0">
                     <SurfaceCardContent className="space-y-3 pt-6">
-                      <Badge variant="outline">Step {index + 1}</Badge>
+                      <span className="text-xs font-semibold text-muted-foreground">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
                       <h3 className="text-base font-semibold text-foreground">{step.title}</h3>
                       <p className="text-sm leading-6 text-muted-foreground">{step.detail}</p>
                     </SurfaceCardContent>
@@ -1623,14 +1428,13 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
 
             <DeveloperSectionShell
               sectionId="modes"
-              isMobile={isMobile}
               mobileOpenSections={mobileOpenSections}
               onMobileSectionChange={handleMobileSectionChange}
               header={
                 <SectionHeader
                   eyebrow="Advanced"
-                  title="Use REST or npm only when the host needs it"
-                  description="Remote MCP is the recommended path. These options stay available for direct HTTP integrations and stdio-only MCP hosts."
+                  title="REST and npm fallbacks"
+                  description="Use these only when Remote MCP does not fit the host."
                   icon={Cable}
                   accent="sky"
                 />
@@ -1639,14 +1443,18 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
               <SettingsGroup
                 eyebrow="Transport options"
                 title="Remote MCP first"
-                description="All modes use the same consent contract. The transport choice only changes how your host connects."
+                description="The transport changes; the consent contract does not."
               >
                 {integrationModes.map((mode) => (
                   <SettingsRow
                     key={mode.id}
                     title={mode.title}
                     description={mode.summary}
-                    trailing={integrationTab === mode.id ? <Badge variant="default">Active</Badge> : undefined}
+                    trailing={
+                      integrationTab === mode.id ? (
+                        <span className="text-sm font-semibold text-foreground">Selected</span>
+                      ) : undefined
+                    }
                     stackTrailingOnMobile
                     onClick={() => setIntegrationTab(mode.id)}
                   />
@@ -1656,14 +1464,13 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
 
             <DeveloperSectionShell
               sectionId="api"
-              isMobile={isMobile}
               mobileOpenSections={mobileOpenSections}
               onMobileSectionChange={handleMobileSectionChange}
               header={
                 <SectionHeader
                   eyebrow="REST API"
-                  title="Versioned endpoints for discovery and consent"
-                  description="The public API is intentionally small. Everything else builds on top of these primitives."
+                  title="REST reference"
+                  description="Versioned endpoints for discovery, consent, status, and scoped reads."
                   icon={Globe}
                   accent="sky"
                 />
@@ -1675,12 +1482,16 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                     <SettingsGroup
                       eyebrow="Endpoint map"
                       title="Small on purpose"
-                      description="Everything public builds on these primitives for discovery, consent, status, and scoped reads."
+                      description="The public contract stays narrow."
                     >
                       {REST_ENDPOINTS.map((endpoint) => (
                         <SettingsRow
                           key={endpoint.path}
-                          leading={<Badge variant="outline">{endpoint.method}</Badge>}
+                          leading={
+                            <span className="font-mono text-xs font-semibold text-muted-foreground">
+                              {endpoint.method}
+                            </span>
+                          }
                           title={<code className="text-xs sm:text-[13px]">{endpoint.path}</code>}
                           description={
                             <div className="space-y-1">
@@ -1720,14 +1531,13 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
 
             <DeveloperSectionShell
               sectionId="faq"
-              isMobile={isMobile}
               mobileOpenSections={mobileOpenSections}
               onMobileSectionChange={handleMobileSectionChange}
               header={
                 <SectionHeader
                   eyebrow="Troubleshooting"
-                  title="Common questions from external developers"
-                  description="These answers stay aligned with the runtime contract and the trust model users see in Kai."
+                  title="Common questions"
+                  description="Answers from the current runtime contract."
                   icon={LifeBuoy}
                   accent="default"
                 />
@@ -1763,13 +1573,6 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
         </AppPageContentRegion>
       </AppPageShell>
 
-      {isMobile ? (
-        <MobileSectionsFab
-          open={mobileNavOpen}
-          onOpenChange={setMobileNavOpen}
-          onSelectSection={handleSectionSelect}
-        />
-      ) : null}
     </TooltipProvider>
   );
 }
