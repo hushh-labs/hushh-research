@@ -56,6 +56,7 @@ import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { waitForVoiceActionSettlement } from "@/lib/voice/voice-action-settlement";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { useAccent, writeAccent } from "@/lib/theme/accent";
 import { createRealtimeVoiceTransport } from "@/lib/voice/one-voice-transport-factory";
 import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
 import type {
@@ -237,6 +238,7 @@ export function AgentBar() {
   // Last actionable context pushed into the live session. Do not dedupe on
   // snapshot_id: it intentionally changes on every voice-state transition.
   const lastPushedContextRef = useRef<string | null>(null);
+  const actionAbortControllerRef = useRef<AbortController | null>(null);
   // Tracks whether the active session ended with an error, so the bar can keep
   // showing the error status (instead of snapping shut) until it is dismissed.
   const erroredRef = useRef(false);
@@ -336,6 +338,7 @@ export function AgentBar() {
         return;
       }
       if (event.type === "error") {
+        actionAbortControllerRef.current?.abort();
         abandonPendingConfirmation(
           "transport_error",
           "The confirmation was cancelled because the voice session hit an error.",
@@ -354,6 +357,7 @@ export function AgentBar() {
         return;
       }
       if (event.type === "transcript_final") {
+        actionAbortControllerRef.current?.abort();
         // Mirror the user's transcript into the conversation session. One's
         // agent tree decides everything server-side; there is no client-side
         // planner to feed here.
@@ -469,6 +473,8 @@ export function AgentBar() {
             }
             void (async () => {
               try {
+                actionAbortControllerRef.current?.abort();
+                actionAbortControllerRef.current = new AbortController();
                 const executionResult = await executeAgentGatewayAction({
                   actionId,
                   slots,
@@ -487,6 +493,7 @@ export function AgentBar() {
                   setAnalysisParams,
                   switchPersona,
                   executionContext: { directiveId },
+                  signal: actionAbortControllerRef.current.signal,
                 });
                 const result = await settleAgentBarAction(executionResult);
                 if (directiveId) {
@@ -575,6 +582,7 @@ export function AgentBar() {
         return;
       }
       if (event.type === "closed") {
+        actionAbortControllerRef.current?.abort();
         clearVoiceIdleTimer();
         abandonPendingConfirmation(
           "session_closed",
@@ -605,6 +613,7 @@ export function AgentBar() {
   );
 
   const stopConversation = useCallback(() => {
+    actionAbortControllerRef.current?.abort();
     clearVoiceIdleTimer();
     erroredRef.current = false;
     abandonPendingConfirmation(
@@ -655,6 +664,10 @@ export function AgentBar() {
       if (action?.activation_policy === "trusted_activation_required") {
         clearVoiceIdleTimer();
       }
+
+      actionAbortControllerRef.current?.abort();
+      actionAbortControllerRef.current = new AbortController();
+
       // For trusted-activation actions this call synchronously invokes the
       // mounted popup handler before the first promise boundary. Do not move it
       // inside an async wrapper or timer.
@@ -674,6 +687,7 @@ export function AgentBar() {
         setAnalysisParams,
         switchPersona,
         executionContext: { directiveId: pending.directiveId },
+        signal: actionAbortControllerRef.current.signal,
       });
       void settlement
         .then(settleAgentBarAction)
@@ -1016,6 +1030,8 @@ export function AgentBar() {
     runtime?.oneVoiceContextSnapshot.ui.interaction_layer?.agent_continuity ===
       "suppressed";
 
+  const appAccent = useAccent();
+
   if (unmountBar) {
     return null;
   }
@@ -1057,19 +1073,11 @@ export function AgentBar() {
             : voiceStatus === "error"
               ? "error"
               : "opening";
-  // Theme toggle, infused right-aligned, accent-toned like the mic. Rendered
-  // in its own variable (not inline JSX) because the pre-auth home route
-  // auto-greets on mount (see autoGreetedRef effect above): conversationActive
-  // flips true within ~1s of landing on "/", and the toggle must stay mounted
-  // through that transition instead of disappearing along with the rest of
-  // the idle greeter row, or the person never gets a chance to tap it.
+
   const themeToggleButton = (
     <button
       type="button"
       onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-      // Static label + CSS-driven icon swap: next-themes resolves the theme
-      // client-side only, so branching the render on resolvedTheme caused a
-      // hydration mismatch (server always rendered the light branch).
       aria-label="Toggle theme"
       title="Toggle theme"
       className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-accent-strong transition-colors duration-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
@@ -1084,6 +1092,29 @@ export function AgentBar() {
       </span>
     </button>
   );
+
+  const accentToggleButton = (
+    <button
+      type="button"
+      onClick={() => writeAccent(appAccent === "blue" ? "gold" : "blue")}
+      aria-label="Toggle accent color"
+      title="Toggle accent color"
+      className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full transition-colors duration-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
+    >
+      <span
+        className="relative z-10 block h-[18px] w-[18px] rounded-full shadow-[inset_0_1px_3px_rgba(0,0,0,0.2)] border border-black/10 dark:border-white/10 transition-colors duration-200 bg-[color:var(--app-accent)]"
+      />
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+      >
+        <MaterialRipple variant="gradient" effect="fill" />
+      </span>
+    </button>
+  );
+
+  // During onboarding, show the theme and accent toggles
+  const showToggles = onboardingGreeterMode || isOneSetupRoute(pathname || "");
   // Pill contents for the frosted bar, one JSX source across all modes so
   // the voice/theme controls and test ids never fork.
   const pillContents = conversationActive ? (
@@ -1136,7 +1167,12 @@ export function AgentBar() {
           </span>
         </span>
       </button>
-      {onboardingGreeterMode ? themeToggleButton : null}
+      {showToggles ? (
+        <div className="flex shrink-0 items-center gap-1">
+          {accentToggleButton}
+          {themeToggleButton}
+        </div>
+      ) : null}
     </>
   ) : onboardingGreeterMode || ambientVoiceOnly ? (
     // Signed-out welcome ("/") + sign-in ("/login"): the bar IS the
@@ -1169,7 +1205,12 @@ export function AgentBar() {
         </span>
       </button>
       {/* Theme toggle, infused right-aligned, accent-toned like the mic. */}
-      {themeToggleButton}
+      {showToggles ? (
+        <div className="flex shrink-0 items-center gap-1">
+          {accentToggleButton}
+          {themeToggleButton}
+        </div>
+      ) : null}
     </>
   ) : (
     // Signed-in: same anatomy as the onboarding greeter (voice-first row on
@@ -1212,15 +1253,16 @@ export function AgentBar() {
           <MaterialRipple variant="gradient" effect="fill" />
         </span>
       </button>
-      {/* Agent chat, right-aligned chip in the same slot the theme toggle
-          occupies during onboarding. */}
+      {/* Agent chat: a persistently visible filled/bordered button (not just
+          a hover-state icon) so it reads as tappable at rest, matching the
+          weight of a real button rather than a quiet icon-only affordance. */}
       <button
         type="button"
         data-testid="one-voice-agent-bar-start"
         onClick={openAgentChat}
         aria-label={`Open Agent Chat. ${hint}`}
         title="Open Agent Chat"
-        className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-accent-strong transition-colors duration-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
+        className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] text-accent-strong transition-colors duration-200 hover:bg-[color:var(--app-accent-surface)]"
       >
         <MessageCircle className="h-[17px] w-[17px]" />
         <span
@@ -1230,6 +1272,14 @@ export function AgentBar() {
           <MaterialRipple variant="gradient" effect="fill" />
         </span>
       </button>
+      {/* Theme toggle stays available on signed-in surfaces too, matching the
+          pre-auth greeter row. */}
+      {showToggles ? (
+        <div className="flex shrink-0 items-center gap-1">
+          {accentToggleButton}
+          {themeToggleButton}
+        </div>
+      ) : null}
     </>
   );
 

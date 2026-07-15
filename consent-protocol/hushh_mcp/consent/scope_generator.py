@@ -8,6 +8,7 @@ Scopes support nested paths:
 - attr.{domain}.{subintent}.*
 """
 
+import difflib
 import json
 import logging
 from typing import Optional
@@ -16,6 +17,78 @@ from db.db_client import get_db
 from hushh_mcp.constants import ConsentScope
 
 logger = logging.getLogger(__name__)
+
+
+def _scope_domain(scope: str) -> str:
+    """Extract the domain slug from an attr.{domain}.* scope string."""
+    parts = str(scope or "").split(".")
+    if len(parts) >= 2 and parts[0] == "attr":
+        return parts[1].strip().lower()
+    return ""
+
+
+def rank_scope_matches(
+    scope_entries: list[dict],
+    *,
+    query: str = "",
+    domain: str = "",
+    limit: int = 20,
+) -> list[dict]:
+    """
+    Deterministically rank pre-computed scope entries against an intent query.
+
+    This is a pure function: no LLM, no network, no DB. Selection of the actual
+    scope is a deterministic ranking, never a model decision. Ordering:
+      1. exact domain match (query equals the scope's domain)
+      2. substring/prefix match on scope string, domain, or label
+      3. fuzzy similarity (difflib ratio) as a fallback signal
+    Ties break toward the narrowest (longest, most-specific) scope so callers
+    get least-privilege first, then alphabetically for stability.
+
+    Each returned entry is the original entry augmented with ``match_reason``.
+    An empty query returns all (domain-filtered) entries ranked by least
+    privilege. Never raises on no-match; returns an empty list.
+    """
+    normalized_query = str(query or "").strip().lower()
+    domain_filter = str(domain or "").strip().lower()
+    try:
+        capped_limit = max(1, min(int(limit), 50))
+    except (TypeError, ValueError):
+        capped_limit = 20
+
+    scored: list[tuple[int, float, int, str, dict]] = []
+    for entry in scope_entries:
+        if not isinstance(entry, dict):
+            continue
+        scope = str(entry.get("scope") or "").strip()
+        if not scope:
+            continue
+        entry_domain = str(entry.get("domain") or "").strip().lower() or _scope_domain(scope)
+        if domain_filter and entry_domain != domain_filter:
+            continue
+
+        label = str(entry.get("label") or "").strip().lower()
+        haystack = f"{scope.lower()} {entry_domain} {label}".strip()
+
+        if not normalized_query:
+            tier, ratio, reason = 3, 0.0, "listed"
+        elif entry_domain and normalized_query == entry_domain:
+            tier, ratio, reason = 0, 1.0, "exact_domain_match"
+        elif normalized_query in haystack:
+            tier, ratio, reason = 1, 0.0, "substring_match"
+        else:
+            ratio = difflib.SequenceMatcher(None, normalized_query, haystack).ratio()
+            # Only keep genuinely similar fuzzy hits; drop noise.
+            if ratio < 0.35:
+                continue
+            tier, reason = 2, "fuzzy_match"
+
+        # Narrowest (longest) scope first within a tier => least privilege.
+        specificity = -len(scope)
+        scored.append((tier, -ratio, specificity, scope, {**entry, "match_reason": reason}))
+
+    scored.sort(key=lambda item: (item[0], item[1], item[2], item[3]))
+    return [item[4] for item in scored[:capped_limit]]
 
 
 class DynamicScopeGenerator:

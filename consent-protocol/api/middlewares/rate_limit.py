@@ -55,14 +55,23 @@ def get_rate_limit_key(request: Request) -> str:
     return get_remote_address(request)
 
 
+# Rate limiting is enabled by default but disabled under the pytest harness so
+# deterministic route tests are not throttled by shared per-key buckets. Real
+# environments never set TESTING, so production/UAT keep enforcement on.
+_rate_limit_enabled = os.getenv("TESTING", "").strip().lower() not in {"1", "true", "yes"}
+
 # Initialize limiter with custom key function. Storage is per-process memory
 # unless RATE_LIMIT_STORAGE_URI points at a shared backend (see module note).
 _storage_uri = os.getenv("RATE_LIMIT_STORAGE_URI", "").strip()
 if _storage_uri:
-    limiter = Limiter(key_func=get_rate_limit_key, storage_uri=_storage_uri)
+    limiter = Limiter(
+        key_func=get_rate_limit_key,
+        storage_uri=_storage_uri,
+        enabled=_rate_limit_enabled,
+    )
     logger.info("rate_limit.shared_storage_enabled")
 else:
-    limiter = Limiter(key_func=get_rate_limit_key)
+    limiter = Limiter(key_func=get_rate_limit_key, enabled=_rate_limit_enabled)
 
 
 # Rate limit constants (per minute)
@@ -74,6 +83,11 @@ class RateLimits:
 
     # Step 2: Approve/deny - slightly higher
     CONSENT_ACTION = "20/minute"  # noqa: S105
+
+    # Scope discovery/search - cheap, higher-frequency read. Given its own bucket
+    # so search traffic cannot starve the CONSENT_REQUEST budget. Shares the same
+    # RATE_LIMIT_STORAGE_URI seam (Redis-later; in-memory per process when unset).
+    SEARCH_SCOPES = "60/minute"  # noqa: S105
 
     # Token validation - higher for polling (soon replaced by SSE)
     TOKEN_VALIDATION = "60/minute"  # noqa: S105

@@ -594,8 +594,15 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             # run_app_action calls both reaching the browser.
             actions = getattr(event, "actions", None)
             delta = getattr(actions, "state_delta", None) or {}
-            directive = delta.get(STATE_PENDING_DIRECTIVE)
-            if isinstance(directive, dict) and directive:
+
+            directives_to_issue = []
+            for key in list(delta.keys()):
+                if key.startswith(f"{STATE_PENDING_DIRECTIVE}:"):
+                    directive = delta.pop(key)
+                    if isinstance(directive, dict) and directive:
+                        directives_to_issue.append(directive)
+
+            for directive in directives_to_issue:
                 outgoing_directive = directive
                 payload = directive.get("payload")
                 if directive.get("kind") == "action" and isinstance(payload, dict):
@@ -612,7 +619,55 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                             action_id,
                             directive_id,
                         )
+
+                        async def _gc_directive(did: str, aid: str):
+                            await asyncio.sleep(15)
+                            if did in issued_action_directives:
+                                issued_action_directives.pop(did, None)
+                                logger.warning(
+                                    "one_adk_live_directive_timeout action=%s directive=%s",
+                                    aid,
+                                    did,
+                                )
+                                settlement = {
+                                    "action_id": aid,
+                                    "directive_id": did,
+                                    "status": "failed",
+                                    "summary": "ui_timeout",
+                                }
+                                await runner.session_service.append_event(
+                                    session,
+                                    AdkEvent(
+                                        author="system",
+                                        invocation_id="action_settled",
+                                        actions=EventActions(
+                                            state_delta={"hussh:last_action_settlement": settlement}
+                                        ),
+                                    ),
+                                )
+                                queue.send_content(
+                                    genai_types.Content(
+                                        role="user",
+                                        parts=[
+                                            genai_types.Part(
+                                                text=(
+                                                    "[App action settlement - not user speech] "
+                                                    f"Action '{aid}' reported "
+                                                    f"status 'failed'. Summary: "
+                                                    f"ui_timeout. "
+                                                    "Acknowledge only this reported outcome. If it "
+                                                    "was blocked or failed, explain the next safe "
+                                                    "step; do not claim the action succeeded."
+                                                )
+                                            )
+                                        ],
+                                    )
+                                )
+
+                        asyncio.create_task(_gc_directive(directive_id, action_id))
+
                 await websocket.send_text(json.dumps({"clientDirective": outgoing_directive}))
+
             if getattr(event, "turn_complete", False):
                 await websocket.send_text(json.dumps({"serverContent": {"turnComplete": True}}))
 

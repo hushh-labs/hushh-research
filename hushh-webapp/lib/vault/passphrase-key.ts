@@ -60,6 +60,39 @@ function toCryptoBytes(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
   return out;
 }
 
+function updateNativeTestCryptoDiagnostics(
+  values: Partial<{
+    stage: string;
+    errorName: string;
+    subtleAvailable: boolean;
+    passphraseMatchesConfig: boolean;
+    passphraseUtf8Length: number;
+    saltLength: number;
+    ivLength: number;
+    ciphertextLength: number;
+  }>
+): void {
+  if (typeof window === "undefined") return;
+  const bridge = window.__HUSHH_NATIVE_TEST__;
+  if (!bridge?.enabled) return;
+  if (values.stage !== undefined) bridge.vaultCryptoStage = values.stage;
+  if (values.errorName !== undefined) bridge.vaultCryptoErrorName = values.errorName;
+  if (values.subtleAvailable !== undefined) {
+    bridge.vaultCryptoSubtleAvailable = values.subtleAvailable;
+  }
+  if (values.passphraseMatchesConfig !== undefined) {
+    bridge.vaultCryptoPassphraseMatchesConfig = values.passphraseMatchesConfig;
+  }
+  if (values.passphraseUtf8Length !== undefined) {
+    bridge.vaultCryptoPassphraseUtf8Length = values.passphraseUtf8Length;
+  }
+  if (values.saltLength !== undefined) bridge.vaultCryptoSaltLength = values.saltLength;
+  if (values.ivLength !== undefined) bridge.vaultCryptoIvLength = values.ivLength;
+  if (values.ciphertextLength !== undefined) {
+    bridge.vaultCryptoCiphertextLength = values.ciphertextLength;
+  }
+}
+
 /**
  * Derive vault key from passphrase using PBKDF2
  */
@@ -68,29 +101,66 @@ export async function deriveKeyFromPassphrase(
   salt: Uint8Array
 ): Promise<CryptoKey> {
   const encoder = new TextEncoder();
+  const encodedPassphrase = encoder.encode(passphrase);
+
+  updateNativeTestCryptoDiagnostics({
+    stage: "importKey",
+    errorName: "",
+    subtleAvailable: typeof crypto !== "undefined" && !!crypto.subtle,
+    passphraseMatchesConfig:
+      typeof window !== "undefined" &&
+      window.__HUSHH_NATIVE_TEST__?.vaultPassphrase === passphrase,
+    passphraseUtf8Length: encodedPassphrase.byteLength,
+    saltLength: salt.byteLength,
+  });
 
   // Import passphrase as key material
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(passphrase),
-    { name: "PBKDF2" },
-    false,
-    ["deriveKey"]
-  );
+  let keyMaterial: CryptoKey;
+  try {
+    keyMaterial = await crypto.subtle.importKey(
+      "raw",
+      encodedPassphrase,
+      { name: "PBKDF2" },
+      false,
+      ["deriveKey"]
+    );
+  } catch (error: unknown) {
+    updateNativeTestCryptoDiagnostics({
+      stage: "importKey_error",
+      errorName:
+        error && typeof error === "object" && "name" in error
+          ? String(error.name)
+          : "UnknownError",
+    });
+    throw error;
+  }
 
   // Derive AES-256-GCM key
-  const key = await crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: salt.buffer as ArrayBuffer,
-      iterations: 100000, // High iteration count for security
-      hash: "SHA-256",
-    },
-    keyMaterial,
-    { name: "AES-GCM", length: 256 },
-    true, // extractable for export
-    ["encrypt", "decrypt", "wrapKey", "unwrapKey"]
-  );
+  updateNativeTestCryptoDiagnostics({ stage: "deriveKey" });
+  let key: CryptoKey;
+  try {
+    key = await crypto.subtle.deriveKey(
+      {
+        name: "PBKDF2",
+        salt: salt.buffer as ArrayBuffer,
+        iterations: 100000, // High iteration count for security
+        hash: "SHA-256",
+      },
+      keyMaterial,
+      { name: "AES-GCM", length: 256 },
+      true, // extractable for export
+      ["encrypt", "decrypt", "wrapKey", "unwrapKey"]
+    );
+  } catch (error: unknown) {
+    updateNativeTestCryptoDiagnostics({
+      stage: "deriveKey_error",
+      errorName:
+        error && typeof error === "object" && "name" in error
+          ? String(error.name)
+          : "UnknownError",
+    });
+    throw error;
+  }
 
   return key;
 }
@@ -194,18 +264,34 @@ export async function unlockVaultWithPassphrase(
   const ivBytes = toCryptoBytes(decodeBytesCompat(iv));
   const encryptedBytes = toCryptoBytes(decodeBytesCompat(encryptedVaultKey));
 
+  updateNativeTestCryptoDiagnostics({
+    stage: "decoded",
+    errorName: "",
+    saltLength: saltBytes.byteLength,
+    ivLength: ivBytes.byteLength,
+    ciphertextLength: encryptedBytes.byteLength,
+  });
+
   // Derive key from passphrase
   const decryptionKey = await deriveKeyFromPassphrase(passphrase, saltBytes);
 
   let vaultKeyRaw: ArrayBuffer;
   try {
     // Decrypt vault key
+    updateNativeTestCryptoDiagnostics({ stage: "decrypt" });
     vaultKeyRaw = await crypto.subtle.decrypt(
       { name: "AES-GCM", iv: ivBytes },
       decryptionKey,
       encryptedBytes
     );
   } catch (error: unknown) {
+    updateNativeTestCryptoDiagnostics({
+      stage: "decrypt_error",
+      errorName:
+        error && typeof error === "object" && "name" in error
+          ? String(error.name)
+          : "UnknownError",
+    });
     // Wrong passphrase/recovery key should not crash UI flows.
     if (
       error &&
@@ -222,6 +308,8 @@ export async function unlockVaultWithPassphrase(
   const vaultKeyHex = Array.from(new Uint8Array(vaultKeyRaw))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+
+  updateNativeTestCryptoDiagnostics({ stage: "complete", errorName: "" });
 
   return vaultKeyHex;
 }

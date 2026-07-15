@@ -608,7 +608,8 @@ async def _specialist_turn(
         }
         payload["directive"] = directive
         # Park it in state so the relay forwards it to the client for execution.
-        tool_context.state[STATE_PENDING_DIRECTIVE] = directive
+        directive_key = f"{STATE_PENDING_DIRECTIVE}:{agent_id}_specialist"
+        tool_context.state[directive_key] = directive
         if result.directive.kind == "prompt":
             payload["next_step"] = (
                 "The app is showing the user a choice card. Tell the user to pick an option there."
@@ -640,7 +641,7 @@ async def open_screen(screen: str, tool_context: ToolContext) -> dict[str, Any]:
             "message": f"'{screen}' is not a screen I can open.",
             "valid_screens": sorted(APP_ROUTES),
         }
-    tool_context.state[STATE_PENDING_DIRECTIVE] = {
+    tool_context.state[f"{STATE_PENDING_DIRECTIVE}:{key}"] = {
         "kind": "navigate",
         "payload": {"route": route, "screen": key},
     }

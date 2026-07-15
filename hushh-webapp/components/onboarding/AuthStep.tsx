@@ -982,7 +982,19 @@ export function AuthStep({
 
   return (
     <main
-      className="relative h-[100dvh] min-h-[100svh] w-full overflow-hidden"
+      // The outer app scroll root reserves --app-scroll-bottom-pad below this
+      // element for the fixed onboarding Agent Bar, then re-adds it as its
+      // own padding-bottom. Sizing this element to a full 100dvh on top of
+      // that reservation forced scroll on every device. Inline style (not a
+      // Tailwind arbitrary-value class) because Tailwind's arbitrary calc()
+      // parser requires escaped whitespace around the minus sign
+      // ("100dvh_-_var(...)"); without it the whole declaration is invalid
+      // CSS and silently dropped, which is what happened here before.
+      className="relative w-full overflow-hidden"
+      style={{
+        height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
+        minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
+      }}
       data-testid="auth-step-primary"
     >
       {/* Shared immersive gradient backdrop (welcome / login / carousel). */}
@@ -1024,9 +1036,17 @@ export function AuthStep({
         <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
       </button>
 
-      <div className="relative mx-auto flex h-[100dvh] min-h-[100svh] w-full max-w-[440px] flex-col">
-        {/* Hero */}
-        <div className="flex flex-1 flex-col items-center justify-center px-6 pb-6 text-center">
+      <div
+        className="relative mx-auto flex w-full max-w-[440px] flex-col"
+        style={{
+          height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
+          minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
+        }}
+      >
+        {/* Hero + buttons anchor to the bottom of the screen (justify-end),
+            not vertically centered, so the whole sign-in surface sits within
+            comfortable one-thumb reach on tall phones. */}
+        <div className="flex flex-1 flex-col items-center justify-end px-6 pb-2 text-center">
           {/* Quiet mark: the bare 🤫 over a soft accent glow, no medallion
               chrome (badge circle removed by design). */}
           <div
@@ -1052,26 +1072,18 @@ export function AuthStep({
           </p>
         </div>
 
-        {/* Frosted glass action sheet: translucent + backdrop-blurred so the
-            dark ambient hero shows through behind it, while dark-on-light
-            controls stay legible. Matches the welcome ("/") glass sheet.
-            Bottom padding clears the persistent agent bar (pinned above the
-            safe area, ~56px tall + 20px gap) so the legal footnote inside
-            the sheet never tucks under it. The Terms/Privacy footnote lives
-            in this sheet's own flow (below), not absolutely positioned
-            outside it, so the sheet's height always matches its real
-            content instead of reserving dead scrollable space. */}
-        <div className="relative overflow-hidden rounded-t-[36px] border-t border-white/70 bg-white/55 px-6 pt-7 pb-[calc(20px+56px+env(safe-area-inset-bottom,0px)+var(--app-screen-footer-pad))] shadow-[0_-1px_0_rgba(255,255,255,0.6)_inset,0_-24px_60px_-24px_rgba(23,19,12,0.22)] backdrop-blur-md backdrop-saturate-150 supports-[backdrop-filter]:bg-white/40 dark:border-white/10 dark:bg-[#141018]/60 dark:shadow-[0_-1px_0_rgba(255,255,255,0.06)_inset,0_-24px_60px_-24px_rgba(0,0,0,0.6)] dark:supports-[backdrop-filter]:bg-[#141018]/45">
-          {/* Glass highlight sheen along the top edge. */}
-          <span
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(255,255,255,0.55)_0%,transparent_100%)] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.06)_0%,transparent_100%)]"
-          />
-          <div className="relative z-[1] mx-auto w-full max-w-[21.5rem] space-y-3">
+        {/* Buttons sit directly on the shared hero background (no card/sheet
+            behind them), matching the welcome ("/") page's direct-on-canvas
+            CTA. The outer app scroll root already reserves clearance for the
+            fixed onboarding Agent Bar (--onboarding-agent-bar-clearance in
+            app/providers.tsx), so this is a plain content gap rather than a
+            second bar-height reservation. */}
+        <div className="relative px-6 pt-2 pb-6">
+          <div className="relative mx-auto w-full max-w-[21.5rem] space-y-3">
             {providerAttempt?.phase === "attention_required" ? (
               <p
                 role="status"
-                className="rounded-2xl bg-[rgba(156,116,52,0.10)] px-4 py-3 text-center text-sm leading-relaxed text-[#6e5121] dark:bg-white/[0.08] dark:text-[#E7C47C]"
+                className="rounded-2xl bg-[color:var(--app-accent-tint)] px-4 py-3 text-center text-sm leading-relaxed text-[color:var(--app-accent-deep)] dark:bg-white/[0.08]"
               >
                 The provider window needs attention. You can retry the same
                 sign-in option securely.
@@ -1104,7 +1116,7 @@ export function AuthStep({
             ) : null}
 
             {/* Consent-first reassurance chip. */}
-            <div className="mx-auto mt-1 flex w-fit items-center gap-1.5 rounded-full bg-[rgba(156,116,52,0.10)] px-3 py-1.5 dark:bg-white/[0.06]">
+            <div className="mx-auto mt-1 flex w-fit items-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1.5 dark:bg-white/[0.06]">
               <Icon
                 icon={Shield}
                 size="sm"

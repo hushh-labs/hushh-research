@@ -217,21 +217,6 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                         ),
                         "enum": ["X25519-AES256-GCM"],
                     },
-                    "scope_bundle": {
-                        "type": "string",
-                        "description": (
-                            "Pre-defined scope bundle name. Use instead of 'scope' for common use cases. "
-                            "Available: financial_overview, full_portfolio_review, risk_assessment, "
-                            "health_wellness, lifestyle_preferences."
-                        ),
-                        "enum": [
-                            "financial_overview",
-                            "full_portfolio_review",
-                            "risk_assessment",
-                            "health_wellness",
-                            "lifestyle_preferences",
-                        ],
-                    },
                     "offer": {
                         "type": "object",
                         "description": (
@@ -268,8 +253,7 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                         "required": ["bid_amount"],
                     },
                 },
-                "required": ["user_id"],
-                "anyOf": [{"required": ["scope"]}, {"required": ["scope_bundle"]}],
+                "required": ["user_id", "scope"],
             },
         ),
         # Tool 2: Validate Token
@@ -366,6 +350,63 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                     "user_id": {
                         "type": "string",
                         "description": "The user's Firebase UID, registered email, or registered E.164 phone number",
+                    },
+                    "country_iso2": {
+                        "type": "string",
+                        "description": (
+                            "Optional ISO country hint for national phone numbers. "
+                            "Examples: US, GB, IN."
+                        ),
+                    },
+                    "country": {
+                        "type": "string",
+                        "description": (
+                            "Optional country name or shortform for national phone numbers. "
+                            "Examples: United States, USA, UK."
+                        ),
+                    },
+                },
+                "required": ["user_id"],
+            },
+        ),
+        # Tool 6b: Search a user's scopes (graceful, ranked lookup)
+        Tool(
+            name="search_user_scopes",
+            description=(
+                "🔎 Search and rank a user's discoverable scopes by intent, so you can pick the "
+                "least-privilege scope without scanning the full discover_user_domains list. "
+                "Ranking is deterministic (exact domain match > prefix match > fuzzy similarity); "
+                "no model reasoning selects the scope. Narrowest matching scope is returned first. "
+                "An empty query returns the same scopes as discover_user_domains (capped by limit). "
+                "An unknown domain returns an empty match list plus the available domains. "
+                "This never fails on a no-match; it returns an empty list with hints instead."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "string",
+                        "description": "The user's Firebase UID, registered email, or registered E.164 phone number",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "Optional free-text intent to match against scope strings, domains, and "
+                            "labels (e.g. 'portfolio', 'health metrics'). Omit to list all scopes."
+                        ),
+                    },
+                    "domain": {
+                        "type": "string",
+                        "description": (
+                            "Optional exact domain filter (e.g. 'financial'). Restricts results to "
+                            "that domain before ranking."
+                        ),
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results to return. Default 20, hard cap 50.",
+                        "minimum": 1,
+                        "maximum": 50,
                     },
                     "country_iso2": {
                         "type": "string",

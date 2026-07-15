@@ -161,48 +161,25 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
     country_iso2 = args.get("country_iso2")
     country = args.get("country")
     scope_str = args.get("scope")
-    scope_bundle_key = args.get("scope_bundle")
 
-    # If a scope bundle is provided, only single-scope bundles are safe in this
-    # public MCP path. Multi-scope bundles need one explicit request per scope.
-    if scope_bundle_key and not scope_str:
-        from hushh_mcp.consent.scope_bundles import expand_bundle
-
-        try:
-            expanded = expand_bundle(scope_bundle_key)
-            if len(expanded) > 1:
-                return [
-                    TextContent(
-                        type="text",
-                        text=json.dumps(
-                            {
-                                "status": "error",
-                                "error": "scope_bundle expands to multiple scopes; request each discovered scope explicitly.",
-                                "expanded_scopes": expanded,
-                            }
-                        ),
-                    )
-                ]
-            scope_str = expanded[0]
-        except ValueError:
-            return [
-                TextContent(
-                    type="text",
-                    text=json.dumps(
-                        {
-                            "status": "error",
-                            "error": f"Unknown scope bundle: {scope_bundle_key}",
-                            "available_bundles": [
-                                "financial_overview",
-                                "full_portfolio_review",
-                                "risk_assessment",
-                                "health_wellness",
-                                "lifestyle_preferences",
-                            ],
-                        }
-                    ),
-                )
-            ]
+    # Dynamic per-user scope discovery (discover_user_domains / search_user_scopes)
+    # is the single way to select a scope. Fixed scope bundles were retired from
+    # this public path because they can over-grant and do not reflect a user's
+    # real domains. Ask for the exact discovered scope instead.
+    if not str(scope_str or "").strip():
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "status": "error",
+                        "error_code": "SCOPE_REQUIRED",
+                        "error": "scope is required. Discover the user's exact scopes first, then request one.",
+                        "hint": "Call discover_user_domains(user_id) or search_user_scopes(user_id, query) and pass one returned scope string.",
+                    }
+                ),
+            )
+        ]
 
     reason = str(args.get("reason") or "").strip() or None
     expiry_hours = args.get("expiry_hours")

@@ -237,7 +237,7 @@ async def run_app_action(
         directive_payload["needsConfirmation"] = True
         if activation_policy == "trusted_activation_required":
             directive_payload["trustedActivationRequired"] = True
-        tool_context.state[_STATE_PENDING_DIRECTIVE] = {
+        tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:{clean_id}"] = {
             "kind": "action",
             "payload": directive_payload,
         }
@@ -251,7 +251,7 @@ async def run_app_action(
             ),
         }
 
-    tool_context.state[_STATE_PENDING_DIRECTIVE] = {
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:{clean_id}"] = {
         "kind": "action",
         "payload": directive_payload,
     }

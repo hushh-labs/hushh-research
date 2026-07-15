@@ -1059,7 +1059,7 @@ function ConsentEntryDetail({
         {locationHref ? (
           <SettingsRow
             title="Location sharing"
-            description="Review this location request, active access, and expiry in Onepoint."
+            description="Review this location request, active access, and expiry in Location."
             trailing={
               <Button asChild variant="none" effect="fade" size="sm">
                 <Link href={locationHref}>Open Location</Link>

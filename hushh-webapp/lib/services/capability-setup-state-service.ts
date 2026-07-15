@@ -281,7 +281,7 @@ function resolveVaultGated(
 }
 
 /**
- * Resolve the location (Onepoint) capability. "Set up" means the user has a
+ * Resolve the location capability. "Set up" means the user has a
  * location recipient key, which lives behind the vault. Locked → we cannot read
  * it, so keep the honest vault-prerequisite `unknown` ("Unlock to view").
  * Unlocked → `completed` ("Ready") when the key exists, `not-started`

@@ -266,7 +266,7 @@ export function InvestmentsMasterView({
   );
 
   const openPlaidLinkFlow = useCallback(
-    async (itemId?: string) => {
+    async (itemId?: string, environment?: string | null) => {
       if (!vaultOwnerToken) {
         toast.error("Please unlock your Vault and try again.");
         return;
@@ -281,6 +281,7 @@ export function InvestmentsMasterView({
           itemId,
           updateMode: Boolean(itemId),
           redirectUri,
+          environment,
         });
         if (!linkToken.configured || !linkToken.link_token) {
           throw new Error("Plaid is not configured for this environment.");
@@ -313,6 +314,7 @@ export function InvestmentsMasterView({
                 vaultOwnerToken,
                 metadata,
                 resumeSessionId: linkToken.resume_session_id || null,
+                environment: linkToken.environment || environment || null,
               })
                 .then(async () => {
                   clearPlaidOAuthResumeSession();

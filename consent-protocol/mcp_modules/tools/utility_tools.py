@@ -258,3 +258,160 @@ async def handle_discover_user_domains(args: dict) -> list[TextContent]:
             ),
         )
     ]
+
+
+async def handle_search_user_scopes(args: dict) -> list[TextContent]:
+    """
+    Search and rank a user's discoverable scopes by intent.
+
+    Calls GET /api/v1/user-scopes/{user_id}/search. Ranking is deterministic on
+    the backend (exact domain > substring > fuzzy), least-privilege first. This
+    is a graceful lookup: unknown domain or no match returns an empty match list
+    plus available domains, never an error.
+    """
+    from .consent_tools import resolve_user_identifier_to_uid
+
+    user_id = args.get("user_id") or ""
+    query = str(args.get("query") or "").strip()
+    domain = str(args.get("domain") or "").strip()
+    country_iso2 = str(args.get("country_iso2") or "").strip() or None
+    country = str(args.get("country") or "").strip() or None
+    try:
+        limit = max(1, min(int(args.get("limit") or 20), 50))
+    except (TypeError, ValueError):
+        limit = 20
+
+    if not user_id.strip():
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "user_id is required",
+                        "usage": "Call search_user_scopes with user_id and an optional query/domain to rank scopes.",
+                    }
+                ),
+            )
+        ]
+
+    resolved_uid, _email, _display = await resolve_user_identifier_to_uid(
+        user_id,
+        country_iso2=country_iso2,
+        country=country,
+    )
+    if resolved_uid is None:
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "User not found",
+                        "user_id": user_id,
+                        "hint": "Provide a valid Firebase UID, registered email, or phone number. Add country_iso2/country when the number is not already international.",
+                    }
+                ),
+            )
+        ]
+    uid = resolved_uid
+
+    params: dict[str, str | int] = {"limit": limit}
+    if query:
+        params["query"] = query
+    if domain:
+        params["domain"] = domain
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            developer_headers = get_developer_api_headers()
+            r = await client.get(
+                f"{FASTAPI_URL}/api/v1/user-scopes/{uid}/search",
+                params=params,
+                headers=developer_headers,
+            )
+            if r.status_code == 404:
+                return [
+                    TextContent(
+                        type="text",
+                        text=json.dumps(
+                            {
+                                "user_id": uid,
+                                "query": query or None,
+                                "domain": domain or None,
+                                "matches": [],
+                                "available_domains": [],
+                                "message": "No PKM domains for this user yet (new user or no domains yet)",
+                            }
+                        ),
+                    )
+                ]
+            if r.status_code == 401 and not developer_headers:
+                return [
+                    TextContent(
+                        type="text",
+                        text=json.dumps(
+                            {
+                                "error": "developer_token_missing",
+                                "message": "HUSHH_DEVELOPER_TOKEN is required for search_user_scopes",
+                                "hint": "Set HUSHH_DEVELOPER_TOKEN in the MCP environment to call /api/v1/user-scopes/{user_id}/search.",
+                            }
+                        ),
+                    )
+                ]
+            r.raise_for_status()
+            data = r.json()
+    except httpx.ConnectError as e:
+        logger.warning(f"⚠️ Search scopes: backend not reachable: {e}")
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": "Cannot reach backend",
+                        "message": str(e),
+                        "hint": f"Ensure FastAPI is running at {FASTAPI_URL}",
+                    }
+                ),
+            )
+        ]
+    except Exception as e:
+        logger.exception("Search user scopes failed")
+        return [
+            TextContent(type="text", text=json.dumps({"error": "search_failed", "message": str(e)}))
+        ]
+
+    raw_matches = data.get("matches") or []
+    enriched_matches = []
+    for entry in raw_matches:
+        scope_value = entry.get("scope") if isinstance(entry, dict) else entry
+        meta = get_scope_display_metadata(scope_value)
+        enriched_matches.append(
+            {
+                "scope": scope_value,
+                "domain": (entry.get("domain") if isinstance(entry, dict) else None),
+                "match_reason": (entry.get("match_reason") if isinstance(entry, dict) else None),
+                "label": meta["label"],
+                "description": meta["description"],
+                "icon_name": meta.get("icon_name"),
+                "color_hex": meta.get("color_hex"),
+            }
+        )
+
+    available_domains = [
+        str(d).strip() for d in (data.get("available_domains") or []) if str(d).strip()
+    ]
+
+    return [
+        TextContent(
+            type="text",
+            text=json.dumps(
+                {
+                    "user_id": data.get("user_id", uid),
+                    "query": query or None,
+                    "domain": domain or None,
+                    "matches": enriched_matches,
+                    "available_domains": available_domains,
+                    "usage": "Call request_consent(user_id, scope) with the least-privilege scope that fits your purpose.",
+                }
+            ),
+        )
+    ]

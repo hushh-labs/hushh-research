@@ -413,7 +413,7 @@
       "page_file": "app/blog/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "hidden",
+        "mode": "standard",
         "exemption_reason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
@@ -465,8 +465,8 @@
       "page_file": "app/blog/[slug]/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "hidden",
-        "exemption_reason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
+        "mode": "standard",
+        "exemption_reason": "Standard mode to show the top app bar and breadcrumbs.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -5978,7 +5978,7 @@
         "page_header": false,
         "settings_ui": false,
         "shared_loader": true,
-        "back_button_pattern": "shared-shell"
+        "back_button_pattern": "route-local-check-required"
       },
       "voice_action_contract_file": "app/register-phone/page.voice-action-contract.json",
       "voice_action_contract_ids": [
@@ -5996,7 +5996,7 @@
       "page_file": "app/research/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "hidden",
+        "mode": "standard",
         "exemption_reason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
@@ -6048,7 +6048,7 @@
       "page_file": "app/research/protocol/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "hidden",
+        "mode": "standard",
         "exemption_reason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
         "shell_verification_file": null,
         "shell_verification_includes": [],

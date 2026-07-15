@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Onepoint redesign — Quick Actions grid (Now tab).
+ * Location agent redesign — Quick Actions grid (Now tab).
  *
  * PRESENTATION ONLY. A single reusable `QuickActionCard` renders every tile in
  * the "Quick actions" block so the six location shortcuts (Check-In, Alert,

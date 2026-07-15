@@ -30,7 +30,7 @@ export function ChatComposer(props: {
           }
         }}
         placeholder="Ask about your location sharing…"
-        aria-label="Ask the Onepoint assistant"
+        aria-label="Ask the Location assistant"
         className={cn(
           "max-h-32 min-h-10 flex-1 resize-none rounded-2xl px-3.5 py-2.5 text-sm",
           "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)]",

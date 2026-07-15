@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
+import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import {
   DropdownMenu,
@@ -201,36 +202,48 @@ export function PhoneMandatePageContent() {
   }
 
   const shell = (
-    <main className="relative h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-[#0A0908] [--phone-mandate-safe-pb:calc(1.5rem+var(--onboarding-agent-bar-clearance))] [--phone-mandate-safe-pt:calc(18px+var(--app-safe-area-top-effective,0px))]">
+    // Inline styles (not Tailwind arbitrary-value classes) for every
+    // computed height/offset here: Tailwind's arbitrary calc() parser
+    // requires escaped whitespace around +/- operators ("18px_+_var(...)");
+    // without it the whole declaration is invalid CSS and silently dropped,
+    // which produced 0px paddings/heights and forced full-page scroll.
+    // The outer app scroll root reserves --app-scroll-bottom-pad below this
+    // element for the fixed onboarding Agent Bar, then re-adds it as its own
+    // padding-bottom, so this element is exactly one viewport minus that
+    // reservation.
+    <main
+      className="relative w-full overflow-hidden"
+      style={{
+        height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
+        minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
+      }}
+    >
+      {/* Shared immersive gradient backdrop (welcome / login / phone). */}
+      <OnboardingHeroBackground />
       <NativeRouteMarker
         routeId={ROUTES.PHONE_MANDATE}
         marker="native-route-register-phone"
         authState="authenticated"
         dataState="loaded"
       />
-      {/* Immersive hero glows */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-[58%]"
-      >
-        <span
-          className="absolute -top-24 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full"
-          style={{ background: "rgba(212,175,106,0.26)", filter: "blur(80px)" }}
-        />
-        <span
-          className="absolute -right-16 top-16 h-56 w-56 rounded-full"
-          style={{ background: "rgba(212,175,106,0.14)", filter: "blur(80px)" }}
-        />
-      </div>
 
-      <div className="relative mx-auto flex h-[100dvh] min-h-[100svh] w-full max-w-[440px] flex-col">
+      <div
+        className="relative mx-auto flex w-full max-w-[440px] flex-col"
+        style={{
+          height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
+          minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
+        }}
+      >
         {/* Top bar: back + account actions */}
-        <div className="flex items-center justify-between px-5 pt-[var(--phone-mandate-safe-pt)]">
+        <div
+          className="flex items-center justify-between px-5"
+          style={{ paddingTop: "calc(18px + var(--app-safe-area-top-effective, 0px))" }}
+        >
           <button
             type="button"
             aria-label="Go back"
             onClick={() => router.back()}
-            className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-white/15 active:scale-95"
+            className="grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] active:scale-95 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15"
           >
             <ChevronLeft className="h-5 w-5" />
           </button>
@@ -239,7 +252,7 @@ export function PhoneMandatePageContent() {
               <button
                 type="button"
                 aria-label="Account actions"
-                className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-white/15 active:scale-95"
+                className="grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] active:scale-95 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15"
               >
                 <MoreHorizontal className="h-5 w-5" />
               </button>
@@ -253,11 +266,13 @@ export function PhoneMandatePageContent() {
           </DropdownMenu>
         </div>
 
-        {/* Dark hero */}
-        <div className="flex flex-1 flex-col items-center justify-center px-6 pb-6 text-center">
+        {/* Hero + OTP controls anchor to the bottom of the screen
+            (justify-end), not vertically centered, so the whole verification
+            surface sits within comfortable one-thumb reach on tall phones. */}
+        <div className="flex flex-1 flex-col items-center justify-end px-6 pb-2 text-center">
           <span
             aria-hidden="true"
-            className="select-none text-[48px] leading-none drop-shadow-[0_8px_18px_rgba(109,67,26,0.28)]"
+            className="select-none text-[48px] leading-none drop-shadow-[0_6px_14px_rgba(0,0,0,0.25)]"
           >
             🤫
           </span>
@@ -265,24 +280,25 @@ export function PhoneMandatePageContent() {
             role="heading"
             aria-level={1}
             aria-label="Verify your phone number"
-            className="mt-6 font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.05] tracking-[-1px] text-[#FAF6EE]"
+            className="mt-6 font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#17130C] dark:text-[#FAF6EE]"
           >
             Verify your phone number
           </h1>
-          <p className="mt-3 max-w-[20rem] text-[16px] text-[rgba(250,246,238,0.62)]">
+          <p className="mt-3 max-w-[20rem] text-[16px] leading-[1.45] text-[rgba(23,19,12,0.6)] dark:text-[rgba(250,246,238,0.62)]">
             Add your phone number to continue.
           </p>
         </div>
 
-        {/* White form sheet. Its bottom padding reserves both the native safe
-            area and the persistent Voice Bar, so OTP controls and trust copy
-            remain reachable without hiding the voice journey. max-h +
-            overflow-y-auto is a safety net: with
-            Keyboard.resize:"native" the viewport shrinks above the keyboard, and
-            the page root is overflow-hidden, so on a very short screen (iPhone SE)
-            a tall step scrolls WITHIN the sheet instead of clipping. At rest the
-            content is short so no scroll appears — resting look is unchanged. */}
-        <div className="relative max-h-[calc(100dvh-4rem)] overflow-y-auto rounded-t-[34px] bg-white px-6 pt-7 pb-[var(--phone-mandate-safe-pb)] shadow-[0_-16px_50px_rgba(0,0,0,0.45)] dark:bg-[#141416]">
+        {/* OTP controls sit directly on the shared hero background, matching
+            the welcome/login pages. max-h + overflow-y-auto is a safety net:
+            with Keyboard.resize:"native" the viewport shrinks above the
+            keyboard, and the page root is overflow-hidden, so on a very short
+            screen (iPhone SE) a tall step scrolls WITHIN this region instead
+            of clipping. At rest the content is short so no scroll appears. */}
+        <div
+          className="relative overflow-y-auto px-6 pb-6"
+          style={{ maxHeight: "calc(100dvh - 4rem)" }}
+        >
           <PhoneVerificationFlow
             mode="link"
             currentPhoneNumber={phoneNumber}
@@ -293,7 +309,7 @@ export function PhoneMandatePageContent() {
             confirmLabel="Verify and continue"
             className="gap-5"
           />
-          <div className="mt-4 flex items-center justify-center gap-1.5 text-[13px] text-black/40 dark:text-white/45">
+          <div className="mt-4 flex items-center justify-center gap-1.5 text-[13px] text-[#86868b] dark:text-white/45">
             <svg
               width="11"
               height="12"

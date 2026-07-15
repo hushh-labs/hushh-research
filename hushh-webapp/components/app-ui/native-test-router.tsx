@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { getNativeTestConfig } from "@/lib/testing/native-test";
-import { ROUTES, isOneSetupRoute } from "@/lib/navigation/routes";
+import { isOneSetupRoute } from "@/lib/navigation/routes";
 
 let lastAppliedInitialRoute: string | null = null;
 let lastAppliedInitialRouteRequest: { route: string; appliedAt: number } | null = null;
@@ -55,13 +55,20 @@ function routePathname(value: string | null | undefined) {
   }
 }
 
-function isAcceptedOneSetupFallback(currentRoute: string, initialRoute: string | null | undefined) {
+function isAcceptedOneSetupFallback(
+  currentRoute: string,
+  initialRoute: string | null | undefined,
+  expectedRoute: string | null | undefined,
+) {
   const currentPath = routePathname(currentRoute);
-  const initialPath = routePathname(initialRoute);
+  const targetPath = routePathname(
+    expectedRoute || getRedirectTarget(initialRoute) || initialRoute,
+  );
   return (
     isOneSetupRoute(currentPath) &&
-    (initialPath === ROUTES.ONE_HOME || initialPath.startsWith(`${ROUTES.ONE_HOME}/`)) &&
-    !isOneSetupRoute(initialPath)
+    targetPath.startsWith("/") &&
+    targetPath !== "/login" &&
+    !isOneSetupRoute(targetPath)
   );
 }
 
@@ -75,28 +82,12 @@ function canRecoverToExpectedRoute() {
     return true;
   }
 
-  return [
-    "authenticated",
-    "loading_vault_state",
-    "unlocking_vault",
-    "vault_unlocked",
-  ].includes(String(bridge.bootstrapState || ""));
+  return bridge.bootstrapState === "vault_unlocked";
 }
 
 export function NativeTestRouter() {
   const router = useRouter();
   const pathname = usePathname();
-  const [pendingNativeRoute, setPendingNativeRoute] = useState<{
-    route: string;
-    requestedAt: number;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!pendingNativeRoute?.route) {
-      return;
-    }
-    router.replace(pendingNativeRoute.route, { scroll: false });
-  }, [pendingNativeRoute, router]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -104,7 +95,6 @@ export function NativeTestRouter() {
     }
 
     const navigateToRoute = (route: string) => {
-      setPendingNativeRoute({ route, requestedAt: Date.now() });
       router.replace(route, { scroll: false });
     };
     const installNavigationBridge = () => {
@@ -127,7 +117,13 @@ export function NativeTestRouter() {
 
       missingConfigAttempts = 0;
       const currentRoute = `${pathname}${window.location.search || ""}`;
-      if (isAcceptedOneSetupFallback(currentRoute, config.initialRoute)) {
+      if (
+        isAcceptedOneSetupFallback(
+          currentRoute,
+          config.initialRoute,
+          config.expectedRoute,
+        ) && !canRecoverToExpectedRoute()
+      ) {
         lastAppliedInitialRoute = config.initialRoute;
         lastAppliedExpectedRouteRecovery = null;
         return true;

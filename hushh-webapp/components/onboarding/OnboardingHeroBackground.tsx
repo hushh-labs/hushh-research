@@ -1,7 +1,7 @@
 // components/onboarding/OnboardingHeroBackground.tsx
-// The living backdrop shared by pre-auth surfaces. It is intentionally warm and
-// low-contrast: Foundation gold gives the page depth without turning onboarding
-// into a competing light show.
+// The living backdrop shared by pre-auth surfaces. Neutral Apple-parchment
+// canvas with quiet Action Blue corner glows gives the page depth without
+// turning onboarding into a competing light show.
 // Purely decorative and non-interactive; respects prefers-reduced-motion.
 
 "use client";

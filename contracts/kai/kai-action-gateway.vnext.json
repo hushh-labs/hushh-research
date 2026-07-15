@@ -4598,7 +4598,6 @@
       "label": "Open Location",
       "aliases": [
         "open location",
-        "open location agent",
         "go to location",
         "show location"
       ],
@@ -4607,7 +4606,7 @@
         "live sharing",
         "local context"
       ],
-      "meaning": "Navigates to the One Location agent route.",
+      "meaning": "Navigates to the One Location route.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {

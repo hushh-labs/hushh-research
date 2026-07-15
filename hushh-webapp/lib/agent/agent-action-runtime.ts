@@ -47,6 +47,7 @@ export type ExecuteAgentGatewayActionInput = {
   setAnalysisParams: (params: AnalysisParams | null) => void;
   switchPersona?: (target: Persona) => Promise<unknown>;
   executionContext?: LocalOnboardingActionContext;
+  signal?: AbortSignal;
 };
 
 function hasPublishedActionInventory(
@@ -511,6 +512,18 @@ export async function executeAgentGatewayAction(
   }
 
   if (action.execution_target.path === "local_handler") {
+    if (input.signal?.aborted) {
+      return buildResult({
+        status: "failed",
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary: "Action was interrupted.",
+        reason: "execution_aborted",
+      });
+    }
+
     const handler = await waitForLocalOnboardingHandler(action.action_id);
     if (!handler) {
       return buildResult({
@@ -523,11 +536,25 @@ export async function executeAgentGatewayAction(
         reason: "local_handler_not_mounted",
       });
     }
+
     try {
-      const handlerResult = await handler(
-        input.slots || {},
-        input.executionContext,
+      const abortPromise = new Promise<never>((_, reject) => {
+        if (input.signal) {
+          const onAbort = () => reject(new Error("Action was interrupted."));
+          if (input.signal.aborted) onAbort();
+          else input.signal.addEventListener("abort", onAbort);
+        }
+      });
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("The action took too long to complete.")), 15000)
       );
+
+      const handlerResult = await Promise.race([
+        handler(input.slots || {}, input.executionContext),
+        abortPromise,
+        timeoutPromise,
+      ]);
+
       return buildLocalHandlerResult({
         actionId: action.action_id,
         label: action.label,
@@ -536,6 +563,7 @@ export async function executeAgentGatewayAction(
         handlerResult,
       });
     } catch (error) {
+      const isAbort = error instanceof Error && error.message === "Action was interrupted.";
       return buildResult({
         status: "failed",
         actionId: action.action_id,
@@ -546,7 +574,7 @@ export async function executeAgentGatewayAction(
           error instanceof Error && error.message
             ? error.message
             : `${action.label} failed to run.`,
-        reason: "local_handler_error",
+        reason: isAbort ? "execution_aborted" : "local_handler_error",
       });
     }
   }
