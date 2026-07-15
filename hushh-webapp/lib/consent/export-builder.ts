@@ -115,6 +115,69 @@ function mergeSegmentIds(...groups: Array<string[] | null | undefined>): string[
   ];
 }
 
+// Concept keywords -> canonical segment, for snapping scopes whose path does not
+// exist in the manifest (e.g. a consent granted for identity.tax_id / cash_positions
+// when the data actually lives under identity.tax / identity.bank).
+const KYC_SEGMENT_KEYWORDS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/passport/, "passport"],
+  [/licen[sc]e|driver|(^|_)dl(_|$)/, "drivers_license"],
+  [/tax|ssn|tin|itin|w-?9|w-?8|taxpayer/, "tax"],
+  [/bank|account|routing|cash|iban|swift|cheque|check|deposit|payout/, "bank"],
+];
+
+function realTopLevelSegments(
+  manifest: {
+    externalizable_paths?: string[];
+    paths?: Array<{ json_path?: string }>;
+  } | null
+): string[] {
+  const leaf = (manifest?.paths || [])
+    .map((entry) => entry.json_path)
+    .filter((path): path is string => typeof path === "string");
+  return topLevelSegmentsForPaths([...leaf, ...(manifest?.externalizable_paths || [])]);
+}
+
+/**
+ * If the scope's top-level path does not correspond to a real segment in the
+ * manifest, snap it to the closest existing segment. Data-driven: the target set
+ * is the manifest's own top-level paths, so this never invents a segment. Returns
+ * the original scope for domain-wide scopes or when no confident match exists.
+ */
+function snapScopeToManifest(
+  scope: string,
+  manifest: {
+    externalizable_paths?: string[];
+    paths?: Array<{ json_path?: string }>;
+  } | null
+): string {
+  const parsed = parseAttrScope(scope);
+  if (!parsed || !parsed.path) return scope;
+  const requestedTop = normalizeSegmentCandidate(parsed.path);
+  if (!requestedTop) return scope;
+  const segments = realTopLevelSegments(manifest);
+  if (segments.includes(requestedTop)) return scope;
+  let snapped =
+    segments.find((seg) => seg.includes(requestedTop) || requestedTop.includes(seg)) || null;
+  if (!snapped) {
+    for (const [pattern, seg] of KYC_SEGMENT_KEYWORDS) {
+      if (pattern.test(requestedTop) && segments.includes(seg)) {
+        snapped = seg;
+        break;
+      }
+    }
+  }
+  return snapped ? `attr.${parsed.domain}.${snapped}` : scope;
+}
+
+// Paths never included in a consent export/reply even when they fall under an
+// approved scope. MRZ encodes the entire passport in machine-readable form, so
+// it is redundant with the human-readable fields and needlessly sensitive to share.
+const REDACTED_EXPORT_PATH_RE = /(^|\.)mrz(_line\d+)?$/i;
+
+function isRedactedExportPath(path: string): boolean {
+  return REDACTED_EXPORT_PATH_RE.test(path);
+}
+
 function assertShareablePayload(scope: string, payload: Record<string, unknown>): void {
   if (hasShareableValue(payload)) return;
   throw new ConsentExportNoDataError(
@@ -166,17 +229,24 @@ export async function buildConsentExportForScope(params: {
     return { payload: {} };
   }
 
-  const parsedScope = parseAttrScope(params.scope);
-  if (!parsedScope) {
+  const requestedScope = parseAttrScope(params.scope);
+  if (!requestedScope) {
     return { payload: {} };
   }
 
   const manifest = await PersonalKnowledgeModelService.getDomainManifest(
     params.userId,
-    parsedScope.domain,
+    requestedScope.domain,
     params.vaultOwnerToken
   ).catch(() => null);
-  const approvedPaths = resolveApprovedPaths(params.scope, manifest);
+  // Snap the granted scope onto a real manifest segment when its path does not
+  // exist (e.g. identity.tax_id -> identity.tax, identity/financial cash_positions
+  // -> identity.bank), so the export resolves to actually-stored data.
+  const effectiveScope = snapScopeToManifest(params.scope, manifest);
+  const parsedScope = parseAttrScope(effectiveScope) ?? requestedScope;
+  const approvedPaths = resolveApprovedPaths(effectiveScope, manifest).filter(
+    (path) => !isRedactedExportPath(path)
+  );
   const isDomainWideScope = !parsedScope.path;
   const manifestSegmentIds = isDomainWideScope
     ? []
@@ -216,12 +286,13 @@ export async function buildConsentExportForScope(params: {
   ) => ({
     ...projectDomainDataForScope({
       domain: parsedScope.domain,
-      scope: params.scope,
+      scope: effectiveScope,
       domainData,
       approvedPaths,
     }),
     __export_metadata: {
       scope: params.scope,
+      resolved_scope: effectiveScope !== params.scope ? effectiveScope : undefined,
       source_domain: parsedScope.domain,
       manifest_version: manifest?.manifest_version ?? null,
       approved_paths: approvedPaths,
