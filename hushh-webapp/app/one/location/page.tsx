@@ -200,6 +200,10 @@ import { syncBackgroundShare } from "@/lib/one-location/background-share-runtime
 import { BackgroundShareToggle } from "@/app/one/location/background-share-toggle";
 import { liveFreshness } from "@/lib/one-location/freshness";
 import { shouldStreamSelfPreview } from "@/lib/one-location/self-preview";
+import {
+  DRIVE_ETA_MIN_RECOMPUTE_INTERVAL_MS,
+  DRIVE_ETA_MIN_RECOMPUTE_MOVE_METERS,
+} from "@/lib/one-location/eta-recompute";
 import { getApiBaseUrl } from "@/lib/services/api-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 
@@ -225,8 +229,7 @@ const FOREGROUND_RETRY_DELAYS_MS = [450, 900] as const;
 // user's point never goes stale.
 const LIVE_LOCATION_MIN_MOVE_METERS = 25;
 const LIVE_LOCATION_MIN_PUBLISH_INTERVAL_MS = 8_000;
-const DRIVE_ETA_MIN_RECOMPUTE_INTERVAL_MS = 60_000;
-const DRIVE_ETA_MIN_RECOMPUTE_MOVE_METERS = 250;
+
 
 const ONE_NETWORK_PREVIEW_LIMIT = 3;
 const REQUEST_MESSAGE_MAX_LENGTH = 80;
@@ -5098,6 +5101,9 @@ export function OneLocationAgentPageContent({
       if (!grant) return null;
       return decryptedPoints[grant.id] ?? null;
     },
+    /** Resolve the current user's pickup point for one of their outbound pick_me_up grants. */
+    pickupPointForOwnerGrant: (grantId: string): PlainLocationPoint | null =>
+      pickupSessionRef.current.get(grantId) ?? myLocationPoint ?? null,
     safeArrivalBusy: busy === "safeArrival",
     onSafeArrival: (destination, recipientIds, durationHoursValue, messageValue) =>
       void handleSafeArrival(

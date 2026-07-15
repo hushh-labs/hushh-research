@@ -18,7 +18,7 @@
  *   focused task flows.
  */
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 
 
@@ -55,6 +55,7 @@ import type {
   OneLocationPublicInvite,
   OneLocationRecipient,
   PlainLocationPoint,
+  RouteEta,
 } from "@/lib/one-location/types";
 
 import {
@@ -73,13 +74,11 @@ import { SharingStatusCard } from "./sharing-status-card";
 import {
   ActiveShareCard,
   DeviceReadinessCard,
-  PickupEnRouteCard,
   RequestCard,
   SharedWithMeCard,
   TemporaryLinkCard,
   TrustedPersonCard,
 } from "./cards";
-import { driveEtaText } from "@/app/one/location/drive-eta";
 import {
   DurationSelector,
   LocationTypeSelector,
@@ -98,6 +97,9 @@ import { DriveToFlow } from "./drive-to-flow";
 import { PickMeUpFlow } from "./pick-me-up-flow";
 import { SafeArrivalFlow } from "./safe-arrival-flow";
 import { deriveEnRouteHelpers } from "./pickup-enroute";
+import { PickupEnRouteCardLive } from "./pickup-enroute-card-live";
+import { OneLocationService } from "@/lib/one-location/service";
+import type { LatLngLiteral } from "@/lib/one-location/marker-interpolation";
 
 
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
@@ -254,6 +256,8 @@ export type LocationHubViewModel = {
   decryptedPoints: Record<string, PlainLocationPoint>;
   /** Latest decrypted live point for a contact who is sharing with the user, else null. */
   recipientLivePoint: (userId: string) => PlainLocationPoint | null;
+  /** Resolve the current user's pickup point for one of their outbound pick_me_up grants. */
+  pickupPointForOwnerGrant: (grantId: string) => PlainLocationPoint | null;
 };
 
 type FlowKind =
@@ -581,7 +585,26 @@ function NowHub({
     activeOwnerGrants: vm.activeOwnerGrants,
     decryptedPoints: vm.decryptedPoints,
     labelFor: vm.grantOwnerLabel,
+    pickupPointForOwnerGrant: vm.pickupPointForOwnerGrant,
   });
+
+  const vaultOwnerToken = vm.vaultOwnerToken;
+  const fetchPickupEta = useCallback(
+    (origin: LatLngLiteral, dest: LatLngLiteral): Promise<RouteEta> => {
+      if (!vaultOwnerToken) {
+        return Promise.reject(new Error("Vault locked"));
+      }
+      return OneLocationService.routeEta({
+        vaultOwnerToken,
+        originLat: origin.lat,
+        originLng: origin.lng,
+        destLat: dest.lat,
+        destLng: dest.lng,
+      });
+    },
+    [vaultOwnerToken],
+  );
+
   const deviceReadinessCard = (
     <SectionCard title="Device readiness">
       <DeviceReadinessCard
@@ -618,16 +641,20 @@ function NowHub({
       {/* En-route helpers: show one card per helper who tapped "I'm on my way".
           Each card shows the helper's name, live ETA, map, and a cancel button
           that revokes the requester's outbound pick_me_up grant. */}
-      {enRouteHelpers.map(({ key, helperName, point, etaSeconds, outboundGrantId }) => (
-        <PickupEnRouteCard
-          key={key}
-          helperName={helperName}
-          etaText={driveEtaText(etaSeconds)}
-          onCancel={() => vm.onStopGrant(outboundGrantId)}
-        >
-          {vm.renderMapPreview(point, false)}
-        </PickupEnRouteCard>
-      ))}
+      {enRouteHelpers.map(
+        ({ key, helperName, point, pickupPoint, etaSeconds, outboundGrantId }) => (
+          <PickupEnRouteCardLive
+            key={key}
+            helperName={helperName}
+            helperPoint={point}
+            pickupPoint={pickupPoint}
+            seedEtaSeconds={etaSeconds}
+            fetchEta={fetchPickupEta}
+            fallbackPreview={vm.renderMapPreview(point, false)}
+            onCancel={() => vm.onStopGrant(outboundGrantId)}
+          />
+        ),
+      )}
 
       <SharingStatusCard
         isSharing={hasActiveShare}

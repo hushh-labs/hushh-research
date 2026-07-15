@@ -64,7 +64,7 @@ describe("deriveEnRouteHelpers", () => {
     };
     const label = (g: OneLocationGrant) => (g.ownerUserId === "helper-1" ? "Ravi" : "?");
 
-    const result = deriveEnRouteHelpers({ receivedGrants: received, activeOwnerGrants: outbound, decryptedPoints: points, labelFor: label });
+    const result = deriveEnRouteHelpers({ receivedGrants: received, activeOwnerGrants: outbound, decryptedPoints: points, labelFor: label, pickupPointForOwnerGrant: () => null });
 
     expect(result).toHaveLength(1);
     expect(result[0]!.helperName).toBe("Ravi");
@@ -81,7 +81,7 @@ describe("deriveEnRouteHelpers", () => {
       makeGrant({ id: "o1", shareKind: "pick_me_up", recipientUserId: "helper-1" }),
     ];
     // No decrypted point
-    const result = deriveEnRouteHelpers({ receivedGrants: received, activeOwnerGrants: outbound, decryptedPoints: {}, labelFor: () => "Ravi" });
+    const result = deriveEnRouteHelpers({ receivedGrants: received, activeOwnerGrants: outbound, decryptedPoints: {}, labelFor: () => "Ravi", pickupPointForOwnerGrant: () => null });
 
     expect(result).toHaveLength(0);
   });
@@ -96,7 +96,7 @@ describe("deriveEnRouteHelpers", () => {
     ];
     const points: Record<string, PlainLocationPoint> = { r1: makePoint(300) };
 
-    const result = deriveEnRouteHelpers({ receivedGrants: received, activeOwnerGrants: outbound, decryptedPoints: points, labelFor: () => "Ravi" });
+    const result = deriveEnRouteHelpers({ receivedGrants: received, activeOwnerGrants: outbound, decryptedPoints: points, labelFor: () => "Ravi", pickupPointForOwnerGrant: () => null });
 
     expect(result).toHaveLength(0);
   });
@@ -110,7 +110,7 @@ describe("deriveEnRouteHelpers", () => {
     ];
     const points: Record<string, PlainLocationPoint> = { r1: makePoint(300) };
 
-    const result = deriveEnRouteHelpers({ receivedGrants: received, activeOwnerGrants: outbound, decryptedPoints: points, labelFor: () => "Ravi" });
+    const result = deriveEnRouteHelpers({ receivedGrants: received, activeOwnerGrants: outbound, decryptedPoints: points, labelFor: () => "Ravi", pickupPointForOwnerGrant: () => null });
 
     expect(result).toHaveLength(0);
   });
@@ -132,7 +132,7 @@ describe("deriveEnRouteHelpers", () => {
       },
     };
 
-    const result = deriveEnRouteHelpers({ receivedGrants: received, activeOwnerGrants: outbound, decryptedPoints: points, labelFor: () => "Ravi" });
+    const result = deriveEnRouteHelpers({ receivedGrants: received, activeOwnerGrants: outbound, decryptedPoints: points, labelFor: () => "Ravi", pickupPointForOwnerGrant: () => null });
 
     expect(result).toHaveLength(1);
     expect(result[0]!.etaSeconds).toBeNull();
@@ -152,7 +152,7 @@ describe("deriveEnRouteHelpers", () => {
       r2: makePoint(1200),
     };
 
-    const result = deriveEnRouteHelpers({ receivedGrants: received, activeOwnerGrants: outbound, decryptedPoints: points, labelFor: (g) => g.ownerUserId });
+    const result = deriveEnRouteHelpers({ receivedGrants: received, activeOwnerGrants: outbound, decryptedPoints: points, labelFor: (g) => g.ownerUserId, pickupPointForOwnerGrant: () => null });
 
     expect(result).toHaveLength(2);
     expect(result.map((e) => e.outboundGrantId).sort()).toEqual(["o1", "o2"]);
