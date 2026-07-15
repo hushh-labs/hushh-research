@@ -235,7 +235,6 @@ export function VaultFlow({
     signOutRequestedRef.current = true;
     setIsSigningOut(true);
     setIsUnlocking(false);
-    setShowSignOutConfirm(false);
     try {
       await onSignOut();
     } catch (signOutError) {
@@ -804,62 +803,33 @@ export function VaultFlow({
   // Last-resort escape for a user who can't unlock (forgot the vault key AND
   // recovery key). Only rendered on the HARD gate (VaultLockGuard passes
   // onSignOut); it sits below the unlock methods so it's a deliberate last
-  // choice, and confirms before signing out to avoid an accidental tap.
+  // choice.
   const signOutEscape = onSignOut ? (
-    <div className="pt-2">
-      {showSignOutConfirm ? (
-        <div
-          role="group"
-          aria-label="Sign out confirmation"
-          className="rounded-[22px] border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] p-3 text-center"
-        >
-          <p className="type-footnote font-semibold text-foreground">
-            Sign out of this app?
-          </p>
-          <p className="mt-1 text-[12px] leading-snug text-muted-foreground">
-            Your vault stays encrypted. You can sign in again later.
-          </p>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onPointerUp={() => setShowSignOutConfirm(false)}
-              onClick={() => setShowSignOutConfirm(false)}
-              disabled={isSigningOut}
-              className="inline-flex min-h-11 items-center justify-center rounded-full bg-white/80 px-3 type-footnote font-semibold text-foreground shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)] disabled:opacity-50 dark:bg-white/10"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onPointerUp={(event) => {
-                event.preventDefault();
-                void handleConfirmSignOut();
-              }}
-              onClick={(event) => {
-                event.preventDefault();
-                void handleConfirmSignOut();
-              }}
-              disabled={isSigningOut}
-              className="inline-flex min-h-11 items-center justify-center rounded-full bg-[color:var(--app-accent)] px-3 type-footnote font-semibold text-[color:var(--app-accent-fg)] shadow-[0_10px_24px_var(--app-accent-ring)] disabled:opacity-50"
-            >
-              {isSigningOut ? "Signing out..." : "Sign out"}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onPointerUp={openSignOutConfirm}
-          onClick={openSignOutConfirm}
-          disabled={isSigningOut}
-          className="mx-auto flex min-h-11 items-center justify-center gap-1 rounded-full px-3 type-footnote disabled:opacity-50"
-        >
-          <span className="text-muted-foreground">Can&apos;t get in?</span>
-          <span className="font-semibold text-[color:var(--app-accent-deep)] underline-offset-2 hover:underline dark:text-[color:var(--app-accent-deep)]">
-            Sign out
-          </span>
-        </button>
-      )}
+    <div className="pt-2 flex justify-center">
+      <button
+        type="button"
+        onPointerUp={(event) => {
+          event.preventDefault();
+          void handleConfirmSignOut();
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          void handleConfirmSignOut();
+        }}
+        disabled={isSigningOut}
+        className="mx-auto flex min-h-11 items-center justify-center gap-1 rounded-full px-3 type-footnote disabled:opacity-50"
+      >
+        {isSigningOut ? (
+          <span className="text-muted-foreground font-semibold">Signing out...</span>
+        ) : (
+          <>
+            <span className="text-muted-foreground">Can&apos;t get in?</span>
+            <span className="font-semibold text-[color:var(--app-accent-deep)] underline-offset-2 hover:underline dark:text-[color:var(--app-accent-deep)]">
+              Sign out
+            </span>
+          </>
+        )}
+      </button>
     </div>
   ) : null;
 
