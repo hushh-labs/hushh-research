@@ -208,7 +208,6 @@ export function NativeTestBootstrap() {
       try {
         const hasVault = await VaultService.checkVault(user.uid);
         let decryptedKey: string | null;
-        let createdVault = false;
 
         if (hasVault) {
           const vaultState = await VaultService.getVaultState(user.uid);
@@ -258,14 +257,16 @@ export function NativeTestBootstrap() {
           if (!decryptedKey) {
             throw new Error("Persisted vault passphrase verification failed");
           }
-          createdVault = true;
         }
 
         if (!decryptedKey) {
           throw new Error("Vault unlock returned no decrypted key");
         }
 
-        if (createdVault) {
+        const setupState = await PreVaultUserStateService.bootstrapState(
+          user.uid,
+        );
+        if (!PreVaultUserStateService.isSetupResolved(setupState)) {
           updateBootstrapStatus("completing_setup", {
             userId: user.uid,
           });

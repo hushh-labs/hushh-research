@@ -5,35 +5,22 @@ import {
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
 import { OneSetupGateService } from "@/lib/services/one-setup-gate-service";
+import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
-import {
-  getSessionItem,
-  removeSessionItem,
-  setSessionItem,
-} from "@/lib/utils/session-storage";
-
-const ONE_SETUP_COMPLETION_HINT_PREFIX = "one_setup_completion_hint:";
-
-function hintKey(userId: string): string {
-  return `${ONE_SETUP_COMPLETION_HINT_PREFIX}${userId}`;
-}
 
 export function readOneSetupCompletionHint(userId: string): boolean | null {
-  const value = getSessionItem(hintKey(userId));
-  if (value === "1") return true;
-  if (value === "0") return false;
-  return null;
+  return OneSetupCompletionHintService.isResolved(userId) ? true : null;
 }
 
 export function writeOneSetupCompletionHint(
   userId: string,
   resolved: boolean | null,
 ): void {
-  if (resolved === null) {
-    removeSessionItem(hintKey(userId));
+  if (resolved === true) {
+    OneSetupCompletionHintService.markResolved(userId);
     return;
   }
-  setSessionItem(hintKey(userId), resolved ? "1" : "0");
+  OneSetupCompletionHintService.clear(userId);
 }
 
 export function primeOneSetupResolved(params: {

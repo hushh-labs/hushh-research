@@ -1,6 +1,7 @@
 "use client";
 
 import { KaiNavTourLocalService } from "@/lib/services/kai-nav-tour-local-service";
+import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 import { PreVaultOnboardingService } from "@/lib/services/pre-vault-onboarding-service";
 import { RiaOnboardingDraftLocalService } from "@/lib/services/ria-onboarding-draft-local-service";
 import { VaultMethodPromptLocalService } from "@/lib/services/vault-method-prompt-local-service";
@@ -16,6 +17,8 @@ import { VaultMethodPromptLocalService } from "@/lib/services/vault-method-promp
 export class UserLocalStateService {
   static async clearForUser(userId: string): Promise<void> {
     if (!userId) return;
+
+    OneSetupCompletionHintService.clear(userId);
 
     const tasks: Array<Promise<unknown>> = [
       PreVaultOnboardingService.clear(userId),

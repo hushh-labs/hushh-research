@@ -619,7 +619,6 @@
         root.setAttribute("data-hushh-native-test-expected-route", route);
         root.setAttribute("data-hushh-native-test-expected-marker", "");
       }
-      window.dispatchEvent(new Event("hushh:native-test-config-updated"));
     } catch (_) {}
   }
 
