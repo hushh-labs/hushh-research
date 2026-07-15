@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { BookOpen, FileText, ShieldCheck } from "lucide-react";
+import { BookOpen, FileText, ShieldCheck, ArrowRight } from "lucide-react";
 import {
   AppPageShell,
   AppPageHeaderRegion,
   AppPageContentRegion,
 } from "@/components/app-ui/app-page-shell";
-import { Hero, CardGrid, Card, Band, Figure } from "@/components/app-ui/sections";
+import { Hero, Band, Figure } from "@/components/app-ui/sections";
 import { ROUTES } from "@/lib/navigation/routes";
 import { PCHP_SPEC_META } from "@/lib/research/pchp-spec";
 import { BLOG_POSTS } from "@/lib/research/blog";
@@ -29,23 +29,53 @@ export function ResearchLanding() {
         />
       </AppPageHeaderRegion>
 
-      <AppPageContentRegion className="mt-8 space-y-10">
-        <CardGrid cols={2}>
-          <Card
-            href={ROUTES.RESEARCH_PROTOCOL}
-            icon={<FileText className="h-5 w-5" />}
-            title="PCHP Specification"
-            body="The full protocol — six-phase handshake, token wire formats, scope grammar, zero-knowledge envelope, transparency log, conformance levels."
-            cta="Read the spec"
-          />
-          <Card
-            href={ROUTES.BLOG}
-            icon={<BookOpen className="h-5 w-5" />}
-            title="Blog"
-            body="Why consent-first information sharing matters, what it unlocks, and how to adopt PCHP — written working backwards from the human."
-            cta="Read the blog"
-          />
-        </CardGrid>
+      <AppPageContentRegion className="mt-8 space-y-10" data-app-shell-top-spacer="true">
+        <ul className="space-y-3">
+          <li>
+            <Link
+              href={ROUTES.RESEARCH_PROTOCOL}
+              className="group flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-4 rounded-[var(--app-card-radius-feature)] border border-transparent px-3 py-3 sm:px-4 sm:py-4 transition-colors hover:border-border/60 hover:bg-muted/30"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100/50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">
+                <FileText className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="flex items-center text-[15px] font-medium text-foreground transition-opacity group-hover:opacity-80">
+                  PCHP Specification
+                </span>
+                <span className="mt-1 block pl-0 text-sm leading-6 text-muted-foreground mr-4">
+                  The full protocol — six-phase handshake, token wire formats, scope grammar, zero-knowledge envelope, transparency log, conformance levels.
+                </span>
+              </div>
+              <div className="hidden sm:flex shrink-0 pt-1 text-muted-foreground items-center gap-1">
+                <span className="text-sm font-medium">Read the spec</span>
+                <ArrowRight className="h-4 w-4" />
+              </div>
+            </Link>
+          </li>
+          <li>
+            <Link
+              href={ROUTES.BLOG}
+              className="group flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-4 rounded-[var(--app-card-radius-feature)] border border-transparent px-3 py-3 sm:px-4 sm:py-4 transition-colors hover:border-border/60 hover:bg-muted/30"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-100/50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400">
+                <BookOpen className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="flex items-center text-[15px] font-medium text-foreground transition-opacity group-hover:opacity-80">
+                  Blog
+                </span>
+                <span className="mt-1 block pl-0 text-sm leading-6 text-muted-foreground mr-4">
+                  Why consent-first information sharing matters, what it unlocks, and how to adopt PCHP — written working backwards from the human.
+                </span>
+              </div>
+              <div className="hidden sm:flex shrink-0 pt-1 text-muted-foreground items-center gap-1">
+                <span className="text-sm font-medium">Read the blog</span>
+                <ArrowRight className="h-4 w-4" />
+              </div>
+            </Link>
+          </li>
+        </ul>
 
         <Figure>
           <div className="flex items-start gap-3">

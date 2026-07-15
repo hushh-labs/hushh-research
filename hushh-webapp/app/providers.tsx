@@ -119,14 +119,28 @@ function AppShellFrame({ children }: ProvidersProps) {
   const hideGlobalChrome = !topShellMetrics.shellVisible;
   const isFullscreenTopFlow = routeLayoutMode === "flow";
   const shouldLockFullscreenRoot = isFullscreenTopFlow;
+  const isPublicStandaloneRoute =
+    pathname === ROUTES.DEVELOPERS ||
+    pathname === ROUTES.RESEARCH ||
+    pathname === ROUTES.RESEARCH_PROTOCOL ||
+    pathname === ROUTES.BLOG ||
+    pathname.startsWith(`${ROUTES.BLOG}/`);
   const signedInShellContentOffset = useMemo(
     () =>
-      resolveSignedInShellContentOffset({
-        shellVisible: topShellMetrics.shellVisible,
-        routeLayoutMode,
-        localOffset: routeLayout.pageTopLocalOffset,
-      }),
+      isPublicStandaloneRoute
+        ? ({
+            mode: "standard",
+            shellVisible: true,
+            localOffset: "0px",
+            style: { "--app-top-content-offset": "0px" } as CSSProperties,
+          } as const)
+        : resolveSignedInShellContentOffset({
+            shellVisible: topShellMetrics.shellVisible,
+            routeLayoutMode,
+            localOffset: routeLayout.pageTopLocalOffset,
+          }),
     [
+      isPublicStandaloneRoute,
       routeLayout.pageTopLocalOffset,
       routeLayoutMode,
       topShellMetrics.shellVisible,
@@ -182,7 +196,7 @@ function AppShellFrame({ children }: ProvidersProps) {
     ],
   );
   const showSharedBottomChromeGlass =
-    topShellMetrics.shellVisible && !isFullscreenTopFlow;
+    topShellMetrics.shellVisible && !isFullscreenTopFlow && !isPublicStandaloneRoute;
   // Drive the bottom-chrome hide animation through a CSS variable instead of a
   // render-coupled value. Reading the continuous scroll progress in this root
   // shell re-rendered the entire provider subtree on every scroll frame, which
