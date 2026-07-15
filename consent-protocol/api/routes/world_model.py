@@ -16,10 +16,10 @@ api.routes.world_model.get_world_model_domain_data  -> GET /api/world-model/doma
 """
 
 import logging
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Path, Query, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from api.middleware import require_vault_owner_token
 from api.routes.pkm_routes_shared import (
@@ -157,7 +157,9 @@ async def get_world_model_data(
 async def get_world_model_domain_data(
     user_id: str = Path(..., min_length=1, max_length=128),
     domain: str = Path(..., min_length=1, max_length=200),
-    segment_ids: list[str] | None = Query(default=None),
+    segment_ids: list[Annotated[str, StringConstraints(max_length=128)]] | None = Query(
+        default=None
+    ),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _get_domain_data(user_id, domain, segment_ids, token_data)
