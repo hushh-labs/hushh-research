@@ -47,7 +47,8 @@ class TestAnalyzeRequiresVaultOwnerToken:
         )
 
         assert response.status_code == 401
-        assert "Invalid token" in response.json()["detail"]
+        assert "Bearer" in response.headers.get("WWW-Authenticate", "")
+        assert response.json()["detail"] == "Token validation failed."
 
     @pytest.mark.asyncio
     async def test_analyze_mismatched_user_id_returns_403(self, client, vault_owner_token_for_user):
