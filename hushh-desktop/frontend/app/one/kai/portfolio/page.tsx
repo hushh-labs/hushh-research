@@ -7,6 +7,7 @@ import { KaiFlow, type FlowState } from "@/components/kai/kai-flow";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { useVault } from "@/lib/vault/vault-context";
+import { RouteSuspenseFallback } from "@/components/system/route-suspense-fallback";
 
 export default function KaiPortfolioPage() {
   const { user, loading: authLoading } = useAuth();
@@ -36,7 +37,7 @@ export default function KaiPortfolioPage() {
   }, [completeStep, flowState, initialized]);
 
   if (authLoading || !user) {
-    return null;
+    return <RouteSuspenseFallback />;
   }
 
   return (

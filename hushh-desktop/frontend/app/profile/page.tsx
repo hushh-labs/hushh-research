@@ -72,6 +72,7 @@ import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-pre
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { RuntimeSecretSettingsCard } from "@/components/profile/runtime-secret-settings-card";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { RouteSuspenseFallback } from "@/components/system/route-suspense-fallback";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -2431,7 +2432,7 @@ function ProfilePageContent() {
   ]);
 
   if (authLoading || !user) {
-    return null;
+    return <RouteSuspenseFallback />;
   }
 
   const popProfileStack = () => {

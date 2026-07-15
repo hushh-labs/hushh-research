@@ -235,6 +235,19 @@ export const Navbar = () => {
     return keys.map((key) => navOptionForKey(key, pendingConsents));
   }, [navigationScope, normalizedPathname, pendingConsents]);
 
+  // This nav resolves its actual destination imperatively at click time
+  // (navigateTo below has guard checks -- unsaved-changes confirm, busy-save
+  // toast -- that a plain <Link> can't express), so it can't just become a
+  // <Link> for free prefetching. Warm the same set of routes explicitly
+  // instead, so by the time someone clicks, the segment is already fetched.
+  useEffect(() => {
+    const keys = resolveBottomNavOptionKeys(normalizedPathname, navigationScope);
+    for (const key of keys) {
+      const action = resolveBottomNavAction(key, navigationScope);
+      if (action.type === "route") router.prefetch(action.href);
+    }
+  }, [navigationScope, normalizedPathname, router]);
+
   React.useLayoutEffect(() => {
     const root = document.documentElement;
     const setBottomChromeVars = (fixedUi: string, routeGroupWidth: string) => {
