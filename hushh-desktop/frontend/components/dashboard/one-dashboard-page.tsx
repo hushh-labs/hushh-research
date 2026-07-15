@@ -1,6 +1,7 @@
 import Link from "next/link";
 import {
   BrainCircuit,
+  BriefcaseBusiness,
   ChartNoAxesCombined,
   ChevronRight,
   Database,
@@ -38,6 +39,7 @@ type OneDashboardMode = {
   setupState: "ready" | "setup" | "attention";
   tone:
     | "finance"
+    | "ria"
     | "gmail"
     | "email"
     | "location"
@@ -52,6 +54,7 @@ const MODE_TILE_CLASS =
 
 const MODE_ICON_CLASS_BY_TONE: Record<OneDashboardMode["tone"], string> = {
   finance: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
+  ria: "bg-indigo-500/12 text-indigo-700 dark:text-indigo-300",
   gmail: "bg-rose-500/12 text-rose-700 dark:text-rose-300",
   email: "bg-sky-500/12 text-sky-700 dark:text-sky-300",
   location: "bg-teal-500/12 text-teal-700 dark:text-teal-300",
@@ -63,6 +66,8 @@ const MODE_ICON_CLASS_BY_TONE: Record<OneDashboardMode["tone"], string> = {
 const MODE_BORDER_CLASS_BY_TONE: Record<OneDashboardMode["tone"], string> = {
   finance:
     "border-emerald-500/28 hover:border-emerald-500/55 dark:border-emerald-400/24 dark:hover:border-emerald-300/48",
+  ria:
+    "border-indigo-500/28 hover:border-indigo-500/55 dark:border-indigo-400/24 dark:hover:border-indigo-300/48",
   gmail:
     "border-rose-500/28 hover:border-rose-500/55 dark:border-rose-400/24 dark:hover:border-rose-300/48",
   email:
@@ -112,6 +117,17 @@ function buildModes(
       status: oneSetup.status,
       setupState: oneSetup.setupState,
       tone: "finance",
+      group: "workflow",
+    },
+    {
+      id: "ria",
+      title: "RIA",
+      description: "Advisor verification, profile, clients, and requests.",
+      href: ROUTES.RIA_ONBOARDING,
+      icon: BriefcaseBusiness,
+      status: "Open",
+      setupState: "ready",
+      tone: "ria",
       group: "workflow",
     },
     {
@@ -333,7 +349,7 @@ export function OneDashboardPage({
         <SurfaceStack compact className="gap-4">
           <ModeSection
             title="Workflows"
-            description="Finance, email, location, and connected systems."
+            description="Finance, RIA, email, location, and connected systems."
             icon={Workflow}
             accent="kai"
             modes={workflowModes}
