@@ -68,16 +68,14 @@ const config: CapacitorConfig = {
   },
 
   plugins: {
-    // Keyboard handling: `resize: "native"` (the plugin default) shrinks the
-    // WKWebView frame by the keyboard height, so 100dvh/svh and position:fixed
-    // bottom elements sit above the keyboard on EVERY screen with no per-screen
-    // JS — the standard iOS behavior. `scrollEnabled:false` (ios block) keeps
-    // the native scroll from fighting the frame shrink; all app scrolling is via
-    // inner overflow-y containers. NOTE: the chat popover must NOT also subtract
-    // a manual keyboard-height (that would double-shrink) — its sheet is plain
-    // 100dvh, which now shrinks with the webview.
+    // Keyboard handling: `resize: "body"` shrinks the document body height instead 
+    // of the entire WKWebView frame (which "native" does). "native" causes severe
+    // layout thrashing and lag on iOS during keyboard animations because every dvh
+    // unit recalculates 60 times a second. "body" avoids this while still letting
+    // normal-flow content scroll above the keyboard. For fixed elements like sheets,
+    // they must either naturally sit in the scrolled body or respond to visualViewport.
     Keyboard: {
-      resize: "native" as KeyboardResize,
+      resize: "body" as KeyboardResize,
       style: "LIGHT" as KeyboardStyle,
       resizeOnFullScreen: false,
     },
