@@ -6613,7 +6613,7 @@
       "shell": {
         "app_page_shell": false,
         "page_header": false,
-        "settings_ui": true,
+        "settings_ui": false,
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },

@@ -335,9 +335,11 @@ export function resolveBottomNavAction(
     case "picks":
       return { type: "route", href: ROUTES.RIA_PICKS };
     case "profile":
+      // Unified profile for every scope, including RIA — the RIA advisor profile
+      // now lives inside /profile under the "Regulatory profile" panel.
       return {
         type: "route",
-        href: scope === "ria" ? ROUTES.RIA_PROFILE : ROUTES.PROFILE,
+        href: ROUTES.PROFILE,
       };
     default:
       return { type: "none" };
