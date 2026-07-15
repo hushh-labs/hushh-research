@@ -28,6 +28,7 @@ declare global {
       bootstrapState?: string;
       bootstrapUserId?: string;
       bootstrapError?: string;
+      bootstrapErrorClass?: string;
       vaultCryptoStage?: string;
       vaultCryptoErrorName?: string;
       vaultCryptoSubtleAvailable?: boolean;
@@ -244,24 +245,25 @@ export function useNativeTestConfig(): NativeTestConfig {
       return false;
     };
 
-    if (sync()) {
-      return () => undefined;
-    }
-
     const handleConfigUpdate = () => {
       sync();
     };
 
-    timer = window.setInterval(() => {
-      if (sync()) {
-        if (timer) {
-          window.clearInterval(timer);
-          timer = null;
-        }
-      }
-    }, 250);
-
     window.addEventListener("hushh:native-test-config-updated", handleConfigUpdate);
+
+    // The native bridge is injected incrementally. Keep the update listener even
+    // when the first snapshot already says `enabled`; passphrase/expected-user
+    // fields may arrive in a later bridge update and must reach React state.
+    if (!sync()) {
+      timer = window.setInterval(() => {
+        if (sync()) {
+          if (timer) {
+            window.clearInterval(timer);
+            timer = null;
+          }
+        }
+      }, 250);
+    }
 
     return () => {
       if (timer) {

@@ -1,42 +1,29 @@
-"""Pure helpers for the central chat's location delegation branch."""
+"""Pure helpers for One's typed-chat directive adapter."""
 
-from api.routes.kai.agent_chat import resolve_delegate_target, specialist_result_to_frames
+import pytest
+
+from api.routes.kai.agent_chat import _one_directive_frames, specialist_result_to_frames
 from hushh_mcp.adk_bridge.contract import A2ADirective, SpecialistTurnResult
+from hushh_mcp.one_adk.agent_tree import ONE_IDENTITY_INSTRUCTION
+from hushh_mcp.one_adk.text_runtime import OneTextDirective
 
 
-def test_resolve_target_location_is_wired():
-    assert resolve_delegate_target("share my location with Mom") == "agent_location"
+def test_one_instruction_separates_navigation_from_specialist_meaning():
+    assert "'take me to location' selects route.one_location" in ONE_IDENTITY_INSTRUCTION
+    assert "'share my location' belongs to the Location specialist" in ONE_IDENTITY_INSTRUCTION
+    assert "'take me to KYC' selects route.one_kyc" in ONE_IDENTITY_INSTRUCTION
 
 
-def test_resolve_target_location_visibility_status_is_wired():
-    assert resolve_delegate_target("Who can see me right now?") == "agent_location"
-
-
-def test_resolve_target_crm_is_wired():
-    assert (
-        resolve_delegate_target("update the CRM record city to New York")
-        == "agent_connected_systems"
+@pytest.mark.parametrize("action_id", ["route.one_location", "route.one_kyc"])
+def test_one_navigation_directive_uses_existing_tool_sse_contract(action_id):
+    frames = _one_directive_frames(
+        OneTextDirective(kind="action", payload={"actionId": action_id, "slots": {}}),
+        conversation_text="Opening that screen.",
     )
 
-
-def test_resolve_target_all_my_brands_needs_llm_planner():
-    assert resolve_delegate_target("can you update all my brands with new city Chicago") is None
-
-
-def test_resolve_target_unwired_specialist_falls_through():
-    # finance classifies but is NOT wired in slice 1 → no delegation.
-    assert resolve_delegate_target("rebalance my portfolio") is None
-
-
-def test_resolve_target_general_chat_none():
-    assert resolve_delegate_target("hello there") is None
-
-
-def test_resolve_target_marketplace_subscription_is_wired():
-    assert (
-        resolve_delegate_target("how many subscriptions have I put available on marketplace?")
-        == "agent_personal_information"
-    )
+    assert [name for name, _ in frames] == ["tool_start", "tool_waiting"]
+    assert frames[0][1]["action_id"] == action_id
+    assert frames[1][1]["status"] == "waiting_for_frontend"
 
 
 def test_frames_for_action_directive():

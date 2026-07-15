@@ -104,7 +104,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
-import { resolveDeveloperRuntime } from "@/lib/developers/runtime";
+import { isPkmDeveloperHost } from "@/app/one/pkm/developer-visibility";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import {
   DELETE_ACCOUNT_DIALOG_DESCRIPTION,
@@ -529,12 +529,19 @@ function profileRouteNeedsWorkspaceData(panel: ProfilePanel | null): boolean {
 }
 
 function ProfilePageContent() {
-  const canShowPkmAgentLab = resolveDeveloperRuntime().environment === "local";
+  const [canShowPkmAgentLab, setCanShowPkmAgentLab] = useState(false);
   const appAccent = useAccent();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchParamsString = searchParams.toString();
+
+  useEffect(() => {
+    setCanShowPkmAgentLab(
+      process.env.NODE_ENV === "development" &&
+        isPkmDeveloperHost(window.location.hostname)
+    );
+  }, []);
 
   const {
     user,

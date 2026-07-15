@@ -30,6 +30,24 @@ enum NativeUiTestRunnerScript {
   ];
   var UI_FLOW_STORAGE_KEY = "__hushh_native_ui_flow_state_v1";
 
+  function errorClass(value) {
+    var text = "";
+    try {
+      text = String(value && (value.name || value.message || value) || "").toLowerCase();
+    } catch (_) {}
+    if (!text) return "";
+    if (/401|403|auth|sign in/.test(text)) return "authentication";
+    if (/404|not found/.test(text)) return "not_found";
+    if (/timeout|timed out/.test(text)) return "timeout";
+    if (/network|connection|fetch/.test(text)) return "network";
+    if (/vault|decrypt|crypto/.test(text)) return "vault";
+    if (/permission|denied/.test(text)) return "permission";
+    if (/typeerror/.test(text)) return "type_error";
+    if (/referenceerror/.test(text)) return "reference_error";
+    if (/syntaxerror/.test(text)) return "syntax_error";
+    return "other";
+  }
+
   var NAV_ROUTE_BY_PERSONA_AND_LABEL = {
     investor: {
       Market: "/one/kai",
@@ -229,9 +247,7 @@ enum NativeUiTestRunnerScript {
     var expected = normalizeRoute(route);
     return (
       current === expected ||
-      current.indexOf(expected + "/") === 0 ||
-      current.indexOf(expected + "?") === 0 ||
-      current.indexOf(expected + "#") === 0
+      current.indexOf(expected + "?") === 0
     );
   }
 
@@ -715,20 +731,10 @@ enum NativeUiTestRunnerScript {
       return Boolean(firstVisible(selector));
     }, timeoutMs || 30000);
     if (!ready) {
-      var body = ((document.body && document.body.innerText) || "")
-        .trim()
-        .replace(/\s+/g, " ")
-        .slice(0, 180);
       throw new Error(
         "expected visible testid: " +
           testId +
-          " route=" +
-          window.location.pathname +
-          window.location.search +
-          " visible=" +
-          visibleButtonSummary(8) +
-          " body=" +
-          body,
+          " route=" + window.location.pathname,
       );
     }
   }
@@ -913,9 +919,7 @@ enum NativeUiTestRunnerScript {
       if (
         currentBase === expectedBase ||
         current === expected ||
-        current.indexOf(expected + "/") === 0 ||
-        current.indexOf(expected + "?") === 0 ||
-        current.indexOf(expected + "#") === 0
+        current.indexOf(expected + "?") === 0
       ) {
         return true;
       }
@@ -1210,6 +1214,7 @@ enum NativeUiTestRunnerScript {
       bridge.uiFlowStepIndex = i;
       bridge.uiFlowStepType = step.type || "";
       bridge.uiFlowStepStartedAt = new Date().toISOString();
+      bridge.uiFlowLongWait = Number(step.timeoutMs || defaultStepTimeoutMs) >= 120000;
       try {
         await Promise.race([
           runStep(step),
@@ -1236,7 +1241,7 @@ enum NativeUiTestRunnerScript {
             type: step.type,
             ok: true,
             skipped: true,
-            reason: error instanceof Error ? error.message : String(error),
+            reasonClass: errorClass(error),
           });
           break;
         }
@@ -1244,13 +1249,13 @@ enum NativeUiTestRunnerScript {
           step: i,
           type: step.type,
           ok: false,
-          error: error instanceof Error ? error.message : String(error),
+          errorClass: errorClass(error),
         });
         return {
           ok: false,
           results: results,
           failedStep: step,
-          error: error instanceof Error ? error.message : String(error),
+          errorClass: errorClass(error),
         };
       }
     }
@@ -1282,7 +1287,7 @@ enum NativeUiTestRunnerScript {
     var storedState = readStoredUiFlowState();
     if (storedState && storedState.complete && storedState.report) {
       bridge.uiFlowReport = storedState.report;
-      bridge.uiFlowError = storedState.report.error || "";
+      bridge.uiFlowErrorClass = storedState.report.errorClass || "";
       bridge.uiFlowsComplete = true;
       bridge.uiFlowsOk = storedState.report.ok === true;
       bridge.uiFlowsFailed = !storedState.report.ok;
@@ -1338,7 +1343,7 @@ enum NativeUiTestRunnerScript {
       });
       if (!result.ok && flow.optional !== true) {
         report.ok = false;
-        report.error = result.error || "flow failed: " + flow.id;
+        report.errorClass = result.errorClass || "other";
         writeStoredUiFlowState({
           started: true,
           complete: true,
@@ -1357,7 +1362,8 @@ enum NativeUiTestRunnerScript {
 
     report.completedAt = new Date().toISOString();
     bridge.uiFlowReport = report;
-    bridge.uiFlowError = report.error || "";
+    bridge.uiFlowErrorClass = report.errorClass || "";
+    bridge.uiFlowLongWait = false;
     bridge.uiFlowsComplete = true;
     bridge.uiFlowsOk = report.ok === true;
     bridge.uiFlowsFailed = !report.ok;
@@ -1372,7 +1378,7 @@ enum NativeUiTestRunnerScript {
     try {
       window.webkit.messageHandlers.hushhNativeTest.postMessage({
         uiFlowReport: report,
-        uiFlowError: bridge.uiFlowError,
+        uiFlowErrorClass: bridge.uiFlowErrorClass,
         uiFlowsComplete: true,
         uiFlowsOk: report.ok === true,
       });
@@ -1435,11 +1441,10 @@ enum NativeUiTestRunnerScript {
       window.clearInterval(bridge._uiFlowBootstrapTimer);
       bridge._uiFlowBootstrapTimer = null;
       runAllUiFlows().catch(function (error) {
-        bridge.uiFlowError =
-          error instanceof Error ? error.message : String(error);
+        bridge.uiFlowErrorClass = errorClass(error);
         bridge.uiFlowReport = {
           ok: false,
-          error: bridge.uiFlowError,
+          errorClass: bridge.uiFlowErrorClass,
           flows: [],
         };
         runState.complete = true;
@@ -1451,7 +1456,7 @@ enum NativeUiTestRunnerScript {
         try {
           window.webkit.messageHandlers.hushhNativeTest.postMessage({
             uiFlowReport: bridge.uiFlowReport,
-            uiFlowError: bridge.uiFlowError,
+            uiFlowErrorClass: bridge.uiFlowErrorClass,
             uiFlowsComplete: true,
             uiFlowsOk: false,
           });

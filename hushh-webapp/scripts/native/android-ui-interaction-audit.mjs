@@ -11,6 +11,12 @@ import {
 import { filterUiFlows } from "../testing/signed-in-ui-flows.mjs";
 import { prepareNativeTestArtifacts } from "./prepare-native-test-artifacts.mjs";
 import { syncNativeFirebaseConfigs } from "./sync-native-firebase-configs.mjs";
+import {
+  assertNativeArtifactSafe,
+  errorClass,
+  sanitizeNativeArtifact,
+  sanitizeStatusForReport,
+} from "./native-report-sanitizer.mjs";
 
 const repoRoot = process.cwd();
 const webDir = repoRoot;
@@ -54,13 +60,6 @@ const reviewerIdentity = resolveReviewerTestIdentity({
 const reviewerVaultPassphrase = reviewerIdentity.reviewerVaultPassphrase;
 const reviewerUid = reviewerIdentity.reviewerUid;
 const uiFlows = filterUiFlows({ flowFilter, routeFilter });
-const REDACTED_REPORT_STATUS_KEYS = new Set([
-  "bootstrap_uid",
-  "body",
-  "bodySnippet",
-  "jserr",
-]);
-
 function run(cmd, args, options = {}) {
   const output = execFileSync(cmd, args, {
     cwd: repoRoot,
@@ -223,15 +222,6 @@ function parseStatus(raw) {
         const [key, ...rest] = part.split("=");
         return [key, rest.join("=")];
       }),
-  );
-}
-
-function sanitizeStatusForReport(status = {}) {
-  return Object.fromEntries(
-    Object.entries(status || {}).map(([key, value]) => [
-      key,
-      REDACTED_REPORT_STATUS_KEYS.has(key) && value ? "<redacted>" : value,
-    ]),
   );
 }
 
@@ -523,19 +513,22 @@ function main() {
     }
   }
 
+  const sanitizedReport = sanitizeNativeArtifact(result.report);
+  const sanitizedErrorClass = errorClass(result.error);
   const summary = {
     generated_at: new Date().toISOString(),
     device: serial,
     flow_count: uiFlows.length,
-    passed_flows: result.report?.flows?.filter((flow) => flow.ok).length ?? 0,
-    failed_flows: result.report?.flows?.filter((flow) => !flow.ok).length ?? 0,
+    passed_flows: sanitizedReport?.flows?.filter((flow) => flow.ok).length ?? 0,
+    failed_flows: sanitizedReport?.flows?.filter((flow) => !flow.ok).length ?? 0,
     ok: Boolean(result.ok && result.report?.ok),
     flows: uiFlows.map((flow) => flow.id),
-    report: result.report,
-    error: result.error || null,
+    report: sanitizedReport,
+    errorClass: sanitizedErrorClass || null,
     last_status: sanitizeStatusForReport(result.status),
   };
 
+  assertNativeArtifactSafe(summary, [reviewerUid, reviewerVaultPassphrase]);
   fs.writeFileSync(reportPath, `${JSON.stringify(summary, null, 2)}\n`);
   console.log(`\n==> report: ${path.relative(repoRoot, reportPath)}`);
 
@@ -546,10 +539,10 @@ function main() {
     return;
   }
 
-  const failed = (result.report?.flows || []).filter((flow) => !flow.ok);
+  const failed = (sanitizedReport?.flows || []).filter((flow) => !flow.ok);
   for (const flow of failed) {
     console.log(
-      `   x ${flow.id}: ${flow.failedStep?.type || flow.results?.slice(-1)[0]?.error || "failed"}`,
+      `   x ${flow.id}: ${flow.failedStep?.type || flow.results?.slice(-1)[0]?.errorClass || "failed"}`,
     );
   }
   if (result.error) {

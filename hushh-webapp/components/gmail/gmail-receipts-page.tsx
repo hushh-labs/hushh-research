@@ -609,8 +609,8 @@ export default function GmailReceiptsPage({
     onConnectionStateChange?.(isConnected);
   }, [isConnected, onConnectionStateChange]);
 
-  const handleConnectGmail = useCallback(async (): Promise<boolean> => {
-    if (!user?.uid || gmailActionBusy !== null) return false;
+  const handleConnectGmail = useCallback((): Promise<boolean> => {
+    if (!user?.uid || gmailActionBusy !== null) return Promise.resolve(false);
 
     const attempt = createGmailOAuthPopupAttempt();
     const popup = openGmailOAuthPopup(attempt);
@@ -618,17 +618,18 @@ export default function GmailReceiptsPage({
       toast.error(
         "Allow the Gmail connection window, then try again. Your private vault stays open here.",
       );
-      return false;
+      return Promise.resolve(false);
     }
 
     gmailPopupRef.current = popup;
     setGmailPopupAttempt(attempt);
     setGmailActionBusy("connect");
 
-    try {
-      const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
-        force: true,
-      }).catch(() => null);
+    return (async () => {
+      try {
+        const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
+          force: true,
+        }).catch(() => null);
       const fromSetup = Boolean(
         journey &&
         !PreVaultUserStateService.isSetupResolved(journey) &&
@@ -697,9 +698,10 @@ export default function GmailReceiptsPage({
       toast.error(message);
       return false;
     }
+    })();
   }, [gmailActionBusy, user]);
 
-  useLocalOnboardingActionHandler("setup.connect_gmail", async () => {
+  useLocalOnboardingActionHandler("setup.connect_gmail", () => {
     if (journeyVariant !== "onboarding") {
       return {
         status: "blocked",
@@ -712,19 +714,20 @@ export default function GmailReceiptsPage({
         summary: "Gmail connection is already being prepared.",
       };
     }
-    const opened = await handleConnectGmail();
-    if (!opened) {
+    return handleConnectGmail().then((opened) => {
+      if (!opened) {
+        return {
+          status: "blocked",
+          summary:
+            "Use the Connect Gmail button to open the secure Gmail connection window.",
+        };
+      }
       return {
-        status: "blocked",
+        status: "started",
         summary:
-          "Use the Connect Gmail button to open the secure Gmail connection window.",
+          "Gmail connection is open in its secure window. Finish setup after it verifies.",
       };
-    }
-    return {
-      status: "started",
-      summary:
-        "Gmail connection is open in its secure window. Finish setup after it verifies.",
-    };
+    });
   });
 
   const handleDisconnectGmail = useCallback(async () => {

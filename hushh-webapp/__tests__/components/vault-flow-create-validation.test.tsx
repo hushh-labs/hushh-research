@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { VaultFlow } from "@/components/vault/vault-flow";
@@ -270,12 +270,6 @@ describe("VaultFlow create validation", () => {
 
     fireEvent.click(signOutEscape);
 
-    expect(await screen.findByText("Sign out of this app?")).toBeTruthy();
-    const signOutButtons = screen.getAllByRole("button", { name: "Sign out" });
-    const confirmSignOut = signOutButtons[signOutButtons.length - 1];
-    fireEvent.pointerUp(confirmSignOut);
-    fireEvent.click(confirmSignOut);
-
-    expect(onSignOut).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onSignOut).toHaveBeenCalledTimes(1));
   });
 });

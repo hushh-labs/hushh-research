@@ -867,6 +867,7 @@ export class PkmUpgradeOrchestrator {
     });
     const readableMetadata = buildReadableUpgradeSummary({
       domain: params.stepDomain,
+      domainData: upgradeResult.domainData,
       domainSummary,
       manifest: structureArtifacts.manifest,
       upgradedAt,

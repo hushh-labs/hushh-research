@@ -1573,6 +1573,6 @@ class VaultKeysService:
         total_active = 1 if kai_has_data else 0
         total = 1
 
-        logger.info("vault_keys.vault_status user_id=%s active=%d/%d", user_id, total_active, total)
+        logger.info("vault_keys.vault_status active=%d/%d", total_active, total)
 
         return {"domains": domains, "totalActive": total_active, "total": total}

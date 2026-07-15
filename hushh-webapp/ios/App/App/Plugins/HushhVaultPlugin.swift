@@ -141,7 +141,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         
-        print("[HushhVault] 🔐 encryptData called, plaintext length: \(plaintext.count)")
+        print("[HushhVault] 🔐 encryptData called")
         
         guard let keyData = Data(hexString: keyHex),
               let plaintextData = plaintext.data(using: .utf8) else {
@@ -163,7 +163,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
                 "algorithm": "aes-256-gcm"
             ])
         } catch {
-            print("❌ [HushhVault] encryptData failed: \(error.localizedDescription)")
+            print("❌ [HushhVault] encryptData failed")
             call.reject("Encryption failed: \(error.localizedDescription)")
         }
     }
@@ -208,7 +208,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
               let ciphertextData = Data(base64Encoded: ciphertextStr),
               let ivData = Data(base64Encoded: ivStr),
               let tagData = Data(base64Encoded: tagStr) else {
-            print("❌ [HushhVault] decryptData: Invalid encoding (keyHex len: \(keyHex.count), ciphertext len: \(ciphertextStr.count))")
+            print("❌ [HushhVault] decryptData: Invalid encoding")
             call.reject("Invalid encoding")
             return
         }
@@ -220,14 +220,14 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
             let decryptedData = try AES.GCM.open(sealedBox, using: key)
             
             if let plaintext = String(data: decryptedData, encoding: .utf8) {
-                print("✅ [HushhVault] decryptData: Success, plaintext length: \(plaintext.count)")
+                print("✅ [HushhVault] decryptData: Success")
                 call.resolve(["plaintext": plaintext])
             } else {
                 print("❌ [HushhVault] decryptData: Failed to decode plaintext as UTF-8")
                 call.reject("Failed to decode plaintext")
             }
         } catch {
-            print("❌ [HushhVault] decryptData failed: \(error.localizedDescription)")
+            print("❌ [HushhVault] decryptData failed")
             call.reject("Decryption failed: \(error.localizedDescription)")
         }
     }
@@ -372,7 +372,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func setupVault(_ call: CAPPluginCall) {
         print("[\(TAG)] 🔐 setupVault called")
         let receivedKeys = call.options.keys.compactMap { $0 as? String }.sorted()
-        print("[\(TAG)] Received keys: \(receivedKeys)")
+        print("[\(TAG)] Request fields received")
         
         guard let userId = call.getString("userId"),
               let vaultKeyHash = call.getString("vaultKeyHash"),
@@ -382,7 +382,6 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
               let recoveryIv = call.getString("recoveryIv"),
               let wrappersAny = call.options["wrappers"] as? [Any] else {
             print("❌ [\(TAG)] setupVault: Missing required parameters")
-            print("   Available keys: \(receivedKeys)")
             call.reject("Missing required parameters for vault setup state")
             return
         }
@@ -392,8 +391,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         let urlStr = "\(backendUrl)/db/vault/setup"
         let primaryWrapperId = call.getString("primaryWrapperId") ?? "default"
         
-        print("[\(TAG)] 🌐 URL: \(urlStr)")
-        print("[\(TAG)] userId: \(userId), primaryMethod: \(primaryMethod)")
+        print("[\(TAG)] 🌐 Vault setup request prepared")
         
         let normalizedWrappers: [[String: Any]] = wrappersAny.compactMap { item in
             guard let raw = item as? [String: Any] else { return nil }
@@ -463,7 +461,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         
         performRequest(urlStr: urlStr, body: body, authToken: authToken) { json, error in
             if let error = error {
-                print("❌ [\(self.TAG)] setupVault failed: \(error)")
+                print("❌ [\(self.TAG)] setupVault failed")
                 call.reject(error)
                 return
             }

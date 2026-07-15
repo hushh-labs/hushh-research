@@ -1164,6 +1164,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
   return (
     <TooltipProvider>
       <AppPageShell
+        data-app-shell-top-spacer="true"
         width="standard"
         className="pb-[calc(6rem+var(--app-safe-area-bottom-effective))] md:pb-12 lg:pb-6"
         nativeTest={{

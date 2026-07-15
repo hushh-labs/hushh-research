@@ -40,4 +40,42 @@ final class NativeSupportTests: XCTestCase {
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
         XCTAssertEqual(json["hello"], "world")
     }
+
+    func testNativeArtifactSanitizerDerivesIdentityMatchWithoutPersistingIds() {
+        XCTAssertEqual(
+            NativeTestArtifactSanitizer.userMatchStatus(userId: "same", expectedUserId: "same"),
+            "1"
+        )
+        XCTAssertEqual(
+            NativeTestArtifactSanitizer.userMatchStatus(userId: "unexpected", expectedUserId: "expected"),
+            "0"
+        )
+        XCTAssertEqual(
+            NativeTestArtifactSanitizer.userMatchStatus(userId: "", expectedUserId: "expected"),
+            ""
+        )
+    }
+
+    func testNativeArtifactSanitizerRecursivelyRedactsSensitiveFields() throws {
+        let raw: [String: Any] = [
+            "route": "/one/pkm?token=private",
+            "bootstrap_uid": "private-user-id",
+            "nested": [
+                "id_token": "private-token",
+                "bodySnippet": "private profile text",
+                "errorClass": "timeout",
+                "email": "person@example.test",
+            ],
+        ]
+        let sanitized = try XCTUnwrap(
+            NativeTestArtifactSanitizer.sanitizeReport(raw) as? [String: Any]
+        )
+        XCTAssertEqual(sanitized["route"] as? String, "/one/pkm")
+        XCTAssertEqual(sanitized["bootstrap_uid"] as? String, "<redacted>")
+        let nested = try XCTUnwrap(sanitized["nested"] as? [String: Any])
+        XCTAssertEqual(nested["id_token"] as? String, "<redacted>")
+        XCTAssertEqual(nested["bodySnippet"] as? String, "<redacted>")
+        XCTAssertEqual(nested["email"] as? String, "<redacted>")
+        XCTAssertEqual(nested["errorClass"] as? String, "timeout")
+    }
 }

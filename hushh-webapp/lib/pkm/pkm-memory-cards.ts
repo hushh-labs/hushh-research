@@ -14,6 +14,7 @@ export type PkmMemoryCard = {
   title: string;
   detail: string;
   value: string;
+  valueFingerprint: string;
   path: string;
   pathSegments: PkmPathSegment[];
   sourceLabel: string;
@@ -73,6 +74,8 @@ const INTERNAL_KEYS = new Set([
   "upgraded_at",
   "version",
 ]);
+const SECRET_KEY_PATTERN =
+  /(?:^|[_-])(secret|secrets|password|passphrase|token|api[_-]?key|private[_-]?key|encryption[_-]?key|recovery[_-]?key|vault[_-]?key|credential|credentials|authorization|mnemonic)(?:$|[_-])/i;
 
 function compact(value: unknown): string {
   return String(value ?? "").replace(/\s+/g, " ").trim();
@@ -112,6 +115,10 @@ function stableId(value: string): string {
   return hash.toString(36);
 }
 
+function valueFingerprint(value: unknown): string {
+  return stableId(`${typeof value}:${String(value ?? "")}`);
+}
+
 function pathToString(pathSegments: readonly PkmPathSegment[]): string {
   return pathSegments
     .map((segment) => (typeof segment === "number" ? `[${segment}]` : segment))
@@ -127,6 +134,7 @@ function shouldSkipKey(key: string): boolean {
   const normalized = normalizeKey(key);
   if (!normalized) return true;
   if (INTERNAL_KEYS.has(normalized)) return true;
+  if (normalized === "runtime_secrets" || SECRET_KEY_PATTERN.test(normalized)) return true;
   if (normalized.startsWith("_")) return true;
   if (normalized.endsWith("_id") && normalized !== "student_id") return true;
   if (normalized.includes("cipher") || normalized.includes("token")) return true;
@@ -185,11 +193,24 @@ function cardTitle(params: {
 }
 
 function cardDetail(domainTitle: string, pathSegments: readonly PkmPathSegment[]): string {
-  const visiblePath = pathSegments
-    .filter((segment) => typeof segment !== "number")
-    .map((segment) => titleize(String(segment)))
-    .filter(Boolean)
-    .slice(0, 4);
+  const visiblePath: string[] = [];
+  let skipEntityIdentifier = false;
+  for (const segment of pathSegments) {
+    if (typeof segment === "number") continue;
+    const normalized = normalizeKey(segment);
+    if (normalized === "entities") {
+      skipEntityIdentifier = true;
+      continue;
+    }
+    if (skipEntityIdentifier) {
+      skipEntityIdentifier = false;
+      continue;
+    }
+    if (shouldSkipKey(normalized)) continue;
+    const label = titleize(segment);
+    if (label) visiblePath.push(label);
+    if (visiblePath.length >= 4) break;
+  }
   if (visiblePath.length === 0) return `Stored in ${domainTitle}.`;
   return `Stored in ${domainTitle} > ${visiblePath.join(" > ")}.`;
 }
@@ -226,6 +247,7 @@ function flattenCards(params: {
       title,
       detail: cardDetail(params.domainTitle, pathSegments),
       value: primitive,
+      valueFingerprint: valueFingerprint(params.value),
       path,
       pathSegments: [...pathSegments],
       sourceLabel: params.sourceLabel,
@@ -452,17 +474,35 @@ export function updatePkmDomainValue(params: {
   pathSegments: readonly PkmPathSegment[];
   previousValue: string;
   nextValue: string;
+  expectedValueFingerprint?: string;
 }): Record<string, unknown> {
   const nextDomainData = cloneRecord(params.domainData);
   let cursor: unknown = nextDomainData;
   for (const segment of params.pathSegments.slice(0, -1)) {
     const container = ensureContainer(cursor, segment);
-    if (!container) return nextDomainData;
+    if (!container) {
+      if (params.expectedValueFingerprint) {
+        throw new Error("This saved detail changed before the correction was applied. Refresh and try again.");
+      }
+      return nextDomainData;
+    }
     cursor = readChild(container, segment);
   }
   const last = params.pathSegments.at(-1);
   const container = ensureContainer(cursor, last ?? "");
-  if (!container || last === undefined) return nextDomainData;
+  if (!container || last === undefined) {
+    if (params.expectedValueFingerprint) {
+      throw new Error("This saved detail changed before the correction was applied. Refresh and try again.");
+    }
+    return nextDomainData;
+  }
+  const currentValue = readChild(container, last);
+  if (
+    params.expectedValueFingerprint &&
+    valueFingerprint(currentValue) !== params.expectedValueFingerprint
+  ) {
+    throw new Error("This saved detail changed before the correction was applied. Refresh and try again.");
+  }
   const value = coerceEditedValue(params.previousValue, params.nextValue);
   if (typeof last === "number") {
     if (Array.isArray(container)) container[last] = value;
@@ -475,17 +515,35 @@ export function updatePkmDomainValue(params: {
 export function deletePkmDomainValue(params: {
   domainData: Record<string, unknown>;
   pathSegments: readonly PkmPathSegment[];
+  expectedValueFingerprint?: string;
 }): Record<string, unknown> {
   const nextDomainData = cloneRecord(params.domainData);
   let cursor: unknown = nextDomainData;
   for (const segment of params.pathSegments.slice(0, -1)) {
     const container = ensureContainer(cursor, segment);
-    if (!container) return nextDomainData;
+    if (!container) {
+      if (params.expectedValueFingerprint) {
+        throw new Error("This saved detail changed before it could be removed. Refresh and try again.");
+      }
+      return nextDomainData;
+    }
     cursor = readChild(container, segment);
   }
   const last = params.pathSegments.at(-1);
   const container = ensureContainer(cursor, last ?? "");
-  if (!container || last === undefined) return nextDomainData;
+  if (!container || last === undefined) {
+    if (params.expectedValueFingerprint) {
+      throw new Error("This saved detail changed before it could be removed. Refresh and try again.");
+    }
+    return nextDomainData;
+  }
+  const currentValue = readChild(container, last);
+  if (
+    params.expectedValueFingerprint &&
+    valueFingerprint(currentValue) !== params.expectedValueFingerprint
+  ) {
+    throw new Error("This saved detail changed before it could be removed. Refresh and try again.");
+  }
   if (typeof last === "number") {
     if (Array.isArray(container)) container.splice(last, 1);
   } else if (isRecord(container)) {

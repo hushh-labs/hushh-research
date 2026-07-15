@@ -66,14 +66,66 @@ const HIDDEN_CONSUMER_KEYS = new Set([
   "schema_version",
   "contract_version",
   "projection_version",
+  "data_version",
+  "manifest_version",
+  "model_version",
+  "readable_summary_version",
+  "readable_projection_version",
+  "domain_contract_version",
+  "domain_intent",
+  "entity_id",
+  "id",
+  "source_agent",
+  "writer_id",
+  "mutation_id",
+  "mutation_plan_id",
+  "confirmation_receipt_id",
+  "content_revision",
+  "manifest_revision",
+  "externalizable_paths",
+  "path_set",
+  "provenance",
+  "__export_metadata",
 ]);
 
-const ENTITY_TITLE_KEYS = ["title", "name", "label", "summary", "merchant", "symbol", "entity_id", "id"];
+const SECRET_CONSUMER_KEY_PATTERN =
+  /(?:^|[_-])(secret|secrets|password|passphrase|token|api[_-]?key|private[_-]?key|encryption[_-]?key|recovery[_-]?key|vault[_-]?key|credential|credentials|authorization|mnemonic)(?:$|[_-])/i;
+const TECHNICAL_CONSUMER_KEY_PATTERN =
+  /(?:^|[_-])(correlation[_-]?id|workflow[_-]?id|thread[_-]?id|hash|digest)(?:$|[_-])/i;
+
+const ENTITY_TITLE_KEYS = ["title", "name", "label", "summary", "merchant", "symbol"];
 const ENTITY_SUBTITLE_KEYS = ["kind", "status", "category"];
 const SUMMARY_KEYS = ["readable_summary", "summary", "package_note", "description", "note"];
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isConsumerHiddenKey(key: string): boolean {
+  const normalized = key
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase();
+  return (
+    HIDDEN_CONSUMER_KEYS.has(normalized) ||
+    normalized === "runtime_secrets" ||
+    SECRET_CONSUMER_KEY_PATTERN.test(normalized) ||
+    TECHNICAL_CONSUMER_KEY_PATTERN.test(normalized)
+  );
+}
+
+function sanitizeConsumerValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sanitizeConsumerValue);
+  }
+  if (!isPlainObject(value)) {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => key.trim().toLowerCase() === "provenance" || !isConsumerHiddenKey(key))
+      .map(([key, nestedValue]) => [key, sanitizeConsumerValue(nestedValue)])
+  );
 }
 
 function humanizeKey(value: string): string {
@@ -229,7 +281,7 @@ function receiptPreviewEntity(
 
 function objectToFields(record: Record<string, unknown>): PkmSectionPreviewField[] {
   return Object.entries(record)
-    .filter(([key, value]) => !HIDDEN_CONSUMER_KEYS.has(key) && !Array.isArray(value) && !isPlainObject(value))
+    .filter(([key, value]) => !isConsumerHiddenKey(key) && !Array.isArray(value) && !isPlainObject(value))
     .map(([key, value]) => ({
       label: humanizeKey(key),
       value: formatScalar(key, value),
@@ -257,7 +309,7 @@ function extractEntitySubtitle(record: Record<string, unknown>): string | undefi
 
 function buildEntitySections(record: Record<string, unknown>): PkmSectionPreviewEntitySection[] {
   return Object.entries(record)
-    .filter(([key, value]) => !HIDDEN_CONSUMER_KEYS.has(key) && (Array.isArray(value) || isPlainObject(value)))
+    .filter(([key, value]) => !isConsumerHiddenKey(key) && (Array.isArray(value) || isPlainObject(value)))
     .flatMap(([key, value]) => {
       if (Array.isArray(value)) {
         const items = arrayToStrings(value);
@@ -276,6 +328,7 @@ function buildEntitySections(record: Record<string, unknown>): PkmSectionPreview
               label: humanizeKey(key),
               items: value.map((item) =>
                 Object.entries(item)
+                  .filter(([entryKey]) => !isConsumerHiddenKey(entryKey))
                   .map(([entryKey, entryValue]) => `${humanizeKey(entryKey)}: ${formatScalar(entryKey, entryValue)}`)
                   .join(" · ")
               ),
@@ -305,7 +358,7 @@ function buildEntityItem(
   value: Record<string, unknown>,
   options?: { deletable?: boolean }
 ): PkmSectionPreviewEntity {
-  const title = extractEntityTitle(value, humanizeKey(key));
+  const title = extractEntityTitle(value, "Saved entry");
   const fields = objectToFields(value).filter((field) => field.value !== title);
   return {
     key,
@@ -331,8 +384,8 @@ function maybeBuildEntitiesGroup(
   if (isPlainObject(value) && isPlainObject(value.entities)) {
     const entities = Object.entries(value.entities)
       .filter(([, entity]) => isPlainObject(entity))
-      .map(([entityKey, entity]) =>
-        buildEntityItem(entityKey, entity as Record<string, unknown>, { deletable: true })
+      .map(([, entity], index) =>
+        buildEntityItem(`entity-${index + 1}`, entity as Record<string, unknown>, { deletable: true })
       );
     if (entities.length > 0) {
       return {
@@ -348,8 +401,8 @@ function maybeBuildEntitiesGroup(
       return {
         kind: "entities",
         title: title || "Saved entries",
-        items: entries.map(([entityKey, entity]) =>
-          buildEntityItem(entityKey, entity as Record<string, unknown>)
+        items: entries.map(([, entity], index) =>
+          buildEntityItem(`entry-${index + 1}`, entity as Record<string, unknown>)
         ),
       };
     }
@@ -518,10 +571,7 @@ function buildContextPreview(
     ? record.entries.filter(isPlainObject)
     : [];
   const entities = entries.map((entry, index) => {
-    const key =
-      typeof entry.id === "string" && entry.id.trim()
-        ? entry.id.trim()
-        : `context-${index + 1}`;
+    const key = `context-${index + 1}`;
     const category =
       typeof entry.category === "string" && entry.category.trim()
         ? humanizeKey(entry.category)
@@ -598,7 +648,7 @@ function buildGenericPreview(
     groups.push(rootEntitiesGroup);
   } else {
     for (const [key, value] of Object.entries(record)) {
-      if (HIDDEN_CONSUMER_KEYS.has(key) || !value) {
+      if (isConsumerHiddenKey(key) || !value) {
         continue;
       }
       if (Array.isArray(value)) {
@@ -674,7 +724,9 @@ export function buildPkmSectionPreviewPresentation(params: {
   const description =
     params.permissionDescription?.trim() ||
     `Saved values from your ${params.domainTitle.toLowerCase()} domain.`;
-  const value = unwrapSectionValue(params.value, params.topLevelScopePath);
+  const value = sanitizeConsumerValue(
+    unwrapSectionValue(params.value, params.topLevelScopePath)
+  );
 
   if (!isPlainObject(value)) {
     return {

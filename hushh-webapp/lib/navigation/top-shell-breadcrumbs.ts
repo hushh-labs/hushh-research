@@ -114,7 +114,10 @@ export function resolveTopShellBreadcrumb(
       backHref: ROUTES.BLOG,
       width: "content",
       align: "center",
-      items: [],
+      items: [
+        { label: "Blog", href: ROUTES.BLOG },
+        { label: "Post" },
+      ],
     };
   }
 

@@ -63,6 +63,19 @@ class PkmUpgradeService:
         return default
 
     @staticmethod
+    def _semantic_version(value: Any) -> tuple[int, int, int]:
+        text = str(value or "0.0.0").strip()
+        parts = text.split(".")
+        normalized: list[int] = []
+        for index in range(3):
+            try:
+                parsed = int(parts[index]) if index < len(parts) else 0
+            except (TypeError, ValueError):
+                parsed = 0
+            normalized.append(max(0, parsed))
+        return normalized[0], normalized[1], normalized[2]
+
+    @staticmethod
     def _coerce_datetime(value: Any) -> datetime | None:
         if isinstance(value, datetime):
             if value.tzinfo is None:
@@ -354,6 +367,30 @@ class PkmUpgradeService:
                 or summary.get("readable_projection_version")
                 or "0.0.0"
             )
+            future_reasons: list[str] = []
+            if current_domain_version > target_domain_version:
+                future_reasons.append("future_domain_contract_version")
+            if current_readable_version > target_readable_version:
+                future_reasons.append("future_readable_summary_version")
+            if self._semantic_version(current_pkm_contract_version) > self._semantic_version(
+                CURRENT_PKM_CONTRACT_VERSION
+            ):
+                future_reasons.append("future_pkm_contract_version")
+            if self._semantic_version(current_readable_projection_version) > self._semantic_version(
+                CURRENT_READABLE_PROJECTION_VERSION
+            ):
+                future_reasons.append("future_readable_projection_version")
+            needs_upgrade = (
+                current_domain_version < target_domain_version
+                or current_readable_version < target_readable_version
+                or self._semantic_version(current_pkm_contract_version)
+                < self._semantic_version(CURRENT_PKM_CONTRACT_VERSION)
+                or self._semantic_version(current_readable_projection_version)
+                < self._semantic_version(CURRENT_READABLE_PROJECTION_VERSION)
+            ) and not future_reasons
+            blocked_reasons = self._domain_blockers(manifest)
+            if future_reasons:
+                blocked_reasons = [*blocked_reasons, "client_update_required", *future_reasons]
             domain_states.append(
                 {
                     "domain": domain,
@@ -366,26 +403,27 @@ class PkmUpgradeService:
                     "current_readable_projection_version": str(current_readable_projection_version),
                     "target_readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
                     "capabilities_applied": self._domain_capabilities(manifest),
-                    "blocked_reasons": self._domain_blockers(manifest),
+                    "blocked_reasons": list(dict.fromkeys(blocked_reasons)),
                     "upgraded_at": manifest.get("upgraded_at") or summary.get("upgraded_at"),
-                    "needs_upgrade": (
-                        current_domain_version < target_domain_version
-                        or current_readable_version < target_readable_version
-                        or str(current_pkm_contract_version) != CURRENT_PKM_CONTRACT_VERSION
-                        or str(current_readable_projection_version)
-                        != CURRENT_READABLE_PROJECTION_VERSION
-                    ),
+                    "needs_upgrade": needs_upgrade,
+                    "unsupported_future_version": bool(future_reasons),
                 }
             )
 
         stale_domains = [domain for domain in domain_states if domain["needs_upgrade"]]
+        unsupported_domains = [
+            domain for domain in domain_states if domain["unsupported_future_version"]
+        ]
+        future_model_version = stored_model_version > CURRENT_PKM_MODEL_VERSION
         latest_run = await self._get_latest_run(user_id)
         if latest_run:
             latest_run["mode"] = self._clean_text(latest_run.get("mode")) or "real"
             latest_run["error_context"] = self._extract_run_error_context(latest_run)
         if latest_run and latest_run.get("status") == "failed" and not stale_domains:
             latest_run = None
-        if latest_run and latest_run["status"] in _ACTIVE_RUN_STATUSES:
+        if future_model_version or unsupported_domains:
+            upgrade_status = "client_update_required"
+        elif latest_run and latest_run["status"] in _ACTIVE_RUN_STATUSES:
             upgrade_status = latest_run["status"]
         elif latest_run and latest_run["status"] == "failed" and stale_domains:
             upgrade_status = "failed"
@@ -395,11 +433,27 @@ class PkmUpgradeService:
             upgrade_status = "current"
 
         effective_model_version = (
-            stored_model_version if stale_domains else CURRENT_PKM_MODEL_VERSION
+            stored_model_version
+            if stale_domains or future_model_version or unsupported_domains
+            else CURRENT_PKM_MODEL_VERSION
         )
         last_upgraded_at = self._coerce_datetime(getattr(index, "last_upgraded_at", None))
         if last_upgraded_at is None:
             last_upgraded_at = self._latest_domain_upgrade_at(domain_states)
+        reported_pkm_contract_version = (
+            unsupported_domains[0]["current_pkm_contract_version"]
+            if unsupported_domains
+            else CURRENT_PKM_CONTRACT_VERSION
+            if not stale_domains
+            else f"{stored_model_version}.0.0"
+        )
+        reported_readable_projection_version = (
+            unsupported_domains[0]["current_readable_projection_version"]
+            if unsupported_domains
+            else CURRENT_READABLE_PROJECTION_VERSION
+            if not stale_domains
+            else "0.0.0"
+        )
 
         return {
             "user_id": user_id,
@@ -407,16 +461,15 @@ class PkmUpgradeService:
             "stored_model_version": stored_model_version,
             "effective_model_version": effective_model_version,
             "target_model_version": CURRENT_PKM_MODEL_VERSION,
-            "current_pkm_contract_version": (
-                CURRENT_PKM_CONTRACT_VERSION if not stale_domains else f"{stored_model_version}.0.0"
-            ),
+            "current_pkm_contract_version": reported_pkm_contract_version,
             "target_pkm_contract_version": CURRENT_PKM_CONTRACT_VERSION,
-            "current_readable_projection_version": (
-                CURRENT_READABLE_PROJECTION_VERSION if not stale_domains else "0.0.0"
-            ),
+            "current_readable_projection_version": reported_readable_projection_version,
             "target_readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
             "upgrade_status": upgrade_status,
-            "upgradable_domains": stale_domains,
+            "upgradable_domains": (
+                [] if future_model_version or unsupported_domains else stale_domains
+            ),
+            "unsupported_domains": unsupported_domains,
             "last_upgraded_at": last_upgraded_at,
             "run": latest_run,
         }
@@ -470,6 +523,8 @@ class PkmUpgradeService:
         mode: str = "real",
     ) -> dict[str, Any]:
         status_payload = await self.build_status(user_id)
+        if status_payload.get("upgrade_status") == "client_update_required":
+            return status_payload
         latest_run = status_payload.get("run")
         if latest_run and latest_run.get("status") in _ACTIVE_RUN_STATUSES:
             if latest_run["status"] == "awaiting_local_auth_resume":

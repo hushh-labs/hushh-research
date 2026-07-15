@@ -19,7 +19,6 @@
     "hushh-webapp/app/one/setup/ria/page.voice-action-contract.json",
     "hushh-webapp/app/page.voice-action-contract.json",
     "hushh-webapp/app/profile/page.voice-action-contract.json",
-    "hushh-webapp/app/profile/pkm-agent-lab/page-client.voice-action-contract.json",
     "hushh-webapp/app/register-phone/page.voice-action-contract.json",
     "hushh-webapp/app/ria/clients/page.voice-action-contract.json",
     "hushh-webapp/app/ria/onboarding/page.voice-action-contract.json",
@@ -451,29 +450,6 @@
         "docs/reference/kai/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/app/profile/page.voice-action-contract.json",
-      "defaults": {
-        "reachability": {
-          "active_personas": [
-            "investor",
-            "ria"
-          ]
-        }
-      },
-      "orchestration": {
-        "instruction_id": null,
-        "context_policy": null,
-        "trust_boundary": null,
-        "delegation_policy": null
-      }
-    },
-    {
-      "schema_version": "kai.local_action_contract.v1",
-      "surface_id": "profile_pkm_agent_lab",
-      "surface_title": "PKM Agent Lab",
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
-      ],
-      "contract_file": "hushh-webapp/app/profile/pkm-agent-lab/page-client.voice-action-contract.json",
       "defaults": {
         "reachability": {
           "active_personas": [
@@ -7812,218 +7788,6 @@
       }
     },
     {
-      "action_id": "profile.pkm.preview_capture",
-      "surface_id": "profile_pkm_agent_lab",
-      "label": "Generate PKM capture preview",
-      "aliases": [
-        "preview pkm capture",
-        "generate pkm preview"
-      ],
-      "search_keywords": [
-        "pkm preview",
-        "memory preview"
-      ],
-      "meaning": "Builds the current PKM Agent Lab capture preview without saving it.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/profile/pkm-agent-lab"
-        ],
-        "screens": [
-          "profile_pkm_agent_lab"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "vault_unlocked"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "voice_tool",
-        "target": "capture_pkm_memory",
-        "params": {
-          "mode": "preview"
-        }
-      },
-      "control_ids": [
-        "generate_pkm_preview"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/pkm-agent-lab/page-client.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /profile/pkm-agent-lab"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.profile.pkm.preview_capture",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "profile.pkm.preview_capture",
-            "label": "Generate PKM capture preview",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/profile/pkm-agent-lab",
-              "screen": "profile_pkm_agent_lab"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "profile.pkm.save_capture",
-      "surface_id": "profile_pkm_agent_lab",
-      "label": "Save PKM capture",
-      "aliases": [
-        "save pkm capture",
-        "save memory capture"
-      ],
-      "search_keywords": [
-        "save pkm",
-        "save capture"
-      ],
-      "meaning": "Persists the current PKM Agent Lab capture into encrypted PKM storage.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/profile/pkm-agent-lab"
-        ],
-        "screens": [
-          "profile_pkm_agent_lab"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "a saveable PKM capture preview must already exist"
-        ],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "vault_unlocked",
-        "manual_user_execution",
-        "explicit_user_confirmation"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Voice may prepare the preview only. PKM persistence requires the visible review card and an owner-confirmed PkmMutationPlanV2."
-      },
-      "control_ids": [
-        "save_pkm_capture"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/pkm-agent-lab/page-client.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /profile/pkm-agent-lab"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.profile.pkm.save_capture",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "profile.pkm.save_capture",
-            "label": "Save PKM capture",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/profile/pkm-agent-lab",
-              "screen": "profile_pkm_agent_lab"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
       "action_id": "phone_mandate.select_country",
       "surface_id": "phone_mandate",
       "label": "Choose Country Code",
@@ -11590,12 +11354,9 @@
       "execution_policy": "allow_direct",
       "activation_policy": "none",
       "execution_target": {
-        "status": "wired",
-        "path": "voice_tool",
-        "target": "specialist_chat.turn",
-        "params": {
-          "delegate_agent_id": "agent_email"
-        }
+        "status": "unwired",
+        "reason": "Email specialist turns require an ingress-minted, task-bound information authority context before delegation.",
+        "intended_handler": "specialist_chat.turn"
       },
       "control_ids": [
         "agent_chat_email_turn"
@@ -11905,12 +11666,9 @@
       "execution_policy": "confirm_required",
       "activation_policy": "none",
       "execution_target": {
-        "status": "wired",
-        "path": "voice_tool",
-        "target": "specialist_chat.turn",
-        "params": {
-          "delegate_agent_id": "agent_connections"
-        }
+        "status": "unwired",
+        "reason": "Connections specialist turns require an ingress-minted, task-bound information and action authority context before delegation.",
+        "intended_handler": "specialist_chat.turn"
       },
       "control_ids": [
         "agent_chat_connections_turn"
@@ -12048,12 +11806,9 @@
       "execution_policy": "allow_direct",
       "activation_policy": "none",
       "execution_target": {
-        "status": "wired",
-        "path": "voice_tool",
-        "target": "specialist_chat.turn",
-        "params": {
-          "delegate_agent_id": "agent_gmail"
-        }
+        "status": "unwired",
+        "reason": "Gmail specialist turns require an ingress-minted, task-bound information authority context before delegation.",
+        "intended_handler": "specialist_chat.turn"
       },
       "control_ids": [
         "agent_chat_gmail_turn"
@@ -12330,12 +12085,9 @@
       "execution_policy": "confirm_required",
       "activation_policy": "none",
       "execution_target": {
-        "status": "wired",
-        "path": "voice_tool",
-        "target": "specialist_chat.turn",
-        "params": {
-          "delegate_agent_id": "agent_connected_systems"
-        }
+        "status": "unwired",
+        "reason": "Connected Systems turns require an ingress-minted, task-bound information and action authority context before delegation.",
+        "intended_handler": "specialist_chat.turn"
       },
       "control_ids": [
         "agent_chat_connected_systems_turn"

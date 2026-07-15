@@ -5216,14 +5216,12 @@
         },
         "voice_playbook": {
           "playbook_id": "route.profile.pkm.agent.lab",
-          "purpose": "Help the person understand and use the pkm agent lab screen through its generated controls.",
+          "purpose": "Redirect non-local builds to the product Memory workspace; local developer tooling is intentionally not action-discoverable.",
           "screen": "profile_pkm_agent_lab",
-          "entry_cue": "You can say “Generate PKM capture preview” to use the primary control on this screen.",
-          "proactivity": "on_entry",
-          "primary_action_id": "profile.pkm.preview_capture",
-          "happy_path_action_ids": [
-            "profile.pkm.preview_capture"
-          ],
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -5233,9 +5231,9 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
+          "completion_boundary": "Non-local builds complete only after redirect settlement to the product Memory route.",
+          "next_route": "/one/pkm",
+          "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
@@ -5250,11 +5248,8 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": "app/profile/pkm-agent-lab/page-client.voice-action-contract.json",
-      "voice_action_contract_ids": [
-        "profile.pkm.preview_capture",
-        "profile.pkm.save_capture"
-      ],
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null

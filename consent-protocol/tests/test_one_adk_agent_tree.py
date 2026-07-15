@@ -377,12 +377,13 @@ class TestRunAppAction:
         assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
 
     @pytest.mark.asyncio
-    async def test_specialist_owned_action_redirects_not_executes(self):
-        # email.chat.turn belongs to agent_email; ownership is contract-enforced.
+    async def test_unwired_specialist_action_is_not_advertised_as_executable(self):
+        # Email requires task-bound information authority at ingress. Until
+        # that broker exists, the generated contract must fail closed instead
+        # of redirecting One into an unavailable specialist tool.
         state: dict = {}
         result = await run_app_action("email.chat.turn", {}, _tool_context(state))
-        assert result["status"] == "delegated"
-        assert result["use_tool"] == "ask_email_agent"
+        assert result["status"] == "unwired"
         assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
 
     @pytest.mark.asyncio
@@ -395,13 +396,11 @@ class TestRunAppAction:
         assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
 
     @pytest.mark.asyncio
-    async def test_kyc_confirm_required_parks_confirmation_directive(self):
+    async def test_kyc_confirm_required_stays_unwired_without_selected_workflow(self):
         state: dict = {}
         result = await run_app_action("kyc.draft.reject", {}, _tool_context(state))
-        assert result["status"] == "confirm_pending"
-        directive = state[f"{_STATE_PENDING_DIRECTIVE}:kyc.draft.reject"]
-        assert directive["kind"] == "action"
-        assert directive["payload"]["needsConfirmation"] is True
+        assert result["status"] == "unwired"
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
 
     @pytest.mark.asyncio
     async def test_provider_popup_requires_exact_trusted_activation_action(self):

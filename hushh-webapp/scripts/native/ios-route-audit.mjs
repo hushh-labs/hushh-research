@@ -9,6 +9,13 @@ import {
   resolveReviewerTestIdentity,
 } from "../testing/reviewer-test-identity.mjs";
 import { prepareNativeTestArtifacts } from "./prepare-native-test-artifacts.mjs";
+import {
+  assertNativeArtifactSafe,
+  errorClass,
+  sanitizeNativeArtifact,
+  sanitizeRawStatusForReport,
+  sanitizeStatusForReport,
+} from "./native-report-sanitizer.mjs";
 
 const repoRoot = process.cwd();
 const webDir = repoRoot;
@@ -114,35 +121,8 @@ function parseStatus(raw) {
   );
 }
 
-const REDACTED_REPORT_STATUS_KEYS = new Set([
-  "bootstrap_uid",
-  "body",
-  "bodySnippet",
-  "jserr",
-  "jsrej",
-]);
-
-function sanitizeStatusForReport(status = {}) {
-  return Object.fromEntries(
-    Object.entries(status).map(([key, value]) => [
-      key,
-      REDACTED_REPORT_STATUS_KEYS.has(key) && value ? "<redacted>" : value,
-    ])
-  );
-}
-
 function sanitizeRawForReport(raw) {
-  return String(raw || "")
-    .split(";")
-    .filter(Boolean)
-    .map((part) => {
-      const [key, ...rest] = part.split("=");
-      if (REDACTED_REPORT_STATUS_KEYS.has(key) && rest.join("=")) {
-        return `${key}=<redacted>`;
-      }
-      return part;
-    })
-    .join(";");
+  return sanitizeRawStatusForReport(raw);
 }
 
 function toReportResult(result) {
@@ -209,7 +189,7 @@ function launchRoute(route) {
   }
   try {
     const container = run("xcrun", ["simctl", "get_app_container", simulatorDevice, bundleId, "data"]);
-    const statusPath = path.join(container, "Documents", "native-test-status.txt");
+    const statusPath = path.join(container, "Library", "Caches", "native-test-status.txt");
     if (fs.existsSync(statusPath)) {
       fs.unlinkSync(statusPath);
     }
@@ -336,7 +316,7 @@ function waitForStatus(route) {
     }
     try {
       const container = run("xcrun", ["simctl", "get_app_container", simulatorDevice, bundleId, "data"]);
-      const statusPath = path.join(container, "Documents", "native-test-status.txt");
+      const statusPath = path.join(container, "Library", "Caches", "native-test-status.txt");
       if (fs.existsSync(statusPath)) {
         lastRaw = fs.readFileSync(statusPath, "utf8").trim();
         if (lastRaw) {
@@ -452,7 +432,7 @@ function main() {
         expected: route,
         observed: {},
         raw: "",
-        error: error instanceof Error ? error.message : String(error),
+        errorClass: errorClass(error),
       });
     }
   }
@@ -468,7 +448,9 @@ function main() {
     results: results.map(toReportResult),
   };
 
-  fs.writeFileSync(reportPath, `${JSON.stringify(summary, null, 2)}\n`);
+  const sanitizedSummary = sanitizeNativeArtifact(summary);
+  assertNativeArtifactSafe(sanitizedSummary, [reviewerUid, reviewerVaultPassphrase]);
+  fs.writeFileSync(reportPath, `${JSON.stringify(sanitizedSummary, null, 2)}\n`);
   console.log(`==> report: ${path.relative(repoRoot, reportPath)}`);
   console.log(`==> screenshots: ${path.relative(repoRoot, screenshotDir)}`);
   if (summary.visible404_routes > 0) {

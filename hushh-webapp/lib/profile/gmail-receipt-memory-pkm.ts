@@ -148,7 +148,6 @@ export function buildShoppingReceiptMemoryPreparedDomain(params: {
 
   const summary = {
     ...summaryProjection,
-    message_excerpt: `Imported Gmail receipt memory ${params.artifact.artifact_id}`.slice(0, 160),
     source: "gmail_receipt_memory_v1",
   };
 

@@ -8,6 +8,7 @@ Implements the current PKM architecture:
 - pkm_index: minimal discovery metadata for UI/bootstrap
 """
 
+import asyncio
 import json
 import logging
 import uuid
@@ -36,7 +37,7 @@ router = APIRouter(prefix="/api/pkm", tags=["pkm"])
 
 # Bounded path-parameter aliases (CWE-400: uncontrolled resource consumption).
 _UserId = Annotated[str, Path(min_length=1, max_length=128)]
-_Domain = Annotated[str, Path(min_length=1, max_length=200)]
+_Domain = Annotated[str, Path(min_length=1, max_length=128)]
 _RunId = Annotated[str, Path(min_length=1, max_length=128)]
 _AttributeKey = Annotated[str, Path(min_length=1, max_length=256)]
 
@@ -375,6 +376,8 @@ class StructureDecisionPayload(BaseModel):
     sensitivity_labels: dict = Field(default_factory=dict)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     source_agent: str = Field(default="pkm_structure_agent", min_length=1, max_length=256)
+    writer_id: Optional[str] = Field(default=None, max_length=128)
+    structure_agent_id: Optional[str] = Field(default=None, max_length=128)
     contract_version: int = Field(default=1, ge=1, le=1000)
 
 
@@ -1229,6 +1232,7 @@ class PersonalKnowledgeModelMetadataResponse(BaseModel):
     target_readable_projection_version: Optional[str] = Field(default=None, max_length=256)
     upgrade_status: str = Field(default="current", min_length=1, max_length=128)
     upgradable_domains: List[dict] = Field(default_factory=list, max_length=1000)
+    unsupported_domains: List[dict] = Field(default_factory=list, max_length=1000)
     last_upgraded_at: Optional[str] = Field(default=None, max_length=64)
     suggested_domains: List[str] = Field(
         default_factory=list, max_length=1000, description="Domains user should consider adding"
@@ -1264,9 +1268,14 @@ async def get_metadata(
     upgrade_service = get_pkm_upgrade_service()
 
     try:
-        metadata = await pkm_service.get_user_metadata(user_id)
-        resolved_index = await pkm_service.resolve_metadata_index(user_id, schedule_self_heal=False)
-        upgrade_status_payload = await upgrade_service.build_status(user_id)
+        # These reads are independent and each may touch the UAT data plane.
+        # Start them together so Memory readiness is bounded by the slowest
+        # authority read instead of their sum.
+        metadata, resolved_index, upgrade_status_payload = await asyncio.gather(
+            pkm_service.get_user_metadata(user_id),
+            pkm_service.resolve_metadata_index(user_id, schedule_self_heal=False),
+            upgrade_service.build_status(user_id),
+        )
         upgrade_status_payload = await _maybe_reconcile_upgrade_status(
             upgrade_service, user_id, upgrade_status_payload
         )
@@ -1286,10 +1295,7 @@ async def get_metadata(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="No PKM data found for user",
                 )
-            logger.warning(
-                "User %s has PKM storage but no index - returning degraded metadata",
-                user_id,
-            )
+            logger.warning("pkm.metadata.degraded_missing_index")
             degraded_domains: List[DomainMetadata] = []
             for row in domain_rows:
                 domain_key = str(row.get("domain") or "")
@@ -1370,6 +1376,7 @@ async def get_metadata(
                 ),
                 upgrade_status=upgrade_status_payload.get("upgrade_status") or "current",
                 upgradable_domains=upgrade_status_payload.get("upgradable_domains") or [],
+                unsupported_domains=upgrade_status_payload.get("unsupported_domains") or [],
                 last_upgraded_at=_isoformat_or_none(upgrade_status_payload.get("last_upgraded_at")),
                 suggested_domains=["financial", "health", "travel"],
                 last_updated=(encrypted_data or {}).get("updated_at"),
@@ -1431,6 +1438,7 @@ async def get_metadata(
             ),
             upgrade_status=upgrade_status_payload.get("upgrade_status") or "current",
             upgradable_domains=upgrade_status_payload.get("upgradable_domains") or [],
+            unsupported_domains=upgrade_status_payload.get("unsupported_domains") or [],
             last_upgraded_at=_isoformat_or_none(upgrade_status_payload.get("last_upgraded_at")),
             suggested_domains=suggested,
             last_updated=_isoformat_or_none(metadata.last_updated),
@@ -1460,6 +1468,7 @@ class PkmUpgradeDomainStateResponse(BaseModel):
     blocked_reasons: List[str] = Field(default_factory=list)
     upgraded_at: Optional[str] = None
     needs_upgrade: bool = False
+    unsupported_future_version: bool = False
 
 
 class PkmUpgradeErrorContextResponse(BaseModel):
@@ -1523,6 +1532,7 @@ class PkmUpgradeStatusResponse(BaseModel):
     target_readable_projection_version: Optional[str] = None
     upgrade_status: str
     upgradable_domains: List[PkmUpgradeDomainStateResponse] = Field(default_factory=list)
+    unsupported_domains: List[PkmUpgradeDomainStateResponse] = Field(default_factory=list)
     last_upgraded_at: Optional[str] = None
     run: Optional[PkmUpgradeRunResponse] = None
 
@@ -1603,6 +1613,16 @@ def _build_upgrade_status_response(payload: dict) -> PkmUpgradeStatusResponse:
                 }
             )
             for domain_payload in (payload.get("upgradable_domains") or [])
+            if isinstance(domain_payload, dict)
+        ],
+        unsupported_domains=[
+            PkmUpgradeDomainStateResponse(
+                **{
+                    **domain_payload,
+                    "upgraded_at": _isoformat_or_none(domain_payload.get("upgraded_at")),
+                }
+            )
+            for domain_payload in (payload.get("unsupported_domains") or [])
             if isinstance(domain_payload, dict)
         ],
         last_upgraded_at=_isoformat_or_none(payload.get("last_upgraded_at")),

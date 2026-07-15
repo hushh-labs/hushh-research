@@ -1,4 +1,4 @@
-"""Strict PKM v5 scope descriptors and user-confirmed mutation plans."""
+"""Strict PKM v6 scope descriptors and user-confirmed mutation plans."""
 
 from __future__ import annotations
 
@@ -13,10 +13,12 @@ from hushh_mcp.services.domain_contracts import (
 )
 
 PKM_MUTATION_PLAN_VERSION = 2
+PKM_MAX_AFFECTED_SHARING_IDS = 10_000
 
 _HANDLE_PATTERN = r"^(?:s|scope|pending)_[A-Za-z0-9_-]{6,128}$"
 _OPAQUE_ID_PATTERN = r"^pkm_[A-Za-z0-9_-]{12,128}$"
 _MACHINE_SCOPE_PATTERN = r"^attr\.[a-z][a-z0-9_]*\.[a-z][a-z0-9_.]*\.\*$"
+_MACHINE_PROVENANCE_ID_PATTERN = r"^[a-z][a-z0-9_.:-]{0,127}$"
 
 
 class PkmConfirmationReceiptV2(BaseModel):
@@ -101,10 +103,18 @@ class PkmMutationPlanV2(BaseModel):
     friendly_scope_name: str = Field(..., min_length=1, max_length=128)
     confidence: float = Field(..., ge=0.0, le=1.0)
     explanation: str = Field(..., min_length=1, max_length=1_000)
-    affected_grant_ids: list[str] = Field(default_factory=list, max_length=1_000)
-    affected_export_ids: list[str] = Field(default_factory=list, max_length=1_000)
+    affected_grant_ids: list[str] = Field(
+        default_factory=list, max_length=PKM_MAX_AFFECTED_SHARING_IDS
+    )
+    affected_export_ids: list[str] = Field(
+        default_factory=list, max_length=PKM_MAX_AFFECTED_SHARING_IDS
+    )
     sharing_impact: SharingImpactV2 = Field(default_factory=SharingImpactV2)
     semantic_contract_version: str = CURRENT_PKM_CONTRACT_VERSION
+    writer_id: str = Field(default="owner_confirmed_write", pattern=_MACHINE_PROVENANCE_ID_PATTERN)
+    structure_agent_id: str = Field(
+        default="pkm_structure_agent", pattern=_MACHINE_PROVENANCE_ID_PATTERN
+    )
     source_revision: int = Field(default=0, ge=0, le=10_000_000)
     confirmation_receipt: PkmConfirmationReceiptV2
 

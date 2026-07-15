@@ -96,7 +96,7 @@
           }
         ],
         "description": "Investor analysis preview: select list source and start debate without active-run loop",
-        "route": "/one/kai/analysis?ticker=AAPL&pick_source=default"
+        "route": "/one/kai/analysis"
       },
       {
         "optional": false,
@@ -486,7 +486,7 @@
           },
           {
             "skipped": true,
-            "reason": "step timeout (click_button) visible=RIA|Clients|Picks|Connect|Profile|Agents|Ask your agent anything|Search bridge=enabled=1,navigate=1,switch=1,active=ria,primary=ria,persona_switch=,bootstrap=vault_unlocked",
+            "reason": "<redacted>",
             "type": "click_button",
             "step": 3,
             "ok": true

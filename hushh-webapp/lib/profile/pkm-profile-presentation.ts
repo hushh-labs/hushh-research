@@ -105,6 +105,7 @@ export type PkmProfileSummaryPresentation = {
 const CONSUMER_HIDDEN_DOMAIN_KEYS = new Set([
   "kyc_connector",
   "kyc_workflow",
+  "runtime_secrets",
 ]);
 
 const INTERNAL_ONLY_TOP_LEVEL_SCOPE_PATHS = new Set([
@@ -201,43 +202,29 @@ export function isConsumerVisiblePkmDomain(domain: DomainSummary): boolean {
   return true;
 }
 
-function inferSourceLabels(
-  domain: DomainSummary,
-  presentation: NaturalDomainPresentation
-): string[] {
-  const labels = new Set<string>();
-  const readableSourceLabel = presentation.sourceLabel?.trim();
-  if (readableSourceLabel && !/^pkm upgrade$/i.test(readableSourceLabel)) {
-    labels.add(readableSourceLabel);
+function friendlySourceLabel(value: string | null | undefined): string | null {
+  const label = String(value || "").trim();
+  const normalized = label.toLowerCase();
+  if (!normalized || normalized === "saved memory") return null;
+  if (/upgrade|migration|schema|manifest|structure agent|runtime secret/.test(normalized)) {
+    return null;
   }
-
-  const key = normalizeToken(domain.key);
-  if (key.includes("receipt") || key.includes("gmail") || key.includes("merchant")) {
-    labels.add("Gmail receipts");
+  if (/gmail|receipt/.test(normalized)) return "From Gmail";
+  if (/portfolio|brokerage|plaid|alpaca|investment import/.test(normalized)) {
+    return "From a portfolio import";
   }
-  if (
-    key.includes("portfolio") ||
-    key.includes("financial") ||
-    key.includes("brokerage") ||
-    key.includes("holding") ||
-    key.includes("investment")
-  ) {
-    labels.add("Portfolio imports");
+  if (/finance setup|financial profile|onboarding/.test(normalized)) {
+    return "From Finance setup";
   }
-  if (key.includes("preference") || key.includes("risk") || key.includes("profile")) {
-    labels.add("Manual preferences");
+  if (/conversation|chat/.test(normalized)) return "From a conversation";
+  if (/location/.test(normalized)) return "From Location setup";
+  if (/kyc|identity setup/.test(normalized)) return "From identity setup";
+  if (/edit/.test(normalized)) return "Edited by you";
+  if (/manual|user/.test(normalized)) return "Added by you";
+  if (/^(from|edited by|added by)\b/i.test(label) && !/[_:]/.test(label)) {
+    return label;
   }
-  if (key.includes("identity") || key.includes("contact")) {
-    labels.add("Account profile");
-  }
-  if (labels.size === 0) {
-    if (key.includes("ria") || key.includes("advisor")) {
-      labels.add("Advisor package");
-    } else {
-      labels.add("Saved memory");
-    }
-  }
-  return Array.from(labels).slice(0, 3);
+  return null;
 }
 
 function toStatus(
@@ -290,6 +277,7 @@ function isConsumerHighlightUseful(value: string): boolean {
 export function buildPkmDomainPresentation(params: {
   domain: DomainSummary;
   activeGrants: ConsentCenterEntry[];
+  sharingResolved?: boolean;
   manifest?: DomainManifest | null;
   upgradeState?: PkmUpgradeDomainState | null;
 }): PkmDomainPresentation {
@@ -312,7 +300,8 @@ export function buildPkmDomainPresentation(params: {
     };
   });
 
-  const sourceLabels = inferSourceLabels(params.domain, presentation);
+  const friendlySource = friendlySourceLabel(presentation.sourceLabel);
+  const sourceLabels = friendlySource ? [friendlySource] : [];
   const detailCount = resolveDomainDetailCount(params.domain);
   const updatedAt = newestTimestamp([
     presentation.updatedAt,
@@ -328,7 +317,9 @@ export function buildPkmDomainPresentation(params: {
   const attentionFlags: string[] = [];
   if (status === "missing") attentionFlags.push("Needs information");
   if (status === "stale") attentionFlags.push("Refresh recommended");
-  if (accessEntries.length > 0) attentionFlags.push("Shared");
+  if (params.sharingResolved !== false && accessEntries.length > 0) {
+    attentionFlags.push("Shared");
+  }
   const permissions = buildPkmDomainPermissionPresentation({
     domain: params.domain,
     manifest: params.manifest || null,
@@ -355,7 +346,10 @@ export function buildPkmDomainPresentation(params: {
     status,
     statusLabel,
     accessEntries,
-    accessSummary: summarizeAccess(accessEntries),
+    accessSummary:
+      params.sharingResolved === false
+        ? "Access status unavailable"
+        : summarizeAccess(accessEntries),
     accessCount: accessEntries.length,
     attentionFlags,
     permissionCount: permissions.length,

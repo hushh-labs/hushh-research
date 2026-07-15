@@ -119,6 +119,12 @@ function AppShellFrame({ children }: ProvidersProps) {
   const hideGlobalChrome = !topShellMetrics.shellVisible;
   const isFullscreenTopFlow = routeLayoutMode === "flow";
   const shouldLockFullscreenRoot = isFullscreenTopFlow;
+  const isPublicStandaloneRoute =
+    pathname === ROUTES.DEVELOPERS ||
+    pathname === ROUTES.RESEARCH ||
+    pathname === ROUTES.RESEARCH_PROTOCOL ||
+    pathname === ROUTES.BLOG ||
+    pathname.startsWith(`${ROUTES.BLOG}/`);
   const signedInShellContentOffset = useMemo(
     () =>
       resolveSignedInShellContentOffset({
@@ -168,13 +174,14 @@ function AppShellFrame({ children }: ProvidersProps) {
         // of them still render the fixed onboarding Agent Bar. The scroll root
         // owns the clearance for that fixed chrome so feature routes do not
         // need to guess at device safe areas or bar geometry.
-        "--app-scroll-bottom-pad": hideGlobalChrome
+        "--app-scroll-bottom-pad": hideGlobalChrome || isPublicStandaloneRoute
           ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
           : "var(--bottom-chrome-stack-height)",
       }) as CSSProperties,
     [
       chromeState.hideCommandBar,
       hideGlobalChrome,
+      isPublicStandaloneRoute,
       signedInShellContentOffset.style,
       topShellMetrics.contentOffsetMode,
       topShellMetrics.hasTabs,
@@ -182,7 +189,7 @@ function AppShellFrame({ children }: ProvidersProps) {
     ],
   );
   const showSharedBottomChromeGlass =
-    topShellMetrics.shellVisible && !isFullscreenTopFlow;
+    topShellMetrics.shellVisible && !isFullscreenTopFlow && !isPublicStandaloneRoute;
   // Drive the bottom-chrome hide animation through a CSS variable instead of a
   // render-coupled value. Reading the continuous scroll progress in this root
   // shell re-rendered the entire provider subtree on every scroll frame, which

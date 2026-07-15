@@ -5,10 +5,14 @@ import type {
 } from "@/lib/personal-knowledge-model/manifest";
 import {
   buildConfirmedPkmMutationPlanV2,
+  type PkmMutationOperation,
   type PkmUserConfirmation,
 } from "@/lib/personal-knowledge-model/mutation-plan";
 import {
+  CURRENT_PKM_CONTRACT_VERSION,
+  CURRENT_READABLE_PROJECTION_VERSION,
   CURRENT_READABLE_SUMMARY_VERSION,
+  comparePkmSemanticVersions,
   currentDomainContractVersion,
 } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
@@ -49,6 +53,8 @@ type MergedWritePlan = {
   mergeDecision?: PkmMergeDecision;
   manifest?: DomainManifest;
   writeProjections?: PkmWriteProjection[];
+  operation?: PkmMutationOperation;
+  scopePath?: string;
 };
 
 type PreparedWritePlan = MergedWritePlan & {
@@ -133,6 +139,14 @@ function emptyResult(
  * a `failed` result they can retry, instead of an uncaught rejection.
  */
 function pkmWriteFailureResult(error: unknown): PkmWriteCoordinatorResult {
+  const rawMessage = error instanceof Error ? error.message : String(error || "");
+  if (rawMessage.includes("PKM_SHARING_IMPACT_CHANGED")) {
+    console.warn("[PkmWriteCoordinator] Sharing impact changed during confirmation.");
+    return emptyResult(
+      "failed",
+      "Sharing changed while you were reviewing this detail. Review the current recipients and confirm again."
+    );
+  }
   console.error("[PkmWriteCoordinator] PKM write failed:", error);
   return emptyResult(
     "failed",
@@ -198,11 +212,33 @@ async function ensureWritableVersion(params: {
     params.vaultOwnerToken
   ).catch(() => null);
 
+  if (metadata?.upgradeStatus === "client_update_required") {
+    throw new Error(
+      "This saved information was created by a newer app version. Update the app before changing it."
+    );
+  }
+
   const domainStatus = metadata?.upgradableDomains.find(
     (entry) => entry.domain === params.domain
   );
   const manifestContractVersion = Number(manifest?.domain_contract_version || 0);
   const manifestReadableVersion = Number(manifest?.readable_summary_version || 0);
+  const hasUnsupportedFutureVersion =
+    manifestContractVersion > currentDomainContractVersion(params.domain) ||
+    manifestReadableVersion > CURRENT_READABLE_SUMMARY_VERSION ||
+    comparePkmSemanticVersions(
+      String(manifest?.pkm_contract_version || "0.0.0"),
+      CURRENT_PKM_CONTRACT_VERSION
+    ) > 0 ||
+    comparePkmSemanticVersions(
+      String(manifest?.readable_projection_version || "0.0.0"),
+      CURRENT_READABLE_PROJECTION_VERSION
+    ) > 0;
+  if (hasUnsupportedFutureVersion) {
+    throw new Error(
+      "This saved information was created by a newer app version. Update the app before changing it."
+    );
+  }
   const needsUpgrade =
     domainStatus?.needsUpgrade === true ||
     (manifest !== null &&
@@ -225,6 +261,11 @@ async function ensureWritableVersion(params: {
     vaultOwnerToken: params.vaultOwnerToken,
     force: true,
   }).catch(() => null);
+  if (refreshedStatus?.upgradeStatus === "client_update_required") {
+    throw new Error(
+      "This saved information was created by a newer app version. Update the app before changing it."
+    );
+  }
   const upgradedDomain = refreshedStatus?.upgradableDomains.find(
     (entry) => entry.domain === params.domain
   );
@@ -296,7 +337,8 @@ export class PkmWriteCoordinator {
           domain: params.domain,
           currentManifest: context.currentManifest,
           targetManifest: plan.manifest,
-          operation: context.currentManifest ? "update" : "create",
+          operation: plan.operation || (context.currentManifest ? "update" : "create"),
+          scopePath: plan.scopePath,
           sourceRevision: context.currentEncryptedDomain?.dataVersion,
           confirmation: params.confirmation,
         });

@@ -111,7 +111,7 @@ function DomainCard({
   const sourceSummary =
     domain.sourceLabels.length > 2
       ? `${domain.sourceLabels.slice(0, 2).join(" · ")} +${domain.sourceLabels.length - 2}`
-      : domain.sourceLabels.join(" · ") || "Saved memory";
+      : domain.sourceLabels.join(" · ") || null;
   const updatedLabel = formatDomainRowTimestamp(domain.updatedAt);
   const status = getDomainRowStatus(domain);
   return (
@@ -139,7 +139,7 @@ function DomainCard({
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <Badge variant="secondary">{itemLabel}</Badge>
-            <Badge variant="secondary">{sourceSummary}</Badge>
+            {sourceSummary ? <Badge variant="secondary">{sourceSummary}</Badge> : null}
             <span className="min-w-0 truncate">{domain.accessSummary}</span>
           </div>
         </div>
@@ -155,7 +155,7 @@ export function PkmDataManagerPanel({
   metadataReady,
   metadataError,
   sharingReady,
-  sharingError: _sharingError,
+  sharingError,
   needsVaultCreation,
   needsUnlock,
   summary,
@@ -295,6 +295,15 @@ export function PkmDataManagerPanel({
           spellCheck={false}
           className="h-10"
         />
+      ) : null}
+
+      {sharingError ? (
+        <SurfaceInset className="p-4 text-sm text-muted-foreground">
+          <div className="space-y-1">
+            <p className="font-medium text-foreground">Sharing status unavailable</p>
+            <p>{sharingError}</p>
+          </div>
+        </SurfaceInset>
       ) : null}
 
       {!metadataReady ? (

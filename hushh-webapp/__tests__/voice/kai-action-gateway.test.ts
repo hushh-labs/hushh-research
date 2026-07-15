@@ -76,6 +76,29 @@ const ALLOWED_DELEGATE_AGENT_IDS = [
 ];
 
 describe("kai-action-gateway", () => {
+  it("does not advertise specialists that lack task-bound authority ingress as wired", () => {
+    for (const actionId of [
+      "email.chat.turn",
+      "gmail.chat.turn",
+      "connections.chat.turn",
+      "connected_systems.chat.turn",
+    ]) {
+      expect(getKaiActionById(actionId)?.execution_target.status).toBe(
+        "unwired",
+      );
+    }
+
+    for (const actionId of [
+      "location.chat.turn",
+      "consent.chat.turn",
+      "marketplace.information.chat.turn",
+    ]) {
+      expect(getKaiActionById(actionId)?.execution_target.status).toBe(
+        "wired",
+      );
+    }
+  });
+
   it("loads the generated gateway with stable action identity", () => {
     expect(KAI_ACTION_GATEWAY.schema_version).toBe("kai.action_gateway.vnext");
     const ids = KAI_ACTION_GATEWAY.actions.map((action) => action.action_id);
@@ -185,7 +208,7 @@ describe("kai-action-gateway", () => {
     ]);
   });
 
-  it("resolves duplicate voice_tool targets by authored params", () => {
+  it("does not expose localhost-only PKM Lab actions", () => {
     expect(
       getKaiActionByVoiceToolCall({
         tool_name: "capture_pkm_memory",
@@ -193,12 +216,10 @@ describe("kai-action-gateway", () => {
           mode: "preview",
           message: "preview this",
         },
-      })?.action_id
-    ).toBe("profile.pkm.preview_capture");
+      })
+    ).toBeNull();
 
-    const save = getKaiActionById("profile.pkm.save_capture");
-    expect(save?.execution_policy).toBe("manual_only");
-    expect(save?.execution_target.status).toBe("unwired");
+    expect(getKaiActionById("profile.pkm.save_capture")).toBeNull();
     expect(
       getKaiActionByVoiceToolCall({
         tool_name: "capture_pkm_memory",
@@ -480,7 +501,7 @@ describe("kai-action-gateway", () => {
 
   it("orders executable commands before vault-locked unavailable commands", () => {
     const results = searchKaiActions({
-      query: "profile",
+      query: "analysis",
       appRuntimeState: makeRuntimeState({
         vault: {
           unlocked: false,
@@ -488,9 +509,17 @@ describe("kai-action-gateway", () => {
           token_valid: false,
         },
         route: {
-          pathname: "/profile",
-          screen: "profile_account",
+          pathname: "/one/kai/analysis",
+          screen: "kai_analysis",
           subview: null,
+        },
+        runtime: {
+          analysis_active: true,
+          analysis_ticker: "NVDA",
+          analysis_run_id: "run_1",
+          import_active: false,
+          import_run_id: null,
+          busy_operations: [],
         },
       }),
       limit: 40,
