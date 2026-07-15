@@ -390,6 +390,12 @@ function FeatureAlert({
 // stops for that screen. The image is `object-cover` filling a flexible area, so
 // its own edges are cropped; these overlays fade the cropped top and bottom into
 // the exact screen colors above/below, giving one uniform seamless background.
+// The dark-mode screen background for every feature screen (matches the
+// `dark:from-[#14171d] dark:to-[#14171d]` gradient below). In dark mode the
+// light illustration edges must dissolve into THIS tone, not into the light
+// tones used for light mode — otherwise a light halo rings the artwork.
+const FEATURE_DARK_BG = "#14171d";
+
 function IllustrationFade({
   topColor,
   bottomColor,
@@ -399,13 +405,24 @@ function IllustrationFade({
 }) {
   return (
     <>
+      {/* Light-mode fades: dissolve the cropped art edges into the light screen. */}
       <span
-        className="pointer-events-none absolute inset-x-0 top-0 h-24"
+        className="pointer-events-none absolute inset-x-0 top-0 h-24 dark:hidden"
         style={{ backgroundImage: `linear-gradient(to bottom, ${topColor}, rgba(0,0,0,0))` }}
       />
       <span
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-28"
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-28 dark:hidden"
         style={{ backgroundImage: `linear-gradient(to top, ${bottomColor}, rgba(0,0,0,0))` }}
+      />
+      {/* Dark-mode fades: dissolve the same edges into the dark screen tone so
+          the light artwork blends seamlessly instead of showing a light halo. */}
+      <span
+        className="pointer-events-none absolute inset-x-0 top-0 hidden h-24 dark:block"
+        style={{ backgroundImage: `linear-gradient(to bottom, ${FEATURE_DARK_BG}, rgba(20,23,29,0))` }}
+      />
+      <span
+        className="pointer-events-none absolute inset-x-0 bottom-0 hidden h-28 dark:block"
+        style={{ backgroundImage: `linear-gradient(to top, ${FEATURE_DARK_BG}, rgba(20,23,29,0))` }}
       />
     </>
   );
@@ -597,7 +614,7 @@ function SelectionMark({ selected }: { selected: boolean }) {
         "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
         selected
           ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-          : "border-[#c9cdd3] bg-white text-transparent",
+          : "border-[#c9cdd3] bg-white text-transparent dark:border-white/25 dark:bg-white/[0.06]",
       )}
       aria-hidden="true"
     >
@@ -874,7 +891,7 @@ function PermissionSwitch({
       disabled={busy}
       className={cn(
         "relative h-10 w-[62px] shrink-0 rounded-full transition-colors disabled:cursor-default",
-        checked ? "bg-[#34c759]" : "bg-[#d9dde2]",
+        checked ? "bg-[#34c759]" : "bg-[#d9dde2] dark:bg-white/[0.16]",
       )}
     >
       <span
@@ -905,13 +922,13 @@ function PermissionRow({
   onClick: () => void;
 }) {
   return (
-    <div className="flex min-h-[132px] items-start gap-4 border-b border-[#e9eaec] py-5 last:border-b-0">
-      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#f5f7fa] text-[#0784ee]">
+    <div className="flex min-h-[132px] items-start gap-4 border-b border-[#e9eaec] py-5 last:border-b-0 dark:border-white/10">
+      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#f5f7fa] text-[#0784ee] dark:bg-white/[0.06] dark:text-[color:var(--app-accent-bright)]">
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <h2 className="text-[17px] font-bold text-[#171d28]">{title}</h2>
-        <p className="mt-1 text-[14px] leading-5 text-[#777c84]">{description}</p>
+        <h2 className="text-[17px] font-bold text-[#171d28] dark:text-[#f3f6fb]">{title}</h2>
+        <p className="mt-1 text-[14px] leading-5 text-[#777c84] dark:text-[#9ca8b7]">{description}</p>
       </div>
       <div className="pt-2">
         <PermissionSwitch
