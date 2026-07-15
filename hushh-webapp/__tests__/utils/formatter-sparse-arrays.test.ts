@@ -62,7 +62,9 @@ describe("formatCompleteJson — sparse array inputs", () => {
     expect(out).toBe(
       [
         "",
-        "--- Misc (3 items) ---",
+        // Header reports the FULL array length (5), holes included — the slice
+        // to 3 only affects how many bullets render, not the '(N items)' count.
+        "--- Misc (5 items) ---",
         "  • 1",
         "  • undefined",
         "  • 3",
