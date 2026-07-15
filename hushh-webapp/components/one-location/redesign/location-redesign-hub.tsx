@@ -19,7 +19,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 
 import {
@@ -273,6 +273,31 @@ type FlowKind =
   | "sos"
   | "privacy";
 
+// The open action flow is reflected in the URL as `?action=<slug>` so the single
+// top-left back button in the app chrome (and the OS/hardware back button) knows
+// to return to the Location hub instead of leaving the whole page to /one.
+const FLOW_ACTION_PARAM = "action";
+
+const FLOW_TO_ACTION: Record<Exclude<FlowKind, "none">, string> = {
+  share: "share",
+  ask: "ask",
+  invite: "invite",
+  "temp-link": "temp-link",
+  "check-in": "check-in",
+  "drive-to": "drive-to",
+  "pick-me-up": "pick-me-up",
+  "safe-arrival": "safe-arrival",
+  sos: "sos",
+  privacy: "privacy",
+};
+
+const ACTION_TO_FLOW: Record<string, FlowKind> = Object.fromEntries(
+  Object.entries(FLOW_TO_ACTION).map(([flow, action]) => [
+    action,
+    flow as FlowKind,
+  ]),
+);
+
 
 const BUSY = (vm: LocationHubViewModel, key: string) => vm.busy === key;
 
@@ -287,6 +312,8 @@ const ACTIVE_SHARE_LIST_SCROLL_CLASS =
   "max-h-[470px] overflow-y-auto overscroll-contain pr-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/15 dark:[&::-webkit-scrollbar-thumb]:bg-white/20";
 
 export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<LocationHubTab>("now");
   const [flow, setFlow] = useState<FlowKind>("none");
@@ -369,11 +396,57 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const inboxCount = vm.pendingOwnerRequests.length;
   const hasActiveShare = vm.activeOwnerGrants.length > 0;
 
-  const closeFlow = () => {
+  // A location action flow (Check-In, Drive To, Pick Me Up, Safe Arrival, SOS,
+  // Share, Ask, Invite, Privacy, Temp link) is a sub-screen of /one/location.
+  // The open flow is mirrored into the URL (`?action=…`) so the SINGLE top-left
+  // back button in the app chrome (and the OS/hardware back button) returns to
+  // the Location hub instead of leaving to /one. Because that one chrome back
+  // arrow now owns "return to hub", the redundant in-content back arrows have
+  // been removed from the flows — each action screen shows exactly one back
+  // affordance plus its own Cancel/Done control.
+  const openFlow = useCallback(
+    (next: Exclude<FlowKind, "none">) => {
+      setFlow(next);
+      if (next === "share") setShareStep("person");
+      const params = new URLSearchParams(searchParams.toString());
+      params.set(FLOW_ACTION_PARAM, FLOW_TO_ACTION[next]);
+      router.push(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
+  const closeFlow = useCallback(() => {
     setFlow("none");
     setShareStep("person");
     vm.setShareReviewOpen(false);
-  };
+    if ((searchParams.get(FLOW_ACTION_PARAM) || "").trim()) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete(FLOW_ACTION_PARAM);
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    }
+  }, [pathname, router, searchParams, vm]);
+
+  // Keep the flow view in sync with the URL action param: the chrome/OS back
+  // button strips the param, which closes the flow back to the hub. A direct
+  // deep-link to `?action=…` opens the matching flow on load. Resetting the
+  // Share sub-step + review flag on close ensures re-opening Share always starts
+  // clean at step 1 (never jumps back into the consent-review screen).
+  useEffect(() => {
+    const action = (searchParams.get(FLOW_ACTION_PARAM) || "").trim();
+    const desired: FlowKind = action
+      ? (ACTION_TO_FLOW[action] ?? "none")
+      : "none";
+    setFlow((current) => (current === desired ? current : desired));
+    if (desired === "none") {
+      setShareStep("person");
+      vm.setShareReviewOpen(false);
+    }
+    // `vm.setShareReviewOpen` is a stable useState setter; depend on searchParams
+    // only so this runs on every URL change (open/close) without re-firing on
+    // unrelated vm re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // When a share completes successfully (page bumps shareCompletedTick), close
   // the 3-step share flow and return to the main One Location hub.
@@ -385,9 +458,16 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       // from the "Now" tab, so no explicit tab change is needed.
       setFlow("none");
       setShareStep("person");
+      // Drop the action param so the hub URL is clean after a completed share.
+      if ((searchParams.get(FLOW_ACTION_PARAM) || "").trim()) {
+        const params = new URLSearchParams(searchParams.toString());
+        params.delete(FLOW_ACTION_PARAM);
+        const qs = params.toString();
+        router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+      }
     }
 
-  }, [vm.shareCompletedTick]);
+  }, [vm.shareCompletedTick, pathname, router, searchParams]);
 
 
   /* ----------------------------------------------------------------- */
@@ -422,12 +502,11 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           <SafeArrivalFlow vm={vm} onClose={closeFlow} />
         ) : flow === "sos" ? (
 
-          <SosFlow vm={vm} onClose={closeFlow} />
+          <SosFlow vm={vm} />
         ) : flow === "invite" ? (
           <InviteFlow vm={vm} onClose={closeFlow} />
         ) : flow === "privacy" ? (
           <PrivacyFlow
-            onClose={closeFlow}
             onManageSharing={() => {
               closeFlow();
               setTab("people");
@@ -488,31 +567,25 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         <NowHub
           vm={vm}
           hasActiveShare={hasActiveShare}
-          onStartShare={() => {
-            setShareStep("person");
-            setFlow("share");
-          }}
-          onAsk={() => setFlow("ask")}
-          onCheckIn={() => setFlow("check-in")}
-          onDriveTo={() => setFlow("drive-to")}
-          onPickMeUp={() => setFlow("pick-me-up")}
-          onSafeArrival={() => setFlow("safe-arrival")}
-          onSos={() => setFlow("sos")}
-          onOpenPrivacy={() => setFlow("privacy")}
+          onStartShare={() => openFlow("share")}
+          onAsk={() => openFlow("ask")}
+          onCheckIn={() => openFlow("check-in")}
+          onDriveTo={() => openFlow("drive-to")}
+          onPickMeUp={() => openFlow("pick-me-up")}
+          onSafeArrival={() => openFlow("safe-arrival")}
+          onSos={() => openFlow("sos")}
+          onOpenPrivacy={() => openFlow("privacy")}
         />
 
       ) : tab === "people" ? (
         <PeopleHub
           vm={vm}
-          onInvite={() => setFlow("invite")}
-          onStartShare={() => {
-            setShareStep("person");
-            setFlow("share");
-          }}
-          onAsk={() => setFlow("ask")}
+          onInvite={() => openFlow("invite")}
+          onStartShare={() => openFlow("share")}
+          onAsk={() => openFlow("ask")}
         />
       ) : tab === "links" ? (
-        <LinksHub vm={vm} onCreateTempLink={() => setFlow("temp-link")} />
+        <LinksHub vm={vm} onCreateTempLink={() => openFlow("temp-link")} />
       ) : (
         <InboxHub
           vm={vm}
@@ -892,10 +965,8 @@ function LocationToggle({
 }
 
 function PrivacyFlow({
-  onClose,
   onManageSharing,
 }: {
-  onClose: () => void;
   onManageSharing: () => void;
 }) {
   // Inert local state for now — real auto-share / pause wiring comes later.
@@ -908,7 +979,6 @@ function PrivacyFlow({
         eyebrow="Location"
         title="Privacy"
         description="You control who sees your location and when. Change this anytime."
-        onBack={onClose}
       />
 
       <p className="mt-6 px-1 text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
@@ -1606,25 +1676,16 @@ function SosHelpRow({
 
 function SosFlow({
   vm,
-  onClose,
 }: {
   vm: LocationHubViewModel;
-  onClose: () => void;
 }) {
   const recipients = vm.sosRecipients;
   const sharedCount = recipients.length;
 
   return (
     <div className="space-y-3.5">
-      {/* Back + title (design: circular back button, then "Safety"). */}
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Back"
-        className="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-black/[0.05] text-foreground dark:bg-white/10"
-      >
-        <ChevronRight className="h-[18px] w-[18px] rotate-180" />
-      </button>
+      {/* Title only — the single back affordance is the top-left app-chrome back
+          arrow, which returns to the Location hub. */}
       <h1 className="text-[33px] font-bold tracking-[-0.6px] text-foreground">
         Safety
       </h1>
@@ -1775,7 +1836,6 @@ function ShareFlow({
           eyebrow="Step 3 of 3 · Consent check"
           title="Before you start"
           description="Confirm exactly who can see you, what they see, and when access ends."
-          onBack={() => vm.setShareReviewOpen(false)}
         />
         <SectionCard>
           <div className="space-y-3">
@@ -1825,7 +1885,6 @@ function ShareFlow({
         <TaskFlowHeader
           eyebrow="Step 2 of 3 · Details"
           title="What are you sharing?"
-          onBack={() => setStep("person")}
         />
         <SectionCard>
           <div className="space-y-5">
@@ -1872,7 +1931,6 @@ function ShareFlow({
         eyebrow="Step 1 of 3 · Choose person"
         title="Who can see you?"
         description="Only trusted and location-ready people can receive private live location."
-        onBack={onClose}
       />
       <PersonSearchInput
         value={vm.recipientSearch}
@@ -1976,7 +2034,6 @@ function AskFlow({
         eyebrow="Request with context"
         title="Make it comfortable"
         description="Requests should explain why. The other person chooses whether to share."
-        onBack={onClose}
       />
 
       <SectionCard title="Person">
@@ -2078,7 +2135,6 @@ function InviteFlow({
           eyebrow="Share invite link"
           title="Invite link created"
           description="They must approve before location sharing starts."
-          onBack={onClose}
         />
         <SectionCard>
           <div className="flex items-center gap-3">
@@ -2143,7 +2199,6 @@ function InviteFlow({
         eyebrow="Invite to One / Circle"
         title="Invite to Circle"
         description="Use this when the person is not ready for private location sharing yet."
-        onBack={onClose}
       />
       <SectionCard title="What happens next?">
         <p className="text-sm text-muted-foreground">
@@ -2202,7 +2257,6 @@ function TemporaryLinkFlow({
         <TaskFlowHeader
           eyebrow="Copy, share or revoke"
           title="Public location link active"
-          onBack={onClose}
         />
         <WarningCard
           title="Anyone with this link can view your location until it expires."
@@ -2236,7 +2290,6 @@ function TemporaryLinkFlow({
         eyebrow="Share with anyone outside Circle"
         title="Share outside your Circle"
         description="Use only when the person is not in your trusted Circle."
-        onBack={onClose}
       />
       <WarningCard
         title="Important"

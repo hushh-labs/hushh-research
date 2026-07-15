@@ -340,6 +340,61 @@ describe("top shell breadcrumbs", () => {
     );
   });
 
+  it("returns the single top-bar back button to the Location hub while a quick-action flow is open", () => {
+    // Location quick-action screens (Check-In, Drive To, Pick Me Up, Safe
+    // Arrival, SOS/Alert, Share, Ask, Invite, Privacy, Temp link) are tracked
+    // via /one/location?action=<slug>. The one top-left back button must return
+    // to the Location hub (strip the action param) rather than leaving to /one —
+    // this is the fix for the "two back buttons" UX. The in-content back arrows
+    // were removed so this is the ONLY back affordance on those screens.
+    const cases: Array<[string, string]> = [
+      ["check-in", "Check-In"],
+      ["drive-to", "Drive To"],
+      ["pick-me-up", "Pick Me Up"],
+      ["safe-arrival", "Safe Arrival"],
+      ["sos", "Safety"],
+      ["share", "Share location"],
+      ["ask", "Ask someone"],
+      ["invite", "Invite to Circle"],
+      ["temp-link", "Public link"],
+      ["privacy", "Privacy"],
+    ];
+
+    for (const [action, label] of cases) {
+      const params = new URLSearchParams();
+      params.set("action", action);
+      expect(resolveTopShellBreadcrumb("/one/location", params)).toEqual({
+        backHref: "/one/location",
+        width: "profile",
+        align: "center",
+        items: [
+          { label: "One", href: "/one" },
+          { label: "Location", href: "/one/location" },
+          { label },
+        ],
+      });
+    }
+
+    // Opened from Profile: the leading crumb reflects the real origin, but back
+    // still returns to the Location hub (not Profile) while the flow is open.
+    const fromProfile = new URLSearchParams();
+    fromProfile.set("from", "/profile");
+    fromProfile.set("action", "check-in");
+    expect(resolveTopShellBreadcrumb("/one/location", fromProfile)).toEqual({
+      backHref: "/one/location",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/profile" },
+        { label: "Location", href: "/one/location" },
+        { label: "Check-In" },
+      ],
+    });
+
+    // No action param → unchanged hub behavior (back leaves to /one).
+    expect(resolveTopShellBreadcrumb("/one/location")?.backHref).toBe("/one");
+  });
+
   it("retraces setup-hub-opened capabilities through their terminal acknowledgement", () => {
     // From the Set up One hub, capability handoffs carry ?from=/one/setup so the
     // top-bar back returns to the hub (not Profile/dashboard) — "jaise aaya waise

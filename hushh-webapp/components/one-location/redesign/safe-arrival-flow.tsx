@@ -251,7 +251,6 @@ export function SafeArrivalFlow({
         eyebrow="Safe Arrival"
         title="Let people know you got there safely"
         description="Share your live journey and ETA until you reach your destination."
-        onBack={onClose}
       />
 
       {/* WHERE ARE YOU HEADED? */}
