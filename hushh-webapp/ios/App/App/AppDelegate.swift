@@ -18,7 +18,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Ensure Firebase is initialized once for native plugins and auth flows.
-        if FirebaseApp.app() == nil {
+        // `FirebaseApp.app()` logs an error when no default app exists, even
+        // when that is the normal first-launch state. Inspect the registry so
+        // cold starts stay clean before configuring the default app.
+        if FirebaseApp.allApps?.isEmpty != false {
             if Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil {
                 FirebaseApp.configure()
                 print("✅ [AppDelegate] Firebase configured")

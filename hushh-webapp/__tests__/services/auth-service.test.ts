@@ -757,3 +757,30 @@ describe("AuthService web provider popup continuity", () => {
     expect(mockSignInWithPopup).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("AuthService native Apple continuity", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCapacitor.isNativePlatform.mockReturnValue(true);
+    mockAuth.currentUser = null;
+  });
+
+  it("does not pair a stale Firebase JS user with a new native Apple token", async () => {
+    const staleJsUser = { uid: "stale-js-user" };
+    mockAuth.currentUser = staleJsUser;
+    vi.mocked(HushhAuth.signInWithApple).mockResolvedValue({
+      user: {
+        uid: "native-apple-user",
+        email: "apple@example.com",
+        displayName: "Apple User",
+      },
+      idToken: createIdToken(60 * 60),
+      accessToken: "native-access-token",
+    } as any);
+
+    const result = await AuthService.signInWithApple();
+
+    expect(result.user.uid).toBe("native-apple-user");
+    expect(result.user).not.toBe(staleJsUser);
+  });
+});

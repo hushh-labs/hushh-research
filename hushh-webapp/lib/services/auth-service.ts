@@ -710,6 +710,10 @@ export class AuthService {
 
       const idToken = result.idToken;
       const nativeAuthUser = result.user;
+      const nativeUid = this.getNativeUserField(
+        nativeAuthUser as unknown as Record<string, unknown>,
+        ["uid", "id"],
+      );
 
       this.debugLog("✅ [AuthService] Got Apple ID token");
 
@@ -754,9 +758,23 @@ export class AuthService {
         }
       }
 
-      // Construct final User object
+      // A stale Firebase JS session can survive while the native Apple sheet
+      // establishes a new account. It must not be paired with the new native
+      // token; use the native wrapper until JS reports the matching UID.
+      const matchingFirebaseUser =
+        firebaseUser && nativeUid && firebaseUser.uid === nativeUid
+          ? firebaseUser
+          : null;
+      if (firebaseUser && !matchingFirebaseUser) {
+        this.debugLog(
+          "🍎 [AuthService] Ignoring stale Firebase JS user after native Apple sign-in",
+        );
+      }
+
+      // Construct final User object.
       const user =
-        firebaseUser || this.createUserFromNativeApple(nativeAuthUser, idToken);
+        matchingFirebaseUser ||
+        this.createUserFromNativeApple(nativeAuthUser, idToken);
 
       toast.success("Signed in successfully", { id: toastId });
 

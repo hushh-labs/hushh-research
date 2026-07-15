@@ -214,7 +214,9 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
 
     // Ensure Firebase is initialized before any FirebaseAuth call.
     private func ensureFirebaseConfigured() -> Bool {
-        if FirebaseApp.app() != nil {
+        // Avoid FirebaseApp.app(): it logs an error for the expected
+        // first-launch state before this plugin configures Firebase.
+        if FirebaseApp.allApps?.isEmpty == false {
             return true
         }
         guard Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil else {
