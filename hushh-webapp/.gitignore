@@ -22,6 +22,7 @@
 # next.js
 /.next/
 /.next-prod/
+/.next-native-uat/
 /out/
 
 # production

@@ -35,7 +35,8 @@ describe("onboarding route admission", () => {
   it("does not exempt signed-in internal surfaces from unfinished setup", () => {
     expect(isOnboardingAdmissionExemptRoute("/")).toBe(true);
     expect(isOnboardingAdmissionExemptRoute("/login")).toBe(true);
-    expect(isOnboardingAdmissionExemptRoute("/profile")).toBe(false);
+    expect(isOnboardingAdmissionExemptRoute("/profile")).toBe(true);
+    expect(isOnboardingAdmissionExemptRoute("/profile/security")).toBe(true);
     expect(isOnboardingAdmissionExemptRoute("/marketplace")).toBe(false);
     expect(isOnboardingAdmissionExemptRoute("/ria")).toBe(false);
   });

@@ -65,6 +65,21 @@ final class AppUITests: XCTestCase {
         ])
     }
 
+    func testAuthenticatedSetupBootstrapRoute() throws {
+        try assertRoutes([
+            RouteCase(
+                name: "one-setup",
+                initialRoute: "/login?redirect=%2Fone%2Fsetup",
+                expectedMarker: "native-route-one-setup",
+                expectedRoute: "/one/setup",
+                expectedRoutePrefix: nil,
+                autoReviewerLogin: true,
+                expectedAuth: "authenticated",
+                allowedDataStates: ["loaded"]
+            ),
+        ])
+    }
+
     func testInvestorRoutes() throws {
         try assertRoutes([
             reviewerRoute(name: "kai-home", redirect: "/kai", marker: "native-route-kai-home"),

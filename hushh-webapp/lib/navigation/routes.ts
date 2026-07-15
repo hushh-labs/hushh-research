@@ -271,10 +271,10 @@ export function resolveOnboardingCapabilityForRoute(
 }
 
 /**
- * Anonymous/editorial and prerequisite routes that never participate in the
- * authenticated root-setup admission decision. `/profile` is intentionally
- * not exempt: once signed in it is an internal surface and must not bypass an
- * explicitly incomplete setup journey.
+ * Anonymous/editorial, prerequisite, and account-recovery routes that never
+ * participate in the authenticated root-setup admission decision. Profile is
+ * deliberately exempt so a failed setup/bootstrap dependency can never trap a
+ * signed-in user away from sign-out or account deletion.
  */
 export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
   return (
@@ -288,6 +288,8 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     pathname === ROUTES.GETTING_STARTED ||
     pathname === ROUTES.PHONE_MANDATE ||
     pathname === ROUTES.LOGOUT ||
+    pathname === ROUTES.PROFILE ||
+    pathname.startsWith(`${ROUTES.PROFILE}/`) ||
     pathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
   );
 }
@@ -422,7 +424,22 @@ export function buildKaiAnalysisPreviewRoute(entries?: {
  * lives at `/one/setup/finance`.
  */
 export function isOneSetupRoute(pathname: string): boolean {
-  return pathname === ROUTES.ONE_SETUP;
+  return normalizeStaticExportPathname(pathname) === ROUTES.ONE_SETUP;
+}
+
+/**
+ * Capacitor uses Next's static export, which represents directory routes with
+ * a trailing slash (and may expose the backing index document while settling
+ * a WebView navigation). Route admission must compare the logical app route,
+ * not that transport-specific pathname shape.
+ */
+function normalizeStaticExportPathname(pathname: string): string {
+  const withoutIndexDocument = String(pathname || "/").replace(
+    /\/index\.html$/i,
+    "",
+  );
+  const withoutTrailingSlash = withoutIndexDocument.replace(/\/+$/, "");
+  return withoutTrailingSlash || "/";
 }
 
 /**
@@ -435,7 +452,9 @@ export function isOneSetupRoute(pathname: string): boolean {
  * reserved wizard and compatibility sub-paths are unaffected.
  */
 export function isOneSetupCapabilityRoute(pathname: string): boolean {
-  return Object.values(SETUP_CAPABILITY_ROUTES).includes(pathname);
+  return Object.values(SETUP_CAPABILITY_ROUTES).includes(
+    normalizeStaticExportPathname(pathname),
+  );
 }
 
 /**
@@ -447,10 +466,11 @@ export function isOneSetupCapabilityRoute(pathname: string): boolean {
  * the capability handoff is a transient redirector.
  */
 export function isOneSetupWizardRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
-    pathname === ROUTES.ONE_SETUP_FINANCE ||
-    pathname === ROUTES.ONE_SETUP_FINANCE_IMPORT ||
-    pathname === ROUTES.ONE_SETUP_KAI
+    normalizedPathname === ROUTES.ONE_SETUP_FINANCE ||
+    normalizedPathname === ROUTES.ONE_SETUP_FINANCE_IMPORT ||
+    normalizedPathname === ROUTES.ONE_SETUP_KAI
   );
 }
 

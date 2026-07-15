@@ -185,6 +185,15 @@ describe("AuthService native custom-token continuity", () => {
     mockAuth.currentUser = null;
   });
 
+  it("does not call native token providers in a signed-out browser", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+
+    await expect(AuthService.getIdToken()).resolves.toBeNull();
+
+    expect(FirebaseAuthentication.getIdToken).not.toHaveBeenCalled();
+    expect(HushhAuth.getIdToken).not.toHaveBeenCalled();
+  });
+
   it("persists the reviewer session in native Firebase", async () => {
     vi.mocked(FirebaseAuthentication.signInWithCustomToken).mockResolvedValue({
       user: {
@@ -205,6 +214,31 @@ describe("AuthService native custom-token continuity", () => {
     });
     expect(result.user.uid).toBe("reviewer-user");
     expect(result.idToken).toBe("native-id-token");
+  });
+
+  it("falls back to the iOS keychain token when FirebaseAuthentication fails", async () => {
+    const keychainToken = createIdToken(60 * 60);
+    vi.mocked(FirebaseAuthentication.getIdToken).mockRejectedValue(
+      new Error("firebase plugin session unavailable"),
+    );
+    vi.mocked(HushhAuth.getIdToken).mockResolvedValue({
+      idToken: keychainToken,
+    } as any);
+
+    await expect(AuthService.getIdToken()).resolves.toBe(keychainToken);
+    expect(HushhAuth.getIdToken).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses HushhAuth when FirebaseAuthentication has no token", async () => {
+    const keychainToken = createIdToken(60 * 60);
+    vi.mocked(FirebaseAuthentication.getIdToken).mockResolvedValue({
+      token: null,
+    } as any);
+    vi.mocked(HushhAuth.getIdToken).mockResolvedValue({
+      idToken: keychainToken,
+    } as any);
+
+    await expect(AuthService.getIdToken()).resolves.toBe(keychainToken);
   });
 });
 

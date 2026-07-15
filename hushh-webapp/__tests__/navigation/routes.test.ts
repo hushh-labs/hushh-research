@@ -165,6 +165,8 @@ describe("navigation routes", () => {
   it("treats the /one/setup hub as the canonical setup surface", () => {
     // The setup hub is the root setup surface; the wizard is a sub-step.
     expect(isOneSetupRoute("/one/setup")).toBe(true);
+    expect(isOneSetupRoute("/one/setup/")).toBe(true);
+    expect(isOneSetupRoute("/one/setup/index.html")).toBe(true);
     expect(isOneSetupRoute("/one/setup/finance")).toBe(false);
     expect(isOneSetupRoute("/one/setup/kai")).toBe(false);
     expect(isOneSetupRoute("/one/onboarding")).toBe(false);
@@ -172,6 +174,7 @@ describe("navigation routes", () => {
 
     // The wizard predicate matches the canonical Finance setup surface.
     expect(isOneSetupWizardRoute("/one/setup/finance")).toBe(true);
+    expect(isOneSetupWizardRoute("/one/setup/finance/")).toBe(true);
     expect(isOneSetupWizardRoute("/one/setup/finance/import")).toBe(true);
     expect(isOneSetupWizardRoute("/one/setup/kai")).toBe(true);
     expect(isOneSetupWizardRoute("/one/setup/kai/complete")).toBe(false);
@@ -184,6 +187,7 @@ describe("navigation routes", () => {
     expect(isOneSetupSurfaceRoute("/one/setup")).toBe(true);
     expect(isOneSetupSurfaceRoute("/one/setup/kai")).toBe(true);
     expect(isOneSetupSurfaceRoute("/one/setup/gmail")).toBe(true);
+    expect(isOneSetupSurfaceRoute("/one/setup/gmail/")).toBe(true);
     expect(isOneSetupSurfaceRoute("/one")).toBe(false);
     expect(isOneSetupSurfaceRoute("/one/kai")).toBe(false);
   });

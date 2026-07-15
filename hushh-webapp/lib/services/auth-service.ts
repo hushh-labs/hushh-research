@@ -1405,13 +1405,33 @@ export class AuthService {
       }
     }
 
-    // Fallback to Capacitor Firebase plugin
+    // Browser auth is owned exclusively by the Firebase JS SDK. Calling the
+    // Capacitor plugin's web shim here turns a normal signed-out state into a
+    // noisy runtime error and cannot recover a browser session.
+    if (!Capacitor.isNativePlatform()) return null;
+
+    // Prefer the shared Capacitor Firebase plugin when it owns the native
+    // session. On iOS, Apple/Google sign-in may instead be restored by the
+    // app-owned HushhAuth keychain plugin, so a FirebaseAuthentication runtime
+    // error is not evidence that the authenticated session has no token.
     try {
       const result = await FirebaseAuthentication.getIdToken();
-      return result.token;
-    } catch {
-      return null;
+      if (result.token) return result.token;
+    } catch (error) {
+      this.debugError(
+        "[AuthService] FirebaseAuthentication token lookup failed",
+        error,
+      );
     }
+
+    try {
+      const result = await HushhAuth.getIdToken();
+      return result.idToken || null;
+    } catch (error) {
+      this.debugError("[AuthService] HushhAuth token lookup failed", error);
+    }
+
+    return null;
   }
 
   /**

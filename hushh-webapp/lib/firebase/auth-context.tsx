@@ -132,6 +132,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const router = useRouter();
   const userRef = useRef<User | null>(null);
   const authRecoveryInFlightRef = useRef(false);
+  // Firebase JS commonly emits `null` before the native keychain/provider has
+  // finished restoring. Until this flips, native restoration owns the loading
+  // state and the JS listener must not publish a false signed-out transition.
+  const nativeRestoreSettledRef = useRef(!IS_NATIVE);
 
   const applyAuthUser = useCallback((nextUser: User | null) => {
     userRef.current = nextUser;
@@ -193,6 +197,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const checkAuth = useCallback(async () => {
     // 1. Native Session Restoration
     if (Capacitor.isNativePlatform()) {
+      nativeRestoreSettledRef.current = false;
       try {
         const nativeUser = await AuthService.restoreNativeSession();
 
@@ -211,6 +216,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         applyAuthUser(null);
         // User will need to log in again
       } finally {
+        nativeRestoreSettledRef.current = true;
         // ✅ CRITICAL: Always set loading to false after native check
         // This ensures VaultLockGuard can proceed (to login or vault unlock)
         setLoading(false);
@@ -286,6 +292,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // The Firebase JS SDK often fires 'null' on startup or network change in Capacitor apps
       // Use ref to check current user without adding `user` to dependencies
       if (IS_NATIVE) {
+        if (!firebaseUser && !nativeRestoreSettledRef.current) {
+          console.log(
+            "🍎 [AuthContext] Ignoring Firebase Null State While Native Restore Is Pending"
+          );
+          return;
+        }
         if (!firebaseUser && userRef.current) {
           console.log(
             "🍎 [AuthContext] Ignoring Firebase Null State (Native Mode)"
