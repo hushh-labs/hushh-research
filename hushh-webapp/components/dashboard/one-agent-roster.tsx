@@ -46,7 +46,9 @@ const ONE_AGENT_TILE_WIDTH = "5.75rem";
 function buildModes(
   statusById: Record<string, CapabilityStatus>,
 ): OneAgentMode[] {
-  return ONE_CAPABILITIES.map((capability) => {
+  return ONE_CAPABILITIES.filter(
+    (capability) => capability.isVisibleOnRoster !== false,
+  ).map((capability) => {
     const setupCapability = getOneSetupCapability(capability.id);
     const status = statusById[capability.id];
     const copy = setupCapability

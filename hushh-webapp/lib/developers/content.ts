@@ -109,47 +109,47 @@ export const DEVELOPER_SECTIONS: DeveloperSection[] = [
   {
     id: "start",
     label: "Quick Start",
-    summary: "Remote MCP setup, the UAT server, and the one copy-ready happy path.",
+    summary: "One copy-ready Remote MCP setup.",
   },
   {
     id: "mcp",
     label: "Remote MCP",
-    summary: "Streamable MCP setup for remote-capable hosts.",
+    summary: "Direct streamable HTTP connection.",
   },
   {
     id: "access",
     label: "Developer Access",
-    summary: "Sign in, enable access, rotate tokens, and update your app identity.",
+    summary: "Tokens and app identity.",
   },
   {
     id: "overview",
     label: "Trust Model",
-    summary: "Auth identifies your app; user consent grants each scope.",
+    summary: "Authentication and consent stay separate.",
   },
   {
     id: "dynamic-scopes",
     label: "Dynamic Scopes",
-    summary: "Scopes come from the user’s indexed Personal Knowledge Model, not a hardcoded list.",
+    summary: "Discover available scopes per person.",
   },
   {
     id: "consent-flow",
     label: "Consent Flow",
-    summary: "Discover, request, approve in Kai, then read approved scoped information.",
+    summary: "Discover, request, approve, read.",
   },
   {
     id: "modes",
     label: "Advanced",
-    summary: "REST API and npm bridge options for non-default host needs.",
+    summary: "REST and npm fallbacks.",
   },
   {
     id: "api",
     label: "REST API",
-    summary: "Advanced direct HTTP endpoints for discovery, consent, and status checks.",
+    summary: "Versioned endpoint reference.",
   },
   {
     id: "faq",
     label: "Troubleshooting",
-    summary: "Answers to the common integration and trust-model questions.",
+    summary: "Answers from the current runtime contract.",
   },
 ];
 
@@ -178,7 +178,7 @@ export const CONSENT_FLOW_STEPS: ConsentFlowStep[] = [
   {
     title: "Request",
     detail:
-      "Send one discovered scope at a time to POST /api/v1/request-consent?token=... with your developer token and connector public-key bundle so Hussh can wrap the export key for client-side decryption.",
+      "Send one discovered scope at a time to POST /api/v1/request-consent with a Bearer developer token and connector public-key bundle so Hussh can wrap the export key for client-side decryption.",
   },
   {
     title: "Approve",
@@ -308,7 +308,6 @@ export const DEVELOPER_SAMPLE_PAYLOADS: DeveloperSamplePayload[] = [
   "user_id": "kai_test_user",
   "available_domains": ["financial"],
   "scopes": [
-    "pkm.read",
     "attr.financial.*",
     "attr.financial.portfolio.*",
     "attr.financial.profile.*",
@@ -419,7 +418,7 @@ export function buildIntegrationModes(_runtime: DeveloperRuntime): IntegrationMo
       id: "remote-mcp",
       title: "Remote/Streamable MCP",
       summary:
-        `Point remote-capable hosts at ${MCP_PUBLIC_DOCS.promotedEnvironment.label} and use the exact /mcp/?token=... URL shape.`,
+        `Point remote-capable hosts at ${MCP_PUBLIC_DOCS.promotedEnvironment.label} and use the trailing-slash /mcp/ endpoint with a Bearer token.`,
     },
     {
       id: "rest",

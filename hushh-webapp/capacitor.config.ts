@@ -4,6 +4,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
 import type { KeyboardResize, KeyboardStyle } from "@capacitor/keyboard";
 
 const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || "").trim();
+const WEB_DIR = process.env.NEXT_DIST_DIR?.trim() || "out";
 
 function hostFromUrl(raw: string | undefined): string | null {
   if (!raw) return null;
@@ -40,7 +41,10 @@ const NORMALIZED_BACKEND_URL = (() => {
 const config: CapacitorConfig = {
   appId: "com.hushh.app",
   appName: "Hussh One",
-  webDir: "out",
+  // Next writes static exports into `distDir` when it is overridden. Native
+  // release builds use that override to avoid colliding with a live web dev
+  // server, so Capacitor must consume the same directory.
+  webDir: WEB_DIR,
 
   // iOS-specific configuration
   ios: {

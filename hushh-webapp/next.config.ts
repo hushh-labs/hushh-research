@@ -16,6 +16,11 @@ import path from "path";
 const isCapacitorBuild = process.env.CAPACITOR_BUILD === "true";
 
 const config: NextConfig = {
+  // Native static exports may run while the local web dev server is active.
+  // Keep their compiler caches isolated so `next build` cannot corrupt the
+  // live `.next` module graph and turn local API routes into transient 500s.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
+
   // Keep file tracing and workspace discovery scoped to this monorepo.
   outputFileTracingRoot: path.join(process.cwd(), ".."),
 

@@ -199,7 +199,7 @@ export function AgentBar() {
   // for tier-aware presentation and to detect the home/onboarding surfaces
   // consistently with the chat workspace, instead of recomputing locally.
   const runtime = useAgentRuntimeStateOptional();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { resolvedTheme, setTheme } = useTheme();
   const { vaultOwnerToken } = useVault();
   const { switchPersona } = usePersonaState();
@@ -1034,6 +1034,7 @@ export function AgentBar() {
 
   const unmountBar =
     !agentPopover ||
+    authLoading ||
     // Focused onboarding routes retain voice but use the voice-only rendering
     // branch above, so Agent Chat never appears over setup or phone entry.
     path === ROUTES.AGENT ||
@@ -1317,7 +1318,7 @@ export function AgentBar() {
           // it does not re-render the voice tree as the page scrolls.
           bottom: physicalNavbarAbsent
             ? "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)"
-            : "calc(var(--app-bottom-inset) + 0.5rem)",
+            : "calc(max(var(--app-bottom-inset), calc(var(--bottom-nav-offset) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift))) + 0.5rem)",
         } as CSSProperties
       }
       aria-hidden={barHidden}

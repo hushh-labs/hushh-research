@@ -81,18 +81,19 @@ describe("DeveloperDocsHub", () => {
     render(<DeveloperDocsHub initialOrigin="https://uat.one.hushh.ai" />);
 
     await waitFor(() => {
-      expect(screen.getByText("API root ready")).toBeTruthy();
-      expect(screen.getByText("Tool catalog ready")).toBeTruthy();
-      expect(screen.getByText("Scope catalog ready")).toBeTruthy();
+      expect(screen.getByText("Live contract available")).toBeTruthy();
     });
 
-    expect(screen.getByRole("heading", { name: "Connect to Hussh with Remote MCP" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Connect with Remote MCP" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Build with consent, not around it." })).toBeTruthy();
+    expect(screen.getByText("Connect with Remote MCP")).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "Public knowledge" })).toBeTruthy();
     // Bare URL, no ?token= query: the live API rejects query-string tokens and
     // requires "Authorization: Bearer" instead.
     expect(screen.getAllByText(/https:\/\/api\.uat\.hushh\.ai\/mcp\//).length).toBeGreaterThan(0);
     expect(screen.getByText("Advanced: REST API and npm bridge")).toBeTruthy();
-    expect(screen.getAllByText("Remote MCP first").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll("[data-state='open']").length).toBeGreaterThanOrEqual(9);
+    expect(document.querySelector("[data-slot='badge']")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sections" })).toBeNull();
     expect(screen.queryByText("Production")).toBeNull();
     expect(screen.queryByText(/consent-protocol-uat-a1b2c3-uc\.a\.run\.app/)).toBeNull();
   });

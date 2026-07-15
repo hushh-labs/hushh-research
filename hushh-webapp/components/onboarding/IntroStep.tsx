@@ -135,8 +135,9 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
           </div>
 
           <p className={styles.description}>
-            Everything stays encrypted in your vault. Nothing moves without your
-            consent.
+            Everything stays encrypted in your vault.
+            <br />
+            Nothing moves without your consent.
           </p>
         </div>
 
@@ -176,12 +177,6 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
               className={styles.link}
             >
               Research
-            </Link>
-            <Link
-              href={ROUTES.BLOG}
-              className={styles.link}
-            >
-              Blog
             </Link>
             <Link
               href={ROUTES.DEVELOPERS}

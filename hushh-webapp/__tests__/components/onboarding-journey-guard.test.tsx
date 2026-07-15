@@ -1,19 +1,21 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OnboardingJourneyGuard } from "@/components/onboarding/onboarding-journey-guard";
 
 const {
+  push,
   replace,
   bootstrapStateMock,
   getCachedBootstrapStateMock,
   isPersistentSetupResolvedMock,
 } = vi.hoisted(
   () => ({
+    push: vi.fn(),
     replace: vi.fn(),
     bootstrapStateMock: vi.fn(),
     getCachedBootstrapStateMock: vi.fn(),
@@ -25,7 +27,7 @@ let pathnameValue = "/one/setup";
 
 // App Router returns a stable router instance; an unstable identity would
 // spuriously re-run the guard effect (its deps include `router`).
-const stableRouter = { replace };
+const stableRouter = { push, replace };
 
 vi.mock("next/navigation", () => ({
   usePathname: () => pathnameValue,
@@ -41,15 +43,24 @@ vi.mock("@/components/app-ui/hushh-loader", () => ({
 }));
 
 vi.mock("@/lib/morphy-ux/button", () => ({
-  Button: ({ children }: { children: ReactNode }) => <button>{children}</button>,
+  Button: ({
+    children,
+    onClick,
+  }: {
+    children: ReactNode;
+    onClick?: () => void;
+  }) => <button onClick={onClick}>{children}</button>,
 }));
 
 vi.mock("@/lib/navigation/routes", () => ({
-  ROUTES: { ONE_SETUP: "/one/setup" },
+  ROUTES: { ONE_SETUP: "/one/setup", PROFILE: "/profile" },
   buildOneSetupRoute: ({ returnTo }: { returnTo: string }) =>
     `/one/setup?return_to=${encodeURIComponent(returnTo)}`,
   isCapabilityOnboardingRoute: () => false,
   isOnboardingAdmissionExemptRoute: () => false,
+  isOneSetupRoute: (pathname: string) =>
+    pathname.replace(/\/index\.html$/i, "").replace(/\/+$/, "") ===
+    "/one/setup",
   isOneSetupSurfaceRoute: (pathname: string) => pathname === "/one/setup",
 }));
 
@@ -85,6 +96,7 @@ function incompleteSetupState() {
 
 describe("OnboardingJourneyGuard", () => {
   beforeEach(() => {
+    push.mockReset();
     replace.mockReset();
     bootstrapStateMock.mockReset();
     getCachedBootstrapStateMock.mockReset();
@@ -162,6 +174,64 @@ describe("OnboardingJourneyGuard", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
+  it("retries one transient bootstrap failure with a forced read", async () => {
+    vi.useFakeTimers();
+    pathnameValue = "/one";
+    window.history.replaceState(null, "", "/one");
+    getCachedBootstrapStateMock.mockReturnValue(null);
+    bootstrapStateMock
+      .mockRejectedValueOnce(new Error("token provider not ready"))
+      .mockResolvedValueOnce({ setupCompleted: true });
+
+    const view = render(
+      <OnboardingJourneyGuard>
+        <div>one home</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      vi.advanceTimersByTime(300);
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("one home")).toBeTruthy();
+    expect(bootstrapStateMock).toHaveBeenNthCalledWith(1, "journey-user");
+    expect(bootstrapStateMock).toHaveBeenNthCalledWith(2, "journey-user", {
+      force: true,
+    });
+    view.unmount();
+    vi.useRealTimers();
+  });
+
+  it("keeps profile recovery reachable after a persistent bootstrap failure", async () => {
+    vi.useFakeTimers();
+    pathnameValue = "/one";
+    window.history.replaceState(null, "", "/one");
+    getCachedBootstrapStateMock.mockReturnValue(null);
+    bootstrapStateMock.mockRejectedValue(new Error("bootstrap unavailable"));
+
+    const view = render(
+      <OnboardingJourneyGuard>
+        <div>one home</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      vi.advanceTimersByTime(300);
+      await Promise.resolve();
+    });
+
+    expect(
+      screen.getByText("Unable to verify setup progress. Please retry."),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByText("Open profile"));
+    expect(push).toHaveBeenCalledWith("/profile");
+    view.unmount();
+    vi.useRealTimers();
+  });
+
   it("preserves a query-bearing route in one idempotent setup redirect", async () => {
     pathnameValue = "/one/location";
     window.history.replaceState(null, "", "/one/location?tab=family");
@@ -185,6 +255,67 @@ describe("OnboardingJourneyGuard", () => {
       </OnboardingJourneyGuard>,
     );
     expect(replace).toHaveBeenCalledTimes(1);
+  });
+
+  it("settles a Capacitor trailing-slash setup navigation without a false error", async () => {
+    vi.useFakeTimers();
+    pathnameValue = "/one";
+    window.history.replaceState(null, "", "/one");
+    bootstrapStateMock.mockResolvedValue(incompleteSetupState());
+    getCachedBootstrapStateMock.mockReturnValue(null);
+    replace.mockImplementation(() => {
+      window.history.replaceState(null, "", "/one/setup/");
+    });
+
+    const view = render(
+      <OnboardingJourneyGuard>
+        <div>one home</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1200);
+    });
+
+    expect(screen.getByText("one home")).toBeTruthy();
+    expect(screen.queryByText("Unable to open setup. Please retry.")).toBeNull();
+    view.unmount();
+    vi.useRealTimers();
+  });
+
+  it("clears a failed redirect target so Retry can navigate again", async () => {
+    vi.useFakeTimers();
+    pathnameValue = "/one";
+    window.history.replaceState(null, "", "/one");
+    bootstrapStateMock.mockResolvedValue(incompleteSetupState());
+    getCachedBootstrapStateMock.mockReturnValue(null);
+
+    const view = render(
+      <OnboardingJourneyGuard>
+        <div>one home</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(3600);
+    });
+    expect(screen.getByText("Unable to open setup. Please retry.")).toBeTruthy();
+    expect(replace).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByText("Retry"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(replace).toHaveBeenCalledTimes(3);
+
+    view.unmount();
+    vi.useRealTimers();
   });
 
   it("keeps setup recovery inside the App Router", () => {

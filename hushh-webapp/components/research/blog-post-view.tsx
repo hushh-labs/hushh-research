@@ -6,17 +6,19 @@ import {
   AppPageContentRegion,
 } from "@/components/app-ui/app-page-shell";
 import { Figure } from "@/components/app-ui/sections";
+import { PublicKnowledgeNav } from "@/components/app-ui/public-knowledge-nav";
 import { ProseMarkdown } from "@/components/research/prose-markdown";
 import { ROUTES } from "@/lib/navigation/routes";
 import type { BlogPost } from "@/lib/research/blog";
 import { formatBlogDate } from "@/lib/research/format-blog-date";
-import { summerColorForKey } from "@/lib/research/summer-theme";
-import { cn } from "@/lib/utils";
 
 export function BlogPostView({ post }: { post: BlogPost }) {
   return (
-    <AppPageShell width="reading" className="py-6 sm:py-10">
+    <AppPageShell width="reading" className="pb-6 pt-0 sm:pb-10">
       <AppPageHeaderRegion>
+        <div className="mb-5">
+          <PublicKnowledgeNav />
+        </div>
         <Link
           href={ROUTES.BLOG}
           className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-sky-700 dark:hover:text-sky-300"
@@ -29,24 +31,9 @@ export function BlogPostView({ post }: { post: BlogPost }) {
           <time dateTime={post.date}>{formatBlogDate(post.date)}</time>
           <span aria-hidden>·</span>
           <span>{post.readingMinutes} min read</span>
-          {post.tags.map((tag) => {
-            const c = summerColorForKey(tag);
-            return (
-              <span
-                key={tag}
-                className={cn(
-                  "rounded-full px-2 py-0.5 text-[11px] font-medium",
-                  c.softBg,
-                  c.text
-                )}
-              >
-                {tag}
-              </span>
-            );
-          })}
         </div>
 
-        <h1 className="bg-gradient-to-r from-sky-600 via-fuchsia-600 to-orange-500 bg-clip-text text-[30px] font-semibold leading-[1.12] tracking-tight text-transparent sm:text-[36px] dark:from-sky-300 dark:via-fuchsia-300 dark:to-amber-300">
+        <h1 className="text-[30px] font-semibold leading-[1.12] tracking-tight text-foreground sm:text-[36px]">
           {post.title}
         </h1>
         <p className="mt-3 text-lg leading-8 text-muted-foreground">{post.subtitle}</p>

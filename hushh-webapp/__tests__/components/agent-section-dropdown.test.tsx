@@ -41,11 +41,10 @@ describe("AgentSectionDropdown", () => {
     expect(screen.getByTestId("top_agent_section_gmail")).toBeTruthy();
     expect(screen.getByTestId("top_agent_section_consent")).toBeTruthy();
     expect(screen.getByTestId("top_agent_section_pkm")).toBeTruthy();
-    expect(screen.getByTestId("top_agent_section_marketplace")).toBeTruthy();
     expect(screen.getByTestId("top_agent_section_connected-systems")).toBeTruthy();
     expect(
       document.querySelectorAll('[data-testid^="top_agent_section_"]').length,
-    ).toBe(9);
+    ).toBe(8);
     // cmdk must not replace a branded agent glyph with its shared explicit
     // theme contrast: dark in light mode and light in dark mode.
     expect(

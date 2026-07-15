@@ -32,9 +32,14 @@ describe("Navbar bottom chrome contract", () => {
     expect(agentBar).toContain('data-native-voice-control-id="one_voice_agent_bar_start"');
     expect(agentBar).toContain('onClick={handleVoiceStartClick}');
     expect(agentBar).toContain('aria-label="Start conversation"');
+    expect(agentBar).toContain("loading: authLoading");
+    expect(agentBar).toContain("!agentPopover ||\n    authLoading ||");
     expect(agentBar).toContain('const isRiaChrome = isRiaRoute(pathname ?? "")');
     expect(agentBar).not.toContain('const isRiaChrome = activePersona === "ria"');
     expect(agentBar).toContain("useKaiBottomChromeElementTranslation");
+    expect(agentBar).toContain(
+      "max(var(--app-bottom-inset), calc(var(--bottom-nav-offset)",
+    );
     expect(agentBar).not.toContain("useKaiBottomChromeVisibility");
     expect(agentBar).not.toContain(
       "calc(var(--bottom-chrome-progress, 0) * var(--agent-bar-hide-distance))",

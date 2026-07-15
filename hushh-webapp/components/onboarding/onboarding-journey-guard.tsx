@@ -10,6 +10,7 @@ import {
   buildOneSetupRoute,
   isCapabilityOnboardingRoute,
   isOnboardingAdmissionExemptRoute,
+  isOneSetupRoute,
   isOneSetupSurfaceRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
@@ -21,6 +22,11 @@ import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completi
 
 const SETUP_REDIRECT_RETRY_MS = 1200;
 const SETUP_REDIRECT_FAILURE_MS = 2400;
+const SETUP_BOOTSTRAP_RETRY_MS = 300;
+
+function waitForBootstrapRetry(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, SETUP_BOOTSTRAP_RETRY_MS));
+}
 
 function hasExplicitIncompleteSetup(state: PreVaultUserState): boolean {
   if (PreVaultUserStateService.isSetupResolved(state)) return false;
@@ -157,9 +163,21 @@ export function OnboardingJourneyGuard({
       setChecking(true);
       setError(null);
       try {
-        const state =
-          cachedState ??
-          (await PreVaultUserStateService.bootstrapState(userId));
+        let state = cachedState;
+        if (!state) {
+          try {
+            state = await PreVaultUserStateService.bootstrapState(userId);
+          } catch {
+            // Native auth restoration and cross-tab web auth can publish the
+            // user before the token provider or proxy is ready. Retry once
+            // with a forced read; never create an unbounded setup loop.
+            await waitForBootstrapRetry();
+            if (cancelled) return;
+            state = await PreVaultUserStateService.bootstrapState(userId, {
+              force: true,
+            });
+          }
+        }
         if (cancelled) return;
 
         // A missing legacy mirror is not evidence that an established account
@@ -190,7 +208,7 @@ export function OnboardingJourneyGuard({
         // indefinitely. Retry once, then expose a recoverable error.
         redirectWatchdogRef.current = setTimeout(() => {
           if (cancelled || typeof window === "undefined") return;
-          if (window.location.pathname === ROUTES.ONE_SETUP) {
+          if (isOneSetupRoute(window.location.pathname)) {
             setRedirecting(false);
             setChecking(false);
             return;
@@ -198,11 +216,12 @@ export function OnboardingJourneyGuard({
           router.replace(redirectTarget);
           redirectWatchdogRef.current = setTimeout(() => {
             if (cancelled || typeof window === "undefined") return;
-            if (window.location.pathname === ROUTES.ONE_SETUP) {
+            if (isOneSetupRoute(window.location.pathname)) {
               setRedirecting(false);
               setChecking(false);
               return;
             }
+            redirectTargetRef.current = null;
             setRedirecting(false);
             setChecking(false);
             setError("Unable to open setup. Please retry.");
@@ -260,6 +279,15 @@ export function OnboardingJourneyGuard({
             }}
           >
             Retry
+          </Button>
+          <Button
+            size="sm"
+            variant="muted"
+            effect="fade"
+            className="mt-3"
+            onClick={() => router.push(ROUTES.PROFILE)}
+          >
+            Open profile
           </Button>
         </div>
       </div>
