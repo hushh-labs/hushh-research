@@ -35,7 +35,6 @@ import { formatCompleteJson } from "@/lib/utils/json-to-human";
 
 describe("formatCompleteJson — sparse array inputs", () => {
   it("materializes a hole as a literal 'undefined' placeholder line (NOT skipped)", () => {
-    // eslint-disable-next-line no-sparse-arrays
     const out = formatCompleteJson({ misc: [1, , 3] });
     expect(out).toBe(
       ["", "--- Misc (3 items) ---", "  • 1", "  • undefined", "  • 3"].join(
@@ -46,7 +45,6 @@ describe("formatCompleteJson — sparse array inputs", () => {
 
   it("counts holes in the array-length header ('(N items)')", () => {
     // `[, ,]` has length 2 (two holes), so the header reports 2 items.
-    // eslint-disable-next-line no-sparse-arrays
     const out = formatCompleteJson({ misc: [, ,] });
     expect(out).toContain("--- Misc (2 items) ---");
     // Both holes surface as placeholder bullet lines.
@@ -60,7 +58,6 @@ describe("formatCompleteJson — sparse array inputs", () => {
   it("includes holes when computing the '... and N more' overflow tail", () => {
     // Length 5 (three real values + two holes); generic branch renders slice(0,3)
     // then reports the remaining 2 as overflow. Holes are part of that count.
-    // eslint-disable-next-line no-sparse-arrays
     const out = formatCompleteJson({ misc: [1, , 3, , 5] });
     expect(out).toBe(
       [
@@ -100,7 +97,6 @@ describe("formatCompleteJson — sparse array inputs", () => {
     // that object-array sections are NOT resilient to holes (unlike the generic
     // primitive path, which stringifies to "undefined").
     expect(() =>
-      // eslint-disable-next-line no-sparse-arrays
       formatCompleteJson({ holdings: [{ symbol_cusip: "AAPL" }, ,] }),
     ).toThrow();
   });
