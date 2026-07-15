@@ -75,7 +75,7 @@ const config: CapacitorConfig = {
     // normal-flow content scroll above the keyboard. For fixed elements like sheets,
     // they must either naturally sit in the scrolled body or respond to visualViewport.
     Keyboard: {
-      resize: "body" as KeyboardResize,
+      resize: "none" as KeyboardResize,
       style: "LIGHT" as KeyboardStyle,
       resizeOnFullScreen: false,
     },
