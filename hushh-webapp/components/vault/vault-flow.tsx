@@ -96,7 +96,6 @@ export function VaultFlow({
 }: VaultFlowProps) {
   const ACTION_BUTTON_SIZE = "lg" as const;
   const [step, setStep] = useState<VaultStep>("checking");
-  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [passphrase, setPassphrase] = useState("");
@@ -247,12 +246,6 @@ export function VaultFlow({
       setIsSigningOut(false);
     }
   }, [isSigningOut, onSignOut]);
-
-  const openSignOutConfirm = useCallback(() => {
-    if (!isSigningOut) {
-      setShowSignOutConfirm(true);
-    }
-  }, [isSigningOut]);
 
   // Initial Vault Status Check
   useEffect(() => {

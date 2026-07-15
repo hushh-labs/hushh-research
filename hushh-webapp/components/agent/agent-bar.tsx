@@ -1030,6 +1030,8 @@ export function AgentBar() {
     runtime?.oneVoiceContextSnapshot.ui.interaction_layer?.agent_continuity ===
       "suppressed";
 
+  const appAccent = useAccent();
+
   if (unmountBar) {
     return null;
   }
@@ -1071,8 +1073,6 @@ export function AgentBar() {
             : voiceStatus === "error"
               ? "error"
               : "opening";
-
-  const appAccent = useAccent();
 
   const themeToggleButton = (
     <button
