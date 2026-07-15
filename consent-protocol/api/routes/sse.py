@@ -226,6 +226,11 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
     except Exception as e:
         logger.error("consent_sse.error user_id=%s error=%s", user_id, e)
         raise
+    finally:
+        from api.consent_listener import remove_consent_queue
+
+        remove_consent_queue(user_id)
+        logger.info("consent_sse.closed user_id=[redacted]")
 
 
 @router.get("/events/{user_id}")

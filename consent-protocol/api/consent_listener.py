@@ -43,6 +43,10 @@ MIN_FINAL_REMINDER_WINDOW_MS = 2 * 60 * 60 * 1000
 _CONSENT_NOTIFY_QUEUE_MAXSIZE = 100
 _consent_notify_queues: Dict[str, asyncio.Queue] = {}
 _consent_notify_queues_lock = asyncio.Lock()
+# One user can have multiple concurrent SSE connections (multiple browser
+# tabs, web + mobile). They share the same per-user queue, so it must only be
+# torn down once the last connection for that user disconnects.
+_consent_notify_queue_refcounts: Dict[str, int] = {}
 
 # Diagnostic: set when listener is running and when NOTIFY is received
 _listener_active = False
@@ -136,10 +140,34 @@ async def _push_to_consent_queue(user_id: str, data: Dict[str, Any]) -> None:
 
 
 def get_consent_queue(user_id: str) -> asyncio.Queue:
-    """Get or create the asyncio queue for this user (used by SSE generator)."""
+    """Get or create the asyncio queue for this user (used by SSE generator).
+
+    Call once per SSE connection. Increments the connection refcount for the
+    user so remove_consent_queue() knows whether other connections are still
+    relying on this queue before tearing it down.
+    """
     if user_id not in _consent_notify_queues:
         _consent_notify_queues[user_id] = asyncio.Queue(maxsize=_CONSENT_NOTIFY_QUEUE_MAXSIZE)
+    _consent_notify_queue_refcounts[user_id] = _consent_notify_queue_refcounts.get(user_id, 0) + 1
     return _consent_notify_queues[user_id]
+
+
+def remove_consent_queue(user_id: str) -> None:
+    """Release one SSE connection's hold on the per-user queue.
+
+    Called from the finally block of consent_event_generator when a
+    connection closes. A user can have multiple concurrent SSE connections
+    (multiple tabs, web + mobile) sharing the same queue, so the queue is only
+    removed from _consent_notify_queues once the last connection releases it.
+    This is what bounds memory across repeated connect/disconnect cycles
+    without breaking notifications for connections that are still open.
+    """
+    remaining = _consent_notify_queue_refcounts.get(user_id, 0) - 1
+    if remaining <= 0:
+        _consent_notify_queue_refcounts.pop(user_id, None)
+        _consent_notify_queues.pop(user_id, None)
+    else:
+        _consent_notify_queue_refcounts[user_id] = remaining
 
 
 def get_consent_listener_status() -> dict:
