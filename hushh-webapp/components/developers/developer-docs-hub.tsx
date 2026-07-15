@@ -168,8 +168,7 @@ async function copyText(value: string, label: string) {
       throw new Error("clipboard_unavailable");
     }
     toast.success(`${label} copied`);
-  } catch (error) {
-    console.error("[developers] copy failed", error);
+  } catch {
     toast.error(`Could not copy ${label.toLowerCase()}`);
   }
 }
@@ -1201,11 +1200,7 @@ export function DeveloperDocsHub({
       void ApiService.notifyFirstWelcome();
       await checkAuth();
       await refreshAccess(authResult.user);
-    } catch (error) {
-      if (process.env.NODE_ENV !== "production") {
-        console.error(`[developers] ${provider} sign-in failed`, error);
-      }
-    }
+    } catch {}
   }
 
   async function handleEnableAccess() {
