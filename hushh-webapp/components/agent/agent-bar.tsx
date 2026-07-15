@@ -1119,7 +1119,7 @@ export function AgentBar() {
           backgroundColor:
             appAccent === "gold"
               ? "var(--foundation-gold-dark, #C3A354)"
-              : "var(--app-accent, #007aff)",
+              : "var(--app-accent)",
         }}
         className="relative z-10 block h-[18px] w-[18px] rounded-full shadow-[inset_0_1px_3px_rgba(0,0,0,0.2)] border border-black/10 dark:border-white/10 transition-colors duration-200"
       />
@@ -1132,8 +1132,8 @@ export function AgentBar() {
     </button>
   );
 
-  // During onboarding, show the theme and accent toggles
-  const showToggles = onboardingGreeterMode || isOneSetupRoute(pathname || "");
+  // During onboarding and on foundation public routes, show the theme and accent toggles
+  const showToggles = onboardingGreeterMode || isOneSetupRoute(pathname || "") || isFoundationPublic;
   // Pill contents for the frosted bar, one JSX source across all modes so
   // the voice/theme controls and test ids never fork.
   const pillContents = conversationActive ? (
