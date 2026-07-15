@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 from sqlalchemy import text
 from starlette.concurrency import run_in_threadpool
 
-from db.db_client import get_db
+from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.onboarding_contract import (
     normalize_setup_capability_id,
     normalize_setup_capability_ids,
@@ -303,8 +303,22 @@ class VaultKeysService:
                 "created_at": now_ms,
                 "updated_at": now_ms,
             }
-            insert_result = supabase.table("vault_keys").insert(create_payload).execute()
-            if not insert_result.data:
+            try:
+                insert_result = supabase.table("vault_keys").insert(create_payload).execute()
+            except DatabaseExecutionError as exc:
+                details = str(exc.details or "").lower()
+                is_concurrent_insert = (
+                    exc.table_name == "vault_keys"
+                    and exc.operation == "insert"
+                    and "duplicate key" in details
+                    and "vault_keys_pkey" in details
+                )
+                if not is_concurrent_insert:
+                    raise
+                # Another bootstrap request won the placeholder/active-row race.
+                # Re-read below instead of turning a healthy concurrent login into a 500.
+                insert_result = None
+            if insert_result is None or not insert_result.data:
                 # Race-safe fallback if another request inserted concurrently.
                 existing_response = (
                     supabase.table("vault_keys")
@@ -852,6 +866,31 @@ class VaultKeysService:
         wrappers: list[dict[str, Any]],
         primary_wrapper_id: Optional[str] = None,
     ) -> bool:
+        """Create/update vault state without blocking the asyncio event loop."""
+        return await run_in_threadpool(
+            self._setup_vault_state_sync,
+            user_id=user_id,
+            vault_key_hash=vault_key_hash,
+            primary_method=primary_method,
+            recovery_encrypted_vault_key=recovery_encrypted_vault_key,
+            recovery_salt=recovery_salt,
+            recovery_iv=recovery_iv,
+            wrappers=wrappers,
+            primary_wrapper_id=primary_wrapper_id,
+        )
+
+    def _setup_vault_state_sync(
+        self,
+        *,
+        user_id: str,
+        vault_key_hash: str,
+        primary_method: str,
+        recovery_encrypted_vault_key: str,
+        recovery_salt: str,
+        recovery_iv: str,
+        wrappers: list[dict[str, Any]],
+        primary_wrapper_id: Optional[str] = None,
+    ) -> bool:
         """Create/update vault state atomically by replacing wrappers in one DB transaction."""
         supabase = self._get_supabase()
 
@@ -935,7 +974,8 @@ class VaultKeysService:
             existing_vault = conn.execute(
                 text(
                     """
-                    SELECT vault_status, vault_key_hash
+                    SELECT vault_status, vault_key_hash, primary_method, primary_wrapper_id,
+                           recovery_encrypted_vault_key, recovery_salt, recovery_iv
                     FROM vault_keys
                     WHERE user_id = :user_id
                     FOR UPDATE
@@ -960,13 +1000,81 @@ class VaultKeysService:
                     )
                     or ""
                 )
-                if (
-                    existing_status == "active"
-                    and existing_hash
-                    and existing_hash != vault_key_hash_clean
-                ):
+                if existing_status == "active" and existing_hash:
+                    if existing_hash != vault_key_hash_clean:
+                        raise ValueError(
+                            "Active vault already exists; refusing to replace vault key hash "
+                            "without vault owner proof"
+                        )
+
+                    existing_wrapper_rows = conn.execute(
+                        text(
+                            """
+                            SELECT method, wrapper_id, encrypted_vault_key, salt, iv,
+                                   passkey_credential_id, passkey_prf_salt, passkey_rp_id,
+                                   passkey_provider, passkey_device_label, passkey_last_used_at
+                            FROM vault_key_wrappers
+                            WHERE user_id = :user_id
+                            ORDER BY method, wrapper_id
+                            FOR UPDATE
+                            """
+                        ),
+                        {"user_id": user_id_clean},
+                    ).fetchall()
+
+                    def comparable_wrapper(row: Any) -> tuple[Any, ...]:
+                        return (
+                            self._clean_text(row_get(row, "method")) or "",
+                            self._normalize_wrapper_id(row_get(row, "wrapper_id")),
+                            self._clean_base64ish(row_get(row, "encrypted_vault_key")) or "",
+                            self._clean_base64ish(row_get(row, "salt")) or "",
+                            self._clean_base64ish(row_get(row, "iv")) or "",
+                            self._clean_text(
+                                row_get(row, "passkey_credential_id"), allow_none=True
+                            ),
+                            self._clean_base64ish(
+                                row_get(row, "passkey_prf_salt"), allow_none=True
+                            ),
+                            self._clean_text(row_get(row, "passkey_rp_id"), allow_none=True),
+                            self._clean_text(row_get(row, "passkey_provider"), allow_none=True),
+                            self._clean_text(row_get(row, "passkey_device_label"), allow_none=True),
+                            self._normalize_int_ms_or_none(row_get(row, "passkey_last_used_at")),
+                        )
+
+                    existing_header = (
+                        self._normalize_method(row_get(existing_vault, "primary_method")),
+                        self._normalize_wrapper_id(row_get(existing_vault, "primary_wrapper_id")),
+                        self._clean_base64ish(
+                            row_get(existing_vault, "recovery_encrypted_vault_key")
+                        )
+                        or "",
+                        self._clean_base64ish(row_get(existing_vault, "recovery_salt")) or "",
+                        self._clean_base64ish(row_get(existing_vault, "recovery_iv")) or "",
+                    )
+                    requested_header = (
+                        primary,
+                        primary_wrapper,
+                        recovery_encrypted,
+                        recovery_salt_clean,
+                        recovery_iv_clean,
+                    )
+                    existing_wrappers = sorted(
+                        comparable_wrapper(row) for row in existing_wrapper_rows
+                    )
+                    requested_wrappers = sorted(comparable_wrapper(row) for row in wrapper_rows)
+                    if (
+                        existing_header == requested_header
+                        and existing_wrappers == requested_wrappers
+                    ):
+                        logger.info(
+                            "Vault state setup replay accepted for user %s",
+                            self._mask_user_id(user_id_clean),
+                        )
+                        self._invalidate_vault_state_cache(user_id_clean)
+                        return True
+
                     raise ValueError(
-                        "Active vault already exists; refusing to replace vault key hash "
+                        "Active vault already exists; refusing non-idempotent wrapper replacement "
                         "without vault owner proof"
                     )
 

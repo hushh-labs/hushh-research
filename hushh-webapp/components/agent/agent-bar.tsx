@@ -1102,10 +1102,10 @@ export function AgentBar() {
       className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full transition-colors duration-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
     >
       <span
-        className={cn(
-          "relative z-10 block h-[18px] w-[18px] rounded-full shadow-sm ring-1 ring-border/50 transition-colors duration-200",
-          appAccent === "gold" ? "bg-[#d4af37]" : "bg-[#007AFF]"
-        )}
+        className="relative z-10 block h-[18px] w-[18px] rounded-full shadow-[inset_0_1px_3px_rgba(0,0,0,0.2)] border border-black/10 dark:border-white/10 transition-colors duration-200"
+        style={{
+          backgroundColor: appAccent === "gold" ? "#d4af37" : "#007AFF",
+        }}
       />
       <span
         aria-hidden

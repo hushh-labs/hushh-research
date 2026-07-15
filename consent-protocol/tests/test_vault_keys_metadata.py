@@ -1,5 +1,8 @@
+import threading
+
 import pytest
 
+from db.db_client import DatabaseExecutionError
 from hushh_mcp.services.vault_keys_service import VaultKeysService
 
 
@@ -25,15 +28,45 @@ class _FakeSQLConnection:
         sql = " ".join(str(statement).strip().split()).lower()
         db = self._supabase.db
 
-        if "select vault_status, vault_key_hash from vault_keys" in sql:
+        if "select vault_status, vault_key_hash" in sql and "from vault_keys" in sql:
             rows = [
                 {
                     "vault_status": row.get("vault_status"),
                     "vault_key_hash": row.get("vault_key_hash"),
+                    "primary_method": row.get("primary_method"),
+                    "primary_wrapper_id": row.get("primary_wrapper_id"),
+                    "recovery_encrypted_vault_key": row.get("recovery_encrypted_vault_key"),
+                    "recovery_salt": row.get("recovery_salt"),
+                    "recovery_iv": row.get("recovery_iv"),
                 }
                 for row in db["vault_keys"]
                 if row.get("user_id") == params["user_id"]
             ]
+            return _FakeSQLResult(rows=rows, rowcount=len(rows))
+
+        if (
+            "select method, wrapper_id, encrypted_vault_key, salt, iv" in sql
+            and "from vault_key_wrappers" in sql
+        ):
+            fields = (
+                "method",
+                "wrapper_id",
+                "encrypted_vault_key",
+                "salt",
+                "iv",
+                "passkey_credential_id",
+                "passkey_prf_salt",
+                "passkey_rp_id",
+                "passkey_provider",
+                "passkey_device_label",
+                "passkey_last_used_at",
+            )
+            rows = [
+                {field: row.get(field) for field in fields}
+                for row in db["vault_key_wrappers"]
+                if row.get("user_id") == params["user_id"]
+            ]
+            rows.sort(key=lambda row: (row.get("method") or "", row.get("wrapper_id") or ""))
             return _FakeSQLResult(rows=rows, rowcount=len(rows))
 
         if "select vault_key_hash, primary_method, primary_wrapper_id from vault_keys" in sql:
@@ -448,6 +481,44 @@ async def test_setup_vault_state_persists_passphrase_required_wrapper_set():
 
 
 @pytest.mark.asyncio
+async def test_setup_vault_state_offloads_blocking_transaction(monkeypatch):
+    service = VaultKeysService()
+    caller_thread_id = threading.get_ident()
+    worker_thread_id = None
+
+    def fake_setup_sync(**kwargs):
+        nonlocal worker_thread_id
+        worker_thread_id = threading.get_ident()
+        assert kwargs["user_id"] == "user-1"
+        return True
+
+    monkeypatch.setattr(service, "_setup_vault_state_sync", fake_setup_sync)
+
+    result = await service.setup_vault_state(
+        user_id="user-1",
+        vault_key_hash="vault-hash",
+        primary_method="passphrase",
+        recovery_encrypted_vault_key="recovery-enc",
+        recovery_salt="recovery-salt",
+        recovery_iv="recovery-iv",
+        primary_wrapper_id="default",
+        wrappers=[
+            {
+                "method": "passphrase",
+                "wrapperId": "default",
+                "encryptedVaultKey": "enc-pass",
+                "salt": "salt-pass",
+                "iv": "iv-pass",
+            }
+        ],
+    )
+
+    assert result is True
+    assert worker_thread_id is not None
+    assert worker_thread_id != caller_thread_id
+
+
+@pytest.mark.asyncio
 async def test_setup_vault_state_refuses_active_vault_key_hash_replacement():
     fake = _FakeSupabase()
     fake.db["vault_keys"].append(
@@ -508,6 +579,70 @@ async def test_setup_vault_state_refuses_active_vault_key_hash_replacement():
             "iv": "existing-iv-pass",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_setup_vault_state_accepts_exact_active_vault_replay():
+    fake = _FakeSupabase()
+    service = VaultKeysService()
+    service._supabase = fake
+    setup = {
+        "user_id": "user-1",
+        "vault_key_hash": "vault-hash",
+        "primary_method": "passphrase",
+        "recovery_encrypted_vault_key": "recovery-enc",
+        "recovery_salt": "recovery-salt",
+        "recovery_iv": "recovery-iv",
+        "primary_wrapper_id": "default",
+        "wrappers": [
+            {
+                "method": "passphrase",
+                "wrapperId": "default",
+                "encryptedVaultKey": "enc-pass",
+                "salt": "salt-pass",
+                "iv": "iv-pass",
+            }
+        ],
+    }
+
+    assert await service.setup_vault_state(**setup) is True
+    first_wrapper = dict(fake.db["vault_key_wrappers"][0])
+    assert await service.setup_vault_state(**setup) is True
+
+    assert fake.db["vault_key_wrappers"] == [first_wrapper]
+
+
+@pytest.mark.asyncio
+async def test_setup_vault_state_rejects_same_hash_wrapper_replacement():
+    fake = _FakeSupabase()
+    service = VaultKeysService()
+    service._supabase = fake
+    setup = {
+        "user_id": "user-1",
+        "vault_key_hash": "vault-hash",
+        "primary_method": "passphrase",
+        "recovery_encrypted_vault_key": "recovery-enc",
+        "recovery_salt": "recovery-salt",
+        "recovery_iv": "recovery-iv",
+        "primary_wrapper_id": "default",
+        "wrappers": [
+            {
+                "method": "passphrase",
+                "wrapperId": "default",
+                "encryptedVaultKey": "enc-pass",
+                "salt": "salt-pass",
+                "iv": "iv-pass",
+            }
+        ],
+    }
+    assert await service.setup_vault_state(**setup) is True
+
+    replacement = {**setup, "wrappers": [dict(setup["wrappers"][0])]}
+    replacement["wrappers"][0]["encryptedVaultKey"] = "different-enc-pass"
+    with pytest.raises(ValueError, match="non-idempotent wrapper replacement"):
+        await service.setup_vault_state(**replacement)
+
+    assert fake.db["vault_key_wrappers"][0]["encrypted_vault_key"] == "enc-pass"
 
 
 def test_ensure_actor_profile_repairs_existing_vault_user():
@@ -956,6 +1091,31 @@ async def test_ensure_user_entry_creates_placeholder_row():
     assert row["vault_status"] == "placeholder"
     assert row["vault_key_hash"] is None
     assert row["recovery_encrypted_vault_key"] is None
+
+
+@pytest.mark.asyncio
+async def test_ensure_user_entry_recovers_from_concurrent_placeholder_insert():
+    fake = _FakeSupabase()
+
+    class _ConcurrentInsertQuery(_FakeQuery):
+        def execute(self):
+            if self.table_name == "vault_keys" and self._op == "insert":
+                self.db["vault_keys"].append(dict(self._insert_data))
+                raise DatabaseExecutionError(
+                    table_name="vault_keys",
+                    operation="insert",
+                    details=('duplicate key value violates unique constraint "vault_keys_pkey"'),
+                )
+            return super().execute()
+
+    fake.table = lambda name: _ConcurrentInsertQuery(fake.db, name)
+    service = VaultKeysService()
+    service._supabase = fake
+
+    state = await service.ensure_user_entry("user-race")
+
+    assert state["vaultStatus"] == "placeholder"
+    assert len(fake.db["vault_keys"]) == 1
 
 
 def test_pre_vault_serialization_drops_retired_setup_capabilities():

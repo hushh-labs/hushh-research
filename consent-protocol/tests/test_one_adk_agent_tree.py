@@ -298,7 +298,7 @@ class TestSpecialistTurn:
             "delegateAgentId": "agent_location",
         }
         # Parked in state so the relay forwards it to the client.
-        assert state[STATE_PENDING_DIRECTIVE] == result["directive"]
+        assert state[f"{STATE_PENDING_DIRECTIVE}:agent_location_specialist"] == result["directive"]
 
     @pytest.mark.asyncio
     async def test_specialist_exception_is_contained(self):
@@ -322,7 +322,7 @@ class TestOpenScreen:
         result = await open_screen("profile", _tool_context(state))
         assert result["status"] == "ok"
         assert result["route"] == "/profile"
-        assert state[STATE_PENDING_DIRECTIVE] == {
+        assert state[f"{STATE_PENDING_DIRECTIVE}:profile"] == {
             "kind": "navigate",
             "payload": {"route": "/profile", "screen": "profile"},
         }
@@ -333,13 +333,20 @@ class TestOpenScreen:
         result = await open_screen("Connected Systems", _tool_context(state))
         assert result["status"] == "ok"
         assert result["route"] == APP_ROUTES["connected_systems"]
+        assert state[f"{STATE_PENDING_DIRECTIVE}:connected_systems"] == {
+            "kind": "navigate",
+            "payload": {
+                "route": APP_ROUTES["connected_systems"],
+                "screen": "connected_systems",
+            },
+        }
 
     @pytest.mark.asyncio
     async def test_refuses_unknown_screen(self):
         state: dict = {}
         result = await open_screen("admin_panel", _tool_context(state))
         assert result["status"] == "unknown_screen"
-        assert STATE_PENDING_DIRECTIVE not in state
+        assert not any(k.startswith(f"{STATE_PENDING_DIRECTIVE}:") for k in state)
         assert "valid_screens" in result
 
     @pytest.mark.asyncio
@@ -353,7 +360,7 @@ class TestOpenScreen:
         result = await open_screen("profile", _tool_context(state))
 
         assert result["status"] == "action_required"
-        assert STATE_PENDING_DIRECTIVE not in state
+        assert not any(k.startswith(f"{STATE_PENDING_DIRECTIVE}:") for k in state)
 
 
 class TestRunAppAction:
@@ -367,7 +374,7 @@ class TestRunAppAction:
         result = await run_app_action("totally.bogus.action", {}, _tool_context(state))
         assert result["status"] == "unknown_action"
         assert isinstance(result["suggestions"], list)
-        assert _STATE_PENDING_DIRECTIVE not in state
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
 
     @pytest.mark.asyncio
     async def test_specialist_owned_action_redirects_not_executes(self):
@@ -376,7 +383,7 @@ class TestRunAppAction:
         result = await run_app_action("email.chat.turn", {}, _tool_context(state))
         assert result["status"] == "delegated"
         assert result["use_tool"] == "ask_email_agent"
-        assert _STATE_PENDING_DIRECTIVE not in state
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
 
     @pytest.mark.asyncio
     async def test_kyc_manual_only_action_is_refused(self):
@@ -385,14 +392,14 @@ class TestRunAppAction:
         state: dict = {}
         result = await run_app_action("kyc.draft.approve_send", {}, _tool_context(state))
         assert result["status"] == "manual_only"
-        assert _STATE_PENDING_DIRECTIVE not in state
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
 
     @pytest.mark.asyncio
     async def test_kyc_confirm_required_parks_confirmation_directive(self):
         state: dict = {}
         result = await run_app_action("kyc.draft.reject", {}, _tool_context(state))
         assert result["status"] == "confirm_pending"
-        directive = state[_STATE_PENDING_DIRECTIVE]
+        directive = state[f"{_STATE_PENDING_DIRECTIVE}:kyc.draft.reject"]
         assert directive["kind"] == "action"
         assert directive["payload"]["needsConfirmation"] is True
 
@@ -406,7 +413,7 @@ class TestRunAppAction:
         }
         result = await run_app_action("auth.sign_in_apple", {}, _tool_context(state))
         assert result["status"] == "confirm_pending"
-        directive = state[_STATE_PENDING_DIRECTIVE]
+        directive = state[f"{_STATE_PENDING_DIRECTIVE}:auth.sign_in_apple"]
         assert directive["payload"] == {
             "actionId": "auth.sign_in_apple",
             "slots": {},
@@ -420,7 +427,7 @@ class TestRunAppAction:
         result = await run_app_action("analysis.start", {}, _tool_context(state))
         assert result["status"] == "input_needed"
         assert result["missing_slot"] == "symbol"
-        assert _STATE_PENDING_DIRECTIVE not in state
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
 
     @pytest.mark.asyncio
     async def test_live_context_refuses_action_not_declared_available(self):
@@ -431,7 +438,7 @@ class TestRunAppAction:
         }
         result = await run_app_action("analysis.start", {"symbol": "NVDA"}, _tool_context(state))
         assert result["status"] == "action_unavailable"
-        assert _STATE_PENDING_DIRECTIVE not in state
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
 
     @pytest.mark.asyncio
     async def test_navigation_action_executes_even_when_not_in_screen_inventory(self):
@@ -444,7 +451,10 @@ class TestRunAppAction:
         }
         result = await run_app_action("route.profile", {}, _tool_context(state))
         assert result["status"] == "ok"
-        assert state[_STATE_PENDING_DIRECTIVE]["payload"]["actionId"] == "route.profile"
+        assert (
+            state[f"{_STATE_PENDING_DIRECTIVE}:route.profile"]["payload"]["actionId"]
+            == "route.profile"
+        )
 
     @pytest.mark.asyncio
     async def test_pending_settlement_holds_the_next_action(self):
@@ -456,7 +466,7 @@ class TestRunAppAction:
         }
         result = await run_app_action("analysis.start", {"symbol": "NVDA"}, _tool_context(state))
         assert result["status"] == "settling"
-        assert _STATE_PENDING_DIRECTIVE not in state
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
 
     @pytest.mark.asyncio
     async def test_context_pending_marker_reports_recoverable_not_ready(self):
@@ -465,7 +475,7 @@ class TestRunAppAction:
         state = {"hussh:voice_context": {"context_pending": True}}
         result = await run_app_action("analysis.start", {"symbol": "NVDA"}, _tool_context(state))
         assert result["status"] == "context_not_ready"
-        assert _STATE_PENDING_DIRECTIVE not in state
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
 
     @pytest.mark.asyncio
     async def test_root_claim_is_available_only_on_the_public_intro_screen(self):
@@ -477,7 +487,10 @@ class TestRunAppAction:
         }
         result = await run_app_action("onboarding.claim_one", {}, _tool_context(state))
         assert result["status"] == "ok"
-        assert state[_STATE_PENDING_DIRECTIVE]["payload"]["actionId"] == "onboarding.claim_one"
+        assert (
+            state[f"{_STATE_PENDING_DIRECTIVE}:onboarding.claim_one"]["payload"]["actionId"]
+            == "onboarding.claim_one"
+        )
 
         state = {
             _STATE_SCREEN: "login",
@@ -487,14 +500,14 @@ class TestRunAppAction:
         }
         result = await run_app_action("onboarding.claim_one", {}, _tool_context(state))
         assert result["status"] == "wrong_screen"
-        assert _STATE_PENDING_DIRECTIVE not in state
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
 
     @pytest.mark.asyncio
     async def test_allow_direct_with_slots_parks_action_directive(self):
         state: dict = {}
         result = await run_app_action("analysis.start", {"symbol": "NVDA"}, _tool_context(state))
         assert result["status"] == "ok"
-        directive = state[_STATE_PENDING_DIRECTIVE]
+        directive = state[f"{_STATE_PENDING_DIRECTIVE}:analysis.start"]
         assert directive == {
             "kind": "action",
             "payload": {"actionId": "analysis.start", "slots": {"symbol": "NVDA"}},
@@ -505,7 +518,10 @@ class TestRunAppAction:
         state: dict = {}
         result = await run_app_action("route.consents", {}, _tool_context(state))
         assert result["status"] == "ok"
-        assert state[_STATE_PENDING_DIRECTIVE]["payload"]["actionId"] == "route.consents"
+        assert (
+            state[f"{_STATE_PENDING_DIRECTIVE}:route.consents"]["payload"]["actionId"]
+            == "route.consents"
+        )
 
 
 class TestListAppActions:
