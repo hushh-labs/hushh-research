@@ -1103,7 +1103,7 @@ export function AgentBar() {
     >
       <span
         className={cn(
-          "block h-[14px] w-[14px] rounded-full border border-black/10 dark:border-white/10",
+          "relative z-10 block h-4 w-4 rounded-full shadow-[inset_0_1px_3px_rgba(0,0,0,0.15)] ring-1 ring-border/50",
           appAccent === "gold" ? "bg-[#d4af37]" : "bg-[#007AFF]"
         )}
       />
@@ -1117,7 +1117,7 @@ export function AgentBar() {
   );
 
   // During onboarding, show the theme and accent toggles
-  const isOnboardingActive = onboardingGreeterMode || isOneSetupRoute(pathname || "");
+  const showToggles = onboardingGreeterMode || isOneSetupRoute(pathname || "");
   // Pill contents for the frosted bar, one JSX source across all modes so
   // the voice/theme controls and test ids never fork.
   const pillContents = conversationActive ? (
@@ -1170,7 +1170,7 @@ export function AgentBar() {
           </span>
         </span>
       </button>
-      {isOnboardingActive ? (
+      {showToggles ? (
         <div className="flex shrink-0 items-center gap-1">
           {accentToggleButton}
           {themeToggleButton}
@@ -1208,7 +1208,7 @@ export function AgentBar() {
         </span>
       </button>
       {/* Theme toggle, infused right-aligned, accent-toned like the mic. */}
-      {isOnboardingActive ? (
+      {showToggles ? (
         <div className="flex shrink-0 items-center gap-1">
           {accentToggleButton}
           {themeToggleButton}
@@ -1277,7 +1277,7 @@ export function AgentBar() {
       </button>
       {/* Theme toggle stays available on signed-in surfaces too, matching the
           pre-auth greeter row. */}
-      {isOnboardingActive ? (
+      {showToggles ? (
         <div className="flex shrink-0 items-center gap-1">
           {accentToggleButton}
           {themeToggleButton}
