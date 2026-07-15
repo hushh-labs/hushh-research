@@ -390,12 +390,12 @@ function FeatureAlert({
 // stops for that screen. The image is `object-cover` filling a flexible area, so
 // its own edges are cropped; these overlays fade the cropped top and bottom into
 // the exact screen colors above/below, giving one uniform seamless background.
-// The dark-mode screen background for every feature screen (matches the
-// `dark:from-[#14171d] dark:to-[#14171d]` gradient below). In dark mode the
-// light illustration edges must dissolve into THIS tone, not into the light
-// tones used for light mode — otherwise a light halo rings the artwork.
-const FEATURE_DARK_BG = "#14171d";
-
+//
+// LIGHT MODE ONLY. In light mode the art shares the screen's light backdrop, so
+// fading its edges into that tone gives one seamless full-bleed background. In
+// DARK mode we do NOT fade — the light artwork can't dissolve into a dark screen,
+// so instead the illustration is presented as a framed rounded card (see the
+// `dark:` classes on each illustration wrapper) and these fades are hidden.
 function IllustrationFade({
   topColor,
   bottomColor,
@@ -405,7 +405,6 @@ function IllustrationFade({
 }) {
   return (
     <>
-      {/* Light-mode fades: dissolve the cropped art edges into the light screen. */}
       <span
         className="pointer-events-none absolute inset-x-0 top-0 h-24 dark:hidden"
         style={{ backgroundImage: `linear-gradient(to bottom, ${topColor}, rgba(0,0,0,0))` }}
@@ -414,19 +413,25 @@ function IllustrationFade({
         className="pointer-events-none absolute inset-x-0 bottom-0 h-28 dark:hidden"
         style={{ backgroundImage: `linear-gradient(to top, ${bottomColor}, rgba(0,0,0,0))` }}
       />
-      {/* Dark-mode fades: dissolve the same edges into the dark screen tone so
-          the light artwork blends seamlessly instead of showing a light halo. */}
-      <span
-        className="pointer-events-none absolute inset-x-0 top-0 hidden h-24 dark:block"
-        style={{ backgroundImage: `linear-gradient(to bottom, ${FEATURE_DARK_BG}, rgba(20,23,29,0))` }}
-      />
-      <span
-        className="pointer-events-none absolute inset-x-0 bottom-0 hidden h-28 dark:block"
-        style={{ backgroundImage: `linear-gradient(to top, ${FEATURE_DARK_BG}, rgba(20,23,29,0))` }}
-      />
     </>
   );
 }
+
+// Illustration wrapper styling.
+// - Light mode: full-bleed, edge-to-edge (`-left-5 -right-5`) with no border, so
+//   the art dissolves seamlessly into the light screen via IllustrationFade.
+// - Dark mode: a bright light-background illustration looks broken on a dark
+//   screen, so we FRAME it as an intentional rounded media card — cancel the
+//   horizontal bleed, inset it slightly, round the corners, add a soft ring +
+//   shadow, and trim brightness a touch. The light art then reads as a
+//   deliberate illustration card floating on the dark screen.
+const ILLUSTRATION_WRAPPER_CLASS =
+  "absolute inset-0 -left-5 -right-5 overflow-hidden dark:inset-x-0 dark:top-2 dark:bottom-2 dark:rounded-[26px] dark:ring-1 dark:ring-white/10 dark:shadow-[0_18px_40px_rgba(0,0,0,0.42)]";
+
+// Slight brightness trim so the bright artwork sits comfortably on the dark
+// screen instead of glaring. Light mode is untouched.
+const ILLUSTRATION_IMAGE_CLASS =
+  "absolute inset-0 h-full w-full object-cover dark:brightness-[0.92]";
 
 
 // Each illustration fills the flexible area given to it by FeatureScreen
@@ -436,7 +441,7 @@ function IllustrationFade({
 function ArrivalIllustration({ person }: { person?: DirectoryPerson }) {
   return (
     <div
-      className="absolute inset-0 -left-5 -right-5 overflow-hidden"
+      className={ILLUSTRATION_WRAPPER_CLASS}
       data-testid="arrival-product-preview"
       aria-hidden="true"
     >
@@ -444,7 +449,7 @@ function ArrivalIllustration({ person }: { person?: DirectoryPerson }) {
       <img
         src="/one-location/onboarding/arrival-backpack.webp"
         alt=""
-        className="absolute inset-0 h-full w-full object-cover"
+        className={ILLUSTRATION_IMAGE_CLASS}
         style={{ objectPosition: "center 58%" }}
       />
       <IllustrationFade topColor="#f6f1f0" bottomColor="#eae7ef" />
@@ -462,7 +467,7 @@ function ArrivalIllustration({ person }: { person?: DirectoryPerson }) {
 function CheckinIllustration({ person }: { person?: DirectoryPerson }) {
   return (
     <div
-      className="absolute inset-0 -left-5 -right-5 overflow-hidden"
+      className={ILLUSTRATION_WRAPPER_CLASS}
       data-testid="checkin-product-preview"
       aria-hidden="true"
     >
@@ -470,7 +475,7 @@ function CheckinIllustration({ person }: { person?: DirectoryPerson }) {
       <img
         src="/one-location/onboarding/checkin-pin.webp"
         alt=""
-        className="absolute inset-0 h-full w-full object-cover"
+        className={ILLUSTRATION_IMAGE_CLASS}
         style={{ objectPosition: "center 58%" }}
       />
       <IllustrationFade topColor="#faf2eb" bottomColor="#f5ede9" />
@@ -488,7 +493,7 @@ function SosIllustration({ people }: { people: DirectoryPerson[] }) {
   const recipients = [people[0], people[1]];
   return (
     <div
-      className="absolute inset-0 -left-5 -right-5 overflow-hidden"
+      className={ILLUSTRATION_WRAPPER_CLASS}
       data-testid="sos-product-preview"
       aria-hidden="true"
     >
@@ -496,7 +501,7 @@ function SosIllustration({ people }: { people: DirectoryPerson[] }) {
       <img
         src="/one-location/onboarding/sos-shield.webp"
         alt=""
-        className="absolute inset-0 h-full w-full object-cover"
+        className={ILLUSTRATION_IMAGE_CLASS}
         style={{ objectPosition: "center 55%" }}
       />
       <IllustrationFade topColor="#f5efed" bottomColor="#eae6e8" />
