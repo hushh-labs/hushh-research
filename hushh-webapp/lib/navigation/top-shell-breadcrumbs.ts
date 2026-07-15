@@ -109,6 +109,24 @@ export function resolveTopShellBreadcrumb(
     };
   }
 
+  if (pathname.startsWith(`${ROUTES.BLOG}/`)) {
+    return {
+      backHref: ROUTES.BLOG,
+      width: "content",
+      align: "center",
+      items: [],
+    };
+  }
+
+  if (pathname.startsWith(`${ROUTES.RESEARCH}/`) && pathname !== ROUTES.RESEARCH_PROTOCOL) {
+    return {
+      backHref: ROUTES.RESEARCH,
+      width: "content",
+      align: "center",
+      items: [],
+    };
+  }
+
   if (pathname === ROUTES.KAI_ANALYSIS) {
     const debateId = String(searchParams?.get("debate_id") || "").trim();
     const focus = String(searchParams?.get("focus") || "").trim();

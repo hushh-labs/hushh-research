@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-14T23:14:54.481Z",
+  "generated_at": "2026-07-15T00:10:12.867Z",
   "device": "R5CWC0MV4YH",
   "flow_count": 14,
   "passed_flows": 0,
@@ -23,7 +23,7 @@
   ],
   "report": {
     "ok": false,
-    "startedAt": "2026-07-14T23:14:21.785Z",
+    "startedAt": "2026-07-15T00:09:41.623Z",
     "flows": [
       {
         "id": "shell-investor-kai-analysis",
@@ -51,7 +51,7 @@
             "step": 3,
             "type": "wait_beacon",
             "ok": false,
-            "error": "step timeout (wait_beacon) visible=Microphone access is blocked. Allow the mic for |Market|Portfolio|Analysis|Connect|Profile|Finance|Search bridge=enabled=1,navigate=1,switch=1,active=investor,primary=investor,persona_switch=,bootstrap=vault_error"
+            "error": "step timeout (wait_beacon) visible=Ask about this analysis|Market|Portfolio|Analysis|Connect|Profile|Finance|Search bridge=enabled=1,navigate=1,switch=1,active=investor,primary=investor,persona_switch=,bootstrap=vault_error"
           }
         ],
         "failedStep": {
@@ -62,8 +62,8 @@
         }
       }
     ],
-    "error": "step timeout (wait_beacon) visible=Microphone access is blocked. Allow the mic for |Market|Portfolio|Analysis|Connect|Profile|Finance|Search bridge=enabled=1,navigate=1,switch=1,active=investor,primary=investor,persona_switch=,bootstrap=vault_error",
-    "completedAt": "2026-07-14T23:14:53.449Z"
+    "error": "step timeout (wait_beacon) visible=Ask about this analysis|Market|Portfolio|Analysis|Connect|Profile|Finance|Search bridge=enabled=1,navigate=1,switch=1,active=investor,primary=investor,persona_switch=,bootstrap=vault_error",
+    "completedAt": "2026-07-15T00:10:12.543Z"
   },
   "error": null,
   "last_status": {
@@ -102,7 +102,6 @@
     "domauto": "true",
     "reviewer": "0",
     "bootstrap": "vault_error",
-    "bootstrap_uid": "<redacted>",
     "bootstrap_uid_ok": "1",
     "bootstrap_error": "Vault unlock returned no decrypted key",
     "jserr": "<redacted>",
@@ -114,7 +113,7 @@
     "ui_flow": "shell-investor-kai-analysis",
     "ui_step": "3",
     "ui_step_type": "wait_beacon",
-    "ui_error": "step timeout (wait_beacon) visible=Microphone access is blocked. Allow the mic for |Market|Portfolio|Analysis|Connect|Profile|Finance|Search bridge=enabled=1,navigate=1,switch=1,active=investor,primary=investor,persona_switch=,bootstrap=vault_error",
+    "ui_error": "step timeout (wait_beacon) visible=Ask about this analysis|Market|Portfolio|Analysis|Connect|Profile|Finance|Search bridge=enabled=1,navigate=1,switch=1,active=investor,primary=investor,persona_switch=,bootstrap=vault_error",
     "error": ""
   }
 }

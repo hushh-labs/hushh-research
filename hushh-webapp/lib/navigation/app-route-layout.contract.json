@@ -2888,8 +2888,8 @@
   },
   {
     "route": "/blog/[slug]",
-    "mode": "hidden",
-    "exemptionReason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
+    "mode": "standard",
+    "exemptionReason": "Standard mode to show the top app bar and breadcrumbs.",
     "voicePlaybook": {
       "playbookId": "route.blog.slug",
       "purpose": "Help the person understand and use the blog screen through its generated controls.",

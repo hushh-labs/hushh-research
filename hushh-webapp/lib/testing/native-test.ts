@@ -28,6 +28,14 @@ declare global {
       bootstrapState?: string;
       bootstrapUserId?: string;
       bootstrapError?: string;
+      vaultCryptoStage?: string;
+      vaultCryptoErrorName?: string;
+      vaultCryptoSubtleAvailable?: boolean;
+      vaultCryptoPassphraseMatchesConfig?: boolean;
+      vaultCryptoPassphraseUtf8Length?: number;
+      vaultCryptoSaltLength?: number;
+      vaultCryptoIvLength?: number;
+      vaultCryptoCiphertextLength?: number;
       activePersona?: string;
       primaryNavPersona?: string;
       personaSwitchStatus?: string;
