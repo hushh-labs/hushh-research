@@ -671,7 +671,12 @@ async def store_domain(
                 },
             )
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to store domain data"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "code": store_result.get("code") or "PKM_STORE_DOMAIN_FAILED",
+                "message": "Failed to store domain data",
+                "error": store_result.get("error"),
+            },
         )
 
     return StoreDomainResponse(

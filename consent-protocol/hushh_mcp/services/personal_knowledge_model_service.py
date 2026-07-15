@@ -3838,7 +3838,9 @@ class PersonalKnowledgeModelService:
             result["updated_at"] = resolved_updated_at
             return result if return_result else True
         except Exception as e:
-            logger.error("pkm.store_domain_data.error: %s", e)
+            logger.exception("pkm.store_domain_data.error: %s", e)
+            result["code"] = result.get("code") or "PKM_STORE_DOMAIN_ERROR"
+            result["error"] = f"{type(e).__name__}: {e}"
             return result if return_result else False
 
     async def get_encrypted_data(self, user_id: str) -> Optional[dict]:
