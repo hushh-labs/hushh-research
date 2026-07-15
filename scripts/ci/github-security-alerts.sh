@@ -18,9 +18,22 @@ if ! command -v gh >/dev/null 2>&1; then
   exit 0
 fi
 
-if ! gh auth status >/dev/null 2>&1; then
-  echo "GitHub security alert parity check unavailable: gh CLI not authenticated."
-  exit 0
+# 'gh auth status' relies on GraphQL which has proven flaky/rate-limited in Actions.
+# Use a simple REST API call to '/user' with a retry loop instead.
+check_gh_auth() {
+  local retries=3
+  while [ "$retries" -gt 0 ]; do
+    if gh api /user >/dev/null 2>&1; then
+      return 0
+    fi
+    retries=$((retries - 1))
+    [ "$retries" -gt 0 ] && sleep 2
+  done
+  return 1
+}
+
+if ! check_gh_auth; then
+  strict_fail "GitHub security alert parity check unavailable: gh CLI not authenticated."
 fi
 
 resolve_repo() {
