@@ -86,7 +86,8 @@ def test_ria_request_enforces_verification_policy(monkeypatch):
     )
 
     assert response.status_code == 403
-    assert "verification" in response.json()["detail"].lower()
+    assert response.json()["detail"] == "Request could not be completed"
+    assert "verification" not in response.json()["detail"].lower()
 
 
 def test_ria_clients_schema_not_ready_returns_503(monkeypatch):
@@ -540,6 +541,29 @@ def test_ria_client_picks_share_toggle(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["status"] == "revoked"
+
+
+def test_ria_workspace_policy_error_does_not_leak_exception_text(monkeypatch):
+    """GET /api/ria/workspace/{investor_user_id} must not echo RIAIAMPolicyError text (CWE-209)."""
+
+    async def _mock_require(self, user_id: str):
+        return
+
+    async def _mock_workspace(self, user_id: str, investor_user_id: str):
+        raise RIAIAMPolicyError(
+            "No approved relationship for investor workspace: ria_profile_id=ria-secret-42",
+            status_code=403,
+        )
+
+    monkeypatch.setattr(RIAIAMService, "require_ria_verified", _mock_require)
+    monkeypatch.setattr(RIAIAMService, "get_ria_workspace", _mock_workspace)
+
+    client = TestClient(_build_app())
+    response = client.get("/api/ria/workspace/investor_1")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Request could not be completed"
+    assert "ria-secret-42" not in response.text
 
 
 def test_ria_home_omits_pick_history_fields(monkeypatch):

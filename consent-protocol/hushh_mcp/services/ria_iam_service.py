@@ -4913,6 +4913,7 @@ class RIAIAMService:
                     ") active_upload ON TRUE",
                     "WHERE rel.investor_user_id = $1",
                     "  AND rel.ria_profile_id = $2",
+                    "  AND rel.status = 'approved'",
                     "ORDER BY rel.updated_at DESC",
                     "LIMIT 1",
                 ]
@@ -7715,6 +7716,7 @@ class RIAIAMService:
                     ") active_upload ON TRUE",
                     "WHERE rel.investor_user_id = $1",
                     "  AND rel.ria_profile_id = $2",
+                    "  AND rel.status = 'approved'",
                     "ORDER BY rel.updated_at DESC",
                     "LIMIT 1",
                 ]

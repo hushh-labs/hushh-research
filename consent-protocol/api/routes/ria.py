@@ -32,7 +32,7 @@ async def _require_ria_verified(
     except IAMSchemaNotReadyError as exc:
         raise HTTPException(status_code=503, detail="Verification service unavailable") from exc
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
     return firebase_uid
 
 
@@ -256,7 +256,7 @@ async def submit_onboarding(
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.post("/onboarding/verify-name")
@@ -273,7 +273,7 @@ async def verify_onboarding_name(
             use_cache=not payload.force_live_verification,
         )
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.post("/onboarding/verify-license")
@@ -294,7 +294,7 @@ async def verify_onboarding_license(
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.get("/onboarding/status")
@@ -334,7 +334,7 @@ async def refresh_profile_license(
                     "route": "/ria/onboarding",
                 },
             )
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.get("/home")
@@ -390,7 +390,7 @@ async def ria_client_detail(
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.get("/requests")
@@ -419,7 +419,7 @@ async def ria_request_scopes(firebase_uid: str = Depends(require_firebase_auth))
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.get("/invites")
@@ -450,7 +450,7 @@ async def create_ria_invites(
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.post("/marketplace/discoverability")
@@ -469,7 +469,7 @@ async def update_ria_marketplace_discoverability(
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.post("/requests")
@@ -494,7 +494,7 @@ async def create_ria_request(
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.post("/request-bundles")
@@ -516,7 +516,7 @@ async def create_ria_request_bundle(
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.get("/universe")
@@ -591,7 +591,7 @@ async def ria_pick_uploads(firebase_uid: str = Depends(require_firebase_auth)):
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.post("/picks/parse")
@@ -615,7 +615,7 @@ async def parse_ria_picks_csv(
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.post("/picks")
@@ -639,7 +639,7 @@ async def upload_ria_picks(
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.get("/workspace/{investor_user_id}")
@@ -653,7 +653,7 @@ async def ria_workspace(
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.post("/clients/{investor_user_id}/picks-share")
@@ -672,4 +672,4 @@ async def set_ria_client_picks_share(
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc

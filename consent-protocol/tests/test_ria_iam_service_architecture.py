@@ -1590,3 +1590,94 @@ def test_next_action_for_relationship_status():
     assert service._next_action_for_relationship_status("expired") == "re_request"
     assert service._next_action_for_relationship_status("blocked") == "resolve_block"
     assert service._next_action_for_relationship_status("unknown") == "request_access"
+
+
+class _RelationshipLookupConn:
+    """Fake conn that captures the relationship_query text and returns no row.
+
+    Simulates what a real Postgres connection does for a relationship that
+    exists but is not approved (pending, rejected, revoked): the WHERE clause
+    excludes it, so fetchrow returns None.
+    """
+
+    def __init__(self):
+        self.captured_queries: list[str] = []
+
+    async def fetchrow(self, query: str, *_args):
+        self.captured_queries.append(query)
+        return None
+
+    async def close(self):
+        return None
+
+
+def _patch_ria_workspace_lookup_helpers(monkeypatch, service):
+    async def _fake_schema_ready(_conn):
+        return None
+
+    async def _fake_ria_profile(_conn, _user_id):
+        return {"id": "ria-profile-1"}
+
+    async def _fake_identity_projection(_conn, *, user_id_sql, marketplace_alias="mp"):
+        return "investor_display_name", "LEFT JOIN x"
+
+    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+    monkeypatch.setattr(service, "_get_ria_profile_by_user", _fake_ria_profile)
+    monkeypatch.setattr(service, "_investor_identity_projection", _fake_identity_projection)
+
+
+@pytest.mark.asyncio
+async def test_get_ria_workspace_relationship_query_requires_approved_status(monkeypatch):
+    """get_ria_workspace must not return a workspace for a non-approved relationship.
+
+    hushh_mcp/services/ria_iam_service.py::get_ria_workspace looked up the
+    advisor_investor_relationships row by investor_user_id and ria_profile_id
+    only, with no status filter, unlike its sibling set_ria_pick_share_state
+    which explicitly checks status == "approved". Verify the relationship
+    query now carries the same status filter, and that a relationship lookup
+    returning no row (the real Postgres behavior once the filter excludes a
+    pending/rejected/revoked relationship) is rejected with 403.
+    """
+    service = RIAIAMService()
+    _patch_ria_workspace_lookup_helpers(monkeypatch, service)
+
+    fake_conn = _RelationshipLookupConn()
+
+    async def _fake_conn():
+        return fake_conn
+
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+
+    with pytest.raises(RIAIAMPolicyError) as exc_info:
+        await service.get_ria_workspace("user-1", "investor-1")
+
+    assert exc_info.value.status_code == 403
+    assert fake_conn.captured_queries, "relationship_query must be executed via conn.fetchrow"
+    relationship_query = fake_conn.captured_queries[0]
+    assert "rel.status = 'approved'" in relationship_query
+
+
+@pytest.mark.asyncio
+async def test_get_ria_client_detail_relationship_query_requires_approved_status(monkeypatch):
+    """get_ria_client_detail must not return client detail for a non-approved relationship.
+
+    Same gap as get_ria_workspace: the relationship lookup had no status
+    filter. Verify the fix is present in this sibling query too.
+    """
+    service = RIAIAMService()
+    _patch_ria_workspace_lookup_helpers(monkeypatch, service)
+
+    fake_conn = _RelationshipLookupConn()
+
+    async def _fake_conn():
+        return fake_conn
+
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+
+    with pytest.raises(RIAIAMPolicyError) as exc_info:
+        await service.get_ria_client_detail("user-1", "investor-1")
+
+    assert exc_info.value.status_code == 404
+    assert fake_conn.captured_queries, "relationship_query must be executed via conn.fetchrow"
+    relationship_query = fake_conn.captured_queries[0]
+    assert "rel.status = 'approved'" in relationship_query

@@ -47,7 +47,7 @@ async def get_invite(invite_token: str = Path(..., max_length=512)):
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.post("/{invite_token}/accept")
@@ -61,4 +61,4 @@ async def accept_invite(
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc

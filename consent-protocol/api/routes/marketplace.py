@@ -109,7 +109,7 @@ async def list_marketplace_investor_deck(
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.get("/investors/actions")
@@ -131,7 +131,7 @@ async def list_marketplace_investor_actions(
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.post("/investors/actions")
@@ -152,7 +152,7 @@ async def record_marketplace_investor_action(
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.post("/contacts/match")
@@ -171,7 +171,7 @@ async def match_marketplace_contacts(
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.get("/ria/{ria_id}")

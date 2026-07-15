@@ -63,7 +63,7 @@ async def switch_persona(
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail="Request could not be completed") from exc
 
 
 @router.post("/marketplace/opt-in")

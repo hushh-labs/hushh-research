@@ -87,7 +87,8 @@ def test_unverified_ria_blocked_on_clients(monkeypatch):
     client = TestClient(_build_app())
     response = client.get("/api/ria/clients")
     assert response.status_code == 403
-    assert "verification" in response.json()["detail"].lower()
+    assert response.json()["detail"] == "Request could not be completed"
+    assert "non-verified" not in response.json()["detail"].lower()
 
 
 def test_unverified_ria_blocked_on_client_detail(monkeypatch):
