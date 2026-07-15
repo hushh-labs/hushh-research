@@ -1,0 +1,51 @@
+{
+  "name": "hushh-desktop",
+  "version": "1.0.0",
+  "main": "electron/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:backend": "cd backend && uv run build-backend.py",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "keywords": [],
+  "author": "Hushh",
+  "description": "Hushh Desktop Application",
+  "dependencies": {
+    "wait-on": "^9.0.10"
+  },
+  "build": {
+    "appId": "com.hushh.desktop",
+    "productName": "Hushh Desktop",
+    "asar": false,
+    "directories": {
+      "output": "installer"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json",
+      "backend/dist/hushh-backend.exe",
+      "frontend/.env*",
+      "frontend/.next/standalone/**/*",
+      "backend/.env"
+    ],
+    "extraResources": [
+      {
+        "from": "ai-library/geniex",
+        "to": "geniex"
+      }
+    ],
+    "win": {
+      "target": "zip"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false
+    }
+  },
+  "devDependencies": {
+    "electron": "^42.5.1",
+    "electron-builder": "^26.15.3"
+  }
+}

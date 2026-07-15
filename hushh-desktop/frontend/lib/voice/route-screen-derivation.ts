@@ -1,0 +1,189 @@
+import { ROUTES } from "@/lib/navigation/routes";
+
+export type VoiceRouteScreenInfo = {
+  screen: string;
+  subview?: string | null;
+};
+
+function toSearchParams(searchParams?: URLSearchParams | string): URLSearchParams {
+  if (searchParams instanceof URLSearchParams) {
+    return new URLSearchParams(searchParams.toString());
+  }
+  if (typeof searchParams === "string") {
+    const normalized = searchParams.startsWith("?") ? searchParams.slice(1) : searchParams;
+    return new URLSearchParams(normalized);
+  }
+  return new URLSearchParams();
+}
+
+export function deriveVoiceRouteScreen(
+  pathname: string,
+  searchParams?: URLSearchParams | string
+): VoiceRouteScreenInfo {
+  const [normalizedPath, rawQuery = ""] = String(pathname || "").split("?");
+  const query = searchParams === undefined ? new URLSearchParams(rawQuery) : toSearchParams(searchParams);
+  if (!normalizedPath) {
+    return { screen: "unknown", subview: null };
+  }
+  if (
+    normalizedPath === ROUTES.KAI_HOME ||
+    normalizedPath === ROUTES.LEGACY_KAI_HOME ||
+    normalizedPath.startsWith("/kai/home")
+  ) {
+    return { screen: "kai_market", subview: query.get("tab") || null };
+  }
+  if (normalizedPath === ROUTES.KAI_INVESTMENTS || normalizedPath === ROUTES.LEGACY_KAI_INVESTMENTS) {
+    return { screen: "kai_investments", subview: null };
+  }
+  if (
+    normalizedPath === ROUTES.KAI_FUNDING_TRADE ||
+    normalizedPath === ROUTES.LEGACY_KAI_FUNDING_TRADE
+  ) {
+    return { screen: "kai_funding_trade", subview: null };
+  }
+  if (
+    normalizedPath.startsWith("/kai/dashboard") ||
+    normalizedPath.startsWith("/one/kai/dashboard") ||
+    normalizedPath.startsWith(ROUTES.KAI_PORTFOLIO) ||
+    normalizedPath.startsWith(ROUTES.LEGACY_KAI_PORTFOLIO)
+  ) {
+    const segments = normalizedPath.split("/").filter(Boolean);
+    const subview =
+      normalizedPath === ROUTES.KAI_PORTFOLIO ||
+      normalizedPath === ROUTES.LEGACY_KAI_PORTFOLIO
+        ? null
+        : query.get("tab") || segments.at(-1) || null;
+    return {
+      screen: "kai_portfolio_dashboard",
+      subview,
+    };
+  }
+  if (
+    normalizedPath.startsWith(ROUTES.KAI_ANALYSIS) ||
+    normalizedPath.startsWith(ROUTES.LEGACY_KAI_ANALYSIS)
+  ) {
+    return {
+      screen: "kai_analysis",
+      subview: query.get("tab") || (query.get("focus") === "active" ? "active" : null),
+    };
+  }
+  if (
+    normalizedPath.startsWith(ROUTES.KAI_IMPORT) ||
+    normalizedPath.startsWith(ROUTES.LEGACY_KAI_IMPORT)
+  ) {
+    return { screen: "import", subview: null };
+  }
+  if (
+    normalizedPath.startsWith(ROUTES.KAI_OPTIMIZE) ||
+    normalizedPath.startsWith(ROUTES.LEGACY_KAI_OPTIMIZE)
+  ) {
+    return { screen: "kai_optimize", subview: null };
+  }
+  if (normalizedPath === ROUTES.RIA_HOME) {
+    return { screen: "ria_home", subview: query.get("tab") || null };
+  }
+  if (normalizedPath === ROUTES.RIA_CLIENTS) {
+    return { screen: "ria_clients", subview: query.get("tab") || null };
+  }
+  if (normalizedPath.startsWith(`${ROUTES.RIA_CLIENTS}/`)) {
+    if (normalizedPath.includes("/accounts/")) {
+      return { screen: "ria_client_account_detail", subview: query.get("tab") || null };
+    }
+    if (normalizedPath.includes("/requests/")) {
+      return { screen: "ria_client_request_detail", subview: query.get("tab") || null };
+    }
+    return { screen: "ria_client_workspace", subview: query.get("tab") || "overview" };
+  }
+  if (normalizedPath.startsWith(ROUTES.RIA_WORKSPACE)) {
+    return { screen: "ria_workspace", subview: query.get("tab") || null };
+  }
+  if (normalizedPath.startsWith(ROUTES.RIA_REQUESTS)) {
+    return { screen: "ria_requests", subview: query.get("tab") || null };
+  }
+  if (normalizedPath.startsWith(ROUTES.RIA_PICKS)) {
+    return { screen: "ria_picks", subview: query.get("tab") || null };
+  }
+  if (normalizedPath.startsWith(ROUTES.RIA_SETTINGS)) {
+    return { screen: "ria_settings", subview: query.get("tab") || null };
+  }
+  if (normalizedPath.startsWith(ROUTES.CONSENTS)) {
+    return { screen: "consents", subview: query.get("tab") || null };
+  }
+  if (normalizedPath === ROUTES.ONE_KYC) {
+    return { screen: "one_kyc", subview: query.get("panel") || null };
+  }
+  if (normalizedPath === ROUTES.GMAIL || normalizedPath === ROUTES.LEGACY_GMAIL) {
+    return { screen: "gmail", subview: null };
+  }
+  if (normalizedPath === ROUTES.PKM || normalizedPath === ROUTES.LEGACY_PKM) {
+    return { screen: "pkm", subview: query.get("tab") || null };
+  }
+  if (
+    normalizedPath === ROUTES.CONNECTED_SYSTEMS ||
+    normalizedPath === ROUTES.LEGACY_CONNECTED_SYSTEMS
+  ) {
+    return { screen: "connected_systems", subview: query.get("tab") || null };
+  }
+  if (normalizedPath.startsWith(ROUTES.MARKETPLACE_RIA_PROFILE)) {
+    return {
+      screen: "marketplace_ria_profile",
+      subview: query.get("riaId") ? "profile" : null,
+    };
+  }
+  if (normalizedPath.startsWith(ROUTES.MARKETPLACE)) {
+    return { screen: "marketplace", subview: query.get("tab") || null };
+  }
+  if (normalizedPath === ROUTES.PROFILE_PKM) {
+    return {
+      screen: "pkm",
+      subview: query.get("tab") || "legacy",
+    };
+  }
+  if (normalizedPath === ROUTES.PROFILE_PKM_AGENT_LAB) {
+    return {
+      screen: "profile_pkm_agent_lab",
+      subview: query.get("tab"),
+    };
+  }
+  if (normalizedPath === ROUTES.PROFILE_RECEIPTS) {
+    return { screen: "gmail", subview: "legacy" };
+  }
+  if (normalizedPath === ROUTES.PROFILE) {
+    const panel = query.get("panel");
+    const tab = query.get("tab");
+    if (panel === "gmail") {
+      return { screen: "profile_gmail_panel", subview: tab || null };
+    }
+    if (panel === "connected-systems") {
+      return { screen: "connected_systems", subview: tab || "legacy" };
+    }
+    if (panel === "support") {
+      return { screen: "profile_support_panel", subview: tab || null };
+    }
+    if (panel === "security") {
+      return { screen: "profile_security_panel", subview: tab || null };
+    }
+    if (tab === "preferences") {
+      return { screen: "profile_preferences", subview: null };
+    }
+    if (tab === "privacy") {
+      return { screen: "profile_privacy", subview: panel || null };
+    }
+    return { screen: "profile_account", subview: panel || null };
+  }
+  if (normalizedPath.startsWith(ROUTES.PROFILE)) {
+    return { screen: "profile", subview: null };
+  }
+  if (normalizedPath.startsWith(ROUTES.KAI_HOME)) {
+    const subview = normalizedPath.slice(ROUTES.KAI_HOME.length).split("/").filter(Boolean)[0];
+    return { screen: "kai", subview: subview || null };
+  }
+  if (normalizedPath.startsWith(ROUTES.LEGACY_KAI_HOME)) {
+    const subview = normalizedPath
+      .slice(ROUTES.LEGACY_KAI_HOME.length)
+      .split("/")
+      .filter(Boolean)[0];
+    return { screen: "kai", subview: subview || null };
+  }
+  return { screen: "app", subview: null };
+}
