@@ -79,6 +79,10 @@ const ONBOARDING_IMAGE_SOURCES = [
   "/one-location/onboarding/arrival-backpack.webp",
   "/one-location/onboarding/checkin-pin.webp",
   "/one-location/onboarding/sos-shield.webp",
+  // Dark-mode background-removed cutouts (shown only in dark mode).
+  "/one-location/onboarding/arrival-backpack-cutout.webp",
+  "/one-location/onboarding/checkin-pin-cutout.webp",
+  "/one-location/onboarding/sos-shield-cutout.webp",
   "/one-location/onboarding/akshat.webp",
   "/one-location/onboarding/neelesh.webp",
   "/one-location/onboarding/ankit.webp",
@@ -417,21 +421,26 @@ function IllustrationFade({
   );
 }
 
-// Illustration wrapper styling.
-// - Light mode: full-bleed, edge-to-edge (`-left-5 -right-5`) with no border, so
-//   the art dissolves seamlessly into the light screen via IllustrationFade.
-// - Dark mode: a bright light-background illustration looks broken on a dark
-//   screen, so we FRAME it as an intentional rounded media card — cancel the
-//   horizontal bleed, inset it slightly, round the corners, add a soft ring +
-//   shadow, and trim brightness a touch. The light art then reads as a
-//   deliberate illustration card floating on the dark screen.
+// Illustration wrapper: full-bleed, edge-to-edge (`-left-5 -right-5`), no border.
+// Identical in light and dark; the light/dark difference lives in which image is
+// shown inside it (see below).
 const ILLUSTRATION_WRAPPER_CLASS =
-  "absolute inset-0 -left-5 -right-5 overflow-hidden dark:inset-x-0 dark:top-2 dark:bottom-2 dark:rounded-[26px] dark:ring-1 dark:ring-white/10 dark:shadow-[0_18px_40px_rgba(0,0,0,0.42)]";
+  "absolute inset-0 -left-5 -right-5 overflow-hidden";
 
-// Slight brightness trim so the bright artwork sits comfortably on the dark
-// screen instead of glaring. Light mode is untouched.
+// LIGHT MODE image: the original full-bleed artwork (light background baked in).
+// `object-cover` fills the frame and IllustrationFade dissolves its edges into
+// the light screen. Hidden in dark mode.
 const ILLUSTRATION_IMAGE_CLASS =
-  "absolute inset-0 h-full w-full object-cover dark:brightness-[0.92]";
+  "absolute inset-0 h-full w-full object-cover dark:hidden";
+
+// DARK MODE image: a background-removed cutout (transparent PNG/WebP, generated
+// by scripts/onboarding/make-onboarding-cutouts.py). The bright baked-in
+// background is gone, so only the character/icon shows — `object-contain` keeps
+// it centered and fully visible on the dark screen, with a little padding so it
+// never touches the edges. Hidden in light mode. This is the fix for the "bright
+// image block looks bad in dark mode" report; light mode is untouched.
+const ILLUSTRATION_CUTOUT_CLASS =
+  "absolute inset-0 hidden h-full w-full object-contain p-3 dark:block";
 
 
 // Each illustration fills the flexible area given to it by FeatureScreen
@@ -451,6 +460,12 @@ function ArrivalIllustration({ person }: { person?: DirectoryPerson }) {
         alt=""
         className={ILLUSTRATION_IMAGE_CLASS}
         style={{ objectPosition: "center 58%" }}
+      />
+      {/* eslint-disable-next-line @next/next/no-img-element -- Generated onboarding art must render in Capacitor static export. */}
+      <img
+        src="/one-location/onboarding/arrival-backpack-cutout.webp"
+        alt=""
+        className={ILLUSTRATION_CUTOUT_CLASS}
       />
       <IllustrationFade topColor="#f6f1f0" bottomColor="#eae7ef" />
       <FeatureAlert
@@ -478,6 +493,12 @@ function CheckinIllustration({ person }: { person?: DirectoryPerson }) {
         className={ILLUSTRATION_IMAGE_CLASS}
         style={{ objectPosition: "center 58%" }}
       />
+      {/* eslint-disable-next-line @next/next/no-img-element -- Generated onboarding art must render in Capacitor static export. */}
+      <img
+        src="/one-location/onboarding/checkin-pin-cutout.webp"
+        alt=""
+        className={ILLUSTRATION_CUTOUT_CLASS}
+      />
       <IllustrationFade topColor="#faf2eb" bottomColor="#f5ede9" />
       <FeatureAlert
         person={person}
@@ -503,6 +524,12 @@ function SosIllustration({ people }: { people: DirectoryPerson[] }) {
         alt=""
         className={ILLUSTRATION_IMAGE_CLASS}
         style={{ objectPosition: "center 55%" }}
+      />
+      {/* eslint-disable-next-line @next/next/no-img-element -- Generated onboarding art must render in Capacitor static export. */}
+      <img
+        src="/one-location/onboarding/sos-shield-cutout.webp"
+        alt=""
+        className={ILLUSTRATION_CUTOUT_CLASS}
       />
       <IllustrationFade topColor="#f5efed" bottomColor="#eae6e8" />
 
