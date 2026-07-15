@@ -932,8 +932,21 @@ export function AgentBar() {
   // must not ride a scroll-hide translation there.
   const isLoginRoute = (pathname ?? "").startsWith(ROUTES.LOGIN);
   const isFoundationPublic = isFoundationPublicRoute(pathname ?? "");
-  const useOnboardingChrome =
+  
+  // The visual styling of the bar (width, aurora, etc.) aligns with the chat
+  // workspace's concept of onboarding.
+  const visualOnboardingChrome =
     (runtime?.onboardingActive ?? chromeState.useOnboardingChrome) ||
+    isHomeRoute ||
+    isLoginRoute ||
+    isFoundationPublic;
+
+  // The physical navbar rendering strictly follows path and auth state. We use
+  // this strictly for positioning to avoid overlapping the navbar if the cloud
+  // state (runtime.onboardingActive) lags behind the local pathname.
+  const physicalNavbarAbsent =
+    !user ||
+    chromeState.useOnboardingChrome ||
     isHomeRoute ||
     isLoginRoute ||
     isFoundationPublic;
@@ -948,7 +961,7 @@ export function AgentBar() {
   // state without pulling scroll frames through the voice tree.
   useKaiBottomChromeElementTranslation(
     agentBarShellRef,
-    !useOnboardingChrome && !isRiaChrome,
+    !physicalNavbarAbsent && !isRiaChrome,
   );
 
   const hint = useMemo(() => resolveAgentBarHint(pathname), [pathname]);
@@ -1012,7 +1025,7 @@ export function AgentBar() {
     if (conversationActive || liveClientRef.current || erroredRef.current)
       return;
     autoGreetedRef.current = true;
-    startConversation();
+    // startConversation(); // Disabled per user request (no auto-voice/listening)
     // Intentionally excludes startConversation/conversationActive from deps:
     // this must fire exactly once per onboarding mount, not re-run whenever
     // those identities change (they change on every voice status transition).
@@ -1099,10 +1112,16 @@ export function AgentBar() {
       onClick={() => writeAccent(appAccent === "blue" ? "gold" : "blue")}
       aria-label="Toggle accent color"
       title="Toggle accent color"
-      className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full transition-colors duration-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
+      className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full transition-colors duration-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
     >
       <span
-        className="relative z-10 block h-[18px] w-[18px] rounded-full shadow-[inset_0_1px_3px_rgba(0,0,0,0.2)] border border-black/10 dark:border-white/10 transition-colors duration-200 bg-[color:var(--app-accent)]"
+        style={{
+          backgroundColor:
+            appAccent === "gold"
+              ? "var(--foundation-gold-dark, #C3A354)"
+              : "var(--app-accent, #007aff)",
+        }}
+        className="relative z-10 block h-[18px] w-[18px] rounded-full shadow-[inset_0_1px_3px_rgba(0,0,0,0.2)] border border-black/10 dark:border-white/10 transition-colors duration-200"
       />
       <span
         aria-hidden
@@ -1296,7 +1315,7 @@ export function AgentBar() {
           // --app-bottom-inset includes the measured nav, safe area, and lift.
           // The motion hook above translates this fixed sibling imperatively;
           // it does not re-render the voice tree as the page scrolls.
-          bottom: useOnboardingChrome
+          bottom: physicalNavbarAbsent
             ? "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)"
             : "calc(var(--app-bottom-inset) + 0.5rem)",
         } as CSSProperties
@@ -1353,7 +1372,7 @@ export function AgentBar() {
           // page content instead of hugging the pill.
           "pointer-events-auto relative z-0 flex w-full items-center gap-2",
           // Onboarding: sit within the content card width; elsewhere wider.
-          useOnboardingChrome
+          visualOnboardingChrome
             ? "max-w-[min(calc(100vw-3rem),392px)]"
             : "max-w-[min(calc(100vw-2rem),34rem)]",
           "h-12 rounded-full pl-3 pr-1.5",
@@ -1384,7 +1403,7 @@ export function AgentBar() {
             aria-hidden
             className={cn(
               "one-bar-aurora -z-10 transition-opacity duration-500",
-              useOnboardingChrome
+              visualOnboardingChrome
                 ? "one-bar-aurora--onboarding"
                 : "one-bar-aurora--active",
             )}
