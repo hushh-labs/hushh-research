@@ -87,6 +87,7 @@ async def read_resource(uri: str) -> str:
             "prepare_campaign_context",
             "list_scopes",
             "discover_user_domains",
+            "search_user_scopes",
             "request_consent",
             "check_consent_status",
             "get_encrypted_scoped_export",
@@ -111,6 +112,11 @@ async def read_resource(uri: str) -> str:
                     "when_to_use": "First step for a specific One user",
                 },
                 {
+                    "name": "search_user_scopes",
+                    "purpose": "Deterministically ranked, least-privilege-first lookup over a user's scopes",
+                    "when_to_use": "When you have an intent (e.g. 'portfolio') and want the narrowest matching scope without scanning the full discovery list",
+                },
+                {
                     "name": "check_consent_status",
                     "purpose": "Check active grant or request state",
                     "when_to_use": "Before request_consent for reuse; after request_consent for bounded polling",
@@ -133,7 +139,7 @@ async def read_resource(uri: str) -> str:
             ],
             "recommended_flow": [
                 "Campaign/customer-experience agents should call prepare_campaign_context first; it performs the steps below and returns selected_scope, request_id, duration, status, and encrypted-export readiness.",
-                "1. discover_user_domains(user_id) to get the exact scope strings for this One user",
+                "1. discover_user_domains(user_id) to get the exact scope strings for this One user (or search_user_scopes(user_id, query) to rank them by intent)",
                 "2. choose the least-privilege discovered scope for the stated purpose",
                 "3. check_consent_status(user_id, scope) to reuse existing approval before creating a request",
                 "4. request_consent(user_id, scope, connector_public_key, connector_key_id, connector_wrapping_alg, expiry_hours, approval_timeout_minutes) only when status is not_found or requires_reconsent",

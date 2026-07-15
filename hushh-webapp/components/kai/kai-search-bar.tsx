@@ -9,6 +9,7 @@ import {
   useState,
   type MouseEvent,
 } from "react";
+import { Capacitor } from "@capacitor/core";
 import { Search } from "lucide-react";
 
 import {
@@ -841,9 +842,13 @@ export function KaiSearchBar({
         const result = await navigator.permissions.query({
           name: "microphone" as PermissionName,
         });
-        permissionStatus = result.state;
-        setMicPermissionStatus(result.state);
-        if (result.state === "denied") {
+        const nativePermissionNeedsCaptureProbe =
+          Capacitor.isNativePlatform() && result.state === "denied";
+        permissionStatus = nativePermissionNeedsCaptureProbe
+          ? "unknown"
+          : result.state;
+        setMicPermissionStatus(permissionStatus);
+        if (result.state === "denied" && !nativePermissionNeedsCaptureProbe) {
           setVoiceError(
             "Microphone permission denied",
             "Microphone permission denied",

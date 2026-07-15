@@ -7,11 +7,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OnboardingJourneyGuard } from "@/components/onboarding/onboarding-journey-guard";
 
-const { replace, bootstrapStateMock, getCachedBootstrapStateMock } = vi.hoisted(
+const {
+  replace,
+  bootstrapStateMock,
+  getCachedBootstrapStateMock,
+  isPersistentSetupResolvedMock,
+} = vi.hoisted(
   () => ({
     replace: vi.fn(),
     bootstrapStateMock: vi.fn(),
     getCachedBootstrapStateMock: vi.fn(),
+    isPersistentSetupResolvedMock: vi.fn(),
   }),
 );
 
@@ -56,6 +62,12 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   },
 }));
 
+vi.mock("@/lib/services/one-setup-completion-hint-service", () => ({
+  OneSetupCompletionHintService: {
+    isResolved: isPersistentSetupResolvedMock,
+  },
+}));
+
 const WEBAPP_ROOT = path.resolve(__dirname, "../..");
 
 function read(relativePath: string) {
@@ -76,6 +88,8 @@ describe("OnboardingJourneyGuard", () => {
     replace.mockReset();
     bootstrapStateMock.mockReset();
     getCachedBootstrapStateMock.mockReset();
+    isPersistentSetupResolvedMock.mockReset();
+    isPersistentSetupResolvedMock.mockReturnValue(false);
     pathnameValue = "/one/setup";
     window.history.replaceState(null, "", "/one/setup");
   });
@@ -92,6 +106,23 @@ describe("OnboardingJourneyGuard", () => {
     await waitFor(() => {
       expect(screen.getByText("setup hub")).toBeTruthy();
     });
+    expect(screen.queryByText("Checking setup...")).toBeNull();
+    expect(bootstrapStateMock).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("admits a returning user synchronously from the positive setup latch", async () => {
+    pathnameValue = "/one";
+    getCachedBootstrapStateMock.mockReturnValue(null);
+    isPersistentSetupResolvedMock.mockReturnValue(true);
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>one home</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    expect(screen.getByText("one home")).toBeTruthy();
     expect(screen.queryByText("Checking setup...")).toBeNull();
     expect(bootstrapStateMock).not.toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
@@ -156,12 +187,12 @@ describe("OnboardingJourneyGuard", () => {
     expect(replace).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps a hard setup fallback when App Router navigation does not commit", () => {
+  it("keeps setup recovery inside the App Router", () => {
     const source = read("components/onboarding/onboarding-journey-guard.tsx");
 
-    expect(source).toContain("SETUP_REDIRECT_WATCHDOG_MS");
+    expect(source).toContain("SETUP_REDIRECT_RETRY_MS");
+    expect(source).toContain("SETUP_REDIRECT_FAILURE_MS");
     expect(source).toContain("router.replace(redirectTarget)");
-    expect(source).toContain("window.location.pathname !== ROUTES.ONE_SETUP");
-    expect(source).toContain("window.location.assign(redirectTarget)");
+    expect(source).not.toContain("window.location.assign(redirectTarget)");
   });
 });

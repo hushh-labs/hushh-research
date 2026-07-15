@@ -30,6 +30,7 @@ from .ria_read_tools import (
 from .utility_tools import (
     handle_discover_user_domains,
     handle_list_scopes,
+    handle_search_user_scopes,
     handle_validate_token,
 )
 
@@ -45,6 +46,7 @@ __all__ = [
     "handle_validate_token",
     "handle_list_scopes",
     "handle_discover_user_domains",
+    "handle_search_user_scopes",
     # RIA / Marketplace
     "handle_list_ria_profiles",
     "handle_get_ria_profile",

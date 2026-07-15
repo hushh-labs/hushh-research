@@ -194,13 +194,17 @@ The events are metadata-only. They are for UX and reliability decisions; they ar
 ### Setup Journey Admission
 
 The authenticated setup journey uses the redacted pre-vault bootstrap record
-as a session resource. The initial cold entry may wait for that record. Once
-it is present, route changes reuse it synchronously and setup tiles prefetch
-their static target on intent; they must not show a full-page loader or force a
-new bootstrap request on every navigation. Durable settlement, callback
-recovery, explicit retry, and cache invalidation remain the only paths that
-refresh the record authoritatively. Decrypted vault material, OAuth artifacts,
-and OTPs are never part of this cache.
+as a session resource plus a user-scoped, positive-only persistent completion
+hint. The first unresolved entry may wait for the authoritative record. Once
+setup completes, returning sessions may admit synchronously from that one-bit
+hint while route changes reuse the full in-memory record. An authoritative
+incomplete response, sign-out, account deletion, or fixture reset clears the
+hint. Setup tiles prefetch their static target on intent; they must not show a
+full-page loader or force a new bootstrap request on every navigation. Durable
+settlement, callback recovery, explicit retry, and cache invalidation remain
+the only paths that refresh the mutable journey record authoritatively.
+Decrypted vault material, vault-owner tokens, OAuth artifacts, and OTPs are
+never part of either cache.
 
 Load-time admission follows one ordered path: resolve the client host first,
 then use the cached bootstrap record, then join its non-forced single-flight

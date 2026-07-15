@@ -177,7 +177,7 @@ export default function PublicLocationRequestPageClient() {
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-xs font-semibold uppercase tracking-[0.22em] text-[color:var(--app-accent)]">
-                Onepoint
+                Location
               </div>
               <h1 className="mt-2 text-[28px] font-medium leading-[1.12] tracking-normal sm:text-[32px]">
                 View shared location

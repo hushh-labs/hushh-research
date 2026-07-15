@@ -51,12 +51,14 @@ interface PortfolioImportViewProps {
   onFileSelect: (file: File) => void;
   onSkip: () => void;
   onPreloadSchema?: () => void;
-  onConnectPlaid?: () => void;
+  onConnectPlaid?: (environment?: string | null) => void;
   isUploading?: boolean;
   isPreloadingSchema?: boolean;
   isConnectingPlaid?: boolean;
   plaidConfigured?: boolean;
   plaidConnectedInstitutionCount?: number;
+  /** Local-dev-only: offer a second button to connect real production accounts alongside sandbox test accounts. */
+  plaidLocalDualEnvironmentEnabled?: boolean;
 }
 
 // =============================================================================
@@ -73,6 +75,7 @@ export function PortfolioImportView({
   isConnectingPlaid = false,
   plaidConfigured = true,
   plaidConnectedInstitutionCount = 0,
+  plaidLocalDualEnvironmentEnabled = false,
 }: PortfolioImportViewProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -151,11 +154,11 @@ export function PortfolioImportView({
     onPreloadSchema();
   }, [onPreloadSchema, isPreloadingSchema, isUploading]);
 
-  const handleConnectPlaid = useCallback(() => {
+  const handleConnectPlaid = useCallback((environment?: string | null) => {
     if (!onConnectPlaid || isUploading || isPreloadingSchema || isConnectingPlaid || plaidConfigured === false) {
       return;
     }
-    onConnectPlaid();
+    onConnectPlaid(environment);
   }, [
     isConnectingPlaid,
     isPreloadingSchema,
@@ -218,7 +221,7 @@ export function PortfolioImportView({
             size="default"
             className="type-headline h-11 w-full rounded-full border-none shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
             disabled={!onConnectPlaid || isUploading || isPreloadingSchema || isConnectingPlaid || plaidConfigured === false}
-            onClick={handleConnectPlaid}
+            onClick={() => handleConnectPlaid(plaidLocalDualEnvironmentEnabled ? "sandbox" : undefined)}
             icon={{
               icon: isConnectingPlaid ? Loader2 : Link2,
               gradient: false,
@@ -228,10 +231,28 @@ export function PortfolioImportView({
               ? "Plaid unavailable"
               : isConnectingPlaid
                 ? "Opening Plaid..."
-                : plaidConnectedInstitutionCount > 0
-                  ? "Connect Another Brokerage"
-                  : "Connect Brokerage With Plaid"}
+                : plaidLocalDualEnvironmentEnabled
+                  ? "Connect Test Brokerage (Sandbox)"
+                  : plaidConnectedInstitutionCount > 0
+                    ? "Connect Another Brokerage"
+                    : "Connect Brokerage With Plaid"}
           </MorphyButton>
+          {plaidLocalDualEnvironmentEnabled ? (
+            <MorphyButton
+              variant="metallic"
+              effect="fill"
+              size="default"
+              className="type-headline h-11 w-full rounded-full"
+              disabled={!onConnectPlaid || isUploading || isPreloadingSchema || isConnectingPlaid || plaidConfigured === false}
+              onClick={() => handleConnectPlaid("production")}
+              icon={{
+                icon: isConnectingPlaid ? Loader2 : Link2,
+                gradient: false,
+              }}
+            >
+              {isConnectingPlaid ? "Opening Plaid..." : "Connect Real Brokerage (Production)"}
+            </MorphyButton>
+          ) : null}
           <p className={cn(kaiAppHelperClassName, "text-muted-foreground")}>
             Plaid data stays read-only in Kai. Statements remain your editable source.
           </p>

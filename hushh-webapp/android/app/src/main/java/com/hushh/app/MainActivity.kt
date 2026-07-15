@@ -181,7 +181,20 @@ class MainActivity : BridgeActivity() {
                   if (window.top !== window) return;
                   var config = $payload;
                   var bridge = window.__HUSHH_NATIVE_TEST__ || {};
-                  var uiFlowsOwnRouting = bridge.runUiFlows === true && bridge._uiFlowsStarted === true;
+                  var persistedUiFlowsOwnRouting = false;
+                  try {
+                    var persistedUiFlowState = JSON.parse(
+                      window.sessionStorage.getItem("__hushh_native_ui_flow_state_v1") || "null"
+                    );
+                    persistedUiFlowsOwnRouting = !!(
+                      persistedUiFlowState &&
+                      persistedUiFlowState.started === true &&
+                      persistedUiFlowState.complete !== true
+                    );
+                  } catch (_) {}
+                  var uiFlowsOwnRouting =
+                    (bridge.runUiFlows === true || config.runUiFlows === true) &&
+                    (bridge._uiFlowsStarted === true || persistedUiFlowsOwnRouting);
                   bridge.enabled = config.enabled === true;
                   bridge.autoReviewerLogin = config.autoReviewerLogin === true;
                   bridge.vaultPassphrase = config.vaultPassphrase || "";
@@ -365,7 +378,10 @@ class MainActivity : BridgeActivity() {
                       bridge._vaultTimer = window.setInterval(function() {
                         try {
                           if (typeof bridge.triggerVaultUnlock === "function") {
-                            bridge.triggerVaultUnlock();
+                            if (!bridge._vaultUnlockTriggerSubmitted) {
+                              bridge._vaultUnlockTriggerSubmitted = true;
+                              bridge.triggerVaultUnlock();
+                            }
                             return;
                           }
                           var buttons = Array.prototype.slice.call(document.querySelectorAll("button"));
@@ -383,22 +399,43 @@ class MainActivity : BridgeActivity() {
                             }
                             return;
                           }
+                          if (bridge._vaultUnlockValueSet) {
+                            return;
+                          }
                           var prototype = window.HTMLInputElement && window.HTMLInputElement.prototype;
                           var descriptor = prototype ? Object.getOwnPropertyDescriptor(prototype, "value") : null;
-                          if (descriptor && typeof descriptor.set === "function") {
-                            descriptor.set.call(passphraseInput, bridge.vaultPassphrase);
-                          } else {
-                            passphraseInput.value = bridge.vaultPassphrase;
-                          }
-                          passphraseInput.dispatchEvent(new Event("input", { bubbles: true }));
-                          passphraseInput.dispatchEvent(new Event("change", { bubbles: true }));
-                          var unlockButton = buttons.find(function(button) {
-                            var text = (button.textContent || "").trim().toLowerCase();
-                            return text === "unlock with passphrase";
-                          });
-                          if (unlockButton && !unlockButton.disabled) {
-                            unlockButton.click();
-                          }
+                          var setInputValue = function(value) {
+                            if (descriptor && typeof descriptor.set === "function") {
+                              descriptor.set.call(passphraseInput, value);
+                            } else {
+                              passphraseInput.value = value;
+                            }
+                            passphraseInput.dispatchEvent(new Event("input", { bubbles: true }));
+                            passphraseInput.dispatchEvent(new Event("change", { bubbles: true }));
+                          };
+                          setInputValue("");
+                          setInputValue(bridge.vaultPassphrase);
+                          bridge._vaultUnlockValueSet = true;
+                          var submitDeadline = Date.now() + 3000;
+                          var submitWhenReady = function() {
+                            if (bridge._vaultUnlockButtonClicked) {
+                              return;
+                            }
+                            var currentButtons = Array.prototype.slice.call(document.querySelectorAll("button"));
+                            var unlockButton = currentButtons.find(function(button) {
+                              var text = (button.textContent || "").trim().toLowerCase();
+                              return text === "unlock with passphrase";
+                            });
+                            if (unlockButton && !unlockButton.disabled) {
+                              bridge._vaultUnlockButtonClicked = true;
+                              unlockButton.click();
+                              return;
+                            }
+                            if (Date.now() < submitDeadline) {
+                              window.setTimeout(submitWhenReady, 100);
+                            }
+                          };
+                          submitWhenReady();
                         } catch (_) {}
                       }, 500);
                     }
@@ -610,7 +647,7 @@ class MainActivity : BridgeActivity() {
                 "domauto=${sanitizeStatusValue(payload.optString("domAutoReviewerLogin", ""))}",
                 "reviewer=${if (payload.optBoolean("reviewerButtonFound", false)) "1" else "0"}",
                 "bootstrap=${sanitizeStatusValue(payload.optString("bootstrapState", ""))}",
-                "bootstrap_uid=${sanitizeStatusValue(payload.optString("bootstrapUserId", ""))}",
+                "bootstrap_uid_ok=${if (expectedUserId.isNotBlank() && payload.optString("bootstrapUserId", "") == expectedUserId) "1" else "0"}",
                 "bootstrap_error=${sanitizeStatusValue(payload.optString("bootstrapError", ""))}",
                 "jserr=${sanitizeStatusValue(payload.optString("jsError", ""))}",
                 "jsrej=${sanitizeStatusValue(payload.optString("jsRejection", ""))}",

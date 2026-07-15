@@ -336,6 +336,28 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
                 }
 
                 normalized["wrappers"] = wrappers
+                let rawPassphraseWrapper = wrappersArray.first { raw in
+                    ((raw["method"] as? String) ?? "passphrase") == "passphrase"
+                }
+                let normalizedPassphraseWrapper = wrappers.first { raw in
+                    (raw["method"] as? String) == "passphrase"
+                }
+                let rawEncryptedVaultKey =
+                    (rawPassphraseWrapper?["encryptedVaultKey"] as? String) ??
+                    (rawPassphraseWrapper?["encrypted_vault_key"] as? String) ?? ""
+                let parity = NativeTestDiagnostics.VaultBridgeParity(
+                    wrapperCount: wrappers.count == wrappersArray.count,
+                    encryptedVaultKey: !rawEncryptedVaultKey.isEmpty &&
+                        rawEncryptedVaultKey == (normalizedPassphraseWrapper?["encryptedVaultKey"] as? String),
+                    salt: !(rawPassphraseWrapper?["salt"] as? String ?? "").isEmpty &&
+                        (rawPassphraseWrapper?["salt"] as? String) == (normalizedPassphraseWrapper?["salt"] as? String),
+                    iv: !(rawPassphraseWrapper?["iv"] as? String ?? "").isEmpty &&
+                        (rawPassphraseWrapper?["iv"] as? String) == (normalizedPassphraseWrapper?["iv"] as? String)
+                )
+                NativeTestDiagnostics.recordVaultBridgeParity(parity)
+                print(
+                    "[\(self.TAG)] getVault structural parity: wrappers=\(parity.wrapperCount) encrypted=\(parity.encryptedVaultKey) salt=\(parity.salt) iv=\(parity.iv)"
+                )
                 let methods = wrappers.compactMap { ($0["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
                 print("[\(self.TAG)] getVault wrappers count: \(wrappers.count), methods: \(methods)")
                 call.resolve(normalized)

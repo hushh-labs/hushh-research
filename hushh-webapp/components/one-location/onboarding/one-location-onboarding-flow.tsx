@@ -672,7 +672,7 @@ function PeopleScreen({
         <p className="mt-3 text-[17px] leading-6 text-[#73777f] dark:text-[#b5bfcc]">
           Invite the people you want to keep connected with.
         </p>
-        <h2 className="mt-9 text-[13px] font-bold capitalize text-[#96999e] dark:text-[#8d99a8]">
+        <h2 className="mt-9 text-[13px] font-bold uppercase text-[#96999e] dark:text-[#8d99a8]">
           Contacts
         </h2>
 
@@ -1155,12 +1155,14 @@ export function OneLocationOnboardingFlow({
             <div className="flex min-h-0 flex-1 flex-col">
               <div className="shrink-0 pt-6 text-center sm:pt-10">
                 <p className="inline-flex items-center gap-2 text-[19px] font-bold">
-                  <LocateFixed className="h-6 w-6" /> One Location
+                  <LocateFixed className="h-6 w-6" /> Location
                 </p>
-
                 <h1 className="mx-auto mt-6 max-w-[390px] text-[clamp(30px,4.6dvh,38px)] font-bold leading-[1.08]">
                   The people you love.<br />Always in reach.
                 </h1>
+                <p className="mx-auto mt-4 max-w-[370px] text-[clamp(16px,2dvh,18px)] leading-7 text-white/82">
+                  Private by default. Nothing is shared until you approve it.
+                </p>
               </div>
               <div className="flex min-h-0 flex-1 items-center justify-center py-2">
                 <WelcomeRadar people={people} />

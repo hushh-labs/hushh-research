@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback } from "react";
 import { HushhWordmark } from "@/components/app-ui/hushh-wordmark";
 import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
@@ -154,6 +155,12 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
             <span className="inline-flex items-center gap-2">
               Claim your One
               <span aria-hidden>&rarr;</span>
+            </span>
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+            >
+              <MaterialRipple variant="gradient" effect="fill" />
             </span>
           </button>
 

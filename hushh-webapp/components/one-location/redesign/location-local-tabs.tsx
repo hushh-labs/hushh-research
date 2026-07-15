@@ -50,7 +50,7 @@ export function LocationLocalTabs({
       onValueChange={(next) => onChange(next as LocationHubTab)}
       options={options}
       className={cn(
-        // Onepoint: accent active pill (accent-tinted fill + accent text),
+        // Location: accent active pill (accent-tinted fill + accent text),
         // scoped to the location tabs by overriding the shared segmented-tab
         // CSS vars here — the app-wide primitive stays untouched. Follows the
         // active accent preference (iOS Blue default, Molten Gold opt-in).

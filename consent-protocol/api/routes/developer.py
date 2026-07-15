@@ -32,6 +32,7 @@ from api.developer_auth import (
     try_authenticate_developer_principal,
 )
 from api.middleware import require_firebase_auth
+from api.middlewares.rate_limit import RateLimits, limiter
 from api.utils.firebase_admin import get_firebase_auth_app
 from hushh_mcp.consent.export_envelope import (
     connector_key_fingerprint,
@@ -139,6 +140,17 @@ class DeveloperUserScopesResponse(BaseModel):
     scope_entries: list[dict] = Field(default_factory=list)
     scopes_are_dynamic: bool = True
     source: str = "pkm_index + pkm_manifests.top_level_scope_paths + pkm_scope_registry"
+    app_id: str | None = Field(default=None, max_length=128)
+    app_display_name: str | None = Field(default=None, max_length=200)
+
+
+class DeveloperScopeSearchResponse(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=128)
+    query: str | None = Field(default=None, max_length=200)
+    domain: str | None = Field(default=None, max_length=128)
+    matches: list[dict] = Field(default_factory=list)
+    available_domains: list[str] = Field(default_factory=list)
+    scopes_are_dynamic: bool = True
     app_id: str | None = Field(default=None, max_length=128)
     app_display_name: str | None = Field(default=None, max_length=200)
 
@@ -405,6 +417,12 @@ def _validate_public_approval_timeout_minutes(approval_timeout_minutes: int) -> 
 
 
 def _validate_connector_wrapping_alg(connector_wrapping_alg: str) -> str:
+    # Crypto-agility seam: today exactly one wrapping algorithm is accepted. To
+    # scale 1 -> N, promote _CONNECTOR_WRAPPING_ALG to an allow-list set and check
+    # membership here, and mirror the values in the request_consent tool schema
+    # enum. The algorithm is ALWAYS validated server-side against this allow-list;
+    # it is deterministic connector configuration and must never be inferred by a
+    # model (JWT alg:none downgrade class of risk).
     normalized = str(connector_wrapping_alg or "").strip()
     if normalized == _CONNECTOR_WRAPPING_ALG:
         return normalized
@@ -1084,6 +1102,53 @@ async def get_user_scopes(
     )
 
 
+@developer_api_router.get(
+    "/user-scopes/{user_id}/search", response_model=DeveloperScopeSearchResponse
+)
+@limiter.limit(RateLimits.SEARCH_SCOPES)
+async def search_user_scopes(
+    user_id: str,
+    request: Request,
+    query: str | None = Query(default=None, max_length=200),
+    domain: str | None = Query(default=None, max_length=128),
+    limit: int = Query(default=20, ge=1, le=50),
+    token: Optional[str] = Query(None, max_length=2048),
+    authorization: Optional[str] = Header(None),
+):
+    """Deterministically ranked lookup over a user's discoverable scopes.
+
+    Graceful by contract: an unknown domain or no-match returns an empty match
+    list plus the user's available domains, never an error status.
+    """
+    from hushh_mcp.consent.scope_generator import rank_scope_matches
+
+    principal = _resolve_principal(
+        request=request,
+        token=token,
+        authorization=authorization,
+    )
+
+    available_domains, _scopes, scope_entries = await _get_user_scope_snapshot(
+        user_id,
+        detail="verbose",
+    )
+    matches = rank_scope_matches(
+        scope_entries,
+        query=str(query or ""),
+        domain=str(domain or ""),
+        limit=limit,
+    )
+    return DeveloperScopeSearchResponse(
+        user_id=user_id,
+        query=query,
+        domain=domain,
+        matches=matches,
+        available_domains=available_domains,
+        app_id=principal.app_id,
+        app_display_name=principal.display_name,
+    )
+
+
 @developer_api_router.get("/consent-status", response_model=DeveloperConsentStatusResponse)
 async def get_consent_status(
     request: Request,
@@ -1269,6 +1334,7 @@ async def stream_consent_events(
 
 
 @developer_api_router.post("/request-consent")
+@limiter.limit(RateLimits.CONSENT_REQUEST)
 async def request_consent(
     payload: DeveloperConsentRequest,
     request: Request,

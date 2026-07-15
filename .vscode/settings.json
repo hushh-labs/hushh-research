@@ -1,4 +1,35 @@
 {
     "CodeGPT.apiKey": "LM Studio",
-    "git.ignoreLimitWarning": true
+    "git.ignoreLimitWarning": true,
+    "search.exclude": {
+        "**/node_modules": true,
+        "**/.next": true,
+        "**/.next-prod": true,
+        "hushh-webapp/ios/DerivedData": true,
+        "hushh-webapp/ios/App/build": true,
+        "hushh-webapp/ios/build": true,
+        "hushh-webapp/android/build": true,
+        "hushh-webapp/android/app/build": true,
+        "hushh-webapp/out": true,
+        "**/temp": true,
+        "**/tmp": true,
+        "**/*.tsbuildinfo": true
+    },
+    "files.watcherExclude": {
+        "**/node_modules/**": true,
+        "**/.next/**": true,
+        "**/.next-prod/**": true,
+        "hushh-webapp/ios/DerivedData/**": true,
+        "hushh-webapp/ios/App/build/**": true,
+        "hushh-webapp/ios/build/**": true,
+        "hushh-webapp/android/build/**": true,
+        "hushh-webapp/android/app/build/**": true,
+        "hushh-webapp/out/**": true,
+        "**/temp/**": true,
+        "**/tmp/**": true
+    },
+    "files.exclude": {
+        "hushh-webapp/ios/DerivedData": true,
+        "hushh-webapp/ios/App/build": true
+    }
 }

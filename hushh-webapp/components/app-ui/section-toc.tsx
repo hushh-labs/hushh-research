@@ -128,14 +128,16 @@ export function SectionTocMobileFab({
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <div
-        className="fixed right-4 z-[160] md:hidden"
-        style={{ bottom: "calc(max(var(--app-safe-area-bottom-effective), 0.75rem) + 1rem)" }}
+        className="fixed right-4 z-[160] md:hidden transition-all duration-300"
+        style={{ 
+          bottom: "calc(max(var(--app-safe-area-bottom-effective), 0.75rem) + var(--app-scroll-bottom-pad, 0px) + 0.5rem)" 
+        }}
       >
         <MorphyButton
           variant="blue-gradient"
           effect="fill"
           size="sm"
-          className="rounded-full px-4"
+          className="rounded-full px-4 shadow-[0_8px_30px_rgb(0,0,0,0.12)]"
           onClick={() => onOpenChange(true)}
         >
           <Menu className="size-4" />
@@ -147,7 +149,7 @@ export function SectionTocMobileFab({
           <DrawerTitle>{drawerTitle}</DrawerTitle>
           <DrawerDescription>{drawerDescription}</DrawerDescription>
         </DrawerHeader>
-        <ScrollArea className="max-h-[56vh] px-4 py-4">
+        <div className="max-h-[56vh] overflow-y-auto overscroll-contain px-4 py-4">
           <SettingsGroup embedded className="space-y-0">
             <SectionTocRows
               entries={entries}
@@ -157,7 +159,7 @@ export function SectionTocMobileFab({
               }}
             />
           </SettingsGroup>
-        </ScrollArea>
+        </div>
       </DrawerContent>
     </Drawer>
   );

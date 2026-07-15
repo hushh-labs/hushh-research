@@ -44,6 +44,7 @@ TOOL_GROUP_TOOL_NAMES = {
     TOOL_GROUP_CORE_CONSENT: (
         "prepare_campaign_context",
         "discover_user_domains",
+        "search_user_scopes",
         "request_consent",
         "check_consent_status",
         "get_encrypted_scoped_export",
@@ -84,6 +85,12 @@ TOOL_CATALOG = (
         "group": TOOL_GROUP_CORE_CONSENT,
         "compatibility_status": "recommended",
         "description": "Discover the dynamic scopes available for a specific user.",
+    },
+    {
+        "name": "search_user_scopes",
+        "group": TOOL_GROUP_CORE_CONSENT,
+        "compatibility_status": "recommended",
+        "description": "Deterministically ranked, least-privilege-first lookup over a user's discoverable scopes.",
     },
     {
         "name": "request_consent",

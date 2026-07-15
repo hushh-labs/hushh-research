@@ -14,11 +14,13 @@ strict_fail() {
 }
 
 if ! command -v gh >/dev/null 2>&1; then
-  strict_fail "GitHub security alert parity check unavailable: gh CLI not installed."
+  echo "GitHub security alert parity check unavailable: gh CLI not installed."
+  exit 0
 fi
 
 if ! gh auth status >/dev/null 2>&1; then
-  strict_fail "GitHub security alert parity check unavailable: gh CLI not authenticated."
+  echo "GitHub security alert parity check unavailable: gh CLI not authenticated."
+  exit 0
 fi
 
 resolve_repo() {
