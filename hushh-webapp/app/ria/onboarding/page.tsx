@@ -25,6 +25,7 @@ import {
   normalizeInternalRouteHref,
   ROUTES,
 } from "@/lib/navigation/routes";
+import { buildProfileRoute } from "@/lib/navigation/profile-routes";
 import {
   buildRiaOnboardingSteps,
   canContinueRiaOnboardingStep,
@@ -403,7 +404,7 @@ export default function RiaOnboardingPage({
     onboardingEntryHandledRef.current = true;
     if (hasEditIntent) return;
     if (riaCapability === "switch") {
-      router.replace(ROUTES.RIA_PROFILE);
+      router.replace(buildProfileRoute({ panel: "regulatory" }));
     }
   }, [hasEditIntent, personaLoading, personaRefreshing, riaCapability, router]);
 
@@ -884,7 +885,7 @@ export default function RiaOnboardingPage({
             router.replace(ROUTES.ONE_SETUP_RIA);
           }
         } else {
-          router.replace(ROUTES.RIA_PROFILE);
+          router.replace(buildProfileRoute({ panel: "regulatory" }));
         }
       }
     } catch (submitError) {
