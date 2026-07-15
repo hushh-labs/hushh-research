@@ -1,0 +1,269 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "ria_onboarding",
+  "surface_title": "RIA Professional Onboarding",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "ria"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.ria_onboarding",
+      "label": "Open RIA Onboarding",
+      "meaning": "Navigates to the professional onboarding route for advisor verification.",
+      "aliases": [
+        "open ria onboarding",
+        "finish advisor setup",
+        "open advisor verification"
+      ],
+      "search_keywords": [
+        "ria onboarding",
+        "advisor verification",
+        "professional setup"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/onboarding"
+        ],
+        "screens": [
+          "ria_onboarding"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA workspace must be available or in setup for this account."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": true
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/onboarding"
+      },
+      "control_ids": [
+        "ria_onboarding_route"
+      ],
+      "state_exposure": [
+        "current onboarding step",
+        "advisor verification state"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/ria/onboarding/page.tsx"
+      ],
+      "workflow": {
+        "workflow_id": "route.ria_onboarding.entry",
+        "confirmation_required": true,
+        "blocked_guidance": "Sign in and unlock RIA setup before starting advisor onboarding.",
+        "steps": [
+          {
+            "type": "persona_switch",
+            "target_persona": "ria",
+            "confirmation_required": true,
+            "settlement_target": {
+              "persona": "ria"
+            },
+            "failure_behavior": "stop"
+          },
+          {
+            "type": "route_switch",
+            "href": "/ria/onboarding",
+            "settlement_target": {
+              "route": "/ria/onboarding",
+              "screen": "ria_onboarding"
+            },
+            "failure_behavior": "stop"
+          }
+        ]
+      },
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "ria.onboarding.verify_name",
+      "label": "Verify Advisor Name",
+      "meaning": "Represents the advisor-name verification button. The actual verification call stays manual because it uses the current form value.",
+      "aliases": [
+        "verify my advisor name",
+        "run ria name verification",
+        "check the crd record"
+      ],
+      "search_keywords": [
+        "verify",
+        "advisor name",
+        "crd",
+        "finra",
+        "sec"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/onboarding"
+        ],
+        "screens": [
+          "ria_onboarding",
+          "ria_onboarding_display_name"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Advisor display name must be entered.",
+          "No verification request may already be running."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Advisor name verification depends on current form state and must be triggered from the visible onboarding control.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_onboarding_verify_name",
+        "ria_onboarding_retry_verification"
+      ],
+      "state_exposure": [
+        "advisor display name",
+        "verification provider result summary"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/ria/onboarding/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.onboarding.submit_verification",
+      "label": "Submit RIA Verification",
+      "meaning": "Represents the final onboarding submission. Voice can explain it, but the user must submit from the review screen.",
+      "aliases": [
+        "submit ria verification",
+        "submit advisor onboarding",
+        "send my advisor profile for review"
+      ],
+      "search_keywords": [
+        "submit",
+        "verification",
+        "advisor profile",
+        "marketplace discoverability"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/onboarding"
+        ],
+        "screens": [
+          "ria_onboarding",
+          "ria_onboarding_review"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Current onboarding step must be review.",
+          "Required onboarding fields must pass the local flow guard.",
+          "Advisor name verification must be satisfied for live submission."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "RIA verification submission changes persona/profile state and must remain user-triggered on the review screen.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_onboarding_submit_verification",
+        "ria_onboarding_continue_review"
+      ],
+      "state_exposure": [
+        "requested capabilities",
+        "verified identity summary",
+        "public profile headline and strategy summary"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/ria/onboarding/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.onboarding.dev_bypass_verification",
+      "label": "Bypass RIA Verification In Dev",
+      "meaning": "Represents the development or UAT-only RIA activation bypass. It is always manual-only for voice.",
+      "aliases": [
+        "bypass ria verification",
+        "activate ria in dev",
+        "use the uat advisor bypass"
+      ],
+      "search_keywords": [
+        "dev bypass",
+        "uat bypass",
+        "advisor activation"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/onboarding"
+        ],
+        "screens": [
+          "ria_onboarding",
+          "ria_onboarding_display_name",
+          "ria_onboarding_review"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Development RIA bypass must be allowlisted.",
+          "Advisor display name must be entered."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Development-only RIA activation must be clicked intentionally in the onboarding UI.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_onboarding_dev_bypass",
+        "ria_onboarding_dev_uat_bypass"
+      ],
+      "state_exposure": [
+        "advisor onboarding draft",
+        "dev bypass allowlist state"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/ria/onboarding/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    }
+  ]
+}

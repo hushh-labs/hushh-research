@@ -1,0 +1,133 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "ria_client_account_detail",
+  "surface_title": "RIA Client Account Detail",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "ria"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.ria_client_account_detail",
+      "label": "Open RIA Client Account Detail",
+      "meaning": "Navigates to the advisor-facing detail route for a selected client account branch.",
+      "aliases": [
+        "open account detail",
+        "show client account detail",
+        "open advisor account route"
+      ],
+      "search_keywords": [
+        "account detail",
+        "client account",
+        "branch summary"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]/accounts/[accountId]"
+        ],
+        "screens": [
+          "ria_client_account_detail"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Client identifier and account identifier must be known.",
+          "Account branch must be visible to the RIA workspace."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_approved",
+        "account_branch_visible_to_ria"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Opening a specific account detail requires a dynamic account id selected from the workspace.",
+        "intended_handler": "router.push"
+      },
+      "control_ids": [
+        "ria_client_account_detail_route"
+      ],
+      "state_exposure": [
+        "selected client identifier",
+        "selected account branch identifier"
+      ],
+      "docs_references": [
+        "hushh-webapp/components/ria/ria-client-account-detail.tsx",
+        "hushh-webapp/lib/navigation/routes.ts"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.client_account.open_workspace_fallback",
+      "label": "Return To Client Data Explorer",
+      "meaning": "Navigates from an unavailable account detail route back to the client workspace explorer tab.",
+      "aliases": [
+        "return to client workspace",
+        "open workspace from account detail",
+        "go back to client data"
+      ],
+      "search_keywords": [
+        "fallback",
+        "workspace",
+        "explorer",
+        "account unavailable"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients/[userId]/accounts/[accountId]"
+        ],
+        "screens": [
+          "ria_client_account_detail",
+          "ria_client_account_unavailable"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Client identifier must be known."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "ria_onboarding_complete",
+        "client_relationship_checked"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/clients/[userId]?tab=explorer",
+        "params": {
+          "requires_client_id": true,
+          "tab": "explorer"
+        }
+      },
+      "control_ids": [
+        "ria_client_account_open_workspace_fallback"
+      ],
+      "state_exposure": [
+        "current client identifier"
+      ],
+      "docs_references": [
+        "hushh-webapp/components/ria/ria-client-account-detail.tsx"
+      ],
+      "speaker_persona": "kai"
+    }
+  ]
+}

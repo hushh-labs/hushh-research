@@ -1,0 +1,294 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "marketplace_ria_profile",
+  "surface_title": "Marketplace RIA Profile",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "investor",
+        "ria"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.marketplace_ria_profile",
+      "label": "Open Marketplace RIA Profile",
+      "meaning": "Navigates to a public marketplace RIA profile route.",
+      "aliases": [
+        "open ria marketplace profile",
+        "show advisor profile",
+        "open this advisor"
+      ],
+      "search_keywords": [
+        "marketplace",
+        "ria profile",
+        "advisor profile"
+      ],
+      "reachability": {
+        "routes": [
+          "/marketplace/ria",
+          "/marketplace/ria?riaId=[riaId]"
+        ],
+        "screens": [
+          "marketplace_ria_profile"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "RIA profile identifier should be known for a full profile view."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "marketplace_profile_public_metadata_only"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/marketplace/ria",
+        "params": {
+          "optional_ria_id": true
+        }
+      },
+      "control_ids": [
+        "marketplace_ria_profile_route"
+      ],
+      "state_exposure": [
+        "public RIA profile metadata"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/marketplace/ria/page-client.tsx",
+        "hushh-webapp/lib/navigation/routes.ts"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "marketplace.ria.request_advisory",
+      "label": "Request Advisory Access",
+      "meaning": "Creates an investor-to-RIA advisory consent request for the current marketplace profile.",
+      "aliases": [
+        "request advisory",
+        "ask this advisor for access",
+        "send advisory request"
+      ],
+      "search_keywords": [
+        "request advisory",
+        "consent request",
+        "advisor connection"
+      ],
+      "reachability": {
+        "routes": [
+          "/marketplace/ria"
+        ],
+        "screens": [
+          "marketplace_ria_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed-in investor persona must be active.",
+          "RIA profile must be loaded.",
+          "RIA profile must have a connectable verification status."
+        ],
+        "active_personas": [
+          "investor"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "active_persona_investor",
+        "marketplace_ria_profile_loaded",
+        "marketplace_ria_connectable",
+        "explicit_user_confirmation"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Creating an investor-to-RIA consent request must stay user-triggered on the marketplace profile.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "marketplace_ria_request_advisory"
+      ],
+      "state_exposure": [
+        "selected RIA user identifier",
+        "scope template investor_advisor_disclosure_v1",
+        "request duration"
+      ],
+      "expected_effects": {
+        "state_changes": [
+          "advisory consent request is created",
+          "route moves to pending marketplace connections"
+        ],
+        "backend_effects": [
+          {
+            "api": "ConsentCenterService.createRequest",
+            "effect": "Creates an investor-to-RIA consent request using investor_advisor_disclosure_v1."
+          }
+        ]
+      },
+      "docs_references": [
+        "hushh-webapp/app/marketplace/ria/page-client.tsx"
+      ],
+      "speaker_persona": "nav"
+    },
+    {
+      "action_id": "marketplace.ria.manage_profile",
+      "label": "Manage RIA Profile",
+      "meaning": "Navigates an active RIA persona from their public marketplace profile back to profile management.",
+      "aliases": [
+        "manage my ria profile",
+        "edit advisor profile",
+        "open ria settings"
+      ],
+      "search_keywords": [
+        "manage profile",
+        "ria settings",
+        "advisor profile"
+      ],
+      "reachability": {
+        "routes": [
+          "/marketplace/ria",
+          "/ria/settings"
+        ],
+        "screens": [
+          "marketplace_ria_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Active persona must be RIA."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "active_persona_ria",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/settings"
+      },
+      "control_ids": [
+        "marketplace_ria_manage_profile"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/app/marketplace/ria/page-client.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "route.marketplace_browse_from_ria_profile",
+      "label": "Continue Browsing Marketplace",
+      "meaning": "Returns from the marketplace RIA profile to the marketplace browsing surface.",
+      "aliases": [
+        "continue browsing",
+        "back to marketplace",
+        "open marketplace"
+      ],
+      "search_keywords": [
+        "marketplace",
+        "browse",
+        "back"
+      ],
+      "reachability": {
+        "routes": [
+          "/marketplace/ria",
+          "/marketplace"
+        ],
+        "screens": [
+          "marketplace_ria_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/marketplace"
+      },
+      "control_ids": [
+        "marketplace_ria_continue_browsing",
+        "marketplace_ria_back_to_marketplace"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/app/marketplace/ria/page-client.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "marketplace.ria.open_public_disclosure",
+      "label": "Open Public Disclosure",
+      "meaning": "Opens the external public disclosure URL attached to the marketplace RIA profile.",
+      "aliases": [
+        "open public disclosure",
+        "show advisor disclosure",
+        "open disclosure link"
+      ],
+      "search_keywords": [
+        "disclosure",
+        "external link",
+        "public filing"
+      ],
+      "reachability": {
+        "routes": [
+          "/marketplace/ria"
+        ],
+        "screens": [
+          "marketplace_ria_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Profile must expose a public disclosures URL."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "marketplace_public_disclosure_url_present",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "External disclosure URLs are dynamic profile state and should be opened manually.",
+        "intended_handler": "router.push"
+      },
+      "control_ids": [
+        "marketplace_ria_public_disclosure"
+      ],
+      "state_exposure": [
+        "external public disclosure URL"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/marketplace/ria/page-client.tsx"
+      ],
+      "speaker_persona": "one"
+    }
+  ]
+}
