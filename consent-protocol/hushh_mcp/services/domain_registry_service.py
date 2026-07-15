@@ -16,7 +16,7 @@ Attach points:
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from db.db_client import get_db
@@ -75,7 +75,7 @@ class DomainRegistryService:
         """Check if cache is still valid."""
         if self._cache_time is None:
             return False
-        elapsed = (datetime.utcnow() - self._cache_time).total_seconds()
+        elapsed = (datetime.now(timezone.utc) - self._cache_time).total_seconds()
         return elapsed < self._cache_ttl
 
     def _invalidate_cache(self):
@@ -347,7 +347,7 @@ class DomainRegistryService:
                     user_count=rpc_payload.get("user_count", 0),
                 )
                 self._cache[domain_key] = domain_info
-                self._cache_time = datetime.utcnow()
+                self._cache_time = datetime.now(timezone.utc)
                 return domain_info
         except Exception as e:
             logger.warning(
@@ -381,7 +381,7 @@ class DomainRegistryService:
                 row = result.data[0]
                 domain_info = self._row_to_domain_info(row)
                 self._cache[domain_key] = domain_info
-                self._cache_time = datetime.utcnow()
+                self._cache_time = datetime.now(timezone.utc)
                 return domain_info
         except Exception as e:
             logger.error("domain_registry.auto_register.error domain=%s: %s", domain_key, e)
@@ -440,7 +440,7 @@ class DomainRegistryService:
             # Update cache
             for domain in domains:
                 self._cache[domain.domain_key] = domain
-            self._cache_time = datetime.utcnow()
+            self._cache_time = datetime.now(timezone.utc)
 
             return domains
         except Exception as e:
