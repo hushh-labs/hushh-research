@@ -39,4 +39,18 @@ describe("OnboardingStepLicense", () => {
     expect(screen.getByRole("button", { name: "Verify licence" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Bypass for dev/UAT" })).toBeNull();
   });
+
+  it("covers no registration fallback", () => {
+    render(
+      <OnboardingStepLicense
+        licenseNumber="999999"
+        onLicenseNumberChange={vi.fn()}
+        verificationStatus="not_found"
+        onVerify={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("No matching registration found.")).toBeTruthy();
+    expect(screen.getByText("Try a different licence number.")).toBeTruthy();
+  });
 });
