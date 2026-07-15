@@ -855,7 +855,7 @@ async def validate_vault_owner_token(consent_token: str, user_id: str) -> None:
         logger.warning(f"Token userId mismatch: {token_obj.user_id} != {user_id}")
         raise HTTPException(status_code=403, detail="Token userId does not match requested userId")
 
-    logger.info(f"✅ VAULT_OWNER token validated for {user_id}")
+    logger.info("vault_owner.token_validated")
 
 
 @router.post("/vault/status")

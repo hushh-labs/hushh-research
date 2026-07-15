@@ -1,14 +1,17 @@
+import dynamic from "next/dynamic";
 import { redirect } from "next/navigation";
 
-import { resolveDeveloperRuntime } from "@/lib/developers/runtime";
 import { ROUTES } from "@/lib/navigation/routes";
 
-import PkmAgentLabPageClient from "./page-client";
+const LocalPkmAgentLabPage =
+  process.env.NODE_ENV === "development"
+    ? dynamic(() => import("./local-page-client"))
+    : null;
 
 export default function PkmAgentLabPage() {
-  if (resolveDeveloperRuntime().environment !== "local") {
+  if (!LocalPkmAgentLabPage) {
     redirect(ROUTES.PKM);
   }
 
-  return <PkmAgentLabPageClient />;
+  return <LocalPkmAgentLabPage />;
 }

@@ -29,10 +29,7 @@ import { VaultService } from "@/lib/services/vault-service";
 import { VaultUnlockDialog } from "./vault-unlock-dialog";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
-import {
-  isSessionUnlockedOnce,
-  markSessionUnlocked,
-} from "@/lib/vault/vault-session-latch";
+import { isSessionUnlockedOnce } from "@/lib/vault/vault-session-latch";
 import {
   hasIncompleteNativeUiFlowSession,
   isNativeTestVaultBootstrapManaged,
@@ -65,10 +62,6 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   const skipGeneratedDefaultUnlock =
     preferPassphraseUnlockForAutomation(nativeTestConfig);
 
-  // Latch: once unlocked, remember for the rest of this JS session
-  if (isVaultUnlocked && !isSessionUnlockedOnce()) {
-    markSessionUnlocked();
-  }
   const { user, loading: authLoading, signOut } = useAuth();
   const userId = user?.uid ?? null;
   const { beginTask, completeTaskStep, endTask } = useStepProgress();
@@ -216,7 +209,22 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   // session, render children immediately. The latch prevents the dialog from
   // flashing during route transitions where React state briefly resets.
   // ============================================================================
-  if (isVaultUnlocked || isSessionUnlockedOnce()) {
+  const bootstrapState =
+    typeof window !== "undefined"
+      ? window.__HUSHH_NATIVE_TEST__?.bootstrapState ?? ""
+      : "";
+  if (nativeTestBootstrapManaged && bootstrapState === "uid_mismatch") {
+    return (
+      <div
+        role="alert"
+        className="flex min-h-[50vh] items-center justify-center px-6 text-center text-sm text-muted-foreground"
+      >
+        Reviewer session unavailable. Verify the UAT reviewer account configuration.
+      </div>
+    );
+  }
+
+  if (isVaultUnlocked || isSessionUnlockedOnce(userId)) {
     return <>{children}</>;
   }
 
@@ -250,10 +258,6 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
   if (nativeTestBootstrapManaged) {
     // UITest-only: NativeTestBootstrap unlocks via passphrase while we show a loader.
-    const bootstrapState =
-      typeof window !== "undefined"
-        ? window.__HUSHH_NATIVE_TEST__?.bootstrapState ?? ""
-        : "";
     if (bootstrapState === "vault_error" || bootstrapState === "auth_error") {
       // Fall through to passphrase-only unlock dialog below.
     } else {
@@ -274,9 +278,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
       enableGeneratedDefault={!skipGeneratedDefaultUnlock}
       title="Unlock Vault"
       description="Unlock your Vault to continue."
-      onSuccess={() => {
-        markSessionUnlocked();
-      }}
+      onSuccess={() => undefined}
       // Escape hatch for the HARD gate only: a user who forgot their vault
       // password has no other way out (the focused credential surface covers
       // persistent chrome). signOut() fully clears the session and redirects

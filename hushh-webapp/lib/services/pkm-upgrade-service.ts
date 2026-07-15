@@ -77,6 +77,7 @@ export type PkmUpgradeStatus = {
   targetReadableProjectionVersion: string | null;
   upgradeStatus: string;
   upgradableDomains: PkmUpgradeDomainState[];
+  unsupportedDomains: PkmUpgradeDomainState[];
   lastUpgradedAt: string | null;
   run: PkmUpgradeRun | null;
 };
@@ -174,6 +175,7 @@ function mapDomain(domain: Record<string, unknown>): PkmUpgradeDomainState {
     blockedReasons: Array.isArray(blockers) ? blockers.map(String) : [],
     upgradedAt: typeof domain.upgraded_at === "string" ? domain.upgraded_at : null,
     needsUpgrade: Boolean(domain.needs_upgrade),
+    unsupportedFutureVersion: Boolean(domain.unsupported_future_version),
   };
 }
 
@@ -275,6 +277,11 @@ function mapStatus(payload: Record<string, unknown>): PkmUpgradeStatus {
     upgradeStatus: String(payload.upgrade_status || "current"),
     upgradableDomains: Array.isArray(payload.upgradable_domains)
       ? payload.upgradable_domains
+          .filter((domain): domain is Record<string, unknown> => !!domain && typeof domain === "object")
+          .map(mapDomain)
+      : [],
+    unsupportedDomains: Array.isArray(payload.unsupported_domains)
+      ? payload.unsupported_domains
           .filter((domain): domain is Record<string, unknown> => !!domain && typeof domain === "object")
           .map(mapDomain)
       : [],

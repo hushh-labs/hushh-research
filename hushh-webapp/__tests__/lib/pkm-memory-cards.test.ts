@@ -108,4 +108,66 @@ describe("PKM memory cards", () => {
     expect((domainData.profile as Record<string, unknown>).name).toBe("Akshat Kumar");
     expect((deleted.profile as Record<string, unknown>).roll_no).toBeUndefined();
   });
+
+  it("refuses stale or missing exact-path mutations", () => {
+    const snapshot = buildPkmMemorySnapshot({
+      metadata,
+      fullBlob: { professional: { profile: { name: "Akshat Kumar" } } },
+    });
+    const card = snapshot.cards.find((entry) => entry.path === "profile.name");
+    expect(card).toBeDefined();
+
+    expect(() =>
+      updatePkmDomainValue({
+        domainData: { profile: { name: "Changed elsewhere" } },
+        pathSegments: card!.pathSegments,
+        previousValue: card!.value,
+        nextValue: "Akshat K.",
+        expectedValueFingerprint: card!.valueFingerprint,
+      })
+    ).toThrow(/changed before the correction/i);
+    expect(() =>
+      deletePkmDomainValue({
+        domainData: { profile: {} },
+        pathSegments: card!.pathSegments,
+        expectedValueFingerprint: card!.valueFingerprint,
+      })
+    ).toThrow(/changed before it could be removed/i);
+  });
+
+  it("keeps secret-shaped values out of in-memory consumer cards", () => {
+    const snapshot = buildPkmMemorySnapshot({
+      metadata,
+      fullBlob: {
+        professional: {
+          profile: { name: "Visible" },
+          runtime_secrets: { vault_passphrase: "must-not-render" },
+          api_key: "must-not-render",
+        },
+      },
+    });
+
+    expect(JSON.stringify(snapshot)).toContain("Visible");
+    expect(JSON.stringify(snapshot)).not.toContain("must-not-render");
+  });
+
+  it("keeps entity-map identifiers internal while retaining exact mutation paths", () => {
+    const snapshot = buildPkmMemorySnapshot({
+      metadata,
+      fullBlob: {
+        professional: {
+          changes: {
+            entities: {
+              sf_residence_001: { summary: "I live in New York City now." },
+            },
+          },
+        },
+      },
+    });
+    const card = snapshot.cards[0];
+
+    expect(card.pathSegments).toContain("sf_residence_001");
+    expect(card.detail).not.toMatch(/sf residence|sf_residence_001/i);
+    expect(card.detail).toContain("Changes");
+  });
 });

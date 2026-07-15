@@ -52,7 +52,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)
         // Pass APNs token to Firebase Messaging
         Messaging.messaging().apnsToken = deviceToken
-        print("✅ [AppDelegate] APNs token registered with Firebase Messaging: \(deviceToken.hexPrefix())")
+        print("✅ [AppDelegate] APNs token registered with Firebase Messaging")
         logNotificationSettings(context: "didRegisterForRemoteNotifications")
     }
     
@@ -72,7 +72,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             userInfo: userInfo
         )
         print(
-            "📩 [AppDelegate] Remote notification payload while appState=\(application.applicationState.debugLabel): \(userInfo)"
+            "📩 [AppDelegate] Remote notification received while appState=\(application.applicationState.debugLabel)"
         )
         completionHandler(.newData)
     }
@@ -126,9 +126,8 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        let userInfo = notification.request.content.userInfo
         print(
-            "📬 [AppDelegate] Foreground notification received while appState=\(UIApplication.shared.applicationState.debugLabel): \(userInfo)"
+            "📬 [AppDelegate] Foreground notification received while appState=\(UIApplication.shared.applicationState.debugLabel)"
         )
         // Present as a real system notification even while the app is active.
         completionHandler([.banner, .list, .sound, .badge])
@@ -140,8 +139,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         print("👆 [AppDelegate] Notification action performed: \(response.actionIdentifier)")
 
-        let userInfo = response.notification.request.content.userInfo
-        print("📦 [AppDelegate] Notification data: \(userInfo)")
+        print("📦 [AppDelegate] Notification response received")
         logNotificationSettings(context: "didReceiveNotificationResponse")
         
         // The Capacitor FCM plugin will handle the navigation
@@ -155,7 +153,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
 extension AppDelegate: MessagingDelegate {
     func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
         if let fcmToken, !fcmToken.isEmpty {
-            print("✅ [AppDelegate] Firebase Messaging registration token refreshed: \(fcmToken.prefix(24))...")
+            print("✅ [AppDelegate] Firebase Messaging registration token refreshed")
             logNotificationSettings(context: "didReceiveRegistrationToken")
         } else {
             print("⚠️ [AppDelegate] Firebase Messaging registration token missing")
@@ -196,12 +194,6 @@ private extension AppDelegate {
                 "🔔 [AppDelegate] Notification settings (\(context)): auth=\(settings.authorizationStatus.debugLabel) alert=\(settings.alertSetting.debugLabel) badge=\(settings.badgeSetting.debugLabel) sound=\(settings.soundSetting.debugLabel) center=\(settings.notificationCenterSetting.debugLabel) lock=\(settings.lockScreenSetting.debugLabel) banner=\(settings.alertSetting.debugLabel)"
             )
         }
-    }
-}
-
-private extension Data {
-    func hexPrefix(limit: Int = 16) -> String {
-        map { String(format: "%02x", $0) }.joined().prefix(limit).description
     }
 }
 

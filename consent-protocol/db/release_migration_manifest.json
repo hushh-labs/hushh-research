@@ -73,7 +73,9 @@
     "092_one_onboarding_journey_v1.sql",
     "093_consent_audit_request_id_text.sql",
     "094_one_onboarding_callback_attempt_v1.sql",
-    "095_one_kyc_needs_confirm_status.sql"
+    "095_one_kyc_needs_confirm_status.sql",
+    "096_atomic_pkm_mutation_v3_scope_posture.sql",
+    "097_redact_legacy_pkm_message_excerpts.sql"
   ],
   "groups": {
     "iam": [
@@ -132,7 +134,9 @@
       "088_consent_export_envelope_v2.sql",
       "089_atomic_pkm_mutation_v2.sql",
       "090_public_profile_projection_foundation.sql",
-      "091_public_profile_projection_cutover.sql"
+      "091_public_profile_projection_cutover.sql",
+      "096_atomic_pkm_mutation_v3_scope_posture.sql",
+      "097_redact_legacy_pkm_message_excerpts.sql"
     ],
     "developer": [
       "070_developer_registry.sql",

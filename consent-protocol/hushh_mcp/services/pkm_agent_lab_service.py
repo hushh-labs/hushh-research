@@ -3034,7 +3034,6 @@ class PKMAgentLabService:
             "top_level_scope_paths": top_level_scope_paths,
             "externalizable_paths": externalizable_paths,
             "summary_projection": {
-                "message_excerpt": cls._safe_excerpt(message, limit=120),
                 "intent_class": intent_frame.get("intent_class"),
                 "save_class": intent_frame.get("save_class"),
                 "path_count": len(json_paths),

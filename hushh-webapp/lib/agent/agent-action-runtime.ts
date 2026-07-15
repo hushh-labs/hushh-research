@@ -67,6 +67,27 @@ function hasPublishedActionInventory(
 function isActionInActiveInventory(
   input: ExecuteAgentGatewayActionInput,
 ): boolean {
+  const activeLayer = input.surfaceMetadata?.interactionLayer;
+  const routeIsBlockedByActiveLayer = Boolean(
+    activeLayer &&
+      activeLayer.lifecycle !== "closing" &&
+      (activeLayer.blocksUnderlyingActions ||
+        activeLayer.modality === "modal" ||
+        activeLayer.modality === "blocking" ||
+        activeLayer.agentContinuity !== "interactive"),
+  );
+
+  if (input.actionId.startsWith("route.") && !routeIsBlockedByActiveLayer) {
+    const action = getKaiActionById(input.actionId);
+    if (
+      action &&
+      action.execution_policy === "allow_direct" &&
+      action.execution_target.status === "wired"
+    ) {
+      return true;
+    }
+  }
+
   if (input.allowedActionIds) {
     return input.allowedActionIds.includes(input.actionId);
   }

@@ -3348,21 +3348,7 @@ def _summarize_results(results: list[EvaluationResult]) -> dict[str, Any]:
     fallback_rate = round(sum(1 for item in results if item.used_fallback) / total, 4)
     finance_contamination_count = sum(1 for item in results if item.finance_contamination)
     unresolved_domain_count = sum(1 for item in results if item.unresolved_domain)
-    actual_domains = {
-        item.actual_domain
-        for item in results
-        if item.actual_domain and item.actual_write_mode != "do_not_save"
-    }
-    expected_domains = {
-        domain
-        for item in results
-        for domain in item.expected_domains
-        if domain and domain != _GENERAL_DOMAIN_KEY
-    }
-    fragmentation_score = round(
-        len(actual_domains) / max(1, len(expected_domains)),
-        4,
-    )
+    fragmentation_score = _durable_domain_fragmentation_score(results)
     drift_flag_counts: dict[str, int] = {}
     for item in results:
         for flag, enabled in item.drift_flags.items():
@@ -3385,6 +3371,34 @@ def _summarize_results(results: list[EvaluationResult]) -> dict[str, Any]:
         "fragmentation_score": fragmentation_score,
         "drift_flag_counts": drift_flag_counts,
     }
+
+
+def _durable_domain_fragmentation_score(
+    results: list[EvaluationResult],
+) -> float:
+    """Compare only durable, write-eligible domain choices.
+
+    Ephemeral and ambiguous cases may intentionally carry multiple acceptable
+    domain choices for evaluation, but they are not expected to create a PKM
+    domain. Including those alternatives only in the denominator manufactures
+    under-coverage even when every durable case resolves correctly.
+    """
+
+    actual_domains = {
+        item.actual_domain
+        for item in results
+        if item.actual_save_class == "durable"
+        and item.actual_domain
+        and item.actual_write_mode != "do_not_save"
+    }
+    expected_domains = {
+        domain
+        for item in results
+        if item.expected_save_class == "durable"
+        for domain in item.expected_domains
+        if domain and domain != _GENERAL_DOMAIN_KEY
+    }
+    return round(len(actual_domains) / max(1, len(expected_domains)), 4)
 
 
 def _contract_signature(record: dict[str, Any]) -> tuple[str, str, str, str, str]:

@@ -73,6 +73,27 @@ def _normalize_action_entry(raw: Any) -> dict[str, Any] | None:
     expected_effects = (
         raw.get("expected_effects") if isinstance(raw.get("expected_effects"), dict) else {}
     )
+    execution_target_raw = (
+        raw.get("execution_target") if isinstance(raw.get("execution_target"), dict) else {}
+    )
+    execution_target_status = str(execution_target_raw.get("status") or "unwired").strip()
+    if execution_target_status not in {"wired", "unwired", "dead"}:
+        execution_target_status = "unwired"
+    execution_target: dict[str, Any] = {"status": execution_target_status}
+    if execution_target_status == "wired":
+        execution_target.update(
+            {
+                "path": str(execution_target_raw.get("path") or "").strip(),
+                "target": str(execution_target_raw.get("target") or "").strip(),
+            }
+        )
+        if isinstance(execution_target_raw.get("params"), dict):
+            execution_target["params"] = execution_target_raw["params"]
+    else:
+        execution_target["reason"] = str(
+            execution_target_raw.get("reason")
+            or "This action is not available in the current runtime."
+        ).strip()
     background_behavior = (
         raw.get("background_behavior") if isinstance(raw.get("background_behavior"), dict) else {}
     )
@@ -108,6 +129,7 @@ def _normalize_action_entry(raw: Any) -> dict[str, Any] | None:
         "risk": {
             "execution_policy": execution_policy or "allow_direct",
         },
+        "execution_target": execution_target,
         "activation_policy": activation_policy,
         "completion_mode": completion_mode or "none",
         "expected_effects": expected_effects,
@@ -201,6 +223,9 @@ def is_navigation_action(entry: dict[str, Any] | None) -> bool:
     action_id = str(entry.get("action_id") or "")
     if not action_id.startswith("route."):
         return False
+    execution_target = entry.get("execution_target") or {}
+    if execution_target.get("status") != "wired":
+        return False
     execution_policy = str(
         (entry.get("risk") or {}).get("execution_policy") or "allow_direct"
     ).strip()
@@ -244,6 +269,8 @@ def select_voice_manifest_actions_for_prompt(
         return normalized_screen in screens
 
     for action in list_voice_manifest_actions():
+        if (action.get("execution_target") or {}).get("status") != "wired":
+            continue
         # The browser's published visible-action inventory is authoritative.
         # A non-empty inventory is an exact allowlist, never merely a ranking
         # hint; otherwise sibling setup actions leak into the live prompt.
@@ -278,6 +305,7 @@ def select_voice_manifest_actions_for_prompt(
     return [
         action
         for action in list_voice_manifest_actions()
-        if _reachable_on_screen(action)
+        if (action.get("execution_target") or {}).get("status") == "wired"
+        and _reachable_on_screen(action)
         and (not normalized_available or action.get("action_id") in normalized_available)
     ][: max(0, limit)]

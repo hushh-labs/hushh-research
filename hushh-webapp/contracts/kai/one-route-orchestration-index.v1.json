@@ -99,10 +99,10 @@
     {
       "route_pattern": "/blog",
       "page_file": "app/blog/page.tsx",
-      "route_mode": "hidden",
-      "orchestration_class": "transitional",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
       "instruction_id": "route.blog",
-      "context_policy": "suppress",
+      "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.blog",
         "purpose": "Help the person understand and use the blog screen through its generated controls.",
@@ -142,10 +142,10 @@
     {
       "route_pattern": "/blog/[slug]",
       "page_file": "app/blog/[slug]/page.tsx",
-      "route_mode": "hidden",
-      "orchestration_class": "transitional",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
       "instruction_id": "route.blog.slug",
-      "context_policy": "suppress",
+      "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.blog.slug",
         "purpose": "Help the person understand and use the blog screen through its generated controls.",
@@ -350,7 +350,6 @@
       "canonical_screen": "consents",
       "voice_contract_file": null,
       "action_ids": [
-        "connections.chat.turn",
         "consent.chat.turn",
         "route.consents",
         "route.ria_requests_compat"
@@ -1335,11 +1334,7 @@
       "canonical_screen": "one_agents",
       "voice_contract_file": "app/one/page.voice-action-contract.json",
       "action_ids": [
-        "connected_systems.chat.turn",
-        "connections.chat.turn",
         "consent.chat.turn",
-        "email.chat.turn",
-        "gmail.chat.turn",
         "location.chat.turn",
         "marketplace.information.chat.turn",
         "marketplace.information.requests.turn",
@@ -1490,8 +1485,6 @@
       "canonical_screen": "gmail",
       "voice_contract_file": "app/one/gmail/page.voice-action-contract.json",
       "action_ids": [
-        "email.chat.turn",
-        "gmail.chat.turn",
         "route.profile_gmail_panel",
         "route.profile_receipts"
       ],
@@ -1503,7 +1496,7 @@
           "agent_gmail"
         ]
       },
-      "trust_boundary": "vault",
+      "trust_boundary": "none",
       "native_surface_id": "native-route-gmail"
     },
     {
@@ -3410,19 +3403,17 @@
       "route_pattern": "/profile/pkm-agent-lab",
       "page_file": "app/profile/pkm-agent-lab/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.profile.pkm.agent.lab",
-      "context_policy": "publish",
+      "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.profile.pkm.agent.lab",
-        "purpose": "Help the person understand and use the pkm agent lab screen through its generated controls.",
+        "purpose": "Redirect non-local builds to the product Memory workspace; local developer tooling is intentionally not action-discoverable.",
         "screen": "profile_pkm_agent_lab",
-        "entry_cue": "You can say “Generate PKM capture preview” to use the primary control on this screen.",
-        "proactivity": "on_entry",
-        "primary_action_id": "profile.pkm.preview_capture",
-        "happy_path_action_ids": [
-          "profile.pkm.preview_capture"
-        ],
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -3432,25 +3423,23 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-        "next_route": null,
-        "return_policy": "stay",
+        "completion_boundary": "Non-local builds complete only after redirect settlement to the product Memory route.",
+        "next_route": "/one/pkm",
+        "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
         "allowed_families": []
       },
       "canonical_screen": "profile_pkm_agent_lab",
-      "voice_contract_file": "app/profile/pkm-agent-lab/page-client.voice-action-contract.json",
-      "action_ids": [
-        "profile.pkm.preview_capture"
-      ],
-      "action_coverage": "inherited",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "vault",
+      "trust_boundary": "none",
       "native_surface_id": null
     },
     {
@@ -3948,10 +3937,10 @@
     {
       "route_pattern": "/research",
       "page_file": "app/research/page.tsx",
-      "route_mode": "hidden",
-      "orchestration_class": "transitional",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
       "instruction_id": "route.research",
-      "context_policy": "suppress",
+      "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.research",
         "purpose": "Help the person understand and use the research screen through its generated controls.",
@@ -3991,10 +3980,10 @@
     {
       "route_pattern": "/research/protocol",
       "page_file": "app/research/protocol/page.tsx",
-      "route_mode": "hidden",
-      "orchestration_class": "transitional",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
       "instruction_id": "route.research.protocol",
-      "context_policy": "suppress",
+      "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.research.protocol",
         "purpose": "Help the person understand and use the protocol screen through its generated controls.",

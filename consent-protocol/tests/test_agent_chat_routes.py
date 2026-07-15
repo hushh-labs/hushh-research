@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from api.routes.kai import agent_chat
 from hushh_mcp.adk_bridge.contract import SpecialistTurnResult
+from hushh_mcp.one_adk.text_runtime import OneTextDirective, OneTextStreamEvent
 from hushh_mcp.services.agent_chat_service import (
     AgentChatActionPlan,
     AgentChatConversation,
@@ -151,6 +152,30 @@ class _FakeAgentChatService:
         for token in self.stream_tokens:
             yield token
 
+    async def stream_one_turn(self, **kwargs):
+        assert kwargs["user_id"] == "user-1"
+        assert kwargs["message"] == "Hello Agent"
+        assert kwargs["history"] == []
+        assert kwargs["runtime"].client is self.runtime_client
+        assert kwargs["pkm_context"] in {None, "Saved domains: Financial"}
+        if self.stream_error is not None:
+            raise self.stream_error
+        if self.next_action_plan is not None and self.next_action_plan.execution == "frontend":
+            yield OneTextStreamEvent(kind="token", text=self.next_action_plan.message)
+            yield OneTextStreamEvent(
+                kind="directive",
+                directive=OneTextDirective(
+                    kind="action",
+                    payload={
+                        "actionId": self.next_action_plan.action_id,
+                        "slots": self.next_action_plan.slots,
+                    },
+                ),
+            )
+            return
+        for token in self.stream_tokens:
+            yield OneTextStreamEvent(kind="token", text=token)
+
     async def plan_action_with_gemini(
         self,
         *,
@@ -241,7 +266,7 @@ def test_agent_chat_stream_sends_token_events_and_saves_assistant(monkeypatch):
 
     assert response.status_code == 200
     assert response.headers["x-agent-conversation-id"] == "conversation-1"
-    assert response.headers["x-agent-model"] == "gemini-2.5-pro"
+    assert response.headers["x-agent-model"] == "gemini-2.5-flash"
     assert 'event: token\ndata: {"token": "Hello"}' in response.text
     assert 'event: token\ndata: {"token": " from Gemini"}' in response.text
     assert 'event: complete\ndata: {"conversation_id": "conversation-1"' in response.text
@@ -251,7 +276,7 @@ def test_agent_chat_stream_sends_token_events_and_saves_assistant(monkeypatch):
             "runtime_credential_mode": None,
         }
     ]
-    assert service.stream_action_plans == [None]
+    assert service.stream_action_plans == []
     assert service.saved_messages == [
         {
             "conversation_id": "conversation-1",
@@ -268,7 +293,6 @@ def test_agent_chat_stream_sends_token_events_and_saves_assistant(monkeypatch):
 def test_agent_chat_delegated_stream_saves_specialist_response(monkeypatch):
     service = _FakeAgentChatService()
     monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
-    monkeypatch.setattr(agent_chat, "resolve_delegate_target", lambda _message: "agent_nav")
     monkeypatch.setattr(agent_chat, "is_wired_specialist", lambda agent_id: agent_id == "agent_nav")
 
     import hushh_mcp.adk_bridge.dispatch as dispatch_module
@@ -297,6 +321,7 @@ def test_agent_chat_delegated_stream_saves_specialist_response(monkeypatch):
             "user_id": "user-1",
             "message": "show all my consent requests approved",
             "timezone": "America/Los_Angeles",
+            "delegate_agent_id": "agent_nav",
         },
     )
 
@@ -419,10 +444,10 @@ def test_agent_chat_stream_saves_short_frontend_action_receipt(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert 'event: tool_start\ndata: {"call_id": "tool_test_1"' in response.text
+    assert 'event: tool_start\ndata: {"call_id": "one_text_' in response.text
     assert '"action_id": "analysis.start"' in response.text
     assert '"slots": {"symbol": "NVDA"}' in response.text
-    assert 'event: tool_waiting\ndata: {"call_id": "tool_test_1"' in response.text
+    assert 'event: tool_waiting\ndata: {"call_id": "one_text_' in response.text
     assert '"status": "waiting_for_frontend"' in response.text
     assert 'event: token\ndata: {"token": "Starting Kai analysis for NVDA."}' in response.text
     assert service.stream_action_plans == []
@@ -450,7 +475,7 @@ def test_agent_chat_stream_does_not_stream_long_text_for_navigation_action(monke
     )
 
     assert response.status_code == 200
-    assert 'event: tool_waiting\ndata: {"call_id": "tool_test_2"' in response.text
+    assert 'event: tool_waiting\ndata: {"call_id": "one_text_' in response.text
     assert 'event: token\ndata: {"token": "Open Consent Center in the app."}' in response.text
     assert "long generic Gemini" not in response.text
     assert service.stream_action_plans == []

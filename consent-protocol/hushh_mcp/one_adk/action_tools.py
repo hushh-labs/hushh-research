@@ -149,6 +149,35 @@ async def run_app_action(
             ),
         }
 
+    policy = str((entry.get("risk") or {}).get("execution_policy") or "allow_direct")
+    label = str(entry.get("label") or clean_id)
+    if policy == "manual_only":
+        screens = (entry.get("scope") or {}).get("screens") or []
+        where = f" It lives on the {screens[0]} screen." if screens else ""
+        logger.info("one_adk_action_decision action=%s status=manual_only", clean_id)
+        return {
+            "status": "manual_only",
+            "message": (
+                f"{label} must be done by the user in the app; I cannot trigger it.{where}"
+            ),
+        }
+
+    execution_target = entry.get("execution_target") or {}
+    execution_status = str(execution_target.get("status") or "unwired")
+    if execution_status != "wired":
+        reason = str(
+            execution_target.get("reason") or "This action is not available in the current runtime."
+        )
+        logger.info(
+            "one_adk_action_decision action=%s status=%s",
+            clean_id,
+            execution_status,
+        )
+        return {
+            "status": execution_status,
+            "message": reason,
+        }
+
     available_action_ids = _available_action_ids(tool_context)
     # Navigation actions (route.*, allow_direct) are invocable from any
     # screen by design; the browser's per-screen inventory does not bound
@@ -209,20 +238,7 @@ async def run_app_action(
             "reachable_screens": sorted(action_screens),
         }
 
-    policy = str((entry.get("risk") or {}).get("execution_policy") or "allow_direct")
     activation_policy = str(entry.get("activation_policy") or "none")
-    label = str(entry.get("label") or clean_id)
-    if policy == "manual_only":
-        screens = (entry.get("scope") or {}).get("screens") or []
-        where = f" It lives on the {screens[0]} screen." if screens else ""
-        logger.info("one_adk_action_decision action=%s status=manual_only", clean_id)
-        return {
-            "status": "manual_only",
-            "message": (
-                f"{label} must be done by the user in the app; I cannot trigger it.{where}"
-            ),
-        }
-
     missing = _missing_required_slot(entry, clean_slots)
     if missing is not None:
         logger.info("one_adk_action_decision action=%s status=input_needed", clean_id)
@@ -298,6 +314,8 @@ async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, A
         ]
     results = []
     for entry in ranked:
+        if (entry.get("execution_target") or {}).get("status") != "wired":
+            continue
         delegate_tool = _DELEGATE_TOOL_BY_AGENT_ID.get(str(entry.get("delegate_agent_id") or ""))
         results.append(
             {

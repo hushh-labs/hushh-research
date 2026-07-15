@@ -131,16 +131,6 @@ function toReadableSourceLabel(value: unknown): string | null {
 }
 
 function deriveFallbackSummary(domain: DomainSummary, sections: string[]): string {
-  const messageExcerpt = clampText(
-    typeof domain.summary?.message_excerpt === "string" ? domain.summary.message_excerpt : "",
-    120
-  );
-
-  if (messageExcerpt && sections.length > 0) {
-    return `Kai saved a ${domain.displayName.toLowerCase()} update from one of your notes, focused on ${formatList(
-      sections.slice(0, 2)
-    ).toLowerCase()}.`;
-  }
   if (sections.length === 1) {
     const firstSection = sections[0] || "saved";
     return `Kai keeps a readable view of your ${domain.displayName.toLowerCase()} ${firstSection.toLowerCase()} details.`;
@@ -164,12 +154,6 @@ function deriveFallbackHighlights(domain: DomainSummary, sections: string[]): st
       ? `${domain.attributeCount} saved detail${domain.attributeCount === 1 ? "" : "s"}`
       : null,
     sections.length > 0 ? `Organized into ${formatList(sections.slice(0, 3))}` : null,
-    clampText(
-      typeof domain.summary?.message_excerpt === "string"
-        ? `Latest note: ${domain.summary.message_excerpt}`
-        : "",
-      120
-    ),
   ];
   return uniqueStrings(highlights).slice(0, 5);
 }
@@ -215,17 +199,15 @@ export function buildReadablePkmMetadata(params: {
     targetEntityScope: params.targetEntityScope,
   });
   const capturedAt = params.createdAt || new Date().toISOString();
-  const messageExcerpt = clampText(params.sourceText, 120);
   const sectionSentence =
     sections.length > 0
       ? `focused on ${formatList(sections.slice(0, 2)).toLowerCase()}`
       : `for your ${domainDisplayName.toLowerCase()} profile`;
-  const readableSummary = `Kai saved a ${domainDisplayName.toLowerCase()} update ${sectionSentence}.`;
+  const readableSummary = `One saved a ${domainDisplayName.toLowerCase()} update ${sectionSentence}.`;
 
   const readableHighlights = uniqueStrings([
     sections.length > 0 ? `${formatList(sections.slice(0, 3))}` : null,
     deriveMergeHighlight(params.mergeMode),
-    messageExcerpt ? `Saved from your note: ${messageExcerpt}` : null,
   ]).slice(0, 5);
 
   const readableEventSummary =

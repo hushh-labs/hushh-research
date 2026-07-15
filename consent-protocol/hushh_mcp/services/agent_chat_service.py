@@ -20,6 +20,7 @@ from google.genai import types as genai_types
 
 from db.db_client import get_db
 from hushh_mcp.hushh_adk.manifest import AgentModelConfig, ManifestLoader
+from hushh_mcp.one_adk.text_runtime import OneTextStreamEvent, stream_one_text_turn
 from hushh_mcp.runtime_providers import (
     build_managed_runtime_client,
     build_runtime_client,
@@ -1523,6 +1524,49 @@ class AgentChatService:
                     provider_error.detail,
                 )
                 raise provider_error from error
+            raise
+
+    async def stream_one_turn(
+        self,
+        *,
+        user_id: str,
+        consent_token: str,
+        conversation_id: str,
+        message: str,
+        history: list[AgentChatMessage],
+        timezone: str | None,
+        screen_context: dict[str, Any] | None,
+        pkm_context: str | None,
+        runtime: PreparedAgentRuntime,
+        runtime_credential: str | None,
+    ) -> AsyncGenerator[OneTextStreamEvent, None]:
+        """Run typed Agent Chat through One's canonical ADK semantic head."""
+        effective_credential = runtime_credential
+        if runtime.mode == "hushh_managed_vertex":
+            effective_credential = (
+                self.settings.google_api_key or os.getenv("GOOGLE_API_KEY", "").strip()
+            )
+        try:
+            async for event in stream_one_text_turn(
+                user_id=user_id,
+                consent_token=consent_token,
+                conversation_id=conversation_id,
+                message=message,
+                history=history,
+                timezone=timezone,
+                screen_context=screen_context,
+                pkm_context=pkm_context,
+                runtime_provider=runtime.provider,
+                runtime_model=runtime.model,
+                runtime_mode=runtime.mode,
+                runtime_credential=effective_credential,
+            ):
+                yield event
+        except genai_errors.APIError as error:
+            raise _runtime_provider_error_from_exception(error) from error
+        except Exception as error:
+            if _is_google_provider_runtime_error(error):
+                raise _runtime_provider_error_from_exception(error) from error
             raise
 
     async def plan_action_with_gemini(

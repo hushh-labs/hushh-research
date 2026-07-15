@@ -297,7 +297,6 @@ export const DEVELOPER_SCOPE_NOTES = [
   "Discover available scopes per user at runtime instead of hardcoding a fixed universal list.",
   "The current Kai test-user shape is mostly financial, so early community integrations should expect financial-first examples.",
   "A broader active grant can satisfy a narrower request, but a narrower active grant never auto-upgrades to a broader parent scope.",
-  "The /developers surface stays technical. A separate consumer-facing PKM transparency view now lives in PKM Agent Lab.",
 ];
 
 export const DEVELOPER_SAMPLE_PAYLOADS: DeveloperSamplePayload[] = [

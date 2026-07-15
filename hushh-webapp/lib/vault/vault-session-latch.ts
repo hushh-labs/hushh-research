@@ -5,16 +5,17 @@
  * Cleared on explicit lock/logout. A full WebView reload resets this naturally.
  */
 
-let sessionUnlockedOnce = false;
+let sessionUnlockedUserId: string | null = null;
 
-export function markSessionUnlocked(): void {
-  sessionUnlockedOnce = true;
+export function markSessionUnlocked(userId: string): void {
+  const normalizedUserId = userId.trim();
+  sessionUnlockedUserId = normalizedUserId || null;
 }
 
 export function resetSessionUnlocked(): void {
-  sessionUnlockedOnce = false;
+  sessionUnlockedUserId = null;
 }
 
-export function isSessionUnlockedOnce(): boolean {
-  return sessionUnlockedOnce;
+export function isSessionUnlockedOnce(userId: string | null | undefined): boolean {
+  return Boolean(userId && sessionUnlockedUserId === userId);
 }

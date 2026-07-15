@@ -179,7 +179,7 @@ export async function previewAgentPkmMemory(params: {
   currentDomains: string[];
   vaultOwnerToken: string;
 }): Promise<AgentPkmPreviewResponse & { cards: AgentPkmPreviewCard[] }> {
-  const response = await ApiService.apiFetch("/api/pkm/agent-lab/structure", {
+  const response = await ApiService.apiFetch("/api/pkm/memory/proposals", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -339,9 +339,7 @@ export async function addToPKM(params: {
           domainData: candidatePayload,
           summary: {
             ...nextSummaryProjection,
-            message_excerpt: compactText(card.source_text || params.sourceMessage, 160),
             source: params.source || "agent_chat",
-            card_id: cardId,
           },
           mergeDecision: card.merge_decision,
           structureDecision: nextStructureDecision,
@@ -420,7 +418,6 @@ export function buildAgentPkmContextFromMetadata(
     const summary =
       compactText(domain.readableSummary, 240) ||
       compactText(domain.summary?.readable_summary, 240) ||
-      compactText(domain.summary?.message_excerpt, 160) ||
       `${domain.attributeCount || 0} saved detail${domain.attributeCount === 1 ? "" : "s"}.`;
     lines.push(
       [

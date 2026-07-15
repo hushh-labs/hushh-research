@@ -185,8 +185,7 @@ async def issue_app_review_mode_session(request: Request):
 
     client_ip = request.client.host if request.client else "unknown"
     logger.info(
-        "app_review_mode.session_issued reviewer_uid=%s subject=%s project_id=%s client_ip=%s",
-        reviewer_uid,
+        "app_review_mode.session_issued reviewer_uid_present=true subject=%s project_id=%s client_ip=%s",
         session_subject,
         project_id or "unknown",
         client_ip,

@@ -165,7 +165,7 @@ def test_store_domain_rejects_stale_sharing_impact(monkeypatch):
     assert detail["sharing_impact"]["recipient_labels"] == ["Hushh Technologies"]
 
 
-def test_agent_lab_preview_is_enriched_with_current_sharing_impact(monkeypatch):
+def test_memory_proposals_are_enriched_with_current_sharing_impact(monkeypatch):
     class _FakeAgentLabService:
         async def generate_structure_preview(self, **_kwargs):
             return {
@@ -216,7 +216,7 @@ def test_agent_lab_preview_is_enriched_with_current_sharing_impact(monkeypatch):
     monkeypatch.setattr(pkm, "get_pkm_service", lambda: _FakePkmService())
 
     response = TestClient(app).post(
-        "/api/pkm/agent-lab/structure",
+        "/api/pkm/memory/proposals",
         json={"user_id": "user_123", "message": "Save AAPL in my portfolio"},
     )
 
@@ -226,6 +226,70 @@ def test_agent_lab_preview_is_enriched_with_current_sharing_impact(monkeypatch):
     assert payload["preview_cards"][0]["sharing_impact"]["recipient_labels"] == [
         "Hushh Technologies"
     ]
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    lab_response = TestClient(app).post(
+        "/api/pkm/agent-lab/structure",
+        json={"user_id": "user_123", "message": "Save AAPL in my portfolio"},
+    )
+    assert lab_response.status_code == 404
+
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    unset_environment_response = TestClient(app).post(
+        "/api/pkm/agent-lab/structure",
+        json={"user_id": "user_123", "message": "Save AAPL in my portfolio"},
+    )
+    assert unset_environment_response.status_code == 404
+
+
+def test_memory_mutation_impact_preflight_returns_authoritative_recipient_ids(monkeypatch):
+    class _FakePkmService:
+        async def get_mutation_sharing_impact(self, **kwargs):
+            assert kwargs == {
+                "user_id": "user_123",
+                "domain": "financial",
+                "scope_path": "portfolio",
+            }
+            return {
+                "active_recipient_count": 1,
+                "recipient_labels": ["Planner Pro"],
+                "enters_next_export_revision": True,
+                "summary": "This change affects Planner Pro.",
+                "affected_grant_ids": ["grant-current"],
+                "affected_export_ids": ["export-current"],
+            }
+
+    app = FastAPI()
+    app.include_router(pkm.router)
+    app.dependency_overrides[pkm.require_vault_owner_token] = lambda: {"user_id": "user_123"}
+    monkeypatch.setattr(pkm, "get_pkm_service", lambda: _FakePkmService())
+
+    response = TestClient(app).get(
+        "/api/pkm/memory/mutation-impact/user_123/financial?scope_path=portfolio.holdings"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "active_recipient_count": 1,
+        "recipient_labels": ["Planner Pro"],
+        "enters_next_export_revision": True,
+        "summary": "This change affects Planner Pro.",
+        "affected_grant_ids": ["grant-current"],
+        "affected_export_ids": ["export-current"],
+    }
+
+
+def test_memory_mutation_impact_preflight_rejects_cross_user_access(monkeypatch):
+    app = FastAPI()
+    app.include_router(pkm.router)
+    app.dependency_overrides[pkm.require_vault_owner_token] = lambda: {"user_id": "user_123"}
+
+    response = TestClient(app).get(
+        "/api/pkm/memory/mutation-impact/another-user/financial?scope_path=portfolio"
+    )
+
+    assert response.status_code == 403
 
 
 def test_scope_exposure_route_forwards_payload(monkeypatch):

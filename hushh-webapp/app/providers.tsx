@@ -127,20 +127,12 @@ function AppShellFrame({ children }: ProvidersProps) {
     pathname.startsWith(`${ROUTES.BLOG}/`);
   const signedInShellContentOffset = useMemo(
     () =>
-      isPublicStandaloneRoute
-        ? ({
-            mode: "standard",
-            shellVisible: true,
-            localOffset: "0px",
-            style: { "--app-top-content-offset": "0px" } as CSSProperties,
-          } as const)
-        : resolveSignedInShellContentOffset({
-            shellVisible: topShellMetrics.shellVisible,
-            routeLayoutMode,
-            localOffset: routeLayout.pageTopLocalOffset,
-          }),
+      resolveSignedInShellContentOffset({
+        shellVisible: topShellMetrics.shellVisible,
+        routeLayoutMode,
+        localOffset: routeLayout.pageTopLocalOffset,
+      }),
     [
-      isPublicStandaloneRoute,
       routeLayout.pageTopLocalOffset,
       routeLayoutMode,
       topShellMetrics.shellVisible,
@@ -182,13 +174,14 @@ function AppShellFrame({ children }: ProvidersProps) {
         // of them still render the fixed onboarding Agent Bar. The scroll root
         // owns the clearance for that fixed chrome so feature routes do not
         // need to guess at device safe areas or bar geometry.
-        "--app-scroll-bottom-pad": hideGlobalChrome
+        "--app-scroll-bottom-pad": hideGlobalChrome || isPublicStandaloneRoute
           ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
           : "var(--bottom-chrome-stack-height)",
       }) as CSSProperties,
     [
       chromeState.hideCommandBar,
       hideGlobalChrome,
+      isPublicStandaloneRoute,
       signedInShellContentOffset.style,
       topShellMetrics.contentOffsetMode,
       topShellMetrics.hasTabs,

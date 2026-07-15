@@ -55,6 +55,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { useAuth, useRequireAuth } from "@/hooks/use-auth";
+import { isApplePrivateRelayEmail } from "@/lib/auth/private-relay";
 import {
   CONSENT_ACTION_COMPLETE_EVENT,
   CONSENT_STATE_CHANGED_EVENT,
@@ -361,6 +362,7 @@ export function OneKycWorkspace({
   voicePublisherRole?: VoiceSurfacePublisherRole;
 }) {
   const auth = useRequireAuth();
+  const isPrivateRelay = isApplePrivateRelayEmail(auth.user?.email);
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const { handleApprove, handleApproveBundle, handleDeny, handleDenyBundle } =
     useConsentActions({ userId: auth.userId });
@@ -1640,14 +1642,16 @@ export function OneKycWorkspace({
           accent="neutral"
           actions={
             <div className="flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                className={cn(BTN_PRIMARY)}
-                onClick={() => setAliasPanelOpen(true)}
-              >
-                <MailPlus className="size-4" />
-                Email aliases
-              </button>
+              {!isPrivateRelay && (
+                <button
+                  type="button"
+                  className={cn(BTN_PRIMARY)}
+                  onClick={() => setAliasPanelOpen(true)}
+                >
+                  <MailPlus className="size-4" />
+                  Email aliases
+                </button>
+              )}
               <button
                 type="button"
                 className={cn(BTN_PRIMARY)}
@@ -1680,9 +1684,24 @@ export function OneKycWorkspace({
         ) : null}
 
         <div className="w-full">
-          <div className="min-w-0 space-y-4">
-            <SettingsGroup title="Requests">
-              {showInitialLoading ? (
+          {(!vaultKey || !vaultOwnerToken) ? (
+            <SettingsGroup title="Vault required" description="You must have a Vault set up to use Email review.">
+              <SettingsRow
+                icon={AlertTriangle}
+                title="Vault missing"
+                description="We couldn't save settings to your vault because it isn't set up yet. Please complete the setup in Onboarding or Settings to use this feature."
+              />
+            </SettingsGroup>
+          ) : (
+            <div className="min-w-0 space-y-4">
+              <SettingsGroup title="Requests">
+                {isPrivateRelay ? (
+                  <SettingsRow
+                    icon={AlertTriangle}
+                    title="Unsupported Account"
+                    description="Your primary account uses an Apple Private Relay ID. Email request functionality is not supported for proxy addresses."
+                  />
+                ) : showInitialLoading ? (
                 <SettingsRow
                   icon={Inbox}
                   title="Checking requests"
@@ -1768,6 +1787,7 @@ export function OneKycWorkspace({
               </div>
             ) : null}
           </div>
+          )}
         </div>
 
         <SettingsDetailPanel
@@ -2357,7 +2377,7 @@ export function OneKycWorkspace({
           open={aliasPanelOpen}
           onOpenChange={setAliasPanelOpen}
           title="Verified emails"
-          description="Add addresses people already use so One can match requests without extra work."
+          description={isPrivateRelay ? "Apple Private Relay email addresses cannot be used as verifiable aliases." : "Add addresses people already use so One can match requests without extra work."}
         >
           <div className="space-y-4">
             <SettingsGroup embedded title="Ready to match">

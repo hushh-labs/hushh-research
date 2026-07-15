@@ -30,8 +30,15 @@ export function EmailOnboardingSetupClient() {
 
   useEffect(() => {
     if (!user?.uid) return;
-    setEnabled(isPrivateRelay ? false : loadEmailDraftingEnabled(user.uid));
-    setLoaded(true);
+    if (isPrivateRelay) {
+      setEnabled(false);
+      setLoaded(true);
+      return;
+    }
+    loadEmailDraftingEnabled(user.uid).then((val) => {
+      setEnabled(val);
+      setLoaded(true);
+    });
   }, [isPrivateRelay, user?.uid]);
 
   const coordinator = useSetupCapabilityCoordinator({
@@ -66,7 +73,7 @@ export function EmailOnboardingSetupClient() {
   const handleToggle = (checked: boolean) => {
     if (isPrivateRelay) return;
     setEnabled(checked);
-    if (user?.uid) saveEmailDraftingEnabled(user.uid, checked);
+    if (user?.uid) void saveEmailDraftingEnabled(user.uid, checked);
   };
 
   return (

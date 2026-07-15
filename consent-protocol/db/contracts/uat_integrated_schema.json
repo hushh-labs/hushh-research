@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 95,
+  "expected_migration_version": 97,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -11,7 +11,8 @@
     "get_user_pkm_metadata",
     "claim_consent_export_refresh_jobs_v2",
     "complete_consent_export_refresh_v2",
-    "commit_pkm_domain_mutation_v2"
+    "commit_pkm_domain_mutation_v2",
+    "commit_pkm_domain_mutation_v3"
   ],
   "required_tables": {
     "vault_keys": [

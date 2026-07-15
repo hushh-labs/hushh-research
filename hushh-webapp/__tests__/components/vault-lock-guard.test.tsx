@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   peekVaultPresence: vi.fn(),
   replace: vi.fn(),
   signOut: vi.fn(),
+  sessionUnlockedOnce: false,
+  vaultUnlocked: false,
   authState: {
     user: { uid: "user_1" } as { uid: string } | null,
     loading: false,
@@ -34,7 +36,10 @@ vi.mock("@/hooks/use-auth", () => ({
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({ isVaultUnlocked: false, unlockVault: vi.fn() }),
+  useVault: () => ({
+    isVaultUnlocked: mocks.vaultUnlocked,
+    unlockVault: vi.fn(),
+  }),
 }));
 
 vi.mock("@/lib/services/vault-service", () => ({
@@ -53,7 +58,7 @@ vi.mock("@/lib/progress/step-progress-context", () => ({
 }));
 
 vi.mock("@/lib/vault/vault-session-latch", () => ({
-  isSessionUnlockedOnce: () => false,
+  isSessionUnlockedOnce: () => mocks.sessionUnlockedOnce,
   markSessionUnlocked: vi.fn(),
 }));
 
@@ -92,6 +97,9 @@ describe("VaultLockGuard", () => {
     mocks.hasIncompleteNativeUiFlowSession.mockReturnValue(false);
     mocks.isNativePlatform.mockReturnValue(false);
     mocks.isNativeTestVaultBootstrapManaged.mockReturnValue(false);
+    mocks.sessionUnlockedOnce = false;
+    mocks.vaultUnlocked = false;
+    delete window.__HUSHH_NATIVE_TEST__;
   });
 
   it("uses the focused hard-gate unlock surface instead of a route hero", async () => {
@@ -157,5 +165,24 @@ describe("VaultLockGuard", () => {
 
     expect(screen.getByText("Restoring reviewer session...")).toBeTruthy();
     expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it("hard-gates a reviewer UID mismatch before any unlocked fast path", () => {
+    mocks.isNativeTestVaultBootstrapManaged.mockReturnValue(true);
+    mocks.sessionUnlockedOnce = true;
+    mocks.vaultUnlocked = true;
+    window.__HUSHH_NATIVE_TEST__ = {
+      enabled: true,
+      bootstrapState: "uid_mismatch",
+    };
+
+    render(
+      <VaultLockGuard>
+        <div>Protected route</div>
+      </VaultLockGuard>,
+    );
+
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(screen.queryByText("Protected route")).toBeNull();
   });
 });

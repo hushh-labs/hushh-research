@@ -51,7 +51,7 @@ The action system is split into four deliberate layers.
 
 Each voice-capable or search-capable Kai surface owns a colocated `.voice-action-contract.json` file next to the feature surface.
 
-Current generated coverage includes 31 source contracts, 31 surfaces, and 116 actions. Source contracts:
+Current generated coverage includes 35 source contracts, 35 surfaces, and 130 actions. Source contracts:
 
 - [page.voice-action-contract.json](../../../hushh-webapp/app/login/page.voice-action-contract.json) — Login-local Google and Apple popup actions shared with the visible provider buttons. Generic sign-in remains a provider-choice interaction.
 
@@ -61,7 +61,6 @@ Current generated coverage includes 31 source contracts, 31 surfaces, and 116 ac
 - [page.voice-action-contract.json](../../../hushh-webapp/app/one/kyc/page.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/one/marketplace/page.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/profile/page.voice-action-contract.json)
-- [page-client.voice-action-contract.json](../../../hushh-webapp/app/profile/pkm-agent-lab/page-client.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/one/gmail/page.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/ria/clients/page.voice-action-contract.json)
 - [page.voice-action-contract.json](../../../hushh-webapp/app/ria/onboarding/page.voice-action-contract.json)

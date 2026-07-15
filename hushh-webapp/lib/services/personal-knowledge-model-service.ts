@@ -77,6 +77,7 @@ export interface PkmUpgradeDomainState {
   blockedReasons?: string[];
   upgradedAt: string | null;
   needsUpgrade: boolean;
+  unsupportedFutureVersion?: boolean;
 }
 
 export interface PersonalKnowledgeModelMetadata {
@@ -94,6 +95,7 @@ export interface PersonalKnowledgeModelMetadata {
   targetReadableProjectionVersion?: string | null;
   upgradeStatus: string;
   upgradableDomains: PkmUpgradeDomainState[];
+  unsupportedDomains?: PkmUpgradeDomainState[];
   lastUpgradedAt: string | null;
   suggestedDomains: string[];
   lastUpdated: string | null;
@@ -162,6 +164,15 @@ export interface PkmSyncCheckpointMetadata {
   upgradedInSession: boolean;
   conflictRetry: boolean;
   upgradeRunId?: string | null;
+}
+
+export interface PkmMutationSharingImpact {
+  activeRecipientCount: number;
+  recipientLabels: string[];
+  entersNextExportRevision: boolean;
+  summary: string;
+  affectedGrantIds: string[];
+  affectedExportIds: string[];
 }
 
 type DecryptedFullBlobCacheEntry = {
@@ -2140,6 +2151,40 @@ export class PersonalKnowledgeModelService {
           (scope) => scope === "pkm.read" || scope.endsWith(".*")
         ),
       scopeEntries: Array.isArray(data.scope_entries) ? data.scope_entries : undefined,
+    };
+  }
+
+  static async getMutationSharingImpact(params: {
+    userId: string;
+    domain: string;
+    scopePath: string;
+    vaultOwnerToken: string;
+  }): Promise<PkmMutationSharingImpact> {
+    const query = new URLSearchParams({ scope_path: params.scopePath });
+    const response = await ApiService.apiFetch(
+      `${this.PKM_API_PREFIX}/memory/mutation-impact/${encodeURIComponent(params.userId)}/${encodeURIComponent(params.domain)}?${query}`,
+      { headers: this.getAuthHeaders(params.vaultOwnerToken) }
+    );
+    if (!response.ok) {
+      throw new Error("Current sharing could not be verified. Refresh and try again.");
+    }
+    const payload = (await response.json()) as Record<string, unknown>;
+    return {
+      activeRecipientCount: Math.max(0, Number(payload.active_recipient_count) || 0),
+      recipientLabels: Array.isArray(payload.recipient_labels)
+        ? payload.recipient_labels.map(String).filter(Boolean)
+        : [],
+      entersNextExportRevision: payload.enters_next_export_revision === true,
+      summary:
+        typeof payload.summary === "string" && payload.summary.trim()
+          ? payload.summary.trim()
+          : "No active recipients are affected.",
+      affectedGrantIds: Array.isArray(payload.affected_grant_ids)
+        ? payload.affected_grant_ids.map(String).filter(Boolean)
+        : [],
+      affectedExportIds: Array.isArray(payload.affected_export_ids)
+        ? payload.affected_export_ids.map(String).filter(Boolean)
+        : [],
     };
   }
 

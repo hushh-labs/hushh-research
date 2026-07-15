@@ -71,6 +71,17 @@ describe("developer runtime resolution", () => {
     expect(runtime.mcpUrl).toBe("https://api.hushh.ai/mcp/");
   });
 
+  it("fails closed to production when no runtime origin or public endpoint is configured", async () => {
+    const { resolveDeveloperRuntime } = await loadRuntime();
+    const browserWindow = globalThis.window;
+    vi.stubGlobal("window", undefined);
+    try {
+      expect(resolveDeveloperRuntime().environment).toBe("production");
+    } finally {
+      vi.stubGlobal("window", browserWindow);
+    }
+  });
+
   it("preserves explicit MCP URL paths while normalizing the trailing slash", async () => {
     process.env.NEXT_PUBLIC_DEVELOPER_MCP_URL = "https://mcp.example.com/custom-mount";
 

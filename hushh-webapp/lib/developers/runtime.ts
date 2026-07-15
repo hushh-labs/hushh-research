@@ -31,7 +31,7 @@ function normalizeOrigin(value: string | null | undefined): string | null {
 
 function resolveEnvironment(origin: string | null): DeveloperEnvironment {
   if (!origin) {
-    return "local";
+    return "production";
   }
 
   const hostname = new URL(origin).hostname.toLowerCase();

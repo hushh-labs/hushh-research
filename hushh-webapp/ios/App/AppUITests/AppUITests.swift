@@ -242,8 +242,8 @@ final class AppUITests: XCTestCase {
         let app = launchUiInteractionAuditApp()
         let status = try waitForUiFlowsComplete(app, timeout: uiInteractionFlowTimeout())
         XCTAssertEqual(status["bootstrap"], "vault_unlocked", "Native reviewer vault bootstrap did not complete")
-        XCTAssertEqual(status["ui_complete"], "1", "UI interaction flows did not complete. Last status: \(status)")
-        XCTAssertEqual(status["ui_ok"], "1", "UI interaction flows failed. Last status: \(status)")
+        XCTAssertEqual(status["ui_complete"], "1", "UI interaction flows did not complete. \(statusSummaryForLog(status))")
+        XCTAssertEqual(status["ui_ok"], "1", "UI interaction flows failed. \(statusSummaryForLog(status))")
         app.terminate()
     }
 
@@ -674,16 +674,9 @@ final class AppUITests: XCTestCase {
                     if lastStatus["ui_complete"] == "1" {
                         return lastStatus
                     }
-                    let bootstrapUid = lastStatus["bootstrap_uid"] ?? ""
-                    if let expectedUid = ProcessInfo.processInfo.environment["HUSHH_UI_TEST_REVIEWER_UID"]
-                        ?? ProcessInfo.processInfo.environment["REVIEWER_UID"],
-                       !expectedUid.isEmpty,
-                       !bootstrapUid.isEmpty,
-                       bootstrapUid != expectedUid,
+                    if lastStatus["bootstrap_uid_ok"] == "0",
                        Date().timeIntervalSince(lastProgressAt) >= 20 {
-                        XCTFail(
-                            "Signed in as unexpected uid \(bootstrapUid), expected \(expectedUid). Uninstall the app or reset device session before UITest."
-                        )
+                        XCTFail("Reviewer identity mismatch. Reset the simulator session and verify reviewer configuration.")
                         return lastStatus
                     }
                     let flowLabel = lastStatus["ui_flow"] ?? ""
@@ -692,7 +685,7 @@ final class AppUITests: XCTestCase {
                         lastStatus["ui_step"] ?? "",
                         lastStatus["ui_step_type"] ?? "",
                         lastStatus["route"] ?? "",
-                        lastStatus["ui_error"] ?? "",
+                        lastStatus["ui_error_class"] ?? "",
                     ].joined(separator: "|")
                     if !flowLabel.isEmpty, flowLabel != lastFlowLabel {
                         lastFlowLabel = flowLabel
@@ -724,9 +717,8 @@ final class AppUITests: XCTestCase {
 
             let stallTimeout = uiInteractionStallTimeout(lastStatus, totalTimeout: timeout)
             if Date().timeIntervalSince(lastProgressAt) >= stallTimeout {
-                let visible = visibleButtonLabels(app: app).joined(separator: ", ")
                 XCTFail(
-                    "UI interaction flows stalled for \(Int(stallTimeout))s. ui_flow=\(lastFlowLabel) visible_buttons=[\(visible)] last_status=\(lastStatus)"
+                    "UI interaction flows stalled for \(Int(stallTimeout))s. \(statusSummaryForLog(lastStatus))"
                 )
                 return lastStatus
             }
@@ -735,9 +727,8 @@ final class AppUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(idleInterval))
         }
 
-        let visible = visibleButtonLabels(app: app).joined(separator: ", ")
         XCTFail(
-            "UI interaction flows timed out after \(Int(timeout))s. visible_buttons=[\(visible)] last_status=\(lastStatus)"
+            "UI interaction flows timed out after \(Int(timeout))s. \(statusSummaryForLog(lastStatus))"
         )
         return lastStatus
     }
@@ -749,12 +740,11 @@ final class AppUITests: XCTestCase {
         let flow = status["ui_flow"] ?? ""
         let route = status["route"] ?? ""
         let stepType = status["ui_step_type"] ?? ""
-        let body = (status["body"] ?? "").lowercased()
         if isLongImportWaitStatus(
             flow: flow,
             route: route,
             stepType: stepType,
-            body: body
+            longWait: status["long_wait"] == "1"
         ) {
             return min(totalTimeout, 660)
         }
@@ -767,7 +757,7 @@ final class AppUITests: XCTestCase {
             flow: status["ui_flow"] ?? "",
             route: status["route"] ?? "",
             stepType: status["ui_step_type"] ?? "",
-            body: (status["body"] ?? "").lowercased()
+            longWait: status["long_wait"] == "1"
         )
     }
 
@@ -775,14 +765,14 @@ final class AppUITests: XCTestCase {
         flow: String,
         route: String,
         stepType: String,
-        body: String
+        longWait: Bool
     ) -> Bool {
         let isImportFlow = flow == "native-investor-kai-import-e2e"
         let isImportRoute = normalizeRoute(route).hasPrefix("/kai/import")
         let isLongImportStep =
             stepType == "wait_button" ||
             stepType == "assert_text" ||
-            body.contains("importing portfolio")
+            longWait
 
         return isImportFlow && isImportRoute && isLongImportStep
     }
@@ -800,7 +790,7 @@ final class AppUITests: XCTestCase {
             "vault_struct_salt",
             "vault_struct_iv",
             "vault_crypto_stage",
-            "vault_crypto_error",
+            "vault_crypto_error_class",
             "vault_crypto_subtle",
             "vault_crypto_passphrase_match",
             "vault_crypto_passphrase_bytes",
@@ -817,17 +807,22 @@ final class AppUITests: XCTestCase {
             "data",
             "ui_complete",
             "ui_ok",
-            "ui_error",
+            "ui_error_class",
             "portfolio_start_state",
             "portfolio_start_status",
-            "portfolio_start_run",
-            "portfolio_start_error",
+            "portfolio_start_run_present",
+            "portfolio_start_error_class",
             "portfolio_stream_state",
-            "portfolio_stream_run",
+            "portfolio_stream_run_present",
             "portfolio_events",
             "portfolio_last_event",
             "portfolio_last_seq",
-            "portfolio_stream_error",
+            "portfolio_stream_error_class",
+            "bootstrap_uid_ok",
+            "bootstrap_error_class",
+            "jserr_class",
+            "jsrej_class",
+            "long_wait",
         ]
 
         var summary: [String] = keys.compactMap { key -> String? in
@@ -836,39 +831,7 @@ final class AppUITests: XCTestCase {
             }
             return "\(key)=\(value)"
         }
-        if let errorClass = bootstrapErrorClass(status["bootstrap_error"] ?? "") {
-            summary.append("bootstrap_error_class=\(errorClass)")
-        }
         return summary.joined(separator: " ")
-    }
-
-    private func bootstrapErrorClass(_ rawValue: String) -> String? {
-        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !value.isEmpty else {
-            return nil
-        }
-        if value.contains("unexpected uid") || value.contains("uid mismatch") {
-            return "uid_mismatch"
-        }
-        if value.contains("custom token") {
-            return "custom_token"
-        }
-        if value.contains("reviewer") && value.contains("session") {
-            return "reviewer_session"
-        }
-        if value.contains("401") || value.contains("403") || value.contains("sign in") {
-            return "authentication"
-        }
-        if value.contains("404") || value.contains("not found") {
-            return "not_found"
-        }
-        if value.contains("timed out") || value.contains("network") || value.contains("connection") {
-            return "network"
-        }
-        if value.contains("vault") {
-            return "vault"
-        }
-        return "other"
     }
 
     private func reviewerRoute(
@@ -895,7 +858,7 @@ final class AppUITests: XCTestCase {
             let status = try waitForSatisfiedStatus(app, route: route, timeout: 90)
             XCTAssertTrue(
                 route.allowedDataStates.contains(status["data"] ?? ""),
-                "Unexpected data state for \(route.name): \(status)"
+                "Unexpected data state for \(route.name): \(statusSummaryForLog(status))"
             )
             app.terminate()
         }
@@ -980,7 +943,10 @@ final class AppUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.35))
         }
 
-        XCTFail("Route \(route.name) never satisfied native status checks. Last status: \(lastStatus)")
+        XCTFail(
+            "Route \(route.name) never satisfied native status checks. "
+                + statusSummaryForLog(parseStatus(lastStatus))
+        )
         return parseStatus(lastStatus)
     }
 

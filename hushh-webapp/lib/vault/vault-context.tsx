@@ -96,11 +96,21 @@ export function VaultProvider({ children }: VaultProviderProps) {
 
   // SECURITY: Vault key stored in React state = memory only
   // This is NOT accessible via sessionStorage.getItem() - XSS protection
-  const [vaultKey, setVaultKey] = useState<string | null>(null);
+  const [storedVaultKey, setVaultKey] = useState<string | null>(null);
 
   // VAULT_OWNER consent token (also memory-only for security)
-  const [vaultOwnerToken, setVaultOwnerToken] = useState<string | null>(null);
-  const [tokenExpiresAt, setTokenExpiresAt] = useState<number | null>(null);
+  const [storedVaultOwnerToken, setVaultOwnerToken] = useState<string | null>(null);
+  const [storedTokenExpiresAt, setTokenExpiresAt] = useState<number | null>(null);
+  const [vaultUserId, setVaultUserId] = useState<string | null>(null);
+  const currentUserId = user?.uid ?? null;
+  const vaultIdentityMatches = Boolean(
+    currentUserId && vaultUserId === currentUserId,
+  );
+  // Never expose credentials across an auth identity transition, including the
+  // render before the cleanup effect below has run.
+  const vaultKey = vaultIdentityMatches ? storedVaultKey : null;
+  const vaultOwnerToken = vaultIdentityMatches ? storedVaultOwnerToken : null;
+  const tokenExpiresAt = vaultIdentityMatches ? storedTokenExpiresAt : null;
   const lastUpgradeKickoffKeyRef = useRef<string | null>(null);
   // Mirror of tokenExpiresAt so the app-resume listener can read the latest
   // expiry without re-subscribing every time the token changes.
@@ -113,20 +123,22 @@ export function VaultProvider({ children }: VaultProviderProps) {
   const lockVault = useCallback(() => {
     resetSessionUnlocked();
     console.log("🔒 Vault locked (key + token cleared from memory)");
-    if (user?.uid && vaultOwnerToken) {
+    const lockedUserId = vaultUserId;
+    if (lockedUserId && storedVaultOwnerToken) {
       void PkmUpgradeOrchestrator.pauseForLocalAuthResume({
-        userId: user.uid,
-        vaultOwnerToken,
+        userId: lockedUserId,
+        vaultOwnerToken: storedVaultOwnerToken,
       }).catch((error) => {
         console.warn("[VaultProvider] Failed to pause PKM upgrade for local auth resume:", error);
       });
     }
-    if (user?.uid) {
-      ConsentExportRefreshOrchestrator.pauseForLocalAuthResume({ userId: user.uid });
+    if (lockedUserId) {
+      ConsentExportRefreshOrchestrator.pauseForLocalAuthResume({ userId: lockedUserId });
     }
     setVaultKey(null);
     setVaultOwnerToken(null);
     setTokenExpiresAt(null);
+    setVaultUserId(null);
     lastUpgradeKickoffKeyRef.current = null;
 
     if (Capacitor.getPlatform() === "ios") {
@@ -135,30 +147,41 @@ export function VaultProvider({ children }: VaultProviderProps) {
       });
     }
 
-    if (user?.uid) {
-      CacheSyncService.onVaultStateChanged(user.uid);
+    if (lockedUserId) {
+      CacheSyncService.onVaultStateChanged(lockedUserId);
       void import("@/lib/kai/kai-financial-resource")
         .then(({ KaiFinancialResourceService }) => {
-          KaiFinancialResourceService.invalidate(user.uid, { includeDevice: false });
+          KaiFinancialResourceService.invalidate(lockedUserId, { includeDevice: false });
         })
         .catch(() => undefined);
       void import("@/lib/pkm/pkm-domain-resource")
         .then(({ PkmDomainResourceService }) => {
-          PkmDomainResourceService.invalidateDomain(user.uid, "financial");
+          PkmDomainResourceService.invalidateDomain(lockedUserId, "financial");
         })
         .catch(() => undefined);
     }
     VaultService.invalidateVaultStateCache();
-  }, [user?.uid, vaultOwnerToken]);
+  }, [storedVaultOwnerToken, vaultUserId]);
 
-  // Auto-Lock on Sign Out
-  // If AuthContext reports no user, we MUST clear the decrypted key from memory immediately.
+  // Auto-lock on sign-out or account switch. The public context is already
+  // fail-closed during the render where the UID changes; this effect erases the
+  // stale material and identity-bound route latch from memory.
   useEffect(() => {
-    if (!user && vaultKey) {
-      console.log("🔒 [VaultProvider] User signed out - Formatting memory...");
+    if (
+      vaultUserId &&
+      currentUserId !== vaultUserId &&
+      (storedVaultKey || storedVaultOwnerToken)
+    ) {
+      console.log("🔒 [VaultProvider] Auth identity changed - clearing vault memory...");
       lockVault();
     }
-  }, [user, vaultKey, lockVault]);
+  }, [
+    currentUserId,
+    lockVault,
+    storedVaultKey,
+    storedVaultOwnerToken,
+    vaultUserId,
+  ]);
 
   // App-resume expiry guard (iOS/Android + web). Proactively lock when the
   // memory-only VAULT_OWNER token has reached its known expiry. Other backend
@@ -388,13 +411,24 @@ export function VaultProvider({ children }: VaultProviderProps) {
 
   const unlockVault = useCallback(
     (key: string, token: string, expiresAt: number) => {
-      markSessionUnlocked();
+      const unlockingUserId = user?.uid?.trim() ?? "";
+      if (!unlockingUserId) {
+        resetSessionUnlocked();
+        setVaultKey(null);
+        setVaultOwnerToken(null);
+        setTokenExpiresAt(null);
+        setVaultUserId(null);
+        console.warn("[VaultProvider] Refused vault unlock without an authenticated user.");
+        return;
+      }
+      markSessionUnlocked(unlockingUserId);
       console.log(
         "🔓 Vault unlocked (key + token in memory only - XSS protected)"
       );
       setVaultKey(key);
       setVaultOwnerToken(token);
       setTokenExpiresAt(expiresAt);
+      setVaultUserId(unlockingUserId);
 
       if (user?.uid && Capacitor.getPlatform() === "ios") {
         void (async () => {

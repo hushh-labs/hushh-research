@@ -4345,11 +4345,11 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": true,
+        "cache_service": false,
         "use_stale_resource": false,
-        "device_cache": true,
+        "device_cache": false,
         "secure_cache": false,
-        "cache_sync": true,
+        "cache_sync": false,
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
@@ -4357,7 +4357,9 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": []
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
     },
     {
       "route": "/ria/requests",

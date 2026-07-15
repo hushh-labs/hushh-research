@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { execFileSync, execSync } from "node:child_process";
 import {
@@ -10,6 +11,12 @@ import {
 } from "../testing/reviewer-test-identity.mjs";
 import { filterUiFlows } from "../testing/signed-in-ui-flows.mjs";
 import { prepareNativeTestArtifacts } from "./prepare-native-test-artifacts.mjs";
+import {
+  assertNativeArtifactSafe,
+  errorClass,
+  sanitizeNativeArtifact,
+  sanitizeStatusForReport,
+} from "./native-report-sanitizer.mjs";
 
 const repoRoot = process.cwd();
 const monorepoRoot = path.resolve(repoRoot, "..");
@@ -40,13 +47,6 @@ const reviewerIdentity = resolveReviewerTestIdentity({
 const reviewerVaultPassphrase = reviewerIdentity.reviewerVaultPassphrase;
 const reviewerUid = reviewerIdentity.reviewerUid;
 const uiFlows = filterUiFlows({ flowFilter, routeFilter });
-const REDACTED_REPORT_STATUS_KEYS = new Set([
-  "bootstrap_uid",
-  "body",
-  "bodySnippet",
-  "jserr",
-]);
-
 function resolveSimulatorDestination(deviceName) {
   try {
     const output = execFileSync(
@@ -189,15 +189,6 @@ function parseStatus(raw) {
   );
 }
 
-function sanitizeStatusForReport(status = {}) {
-  return Object.fromEntries(
-    Object.entries(status || {}).map(([key, value]) => [
-      key,
-      REDACTED_REPORT_STATUS_KEYS.has(key) && value ? "<redacted>" : value,
-    ])
-  );
-}
-
 function readUiReportFromContainer() {
   const container = run("xcrun", [
     "simctl",
@@ -206,7 +197,7 @@ function readUiReportFromContainer() {
     bundleId,
     "data",
   ]);
-  const reportFile = path.join(container, "Documents", "native-ui-interaction-report.json");
+  const reportFile = path.join(container, "Library", "Caches", "native-ui-interaction-report.json");
   if (!fs.existsSync(reportFile)) return null;
   return JSON.parse(fs.readFileSync(reportFile, "utf8"));
 }
@@ -243,7 +234,9 @@ function launchUiInteractionAudit() {
 }
 
 function captureFailureScreenshot() {
-  const screenshotPath = path.join(repoRoot, "native-ios-ui-interaction-failure.png");
+  const screenshotDir = path.join(os.tmpdir(), "hushh-native-test-artifacts");
+  fs.mkdirSync(screenshotDir, { recursive: true });
+  const screenshotPath = path.join(screenshotDir, "native-ios-ui-interaction-failure.png");
   tryRun("xcrun", [
     "simctl",
     "io",
@@ -268,7 +261,7 @@ function waitForUiInteractionReport() {
         bundleId,
         "data",
       ]);
-      const statusPath = path.join(container, "Documents", "native-test-status.txt");
+      const statusPath = path.join(container, "Library", "Caches", "native-test-status.txt");
       if (fs.existsSync(statusPath)) {
         const raw = fs.readFileSync(statusPath, "utf8").trim();
         lastStatus = parseStatus(raw);
@@ -329,6 +322,8 @@ function main() {
   const result = waitForUiInteractionReport();
   const auditOk = Boolean(result.ok && result.report?.ok);
   const failureScreenshotPath = auditOk ? null : captureFailureScreenshot();
+  const sanitizedReport = sanitizeNativeArtifact(result.report);
+  const sanitizedErrorClass = errorClass(result.error);
   if (!keepAppAfterAudit) {
     tryRun("xcrun", ["simctl", "terminate", simulatorDevice, bundleId]);
   }
@@ -337,16 +332,17 @@ function main() {
     generated_at: new Date().toISOString(),
     destination,
     flow_count: uiFlows.length,
-    passed_flows: result.report?.flows?.filter((flow) => flow.ok).length ?? 0,
-    failed_flows: result.report?.flows?.filter((flow) => !flow.ok).length ?? 0,
+    passed_flows: sanitizedReport?.flows?.filter((flow) => flow.ok).length ?? 0,
+    failed_flows: sanitizedReport?.flows?.filter((flow) => !flow.ok).length ?? 0,
     ok: auditOk,
     flows: uiFlows.map((flow) => flow.id),
-    report: result.report,
-    error: result.error || null,
-    failure_screenshot: failureScreenshotPath,
+    report: sanitizedReport,
+    errorClass: sanitizedErrorClass || null,
+    failure_screenshot: failureScreenshotPath ? "<external-test-artifact>" : null,
     last_status: sanitizeStatusForReport(result.status),
   };
 
+  assertNativeArtifactSafe(summary, [reviewerUid, reviewerVaultPassphrase]);
   fs.writeFileSync(reportPath, `${JSON.stringify(summary, null, 2)}\n`);
   console.log(`\n==> report: ${path.relative(repoRoot, reportPath)}`);
 
@@ -355,12 +351,12 @@ function main() {
     return;
   }
 
-  const failed = (result.report?.flows || []).filter((flow) => !flow.ok);
+  const failed = (sanitizedReport?.flows || []).filter((flow) => !flow.ok);
   for (const flow of failed) {
-    console.log(`   ✗ ${flow.id}: ${flow.failedStep?.type || flow.results?.slice(-1)[0]?.error || "failed"}`);
+    console.log(`   ✗ ${flow.id}: ${flow.failedStep?.type || flow.results?.slice(-1)[0]?.errorClass || "failed"}`);
   }
   if (result.error) {
-    console.log(`   ✗ ${result.error}`);
+    console.log(`   ✗ ${sanitizedErrorClass || "other"}`);
   }
   process.exit(1);
 }

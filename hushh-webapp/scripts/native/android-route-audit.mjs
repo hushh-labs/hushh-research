@@ -9,6 +9,13 @@ import {
   resolveReviewerTestIdentity,
 } from "../testing/reviewer-test-identity.mjs";
 import { syncNativeFirebaseConfigs } from "./sync-native-firebase-configs.mjs";
+import {
+  assertNativeArtifactSafe,
+  errorClass,
+  sanitizeNativeArtifact,
+  sanitizeRawStatusForReport,
+  sanitizeStatusForReport,
+} from "./native-report-sanitizer.mjs";
 
 const repoRoot = process.cwd();
 const webDir = repoRoot;
@@ -464,8 +471,8 @@ function main() {
           route: route.route,
           ok: false,
           expected: route,
-          observed: result.status,
-          raw: result.raw,
+          observed: sanitizeStatusForReport(result.status),
+          raw: sanitizeRawStatusForReport(result.raw),
         });
         continue;
       }
@@ -475,8 +482,8 @@ function main() {
         route: route.route,
         ok: true,
         expected: route,
-        observed: result.status,
-        raw: result.raw,
+        observed: sanitizeStatusForReport(result.status),
+        raw: sanitizeRawStatusForReport(result.raw),
       });
     } catch (error) {
       console.log("FAIL");
@@ -487,7 +494,7 @@ function main() {
         expected: route,
         observed: {},
         raw: "",
-        error: error instanceof Error ? error.message : String(error),
+        errorClass: errorClass(error),
       });
     }
   }
@@ -501,7 +508,9 @@ function main() {
     results,
   };
 
-  fs.writeFileSync(reportPath, `${JSON.stringify(summary, null, 2)}\n`);
+  const sanitizedSummary = sanitizeNativeArtifact(summary);
+  assertNativeArtifactSafe(sanitizedSummary, [reviewerUid, reviewerVaultPassphrase]);
+  fs.writeFileSync(reportPath, `${JSON.stringify(sanitizedSummary, null, 2)}\n`);
   console.log(`==> report: ${path.relative(repoRoot, reportPath)}`);
 
   if (summary.failed_routes > 0) {

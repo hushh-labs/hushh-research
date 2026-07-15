@@ -59,6 +59,7 @@ export type DomainManifest = {
     visibility_posture?: "private" | "consent_required";
     default_projection_ready?: boolean;
     default_projection_updated_at?: string | null;
+    owner_consent_override?: boolean;
     summary_projection?: Record<string, unknown> & {
       top_level_scope_path?: string;
       consumer_visible?: boolean;
