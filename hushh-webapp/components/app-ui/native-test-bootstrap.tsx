@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 
 import { useAuth } from "@/hooks/use-auth";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { VaultService } from "@/lib/services/vault-service";
 import { resolveLocalReviewerCredentials } from "@/lib/testing/local-reviewer-auth";
 import { useNativeTestConfig } from "@/lib/testing/native-test";
@@ -26,15 +28,21 @@ function updateBootstrapStatus(
     authenticating: 20,
     authenticated: 30,
     loading_vault_state: 40,
+    creating_vault: 50,
     unlocking_vault: 50,
+    completing_setup: 55,
     vault_unlocked: 60,
     auth_error: 70,
     uid_mismatch: 70,
     vault_error: 70,
   };
-  const currentRank = stageRank[bridge.bootstrapState || ""] ?? 0;
+  const currentStage = bridge.bootstrapState || "";
+  const currentRank = stageRank[currentStage] ?? 0;
   const nextRank = stageRank[stage] ?? 0;
-  if (nextRank < currentRank) {
+  const failureStages = new Set(["auth_error", "uid_mismatch", "vault_error"]);
+  const isRecoveringFromFailure =
+    failureStages.has(currentStage) && !failureStages.has(stage);
+  if (nextRank < currentRank && !isRecoveringFromFailure) {
     return;
   }
   bridge.bootstrapState = stage;
@@ -97,9 +105,11 @@ export function NativeTestBootstrap() {
 
     nativeTestReviewerBootstrapInflight ??= (async () => {
       try {
-        const localReviewerCredentials = resolveLocalReviewerCredentials(
-          typeof window !== "undefined" ? window.location.hostname : null
-        );
+        const localReviewerCredentials = Capacitor.isNativePlatform()
+          ? null
+          : resolveLocalReviewerCredentials(
+              typeof window !== "undefined" ? window.location.hostname : null
+            );
         const authResult = localReviewerCredentials
           ? await AuthService.signInWithEmailAndPassword(
               localReviewerCredentials.email,
@@ -196,18 +206,75 @@ export function NativeTestBootstrap() {
 
     void (async () => {
       try {
-        const vaultState = await VaultService.getVaultState(user.uid);
-        updateBootstrapStatus("unlocking_vault", {
-          userId: user.uid,
-        });
-        const decryptedKey = await VaultService.unlockWithMethod({
-          state: vaultState,
-          method: "passphrase",
-          secretMaterial: config.vaultPassphrase!,
-        });
+        const hasVault = await VaultService.checkVault(user.uid);
+        let decryptedKey: string | null;
+        let createdVault = false;
+
+        if (hasVault) {
+          const vaultState = await VaultService.getVaultState(user.uid);
+          updateBootstrapStatus("unlocking_vault", {
+            userId: user.uid,
+          });
+          decryptedKey = await VaultService.unlockWithMethod({
+            state: vaultState,
+            method: "passphrase",
+            secretMaterial: config.vaultPassphrase!,
+          });
+        } else {
+          updateBootstrapStatus("creating_vault", {
+            userId: user.uid,
+          });
+          const vaultData = await VaultService.createVault(
+            config.vaultPassphrase!,
+          );
+          const vaultKeyHash = await VaultService.hashVaultKey(
+            vaultData.vaultKeyHex,
+          );
+          await VaultService.setupVaultState(user.uid, {
+            vaultKeyHash,
+            primaryMethod: "passphrase",
+            recoveryEncryptedVaultKey: vaultData.recoveryEncryptedVaultKey,
+            recoverySalt: vaultData.recoverySalt,
+            recoveryIv: vaultData.recoveryIv,
+            wrappers: [
+              {
+                method: "passphrase",
+                encryptedVaultKey: vaultData.encryptedVaultKey,
+                salt: vaultData.salt,
+                iv: vaultData.iv,
+              },
+            ],
+          });
+          const persistedState = await VaultService.getVaultState(user.uid);
+          await VaultService.assertVaultKeyMatchesState(
+            persistedState,
+            vaultData.vaultKeyHex,
+          );
+          decryptedKey = await VaultService.unlockWithMethod({
+            state: persistedState,
+            method: "passphrase",
+            secretMaterial: config.vaultPassphrase!,
+          });
+          if (!decryptedKey) {
+            throw new Error("Persisted vault passphrase verification failed");
+          }
+          createdVault = true;
+        }
 
         if (!decryptedKey) {
           throw new Error("Vault unlock returned no decrypted key");
+        }
+
+        if (createdVault) {
+          updateBootstrapStatus("completing_setup", {
+            userId: user.uid,
+          });
+          await PreVaultUserStateService.syncKaiSetupState({
+            userId: user.uid,
+            completed: true,
+            skipped: false,
+            completedAt: Date.now(),
+          });
         }
 
         const { token, expiresAt } = await VaultService.getOrIssueVaultOwnerToken(

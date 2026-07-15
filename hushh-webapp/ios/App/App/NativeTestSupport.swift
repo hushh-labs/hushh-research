@@ -3,6 +3,34 @@ import UIKit
 import WebKit
 import FirebaseAuth
 
+enum NativeTestDiagnostics {
+    struct VaultBridgeParity {
+        let wrapperCount: Bool
+        let encryptedVaultKey: Bool
+        let salt: Bool
+        let iv: Bool
+
+        var allFields: Bool {
+            wrapperCount && encryptedVaultKey && salt && iv
+        }
+    }
+
+    private static let lock = NSLock()
+    private static var storedVaultBridgeParity: VaultBridgeParity?
+
+    static func recordVaultBridgeParity(_ parity: VaultBridgeParity) {
+        lock.lock()
+        storedVaultBridgeParity = parity
+        lock.unlock()
+    }
+
+    static func vaultBridgeParity() -> VaultBridgeParity? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedVaultBridgeParity
+    }
+}
+
 struct NativeTestConfiguration {
     let enabled: Bool
     let initialRoute: String?
@@ -176,6 +204,9 @@ struct NativeTestConfiguration {
               portfolioStreamLastSeq: bridge.portfolioStreamLastSeq || "",
               portfolioStreamLastError: bridge.portfolioStreamLastError || "",
               triggerReviewerLoginPresent: typeof bridge.triggerReviewerLogin === "function",
+              triggerVaultUnlockPresent: typeof bridge.triggerVaultUnlock === "function",
+              vaultPassphraseConfigured: typeof bridge.vaultPassphrase === "string" && bridge.vaultPassphrase.length > 0,
+              expectedUserConfigured: typeof bridge.expectedUserId === "string" && bridge.expectedUserId.length > 0,
               domTestEnabled: "",
               domAutoReviewerLogin: "",
               reviewerButtonFound: reviewerButtonFound,
@@ -235,6 +266,10 @@ struct NativeTestConfiguration {
               bridge._vaultTimer = window.setInterval(function() {
                 try {
                   if (typeof bridge.triggerVaultUnlock === "function") {
+                    if (bridge._vaultUnlockSubmitted === true) {
+                      return;
+                    }
+                    bridge._vaultUnlockSubmitted = true;
                     bridge.triggerVaultUnlock();
                     return;
                   }
@@ -266,7 +301,8 @@ struct NativeTestConfiguration {
                     var text = (button.textContent || "").trim().toLowerCase();
                     return text === "unlock with passphrase";
                   });
-                  if (unlockButton && !unlockButton.disabled) {
+                  if (unlockButton && !unlockButton.disabled && bridge._vaultUnlockSubmitted !== true) {
+                    bridge._vaultUnlockSubmitted = true;
                     unlockButton.click();
                   }
                 } catch (_) {}

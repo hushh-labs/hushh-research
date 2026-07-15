@@ -21,6 +21,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -33,6 +34,7 @@ import {
   markSessionUnlocked,
 } from "@/lib/vault/vault-session-latch";
 import {
+  hasIncompleteNativeUiFlowSession,
   isNativeTestVaultBootstrapManaged,
   preferPassphraseUnlockForAutomation,
   useNativeTestConfig,
@@ -56,6 +58,10 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   const nativeTestConfig = useNativeTestConfig();
   const nativeTestBootstrapManaged =
     isNativeTestVaultBootstrapManaged(nativeTestConfig);
+  const nativeUiFlowResumePending = hasIncompleteNativeUiFlowSession();
+  const holdRouteForNativeTest =
+    nativeTestBootstrapManaged || nativeUiFlowResumePending;
+  const isNativePlatform = Capacitor.isNativePlatform();
   const skipGeneratedDefaultUnlock =
     preferPassphraseUnlockForAutomation(nativeTestConfig);
 
@@ -67,10 +73,27 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   const userId = user?.uid ?? null;
   const { beginTask, completeTaskStep, endTask } = useStepProgress();
   const [hasVault, setHasVault] = useState<boolean | null>(null);
+  const [nativeAuthGraceElapsed, setNativeAuthGraceElapsed] = useState(
+    !isNativePlatform,
+  );
   const authStepDoneRef = useRef(false);
   const vaultStepDoneRef = useRef(false);
   const nativeReplayAttemptedRef = useRef(false);
   const PROGRESS_SCOPE = "vault-lock-guard";
+
+  useEffect(() => {
+    if (!isNativePlatform || authLoading || userId) {
+      if (!isNativePlatform || userId) {
+        setNativeAuthGraceElapsed(true);
+      }
+      return undefined;
+    }
+    if (nativeAuthGraceElapsed) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setNativeAuthGraceElapsed(true), 2_000);
+    return () => window.clearTimeout(timer);
+  }, [authLoading, isNativePlatform, nativeAuthGraceElapsed, userId]);
 
   useEffect(() => {
     if (!userId) {
@@ -91,13 +114,22 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   useEffect(() => {
     if (authLoading) return;
     if (userId) return;
+    if (holdRouteForNativeTest) return;
+    if (isNativePlatform && !nativeAuthGraceElapsed) return;
 
     if (typeof window !== "undefined") {
       const currentPath =
         window.location.pathname + window.location.search + window.location.hash;
       router.replace(`/login?redirect=${encodeURIComponent(currentPath)}`);
     }
-  }, [authLoading, router, userId]);
+  }, [
+    authLoading,
+    holdRouteForNativeTest,
+    isNativePlatform,
+    nativeAuthGraceElapsed,
+    router,
+    userId,
+  ]);
 
   useEffect(() => {
     if (isVaultUnlocked) {
@@ -199,6 +231,12 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
   // No user - redirect to login
   if (!user) {
+    if (
+      holdRouteForNativeTest ||
+      (isNativePlatform && !nativeAuthGraceElapsed)
+    ) {
+      return <HushhLoader label="Restoring reviewer session..." />;
+    }
     return <HushhLoader label="Redirecting to login..." />;
   }
 

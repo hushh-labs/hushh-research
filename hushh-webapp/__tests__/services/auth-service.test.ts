@@ -42,6 +42,7 @@ const {
     confirmVerificationCode: vi.fn(),
     getCurrentUser: vi.fn(),
     getIdToken: vi.fn(),
+    signInWithCustomToken: vi.fn(),
     signInWithGoogle: vi.fn(),
     signInWithEmailAndPassword: vi.fn(),
     linkWithPhoneNumber: vi.fn(),
@@ -176,6 +177,36 @@ function enableLocalDevPhoneTest() {
     },
   });
 }
+
+describe("AuthService native custom-token continuity", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCapacitor.isNativePlatform.mockReturnValue(true);
+    mockAuth.currentUser = null;
+  });
+
+  it("persists the reviewer session in native Firebase", async () => {
+    vi.mocked(FirebaseAuthentication.signInWithCustomToken).mockResolvedValue({
+      user: {
+        uid: "reviewer-user",
+        email: "reviewer@example.com",
+        displayName: "Reviewer",
+        emailVerified: true,
+      },
+    } as any);
+    vi.mocked(FirebaseAuthentication.getIdToken).mockResolvedValue({
+      token: "native-id-token",
+    });
+
+    const result = await AuthService.signInWithCustomToken("custom-token");
+
+    expect(FirebaseAuthentication.signInWithCustomToken).toHaveBeenCalledWith({
+      token: "custom-token",
+    });
+    expect(result.user.uid).toBe("reviewer-user");
+    expect(result.idToken).toBe("native-id-token");
+  });
+});
 
 describe("AuthService.restoreNativeSession", () => {
   beforeEach(() => {

@@ -2861,7 +2861,7 @@
   },
   {
     "route": "/blog",
-    "mode": "hidden",
+    "mode": "standard",
     "exemptionReason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
     "voicePlaybook": {
       "playbookId": "route.blog",
@@ -2915,7 +2915,7 @@
   },
   {
     "route": "/research",
-    "mode": "hidden",
+    "mode": "standard",
     "exemptionReason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
     "voicePlaybook": {
       "playbookId": "route.research",
@@ -2942,7 +2942,7 @@
   },
   {
     "route": "/research/protocol",
-    "mode": "hidden",
+    "mode": "standard",
     "exemptionReason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
     "voicePlaybook": {
       "playbookId": "route.research.protocol",

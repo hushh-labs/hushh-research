@@ -176,6 +176,8 @@
 }
 
 .cta {
+  position: relative;
+  overflow: hidden;
   display: inline-flex;
   min-height: 56px;
   width: 100%;
@@ -193,25 +195,16 @@
   font-weight: 700;
   line-height: 1;
   transition:
-    background-color var(--motion-duration-sm) var(--motion-ease-standard),
-    transform var(--motion-press-duration) var(--motion-ease-standard);
+    background-color var(--motion-duration-sm) var(--motion-ease-standard);
 }
 
 .cta:hover {
   background: var(--app-accent-hover);
 }
 
-.cta:active {
-  transform: scale(var(--motion-press-scale));
-}
-
 @media (prefers-reduced-motion: reduce) {
   .cta {
     transition: none;
-  }
-
-  .cta:active {
-    transform: none;
   }
 }
 

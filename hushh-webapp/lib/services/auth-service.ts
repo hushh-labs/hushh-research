@@ -411,6 +411,28 @@ export class AuthService {
    * for a pre-approved reviewer UID. No reviewer password is exposed to clients.
    */
   static async signInWithCustomToken(customToken: string): Promise<AuthResult> {
+    if (Capacitor.isNativePlatform()) {
+      const nativeResult = await FirebaseAuthentication.signInWithCustomToken({
+        token: customToken,
+      });
+      if (!nativeResult.user) {
+        throw new Error("Native custom-token login returned no user");
+      }
+      const idTokenResult = await FirebaseAuthentication.getIdToken();
+      const idToken = idTokenResult.token || "";
+      if (!idToken) {
+        throw new Error("Native custom-token login returned no ID token");
+      }
+      return {
+        user: this.createUserFromNative(
+          nativeResult.user,
+          idToken,
+          "custom",
+        ),
+        idToken,
+      };
+    }
+
     const result = await firebaseSignInWithCustomToken(auth, customToken);
     const idToken = await result.user.getIdToken();
     return {

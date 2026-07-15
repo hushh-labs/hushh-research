@@ -126,6 +126,38 @@ export function isNativeTestVaultBootstrapManaged(
   );
 }
 
+const NATIVE_UI_FLOW_STORAGE_KEY = "__hushh_native_ui_flow_state_v1";
+
+/**
+ * A native UI flow can cross a full WebView document boundary before the
+ * platform bridge has re-injected its config. The runner persists this narrow
+ * resume marker so auth guards can hold the requested route during that gap.
+ */
+export function hasIncompleteNativeUiFlowSession(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  try {
+    const raw = window.sessionStorage.getItem(NATIVE_UI_FLOW_STORAGE_KEY);
+    if (!raw) return false;
+    const state = JSON.parse(raw) as {
+      started?: unknown;
+      complete?: unknown;
+      nextIndex?: unknown;
+      report?: { startedAt?: unknown } | null;
+    };
+    return (
+      state.started === true &&
+      state.complete === false &&
+      Number.isInteger(state.nextIndex) &&
+      Number(state.nextIndex) >= 0 &&
+      typeof state.report?.startedAt === "string"
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function getNativeTestConfig(): NativeTestConfig {
   if (typeof window === "undefined") {
     return {
