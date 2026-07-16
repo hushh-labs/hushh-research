@@ -33,6 +33,7 @@ from hushh_mcp.operons.kai.fetchers import (
     fetch_market_data_batch,
     fetch_market_news,
 )
+from hushh_mcp.services.fmp_call_budget import record_fmp_call
 from hushh_mcp.services.market_cache_store import get_market_cache_store_service
 from hushh_mcp.services.market_insights_cache import market_insights_cache
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
@@ -784,6 +785,7 @@ async def _fetch_vix_signal() -> dict[str, Any]:
                 "https://financialmodelingprep.com/stable/quote",
                 params={"symbol": "^VIX", "apikey": pmp_key},
             )
+            record_fmp_call(endpoint="/stable/quote:^VIX", status_code=res.status_code)
             if not res.is_success:
                 cooldown_seconds = _provider_cooldown_seconds(res.status_code)
                 if cooldown_seconds > 0:
@@ -936,6 +938,10 @@ async def _fetch_recommendation(symbol: str, quote_price: float | None) -> dict[
                     "https://financialmodelingprep.com/stable/price-target-consensus",
                     params={"symbol": symbol, "apikey": pmp_key},
                 )
+                record_fmp_call(
+                    endpoint="/stable/price-target-consensus",
+                    status_code=res.status_code,
+                )
                 if not res.is_success:
                     cooldown_seconds = _provider_cooldown_seconds(res.status_code)
                     if cooldown_seconds > 0:
@@ -1084,6 +1090,7 @@ async def _fetch_pmp_json(paths: list[str], params: dict[str, Any]) -> list[dict
             req_params = {**params, "apikey": key}
             try:
                 res = await client.get(url, params=req_params)
+                record_fmp_call(endpoint=path, status_code=res.status_code)
                 if not res.is_success:
                     cooldown_seconds = _provider_cooldown_seconds(res.status_code)
                     if cooldown_seconds > 0:
