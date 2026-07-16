@@ -216,8 +216,14 @@ def test_synthetic_evaluator_import_needs_no_core_vault_or_signing_key():
         [
             sys.executable,
             "-c",
-            "import hushh_mcp.services.pkm_agent_lab_service; "
-            "import scripts.eval_pkm_structure_agent",
+            "import asyncio; "
+            "from hushh_mcp.services.pkm_agent_lab_service import get_pkm_agent_lab_service; "
+            "service = get_pkm_agent_lab_service(); "
+            "assert service.structure_manifest.name; "
+            "service._client = object(); "
+            "preview = asyncio.run(service.generate_structure_preview("
+            "user_id='synthetic', message='I prefer Thai food.', current_domains=[])); "
+            "assert preview['structure_decision']['target_domain'] == 'food'",
         ],
         cwd=CONSENT_PROTOCOL_ROOT,
         env=environment,
