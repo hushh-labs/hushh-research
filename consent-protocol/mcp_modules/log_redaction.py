@@ -12,7 +12,7 @@ MAX_LOG_STRING_LENGTH = 160
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _PHONE_RE = re.compile(r"^\+?[0-9][0-9 .()\-]{6,}$")
-_UID_LIKE_RE = re.compile(r"^(?=.*[A-Za-z])(?=.*[-_])[A-Za-z0-9_-]{8,}$")
+_UID_LIKE_RE = re.compile(r"^(?=.*[A-Za-z])(?=.*[-_])[A-Za-z0-9_-]{24,128}$")
 _TOKEN_PREFIXES = ("HCT:", "Bearer ")
 _TOKEN_VALUE_RE = re.compile(r"\b(?:Bearer\s+|HCT:)[A-Za-z0-9._~+/=-]+")
 _QUERY_SECRET_RE = re.compile(
@@ -39,6 +39,7 @@ _SENSITIVE_EXACT_KEYS = {
     "public_key",
     "refresh_token",
     "user_id",
+    "user_identifier",
     "wrapped_export_key",
 }
 
@@ -60,6 +61,7 @@ _SENSITIVE_KEY_TERMS = (
     "signature",
     "token",
     "user_id",
+    "user_identifier",
     "wrapped_key",
 )
 

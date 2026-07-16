@@ -5,182 +5,189 @@ import json
 import pytest
 from mcp.types import TextContent
 
-from mcp_modules.tools import campaign_context_tools as cct
+from mcp_modules.public_contract import validate_public_tool_output
+from mcp_modules.tools import campaign_context_tools as campaign
 
 
-def _content(payload: dict) -> list[TextContent]:
-    return [TextContent(type="text", text=json.dumps(payload))]
-
-
-DISCOVERY_PAYLOAD = {
-    "user_id": "uid_123",
-    "domains": ["financial", "shopping", "location"],
-    "scopes": [
-        {
-            "scope": "attr.financial.analysis.*",
-            "label": "All Financial Data",
-            "description": "Financial analysis stream",
-        },
-        {
-            "scope": "attr.shopping.receipts_memory.*",
-            "label": "Shopping Receipts",
-            "description": "Shopping and receipt memory, including bookings and purchases",
-        },
-        {
-            "scope": "attr.location.preferences.*",
-            "label": "Location Preferences",
-            "description": "Geographic preferences and destination anchors",
-        },
-    ],
-}
+def _result(payload: dict):
+    return [TextContent(type="text", text=json.dumps(payload))], payload
 
 
 @pytest.mark.asyncio
-async def test_prepare_campaign_context_prefers_shopping_receipts_over_financial_for_trip(
-    monkeypatch,
-):
-    calls: list[tuple[str, dict]] = []
+async def test_campaign_compatibility_uses_new_refs_without_identity_or_token_leak(monkeypatch):
+    request_ref = "req_" + "a" * 28
 
-    async def fake_discover(args):
-        calls.append(("discover", args))
-        return _content(DISCOVERY_PAYLOAD)
-
-    async def fake_status(args):
-        calls.append(("status", args))
-        return _content({"status": "not_found", "user_id": args["user_id"], "scope": args["scope"]})
-
-    monkeypatch.setattr(cct, "handle_discover_user_domains", fake_discover)
-    monkeypatch.setattr(cct, "handle_check_consent_status", fake_status)
-
-    result = await cct.handle_prepare_campaign_context(
-        {
-            "user_id": "kushal@example.com",
-            "campaign_goal": "Help make the next customer experience feel more relevant for someone considering a trip.",
-            "poll_seconds": 0,
-        }
-    )
-
-    payload = json.loads(result[0].text)
-    assert payload["state"] == "needs_connector_key_bundle"
-    assert payload["selected_scope"] == "attr.shopping.receipts_memory.*"
-    assert payload["selected_category_label"] == "Shopping Receipts"
-    assert payload["selected_domain"] == "shopping"
-    assert "connector_public_key" in payload["required_fields"]
-    assert calls[0][0] == "discover"
-    assert calls[1] == (
-        "status",
-        {"user_id": "uid_123", "scope": "attr.shopping.receipts_memory.*"},
-    )
-
-
-@pytest.mark.asyncio
-async def test_prepare_campaign_context_explicit_location_request_creates_pending_with_scope(
-    monkeypatch,
-):
-    calls: list[tuple[str, dict]] = []
-
-    async def fake_discover(args):
-        calls.append(("discover", args))
-        return _content(DISCOVERY_PAYLOAD)
-
-    async def fake_status(args):
-        calls.append(("status", args))
-        return _content({"status": "not_found", "user_id": args["user_id"], "scope": args["scope"]})
-
-    async def fake_request(args):
-        calls.append(("request", args))
-        return _content(
-            {
-                "status": "pending",
-                "user_id": args["user_id"],
-                "scope": args["scope"],
-                "request_id": "req_location",
-                "approval_timeout_minutes": args["approval_timeout_minutes"],
-                "expiry_hours": args["expiry_hours"],
-            }
-        )
-
-    monkeypatch.setattr(cct, "handle_discover_user_domains", fake_discover)
-    monkeypatch.setattr(cct, "handle_check_consent_status", fake_status)
-    monkeypatch.setattr(cct, "handle_request_consent", fake_request)
-
-    result = await cct.handle_prepare_campaign_context(
-        {
-            "user_id": "kushal@example.com",
-            "campaign_goal": "Can you get the location preference for this trip experience?",
-            "preferred_context": "location",
-            "poll_seconds": 0,
-            "connector_public_key": "public_key",
-            "connector_key_id": "key_1",
-            "connector_wrapping_alg": "X25519-AES256-GCM",
-        }
-    )
-
-    payload = json.loads(result[0].text)
-    assert payload["state"] == "pending_approval"
-    assert payload["selected_scope"] == "attr.location.preferences.*"
-    assert payload["request_id"] == "req_location"
-    assert payload["requested_duration_hours"] == 24
-    assert payload["approval_timeout_minutes"] == 1440
-    assert calls[1][0] == "status"
-    assert calls[2][0] == "request"
-
-
-@pytest.mark.asyncio
-async def test_prepare_campaign_context_granted_fetches_safe_export_metadata(monkeypatch):
-    async def fake_discover(_args):
-        return _content(DISCOVERY_PAYLOAD)
-
-    async def fake_status(args):
-        return _content(
-            {
-                "status": "granted",
-                "user_id": args["user_id"],
-                "scope": args["scope"],
-                "requested_scope": args["scope"],
-                "granted_scope": args["scope"],
-                "coverage_kind": "exact",
-                "request_id": "req_existing",
-                "consent_token": "token_secret",
-                "expires_at": 1234,
-            }
-        )
-
-    async def fake_export(_args):
-        return _content(
+    async def search(_args):
+        return _result(
             {
                 "status": "success",
-                "scope": "attr.shopping.receipts_memory.*",
-                "export_revision": 3,
-                "export_generated_at": "2026-06-01T00:00:00Z",
-                "encrypted_data": "ciphertext",
-                "iv": "iv",
-                "tag": "tag",
-                "wrapped_key_bundle": {"wrapped": "key"},
+                "scopes": [
+                    {
+                        "scope": "attr.financial.portfolio.*",
+                        "domain": "financial",
+                        "label": "Portfolio",
+                        "description": "Investment holdings.",
+                    },
+                    {
+                        "scope": "attr.shopping.receipts_memory.*",
+                        "domain": "shopping",
+                        "label": "Shopping receipts",
+                        "description": "Purchase and shopping preferences.",
+                    },
+                ],
+                "next_cursor": None,
+                "has_more": False,
             }
         )
 
-    monkeypatch.setattr(cct, "handle_discover_user_domains", fake_discover)
-    monkeypatch.setattr(cct, "handle_check_consent_status", fake_status)
-    monkeypatch.setattr(cct, "handle_get_encrypted_scoped_export", fake_export)
+    async def request(args):
+        assert args["user_identifier"] == "private@example.com"
+        assert args["scope"] == "attr.shopping.receipts_memory.*"
+        return _result(
+            {
+                "status": "pending",
+                "scope": args["scope"],
+                "coverage_kind": None,
+                "request_ref": request_ref,
+                "expires_at": None,
+                "poll_after_seconds": 5,
+                "approval_timeout_at": 9999999999999,
+            }
+        )
 
-    result = await cct.handle_prepare_campaign_context(
+    monkeypatch.setattr(campaign, "handle_search_user_scopes", search)
+    monkeypatch.setattr(campaign, "handle_request_consent", request)
+    _content, payload = await campaign.handle_prepare_campaign_context(
         {
-            "user_id": "kushal@example.com",
-            "campaign_goal": "Help make a trip experience more relevant.",
+            "user_id": "private@example.com",
+            "campaign_goal": "improve a shopping commerce activation",
+            "connector_public_key": "A" * 44,
+            "connector_key_id": "ads-key",
+            "connector_wrapping_alg": "X25519-AES256-GCM",
             "poll_seconds": 0,
         }
     )
 
-    payload = json.loads(result[0].text)
-    assert payload["state"] == "approved_ready"
-    assert payload["lifecycle_action"] == "already_granted_reused"
-    assert payload["plaintext_returned"] is False
-    assert payload["encrypted_export_ready"] is True
-    metadata = payload["encrypted_export_metadata"]
-    assert metadata["export_revision"] == 3
-    assert "encrypted_data" not in metadata
-    assert "iv" not in metadata
-    assert "tag" not in metadata
-    assert "wrapped_key_bundle" not in metadata
-    assert "consent_token" not in payload
+    assert payload["status"] == "pending"
+    assert payload["request_id"] == request_ref
+    assert payload["request_ref"] == request_ref
+    assert payload["selected_scope"] == "attr.shopping.receipts_memory.*"
+    serialized = json.dumps(payload)
+    assert "private@example.com" not in serialized
+    assert "connector_public_key" not in serialized
+    assert "consent_token" not in serialized
+    assert validate_public_tool_output("prepare_campaign_context", payload)
+
+
+@pytest.mark.asyncio
+async def test_campaign_compatibility_reports_export_readiness_without_export_payload(monkeypatch):
+    grant_ref = "req_" + "b" * 28
+
+    async def search(_args):
+        return _result(
+            {
+                "status": "success",
+                "scopes": [
+                    {
+                        "scope": "attr.travel.preferences.*",
+                        "domain": "travel",
+                        "label": "Travel preferences",
+                        "description": "Approved travel preferences.",
+                    }
+                ],
+                "next_cursor": None,
+                "has_more": False,
+            }
+        )
+
+    async def request(args):
+        return _result(
+            {
+                "status": "granted",
+                "scope": args["scope"],
+                "coverage_kind": "exact",
+                "grant_ref": grant_ref,
+                "expires_at": 9999999999999,
+                "poll_after_seconds": None,
+                "approval_timeout_at": None,
+            }
+        )
+
+    async def export(_args):
+        return _result(
+            {
+                "status": "success",
+                "export_revision": 4,
+                "consent_token": "must-not-pass-through",
+                "information": {"private": "must-not-pass-through"},
+            }
+        )
+
+    monkeypatch.setattr(campaign, "handle_search_user_scopes", search)
+    monkeypatch.setattr(campaign, "handle_request_consent", request)
+    monkeypatch.setattr(campaign, "handle_get_encrypted_scoped_export", export)
+    _content, payload = await campaign.handle_prepare_campaign_context(
+        {
+            "user_identifier": "private@example.com",
+            "campaign_goal": "improve a travel customer experience",
+            "fetch_export_metadata": True,
+        }
+    )
+
+    assert payload["status"] == "granted"
+    assert payload["grant_ref"] == grant_ref
+    assert payload["grant_reused"] is True
+    assert payload["export_metadata_ready"] is True
+    assert payload["export_revision"] == 4
+    assert "must-not-pass-through" not in json.dumps(payload)
+    assert validate_public_tool_output("prepare_campaign_context", payload)
+
+
+@pytest.mark.asyncio
+async def test_campaign_compatibility_maps_cancelled_for_legacy_adk(monkeypatch):
+    request_ref = "req_" + "c" * 28
+
+    async def search(_args):
+        return _result(
+            {
+                "status": "success",
+                "scopes": [
+                    {
+                        "scope": "attr.shopping.receipts_memory.*",
+                        "domain": "shopping",
+                        "label": "Shopping receipts",
+                        "description": "Purchase history.",
+                    }
+                ],
+                "next_cursor": None,
+                "has_more": False,
+            }
+        )
+
+    async def request(_args):
+        return _result(
+            {
+                "status": "cancelled",
+                "scope": "attr.shopping.receipts_memory.*",
+                "coverage_kind": None,
+                "request_ref": request_ref,
+                "expires_at": None,
+                "poll_after_seconds": None,
+                "approval_timeout_at": None,
+            }
+        )
+
+    monkeypatch.setattr(campaign, "handle_search_user_scopes", search)
+    monkeypatch.setattr(campaign, "handle_request_consent", request)
+    _content, payload = await campaign.handle_prepare_campaign_context(
+        {
+            "user_id": "private@example.com",
+            "campaign_goal": "personalize shopping",
+            "poll_seconds": 0,
+        }
+    )
+
+    assert payload["status"] == "expired"
+    assert payload["state"] == "expired"
+    assert payload["request_ref"] == request_ref
+    assert validate_public_tool_output("prepare_campaign_context", payload)

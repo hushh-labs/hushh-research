@@ -162,7 +162,7 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
     country = args.get("country")
     scope_str = args.get("scope")
 
-    # Dynamic per-user scope discovery (discover_user_domains / search_user_scopes)
+    # Dynamic per-user scope discovery (search_user_scopes)
     # is the single way to select a scope. Fixed scope bundles were retired from
     # this public path because they can over-grant and do not reflect a user's
     # real domains. Ask for the exact discovered scope instead.
@@ -175,7 +175,7 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
                         "status": "error",
                         "error_code": "SCOPE_REQUIRED",
                         "error": "scope is required. Discover the user's exact scopes first, then request one.",
-                        "hint": "Call discover_user_domains(user_id) or search_user_scopes(user_id, query) and pass one returned scope string.",
+                        "hint": "Call search_user_scopes(user_identifier, query) and pass one returned scope string.",
                     }
                 ),
             )
@@ -262,7 +262,7 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
                             "attr.{domain}.*",
                             "attr.{domain}.{subintent}.*",
                         ],
-                        "hint": "Use discover_user_domains(user_id) to fetch actual per-user scope strings.",
+                        "hint": "Use search_user_scopes(user_identifier) to fetch actual per-user scope strings.",
                     }
                 ),
             )

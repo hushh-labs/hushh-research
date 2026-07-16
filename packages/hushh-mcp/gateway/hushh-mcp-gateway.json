@@ -1,0 +1,297 @@
+{
+  "protocolVersion": "2024-11-05",
+  "transport": {
+    "kind": "streamableHttp",
+    "path": "/mcp/",
+    "auth": {
+      "type": "bearer",
+      "header": "Authorization",
+      "note": "Authorization: Bearer <developer-token>. Query-string tokens (?token=) are not supported."
+    }
+  },
+  "capabilities": {
+    "tools": true,
+    "resources": true,
+    "prompts": false,
+    "logging": false
+  },
+  "tools": [
+    {
+      "name": "search_user_scopes",
+      "description": "Find the least-privilege scopes available for one user. An empty query lists scopes with cursor pagination. Use a returned scope unchanged in request_consent. No-match is a successful empty result. The caller identifier is resolved internally and is never returned.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "user_identifier": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 320,
+            "description": "A registered email, phone number, or Hussh account identifier. Used only for internal resolution and never echoed."
+          },
+          "query": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Optional intent text. Omit or pass an empty string to list all available scopes."
+          },
+          "domain": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "maxLength": 64
+          },
+          "cursor": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$",
+            "maxLength": 64
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 20
+          },
+          "country_iso2": {
+            "type": "string",
+            "pattern": "^[A-Za-z]{2}$",
+            "maxLength": 2
+          },
+          "country": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "user_identifier"
+        ]
+      }
+    },
+    {
+      "name": "prepare_campaign_context",
+      "description": "Compatibility one-shot tool for the Hussh ADK campaign and customer-experience agents. It selects one least-privilege scope, creates or reuses consent, performs bounded polling, and reports encrypted-export readiness without returning identity, tokens, ciphertext, keys, plaintext, or backend payloads. New integrations should use the four core lifecycle tools directly.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 320,
+            "description": "Legacy ADK alias for user_identifier. Resolved internally and never echoed."
+          },
+          "user_identifier": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 320,
+            "description": "Registered email, phone number, or Hussh account identifier. Resolved internally and never echoed."
+          },
+          "campaign_goal": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "purpose": {
+            "type": "string",
+            "maxLength": 280
+          },
+          "surface": {
+            "type": "string",
+            "maxLength": 80,
+            "default": "customer_experience"
+          },
+          "preferred_context": {
+            "type": "string",
+            "maxLength": 256,
+            "default": "auto"
+          },
+          "approval_timeout_minutes": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 1440,
+            "default": 1440
+          },
+          "expiry_hours": {
+            "type": "integer",
+            "minimum": 24,
+            "maximum": 2160,
+            "default": 24
+          },
+          "refresh_policy": {
+            "type": "string",
+            "enum": [
+              "snapshot",
+              "continuous_until_expiry"
+            ],
+            "default": "snapshot"
+          },
+          "poll_seconds": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 180,
+            "default": 90,
+            "description": "Compatibility polling request. The server always caps the actual polling window at 90 seconds."
+          },
+          "connector_public_key": {
+            "type": "string",
+            "minLength": 40,
+            "maxLength": 128
+          },
+          "connector_key_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+            "maxLength": 128
+          },
+          "connector_wrapping_alg": {
+            "type": "string",
+            "const": "X25519-AES256-GCM"
+          },
+          "fetch_export_metadata": {
+            "type": "boolean",
+            "default": true
+          },
+          "country_iso2": {
+            "type": "string",
+            "pattern": "^[A-Za-z]{2}$",
+            "maxLength": 2
+          },
+          "country": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 64
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "user_id"
+            ]
+          },
+          {
+            "required": [
+              "user_identifier"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "request_consent",
+      "description": "Create or reuse one least-privilege consent request. Reuses an identical pending request or an active covering grant. Returns only a request_ref while pending or a grant_ref when granted; it never returns a user identifier or consent token.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "user_identifier": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 320,
+            "description": "A registered email, phone number, or Hussh account identifier. Used only for internal resolution and never echoed."
+          },
+          "scope": {
+            "type": "string",
+            "pattern": "^(attr\\.[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)*(?:\\.\\*)?|cap\\.one\\.invoke)$",
+            "minLength": 3,
+            "maxLength": 200
+          },
+          "purpose": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 280,
+            "description": "Plain-language purpose shown to the user."
+          },
+          "expiry_hours": {
+            "type": "integer",
+            "minimum": 24,
+            "maximum": 2160,
+            "default": 24
+          },
+          "approval_timeout_minutes": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 1440,
+            "default": 1440
+          },
+          "refresh_policy": {
+            "type": "string",
+            "enum": [
+              "snapshot",
+              "continuous_until_expiry"
+            ],
+            "default": "snapshot"
+          },
+          "connector_public_key": {
+            "type": "string",
+            "minLength": 40,
+            "maxLength": 128
+          },
+          "connector_key_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+            "maxLength": 128
+          },
+          "connector_wrapping_alg": {
+            "type": "string",
+            "const": "X25519-AES256-GCM"
+          },
+          "country_iso2": {
+            "type": "string",
+            "pattern": "^[A-Za-z]{2}$",
+            "maxLength": 2
+          },
+          "country": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "user_identifier",
+          "scope",
+          "purpose"
+        ]
+      }
+    },
+    {
+      "name": "check_consent_status",
+      "description": "Poll one consent request by request_ref. Returns only its lifecycle state, expiry, safe polling guidance, and grant_ref after approval. Stop polling after a terminal state or approval timeout.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "request_ref": {
+            "type": "string",
+            "pattern": "^req_[a-f0-9]{28}$",
+            "maxLength": 32
+          }
+        },
+        "required": [
+          "request_ref"
+        ]
+      }
+    },
+    {
+      "name": "get_encrypted_scoped_export",
+      "description": "Retrieve an approved scoped export by grant_ref and expected_scope. Hosted MCP returns safe envelope metadata plus a ResourceLink for connector-side fetch and decryption. Local stdio decrypts with its managed X25519 key and returns only bounded approved information. No plaintext fallback is permitted.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "grant_ref": {
+            "type": "string",
+            "pattern": "^req_[a-f0-9]{28}$",
+            "maxLength": 32
+          },
+          "expected_scope": {
+            "type": "string",
+            "pattern": "^(attr\\.[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)*(?:\\.\\*)?|cap\\.one\\.invoke)$",
+            "minLength": 3,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "grant_ref",
+          "expected_scope"
+        ]
+      }
+    }
+  ]
+}

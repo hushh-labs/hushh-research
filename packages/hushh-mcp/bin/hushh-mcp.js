@@ -31,6 +31,7 @@ function printUsage() {
   console.log("  hushh-mcp --print-config");
   console.log("  hushh-mcp --print-codex-toml");
   console.log("  hushh-mcp --print-remote-config");
+  console.log("  hushh-mcp --print-gateway-manifest");
   console.log("");
   console.log("Environment:");
   console.log("  HUSHH_MCP_ENV_FILE      Optional path to a consent-protocol style .env file");
@@ -90,6 +91,14 @@ function printRemoteConfig() {
       2,
     ),
   );
+}
+
+function printGatewayManifest() {
+  const manifestPath = path.join(packageDir, "gateway", "hushh-mcp-gateway.json");
+  if (!fs.existsSync(manifestPath)) {
+    fatal("The packaged gateway manifest is unavailable.");
+  }
+  process.stdout.write(`${fs.readFileSync(manifestPath, "utf8").trim()}\n`);
 }
 
 function fatal(message) {
@@ -354,6 +363,11 @@ if (args.includes("--print-codex-toml")) {
 
 if (args.includes("--print-remote-config")) {
   printRemoteConfig();
+  process.exit(0);
+}
+
+if (args.includes("--print-gateway-manifest")) {
+  printGatewayManifest();
   process.exit(0);
 }
 

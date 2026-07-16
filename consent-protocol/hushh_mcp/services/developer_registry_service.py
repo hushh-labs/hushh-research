@@ -13,6 +13,7 @@ from typing import Any
 
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_core_security_settings
+from mcp_modules.public_contract import get_public_tool_names
 
 logger = logging.getLogger(__name__)
 
@@ -41,16 +42,7 @@ KNOWN_TOOL_GROUPS = (
 DEFAULT_PUBLIC_TOOL_GROUPS = (TOOL_GROUP_CORE_CONSENT,)
 
 TOOL_GROUP_TOOL_NAMES = {
-    TOOL_GROUP_CORE_CONSENT: (
-        "prepare_campaign_context",
-        "discover_user_domains",
-        "search_user_scopes",
-        "request_consent",
-        "check_consent_status",
-        "get_encrypted_scoped_export",
-        "validate_token",
-        "list_scopes",
-    ),
+    TOOL_GROUP_CORE_CONSENT: get_public_tool_names(),
     TOOL_GROUP_RIA_READ: (
         "list_ria_profiles",
         "get_ria_profile",
@@ -75,22 +67,16 @@ TOOL_GROUP_TOOL_NAMES = {
 
 TOOL_CATALOG = (
     {
-        "name": "prepare_campaign_context",
-        "group": TOOL_GROUP_CORE_CONSENT,
-        "compatibility_status": "recommended",
-        "description": "Recommended high-level consent loop for external campaign and customer-experience agents.",
-    },
-    {
-        "name": "discover_user_domains",
-        "group": TOOL_GROUP_CORE_CONSENT,
-        "compatibility_status": "recommended",
-        "description": "Discover the dynamic scopes available for a specific user.",
-    },
-    {
         "name": "search_user_scopes",
         "group": TOOL_GROUP_CORE_CONSENT,
         "compatibility_status": "recommended",
         "description": "Deterministically ranked, least-privilege-first lookup over a user's discoverable scopes.",
+    },
+    {
+        "name": "prepare_campaign_context",
+        "group": TOOL_GROUP_CORE_CONSENT,
+        "compatibility_status": "compatibility",
+        "description": "Hardened one-shot consent lifecycle used by Hussh ADK campaign agents.",
     },
     {
         "name": "request_consent",
@@ -109,18 +95,6 @@ TOOL_CATALOG = (
         "group": TOOL_GROUP_CORE_CONSENT,
         "compatibility_status": "recommended",
         "description": "Fetch the encrypted wrapped-key export for an approved consent token.",
-    },
-    {
-        "name": "validate_token",
-        "group": TOOL_GROUP_CORE_CONSENT,
-        "compatibility_status": "recommended",
-        "description": "Validate a consent token before attempting data access.",
-    },
-    {
-        "name": "list_scopes",
-        "group": TOOL_GROUP_CORE_CONSENT,
-        "compatibility_status": "recommended",
-        "description": "Read the canonical scope patterns and discovery guidance.",
     },
     {
         "name": "list_ria_profiles",
@@ -1270,7 +1244,7 @@ class DeveloperRegistryService:
             "allowed_tool_groups": list(allowed_groups),
             "compatibility_status": "self_serve_public_beta",
             "recommended_flow": [
-                "discover_user_domains",
+                "search_user_scopes",
                 "request_consent",
                 "check_consent_status",
                 "get_encrypted_scoped_export",

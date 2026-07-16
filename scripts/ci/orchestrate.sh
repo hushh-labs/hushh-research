@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/ci/orchestrate.sh <secret|governance|web-core|web-targeted|web-full|web|protocol|integration|smoke|all|advisory>
+  scripts/ci/orchestrate.sh <secret|governance|web-core|web-targeted|web-full|web|protocol|mcp-package|integration|smoke|all|advisory>
 
 Environment flags:
   INCLUDE_ADVISORY_CHECKS=1   Also run advisory checks when stage=all
@@ -45,6 +45,9 @@ run_stage() {
     protocol)
       scripts/ci/protocol-check.sh
       ;;
+    mcp-package)
+      scripts/ci/hushh-mcp-package-check.sh
+      ;;
     integration)
       scripts/ci/integration-check.sh
       ;;
@@ -67,16 +70,17 @@ run_stage() {
 }
 
 case "$STAGE" in
-  secret|governance|web-core|web-targeted|web-full|web|protocol|integration|smoke|advisory)
+  secret|governance|web-core|web-targeted|web-full|web|protocol|mcp-package|integration|smoke|advisory)
     run_stage "$STAGE"
     ;;
   all)
     echo "== CI Parity (Local) =="
-    echo "Running blocking CI stages: secret, governance, web-full, protocol, integration."
+    echo "Running blocking CI stages: secret, governance, web-full, protocol, mcp-package, integration."
     run_stage secret
     run_stage governance
     run_stage web-full
     run_stage protocol
+    run_stage mcp-package
     run_stage integration
     if [ "${INCLUDE_ADVISORY_CHECKS:-0}" = "1" ]; then
       echo "Including advisory checks (docs parity + subtree sync + Codex OS audit)."

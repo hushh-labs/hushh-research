@@ -173,7 +173,7 @@ export const CONSENT_FLOW_STEPS: ConsentFlowStep[] = [
   {
     title: "Discover",
     detail:
-      "Call discover_user_domains or GET /api/v1/user-scopes/{user_id} to inspect the exact scopes available for this user right now.",
+      "Call search_user_scopes with the caller-supplied user identifier to inspect the exact scopes available for this person right now.",
   },
   {
     title: "Request",

@@ -208,7 +208,7 @@ async def test_local_stdio_fetches_validates_decrypts_and_narrows_outside_model(
     metadata, ciphertext, keypair = _encrypted_local_fixture()
     _install_common(monkeypatch, payload=metadata, local=True)
 
-    async def _fetch_resource(_uri):
+    async def _fetch_resource(_uri, **_kwargs):
         return ciphertext, None
 
     monkeypatch.setattr(data_tools, "_fetch_resource_bytes", _fetch_resource)
@@ -231,7 +231,7 @@ async def test_local_stdio_key_mismatch_requires_rebind_without_raw_fallback(mon
     _install_common(monkeypatch, payload=metadata, local=True)
     keypair.key_id = "different-key"
 
-    async def _fetch_resource(_uri):
+    async def _fetch_resource(_uri, **_kwargs):
         return ciphertext, None
 
     monkeypatch.setattr(data_tools, "_fetch_resource_bytes", _fetch_resource)
@@ -250,7 +250,7 @@ async def test_local_oversized_plaintext_requires_narrower_scope(monkeypatch):
     metadata, ciphertext, keypair = _encrypted_local_fixture(plaintext_size=256)
     _install_common(monkeypatch, payload=metadata, local=True)
 
-    async def _fetch_resource(_uri):
+    async def _fetch_resource(_uri, **_kwargs):
         return ciphertext, None
 
     monkeypatch.setattr(data_tools, "_fetch_resource_bytes", _fetch_resource)
@@ -263,3 +263,40 @@ async def test_local_oversized_plaintext_requires_narrower_scope(monkeypatch):
     payload = json.loads(content[0].text)
     assert payload["error_code"] == "RESULT_REQUIRES_NARROWER_SCOPE"
     assert "encrypted_data" not in payload
+
+
+@pytest.mark.asyncio
+async def test_local_resource_fetch_rejects_untrusted_origin_before_sending_bearer(monkeypatch):
+    monkeypatch.setattr(data_tools, "CONSENT_API_PUBLIC_ORIGIN", "https://api.example.test")
+    monkeypatch.setattr(data_tools, "FASTAPI_URL", "https://api.example.test")
+    monkeypatch.setattr(
+        data_tools,
+        "get_developer_api_headers",
+        lambda: {"Authorization": "Bearer must-not-leak"},
+    )
+
+    body, error = await data_tools._fetch_resource_bytes(
+        "https://attacker.example/export",
+        expected_size=128,
+    )
+    assert body is None
+    assert error["error_code"] == "RESOURCE_FETCH_FAILED"
+
+
+@pytest.mark.asyncio
+async def test_local_resource_fetch_rejects_declared_oversize_before_network(monkeypatch):
+    monkeypatch.setattr(data_tools, "CONSENT_API_PUBLIC_ORIGIN", "https://api.example.test")
+    monkeypatch.setattr(data_tools, "FASTAPI_URL", "https://api.example.test")
+    monkeypatch.setattr(data_tools, "RESOURCE_MAX_RAW_BYTES", 64)
+    monkeypatch.setattr(
+        data_tools,
+        "get_developer_api_headers",
+        lambda: {"Authorization": "Bearer configured"},
+    )
+
+    body, error = await data_tools._fetch_resource_bytes(
+        "https://api.example.test/export",
+        expected_size=65,
+    )
+    assert body is None
+    assert error["error_code"] == "RESULT_REQUIRES_NARROWER_SCOPE"

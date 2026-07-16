@@ -248,10 +248,9 @@ configure_opentelemetry(app)
 from mcp_remote import remote_mcp_app, shutdown_remote_mcp, startup_remote_mcp  # noqa: E402
 
 
-def _mcp_root_redirect_target(request: Request) -> str:
-    query_string = request.scope.get("query_string", b"")
-    if isinstance(query_string, bytes) and query_string:
-        return f"/mcp/?{query_string.decode('utf-8')}"
+def _mcp_root_redirect_target(_request: Request) -> str:
+    # Query credentials are unsupported and must not be copied into a redirect
+    # target where they can enter browser, proxy, or access logs.
     return "/mcp/"
 
 
