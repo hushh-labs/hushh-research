@@ -49,7 +49,7 @@ _KEYPAIR_FILENAME = "connector_keypair.json"
 
 @dataclass(frozen=True)
 class LocalConnectorKeyPair:
-    private_key: X25519PrivateKey
+    private_key: X25519PrivateKey  # gitleaks:allow -- type annotation, not key material
     public_key_b64: str
     key_id: str
     wrapping_alg: str = _WRAPPING_ALG
