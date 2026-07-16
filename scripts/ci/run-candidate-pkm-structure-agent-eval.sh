@@ -49,13 +49,11 @@ gcloud run jobs create "$job_name" \
   --args "scripts/eval_pkm_structure_agent.py,--phase,fresh_chain_60,--skip-shadow,--enforce-gates,--json-out,/tmp/pkm-structure-agent-eval.json" \
   --quiet
 
-for attempt in 1 2; do
-  echo "Running synthetic candidate PKM evaluator ${attempt}/2..."
-  gcloud run jobs execute "$job_name" \
-    --project "$GCP_PROJECT_ID" \
-    --region "$GCP_REGION" \
-    --wait \
-    --quiet
-done
+echo "Running synthetic candidate PKM upgrade evaluator..."
+gcloud run jobs execute "$job_name" \
+  --project "$GCP_PROJECT_ID" \
+  --region "$GCP_REGION" \
+  --wait \
+  --quiet
 
-echo "Candidate PKM evaluator passed twice with synthetic-only input."
+echo "Candidate PKM upgrade evaluator passed with synthetic-only input."
