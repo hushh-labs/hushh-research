@@ -40,10 +40,6 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
 import { VaultService } from "@/lib/services/vault-service";
-import {
-  markSessionUnlocked,
-  resetSessionUnlocked,
-} from "@/lib/vault/vault-session-latch";
 
 // ============================================================================
 // Types
@@ -121,7 +117,6 @@ export function VaultProvider({ children }: VaultProviderProps) {
 
 
   const lockVault = useCallback(() => {
-    resetSessionUnlocked();
     console.log("🔒 Vault locked (key + token cleared from memory)");
     const lockedUserId = vaultUserId;
     if (lockedUserId && storedVaultOwnerToken) {
@@ -413,7 +408,6 @@ export function VaultProvider({ children }: VaultProviderProps) {
     (key: string, token: string, expiresAt: number) => {
       const unlockingUserId = user?.uid?.trim() ?? "";
       if (!unlockingUserId) {
-        resetSessionUnlocked();
         setVaultKey(null);
         setVaultOwnerToken(null);
         setTokenExpiresAt(null);
@@ -421,7 +415,6 @@ export function VaultProvider({ children }: VaultProviderProps) {
         console.warn("[VaultProvider] Refused vault unlock without an authenticated user.");
         return;
       }
-      markSessionUnlocked(unlockingUserId);
       console.log(
         "🔓 Vault unlocked (key + token in memory only - XSS protected)"
       );
