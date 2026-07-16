@@ -117,7 +117,15 @@ class _StubSupabase:
         self.rpc_calls.append({"function_name": function_name, "params": params or {}})
         if function_name == "commit_pkm_domain_mutation_v3":
             return _StubSupabaseTable(
-                rows=[{"success": True, "conflict": False, "data_version": 1}]
+                rows=[
+                    {
+                        "commit_pkm_domain_mutation_v3": {
+                            "success": True,
+                            "conflict": False,
+                            "data_version": 1,
+                        }
+                    }
+                ]
             )
         return _StubSupabaseTable(rows=[{}])
 
