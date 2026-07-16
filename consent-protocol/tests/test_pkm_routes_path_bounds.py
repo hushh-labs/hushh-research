@@ -24,6 +24,7 @@ FastAPI path validation before auth or service code runs.
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -115,6 +116,24 @@ def test_get_manifest_valid_params_pass_path_guard(client: TestClient) -> None:
         mock_svc_factory.return_value = svc
         resp = client.get(f"/api/pkm/manifest/{_USER_ID}/{_VALID_DOMAIN}")
     assert resp.status_code != 422
+
+
+def test_get_manifest_serializes_uuid_upgrade_commit_id(client: TestClient) -> None:
+    commit_id = uuid4()
+    with patch.object(pkm_shared, "get_pkm_service") as mock_svc_factory:
+        svc = MagicMock()
+        svc.get_domain_manifest = AsyncMock(
+            return_value={
+                "user_id": _USER_ID,
+                "domain": _VALID_DOMAIN,
+                "latest_upgrade_commit_id": commit_id,
+            }
+        )
+        mock_svc_factory.return_value = svc
+        resp = client.get(f"/api/pkm/manifest/{_USER_ID}/{_VALID_DOMAIN}")
+
+    assert resp.status_code == 200
+    assert resp.json()["latest_upgrade_commit_id"] == str(commit_id)
 
 
 # ---------------------------------------------------------------------------

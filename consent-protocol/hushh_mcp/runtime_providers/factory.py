@@ -13,10 +13,13 @@ import os
 from typing import Any
 
 from .registry import ProviderId, normalize_provider
+from .vertex_failover import VertexRegionalClient
 
 GENAI_AUTH_MODE_ENV = "HUSHH_GENAI_AUTH_MODE"
 VERTEX_ADC_AUTH_MODE = "vertex_adc"
 DEVELOPER_API_KEY_AUTH_MODE = "developer_api_key"
+VERTEX_LOCATIONS_ENV = "HUSHH_VERTEX_LOCATIONS"
+VERTEX_LOCATION_COOLDOWN_SECONDS_ENV = "HUSHH_VERTEX_LOCATION_COOLDOWN_SECONDS"
 _HOSTED_ENVIRONMENTS = {"dev", "uat", "staging", "production", "prod"}
 _PROJECT_ENV_NAMES = (
     "GOOGLE_CLOUD_PROJECT",
@@ -87,6 +90,28 @@ def _vertex_location() -> str:
     return "global"
 
 
+def _vertex_locations() -> tuple[str, ...]:
+    primary = _vertex_location()
+    configured = tuple(
+        value.strip() for value in _clean_env(VERTEX_LOCATIONS_ENV).split(",") if value.strip()
+    )
+    ordered = (primary, *configured)
+    return tuple(dict.fromkeys(ordered))
+
+
+def _vertex_location_cooldown_seconds() -> float:
+    raw = _clean_env(VERTEX_LOCATION_COOLDOWN_SECONDS_ENV)
+    if not raw:
+        return 300.0
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{VERTEX_LOCATION_COOLDOWN_SECONDS_ENV} must be numeric") from exc
+    if value < 0:
+        raise RuntimeError(f"{VERTEX_LOCATION_COOLDOWN_SECONDS_ENV} must be non-negative")
+    return value
+
+
 def _gemini_client(api_key: str, *, managed: bool) -> Any:
     from google import genai
 
@@ -108,10 +133,15 @@ def _gemini_client(api_key: str, *, managed: bool) -> Any:
 
     # Hosted managed Gemini always uses the Cloud Run service identity through
     # ADC. Never pass or fall back to a long-lived API key in this mode.
-    return genai.Client(
-        vertexai=True,
-        project=_vertex_project(),
-        location=_vertex_location(),
+    project = _vertex_project()
+    locations = _vertex_locations()
+    if len(locations) == 1:
+        return genai.Client(vertexai=True, project=project, location=locations[0])
+    return VertexRegionalClient(
+        project=project,
+        locations=locations,
+        client_factory=genai.Client,
+        cooldown_seconds=_vertex_location_cooldown_seconds(),
     )
 
 

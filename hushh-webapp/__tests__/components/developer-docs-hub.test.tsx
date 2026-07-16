@@ -55,7 +55,7 @@ vi.mock("@/lib/services/developer-portal-service", () => {
     getLiveDeveloperDocs: vi.fn().mockResolvedValue({
       apiRoot: { version: "v1" },
       scopes: [{ name: "pkm.read", description: "Read approved PKM data." }],
-      tools: [{ name: "discover_user_domains", description: "Discover available domains." }],
+      tools: [{ name: "search_user_scopes", description: "Find the least-privilege scope available to a person." }],
       notes: [],
     }),
     getDeveloperAccess: vi.fn(),
@@ -90,6 +90,12 @@ describe("DeveloperDocsHub", () => {
     // Bare URL, no ?token= query: the live API rejects query-string tokens and
     // requires "Authorization: Bearer" instead.
     expect(screen.getAllByText(/https:\/\/api\.uat\.hushh\.ai\/mcp\//).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("search_user_scopes").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("prepare_campaign_context").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("request_consent").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("check_consent_status").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("get_encrypted_scoped_export").length).toBeGreaterThan(0);
+    expect(screen.queryByText("discover_user_domains")).toBeNull();
     expect(screen.getByText("Advanced: REST API and npm bridge")).toBeTruthy();
     expect(document.querySelectorAll("[data-state='open']").length).toBeGreaterThanOrEqual(9);
     expect(document.querySelector("[data-slot='badge']")).toBeNull();

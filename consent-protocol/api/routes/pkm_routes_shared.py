@@ -137,6 +137,9 @@ def _normalize_manifest_response_payload(manifest: dict) -> dict:
     payload["readable_projection_version"] = payload.get("readable_projection_version") or payload[
         "summary_projection"
     ].get("readable_projection_version")
+    payload["latest_upgrade_commit_id"] = _isoformat_or_none(
+        payload.get("latest_upgrade_commit_id")
+    )
     payload["top_level_scope_paths"] = _string_list_or_default(payload.get("top_level_scope_paths"))
     payload["externalizable_paths"] = _string_list_or_default(payload.get("externalizable_paths"))
     payload["segment_ids"] = _string_list_or_default(payload.get("segment_ids"))

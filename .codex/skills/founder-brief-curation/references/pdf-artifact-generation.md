@@ -16,6 +16,12 @@ Use this reference for generic Markdown/HTML/PDF report artifacts when no narrow
      --subtitle "Optional subtitle"
    ```
 
+   The renderer supports `--theme light` (default), `--theme dark`, and
+   `--theme molten-gold`. Use `molten-gold` for a dark editorial artifact that
+   should follow the live Morphy Molten Gold preference. Its accent values are
+   read from `hushh-webapp/app/globals.css`; do not recreate that palette with
+   local hex values or use gold as body-text decoration.
+
 2. Use the PR governance skill refresh command for the contributor dashboard:
 
    ```bash

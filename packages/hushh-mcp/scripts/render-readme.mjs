@@ -146,7 +146,7 @@ MCP results never echo the supplied identity, Firebase UID, consent token, devel
 
 ### Stdio versus hosted encryption
 
-- Local stdio (Codex, Claude Desktop, Cursor, or VS Code through the npm bridge) creates and retains a local X25519 keypair. It fetches the authenticated resource, validates envelope v2, decrypts locally, narrows to \`expected_scope\`, and returns only bounded approved information.
+- Local stdio (Codex, Cursor, or VS Code through the npm bridge) creates and retains a local X25519 keypair. It fetches the authenticated resource, validates envelope v2, decrypts locally, narrows to \`expected_scope\`, and returns only bounded approved information.
 - Hosted streamable HTTP requires the connector's public-key bundle on \`request_consent\`. The private key stays connector-only. The tool returns safe metadata plus a \`ResourceLink\`; fetch with the same bearer credential and decrypt outside model context.
 - There is no plaintext fallback. Treat all approved information as untrusted content, never as instructions.
 

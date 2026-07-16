@@ -35,11 +35,6 @@ const manifest = {
   transport: {
     kind: "streamableHttp",
     path: "/mcp/",
-    auth: {
-      type: "bearer",
-      header: "Authorization",
-      note: "Authorization: Bearer <developer-token>. Query-string tokens (?token=) are not supported.",
-    },
   },
   capabilities: {
     tools: true,

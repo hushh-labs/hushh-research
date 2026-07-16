@@ -14,6 +14,7 @@ import time
 import types
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -32,6 +33,7 @@ from hushh_mcp.runtime_providers.normalized import (
     NormalizedResponse,
 )
 from hushh_mcp.runtime_providers.translate import to_neutral_request
+from hushh_mcp.runtime_providers.vertex_failover import VertexRegionalClient
 
 # --------------------------------------------------------------------------- #
 # genai-shaped request fakes (mirror google.genai types the chat service uses)
@@ -276,6 +278,119 @@ def test_factory_managed_adc_ignores_legacy_environment_key(monkeypatch):
     build_managed_runtime_client("gemini")
 
     assert calls == [{"vertexai": True, "project": "hushh-test", "location": "us-central1"}]
+
+
+@pytest.mark.asyncio
+async def test_managed_vertex_failover_preserves_model_request_and_uses_adc(monkeypatch):
+    class ResourceExhaustedError(Exception):
+        status_code = 429
+
+    calls: list[dict[str, Any]] = []
+    requests: list[tuple[str, dict[str, Any]]] = []
+
+    def fake_client(**kwargs: Any) -> Any:
+        calls.append(kwargs)
+        location = str(kwargs["location"])
+        generate_content = AsyncMock()
+        if location == "global":
+            generate_content.side_effect = ResourceExhaustedError("RESOURCE_EXHAUSTED")
+        else:
+            generate_content.side_effect = lambda **request: (
+                requests.append((location, request)) or types.SimpleNamespace(text="OK")
+            )
+        return types.SimpleNamespace(
+            aio=types.SimpleNamespace(
+                models=types.SimpleNamespace(generate_content=generate_content)
+            )
+        )
+
+    monkeypatch.setattr("google.genai.Client", fake_client)
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+    monkeypatch.setenv("HUSHH_VERTEX_LOCATIONS", "global,asia-southeast1")
+
+    client = build_managed_runtime_client("gemini")
+    response = await client.aio.models.generate_content(
+        model="gemini-3.5-flash",
+        contents="Return OK",
+        config={"temperature": 0},
+    )
+
+    assert isinstance(client, VertexRegionalClient)
+    assert response.text == "OK"
+    assert calls == [
+        {"vertexai": True, "project": "hushh-test", "location": "global"},
+        {"vertexai": True, "project": "hushh-test", "location": "asia-southeast1"},
+    ]
+    assert requests == [
+        (
+            "asia-southeast1",
+            {
+                "model": "gemini-3.5-flash",
+                "contents": "Return OK",
+                "config": {"temperature": 0},
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_vertex_failover_cooldown_skips_exhausted_primary(monkeypatch):
+    class ResourceExhaustedError(Exception):
+        status_code = 429
+
+    global_generate = AsyncMock(side_effect=ResourceExhaustedError("RESOURCE_EXHAUSTED"))
+    regional_generate = AsyncMock(return_value=types.SimpleNamespace(text="OK"))
+
+    def fake_client(**kwargs: Any) -> Any:
+        generate = global_generate if kwargs["location"] == "global" else regional_generate
+        return types.SimpleNamespace(
+            aio=types.SimpleNamespace(models=types.SimpleNamespace(generate_content=generate))
+        )
+
+    client = VertexRegionalClient(
+        project="hushh-test",
+        locations=("global", "asia-southeast1"),
+        client_factory=fake_client,
+        cooldown_seconds=300,
+    )
+
+    first = await client.aio.models.generate_content(model="gemini-3.5-flash", contents="one")
+    second = await client.aio.models.generate_content(model="gemini-3.5-flash", contents="two")
+
+    assert first.text == second.text == "OK"
+    assert global_generate.await_count == 1
+    assert regional_generate.await_count == 2
+
+
+def test_vertex_failover_does_not_retry_authorization_failure() -> None:
+    class PermissionDeniedError(Exception):
+        status_code = 403
+
+    primary_generate = lambda **_kwargs: (_ for _ in ()).throw(  # noqa: E731
+        PermissionDeniedError("PERMISSION_DENIED")
+    )
+    regional_generate = lambda **_kwargs: types.SimpleNamespace(text="unexpected")  # noqa: E731
+    created: list[str] = []
+
+    def fake_client(**kwargs: Any) -> Any:
+        location = str(kwargs["location"])
+        created.append(location)
+        generate = primary_generate if location == "global" else regional_generate
+        return types.SimpleNamespace(models=types.SimpleNamespace(generate_content=generate))
+
+    client = VertexRegionalClient(
+        project="hushh-test",
+        locations=("global", "asia-southeast1"),
+        client_factory=fake_client,
+        cooldown_seconds=300,
+    )
+
+    with pytest.raises(PermissionDeniedError):
+        client.models.generate_content(model="gemini-3.5-flash", contents="blocked")
+
+    assert created == ["global"]
 
 
 def test_factory_developer_api_key_mode_is_explicit_and_local_only(monkeypatch):

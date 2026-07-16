@@ -111,10 +111,32 @@ process to hold a private key. It requires explicit connector arguments and
 returns envelope metadata plus an authenticated ciphertext resource link; the
 connector fetches and decrypts the resource outside model context.
 
-## Partner / CRM Connectors (Salesforce Agentforce, Mulesoft-Fronted Systems)
+## Claude Remote Connector
+
+Claude must use the same public Streamable HTTP MCP endpoint as hosted partner
+connectors. Configure the endpoint through **Customize > Connectors**. Claude
+Desktop does not load remote MCP servers from `claude_desktop_config.json`.
+
+The transport is already compatible:
+
+- endpoint: `https://api.uat.hushh.ai/mcp/`
+- transport: Streamable HTTP
+- no SSE downgrade
+- no query-string credential
+
+Authentication is the remaining host-compatibility boundary. Hussh UAT
+currently requires a developer token in `Authorization: Bearer <token>`.
+MuleSoft and generic remote hosts can inject that header, but Claude custom
+connectors support OAuth or unauthenticated remote servers rather than a
+caller-configured static bearer header. Do not work around this with stdio,
+`?token=`, or an unauthenticated endpoint. Claude onboarding requires an OAuth
+adapter on the hosted Hussh MCP boundary while preserving developer-token
+authentication for existing partner clients.
+
+## Partner / CRM Connectors (Salesforce Agentforce, MuleSoft-Fronted Systems)
 
 Hosted CRM platforms (for example Salesforce Agentforce/FSC via a Named
-Credential, or a Mulesoft-fronted integration) connect directly over HTTPS to
+Credential, or a MuleSoft-fronted integration) connect directly over HTTPS to
 the remote `/mcp` endpoint, without spawning any local process.
 
 - **Auth**: use `Authorization: Bearer <developer-token>`. Query-string
@@ -134,7 +156,7 @@ the remote `/mcp` endpoint, without spawning any local process.
 
   Every CRM system gets its own token so revocation, audit, and last-used
   telemetry stay per-system. The raw token prints once on issuance; store it
-  in the partner's secret manager (Salesforce Named Credential, Mulesoft
+  in the partner's secret manager (Salesforce Named Credential, MuleSoft
   connected-app config, etc.) immediately.
 - **Rate limits**: the remote endpoint enforces a per-developer-app rate
   limit (default `120/minute`, configurable via `MCP_REMOTE_RATE_LIMIT`) and
