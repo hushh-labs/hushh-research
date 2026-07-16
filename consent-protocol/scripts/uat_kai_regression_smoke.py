@@ -51,6 +51,15 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from api.utils.fcm_messages import build_push_message  # noqa: E402
+from hushh_mcp.consent.export_envelope import (  # noqa: E402
+    ConsentExportAadV2,
+    ConsentExportEnvelopeSubmissionV2,
+    canonical_aad_bytes,
+    canonical_envelope_submission_bytes,
+    connector_key_fingerprint,
+    digest_bytes,
+    scope_handle_for_machine_scope,
+)
 
 # Scoped-export decrypt + scope-narrowing utilities live in the shared
 # hushh_mcp.consent.export_projection module so the local stdio MCP server
@@ -969,11 +978,24 @@ class UatKaiSmoke:
         *,
         connector_public_key_b64: str,
         connector_key_id: str,
-    ) -> dict[str, str]:
+        aad: ConsentExportAadV2 | None = None,
+    ) -> dict[str, Any]:
         plaintext = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         export_key = os.urandom(32)
         export_iv = os.urandom(12)
-        export_ciphertext = AESGCM(export_key).encrypt(export_iv, plaintext, None)
+        aad_bytes = canonical_aad_bytes(aad) if aad is not None else None
+        export_ciphertext = AESGCM(export_key).encrypt(export_iv, plaintext, aad_bytes)
+        ciphertext = export_ciphertext[:-16]
+
+        envelope = None
+        if aad is not None:
+            envelope = ConsentExportEnvelopeSubmissionV2(
+                export_id=aad.export_id,
+                aad=aad,
+                aad_sha256=digest_bytes(aad_bytes or b""),
+                ciphertext_sha256=digest_bytes(ciphertext),
+                ciphertext_bytes=len(ciphertext),
+            )
 
         sender_private = X25519PrivateKey.generate()
         connector_public_key = X25519PublicKey.from_public_bytes(
@@ -985,14 +1007,17 @@ class UatKaiSmoke:
         wrapping_key_bytes = wrapping_key.finalize()
 
         wrapped_iv = os.urandom(12)
-        wrapped = AESGCM(wrapping_key_bytes).encrypt(wrapped_iv, export_key, None)
+        wrapping_aad = (
+            canonical_envelope_submission_bytes(envelope) if envelope is not None else None
+        )
+        wrapped = AESGCM(wrapping_key_bytes).encrypt(wrapped_iv, export_key, wrapping_aad)
         sender_public_key = sender_private.public_key().public_bytes(
             encoding=serialization.Encoding.Raw,
             format=serialization.PublicFormat.Raw,
         )
 
-        return {
-            "encryptedData": _b64encode(export_ciphertext[:-16]),
+        package: dict[str, Any] = {
+            "encryptedData": _b64encode(ciphertext),
             "encryptedIv": _b64encode(export_iv),
             "encryptedTag": _b64encode(export_ciphertext[-16:]),
             "wrappedExportKey": _b64encode(wrapped[:-16]),
@@ -1002,6 +1027,27 @@ class UatKaiSmoke:
             "wrappingAlg": "X25519-AES256-GCM",
             "connectorKeyId": connector_key_id,
         }
+        if envelope is not None:
+            package["version"] = 2
+            package["exportEnvelope"] = envelope.model_dump(mode="json")
+        return package
+
+    def _fetch_pending_request(self, request_id: str) -> dict[str, Any]:
+        response = self._request(
+            "GET",
+            "/api/consent/pending/lookup",
+            headers=self._vault_headers(),
+            params={"userId": self.user_id, "request_id": request_id},
+        ).json()
+        matching = [
+            item
+            for item in (response.get("items") or [])
+            if isinstance(item, dict)
+            and str(item.get("request_id") or item.get("id") or "") == request_id
+        ]
+        if len(matching) != 1:
+            raise RuntimeError("The reviewer vault could not resolve the pending request.")
+        return matching[0]
 
     def _fetch_export_ciphertext(self, package: dict[str, Any]) -> bytes:
         """Resolve ciphertext bytes from an export package.
@@ -1099,10 +1145,29 @@ class UatKaiSmoke:
         export_payload, source_content_revision, source_manifest_revision = (
             self._build_export_payload(scope)
         )
+        pending = self._fetch_pending_request(request_id)
+        metadata = pending.get("metadata") or {}
+        app_id = str(metadata.get("developer_app_id") or "").strip()
+        scope_handle = str(metadata.get("scope_handle") or "").strip() or (
+            scope_handle_for_machine_scope(self.user_id, scope)
+        )
+        if not app_id:
+            raise RuntimeError("The pending consent request has no developer app reference.")
+        aad = ConsentExportAadV2(
+            app_id=app_id,
+            grant_id=request_id,
+            export_id=str(uuid.uuid4()),
+            revision=1,
+            machine_scope=scope,
+            scope_handle=scope_handle,
+            recipient_key_fingerprint=connector_key_fingerprint(self.connector.public_key_b64),
+            expires_at_ms=int(time.time() * 1000) + (duration_hours * 60 * 60 * 1000),
+        )
         encrypted_package = self._encrypt_export_payload(
             export_payload,
             connector_public_key_b64=self.connector.public_key_b64,
             connector_key_id=self.connector.key_id,
+            aad=aad,
         )
         payload = {
             "userId": self.user_id,

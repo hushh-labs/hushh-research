@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlsplit, urlunsplit
@@ -107,6 +106,7 @@ NATIVE_RELEASE_REQUIRED = (
 BACKEND_RUNTIME_REQUIRED = (
     "APP_FRONTEND_ORIGIN",
     "BACKEND_RUNTIME_CONFIG_JSON",
+    "CONSENT_API_PUBLIC_ORIGIN",
     "GOOGLE_MAPS_API_KEY",
     "APP_SIGNING_KEY",
     "VAULT_DATA_KEY",
