@@ -1,8 +1,10 @@
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
+from hushh_mcp.services import pkm_agent_lab_service as pkm_agent_lab_module
 from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService
 
 
@@ -75,6 +77,32 @@ def _single_segment(message: str):
         "source_agent": "memory_segmentation_agent",
         "contract_version": 1,
     }
+
+
+@pytest.mark.asyncio
+async def test_agent_contract_retries_one_timeout_within_preview_budget(monkeypatch):
+    service = PKMAgentLabService()
+    generate_content = AsyncMock(
+        side_effect=[
+            asyncio.TimeoutError,
+            SimpleNamespace(parsed={"status": "ok"}, text=""),
+        ]
+    )
+    service._client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    )
+    monkeypatch.setattr(pkm_agent_lab_module, "_AGENT_CONTRACT_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(pkm_agent_lab_module, "_AGENT_CONTRACT_MAX_ATTEMPTS", 2)
+
+    result = await service._run_agent_contract(
+        manifest=SimpleNamespace(id="agent_test", model="test-model"),
+        prompt="Return a valid structured response.",
+        response_schema={"type": "OBJECT"},
+        timeout_seconds=1.0,
+    )
+
+    assert result == {"status": "ok"}
+    assert generate_content.await_count == 2
 
 
 @pytest.mark.asyncio

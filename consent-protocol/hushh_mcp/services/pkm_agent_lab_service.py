@@ -395,6 +395,9 @@ _AGENT_CONTRACT_TIMEOUT_SECONDS = max(
     # tail latency and forced valid model responses into fallback.
     float(os.getenv("PKM_AGENT_LAB_AGENT_TIMEOUT_SECONDS", "8") or "8"),
 )
+# One retry absorbs transient provider tail latency without introducing another
+# runtime configuration surface or extending the shared preview deadline.
+_AGENT_CONTRACT_MAX_ATTEMPTS = 2
 _PREVIEW_TOTAL_BUDGET_SECONDS = max(
     4.0,
     # Keep a finite user-facing budget while allowing the sequential contract
@@ -1361,53 +1364,82 @@ class PKMAgentLabService:
     ) -> dict[str, Any] | None:
         if self.client is None:
             return None
-        effective_timeout = _AGENT_CONTRACT_TIMEOUT_SECONDS
-        if timeout_seconds is not None:
-            if timeout_seconds <= 0.25:
+        deadline = time.perf_counter() + timeout_seconds if timeout_seconds is not None else None
+        from google.genai import types as genai_types
+
+        config = genai_types.GenerateContentConfig(
+            temperature=0.0,
+            response_mime_type="application/json",
+            automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
+            response_schema=response_schema,
+        )
+        for attempt in range(1, _AGENT_CONTRACT_MAX_ATTEMPTS + 1):
+            remaining_seconds = (
+                max(0.0, deadline - time.perf_counter()) if deadline is not None else None
+            )
+            if remaining_seconds is not None and remaining_seconds <= 0.25:
                 logger.info(
-                    "pkm.agent_contract_skipped_budget agent=%s timeout_seconds=%s",
+                    "pkm.agent_contract_skipped_budget agent=%s attempt=%s "
+                    "budget_remaining_seconds=%s",
                     getattr(manifest, "id", "unknown"),
-                    round(timeout_seconds, 3),
+                    attempt,
+                    round(remaining_seconds, 3),
                 )
                 return None
-            effective_timeout = max(0.25, min(_AGENT_CONTRACT_TIMEOUT_SECONDS, timeout_seconds))
-        try:
-            from google.genai import types as genai_types
-
-            config = genai_types.GenerateContentConfig(
-                temperature=0.0,
-                response_mime_type="application/json",
-                automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
-                response_schema=response_schema,
-            )
-            response = await asyncio.wait_for(
-                self.client.aio.models.generate_content(
-                    model=model_override or manifest.model or GEMINI_MODEL,
-                    contents=prompt,
-                    config=config,
-                ),
-                timeout=effective_timeout,
-            )
-            parsed = (
-                response.parsed if isinstance(getattr(response, "parsed", None), dict) else None
-            )
-            if parsed is None:
-                parsed = json.loads((response.text or "").strip() or "{}")
-            return parsed if isinstance(parsed, dict) else None
-        except asyncio.TimeoutError:
-            logger.warning(
-                "pkm.agent_contract_timeout agent=%s timeout_seconds=%s",
-                getattr(manifest, "id", "unknown"),
-                round(effective_timeout, 3),
-            )
-            return None
-        except Exception as exc:
-            logger.warning(
-                "pkm.agent_contract_failed agent=%s error=%s",
-                getattr(manifest, "id", "unknown"),
-                exc,
-            )
-            return None
+            effective_timeout = _AGENT_CONTRACT_TIMEOUT_SECONDS
+            if remaining_seconds is not None:
+                effective_timeout = max(
+                    0.25,
+                    min(_AGENT_CONTRACT_TIMEOUT_SECONDS, remaining_seconds),
+                )
+            try:
+                response = await asyncio.wait_for(
+                    self.client.aio.models.generate_content(
+                        model=model_override or manifest.model or GEMINI_MODEL,
+                        contents=prompt,
+                        config=config,
+                    ),
+                    timeout=effective_timeout,
+                )
+                parsed = (
+                    response.parsed if isinstance(getattr(response, "parsed", None), dict) else None
+                )
+                if parsed is None:
+                    parsed = json.loads((response.text or "").strip() or "{}")
+                return parsed if isinstance(parsed, dict) else None
+            except asyncio.TimeoutError:
+                can_retry = attempt < _AGENT_CONTRACT_MAX_ATTEMPTS
+                retry_budget_seconds = (
+                    max(0.0, deadline - time.perf_counter()) if deadline is not None else None
+                )
+                if can_retry and (retry_budget_seconds is None or retry_budget_seconds > 0.25):
+                    logger.warning(
+                        "pkm.agent_contract_timeout_retry agent=%s attempt=%s "
+                        "max_attempts=%s timeout_seconds=%s budget_remaining_seconds=%s",
+                        getattr(manifest, "id", "unknown"),
+                        attempt,
+                        _AGENT_CONTRACT_MAX_ATTEMPTS,
+                        round(effective_timeout, 3),
+                        round(retry_budget_seconds, 3)
+                        if retry_budget_seconds is not None
+                        else None,
+                    )
+                    continue
+                logger.warning(
+                    "pkm.agent_contract_timeout agent=%s attempts=%s timeout_seconds=%s",
+                    getattr(manifest, "id", "unknown"),
+                    attempt,
+                    round(effective_timeout, 3),
+                )
+                return None
+            except Exception as exc:
+                logger.warning(
+                    "pkm.agent_contract_failed agent=%s error=%s",
+                    getattr(manifest, "id", "unknown"),
+                    exc,
+                )
+                return None
+        return None
 
     @staticmethod
     def _remaining_preview_budget_seconds(deadline: float | None) -> float | None:
