@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -38,11 +37,11 @@ const browser = await reviewer.chromium.launch({
 });
 let firstSession;
 let freshSession;
-let firstKey;
-let freshKey;
+let firstKeyCommitment;
+let freshKeyCommitment;
 try {
   firstSession = await reviewer.openSession(browser, routes[0] || "/agent");
-  firstKey = reviewer.deriveVaultKey(await firstSession.capture.vaultState());
+  firstKeyCommitment = reviewer.vaultKeyCommitment(await firstSession.capture.vaultState());
   for (const route of routes.slice(1)) {
     await reviewer.navigateInApp(firstSession.page, route);
   }
@@ -51,16 +50,14 @@ try {
   firstSession = null;
 
   freshSession = await reviewer.openSession(browser, routes.at(-1) || "/agent");
-  freshKey = reviewer.deriveVaultKey(await freshSession.capture.vaultState());
-  if (firstKey.length !== freshKey.length || !timingSafeEqual(firstKey, freshKey)) {
-    throw new Error("Fresh-session reviewer unlock produced a different vault key.");
+  freshKeyCommitment = reviewer.vaultKeyCommitment(await freshSession.capture.vaultState());
+  if (firstKeyCommitment !== freshKeyCommitment) {
+    throw new Error("Fresh-session reviewer unlock resolved a different vault key commitment.");
   }
   process.stdout.write(
     `[reviewer-app-testing] PASS same_session_routes=${routes.length} cold_session_reunlock=1\n`
   );
 } finally {
-  firstKey?.fill(0);
-  freshKey?.fill(0);
   await firstSession?.context.close().catch(() => undefined);
   await freshSession?.context.close().catch(() => undefined);
   await browser.close().catch(() => undefined);

@@ -6,6 +6,11 @@ cd "$repo_root"
 
 node --check .codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs
 node --check .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
+if rg -q 'createDecipheriv|pbkdf2Sync|decryptAesGcm|deriveVaultKey' \
+  .codex/skills/reviewer-app-testing/scripts; then
+  echo "Reviewer Node harness must not derive or decrypt vault keys." >&2
+  exit 1
+fi
 node --check .codex/skills/pkm-upgrade-rehearsal/scripts/reviewer-pkm-app-rehearsal.mjs
 node .codex/skills/pkm-upgrade-rehearsal/scripts/reviewer-pkm-app-rehearsal.mjs --help >/dev/null
 if PKM_REVIEWER_DECRYPTED_OUTPUT="$repo_root/AGENTS.md" \

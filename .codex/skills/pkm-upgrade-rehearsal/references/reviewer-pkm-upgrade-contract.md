@@ -28,14 +28,15 @@ The rehearsal must:
 5. naturally ask the private agent to remember a durable financial preference
 6. require the visible `Save to PKM?` review and explicit owner confirmation
 7. prove no previously observed canonical scope disappeared
-8. fetch one coherent encrypted financial snapshot and decrypt all segments locally
-9. close the context, reauthenticate and re-unlock in a fresh context, then require equal encrypted and decrypted readback
-10. replace exact output artifacts only after every assertion passes
+8. fetch one coherent encrypted financial snapshot; browser unlock and protected-route readback remain the default decryption proof
+9. close the context, reauthenticate and re-unlock in a fresh context, then require equal encrypted readback and equal vault-key commitment
+10. decrypt and write exact payload evidence only when the operator explicitly requests it with `PKM_REVIEWER_REHEARSAL_ALLOW_DECRYPTED_OUTPUT=1`; otherwise the Node harness never derives or decrypts a vault key
+11. replace exact output artifacts only after every assertion passes
 
 ## Exact artifacts
 
 - `tmp/reviewer-pkm-encrypted-payload.json`: exact final encrypted financial response
-- `tmp/reviewer-pkm-decrypted-payload.json`: exact locally decrypted financial domain
+- `tmp/reviewer-pkm-decrypted-payload.json`: exact locally decrypted financial domain, only when `PKM_REVIEWER_REHEARSAL_ALLOW_DECRYPTED_OUTPUT=1` is explicitly set
 
 Do not wrap payloads in audit bundles or duplicate samples. Keep runtime output aggregate-only. Write files with mode `0600` and never commit them.
 
