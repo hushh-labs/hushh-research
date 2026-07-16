@@ -20,11 +20,31 @@ function run(command, args, cwd) {
   return result.stdout;
 }
 
-function nextJsonLine(lines, timeoutMs = 15000) {
+function testPythonPath() {
+  const executable = process.platform === "win32" ? "python.exe" : "python";
+  const candidate = path.resolve(
+    packageDir,
+    "..",
+    "..",
+    "consent-protocol",
+    ".venv",
+    process.platform === "win32" ? "Scripts" : "bin",
+    executable,
+  );
+  return fs.existsSync(candidate) ? candidate : "";
+}
+
+function nextJsonLine(lines, { child, stderr, label, timeoutMs = 15000 }) {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       lines.removeListener("line", onLine);
-      reject(new Error("Packed MCP runtime response timed out"));
+      child.kill("SIGTERM");
+      const exit = child.exitCode === null ? "running" : String(child.exitCode);
+      reject(
+        new Error(
+          `Packed MCP ${label} response timed out (exit=${exit}; stderr=${stderr().slice(0, 500)})`,
+        ),
+      );
     }, timeoutMs);
     const onLine = (line) => {
       clearTimeout(timeout);
@@ -71,6 +91,7 @@ try {
       VAULT_DATA_KEY: "0".repeat(64),
       HUSHH_MCP_SKIP_BOOTSTRAP: "1",
       HUSHH_MCP_CACHE_DIR: path.join(tempRoot, "runtime-cache"),
+      HUSHH_MCP_PYTHON: process.env.HUSHH_MCP_PYTHON || testPythonPath(),
       HUSHH_DEVELOPER_TOKEN: "",
     },
     stdio: ["pipe", "pipe", "pipe"],
@@ -92,7 +113,8 @@ try {
       },
     })}\n`,
   );
-  const initialized = await nextJsonLine(lines);
+  const responseOptions = (label) => ({ child, stderr: () => stderr, label });
+  const initialized = await nextJsonLine(lines, responseOptions("initialization"));
   if (initialized?.result?.serverInfo?.version !== "0.3.0") {
     throw new Error(`Packed MCP initialization mismatch: ${JSON.stringify(initialized)}`);
   }
@@ -100,7 +122,7 @@ try {
   child.stdin.write(
     `${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })}\n`,
   );
-  const listed = await nextJsonLine(lines);
+  const listed = await nextJsonLine(lines, responseOptions("tool-list"));
   const names = listed?.result?.tools?.map((tool) => tool.name);
   const expected = [
     "search_user_scopes",
@@ -123,7 +145,7 @@ try {
       },
     })}\n`,
   );
-  const called = await nextJsonLine(lines);
+  const called = await nextJsonLine(lines, responseOptions("tool-call"));
   if (called?.result?.structuredContent?.error_code !== "AUTHENTICATION_REQUIRED") {
     throw new Error(`Packed MCP tool-call mismatch: ${JSON.stringify(called)}`);
   }
@@ -147,7 +169,7 @@ try {
       },
     })}\n`,
   );
-  const rejected = await nextJsonLine(lines);
+  const rejected = await nextJsonLine(lines, responseOptions("schema-rejection"));
   if (rejected?.result?.structuredContent?.error_code !== "INVALID_ARGUMENTS") {
     throw new Error(`Packed MCP strict-schema mismatch: ${JSON.stringify(rejected)}`);
   }
