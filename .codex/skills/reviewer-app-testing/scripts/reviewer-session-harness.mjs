@@ -54,7 +54,7 @@ export async function createReviewerSessionHarness({
     return commitment;
   }
 
-  async function installBridge(page) {
+  async function installBridge(page, { includePassphrase = true } = {}) {
     await page.addInitScript(
       ({ expectedUserId, vaultPassphrase }) => {
         window.__HUSHH_NATIVE_TEST__ = {
@@ -62,10 +62,13 @@ export async function createReviewerSessionHarness({
           enabled: true,
           autoReviewerLogin: true,
           expectedUserId,
-          vaultPassphrase,
+          ...(vaultPassphrase ? { vaultPassphrase } : {}),
         };
       },
-      { expectedUserId: reviewerUid, vaultPassphrase: reviewerPassphrase }
+      {
+        expectedUserId: reviewerUid,
+        vaultPassphrase: includePassphrase ? reviewerPassphrase : "",
+      }
     );
   }
 
@@ -233,6 +236,43 @@ export async function createReviewerSessionHarness({
     });
   }
 
+  async function assertVisibleVaultChallenge(browser, redirect) {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    const challengeTimeoutMs = Math.min(timeoutMs, 60_000);
+    page.setDefaultTimeout(challengeTimeoutMs);
+    page.setDefaultNavigationTimeout(challengeTimeoutMs);
+    const capture = attachMemoryOnlyCapture(page);
+    try {
+      // Authenticate the canonical reviewer through the test bridge, but do
+      // not inject or submit the passphrase. This context must prove the app
+      // itself presents the locked-vault challenge first.
+      await installBridge(page, { includePassphrase: false });
+      await page.goto(`${normalizedOrigin}/login?redirect=${encodeURIComponent(redirect)}`, {
+        waitUntil: "domcontentloaded",
+      });
+      const unlockInput = page.locator("#unlock-passphrase");
+      const deadline = Date.now() + challengeTimeoutMs;
+      while (Date.now() < deadline) {
+        capture.assertNoCriticalApiFailures("visible vault challenge");
+        if (await unlockInput.isVisible().catch(() => false)) return;
+        await page.waitForTimeout(250);
+      }
+      const diagnostics = await page.evaluate(() => ({
+        path: `${window.location.pathname}${window.location.search}`,
+        title: document.title,
+        bootstrapState: window.__HUSHH_NATIVE_TEST__?.bootstrapState || "unknown",
+        bootstrapErrorClass:
+          window.__HUSHH_NATIVE_TEST__?.bootstrapErrorClass || "none",
+      }));
+      throw new Error(
+        `Visible vault challenge timed out (path=${diagnostics.path}, title=${diagnostics.title || "unknown"}, state=${diagnostics.bootstrapState}, error_class=${diagnostics.bootstrapErrorClass}).`
+      );
+    } finally {
+      await context.close().catch(() => undefined);
+    }
+  }
+
   async function fetchOwnerJson(pathname, ownerToken, { allow404 = false } = {}) {
     const response = await fetch(`${normalizedOrigin}${pathname}`, {
       headers: {
@@ -255,6 +295,7 @@ export async function createReviewerSessionHarness({
 
   return {
     assertVaultContinuity,
+    assertVisibleVaultChallenge,
     chromium,
     endpointPath,
     fetchOwnerJson,

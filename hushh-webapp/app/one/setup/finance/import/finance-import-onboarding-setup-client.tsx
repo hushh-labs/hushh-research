@@ -26,6 +26,9 @@ export function FinanceImportOnboardingSetupClient() {
     finishActionId: "setup.finish_finance",
     skipActionId: "setup.skip_finance",
     resumeReadinessFromCallback: true,
+    // Root setup may have been skipped before Finance is opened. This is still
+    // an explicit Finance task and must retain the portfolio-source terminal.
+    allowResolvedRootReentry: true,
   });
 
   if (loading || !user || !coordinator.isReady) {

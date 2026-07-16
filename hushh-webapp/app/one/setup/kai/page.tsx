@@ -37,6 +37,10 @@ import {
   type PreVaultOnboardingState,
 } from "@/lib/services/pre-vault-onboarding-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import {
+  canActivateFinanceSetup,
+  shouldShowFinanceSetupWizard,
+} from "@/lib/onboarding/finance-setup-admission";
 import { VaultService } from "@/lib/services/vault-service";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -139,6 +143,7 @@ function KaiOnboardingPageContent({
     skipActionId: "setup.skip_finance",
     enabled: isStaticFinanceSetupRoute,
     screenId: "one_setup_finance",
+    allowResolvedRootReentry: true,
   });
   // Intentional re-entry: a user who has ALREADY resolved the setup gate but
   // deliberately reopens this wizard (tapping the Finance tile, which forwards
@@ -212,9 +217,13 @@ function KaiOnboardingPageContent({
           // Otherwise the canonical surface is the `/one/setup` capability hub,
           // so we redirect there instead of showing the legacy entry hub.
           if (
-            (!onboardingResolved && (pending || isStaticFinanceSetupRoute)) ||
-            wizardReentryRequested ||
-            preserveOnboardingAuditRoute
+            shouldShowFinanceSetupWizard({
+              onboardingResolved,
+              hasPendingPreVaultState: Boolean(pending),
+              isCanonicalFinanceSetupRoute: isStaticFinanceSetupRoute,
+              wizardReentryRequested,
+              preserveOnboardingAuditRoute,
+            })
           ) {
             setStage("wizard");
           } else {
@@ -253,7 +262,15 @@ function KaiOnboardingPageContent({
           // their preferences (finance tile / edit=1) stays on the questionnaire,
           // pre-filled from the saved profile. Everyone else returns to the
           // canonical `/one/setup` hub rather than the legacy entry screen.
-          if (wizardReentryRequested || preserveOnboardingAuditRoute) {
+          if (
+            shouldShowFinanceSetupWizard({
+              onboardingResolved: true,
+              hasPendingPreVaultState: false,
+              isCanonicalFinanceSetupRoute: isStaticFinanceSetupRoute,
+              wizardReentryRequested,
+              preserveOnboardingAuditRoute,
+            })
+          ) {
             setStage("wizard");
             return;
           }
@@ -331,7 +348,7 @@ function KaiOnboardingPageContent({
       const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
         force: true,
       });
-      if (journey.onboardingActiveCapability !== "finance") {
+      if (!canActivateFinanceSetup(journey)) {
         router.replace(ROUTES.ONE_SETUP);
         return {
           status: "blocked" as const,

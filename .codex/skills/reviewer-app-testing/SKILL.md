@@ -55,12 +55,13 @@ Non-owned surfaces:
 
 1. Resolve the canonical reviewer through the shared identity module; never print or persist its secrets.
 2. Decide and record whether the run is read-only or explicitly mutation-authorized.
-3. Authenticate, unlock, derive the wrapper key locally, and verify `vaultKeyHash`.
-4. Keep passphrase, tokens, key, and decrypted information in memory throughout the same-session route chain.
-5. Use Next client navigation and assert `vault_unlocked` after every protected route transition.
-6. Fail the route chain on critical first-party vault, consent, connection, notification, or PKM API 5xx responses.
-7. Close the context, then test cold-session authentication and re-unlock separately.
-8. Hand domain assertions to the owning spoke while retaining this BYOK/session contract.
+3. Prove a cold authenticated entry visibly hard-gates on the vault before supplying any passphrase.
+4. Unlock, derive the wrapper key locally, and verify `vaultKeyHash`.
+5. Keep passphrase, tokens, key, and decrypted information in memory throughout the same-session route chain.
+6. Use Next client navigation and assert `vault_unlocked` after every protected route transition.
+7. Fail the route chain on critical first-party vault, consent, connection, notification, or PKM API 5xx responses.
+8. Close the context, then test cold-session authentication and re-unlock separately.
+9. Hand domain assertions to the owning spoke while retaining this BYOK/session contract.
 
 ## Handoff Rules
 

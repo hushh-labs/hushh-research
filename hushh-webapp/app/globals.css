@@ -3543,169 +3543,44 @@ html[data-accent="gold"].dark {
   }
 }
 
-/* ============================================================================
-   RIA SUB-AGENT — Apple-clean premium surface scope
-   ----------------------------------------------------------------------------
-   Scoped to /ria/* via body[data-persona-surface="ria"] (written by the
-   RIA surface-scope effect in app/providers.tsx). Because Tailwind v4's
-   `@theme inline` aliases color utilities to these runtime vars with NO hsl()
-   wrapper, redefining the underlying vars in this descendant scope re-themes
-   every bg-, text-, border- utility AND every token-driven component
-   (SurfaceCard / RiaSurface / RiaStatusPanel / PageHeader / segmented tabs …)
-   to the warm greige + navy ink + gold palette — ONLY inside the RIA sub-agent.
-   One and investor personas are byte-identical (attribute unset -> defaults).
-   Light-locked (the mockup is light-only). NEVER repoint these vars at :root.
-   Placed last in source order so the scoped overrides win ties against the
-   shared chrome / .morphy-app-bg / .dark rules above.
-   ============================================================================ */
+/* RIA compatibility aliases. RIA components may use these semantic names, but
+   the route deliberately inherits the same Morphy/Foundation theme as every
+   other sub-agent. Do not override global canvas, chrome, or accent tokens in
+   this scope. */
 body[data-persona-surface="ria"] {
-  /* Canvas + surface (warm cream, per the latest (1) design) */
-  --background: #fcfaf6;
-  --app-bg-start: #fffdf9;
-  --app-bg-mid: #fefcf8;
-  --app-bg-end: #fcfaf6;
-
-  /* Ink / text (neutral charcoal, not navy) */
-  --foreground: #151619;
-  --card-foreground: #151619;
-  --muted-foreground: #6f7075;
-
-  /* Primary / CTA ink (near-black) — matches the design CTA #1C1C1E. */
-  --primary: #1c1c1e;
-  --primary-foreground: #ffffff;
-
-  /* Morphy CTA gradient -> solid DS ink (retints every blue-gradient/gradient
-     morphy Button across RIA — picks, workspace — with no per-site edits). */
-  --morphy-primary-start: #1c1c1e;
-  --morphy-primary-mid: #1c1c1e;
-  --morphy-primary-end: #1c1c1e;
-  --morphy-cta-shadow: rgba(21, 22, 25, 0.16);
-
-  /* Gold accent — design gold #C98B2E; deep gold #B87B23 (edit pills, badges). */
-  --accent: #c98b2e;
-  --foundation-ink: #151619;
-  --foundation-gold-accent: #c98b2e;
-  --foundation-gold-deep: #b87b23;
-  --foundation-gold: #c98b2e;
-  --foundation-accent-surface: #f8f1e5;
-  --foundation-accent-surface-strong: #f6ead5;
-  --foundation-accent-border: rgba(201, 139, 46, 0.35);
-
-  /* Cards (warm off-white + warm hairline + warm shadow) */
-  --card: #fffdf9;
-  --border: #e9e1d6;
-  --input: #e9e1d6;
-  --app-card-surface-default: #fffdf9;
-  --app-card-surface-default-solid: #fffdf9;
-  --app-card-surface-compact: #fffdf9;
-  --app-card-surface-hero: #fffdf9;
-  --app-card-surface-surface: #fffdf9;
-  --app-card-border-standard: #e9e1d6;
-  --app-card-border-strong: #e9e1d6;
-  --app-card-shadow-standard: 0 8px 24px rgba(62, 48, 30, 0.05);
-  --app-card-shadow-feature: 0 12px 32px rgba(62, 48, 30, 0.08);
-
-  /* Segmented tabs -> gold active pill */
-  --app-segmented-active-surface: #f6ead5;
-  --app-segmented-active-foreground: #c98b2e;
-  --app-segmented-active-border: transparent;
-
-  /* --ria-* primitive namespace (consumed by components/ria/ui/*). */
-  --ria-gold: #c98b2e;
-  --ria-gold-deep: #b87b23;
-  --ria-ink: #151619;
-  --ria-muted: #6f7075;
-  --ria-sublabel: #8a8983;
-  --ria-faint: #b0aba1;
-  --ria-alt: #57544e;
-  --ria-canvas: #fcfaf6;
-  --ria-surface: #fcfaf6;
-  --ria-selected-tint: #f8f1e5;
-  --ria-nav-active: #f6ead5;
-  --ria-divider-outer: #e9e1d6;
-  --ria-divider-inner: #efe8dc;
-  --ria-cta-ink: #1c1c1e;
-  --ria-cta-radius: 28px;
-  --ria-cta-height: 56px;
-  --ria-cta-shadow: 0 12px 28px rgba(21, 22, 25, 0.16);
-  --ria-secondary-border: rgba(201, 139, 46, 0.6);
-  --ria-input-radius: 18px;
-  --ria-input-height: 60px;
-  --ria-card-radius: 22px;
-  --ria-chip-radius: 14px;
-  --ria-progress-done: rgba(201, 139, 46, 0.72);
-  --ria-progress-current: #c98b2e;
-  --ria-progress-todo: #e9e1d6;
-  --ria-select-fill: #c98b2e;
-  --ria-select-border: #cfc9be;
-  --ria-success: #2e9b73;
-  --ria-success-text: #2e9b73;
-  --ria-success-bg: rgba(46, 155, 115, 0.09);
-  --ria-success-border: rgba(46, 155, 115, 0.26);
-  /* Warm literals used by a few component spots (bio note, fee-active label). */
-  --ria-amber-note: #9a6b23;
-  --ria-fee-active: #8b5d19;
-}
-
-/* Warm cream canvas + top-right glow (beats .morphy-app-bg's forced flat bg). */
-html body[data-persona-surface="ria"] .morphy-app-bg {
-  background-color: #fcfaf6 !important;
-  background-image:
-    radial-gradient(
-      circle at 82% 12%,
-      rgba(242, 223, 192, 0.5) 0%,
-      rgba(252, 250, 246, 0) 40%
-    ),
-    linear-gradient(180deg, #fffdf9 0%, #fcfaf6 100%) !important;
-}
-
-/* DS hairline card border (defeats the apple Card's !border-0 on RIA surfaces). */
-body[data-persona-surface="ria"] [data-surface-tone] {
-  border-width: 1px !important;
-  border-style: solid !important;
-  border-color: var(--app-card-border-standard) !important;
-}
-
-/* Page/section header subtitle: the shared PageHeader clamps the description to
-   one line (line-clamp-1), which truncated the old verbose RIA copy to "…". The
-   copy is now crisp, so let it read fully inside the RIA scope only. */
-body[data-persona-surface="ria"] [data-slot="page-header-description"],
-body[data-persona-surface="ria"] [data-slot="section-header-description"] {
-  display: block;
-  -webkit-line-clamp: unset;
-  overflow: visible;
-}
-
-body[data-persona-surface="ria"] [data-testid="ria-picks-active"] input[type="search"] {
-  min-height: 48px;
-  border: 1px solid var(--ria-divider-outer);
-  border-radius: 16px;
-  background: var(--card);
-  color: var(--ria-ink);
-  box-shadow: none;
-}
-
-body[data-persona-surface="ria"] [data-testid="ria-picks-active"] input[type="search"]::placeholder {
-  color: var(--ria-faint);
-}
-
-body[data-persona-surface="ria"] [data-testid="ria-picks-active"] [data-slot="surface-data-table-shell"] {
-  border-color: var(--ria-divider-outer);
-  border-radius: 18px;
-  background: var(--card);
-  box-shadow: var(--app-card-shadow-standard);
-}
-
-body[data-persona-surface="ria"] [data-testid="ria-picks-active"] [data-slot="surface-data-table-shell"] thead {
-  background: color-mix(in oklab, var(--ria-canvas) 88%, white);
-}
-
-body[data-persona-surface="ria"] [data-testid="ria-picks-active"] [data-slot="surface-data-table-shell"] th {
-  color: var(--ria-sublabel);
-}
-
-body[data-persona-surface="ria"] [data-testid="ria-picks-active"] [data-slot="surface-data-table-shell"] td {
-  border-color: var(--ria-divider-inner);
+  --ria-gold: var(--app-accent);
+  --ria-gold-deep: var(--app-accent-deep);
+  --ria-ink: var(--foreground);
+  --ria-muted: var(--muted-foreground);
+  --ria-sublabel: var(--muted-foreground);
+  --ria-faint: color-mix(in oklab, var(--muted-foreground) 62%, transparent);
+  --ria-alt: var(--foreground);
+  --ria-canvas: var(--background);
+  --ria-surface: var(--card);
+  --ria-selected-tint: var(--app-accent-surface);
+  --ria-nav-active: var(--app-accent-surface-strong);
+  --ria-divider-outer: var(--border);
+  --ria-divider-inner: color-mix(in oklab, var(--border) 72%, transparent);
+  --ria-cta-ink: var(--primary);
+  --ria-cta-radius: var(--app-radius-pill);
+  --ria-cta-height: 3.5rem;
+  --ria-cta-shadow: 0 8px 18px var(--morphy-cta-shadow);
+  --ria-secondary-border: var(--app-accent-border);
+  --ria-input-radius: var(--app-radius-lg);
+  --ria-input-height: 3.75rem;
+  --ria-card-radius: var(--app-card-radius-standard);
+  --ria-chip-radius: var(--app-radius-md);
+  --ria-progress-done: color-mix(in oklab, var(--app-accent) 72%, transparent);
+  --ria-progress-current: var(--app-accent);
+  --ria-progress-todo: var(--border);
+  --ria-select-fill: var(--app-accent);
+  --ria-select-border: var(--border);
+  --ria-success: var(--tone-green);
+  --ria-success-text: var(--tone-green);
+  --ria-success-bg: color-mix(in oklab, var(--tone-green) 12%, transparent);
+  --ria-success-border: color-mix(in oklab, var(--tone-green) 28%, transparent);
+  --ria-amber-note: var(--app-accent-deep);
+  --ria-fee-active: var(--app-accent-deep);
 }
 
 /* RIA primitive helper classes (composed by onboarding + surface restyles). */
@@ -3746,7 +3621,7 @@ body[data-persona-surface="ria"] .ria-cta {
   padding: 0 24px;
   border-radius: var(--ria-cta-radius);
   background: var(--ria-cta-ink);
-  color: #ffffff;
+  color: var(--primary-foreground);
   font-weight: 600;
   box-shadow: var(--ria-cta-shadow);
   transition:
@@ -3767,7 +3642,7 @@ body[data-persona-surface="ria"] .ria-secondary {
   gap: 8px;
   min-height: var(--ria-cta-height);
   padding: 0 24px;
-  border-radius: 28px;
+  border-radius: var(--ria-cta-radius);
   background: transparent;
   border: 1.5px solid var(--ria-secondary-border);
   color: var(--ria-gold);
@@ -3796,53 +3671,21 @@ body[data-vault-unlock-active] [data-agent-bar-shell] {
   pointer-events: none !important;
 }
 
-/* ── RIA chrome exact-match overrides ──────────────────────────────────────
-   The shared chrome (top glass, bottom-nav pill, search circle) is styled by
-   base rules that use !important (globals ~L1488-1792) + inline vars, so the
-   RIA warm tints must be applied here with !important + later source order to
-   win. Scoped to body[data-persona-surface="ria"] so One/investor are intact. */
+/* Session verification is a focused transition surface. The bottom controls
+   are fixed siblings of the route guard, so suppress them before paint rather
+   than allowing a stale Agent Bar/nav frame to overlap the session loader. */
+html[data-session-check-active] [data-app-bottom-nav],
+html[data-session-check-active] [data-agent-bar-shell],
+html[data-session-check-active] [data-app-bottom-chrome-glass],
+body[data-session-check-active] [data-app-bottom-nav],
+body[data-session-check-active] [data-agent-bar-shell],
+body[data-session-check-active] [data-app-bottom-chrome-glass] {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
 
-/* Taller top bar (design header = 56px) + transparent glass so the cream
-   canvas shows through (kills the cool frosted band). */
 body[data-persona-surface="ria"] {
-  --top-bar-h: 56px;
   --ria-onboarding-cta-bottom-clearance: calc(
     var(--bottom-chrome-stack-height, var(--app-screen-footer-pad)) + 112px
   );
-}
-body[data-persona-surface="ria"] .bar-glass-top {
-  --app-bar-glass-bg-light: transparent !important;
-  --app-bar-glass-bg-dark: transparent !important;
-  --app-bar-shadow: none !important;
-}
-body[data-persona-surface="ria"] .bar-glass-bottom {
-  --app-bar-glass-bg-light: rgba(252, 250, 246, 0.9) !important;
-  --app-bar-glass-bg-dark: rgba(28, 26, 23, 0.82) !important;
-  --app-bar-glass-blur: 24px !important;
-  --app-bar-mask-overscan: 48px !important;
-  --app-bar-bottom-fade-strong: rgba(252, 250, 246, 0.98);
-  --app-bar-bottom-fade-medium: rgba(252, 250, 246, 0.92);
-  --app-bar-bottom-fade-soft: rgba(252, 250, 246, 0.72);
-  --app-bar-bottom-fade-trace: rgba(252, 250, 246, 0.3);
-}
-
-/* Bottom nav: warm frosted track + gold active pill (#F6EAD5). */
-body[data-persona-surface="ria"] .kai-bottom-nav-pill {
-  background: rgba(252, 250, 246, 0.72) !important;
-  border-color: transparent !important;
-  box-shadow: 0 18px 42px rgba(62, 48, 30, 0.08) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(145%) !important;
-  backdrop-filter: blur(24px) saturate(145%) !important;
-}
-body[data-persona-surface="ria"] .kai-bottom-nav-pill [data-segment-indicator] {
-  background: var(--ria-nav-active) !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-}
-
-/* Search circle: warm cream #FBF7F0 + hairline border. */
-body[data-persona-surface="ria"] .kai-bottom-search-action {
-  background: #fbf7f0 !important;
-  border: 1px solid var(--ria-divider-outer) !important;
-  box-shadow: 0 4px 14px rgba(62, 48, 30, 0.06) !important;
 }

@@ -34,7 +34,7 @@ describe("setup catalog voice parity", () => {
     ).toEqual([
       "Connect Gmail",
       "Set up location",
-      "Email",
+      "KYC",
       "Set up your finances",
       "Set up RIA",
       "Link your record to external systems",

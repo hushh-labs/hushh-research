@@ -9,7 +9,7 @@ import {
   useLayoutEffect,
 } from "react";
 import { Capacitor } from "@capacitor/core";
-import { Button, Card, CardContent } from "@/lib/morphy-ux/morphy";
+import { Button, Card } from "@/lib/morphy-ux/morphy";
 import {
   Lock,
   Loader2,
@@ -830,7 +830,7 @@ export function VaultFlow({
     if (error) {
       return (
         <Card variant="none" effect="fill">
-          <CardContent className="p-6 text-center py-8">
+          <div className="p-6 py-8 text-center">
             <div className="space-y-4">
               <div className="text-destructive mb-2">
                 <Icon icon={AlertCircle} size={32} className="mx-auto" />
@@ -844,7 +844,7 @@ export function VaultFlow({
                 Try again
               </Button>
             </div>
-          </CardContent>
+          </div>
         </Card>
       );
     }
@@ -854,16 +854,10 @@ export function VaultFlow({
 
   return (
     <>
-      <Card
-        variant="none"
-        effect="fill"
-        // The morphy fill effect paints its own card surface (rgb(44,44,46) in
-        // dark), which stacked a SECOND panel inside the drawer sheet and made
-        // the vault unlock look like two offset cards. Force full transparency:
-        // the Drawer sheet is the one and only surface.
-        className="!border-0 !bg-transparent !shadow-none [background-image:none]"
+      <div
+        data-vault-flow-content
+        className="max-h-[min(640px,calc(90svh-3rem))] space-y-4 overflow-y-auto px-5 pb-[max(calc(1.25rem+env(safe-area-inset-bottom,0px)),calc(1.25rem+var(--kb-height,0px)))] pt-1 [scrollbar-width:none] sm:px-7 [&::-webkit-scrollbar]:hidden"
       >
-        <CardContent className="max-h-[min(640px,calc(90svh-3rem))] space-y-4 overflow-y-auto px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] pt-1 [scrollbar-width:none] sm:px-7 [&::-webkit-scrollbar]:hidden">
           {/* Intro / Education Step */}
           {step === "intro" && (
             <div className="motion-step-enter mx-auto max-w-[21rem] space-y-4 text-center">
@@ -1436,8 +1430,7 @@ export function VaultFlow({
               </div>
             </div>
           )}
-        </CardContent>
-      </Card>
+      </div>
 
       {/* Recovery Key Dialog (New User) */}
       <Dialog

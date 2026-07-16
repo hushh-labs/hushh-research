@@ -52,18 +52,14 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("router.push(nextRoute);");
   });
 
-  it("keeps the RIA header cluster route-scoped so One home keeps the Agents dropdown", () => {
+  it("uses the same agent selector and chrome motion contract for RIA and Finance", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
-    // Display-only "RIA v" cluster shown across the RIA sub-agent.
-    expect(source).toContain('data-testid="top-app-bar-ria-cluster"');
-    // RIA chrome must be route-scoped. If activePersona remains "ria" after
-    // returning to /one, the launcher still renders the build-48 Agents
-    // dropdown instead of the hardcoded RIA cluster.
-    expect(source).toContain("const isRiaOnboardingScope");
-    expect(source).toContain("normalizedPathname === ROUTES.RIA_ONBOARDING");
-    expect(source).toContain("isRiaRoute(normalizedPathname)");
-    expect(source).not.toContain('activePersona === "ria" || isRiaOnboardingScope');
+    expect(source).toContain("<AgentSectionDropdown pathname={normalizedPathname} />");
+    expect(source).not.toContain('data-testid="top-app-bar-ria-cluster"');
+    expect(source).not.toContain("const isRiaOnboardingScope");
+    expect(source).not.toContain("const isRiaScope");
+    expect(source).toContain("const topChromeHideProgress = rawTopChromeHideProgress;");
   });
 
   it("uses deterministic breadcrumb parents instead of browser history for top-bar back", () => {

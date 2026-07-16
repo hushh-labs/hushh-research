@@ -16,6 +16,7 @@ import {
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { VaultService } from "@/lib/services/vault-service";
 import { useHostname } from "@/lib/hooks/use-hostname";
+import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 
 function resolveInitialVaultPresence(params: {
   userId: string | null | undefined;
@@ -65,6 +66,7 @@ export function PhoneMandateGuard({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, loading, phoneNumber } = useAuth();
+  useSessionChromeSuppression(loading);
   const hostname = useHostname();
   const hostnameResolved = hostname !== null;
   const localPhoneMandateBypassed = shouldBypassPhoneMandateForLocalhost(hostname);

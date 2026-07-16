@@ -3089,7 +3089,7 @@
           "playbook_id": "route.one.kyc",
           "purpose": "Help the person understand and use the kyc screen through its generated controls.",
           "screen": "one_kyc",
-          "entry_cue": "You can say “Open Email” to use the primary control on this screen.",
+          "entry_cue": "You can say “Open KYC” to use the primary control on this screen.",
           "proactivity": "on_entry",
           "primary_action_id": "route.one_kyc",
           "happy_path_action_ids": [
@@ -3720,9 +3720,9 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.setup.email",
-          "purpose": "Set up the verified email identity and connector One uses to draft with you.",
+          "purpose": "Set up KYC review and the connector One uses to draft with you.",
           "screen": "one_setup_email",
-          "entry_cue": "Set up your verified email identity, or say skip KYC setup.",
+          "entry_cue": "Set up KYC review, or say skip KYC setup.",
           "proactivity": "on_entry",
           "primary_action_id": "setup.skip_email",
           "happy_path_action_ids": [
@@ -3738,7 +3738,7 @@
             "callback_error": "Use the verified current route and its generated actions only.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "KYC setup finishes only after a verified email identity and client connector are ready.",
+          "completion_boundary": "KYC setup finishes only after KYC readiness and the client connector are ready.",
           "next_route": "/one/setup",
           "return_policy": "return_to_hub",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."

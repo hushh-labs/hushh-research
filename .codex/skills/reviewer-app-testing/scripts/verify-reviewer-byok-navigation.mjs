@@ -40,6 +40,7 @@ let freshSession;
 let firstKeyCommitment;
 let freshKeyCommitment;
 try {
+  await reviewer.assertVisibleVaultChallenge(browser, routes[0] || "/agent");
   firstSession = await reviewer.openSession(browser, routes[0] || "/agent");
   firstKeyCommitment = reviewer.vaultKeyCommitment(await firstSession.capture.vaultState());
   for (const route of routes.slice(1)) {
@@ -59,7 +60,7 @@ try {
     throw new Error("Fresh-session reviewer unlock resolved a different vault key commitment.");
   }
   process.stdout.write(
-    `[reviewer-app-testing] PASS same_session_routes=${routes.length} cold_session_reunlock=1\n`
+    `[reviewer-app-testing] PASS visible_vault_challenge=1 same_session_routes=${routes.length} cold_session_reunlock=1\n`
   );
 } finally {
   await firstSession?.context.close().catch(() => undefined);

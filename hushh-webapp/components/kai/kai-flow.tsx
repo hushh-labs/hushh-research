@@ -656,7 +656,16 @@ export function KaiFlow({
   ): Promise<boolean> => {
     if (mode !== "import") return false;
     if (onSetupSourceSettled) {
-      return Boolean(await onSetupSourceSettled(source, callbackAttemptId));
+      const settled = Boolean(
+        await onSetupSourceSettled(source, callbackAttemptId),
+      );
+      if (!settled) {
+        // Do not fall through to Kai when the setup adapter cannot verify the
+        // active journey. Keeping the chooser visible lets the person retry
+        // rather than hiding the required terminal Finish step.
+        toast.error("Finance setup could not be confirmed. Please try again.");
+      }
+      return true;
     }
     const journey = await PreVaultUserStateService.bootstrapState(userId, {
       force: true,

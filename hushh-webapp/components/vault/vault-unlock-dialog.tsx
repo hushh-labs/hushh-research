@@ -2,14 +2,16 @@
 
 import { useEffect, useId } from "react";
 import type { User } from "firebase/auth";
+import { Dialog as DialogPrimitive } from "radix-ui";
 
 import { VaultFlow } from "@/components/vault/vault-flow";
 import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerTitle,
-} from "@/components/ui/drawer";
+  Dialog,
+  DialogOverlay,
+  DialogPortal,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type VaultUnlockDialogProps = {
   user: User;
@@ -35,7 +37,7 @@ type VaultUnlockDialogProps = {
   onSignOut?: () => void | Promise<void>;
 };
 
-// A vault sheet is an exclusive credential interaction. Keep the shell chrome
+// A vault surface is an exclusive credential interaction. Keep the shell chrome
 // out of the accessibility and visual stack for its entire lifetime, including
 // the short close animation. A ref-counted registry makes nested or overlapping
 // vault callers safe: one unmount cannot restore chrome while another vault
@@ -83,67 +85,75 @@ export function VaultUnlockDialog({
     };
   }, [open, surfaceId, surfaceVariant]);
 
-  // Presented as a native iOS bottom sheet (vaul Drawer): anchored to the
-  // bottom, rounded top, grabber handle, slide-up, with a modal blur scrim that
-  // blocks the app underneath. When it is the hard vault gate (dismissible
-  // false) vaul disables swipe/scrim/escape dismissal; the onOpenChange guard is
-  // a belt-and-suspenders backstop.
+  // The unlock flow is a stable upper-viewport credential layout, never a
+  // bottom sheet. This prevents a native keyboard from moving the entire vault
+  // surface; VaultFlow scrolls its own form content when needed.
   return (
-    <Drawer
+    <Dialog
       open={open}
       modal
-      dismissible={dismissible}
-      // Let the native iOS/Capacitor webview own keyboard avoidance. vaul's own
-      // input-repositioning shifts the whole sheet UP when the autofocused vault
-      // key field gains focus — on a device/simulator where no software keyboard
-      // is shown that leaves the sheet detached from the bottom with a gap below.
-      repositionInputs={false}
       onOpenChange={(nextOpen) => {
         if (!dismissible && !nextOpen) return;
         onOpenChange?.(nextOpen);
       }}
     >
-      <DrawerContent
-        data-vault-unlock-surface={surfaceVariant}
-        overlayClassName={
-          surfaceVariant === "hard_gate"
-            ? "!animate-none !backdrop-blur-none [-webkit-backdrop-filter:none]"
-            : undefined
-        }
-        // The hard gate cannot rely on a generated utility class to override
-        // the shared translucent drawer scrim. It must be an opaque canvas at
-        // render time so no persistent shell chrome can show through.
-        overlayStyle={
-          surfaceVariant === "hard_gate"
-            ? {
-                backgroundColor: "var(--background)",
-                backdropFilter: "none",
-                WebkitBackdropFilter: "none",
-                opacity: 1,
-                animation: "none",
-                transition: "none",
-              }
-            : undefined
-        }
-        className={[
-          // The form remains one calm, opaque sheet. A hard gate swaps only the
-          // backdrop to the opaque theme canvas above; contextual unlock
-          // prompts keep the shared modal scrim.
-          // max-h as a vaul-direction variant so it deterministically overrides
-          // the base drawer max-h and shrinks by the keyboard height; the sheet
-          // itself lifts by --kb-height via the base DrawerContent. B21.
-          "mx-auto data-[vaul-drawer-direction=bottom]:max-h-[calc(92svh-var(--kb-height,0px))] overflow-hidden rounded-t-[34px] border-0 bg-white shadow-[0_-16px_50px_rgba(0,0,0,0.45)] outline-none focus:outline-none focus-visible:outline-none sm:max-w-md dark:bg-[#141416]",
-        ].join(" ")}
-      >
-        <DrawerTitle className="sr-only">{title}</DrawerTitle>
-        <DrawerDescription className="sr-only">{description}</DrawerDescription>
-        <VaultFlow
-          user={user}
-          enableGeneratedDefault={enableGeneratedDefault}
-          onSuccess={onSuccess}
-          onSignOut={onSignOut}
+      <DialogPortal>
+        <DialogOverlay
+          className={
+            surfaceVariant === "hard_gate"
+              ? "!z-[711] !animate-none !backdrop-blur-none [-webkit-backdrop-filter:none]"
+              : "!z-[711]"
+          }
+          style={
+            surfaceVariant === "hard_gate"
+              ? {
+                  backgroundColor: "var(--background)",
+                  backdropFilter: "none",
+                  WebkitBackdropFilter: "none",
+                  opacity: 1,
+                  animation: "none",
+                  transition: "none",
+                }
+              : undefined
+          }
         />
-      </DrawerContent>
-    </Drawer>
+        <DialogPrimitive.Content
+          data-vault-unlock-surface={surfaceVariant}
+          data-vault-layout="top-centered-flat"
+          style={{
+            position: "fixed",
+            zIndex: 712,
+            top: "max(calc(env(safe-area-inset-top, 0px) + 1.5rem), 6svh)",
+            left: "50%",
+            width: "calc(100% - 2rem)",
+            maxWidth: "28rem",
+            maxHeight: "min(58svh, 640px)",
+            transform: "translateX(-50%)",
+            overflow: "visible",
+            background: "transparent",
+            border: 0,
+            borderRadius: 0,
+            boxShadow: "none",
+            padding: 0,
+          }}
+          className="outline-none focus:outline-none focus-visible:outline-none"
+          onEscapeKeyDown={(event) => {
+            if (!dismissible) event.preventDefault();
+          }}
+          onPointerDownOutside={(event) => {
+            if (!dismissible) event.preventDefault();
+          }}
+        >
+          <DialogTitle className="sr-only">{title}</DialogTitle>
+          <DialogDescription className="sr-only">{description}</DialogDescription>
+          <VaultFlow
+            user={user}
+            enableGeneratedDefault={enableGeneratedDefault}
+            onSuccess={onSuccess}
+            onSignOut={onSignOut}
+          />
+        </DialogPrimitive.Content>
+      </DialogPortal>
+    </Dialog>
   );
 }

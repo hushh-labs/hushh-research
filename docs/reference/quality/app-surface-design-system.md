@@ -234,8 +234,9 @@ Rules:
 1. Cold App Router segment fallbacks use `RouteLoadingState` from
    `components/app-ui`, choosing `app`, `onboarding`, or `ambient` shell
    geometry. Do not use a route-local blank or centered-text fallback.
-2. `HushhLoader` remains for transition-only and action-local status; feature
-   skeletons remain appropriate when they preserve a known route's geometry.
+2. `HushhLoader` remains for transition-only and action-local status. Route
+   transitions and cold guards use a compact labeled loading indicator, not
+   skeleton cards that replace a usable app surface.
 3. A safe warm or stale cache render remains visible during refresh. A fallback
    must never replace it with a page-wide loader, and it must never expose
    protected or vault-backed content before the existing guards settle.
@@ -264,8 +265,8 @@ inline script in `app/layout.tsx`, managed by `lib/theme/accent.ts`). All
 legacy accent names (`--foundation-gold-*`, `--color-accent-*`, `--brand-*`,
 `--morphy-primary-*`, `--tone-blue*`, `--accent`, `--ring`) alias the family
 and flip automatically in `.dark`, so existing consumers follow the preference
-with zero churn. The RIA persona surface (`body[data-persona-surface="ria"]`)
-intentionally keeps its own gold identity regardless of the accent preference.
+with zero churn. RIA compatibility aliases resolve through this same family;
+RIA must not override the shared shell or impose a separate persona palette.
 This contract governs how the tokens are USED in component code.
 
 ### The Foundation law

@@ -1,10 +1,11 @@
 "use client";
 
 /**
- * Single source of truth for the RIA premium surface scope attribute.
+ * Single source of truth for the RIA compatibility-token scope attribute.
  *
- * Writes body[data-persona-surface="ria"] so the scoped token block in
- * globals.css retints the canvas + chrome + page to the Apple-clean palette.
+ * Writes body[data-persona-surface="ria"] so RIA compatibility names resolve
+ * through the shared Morphy/Foundation token system without retinting global
+ * canvas or chrome.
  * Scope = every /ria/* route, PLUS the shared Connect surface (/marketplace)
  * WHEN the active persona is RIA. Because Connect is only retinted for a RIA
  * viewer, One/investor see the marketplace byte-identical (attribute unset).

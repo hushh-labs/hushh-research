@@ -112,7 +112,7 @@ describe("OneDashboardPage", () => {
       screen.getByRole("link", { name: "Open Gmail" }).getAttribute("href"),
     ).toBe(buildOneSetupCapabilityRoute("gmail"));
     expect(
-      screen.getByRole("link", { name: "Open Email" }).getAttribute("href"),
+      screen.getByRole("link", { name: "Open KYC" }).getAttribute("href"),
     ).toBe(buildOneSetupCapabilityRoute("email"));
     expect(
       screen.getByRole("link", { name: "Open Location" }).getAttribute("href"),
