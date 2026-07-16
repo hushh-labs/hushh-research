@@ -20,6 +20,7 @@ FRONTEND_TESTS=(
   "__tests__/services/ria-onboarding-flow.test.ts"
   "__tests__/api/consent/api-service-consent.test.ts"
   "__tests__/api/consent/events-proxy.test.ts"
+  "__tests__/scripts/reviewer-route-bootstrap-contract.test.ts"
   "__tests__/utils/top-shell-breadcrumbs.test.ts"
 )
 
