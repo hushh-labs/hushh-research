@@ -454,6 +454,16 @@ class DynamicScopeGenerator:
             scope = str(entry.get("scope") or "").strip()
             if not scope:
                 return
+            # Every entry produced by this generator is a manifest-derived
+            # dynamic scope.  Keep the canonical scope and the existing
+            # discovery provenance byte-for-byte stable; this additive marker
+            # is presentation metadata only and is never consulted by auth.
+            entry = {
+                **entry,
+                "scope_origin": "dynamic",
+                "scope_origin_code": "d",
+                "scope_origin_source_kind": "manifest_branch",
+            }
             current = entries.get(scope)
             if current is None:
                 entries[scope] = entry

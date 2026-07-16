@@ -71,6 +71,51 @@ class _FakePkmService:
         return self
 
 
+def test_v7_commit_policy_is_fail_closed_by_default(monkeypatch):
+    for name in (
+        "PKM_V7_STAGE",
+        "PKM_V7_COHORT_PERCENT",
+        "PKM_V7_KILL_SWITCH_ACTIVE",
+        "PKM_V7_WRITE_PROMOTION_ENABLED",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(ValueError, match="disabled by server rollout policy"):
+        PkmUpgradeService().assert_upgrade_commit_allowed(
+            user_id="user_123",
+            upgrade_claim={"target_pkm_contract_version": "7.0.0"},
+        )
+
+
+def test_v7_commit_policy_rechecks_kill_switch_at_commit_time(monkeypatch):
+    monkeypatch.setenv("PKM_V7_STAGE", "100")
+    monkeypatch.setenv("PKM_V7_COHORT_PERCENT", "100")
+    monkeypatch.setenv("PKM_V7_WRITE_PROMOTION_ENABLED", "true")
+    monkeypatch.setenv("PKM_V7_KILL_SWITCH_ACTIVE", "false")
+    service = PkmUpgradeService()
+
+    service.assert_upgrade_commit_allowed(
+        user_id="user_123",
+        upgrade_claim={"target_pkm_contract_version": "7.0.0"},
+    )
+
+    monkeypatch.setenv("PKM_V7_KILL_SWITCH_ACTIVE", "true")
+    with pytest.raises(ValueError, match="disabled by server rollout policy"):
+        service.assert_upgrade_commit_allowed(
+            user_id="user_123",
+            upgrade_claim={"target_pkm_contract_version": "7.0.0"},
+        )
+
+
+def test_v6_upgrade_claim_is_not_blocked_by_v7_kill_switch(monkeypatch):
+    monkeypatch.setenv("PKM_V7_KILL_SWITCH_ACTIVE", "true")
+
+    PkmUpgradeService().assert_upgrade_commit_allowed(
+        user_id="user_123",
+        upgrade_claim={"target_pkm_contract_version": "6.0.0"},
+    )
+
+
 @pytest.mark.asyncio
 async def test_build_status_treats_missing_manifest_as_bootstrap_from_version_zero():
     service = PkmUpgradeService()

@@ -1,0 +1,65 @@
+{
+  "id": "pkm-upgrade-rehearsal",
+  "title": "PKM Upgrade Rehearsal",
+  "goal": "Prove that a PKM upgrade preserves every user-information occurrence, scope authority, coherent revision, export dependency, and rollback path before enabling writes.",
+  "owner_skill": "security-audit",
+  "default_spoke": "pkm-upgrade-rehearsal",
+  "task_type": "pkm-upgrade-rehearsal",
+  "affected_surfaces": [
+    ".codex/skills/pkm-upgrade-rehearsal",
+    "consent-protocol/scripts/audit_active_pkm_shape_readonly.py",
+    "consent-protocol/scripts/eval_pkm_structure_agent.py",
+    "scripts/ci/pkm-upgrade-gate.sh",
+    "hushh-webapp/lib/personal-knowledge-model"
+  ],
+  "required_reads": [
+    ".codex/skills/pkm-upgrade-rehearsal/SKILL.md",
+    ".codex/skills/pkm-upgrade-rehearsal/references/reviewer-pkm-upgrade-contract.md",
+    ".codex/skills/reviewer-app-testing/references/byok-reviewer-browser-contract.md",
+    "docs/reference/architecture/pkm-cutover-runbook.md",
+    "docs/reference/architecture/pkm-storage-adr.md"
+  ],
+  "required_commands": [
+    "./scripts/ci/pkm-upgrade-gate.sh",
+    "./bin/hushh codex data-model-audit",
+    "./scripts/ci/reviewer-app-testing-check.sh"
+  ],
+  "verification_bundle": {
+    "id": "pkm-upgrade-rehearsal",
+    "commands": [
+      "./scripts/ci/pkm-upgrade-gate.sh",
+      "./bin/hushh codex data-model-audit"
+    ],
+    "tests": [
+      "./scripts/ci/pkm-upgrade-gate.sh"
+    ]
+  },
+  "deliverables": [
+    "Historical-shape preservation and rollback receipt",
+    "Reviewer active-shape classification",
+    "Canonical-scope and scope-origin proof",
+    "Consumer and export compatibility result",
+    "Exact payload artifacts only when explicitly requested"
+  ],
+  "impact_fields": [
+    "Source and target contract versions",
+    "Preserved moved deduplicated quarantined and rejected counts",
+    "Schema and deployment parity",
+    "Reviewer mutation authority",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "security-audit",
+    "pkm-upgrade-rehearsal",
+    "reviewer-app-testing",
+    "vault-pkm-governance",
+    "uat-scoped-deploy"
+  ],
+  "common_failures": [
+    "Running the reviewer mutation before deterministic historical fixtures",
+    "Accepting leaf counts or model judgment instead of occurrence lineage",
+    "Changing canonical scopes while adding origin metadata",
+    "Applying a missing migration or repairing a shared fixture without separate authority",
+    "Writing exact decrypted information outside ignored private tmp artifacts"
+  ]
+}

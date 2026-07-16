@@ -176,6 +176,27 @@ describe("CacheSyncService mutation cascades", () => {
     expect(cache.get(CACHE_KEYS.PORTFOLIO_DATA(userId))).toBeNull();
   });
 
+  it("onPkmDomainRestored purges coherent-domain, upgrade, finance, and export caches", () => {
+    cache.set(CACHE_KEYS.PKM_METADATA(userId), { userId }, CACHE_TTL.SESSION);
+    cache.set(CACHE_KEYS.PKM_UPGRADE_STATUS(userId), { upgradeStatus: "running" }, CACHE_TTL.SESSION);
+    cache.set(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"), { ciphertext: "new" }, CACHE_TTL.SESSION);
+    cache.set(CACHE_KEYS.DOMAIN_DATA(userId, "financial"), { portfolio: {} }, CACHE_TTL.SESSION);
+    cache.set(CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial"), { manifest_version: 7 }, CACHE_TTL.SESSION);
+    cache.set(CACHE_KEYS.PORTFOLIO_DATA(userId), { holdings: [] }, CACHE_TTL.SESSION);
+    cache.set(CACHE_KEYS.ANALYSIS_HISTORY(userId), { TEST: [] }, CACHE_TTL.SESSION);
+
+    CacheSyncService.onPkmDomainRestored(userId, "financial");
+
+    expect(cache.get(CACHE_KEYS.PKM_METADATA(userId))).toBeNull();
+    expect(cache.get(CACHE_KEYS.PKM_UPGRADE_STATUS(userId))).toBeNull();
+    expect(cache.get(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"))).toBeNull();
+    expect(cache.get(CACHE_KEYS.DOMAIN_DATA(userId, "financial"))).toBeNull();
+    expect(cache.get(CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial"))).toBeNull();
+    expect(cache.get(CACHE_KEYS.PORTFOLIO_DATA(userId))).toBeNull();
+    expect(cache.get(CACHE_KEYS.ANALYSIS_HISTORY(userId))).toBeNull();
+    expect(spyInvalidatePattern).toHaveBeenCalledWith(`consent_export_${userId}_`);
+  });
+
   // ---------- 9. onPkmDomainStored (financial) ----------
   it("onPkmDomainStored for financial domain sets PORTFOLIO_DATA and DOMAIN_DATA to SESSION and invalidates PKM_DECRYPTED_BLOB", () => {
     const portfolioData = {

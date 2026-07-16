@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -62,7 +63,66 @@ def _build_app() -> FastAPI:
     return app
 
 
-def test_store_domain_forwards_upgrade_context(monkeypatch):
+@pytest.mark.parametrize(
+    ("method", "path", "payload"),
+    [
+        ("get", "/api/pkm/upgrade/status/another_user", None),
+        (
+            "post",
+            "/api/pkm/upgrade/start-or-resume",
+            {"user_id": "another_user", "initiated_by": "unlock_warm", "mode": "real"},
+        ),
+        (
+            "post",
+            "/api/pkm/upgrade/runs/run_1/status",
+            {"user_id": "another_user", "status": "running"},
+        ),
+        (
+            "post",
+            "/api/pkm/upgrade/runs/run_1/steps/financial",
+            {"user_id": "another_user", "status": "running"},
+        ),
+        (
+            "post",
+            "/api/pkm/upgrade/runs/run_1/steps/financial/claim",
+            {
+                "user_id": "another_user",
+                "source_content_revision": 1,
+                "source_manifest_revision": 1,
+            },
+        ),
+        (
+            "post",
+            "/api/pkm/upgrade/runs/run_1/domains/financial/rollback",
+            {
+                "user_id": "another_user",
+                "revision_id": "00000000-0000-4000-8000-000000000001",
+                "expected_content_revision": 2,
+                "expected_manifest_revision": 2,
+                "rollback_commit_id": "00000000-0000-4000-8000-000000000002",
+            },
+        ),
+        (
+            "post",
+            "/api/pkm/upgrade/runs/run_1/complete",
+            {"user_id": "another_user", "initiated_by": "unlock_warm", "mode": "real"},
+        ),
+        (
+            "post",
+            "/api/pkm/upgrade/runs/run_1/fail",
+            {"user_id": "another_user", "status": "failed", "last_error": "test"},
+        ),
+    ],
+)
+def test_upgrade_mutation_routes_reject_cross_user_access(method, path, payload):
+    client = TestClient(_build_app())
+
+    response = client.request(method, path, json=payload)
+
+    assert response.status_code == 403
+
+
+def test_store_domain_forwards_server_upgrade_claim(monkeypatch):
     captured: dict[str, object] = {}
 
     class _FakePkmService:
@@ -89,13 +149,31 @@ def test_store_domain_forwards_upgrade_context(monkeypatch):
                 "algorithm": "aes-256-gcm",
             },
             "summary": {"holdings_count": 2},
-            "upgrade_context": {
+            "upgrade_claim": {
+                "schema_version": "pkm_upgrade_claim.v1",
+                "claim_id": "00000000-0000-4000-8000-000000000001",
+                "commit_id": "00000000-0000-4000-8000-000000000002",
+                "owner_user_id": "user_123",
                 "run_id": "pkm_upgrade_demo",
-                "prior_domain_contract_version": 1,
-                "new_domain_contract_version": 2,
-                "prior_readable_summary_version": 0,
-                "new_readable_summary_version": 1,
-                "retry_count": 0,
+                "domain": "financial",
+                "source_content_revision": 3,
+                "source_manifest_revision": 1,
+                "target_domain_contract_version": 2,
+                "target_readable_summary_version": 1,
+                "target_pkm_contract_version": "6.0.0",
+                "target_readable_projection_version": "6.0.0",
+                "expires_at": "2026-03-24T12:05:00Z",
+                "mode": "real",
+            },
+            "preservation_receipt": {
+                "schema_version": "pkm_preservation_receipt.v1",
+                "total_source_occurrences": 2,
+                "preserved": 2,
+                "moved": 0,
+                "equal_value_deduplicated": 0,
+                "quarantined": 0,
+                "rejected": 0,
+                "complete": True,
             },
             "write_projections": [
                 {
@@ -108,14 +186,23 @@ def test_store_domain_forwards_upgrade_context(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert captured["upgrade_context"] == {
+    assert captured["upgrade_claim"] == {
+        "schema_version": "pkm_upgrade_claim.v1",
+        "claim_id": "00000000-0000-4000-8000-000000000001",
+        "commit_id": "00000000-0000-4000-8000-000000000002",
+        "owner_user_id": "user_123",
         "run_id": "pkm_upgrade_demo",
-        "prior_domain_contract_version": 1,
-        "new_domain_contract_version": 2,
-        "prior_readable_summary_version": 0,
-        "new_readable_summary_version": 1,
-        "retry_count": 0,
+        "domain": "financial",
+        "source_content_revision": 3,
+        "source_manifest_revision": 1,
+        "target_domain_contract_version": 2,
+        "target_readable_summary_version": 1,
+        "target_pkm_contract_version": "6.0.0",
+        "target_readable_projection_version": "6.0.0",
+        "expires_at": "2026-03-24T12:05:00Z",
+        "mode": "real",
     }
+    assert captured["preservation_receipt"]["complete"] is True
     assert captured["write_projections"] == [
         {
             "projection_type": "decision_history_v1",
@@ -123,6 +210,102 @@ def test_store_domain_forwards_upgrade_context(monkeypatch):
             "payload": {"decisions": []},
         }
     ]
+
+
+def test_store_domain_rechecks_v7_kill_switch_before_commit(monkeypatch):
+    class _FakePkmService:
+        async def store_domain_data(self, **_kwargs):
+            raise AssertionError("A disabled v7 commit must never reach storage")
+
+    class _FakeUpgradeService:
+        def assert_upgrade_commit_allowed(self, **_kwargs):
+            raise ValueError("PKM v7 commits are disabled by server rollout policy.")
+
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+    monkeypatch.setattr(
+        pkm_routes_shared,
+        "get_pkm_upgrade_service",
+        lambda: _FakeUpgradeService(),
+    )
+
+    response = TestClient(_build_app()).post(
+        "/api/pkm/store-domain",
+        json={
+            "user_id": "user_123",
+            "domain": "financial",
+            "encrypted_blob": {
+                "ciphertext": "cipher",
+                "iv": "iv",
+                "tag": "tag",
+                "algorithm": "aes-256-gcm",
+            },
+            "summary": {"holdings_count": 2},
+            "upgrade_claim": {
+                "schema_version": "pkm_upgrade_claim.v1",
+                "claim_id": "00000000-0000-4000-8000-000000000001",
+                "commit_id": "00000000-0000-4000-8000-000000000002",
+                "owner_user_id": "user_123",
+                "run_id": "pkm_upgrade_demo",
+                "domain": "financial",
+                "source_content_revision": 3,
+                "source_manifest_revision": 1,
+                "target_domain_contract_version": 5,
+                "target_readable_summary_version": 2,
+                "target_pkm_contract_version": "7.0.0",
+                "target_readable_projection_version": "7.0.0",
+                "expires_at": "2026-07-15T12:05:00Z",
+                "mode": "real",
+            },
+            "preservation_receipt": {
+                "schema_version": "pkm_preservation_receipt.v1",
+                "total_source_occurrences": 2,
+                "preserved": 2,
+                "moved": 0,
+                "equal_value_deduplicated": 0,
+                "quarantined": 0,
+                "rejected": 0,
+                "complete": True,
+            },
+        },
+    )
+
+    assert response.status_code == 409
+    assert "disabled by server rollout policy" in response.json()["detail"]
+
+
+def test_domain_snapshot_returns_coherent_revisions_and_etag(monkeypatch):
+    class _FakePkmService:
+        async def get_domain_snapshot(self, user_id, domain, segment_ids=None):
+            assert (user_id, domain, segment_ids) == ("user_123", "financial", None)
+            return {
+                "schema_version": "pkm_domain_snapshot.v1",
+                "user_id": user_id,
+                "domain": domain,
+                "storage_mode": "domain",
+                "content_revision": 8,
+                "manifest_revision": 4,
+                "updated_at": "2026-07-15T12:00:00Z",
+                "etag": 'W/"pkm:financial:8:4"',
+                "encrypted_blob": {
+                    "ciphertext": "cipher",
+                    "iv": "iv",
+                    "tag": "tag",
+                    "algorithm": "aes-256-gcm",
+                    "segments": {},
+                },
+                "segment_ids": ["root"],
+                "manifest": {"domain": "financial", "manifest_version": 4},
+                "paths": [],
+                "scopes": [],
+            }
+
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+    response = TestClient(_build_app()).get("/api/pkm/domain-snapshot/user_123/financial")
+
+    assert response.status_code == 200
+    assert response.headers["etag"] == 'W/"pkm:financial:8:4"'
+    assert response.json()["content_revision"] == 8
+    assert response.json()["manifest_revision"] == 4
 
 
 def test_store_domain_rejects_stale_sharing_impact(monkeypatch):

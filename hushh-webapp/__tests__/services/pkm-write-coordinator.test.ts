@@ -111,11 +111,18 @@ function stubWriteContext(overrides?: {
   expectedDataVersion?: number;
   currentEncryptedDomain?: Record<string, unknown> | null;
 }) {
-  prepareDomainWriteContextMock.mockResolvedValue({
+  prepareDomainWriteContextMock.mockImplementation(async () => ({
     baseFullBlob: overrides?.baseFullBlob ?? { existing: { foo: "bar" } },
     domainData: overrides?.domainData ?? { items: [] },
-    expectedDataVersion: overrides?.expectedDataVersion ?? 1,
-  });
+    expectedDataVersion:
+      Number(overrides?.currentEncryptedDomain?.dataVersion) ||
+      overrides?.expectedDataVersion ||
+      1,
+    encryptedDomain: overrides?.currentEncryptedDomain ?? null,
+    manifest: await pkmGetDomainManifestMock(),
+    snapshot: null,
+    etag: "snapshot-etag",
+  }));
   pkmGetDomainDataMock.mockResolvedValue(overrides?.currentEncryptedDomain ?? null);
 }
 

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "description": "Canonical runtime DB data-plane contract. Table families, not individual rows, define ownership, data class, retention, deletion, and trust boundaries.",
   "allowed_data_classes": [
     "personal_encrypted",
@@ -13,6 +13,8 @@
   "growth_watch_tables": [
     "pkm_events",
     "pkm_manifest_paths",
+    "pkm_domain_revisions",
+    "pkm_domain_commits",
     "kai_gmail_sync_runs",
     "agent_chat_messages",
     "kai_funding_webhook_events",
@@ -95,13 +97,15 @@
       "data_class": "personal_encrypted",
       "lifecycle_status": "current",
       "exact_tables": [
-        "pkm_blobs"
+        "pkm_blobs",
+        "pkm_domain_revisions",
+        "pkm_domain_revision_segments"
       ],
-      "primary_access_path": "PKM store/read/delete domain routes and client-side vault unlock flows",
-      "retention_policy": "Retain until account deletion or explicit domain deletion.",
+      "primary_access_path": "PKM coherent snapshot, atomic store, owner rollback, delete-domain routes, and client-side vault unlock flows",
+      "retention_policy": "Retain the first encrypted pre-v7 origin revision for the account lifetime; retain ordinary rollback revisions for 90 days; delete on account or explicit domain deletion.",
       "deletion_behavior": "Delete by user and domain for domain deletion; delete all user rows on account deletion.",
-      "trust_boundary": "Ciphertext segments only; backend does not inspect plaintext PKM payloads.",
-      "plaintext_posture": "ciphertext_only",
+      "trust_boundary": "Ciphertext segments plus structural revision metadata only; backend does not inspect plaintext PKM payloads.",
+      "plaintext_posture": "ciphertext_and_metadata",
       "expected_row_growth": "medium_per_user_domain"
     },
     {
@@ -162,12 +166,14 @@
       "exact_tables": [
         "pkm_migration_state",
         "pkm_upgrade_runs",
-        "pkm_upgrade_steps"
+        "pkm_upgrade_steps",
+        "pkm_domain_commits",
+        "pkm_upgrade_claims"
       ],
-      "primary_access_path": "client-side PKM cutover and generic PKM upgrade orchestration",
+      "primary_access_path": "client-side PKM cutover, server-issued upgrade claims, idempotent commit receipts, and generic PKM upgrade orchestration",
       "retention_policy": "Retain active and recent terminal runs; compact terminal rows after 30 days unless needed for incident review.",
       "deletion_behavior": "Delete all user rows on account deletion.",
-      "trust_boundary": "Run/checkpoint metadata only; decrypt/transform/re-encrypt remains client-side after vault unlock.",
+      "trust_boundary": "Run, claim, revision, aggregate preservation, and commit metadata only; decrypt/transform/re-encrypt remains client-side after vault unlock.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_workflow"
     },

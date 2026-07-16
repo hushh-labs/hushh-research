@@ -39,6 +39,10 @@ from hushh_mcp.services.pkm_mutation_contracts import (
 )
 
 logger = logging.getLogger(__name__)
+_PKM_MUTATION_COMMIT_NAMESPACE = uuid.uuid5(
+    uuid.NAMESPACE_URL,
+    "https://hushh.ai/contracts/pkm/domain-mutation/v1",
+)
 
 
 class AttributeSource(str, Enum):
@@ -149,6 +153,9 @@ class ScopeRegistryEntry:
     segment_ids: list[str] = field(default_factory=list)
     sensitivity_tier: str = "confidential"
     scope_kind: str = "subtree"
+    scope_origin: str = "dynamic"
+    scope_origin_code: str = "d"
+    source_kind: str = "manifest_branch"
     exposure_enabled: bool = True
     visibility_posture: str = "consent_required"
     default_projection_ready: bool = False
@@ -176,7 +183,10 @@ class DomainManifest:
     last_structured_at: Optional[datetime] = None
     last_content_at: Optional[datetime] = None
     domain_contract_version: int = 1
+    pkm_contract_version: str = "0.0.0"
     readable_summary_version: int = 0
+    readable_projection_version: str = "0.0.0"
+    latest_upgrade_commit_id: Optional[str] = None
     upgraded_at: Optional[datetime] = None
 
 
@@ -208,6 +218,7 @@ class PersonalKnowledgeModelService:
         "last_content_at",
         "last_structured_at",
         "manifest_version",
+        "pkm_contract_version",
         "memory_count",
         "path_count",
         "readable_event_summary",
@@ -215,6 +226,7 @@ class PersonalKnowledgeModelService:
         "readable_source_label",
         "readable_summary",
         "readable_summary_version",
+        "readable_projection_version",
         "readable_updated_at",
         "save_class",
         "source",
@@ -225,6 +237,7 @@ class PersonalKnowledgeModelService:
         "top_level_scope_count",
         "updated_at",
         "upgraded_at",
+        "latest_upgrade_commit_id",
     }
     _FINANCIAL_ENRICHMENT_INT_KEYS = {"investable_positions_count", "cash_positions_count"}
     _FINANCIAL_ENRICHMENT_STR_KEYS = {"risk_profile"}
@@ -335,6 +348,21 @@ class PersonalKnowledgeModelService:
             return call
         return await asyncio.to_thread(call.execute)
 
+    @staticmethod
+    def _unwrap_rpc_payload(rpc_result: Any, function_name: str) -> Any:
+        """Normalize direct-SQL and Supabase RPC result envelopes.
+
+        The direct PostgreSQL client represents ``SELECT function(...)`` as
+        ``[{"function": value}]`` while Supabase-compatible clients expose
+        ``value`` directly. PKM callers must see one stable contract.
+        """
+        payload = getattr(rpc_result, "data", rpc_result)
+        if isinstance(payload, list):
+            payload = payload[0] if payload else None
+        if isinstance(payload, dict) and len(payload) == 1 and function_name in payload:
+            payload = payload[function_name]
+        return payload
+
     async def _execute_query(self, query):
         """Run blocking Supabase query execution without blocking the event loop."""
         return await asyncio.to_thread(query.execute)
@@ -397,6 +425,15 @@ class PersonalKnowledgeModelService:
             except Exception:
                 return None
         return None
+
+    @staticmethod
+    def _normalize_semantic_version(value: object, *, default: str) -> str:
+        text = str(value or "").strip()
+        if re.fullmatch(
+            r"(?:0|[1-9][0-9]{0,5})\.(?:0|[1-9][0-9]{0,5})\.(?:0|[1-9][0-9]{0,5})", text
+        ):
+            return text
+        return default
 
     @staticmethod
     def _parse_datetime(value: object, *, field_name: str) -> Optional[datetime]:
@@ -638,6 +675,7 @@ class PersonalKnowledgeModelService:
         domain: str,
         payload: dict | None,
         structure_decision: dict | None,
+        prior_manifest: dict | None = None,
     ) -> DomainManifest:
         source = payload if isinstance(payload, dict) else {}
         decision = self._normalize_structure_decision(domain, structure_decision)
@@ -737,6 +775,12 @@ class PersonalKnowledgeModelService:
             or self._to_non_negative_int(summary_projection.get("domain_contract_version"))
             or current_domain_contract_version(domain)
         )
+        pkm_contract_version = self._normalize_semantic_version(
+            source.get("pkm_contract_version")
+            or summary_projection.get("pkm_contract_version")
+            or (prior_manifest or {}).get("pkm_contract_version"),
+            default="0.0.0",
+        )
         readable_summary_version = self._to_non_negative_int(source.get("readable_summary_version"))
         if readable_summary_version is None:
             readable_summary_version = self._to_non_negative_int(
@@ -756,14 +800,30 @@ class PersonalKnowledgeModelService:
                 )
                 else 0
             )
+        readable_projection_version = self._normalize_semantic_version(
+            source.get("readable_projection_version")
+            or summary_projection.get("readable_projection_version")
+            or (prior_manifest or {}).get("readable_projection_version"),
+            default="0.0.0",
+        )
+        # The commit identifier is server-owned. A normal manifest rewrite may
+        # preserve it, but callers cannot mint or replace it.
+        latest_upgrade_commit_id = self._clean_text(
+            (prior_manifest or {}).get("latest_upgrade_commit_id"),
+            allow_none=True,
+        )
         upgraded_at_value = self._clean_text(
             str(source.get("upgraded_at") or summary_projection.get("upgraded_at") or ""),
             allow_none=True,
         )
         if domain_contract_version:
             summary_projection["domain_contract_version"] = domain_contract_version
+        summary_projection["pkm_contract_version"] = pkm_contract_version
         if readable_summary_version is not None:
             summary_projection["readable_summary_version"] = readable_summary_version
+        summary_projection["readable_projection_version"] = readable_projection_version
+        if latest_upgrade_commit_id:
+            summary_projection["latest_upgrade_commit_id"] = latest_upgrade_commit_id
         if upgraded_at_value:
             summary_projection["upgraded_at"] = upgraded_at_value
 
@@ -794,7 +854,10 @@ class PersonalKnowledgeModelService:
             last_structured_at=last_structured_at,
             last_content_at=last_content_at,
             domain_contract_version=domain_contract_version,
+            pkm_contract_version=pkm_contract_version,
             readable_summary_version=readable_summary_version,
+            readable_projection_version=readable_projection_version,
+            latest_upgrade_commit_id=latest_upgrade_commit_id,
             upgraded_at=(
                 datetime.fromisoformat(upgraded_at_value.replace("Z", "+00:00"))
                 if upgraded_at_value
@@ -859,6 +922,9 @@ class PersonalKnowledgeModelService:
                 "segment_ids": list(row.segment_ids or []),
                 "sensitivity_tier": row.sensitivity_tier,
                 "scope_kind": row.scope_kind,
+                "scope_origin": row.scope_origin,
+                "scope_origin_code": row.scope_origin_code,
+                "source_kind": row.source_kind,
                 "exposure_enabled": row.exposure_enabled,
                 "visibility_posture": row.visibility_posture,
                 "default_projection_ready": row.default_projection_ready,
@@ -947,6 +1013,12 @@ class PersonalKnowledgeModelService:
                 allow_none=True,
             )
             or "subtree",
+            # Manifest registry rows have always represented dynamic attr.*
+            # authorities. Old rows infer this metadata without changing the
+            # canonical scope string or opaque handle.
+            "scope_origin": "dynamic",
+            "scope_origin_code": "d",
+            "source_kind": "manifest_branch",
             "exposure_enabled": visibility_posture != "private",
             "visibility_posture": visibility_posture,
             "default_projection_ready": raw_row.get("default_projection_ready") is True,
@@ -1068,6 +1140,9 @@ class PersonalKnowledgeModelService:
                     segment_ids=segment_ids,
                     sensitivity_tier=sensitivity_tier,
                     scope_kind="subtree",
+                    scope_origin="dynamic",
+                    scope_origin_code="d",
+                    source_kind="manifest_branch",
                     exposure_enabled=True,
                     visibility_posture="consent_required",
                     default_projection_ready=False,
@@ -1144,7 +1219,10 @@ class PersonalKnowledgeModelService:
                 [path for path in manifest.paths if path.exposure_eligibility]
             ),
             "domain_contract_version": manifest.domain_contract_version,
+            "pkm_contract_version": manifest.pkm_contract_version,
             "readable_summary_version": manifest.readable_summary_version,
+            "readable_projection_version": manifest.readable_projection_version,
+            "latest_upgrade_commit_id": manifest.latest_upgrade_commit_id,
             "upgraded_at": manifest.upgraded_at.isoformat() if manifest.upgraded_at else None,
             "last_structured_at": manifest.last_structured_at.isoformat()
             if manifest.last_structured_at
@@ -1186,6 +1264,9 @@ class PersonalKnowledgeModelService:
             "segment_ids": entry.segment_ids,
             "sensitivity_tier": entry.sensitivity_tier,
             "scope_kind": entry.scope_kind,
+            "scope_origin": entry.scope_origin,
+            "scope_origin_code": entry.scope_origin_code,
+            "source_kind": entry.source_kind,
             "exposure_enabled": entry.exposure_enabled,
             "visibility_posture": entry.visibility_posture,
             "default_projection_ready": entry.default_projection_ready,
@@ -2192,7 +2273,8 @@ class PersonalKnowledgeModelService:
         normalized_segments: dict[str, dict[str, str]],
         normalized_manifest: DomainManifest,
         normalized_mutation_plan: PkmMutationPlanV2 | None,
-        upgrade_context: dict | None,
+        upgrade_claim: dict | None,
+        preservation_receipt: dict | None,
         summary: dict,
         write_projections: list[dict] | None,
         current_version: int,
@@ -2262,7 +2344,7 @@ class PersonalKnowledgeModelService:
             normalized_mutation_plan.writer_id
             if normalized_mutation_plan
             else "pkm_upgrade_orchestrator"
-            if upgrade_context
+            if upgrade_claim
             else normalized_manifest.structure_decision.get("source_agent") or "pkm_structure_agent"
         )
         confidence = normalized_manifest.structure_decision.get("confidence")
@@ -2277,7 +2359,7 @@ class PersonalKnowledgeModelService:
                 "structure_agent_id": structure_agent_id,
             }
             if normalized_mutation_plan
-            else {"upgrade": upgrade_context or {}}
+            else {"upgrade_claim": upgrade_claim or {}}
         )
         event_rows: list[dict[str, Any]] = [
             {
@@ -2354,8 +2436,52 @@ class PersonalKnowledgeModelService:
         refresh_tokens = await self._continuous_refresh_tokens_for_domain_write(
             user_id=user_id, domain=domain, manifest=normalized_manifest
         )
+        trigger_paths = sorted(
+            set(
+                normalized_manifest.externalizable_paths + normalized_manifest.top_level_scope_paths
+            )
+        )
+        if upgrade_claim:
+            commit_id = self._clean_text(str(upgrade_claim.get("commit_id") or ""), allow_none=True)
+        elif normalized_mutation_plan is not None:
+            commit_id = str(
+                uuid.uuid5(
+                    _PKM_MUTATION_COMMIT_NAMESPACE,
+                    f"{user_id}:{domain}:{normalized_mutation_plan.plan_id}",
+                )
+            )
+        else:
+            commit_id = None
+        if not commit_id:
+            return {"success": False, "conflict": False, "code": "PKM_UPGRADE_CLAIM_INVALID"}
+        request_fingerprint = hashlib.sha256(
+            json.dumps(
+                {
+                    "user_id": user_id,
+                    "domain": domain,
+                    "expected_content_revision": current_version,
+                    "next_content_revision": next_version,
+                    "segments": normalized_segments,
+                    "manifest": manifest_row,
+                    "paths": path_rows,
+                    "scopes": scope_rows,
+                    "summary": discovery_summary,
+                    "events": event_rows,
+                    "legacy_blob_present": legacy_blob_present,
+                    "refresh_tokens": refresh_tokens,
+                    "trigger_paths": trigger_paths,
+                    "mutation_plan_id": (
+                        normalized_mutation_plan.plan_id if normalized_mutation_plan else None
+                    ),
+                    "upgrade_claim_id": (upgrade_claim or {}).get("claim_id"),
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
         rpc_result = await self._run_rpc(
-            "commit_pkm_domain_mutation_v3",
+            "commit_pkm_domain_mutation_v4",
             {
                 "p_user_id": user_id,
                 "p_domain": domain,
@@ -2379,25 +2505,15 @@ class PersonalKnowledgeModelService:
                 "p_event_rows": JsonParam(event_rows),
                 "p_legacy_blob_present": legacy_blob_present,
                 "p_refresh_tokens": refresh_tokens,
-                "p_trigger_paths": JsonParam(
-                    sorted(
-                        set(
-                            normalized_manifest.externalizable_paths
-                            + normalized_manifest.top_level_scope_paths
-                        )
-                    )
-                ),
+                "p_trigger_paths": JsonParam(trigger_paths),
+                "p_commit_id": commit_id,
+                "p_commit_kind": "upgrade" if upgrade_claim else "mutation",
+                "p_upgrade_claim": JsonParam(upgrade_claim) if upgrade_claim else None,
+                "p_preservation_receipt": JsonParam(preservation_receipt or {}),
+                "p_request_fingerprint": request_fingerprint,
             },
         )
-        payload = getattr(rpc_result, "data", rpc_result)
-        if isinstance(payload, list) and payload:
-            payload = payload[0]
-        if (
-            isinstance(payload, dict)
-            and len(payload) == 1
-            and "commit_pkm_domain_mutation_v3" in payload
-        ):
-            payload = payload["commit_pkm_domain_mutation_v3"]
+        payload = self._unwrap_rpc_payload(rpc_result, "commit_pkm_domain_mutation_v4")
         return payload if isinstance(payload, dict) else {"success": False, "conflict": False}
 
     async def get_mutation_sharing_impact(
@@ -3398,7 +3514,8 @@ class PersonalKnowledgeModelService:
         manifest: Optional[dict] = None,
         source_agent: Optional[str] = None,
         expected_data_version: Optional[int] = None,
-        upgrade_context: Optional[dict] = None,
+        upgrade_claim: Optional[dict] = None,
+        preservation_receipt: Optional[dict] = None,
         write_projections: Optional[list[dict]] = None,
         mutation_plan: Optional[dict] = None,
         return_result: bool = False,
@@ -3456,7 +3573,7 @@ class PersonalKnowledgeModelService:
                 logger.warning("store_domain_data rejected mutation plan: %s", exc)
                 result["code"] = "PKM_MUTATION_PLAN_INVALID"
                 return result if return_result else False
-        elif not upgrade_context:
+        elif not upgrade_claim:
             result["code"] = "PKM_CONFIRMATION_REQUIRED"
             return result if return_result else False
 
@@ -3516,7 +3633,7 @@ class PersonalKnowledgeModelService:
                 current_version = int(existing_domain_row.get("content_revision", 0) or 0)
                 current_updated_at = existing_domain_row.get("updated_at")
             elif legacy_blob is not None:
-                current_version = int(legacy_blob.get("data_version", 0) or 0)
+                current_version = int(legacy_blob.get("data_version", 1) or 1)
                 current_updated_at = legacy_blob.get("updated_at")
 
             if expected_data_version is not None and current_version != expected_data_version:
@@ -3540,6 +3657,7 @@ class PersonalKnowledgeModelService:
                 domain,
                 manifest,
                 normalized_decision,
+                prior_manifest,
             )
             self._preserve_scope_registry_posture(normalized_manifest, prior_manifest)
 
@@ -3565,14 +3683,15 @@ class PersonalKnowledgeModelService:
             }
             next_segment_ids = set(normalized_segments.keys())
 
-            if normalized_mutation_plan is not None or upgrade_context is not None:
+            if normalized_mutation_plan is not None or upgrade_claim is not None:
                 atomic_result = await self._commit_confirmed_domain_mutation_v2(
                     user_id=user_id,
                     domain=domain,
                     normalized_segments=normalized_segments,
                     normalized_manifest=normalized_manifest,
                     normalized_mutation_plan=normalized_mutation_plan,
-                    upgrade_context=upgrade_context,
+                    upgrade_claim=upgrade_claim,
+                    preservation_receipt=preservation_receipt,
                     summary=summary,
                     write_projections=write_projections,
                     current_version=current_version,
@@ -3604,6 +3723,10 @@ class PersonalKnowledgeModelService:
                 result["success"] = True
                 result["data_version"] = atomic_result.get("data_version", resolved_data_version)
                 result["updated_at"] = atomic_result.get("updated_at", resolved_updated_at)
+                result["manifest_revision"] = atomic_result.get("manifest_revision")
+                result["commit_id"] = atomic_result.get("commit_id")
+                result["archived_revision_id"] = atomic_result.get("archived_revision_id")
+                result["preservation_receipt"] = atomic_result.get("preservation_receipt")
                 return result if return_result else True
 
             for segment_id in sorted(existing_segment_ids - next_segment_ids):
@@ -3687,13 +3810,13 @@ class PersonalKnowledgeModelService:
                 }.items()
                 if value not in (None, "", [])
             }
-            normalized_upgrade_context = (
+            normalized_upgrade_claim = (
                 {
                     key: value
-                    for key, value in (upgrade_context or {}).items()
+                    for key, value in (upgrade_claim or {}).items()
                     if value not in (None, "", [])
                 }
-                if isinstance(upgrade_context, dict)
+                if isinstance(upgrade_claim, dict)
                 else {}
             )
 
@@ -3733,8 +3856,8 @@ class PersonalKnowledgeModelService:
                         else {}
                     ),
                     **(
-                        {"upgrade": normalized_upgrade_context}
-                        if normalized_upgrade_context
+                        {"upgrade_claim": normalized_upgrade_claim}
+                        if normalized_upgrade_claim
                         else {}
                     ),
                     **({"readable": readable_event_payload} if readable_event_payload else {}),
@@ -3764,8 +3887,8 @@ class PersonalKnowledgeModelService:
                         else {}
                     ),
                     **(
-                        {"upgrade": normalized_upgrade_context}
-                        if normalized_upgrade_context
+                        {"upgrade_claim": normalized_upgrade_claim}
+                        if normalized_upgrade_claim
                         else {}
                     ),
                     **({"readable": readable_event_payload} if readable_event_payload else {}),
@@ -3968,6 +4091,88 @@ class PersonalKnowledgeModelService:
             logger.error("pkm.get_domain_data.error: %s", e)
             return None
 
+    async def get_domain_snapshot(
+        self,
+        user_id: str,
+        domain: str,
+        segment_ids: list[str] | None = None,
+    ) -> Optional[dict[str, Any]]:
+        """Load ciphertext and its exact manifest revision in one DB transaction.
+
+        This is the only read contract suitable for a decrypt/transform/write
+        cycle. Compatibility reads may continue using ``get_domain_data`` and
+        ``get_domain_manifest`` independently.
+        """
+        canonical_domain = self._canonicalize_domain_key(domain)
+        if not canonical_domain:
+            return None
+        normalized_segment_ids = sorted(
+            {
+                str(segment_id or "").strip().lower()
+                for segment_id in (segment_ids or [])
+                if str(segment_id or "").strip()
+            }
+        )
+        rpc_result = await self._run_rpc(
+            "get_pkm_domain_snapshot_v1",
+            {
+                "p_user_id": user_id,
+                "p_domain": canonical_domain,
+                "p_segment_ids": normalized_segment_ids,
+            },
+        )
+        payload = self._unwrap_rpc_payload(rpc_result, "get_pkm_domain_snapshot_v1")
+        if not isinstance(payload, dict):
+            return None
+
+        segments = payload.get("segments") if isinstance(payload.get("segments"), dict) else {}
+        if not segments:
+            return None
+        root_segment = segments.get("root")
+        if not isinstance(root_segment, dict):
+            root_segment = next(
+                (value for value in segments.values() if isinstance(value, dict)),
+                None,
+            )
+        if not isinstance(root_segment, dict):
+            return None
+
+        manifest = payload.get("manifest") if isinstance(payload.get("manifest"), dict) else None
+        paths = payload.get("paths") if isinstance(payload.get("paths"), list) else []
+        scopes = self._normalize_scope_registry_rows(
+            domain=canonical_domain,
+            scope_rows=(payload.get("scopes") if isinstance(payload.get("scopes"), list) else []),
+            expected_manifest_version=(
+                self._to_non_negative_int(manifest.get("manifest_version")) if manifest else None
+            ),
+        )
+        if manifest is not None:
+            manifest = dict(manifest)
+            manifest["paths"] = paths
+            manifest["scope_registry"] = scopes
+
+        return {
+            "schema_version": "pkm_domain_snapshot.v1",
+            "user_id": user_id,
+            "domain": canonical_domain,
+            "storage_mode": str(payload.get("storage_mode") or "domain"),
+            "content_revision": self._to_non_negative_int(payload.get("content_revision")) or 0,
+            "manifest_revision": self._to_non_negative_int(payload.get("manifest_revision")) or 0,
+            "updated_at": payload.get("updated_at"),
+            "etag": str(payload.get("etag") or ""),
+            "encrypted_blob": {
+                "ciphertext": root_segment.get("ciphertext"),
+                "iv": root_segment.get("iv"),
+                "tag": root_segment.get("tag"),
+                "algorithm": root_segment.get("algorithm") or "aes-256-gcm",
+                "segments": segments,
+            },
+            "segment_ids": sorted(str(segment_id) for segment_id in segments),
+            "manifest": manifest,
+            "paths": paths,
+            "scopes": scopes,
+        }
+
     async def delete_user_data(self, user_id: str) -> bool:
         """
         Delete all user data (encrypted blob and index).
@@ -3975,6 +4180,10 @@ class PersonalKnowledgeModelService:
         Used for account deletion / data purge.
         """
         try:
+            self.supabase.table("pkm_upgrade_claims").delete().eq("user_id", user_id).execute()
+            self.supabase.table("pkm_domain_commits").delete().eq("user_id", user_id).execute()
+            self.supabase.table("pkm_domain_revisions").delete().eq("user_id", user_id).execute()
+            self.supabase.table("pkm_upgrade_runs").delete().eq("user_id", user_id).execute()
             # Delete encrypted data
             self.supabase.table("pkm_data").delete().eq("user_id", user_id).execute()
             self.supabase.table("pkm_blobs").delete().eq("user_id", user_id).execute()
@@ -3999,13 +4208,10 @@ class PersonalKnowledgeModelService:
         """
         Delete a specific domain from user's PKM.
 
-        This removes the domain from the index (available_domains and domain_summaries).
-        Note: The encrypted blob still contains the domain data, but since the client
-        manages the blob, it will be overwritten on next save without this domain.
-
-        For complete deletion, the client should:
-        1. Call this endpoint to remove from index
-        2. Decrypt their blob, remove the domain, re-encrypt and save
+        The database RPC atomically removes the active encrypted domain,
+        manifests, scope/path metadata, recovery revisions, upgrade authority,
+        and index references. Public projections for the domain are removed as
+        part of the same operation.
 
         Args:
             user_id: User's ID
@@ -4019,63 +4225,12 @@ class PersonalKnowledgeModelService:
             if not domain:
                 logger.warning("Empty domain requested for delete_domain_data user=%s", user_id)
                 return True
-            self.supabase.table("pkm_blobs").delete().eq("user_id", user_id).eq(
-                "domain", domain
-            ).execute()
-            self.supabase.table("pkm_manifest_paths").delete().eq("user_id", user_id).eq(
-                "domain", domain
-            ).execute()
-            self.supabase.table("pkm_scope_registry").delete().eq("user_id", user_id).eq(
-                "domain", domain
-            ).execute()
-            self.supabase.table("pkm_default_available_projections").delete().eq(
-                "user_id", user_id
-            ).eq("domain", domain).execute()
-            self.supabase.table("pkm_manifests").delete().eq("user_id", user_id).eq(
-                "domain", domain
-            ).execute()
-            self.supabase.table("pkm_events").delete().eq("user_id", user_id).eq(
-                "domain", domain
-            ).execute()
-            # Get current index
-            index = await self.get_index_v2(user_id)
-            if index is None:
-                logger.warning("pkm.delete_domain.no_index user=[redacted] domain=%s", domain)
-                return True  # Nothing to delete
-
-            # Check if domain exists
-            if domain not in index.available_domains:
-                logger.info("pkm.delete_domain.not_in_domains domain=%s", domain)
-                return True  # Domain doesn't exist, consider it deleted
-
-            # Remove domain from available_domains
-            index.available_domains = [d for d in index.available_domains if d != domain]
-
-            # Remove domain from domain_summaries
-            if domain in index.domain_summaries:
-                del index.domain_summaries[domain]
-
-            # Update total_attributes (recalculate from remaining domains)
-            total_attrs = 0
-            for _d, summary in index.domain_summaries.items():
-                total_attrs += (
-                    summary.get("holdings_count")
-                    or summary.get("attribute_count")
-                    or summary.get("item_count")
-                    or 0
-                )
-            index.total_attributes = total_attrs
-
-            # If no domains left, delete the entire index and data
-            if not index.available_domains:
-                logger.info("pkm.delete_domain.last_domain user=[redacted]")
-                return await self.delete_user_data(user_id)
-
-            # Update the index
-            success = await self.upsert_index_v2(index)
-            if success:
-                logger.info("pkm.delete_domain.ok domain=%s", domain)
-            return success
+            rpc_result = await self._run_rpc(
+                "delete_pkm_domain_v2",
+                {"p_user_id": user_id, "p_domain": domain},
+            )
+            payload = self._unwrap_rpc_payload(rpc_result, "delete_pkm_domain_v2")
+            return bool(payload)
 
         except Exception as e:
             logger.error("pkm.delete_domain.error domain=%s: %s", domain, e)

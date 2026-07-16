@@ -205,7 +205,6 @@ jobs:
             --sync-remote-enabled "false" \
             --developer-api-enabled "false" \
             --remote-mcp-enabled "false" \
-            --crm-registry-db-enabled "true" \
             --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}" \
             --obs-data-stale-ratio-threshold "0.25" \
             --passkey-allowed-rp-ids "localhost,127.0.0.1,one.hushh.ai" \

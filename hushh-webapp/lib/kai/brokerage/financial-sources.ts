@@ -11,6 +11,17 @@ import type {
 
 type AnyObj = Record<string, unknown>;
 
+export type FinancialCompatibilityView = {
+  storageContract: "v6" | "v7";
+  activeSource: PortfolioSource;
+  statementPortfolio: PortfolioData | null;
+  plaidPortfolio: PortfolioData | null;
+  activePortfolio: PortfolioData | null;
+  profile: AnyObj;
+  durableDecisions: AnyObj[];
+  sourceArtifactRefs: string[];
+};
+
 function asRecord(value: unknown): AnyObj | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as AnyObj)
@@ -40,6 +51,41 @@ function getPlaidSource(financial: AnyObj | null | undefined): AnyObj {
 
 function getPortfolioAnalytics(portfolio: AnyObj | null | undefined): AnyObj | null {
   return asRecord(portfolio?.analytics_v2) ?? null;
+}
+
+function getFinancialCoreV7(financial: AnyObj | null | undefined): AnyObj | null {
+  const contract = cleanText(financial?.pkm_contract_version);
+  if (!contract?.startsWith("7.")) return null;
+  return asRecord(financial?.financial_core_v7);
+}
+
+function buildFinancialCoreV7Portfolio(
+  financial: AnyObj | null | undefined
+): PortfolioData | null {
+  const core = getFinancialCoreV7(financial);
+  if (!core) return null;
+  const securities = asRecord(core.securities) ?? {};
+  const positions = asRecord(core.positions) ?? {};
+  const holdings = Object.entries(positions).map(([positionId, rawPosition]) => {
+    const position = asRecord(rawPosition) ?? {};
+    const securityId = cleanText(position.security_id);
+    const security = securityId ? asRecord(securities[securityId]) ?? {} : {};
+    return {
+      ...security,
+      ...position,
+      position_id: positionId,
+      security_id: securityId,
+      account_id: cleanText(position.account_id),
+      symbol: cleanText(security.symbol) ?? cleanText(position.symbol) ?? "",
+    };
+  });
+  const portfolio = normalizeStoredPortfolio({
+    holdings,
+    account_summary: asRecord(core.account_summary) ?? {},
+    total_value: core.total_value,
+    cash_balance: core.cash_balance,
+  }) as PortfolioData;
+  return hasHoldings(portfolio) ? portfolio : null;
 }
 
 function hasHoldings(portfolio: unknown): portfolio is PortfolioData {
@@ -75,6 +121,13 @@ function formatStatementSnapshotLabel(snapshot: AnyObj): string {
 }
 
 export function getStatementSnapshots(financial: AnyObj | null | undefined): AnyObj[] {
+  const v7Artifacts = asRecord(financial?.source_artifacts_v7);
+  const v7StatementSnapshots = asArray<AnyObj>(v7Artifacts?.statement_snapshots);
+  if (v7StatementSnapshots.length > 0) {
+    return v7StatementSnapshots.filter(
+      (snapshot) => cleanText(snapshot.id) && cleanText(snapshot.artifact_ref)
+    );
+  }
   const statementSnapshots = asArray<AnyObj>(getStatementSource(financial).snapshots);
   if (statementSnapshots.length > 0) {
     return statementSnapshots.filter((snapshot) => cleanText(snapshot.id));
@@ -103,6 +156,10 @@ export function getStatementSnapshotOptions(
 export function getActiveSource(
   financial: AnyObj | null | undefined
 ): PortfolioSource {
+  const v7ActiveSource = cleanText(getFinancialCoreV7(financial)?.active_source);
+  if (v7ActiveSource === "plaid" || v7ActiveSource === "statement") {
+    return v7ActiveSource;
+  }
   const activeSource = cleanText(getSources(financial).active_source);
   return activeSource === "plaid" ? "plaid" : "statement";
 }
@@ -128,6 +185,8 @@ export function getActiveStatementSnapshot(financial: AnyObj | null | undefined)
 }
 
 export function getStatementPortfolio(financial: AnyObj | null | undefined): PortfolioData | null {
+  const v7Portfolio = buildFinancialCoreV7Portfolio(financial);
+  if (v7Portfolio && getActiveSource(financial) === "statement") return v7Portfolio;
   const activeSnapshot = getActiveStatementSnapshot(financial);
   const candidate =
     asRecord(activeSnapshot?.canonical_v2) ??
@@ -139,12 +198,43 @@ export function getStatementPortfolio(financial: AnyObj | null | undefined): Por
 }
 
 export function getPlaidPortfolio(financial: AnyObj | null | undefined): PortfolioData | null {
+  const v7Portfolio = buildFinancialCoreV7Portfolio(financial);
+  if (v7Portfolio && getActiveSource(financial) === "plaid") return v7Portfolio;
   const plaidSource = getPlaidSource(financial);
   const aggregate = asRecord(plaidSource.aggregate);
   const candidate = asRecord(aggregate?.portfolio_data);
   if (!candidate) return null;
   const normalized = normalizeStoredPortfolio(candidate) as PortfolioData;
   return hasHoldings(normalized) ? normalized : null;
+}
+
+export function getFinancialCompatibilityView(
+  financial: AnyObj | null | undefined
+): FinancialCompatibilityView {
+  const core = getFinancialCoreV7(financial);
+  const activeSource = getActiveSource(financial);
+  const statementPortfolio = getStatementPortfolio(financial);
+  const plaidPortfolio = getPlaidPortfolio(financial);
+  const activePortfolio = activeSource === "plaid" ? plaidPortfolio : statementPortfolio;
+  const artifactRoot = asRecord(financial?.source_artifacts_v7) ?? {};
+  const sourceArtifactRefs = Object.values(artifactRoot)
+    .flatMap((value) => (Array.isArray(value) ? value : [value]))
+    .map(asRecord)
+    .filter((value): value is AnyObj => value !== null)
+    .map((value) => cleanText(value.artifact_ref))
+    .filter((value): value is string => Boolean(value));
+  return {
+    storageContract: core ? "v7" : "v6",
+    activeSource,
+    statementPortfolio,
+    plaidPortfolio,
+    activePortfolio,
+    profile: core ? asRecord(core.profile) ?? {} : asRecord(financial?.profile) ?? {},
+    durableDecisions: core
+      ? asArray<AnyObj>(core.durable_decisions)
+      : asArray<AnyObj>(financial?.durable_decisions),
+    sourceArtifactRefs: [...new Set(sourceArtifactRefs)],
+  };
 }
 
 export function buildStatementSource(

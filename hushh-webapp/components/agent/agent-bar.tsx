@@ -1317,7 +1317,7 @@ export function AgentBar() {
           // The motion hook above translates this fixed sibling imperatively;
           // it does not re-render the voice tree as the page scrolls.
           bottom: physicalNavbarAbsent
-            ? "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)"
+            ? "calc(var(--app-safe-area-bottom-effective) + 0.75rem)"
             : "calc(max(var(--app-bottom-inset), calc(var(--bottom-nav-offset) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift))) + 0.5rem)",
         } as CSSProperties
       }

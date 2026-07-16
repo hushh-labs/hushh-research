@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const peekCachedDomainBlobMock = vi.fn();
 const loadDomainDataWithBlobMock = vi.fn();
+const loadDomainSnapshotMock = vi.fn();
 const secureReadMock = vi.fn();
 const secureWriteMock = vi.fn();
 
@@ -13,6 +14,7 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   PersonalKnowledgeModelService: {
     peekCachedDomainBlob: (...args: unknown[]) => peekCachedDomainBlobMock(...args),
     loadDomainDataWithBlob: (...args: unknown[]) => loadDomainDataWithBlobMock(...args),
+    loadDomainSnapshot: (...args: unknown[]) => loadDomainSnapshotMock(...args),
   },
 }));
 
@@ -194,11 +196,17 @@ describe("PkmDomainResourceService", () => {
       },
       CACHE_TTL.SESSION,
     );
-    loadDomainDataWithBlobMock.mockResolvedValue({
+    loadDomainSnapshotMock.mockResolvedValue({
       data: newDomain,
-      blob: {
-        dataVersion: 2,
-        updatedAt: "2026-05-18T05:55:00.000Z",
+      snapshot: {
+        contentRevision: 2,
+        manifestRevision: 3,
+        manifest: null,
+        etag: "snapshot-etag",
+        encryptedBlob: {
+          dataVersion: 2,
+          updatedAt: "2026-05-18T05:55:00.000Z",
+        },
       },
     });
 

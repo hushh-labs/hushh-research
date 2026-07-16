@@ -5,6 +5,7 @@ import com.getcapacitor.annotation.CapacitorPlugin
 import com.hushh.app.plugins.shared.BackendUrl
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
@@ -575,43 +576,44 @@ class PersonalKnowledgeModelPlugin : Plugin() {
             call.getObject("mutationPlan")?.let { put("mutation_plan", it) }
             call.getObject("manifest")?.let { put("manifest", it) }
             call.getInt("expectedDataVersion")?.let { put("expected_data_version", it) }
-            call.getObject("upgradeContext")?.let { upgradeContext ->
-                val runId = upgradeContext.getString("runId")
-                if (!runId.isNullOrBlank()) {
+            call.getObject("upgradeContext")?.let { claim ->
+                val claimId = claim.getString("claimId")
+                if (!claimId.isNullOrBlank()) {
                     put(
-                        "upgrade_context",
+                        "upgrade_claim",
                         JSONObject().apply {
-                            put("run_id", runId)
-                            if (upgradeContext.has("priorDomainContractVersion")) {
-                                put(
-                                    "prior_domain_contract_version",
-                                    upgradeContext.optInt("priorDomainContractVersion")
-                                )
-                            }
-                            if (upgradeContext.has("newDomainContractVersion")) {
-                                put(
-                                    "new_domain_contract_version",
-                                    upgradeContext.optInt("newDomainContractVersion")
-                                )
-                            }
-                            if (upgradeContext.has("priorReadableSummaryVersion")) {
-                                put(
-                                    "prior_readable_summary_version",
-                                    upgradeContext.optInt("priorReadableSummaryVersion")
-                                )
-                            }
-                            if (upgradeContext.has("newReadableSummaryVersion")) {
-                                put(
-                                    "new_readable_summary_version",
-                                    upgradeContext.optInt("newReadableSummaryVersion")
-                                )
-                            }
-                            if (upgradeContext.has("retryCount")) {
-                                put("retry_count", upgradeContext.optInt("retryCount"))
-                            }
+                            put("schema_version", claim.optString("schemaVersion", "pkm_upgrade_claim.v1"))
+                            put("claim_id", claimId)
+                            put("commit_id", claim.optString("commitId"))
+                            put("owner_user_id", claim.optString("ownerUserId"))
+                            put("run_id", claim.optString("runId"))
+                            put("domain", claim.optString("domain"))
+                            put("source_content_revision", claim.optInt("sourceContentRevision"))
+                            put("source_manifest_revision", claim.optInt("sourceManifestRevision"))
+                            put("target_domain_contract_version", claim.optInt("targetDomainContractVersion"))
+                            put("target_readable_summary_version", claim.optInt("targetReadableSummaryVersion"))
+                            put("target_pkm_contract_version", claim.optString("targetPkmContractVersion"))
+                            put("target_readable_projection_version", claim.optString("targetReadableProjectionVersion"))
+                            put("expires_at", claim.optString("expiresAt"))
+                            put("mode", claim.optString("mode", "real"))
                         }
                     )
                 }
+            }
+            call.getObject("preservationReceipt")?.let { receipt ->
+                put(
+                    "preservation_receipt",
+                    JSONObject().apply {
+                        put("schema_version", receipt.optString("schemaVersion", "pkm_preservation_receipt.v1"))
+                        put("total_source_occurrences", receipt.optInt("totalSourceOccurrences"))
+                        put("preserved", receipt.optInt("preserved"))
+                        put("moved", receipt.optInt("moved"))
+                        put("equal_value_deduplicated", receipt.optInt("equalValueDeduplicated"))
+                        put("quarantined", receipt.optInt("quarantined"))
+                        put("rejected", receipt.optInt("rejected"))
+                        put("complete", receipt.optBoolean("complete"))
+                    }
+                )
             }
         }
 
@@ -679,6 +681,30 @@ class PersonalKnowledgeModelPlugin : Plugin() {
                             jsonResult.optString("updated_at")
                                 .takeIf { it.isNotBlank() }
                                 ?.let { put("updatedAt", it) }
+                            if (jsonResult.has("manifest_revision")) {
+                                put("manifestRevision", jsonResult.optInt("manifest_revision"))
+                            }
+                            jsonResult.optString("commit_id")
+                                .takeIf { it.isNotBlank() }
+                                ?.let { put("commitId", it) }
+                            jsonResult.optString("archived_revision_id")
+                                .takeIf { it.isNotBlank() }
+                                ?.let { put("archivedRevisionId", it) }
+                            jsonResult.optJSONObject("preservation_receipt")?.let { receipt ->
+                                put(
+                                    "preservationReceipt",
+                                    JSObject().apply {
+                                        put("schemaVersion", receipt.optString("schema_version", "pkm_preservation_receipt.v1"))
+                                        put("totalSourceOccurrences", receipt.optInt("total_source_occurrences"))
+                                        put("preserved", receipt.optInt("preserved"))
+                                        put("moved", receipt.optInt("moved"))
+                                        put("equalValueDeduplicated", receipt.optInt("equal_value_deduplicated"))
+                                        put("quarantined", receipt.optInt("quarantined"))
+                                        put("rejected", receipt.optInt("rejected"))
+                                        put("complete", receipt.optBoolean("complete"))
+                                    }
+                                )
+                            }
                         }
                         call.resolve(result)
                     } catch (e: Exception) {
@@ -706,7 +732,11 @@ class PersonalKnowledgeModelPlugin : Plugin() {
 
         val authToken = getAuthToken(call)
         val backendUrl = getBackendUrl(call)
-        val url = "$backendUrl/api/pkm/domain-data/$userId/$domain"
+        val urlBuilder = "$backendUrl/api/pkm/domain-data/$userId/$domain".toHttpUrl().newBuilder()
+        call.getArray("segmentIds")?.toList<String>()?.forEach { segmentId ->
+            if (segmentId.isNotBlank()) urlBuilder.addQueryParameter("segment_ids", segmentId)
+        }
+        val url = urlBuilder.build()
 
         val requestBuilder = Request.Builder().url(url).get()
 
@@ -714,6 +744,28 @@ class PersonalKnowledgeModelPlugin : Plugin() {
             requestBuilder.addHeader("Authorization", "Bearer $authToken")
         }
 
+        executeRequest(requestBuilder.build(), call)
+    }
+
+    /** Return one coherent ciphertext + manifest revision snapshot. */
+    @PluginMethod
+    fun getDomainSnapshot(call: PluginCall) {
+        val userId = call.getString("userId") ?: run {
+            call.reject("Missing userId")
+            return
+        }
+        val domain = call.getString("domain") ?: run {
+            call.reject("Missing domain")
+            return
+        }
+        val authToken = getAuthToken(call)
+        val backendUrl = getBackendUrl(call)
+        val urlBuilder = "$backendUrl/api/pkm/domain-snapshot/$userId/$domain".toHttpUrl().newBuilder()
+        call.getArray("segmentIds")?.toList<String>()?.forEach { segmentId ->
+            if (segmentId.isNotBlank()) urlBuilder.addQueryParameter("segment_ids", segmentId)
+        }
+        val requestBuilder = Request.Builder().url(urlBuilder.build()).get()
+        if (authToken != null) requestBuilder.addHeader("Authorization", "Bearer $authToken")
         executeRequest(requestBuilder.build(), call)
     }
 

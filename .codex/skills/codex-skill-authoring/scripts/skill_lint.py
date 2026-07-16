@@ -96,6 +96,8 @@ EXPECTED_WORKFLOW_IDS = [
     "hushh-consent-mcp-ops",
     "ria-api-reference",
     "security-posture-maintenance",
+    "reviewer-app-rehearsal",
+    "pkm-upgrade-rehearsal",
 ]
 SPECIAL_HANDOFF_TOKENS = {"selected-owner-skill"}
 MEANINGFUL_SURFACES = [

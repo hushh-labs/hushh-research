@@ -48,6 +48,18 @@ Expected display metadata fields:
 3. `icon_name`
 4. `color_hex`
 
+Scope discovery also returns server-derived origin metadata:
+
+| Scope family | `scope_origin` | `scope_origin_code` | `source_kind` |
+| --- | --- | --- | --- |
+| Reserved capability or operation scope | `reserved` | `r` | `reserved_registry` |
+| Manifest-generated `attr.*` scope | `dynamic` | `d` | `manifest_branch` |
+
+Origin metadata is diagnostic only. Authorization continues to use the exact canonical
+scope string, token, grant, registry handle, and consent policy. Existing `attr.*` strings
+and handles are never renamed to insert the origin code. Retired and unknown values remain
+non-authorizing.
+
 ## Template Catalog (V1)
 
 | Template ID | Actor Direction | Scope Set | Default Duration |

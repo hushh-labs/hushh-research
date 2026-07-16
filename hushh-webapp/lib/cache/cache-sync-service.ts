@@ -425,6 +425,34 @@ export class CacheSyncService {
     }
   }
 
+  static onPkmDomainRestored(userId: string, domain: string): void {
+    const cache = CacheService.getInstance();
+    cache.invalidateMany([
+      CACHE_KEYS.DOMAIN_MANIFEST(userId, domain),
+      CACHE_KEYS.DOMAIN_DATA(userId, domain),
+      CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, domain),
+      CACHE_KEYS.PKM_BLOB(userId),
+      CACHE_KEYS.PKM_DECRYPTED_BLOB(userId),
+      CACHE_KEYS.PKM_METADATA(userId),
+      CACHE_KEYS.PKM_UPGRADE_STATUS(userId),
+    ]);
+    cache.invalidatePattern(`pkm_domain_resource_${userId}_${domain}_`);
+    cache.invalidatePattern(`consent_export_${userId}_`);
+    void import("@/lib/pkm/pkm-domain-resource")
+      .then(({ PkmDomainResourceService }) => {
+        PkmDomainResourceService.invalidateDomain(userId, domain, {
+          includeDevice: true,
+        });
+      })
+      .catch(() => undefined);
+    if (domain === "financial") {
+      cache.invalidate(CACHE_KEYS.PORTFOLIO_DATA(userId));
+      cache.invalidate(CACHE_KEYS.ANALYSIS_HISTORY(userId));
+      this.invalidateKaiFinancialResource(userId, { includeDevice: true });
+      this.onKaiMarketContextChanged(userId);
+    }
+  }
+
   static onPortfolioUpserted(
     userId: string,
     portfolioData: PortfolioData,

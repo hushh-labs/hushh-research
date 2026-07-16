@@ -3,9 +3,11 @@
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { logRequestAudit } from "@/lib/cache/request-audit-log";
 import {
+  type DomainSnapshotV1,
   type EncryptedDomainBlob,
   PersonalKnowledgeModelService,
 } from "@/lib/services/personal-knowledge-model-service";
+import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
 
@@ -46,6 +48,10 @@ interface PreparedDomainWriteContext {
   baseFullBlob: Record<string, unknown>;
   domainData: Record<string, unknown> | null;
   expectedDataVersion: number | undefined;
+  manifest: DomainManifest | null;
+  encryptedDomain: EncryptedDomainBlob | null;
+  snapshot: DomainSnapshotV1 | null;
+  etag: string | null;
 }
 
 function hasUserConsent(params: { vaultOwnerToken?: string | null }): boolean {
@@ -290,33 +296,36 @@ export class PkmDomainResourceService {
   static async prepareDomainWriteContext(
     params: PkmDomainResourceParams
   ): Promise<PreparedDomainWriteContext> {
-    const cachedBlob = PersonalKnowledgeModelService.peekCachedDomainBlob(
-      params.userId,
-      params.domain
-    );
-    const memory = this.peek(params)?.data ?? null;
-    const memoryMatchesBlob =
-      !memory ||
-      typeof cachedBlob?.dataVersion !== "number" ||
-      memory.key.contentRevision === cachedBlob.dataVersion;
-    const snapshot =
-      (memoryMatchesBlob ? memory : null) ??
-      (params.vaultKey
-        ? await this.getStaleFirst({
-            ...params,
-            backgroundRefresh: false,
-          }).catch(() => null)
-        : null);
-
-    const domainData = toRecord(snapshot?.data ?? null);
-    const expectedDataVersion =
-      snapshot?.key.contentRevision ??
-      (typeof cachedBlob?.dataVersion === "number" ? cachedBlob.dataVersion : undefined);
+    if (!params.vaultKey || !params.vaultOwnerToken) {
+      return {
+        baseFullBlob: {},
+        domainData: null,
+        expectedDataVersion: undefined,
+        manifest: null,
+        encryptedDomain: null,
+        snapshot: null,
+        etag: null,
+      };
+    }
+    const loaded = await PersonalKnowledgeModelService.loadDomainSnapshot({
+      userId: params.userId,
+      domain: params.domain,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+      segmentIds: params.segmentIds,
+      force: true,
+    });
+    const domainData = toRecord(loaded.data);
+    const expectedDataVersion = loaded.snapshot?.contentRevision;
 
     return {
       baseFullBlob: domainData ? { [params.domain]: domainData } : {},
       domainData,
       expectedDataVersion,
+      manifest: loaded.snapshot?.manifest ?? null,
+      encryptedDomain: loaded.snapshot?.encryptedBlob ?? null,
+      snapshot: loaded.snapshot,
+      etag: loaded.snapshot?.etag ?? null,
     };
   }
 

@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any, List, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Response, status
 from pydantic import BaseModel, Field, ValidationError
 
 from api.middleware import require_vault_owner_token
@@ -384,7 +384,10 @@ class StructureDecisionPayload(BaseModel):
 class DomainManifestPayload(BaseModel):
     manifest_version: int = Field(default=1, ge=1, le=1000)
     domain_contract_version: int = Field(default=1, ge=1, le=1000)
+    pkm_contract_version: Optional[str] = Field(default=None, min_length=5, max_length=32)
     readable_summary_version: int = Field(default=0, ge=0, le=1000)
+    readable_projection_version: Optional[str] = Field(default=None, min_length=5, max_length=32)
+    latest_upgrade_commit_id: Optional[str] = Field(default=None, max_length=256)
     upgraded_at: Optional[str] = Field(default=None, max_length=64)
     summary_projection: dict = Field(default_factory=dict)
     top_level_scope_paths: List[str] = Field(default_factory=list, max_length=1000)
@@ -393,13 +396,32 @@ class DomainManifestPayload(BaseModel):
     source_agent: Optional[str] = Field(default=None, max_length=256)
 
 
-class UpgradeContextPayload(BaseModel):
+class UpgradeClaimPayload(BaseModel):
+    schema_version: str = Field(default="pkm_upgrade_claim.v1")
+    claim_id: str = Field(..., min_length=36, max_length=36)
+    commit_id: str = Field(..., min_length=36, max_length=36)
+    owner_user_id: str = Field(..., min_length=1, max_length=256)
     run_id: str = Field(..., min_length=1, max_length=256)
-    prior_domain_contract_version: Optional[int] = Field(default=None, ge=0, le=1000)
-    new_domain_contract_version: Optional[int] = Field(default=None, ge=0, le=1000)
-    prior_readable_summary_version: Optional[int] = Field(default=None, ge=0, le=1000)
-    new_readable_summary_version: Optional[int] = Field(default=None, ge=0, le=1000)
-    retry_count: Optional[int] = Field(default=None, ge=0, le=1000)
+    domain: str = Field(..., min_length=1, max_length=128)
+    source_content_revision: int = Field(..., ge=0, le=1000000)
+    source_manifest_revision: int = Field(..., ge=0, le=1000000)
+    target_domain_contract_version: int = Field(..., ge=0, le=1000)
+    target_readable_summary_version: int = Field(..., ge=0, le=1000)
+    target_pkm_contract_version: str = Field(..., min_length=5, max_length=32)
+    target_readable_projection_version: str = Field(..., min_length=5, max_length=32)
+    expires_at: str = Field(..., min_length=1, max_length=64)
+    mode: str = Field(default="real")
+
+
+class PreservationReceiptPayload(BaseModel):
+    schema_version: str = Field(default="pkm_preservation_receipt.v1")
+    total_source_occurrences: int = Field(..., ge=0, le=10000000)
+    preserved: int = Field(..., ge=0, le=10000000)
+    moved: int = Field(default=0, ge=0, le=10000000)
+    equal_value_deduplicated: int = Field(default=0, ge=0, le=10000000)
+    quarantined: int = Field(default=0, ge=0, le=10000000)
+    rejected: int = Field(default=0, ge=0, le=10000000)
+    complete: bool = False
 
 
 class WriteProjectionPayload(BaseModel):
@@ -436,10 +458,11 @@ class StoreDomainRequest(BaseModel):
         le=1000000,
         description="Optional optimistic concurrency guard for the current domain blob version",
     )
-    upgrade_context: Optional[UpgradeContextPayload] = Field(
+    upgrade_claim: Optional[UpgradeClaimPayload] = Field(
         default=None,
-        description="Optional non-secret upgrade provenance for generic PKM migration writes",
+        description="Server-issued, revision-bound authority for a PKM upgrade write",
     )
+    preservation_receipt: Optional[PreservationReceiptPayload] = Field(default=None)
     write_projections: List[WriteProjectionPayload] = Field(
         default_factory=list,
         max_length=100,
@@ -459,6 +482,10 @@ class StoreDomainResponse(BaseModel):
     conflict: bool = False
     data_version: Optional[int] = Field(default=None, ge=0, le=1000000)
     updated_at: Optional[str] = Field(default=None, max_length=64)
+    manifest_revision: Optional[int] = Field(default=None, ge=0, le=1000000)
+    commit_id: Optional[str] = Field(default=None, max_length=36)
+    archived_revision_id: Optional[str] = Field(default=None, max_length=36)
+    preservation_receipt: Optional[dict] = None
 
 
 EncryptedBlob.model_rebuild()
@@ -569,7 +596,7 @@ async def store_domain(
             },
         ) from exc
 
-    if request.upgrade_context is None and request.mutation_plan is None:
+    if request.upgrade_claim is None and request.mutation_plan is None:
         raise HTTPException(
             status_code=status.HTTP_428_PRECONDITION_REQUIRED,
             detail={
@@ -577,6 +604,34 @@ async def store_domain(
                 "message": "Review and confirm the PKM mutation plan before saving.",
             },
         )
+    if request.upgrade_claim is not None:
+        if request.preservation_receipt is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="A complete preservation receipt is required for an upgrade write",
+            )
+        if (
+            request.upgrade_claim.owner_user_id != request.user_id
+            or canonical_top_level_domain(request.upgrade_claim.domain) != canonical_domain
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Upgrade claim owner or domain does not match this write",
+            )
+        try:
+            uuid.UUID(request.upgrade_claim.claim_id)
+            uuid.UUID(request.upgrade_claim.commit_id)
+            if request.upgrade_claim.mode != "real":
+                raise ValueError("Unsupported PKM upgrade claim mode")
+            get_pkm_upgrade_service().assert_upgrade_commit_allowed(
+                user_id=request.user_id,
+                upgrade_claim=request.upgrade_claim.model_dump(),
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
     pkm_service = get_pkm_service()
     if request.mutation_plan is not None:
         try:
@@ -651,7 +706,10 @@ async def store_domain(
         manifest=request.manifest.model_dump() if request.manifest else None,
         source_agent=request.source_agent,
         expected_data_version=request.expected_data_version,
-        upgrade_context=request.upgrade_context.model_dump() if request.upgrade_context else None,
+        upgrade_claim=request.upgrade_claim.model_dump() if request.upgrade_claim else None,
+        preservation_receipt=(
+            request.preservation_receipt.model_dump() if request.preservation_receipt else None
+        ),
         write_projections=[projection.model_dump() for projection in request.write_projections],
         mutation_plan=request.mutation_plan.model_dump(mode="json")
         if request.mutation_plan
@@ -685,6 +743,10 @@ async def store_domain(
         conflict=False,
         data_version=store_result.get("data_version"),
         updated_at=_isoformat_or_none(store_result.get("updated_at")),
+        manifest_revision=store_result.get("manifest_revision"),
+        commit_id=store_result.get("commit_id"),
+        archived_revision_id=store_result.get("archived_revision_id"),
+        preservation_receipt=store_result.get("preservation_receipt"),
     )
 
 
@@ -721,6 +783,22 @@ class DomainDataResponse(BaseModel):
     updated_at: Optional[str] = Field(default=None, max_length=64)
     manifest_revision: Optional[int] = Field(default=None, ge=0, le=1000000)
     segment_ids: List[str] = Field(default_factory=list, max_length=50)
+
+
+class DomainSnapshotV1Response(BaseModel):
+    schema_version: str = Field(default="pkm_domain_snapshot.v1")
+    user_id: str = Field(..., min_length=1, max_length=256)
+    domain: str = Field(..., min_length=1, max_length=128)
+    encrypted_blob: EncryptedBlob
+    storage_mode: str = Field(default="domain", min_length=1, max_length=64)
+    content_revision: int = Field(..., ge=0, le=1000000)
+    manifest_revision: int = Field(..., ge=0, le=1000000)
+    updated_at: Optional[str] = Field(default=None, max_length=64)
+    etag: str = Field(..., min_length=1, max_length=256)
+    segment_ids: List[str] = Field(default_factory=list, max_length=50)
+    manifest: Optional[dict] = None
+    paths: List[dict] = Field(default_factory=list, max_length=10000)
+    scopes: List[dict] = Field(default_factory=list, max_length=10000)
 
 
 @router.get("/domain-data/{user_id}/{domain}", response_model=DomainDataResponse)
@@ -774,6 +852,47 @@ async def get_domain_data(
     )
 
 
+@router.get(
+    "/domain-snapshot/{user_id}/{domain}",
+    response_model=DomainSnapshotV1Response,
+)
+async def get_domain_snapshot(
+    user_id: _UserId,
+    domain: _Domain,
+    response: Response,
+    segment_ids: Optional[List[str]] = Depends(_validated_segment_ids),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Return one coherent ciphertext/manifest snapshot for a write cycle."""
+    if token_data.get("user_id") != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+    try:
+        snapshot = await get_pkm_service().get_domain_snapshot(
+            user_id,
+            domain,
+            segment_ids=segment_ids,
+        )
+    except Exception as exc:
+        logger.error("pkm.domain_snapshot.error user=%s domain=%s: %s", user_id, domain, exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Coherent PKM snapshot is temporarily unavailable",
+        ) from exc
+    if snapshot is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No {domain} data found for user",
+        )
+    etag = str(snapshot.get("etag") or "")
+    if etag:
+        response.headers["ETag"] = etag
+    snapshot["updated_at"] = _isoformat_or_none(snapshot.get("updated_at"))
+    return DomainSnapshotV1Response(**snapshot)
+
+
 class DomainManifestResponse(BaseModel):
     user_id: str = Field(..., min_length=1, max_length=256)
     domain: str = Field(..., min_length=1, max_length=128)
@@ -782,6 +901,7 @@ class DomainManifestResponse(BaseModel):
     pkm_contract_version: Optional[str] = Field(default=None, max_length=256)
     readable_summary_version: int = Field(default=0, ge=0, le=1000)
     readable_projection_version: Optional[str] = Field(default=None, max_length=256)
+    latest_upgrade_commit_id: Optional[str] = Field(default=None, max_length=256)
     upgraded_at: Optional[str] = Field(default=None, max_length=64)
     structure_decision: dict = Field(default_factory=dict)
     summary_projection: dict = Field(default_factory=dict)
@@ -1540,6 +1660,7 @@ class PkmUpgradeStatusResponse(BaseModel):
     unsupported_domains: List[PkmUpgradeDomainStateResponse] = Field(default_factory=list)
     last_upgraded_at: Optional[str] = None
     run: Optional[PkmUpgradeRunResponse] = None
+    upgrade_policy: dict = Field(default_factory=dict)
 
 
 class StartOrResumeUpgradeRequest(BaseModel):
@@ -1563,6 +1684,48 @@ class UpdateUpgradeStepRequest(BaseModel):
     attempt_count: Optional[int] = Field(default=None, ge=0)
     last_completed_content_revision: Optional[int] = Field(default=None, ge=0)
     last_completed_manifest_version: Optional[int] = Field(default=None, ge=0)
+
+
+class IssueUpgradeClaimRequest(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=256)
+    source_content_revision: int = Field(..., ge=0, le=1000000)
+    source_manifest_revision: int = Field(..., ge=0, le=1000000)
+
+
+class UpgradeClaimV1Response(BaseModel):
+    schema_version: str = Field(default="pkm_upgrade_claim.v1")
+    claim_id: str
+    commit_id: str
+    owner_user_id: str
+    run_id: str
+    domain: str
+    source_content_revision: int
+    source_manifest_revision: int
+    target_domain_contract_version: int
+    target_readable_summary_version: int
+    target_pkm_contract_version: str
+    target_readable_projection_version: str
+    expires_at: str
+    mode: str = "real"
+
+
+class RollbackPkmRevisionRequest(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=256)
+    revision_id: str = Field(..., min_length=36, max_length=36)
+    expected_content_revision: int = Field(..., ge=0, le=1000000)
+    expected_manifest_revision: int = Field(..., ge=0, le=1000000)
+    rollback_commit_id: str = Field(..., min_length=36, max_length=36)
+
+
+class RollbackPkmRevisionResponse(BaseModel):
+    success: bool
+    conflict: bool = False
+    idempotent_replay: bool = False
+    commit_id: Optional[str] = None
+    data_version: Optional[int] = None
+    manifest_revision: Optional[int] = None
+    restored_revision_id: Optional[str] = None
+    archived_revision_id: Optional[str] = None
 
 
 def _build_upgrade_status_response(payload: dict) -> PkmUpgradeStatusResponse:
@@ -1595,6 +1758,10 @@ def _build_upgrade_status_response(payload: dict) -> PkmUpgradeStatusResponse:
                 "steps": normalized_steps,
             }
         )
+    raw_upgrade_policy = payload.get("upgrade_policy")
+    upgrade_policy: dict[str, Any] = (
+        dict(raw_upgrade_policy) if isinstance(raw_upgrade_policy, dict) else {}
+    )
     return PkmUpgradeStatusResponse(
         user_id=payload.get("user_id") or "",
         model_version=int(payload.get("model_version") or 1),
@@ -1632,6 +1799,7 @@ def _build_upgrade_status_response(payload: dict) -> PkmUpgradeStatusResponse:
         ],
         last_upgraded_at=_isoformat_or_none(payload.get("last_upgraded_at")),
         run=run_response,
+        upgrade_policy=upgrade_policy,
     )
 
 
@@ -1696,12 +1864,22 @@ async def update_upgrade_run_status(
         )
 
     service = get_pkm_upgrade_service()
-    updated = await service.mark_run_status(
-        run_id=run_id,
-        status=request.status,
-        current_domain=request.current_domain,
-        last_error=request.last_error,
-    )
+    try:
+        updated = await service.mark_run_status(
+            run_id=run_id,
+            user_id=request.user_id,
+            status=request.status,
+            current_domain=request.current_domain,
+            last_error=request.last_error,
+        )
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Upgrade run not owned"
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Invalid upgrade transition"
+        ) from exc
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade run not found")
     payload = await service.build_status(request.user_id)
@@ -1721,19 +1899,119 @@ async def update_upgrade_step(
             detail="Token user_id does not match request user_id",
         )
 
-    step = await get_pkm_upgrade_service().update_step(
-        run_id=run_id,
-        domain=canonical_top_level_domain(domain),
-        status=request.status,
-        checkpoint_payload=request.checkpoint_payload,
-        attempt_count=request.attempt_count,
-        last_completed_content_revision=request.last_completed_content_revision,
-        last_completed_manifest_version=request.last_completed_manifest_version,
-    )
+    try:
+        step = await get_pkm_upgrade_service().update_step(
+            run_id=run_id,
+            user_id=request.user_id,
+            domain=canonical_top_level_domain(domain),
+            status=request.status,
+            checkpoint_payload=request.checkpoint_payload,
+            attempt_count=request.attempt_count,
+            last_completed_content_revision=request.last_completed_content_revision,
+            last_completed_manifest_version=request.last_completed_manifest_version,
+        )
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Upgrade run not owned"
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Invalid upgrade transition"
+        ) from exc
     if step is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade step not found")
     payload = await get_pkm_upgrade_service().build_status(request.user_id)
     return _build_upgrade_status_response(payload)
+
+
+@router.post(
+    "/upgrade/runs/{run_id}/steps/{domain}/claim",
+    response_model=UpgradeClaimV1Response,
+)
+async def issue_upgrade_claim(
+    run_id: _RunId,
+    domain: _Domain,
+    request: IssueUpgradeClaimRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+    try:
+        payload = await get_pkm_upgrade_service().issue_claim(
+            user_id=request.user_id,
+            run_id=run_id,
+            domain=canonical_top_level_domain(domain),
+            source_content_revision=request.source_content_revision,
+            source_manifest_revision=request.source_manifest_revision,
+        )
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Upgrade run not owned"
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.warning(
+            "pkm.issue_upgrade_claim.rejected run_id=%s domain=%s: %s", run_id, domain, exc
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Upgrade claim rejected"
+        ) from exc
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade run not found")
+    return UpgradeClaimV1Response(**payload)
+
+
+@router.post(
+    "/upgrade/runs/{run_id}/domains/{domain}/rollback",
+    response_model=RollbackPkmRevisionResponse,
+)
+async def rollback_upgrade_revision(
+    run_id: _RunId,
+    domain: _Domain,
+    request: RollbackPkmRevisionRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+    try:
+        uuid.UUID(request.revision_id)
+        uuid.UUID(request.rollback_commit_id)
+        payload = await get_pkm_upgrade_service().rollback_revision(
+            user_id=request.user_id,
+            run_id=run_id,
+            domain=canonical_top_level_domain(domain),
+            revision_id=request.revision_id,
+            expected_content_revision=request.expected_content_revision,
+            expected_manifest_revision=request.expected_manifest_revision,
+            rollback_commit_id=request.rollback_commit_id,
+        )
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Upgrade run not owned"
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid rollback identifier"
+        ) from exc
+    except Exception as exc:
+        logger.warning(
+            "pkm.rollback_upgrade_revision.rejected run_id=%s domain=%s: %s", run_id, domain, exc
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Rollback rejected"
+        ) from exc
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade run not found")
+    if payload.get("conflict"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="PKM revision changed")
+    return RollbackPkmRevisionResponse(**payload)
 
 
 @router.post("/upgrade/runs/{run_id}/complete", response_model=PkmUpgradeStatusResponse)
@@ -1749,7 +2027,11 @@ async def complete_upgrade_run(
         )
 
     try:
-        payload = await get_pkm_upgrade_service().complete_run(run_id)
+        payload = await get_pkm_upgrade_service().complete_run(run_id, user_id=request.user_id)
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Upgrade run not owned"
+        ) from exc
     except ValueError as exc:
         logger.warning("pkm.complete_upgrade_run.conflict run_id=%s: %s", run_id, exc)
         raise HTTPException(
@@ -1772,11 +2054,17 @@ async def fail_upgrade_run(
             detail="Token user_id does not match request user_id",
         )
 
-    payload = await get_pkm_upgrade_service().fail_run(
-        run_id,
-        last_error=request.last_error,
-        error_context=request.error_context,
-    )
+    try:
+        payload = await get_pkm_upgrade_service().fail_run(
+            run_id,
+            user_id=request.user_id,
+            last_error=request.last_error,
+            error_context=request.error_context,
+        )
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Upgrade run not owned"
+        ) from exc
     if payload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade run not found")
     return _build_upgrade_status_response(payload)

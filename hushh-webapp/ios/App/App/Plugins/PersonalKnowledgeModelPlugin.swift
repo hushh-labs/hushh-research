@@ -40,6 +40,7 @@ public class PersonalKnowledgeModelPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "getEncryptedData", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "storeDomainData", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getDomainData", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getDomainSnapshot", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearDomain", returnType: CAPPluginReturnPromise)
     ]
     
@@ -366,28 +367,37 @@ public class PersonalKnowledgeModelPlugin: CAPPlugin, CAPBridgedPlugin {
         if let expectedDataVersion = call.getInt("expectedDataVersion") {
             body["expected_data_version"] = expectedDataVersion
         }
-        if let upgradeContext = call.getObject("upgradeContext"),
-           let runId = upgradeContext["runId"] as? String,
-           !runId.isEmpty {
-            var upgradePayload: [String: Any] = [
-                "run_id": runId
+        if let claim = call.getObject("upgradeContext"),
+           let claimId = claim["claimId"] as? String,
+           !claimId.isEmpty {
+            body["upgrade_claim"] = [
+                "schema_version": claim["schemaVersion"] as? String ?? "pkm_upgrade_claim.v1",
+                "claim_id": claimId,
+                "commit_id": claim["commitId"] as? String ?? "",
+                "owner_user_id": claim["ownerUserId"] as? String ?? "",
+                "run_id": claim["runId"] as? String ?? "",
+                "domain": claim["domain"] as? String ?? "",
+                "source_content_revision": claim["sourceContentRevision"] as? Int ?? 0,
+                "source_manifest_revision": claim["sourceManifestRevision"] as? Int ?? 0,
+                "target_domain_contract_version": claim["targetDomainContractVersion"] as? Int ?? 0,
+                "target_readable_summary_version": claim["targetReadableSummaryVersion"] as? Int ?? 0,
+                "target_pkm_contract_version": claim["targetPkmContractVersion"] as? String ?? "",
+                "target_readable_projection_version": claim["targetReadableProjectionVersion"] as? String ?? "",
+                "expires_at": claim["expiresAt"] as? String ?? "",
+                "mode": claim["mode"] as? String ?? "real"
             ]
-            if let priorDomainContractVersion = upgradeContext["priorDomainContractVersion"] as? Int {
-                upgradePayload["prior_domain_contract_version"] = priorDomainContractVersion
-            }
-            if let newDomainContractVersion = upgradeContext["newDomainContractVersion"] as? Int {
-                upgradePayload["new_domain_contract_version"] = newDomainContractVersion
-            }
-            if let priorReadableSummaryVersion = upgradeContext["priorReadableSummaryVersion"] as? Int {
-                upgradePayload["prior_readable_summary_version"] = priorReadableSummaryVersion
-            }
-            if let newReadableSummaryVersion = upgradeContext["newReadableSummaryVersion"] as? Int {
-                upgradePayload["new_readable_summary_version"] = newReadableSummaryVersion
-            }
-            if let retryCount = upgradeContext["retryCount"] as? Int {
-                upgradePayload["retry_count"] = retryCount
-            }
-            body["upgrade_context"] = upgradePayload
+        }
+        if let receipt = call.getObject("preservationReceipt") {
+            body["preservation_receipt"] = [
+                "schema_version": receipt["schemaVersion"] as? String ?? "pkm_preservation_receipt.v1",
+                "total_source_occurrences": receipt["totalSourceOccurrences"] as? Int ?? 0,
+                "preserved": receipt["preserved"] as? Int ?? 0,
+                "moved": receipt["moved"] as? Int ?? 0,
+                "equal_value_deduplicated": receipt["equalValueDeduplicated"] as? Int ?? 0,
+                "quarantined": receipt["quarantined"] as? Int ?? 0,
+                "rejected": receipt["rejected"] as? Int ?? 0,
+                "complete": receipt["complete"] as? Bool ?? false
+            ]
         }
 
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
@@ -453,6 +463,27 @@ public class PersonalKnowledgeModelPlugin: CAPPlugin, CAPBridgedPlugin {
                     if let updatedAt = json["updated_at"] as? String {
                         result["updatedAt"] = updatedAt
                     }
+                    if let manifestRevision = json["manifest_revision"] as? Int {
+                        result["manifestRevision"] = manifestRevision
+                    }
+                    if let commitId = json["commit_id"] as? String {
+                        result["commitId"] = commitId
+                    }
+                    if let archivedRevisionId = json["archived_revision_id"] as? String {
+                        result["archivedRevisionId"] = archivedRevisionId
+                    }
+                    if let receipt = json["preservation_receipt"] as? [String: Any] {
+                        result["preservationReceipt"] = [
+                            "schemaVersion": receipt["schema_version"] as? String ?? "pkm_preservation_receipt.v1",
+                            "totalSourceOccurrences": receipt["total_source_occurrences"] as? Int ?? 0,
+                            "preserved": receipt["preserved"] as? Int ?? 0,
+                            "moved": receipt["moved"] as? Int ?? 0,
+                            "equalValueDeduplicated": receipt["equal_value_deduplicated"] as? Int ?? 0,
+                            "quarantined": receipt["quarantined"] as? Int ?? 0,
+                            "rejected": receipt["rejected"] as? Int ?? 0,
+                            "complete": receipt["complete"] as? Bool ?? false
+                        ]
+                    }
                     call.resolve(result)
                 } else {
                     call.reject("Invalid response format")
@@ -479,7 +510,12 @@ public class PersonalKnowledgeModelPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let backendUrl = getBackendUrl(call)
-        let urlStr = "\(backendUrl)/api/pkm/domain-data/\(userId)/\(domain)"
+        var components = URLComponents(string: "\(backendUrl)/api/pkm/domain-data/\(userId)/\(domain)")
+        let segmentIds = call.getArray("segmentIds", String.self) ?? []
+        if !segmentIds.isEmpty {
+            components?.queryItems = segmentIds.map { URLQueryItem(name: "segment_ids", value: $0) }
+        }
+        let urlStr = components?.string ?? ""
 
         guard let url = URL(string: urlStr) else {
             call.reject("Invalid URL: \(urlStr)")
@@ -491,6 +527,34 @@ public class PersonalKnowledgeModelPlugin: CAPPlugin, CAPBridgedPlugin {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(vaultOwnerToken)", forHTTPHeaderField: "Authorization")
 
+        executeRequest(request, call: call, backendUrl: backendUrl)
+    }
+
+    /** Return one coherent ciphertext + manifest revision snapshot. */
+    @objc func getDomainSnapshot(_ call: CAPPluginCall) {
+        guard let userId = call.getString("userId"),
+              let domain = call.getString("domain") else {
+            call.reject("Missing required parameters: userId, domain")
+            return
+        }
+        guard let vaultOwnerToken = getVaultOwnerToken(call) else {
+            call.reject("Missing required parameter: vaultOwnerToken")
+            return
+        }
+        let backendUrl = getBackendUrl(call)
+        var components = URLComponents(string: "\(backendUrl)/api/pkm/domain-snapshot/\(userId)/\(domain)")
+        let segmentIds = call.getArray("segmentIds", String.self) ?? []
+        if !segmentIds.isEmpty {
+            components?.queryItems = segmentIds.map { URLQueryItem(name: "segment_ids", value: $0) }
+        }
+        guard let url = components?.url else {
+            call.reject("Invalid PKM snapshot URL")
+            return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(vaultOwnerToken)", forHTTPHeaderField: "Authorization")
         executeRequest(request, call: call, backendUrl: backendUrl)
     }
 

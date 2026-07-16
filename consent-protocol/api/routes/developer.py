@@ -96,6 +96,9 @@ class DeveloperScopeDescriptor(BaseModel):
     description: str = Field(..., min_length=1, max_length=2000)
     dynamic: bool = False
     requires_discovery: bool = False
+    scope_origin: Literal["reserved", "dynamic"]
+    scope_origin_code: Literal["r", "d"]
+    source_kind: Literal["reserved_registry", "manifest_branch"]
 
 
 class DeveloperScopeCatalogResponse(BaseModel):
@@ -402,12 +405,18 @@ def _scope_catalog() -> list[DeveloperScopeDescriptor]:
                 "Create or resume a task through One. This grants no user-data read "
                 "or mutation authority."
             ),
+            scope_origin="reserved",
+            scope_origin_code="r",
+            source_kind="reserved_registry",
         ),
         DeveloperScopeDescriptor(
             name="attr.{domain_slug}.{scope_slug}.*",
             description="Read one exact semantic branch returned by per-user scope discovery.",
             dynamic=True,
             requires_discovery=True,
+            scope_origin="dynamic",
+            scope_origin_code="d",
+            source_kind="manifest_branch",
         ),
     ]
 

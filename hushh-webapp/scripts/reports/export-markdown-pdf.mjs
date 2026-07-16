@@ -15,6 +15,7 @@ function parseArgs(argv) {
     html: null,
     title: "Hussh Report",
     subtitle: "",
+    theme: "light",
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -29,6 +30,8 @@ function parseArgs(argv) {
       args.title = argv[++index];
     } else if (value === "--subtitle") {
       args.subtitle = argv[++index];
+    } else if (value === "--theme") {
+      args.theme = argv[++index];
     } else if (value === "--help" || value === "-h") {
       printHelp();
       process.exit(0);
@@ -40,6 +43,10 @@ function parseArgs(argv) {
   if (!args.input || !args.output) {
     printHelp();
     process.exit(1);
+  }
+
+  if (!["light", "dark"].includes(args.theme)) {
+    throw new Error(`Unsupported theme: ${args.theme}. Use light or dark.`);
   }
 
   return args;
@@ -70,6 +77,7 @@ Options:
   --html <path>       Optional HTML output path.
   --title <text>      Browser title and PDF header label.
   --subtitle <text>   Small header subtitle.
+  --theme <name>      Color theme: light (default) or dark.
 `);
 }
 
@@ -298,16 +306,25 @@ function renderMarkdown(markdown) {
   return html.join("\n");
 }
 
-function buildHtml(markdown, { title, subtitle }) {
+function buildHtml(markdown, { title, subtitle, theme }) {
   const body = renderMarkdown(markdown);
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${escapeHtml(title)}</title>
-    <style>
-      :root {
+  const darkTheme = theme === "dark";
+  const palette = darkTheme
+    ? `
+        color-scheme: dark;
+        --bg: #101114;
+        --bg-secondary: #1c1d21;
+        --bg-tertiary: #282a30;
+        --fg: #f2f2f7;
+        --fg-secondary: rgba(235, 235, 245, 0.78);
+        --fg-tertiary: rgba(235, 235, 245, 0.52);
+        --separator: rgba(235, 235, 245, 0.20);
+        --separator-strong: rgba(235, 235, 245, 0.38);
+        --accent: #e5c11c;
+        --accent-soft: #403612;
+        --blue: #72adff;
+        --diagram-bg: #16171a;`
+    : `
         color-scheme: light;
         --bg: #ffffff;
         --bg-secondary: #f5f5f7;
@@ -320,6 +337,16 @@ function buildHtml(markdown, { title, subtitle }) {
         --accent: #dbb90f;
         --accent-soft: #fff3bf;
         --blue: #007aff;
+        --diagram-bg: #ffffff;`;
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(title)}</title>
+    <style>
+      :root {
+        ${palette}
       }
 
       @page {
@@ -451,7 +478,7 @@ function buildHtml(markdown, { title, subtitle }) {
       }
 
       .diagram-fallback {
-        background: #ffffff;
+        background: var(--diagram-bg);
         border: 1px solid var(--separator-strong);
         border-radius: 14px;
         margin: 10px 0 16px;
@@ -549,9 +576,10 @@ function buildHtml(markdown, { title, subtitle }) {
 </html>`;
 }
 
-async function renderPdf({ input, output, html: htmlOutput, title, subtitle }) {
+async function renderPdf({ input, output, html: htmlOutput, title, subtitle, theme }) {
   const markdown = rewriteShareableLinks(await readFile(input, "utf8"), input);
-  const html = buildHtml(markdown, { title, subtitle });
+  const html = buildHtml(markdown, { title, subtitle, theme });
+  const chromeColor = theme === "dark" ? "rgba(235,235,245,.62)" : "rgba(60,60,67,.62)";
   if (htmlOutput) {
     await mkdir(path.dirname(htmlOutput), { recursive: true });
     await writeFile(htmlOutput, html, "utf8");
@@ -568,8 +596,8 @@ async function renderPdf({ input, output, html: htmlOutput, title, subtitle }) {
       format: "A4",
       printBackground: true,
       displayHeaderFooter: true,
-      headerTemplate: `<div style="font: 8px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; color: rgba(60,60,67,.62); width: 100%; padding: 0 14mm;">${escapeHtml(title)}</div>`,
-      footerTemplate: '<div style="font: 8px -apple-system, BlinkMacSystemFont, \'SF Pro Text\', sans-serif; color: rgba(60,60,67,.62); width: 100%; padding: 0 14mm; text-align: right;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>',
+      headerTemplate: `<div style="font: 8px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; color: ${chromeColor}; width: 100%; padding: 0 14mm;">${escapeHtml(title)}</div>`,
+      footerTemplate: `<div style="font: 8px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; color: ${chromeColor}; width: 100%; padding: 0 14mm; text-align: right;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>`,
       margin: { top: "18mm", right: "14mm", bottom: "18mm", left: "14mm" },
     });
   } finally {

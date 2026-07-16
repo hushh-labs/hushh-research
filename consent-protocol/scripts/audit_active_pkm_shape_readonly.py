@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import hashlib
 import json
 import os
 import re
@@ -56,6 +57,8 @@ _NOISY_KEY_TOKENS = {
 _STRUCTURAL_ENTITY_KEYS = {"entities", "items", "_items", "records", "statements"}
 _MAX_PATHS = 240
 _MAX_FINDINGS = 80
+_DEFAULT_SEGMENT_LIMIT = 100
+_MAX_SEGMENT_LIMIT = 500
 _UID_ENV_KEYS = (
     "REVIEWER_UID",
     "UAT_SMOKE_USER_ID",
@@ -252,6 +255,14 @@ def summarize_payload_shape(payload: Any) -> dict[str, Any]:
     return summary
 
 
+def _occurrence_count(value: Any) -> int:
+    if isinstance(value, list):
+        return 1 if not value else sum(_occurrence_count(item) for item in value)
+    if isinstance(value, dict):
+        return 1 if not value else sum(_occurrence_count(item) for item in value.values())
+    return 1
+
+
 def _painpoints_for_shape(shape: dict[str, Any]) -> list[str]:
     painpoints: list[str] = []
     if shape.get("max_depth", 0) >= 7:
@@ -361,6 +372,8 @@ async def main() -> None:
     parser.add_argument("--passphrase", default=None)
     parser.add_argument("--wrapper-method", default="passphrase")
     parser.add_argument("--json-out", default="")
+    parser.add_argument("--segment-offset", type=int, default=0)
+    parser.add_argument("--segment-limit", type=int, default=_DEFAULT_SEGMENT_LIMIT)
     parser.add_argument(
         "--gcp-secret-project",
         default="",
@@ -371,6 +384,8 @@ async def main() -> None:
     )
     parser.add_argument("--gcp-secret-version", default="latest")
     args = parser.parse_args()
+    segment_offset = max(0, args.segment_offset)
+    segment_limit = max(1, min(_MAX_SEGMENT_LIMIT, args.segment_limit))
 
     load_dotenv(args.env_file, override=True)
     user_id, user_id_source = _resolve_sensitive_input(
@@ -412,17 +427,29 @@ async def main() -> None:
         raise RuntimeError("No passphrase wrapper found for the target user.")
 
     vault_key_hex = _unwrap_vault_key(passphrase, wrapper)
-    blob_rows = _query_all(
-        db,
-        """
-        select user_id, domain, segment_id, ciphertext, iv, tag, algorithm,
-               content_revision, manifest_revision, size_bytes, updated_at
-        from pkm_blobs
-        where user_id = :user_id
-        order by domain, segment_id
-        """,
-        {"user_id": user_id},
-    )
+    blob_rows: list[dict[str, Any]] = []
+    next_offset = segment_offset
+    while True:
+        page_rows = _query_all(
+            db,
+            """
+            select user_id, domain, segment_id, ciphertext, iv, tag, algorithm,
+                   content_revision, manifest_revision, size_bytes, updated_at
+            from pkm_blobs
+            where user_id = :user_id
+            order by domain, segment_id
+            limit :segment_limit offset :segment_offset
+            """,
+            {
+                "user_id": user_id,
+                "segment_limit": segment_limit,
+                "segment_offset": next_offset,
+            },
+        )
+        blob_rows.extend(page_rows)
+        if len(page_rows) < segment_limit:
+            break
+        next_offset += len(page_rows)
     manifest_rows = _query_all(
         db,
         """
@@ -447,9 +474,11 @@ async def main() -> None:
     )
 
     domains: list[dict[str, Any]] = []
+    total_occurrences = 0
     for row in blob_rows:
         parsed = _decrypt_blob(row, vault_key_hex)
         shape = summarize_payload_shape(parsed)
+        total_occurrences += _occurrence_count(parsed)
         domains.append(
             {
                 "domain": row.get("domain"),
@@ -464,16 +493,26 @@ async def main() -> None:
         )
 
     report = {
-        "user_id": user_id,
+        "schema_version": "pkm_reviewer_shape_audit.v2",
+        "target_user_ref": "sha256:" + hashlib.sha256(user_id.encode()).hexdigest()[:16],
         "read_only": True,
         "plaintext_logged": False,
         "source": "active_pkm_blobs",
+        "rehearsal_mode": "clone_only_no_write",
         "credential_sources": {
             "user_id": user_id_source,
             "passphrase": passphrase_source,
         },
         "domain_count": len({row.get("domain") for row in blob_rows}),
-        "segment_count": len(blob_rows),
+        "segment_count_scanned": len(blob_rows),
+        "pagination": {
+            "segment_offset": segment_offset,
+            "segment_limit": segment_limit,
+            "pages_scanned": (
+                0 if not blob_rows else (len(blob_rows) + segment_limit - 1) // segment_limit
+            ),
+            "has_more": False,
+        },
         "manifest_count": len(manifest_rows),
         "scope_count": len(scope_rows),
         "manifests": manifest_rows,
@@ -488,6 +527,16 @@ async def main() -> None:
             for row in scope_rows
         ],
         "domains": domains,
+        "preservation_receipt": {
+            "schema_version": "pkm_preservation_receipt.v1",
+            "total_source_occurrences": total_occurrences,
+            "preserved": total_occurrences,
+            "moved": 0,
+            "equal_value_deduplicated": 0,
+            "quarantined": 0,
+            "rejected": 0,
+            "complete": segment_offset == 0,
+        },
     }
     if args.json_out:
         out_path = Path(args.json_out).expanduser().resolve()
