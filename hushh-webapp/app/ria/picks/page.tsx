@@ -2249,6 +2249,12 @@ export default function RiaPicksPage() {
       <RiaCompatibilityState
         title="Complete RIA onboarding"
         description="Finish onboarding to manage picks."
+        nativeTest={{
+          routeId: "/ria/picks",
+          marker: "native-route-ria-picks",
+          authState: user ? "authenticated" : "pending",
+          dataState: "unavailable-valid",
+        }}
       />
     );
   }
