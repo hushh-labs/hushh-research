@@ -156,7 +156,10 @@ def _read_voice_config(project: str) -> dict[str, Any]:
 def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
     config: dict[str, Any] = {
         "environment": args.environment,
+        "hushh_genai_auth_mode": "vertex_adc",
         "google_genai_use_vertexai": True,
+        "google_cloud_project": args.project,
+        "google_cloud_location": "global",
         "db_host": args.db_host,
         "db_port": args.db_port,
         "db_name": args.db_name,

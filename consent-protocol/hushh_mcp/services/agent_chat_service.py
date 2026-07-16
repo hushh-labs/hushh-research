@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import re
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -510,10 +509,10 @@ def create_runtime_client(runtime_provider: str, user_key: str):
     return build_runtime_client(runtime_provider, user_key)
 
 
-def create_managed_runtime_client(runtime_provider: str, user_key: str):
+def create_managed_runtime_client(runtime_provider: str, managed_credential: str = ""):
     """Hushh-managed runtime client for the chosen provider."""
 
-    return build_managed_runtime_client(runtime_provider, user_key)
+    return build_managed_runtime_client(runtime_provider, managed_credential)
 
 
 def _redacted_runtime_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
@@ -1024,12 +1023,8 @@ class AgentChatService:
     @property
     def client(self):
         if self._client is None:
-            api_key = self.settings.google_api_key or os.getenv("GOOGLE_API_KEY", "").strip()
-            if not api_key:
-                raise RuntimeError("Gemini API key is not configured")
             self._client = create_managed_runtime_client(
                 runtime_provider=self.runtime_manifest.model.provider,
-                user_key=api_key,
             )
         return self._client
 
@@ -1541,11 +1536,6 @@ class AgentChatService:
         runtime_credential: str | None,
     ) -> AsyncGenerator[OneTextStreamEvent, None]:
         """Run typed Agent Chat through One's canonical ADK semantic head."""
-        effective_credential = runtime_credential
-        if runtime.mode == "hushh_managed_vertex":
-            effective_credential = (
-                self.settings.google_api_key or os.getenv("GOOGLE_API_KEY", "").strip()
-            )
         try:
             async for event in stream_one_text_turn(
                 user_id=user_id,
@@ -1559,7 +1549,10 @@ class AgentChatService:
                 runtime_provider=runtime.provider,
                 runtime_model=runtime.model,
                 runtime_mode=runtime.mode,
-                runtime_credential=effective_credential,
+                # Managed Vertex relies on turn-local workload ADC. BYOK stays
+                # explicitly supplied and is never persisted or replaced by a
+                # backend credential.
+                runtime_credential=(runtime_credential if runtime.mode == "byok" else None),
             ):
                 yield event
         except genai_errors.APIError as error:

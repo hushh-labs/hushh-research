@@ -8,14 +8,13 @@ then stores them in the PKM with appropriate domain classification.
 
 import json
 import logging
-import os
 from dataclasses import dataclass
 from typing import Optional
 
-from google import genai
 from google.genai import types as genai_types
 
 from hushh_mcp.constants import GEMINI_MODEL
+from hushh_mcp.runtime_providers import build_managed_runtime_client
 
 logger = logging.getLogger(__name__)
 
@@ -70,10 +69,10 @@ class AttributeLearner:
     def client(self):
         """Get the google.genai client (from google-adk)."""
         if not hasattr(self, "_client") or self._client is None:
-            api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
-            if api_key:
-                self._client = genai.Client(api_key=api_key)
-            else:
+            try:
+                self._client = build_managed_runtime_client("gemini")
+            except Exception:
+                logger.exception("Managed Gemini client is unavailable for attribute learning")
                 self._client = None
         return self._client
 

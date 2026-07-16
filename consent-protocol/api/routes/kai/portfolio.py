@@ -76,6 +76,7 @@ from hushh_mcp.kai_import import (
     evaluate_import_quality_gate_v2,
     run_stream_pass_v2,
 )
+from hushh_mcp.runtime_providers import build_managed_runtime_client
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.portfolio_import_service import (
     ImportResult,
@@ -2698,9 +2699,7 @@ async def _portfolio_import_stream_generator(
     hard_timeout_seconds = PORTFOLIO_IMPORT_TIMEOUT_SECONDS
     stream = CanonicalSSEStream("portfolio_import")
 
-    from google import genai
     from google.genai import types
-    from google.genai.types import HttpOptions
 
     thinking_enabled = KAI_PORTFOLIO_IMPORT_ENABLE_THINKING and KAI_LLM_THINKING_ENABLED
     extraction_model = _resolve_portfolio_import_model()
@@ -2716,7 +2715,7 @@ async def _portfolio_import_stream_generator(
             )
             await asyncio.sleep(0.1)
 
-            client = genai.Client(http_options=HttpOptions(api_version="v1"))
+            client = build_managed_runtime_client("gemini")
             logger.info(
                 "SSE: Portfolio import model=%s strict_json=true no_pre_gate=true thinking=%s",
                 extraction_model,

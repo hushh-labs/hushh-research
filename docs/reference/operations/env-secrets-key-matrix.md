@@ -37,7 +37,8 @@ Profile bootstrap rule:
 |---|---|---|---|---|---|---|---|---|---|
 | `APP_SIGNING_KEY` | `consent-protocol/hushh_mcp/config.py` | Y | N | Y | secret | N | secret | N | required |
 | `VAULT_DATA_KEY` | `consent-protocol/hushh_mcp/config.py` | Y | N | Y | secret | N | secret | N | required |
-| `GOOGLE_API_KEY` | `consent-protocol/hushh_mcp/config.py`, `consent-protocol/hushh_mcp/services/agent_chat_service.py` | Y | N | Y | secret | N | secret | N | required |
+| `HUSHH_GENAI_AUTH_MODE` | `consent-protocol/hushh_mcp/runtime_providers/factory.py` | N | N | Y | env | N | env | N | required (`vertex_adc`) |
+| `GOOGLE_API_KEY` | `consent-protocol/hushh_mcp/runtime_providers/factory.py` | N | N | N | none | N | none | Y | local-only developer compatibility |
 | `AGENT_GEMINI_MODEL` | `consent-protocol/hushh_mcp/services/agent_chat_service.py` | Y | N | N | env | N | env | N | optional |
 | `AGENT_GEMINI_VOICE_ENABLED` | `consent-protocol/api/routes/kai/agent_voice.py` | Y | N | N | env | N | env | N | optional kill switch |
 | `AGENT_GEMINI_STT_MODEL` | `consent-protocol/hushh_mcp/services/agent_voice_service.py` | Y | N | N | env | N | env | N | optional |

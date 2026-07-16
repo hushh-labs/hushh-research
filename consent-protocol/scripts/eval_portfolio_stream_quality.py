@@ -16,9 +16,7 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
-from google import genai
 from google.genai import types
-from google.genai.types import HttpOptions
 
 CONSENT_PROTOCOL_ROOT = Path(__file__).resolve().parents[1]
 if str(CONSENT_PROTOCOL_ROOT) not in sys.path:
@@ -42,6 +40,7 @@ from hushh_mcp.kai_import import (  # noqa: E402
     FINANCIAL_STATEMENT_EXTRACT_V2_REQUIRED_KEYS,
     build_statement_extract_prompt_v2,
 )
+from hushh_mcp.runtime_providers import build_managed_runtime_client  # noqa: E402
 
 
 def _discover_brokerage_pdfs(corpus_dir: Path) -> list[Path]:
@@ -110,7 +109,7 @@ def _is_statement_candidate(pdf_path: Path) -> bool:
 
 
 async def _run_model_for_pdf(
-    client: genai.Client,
+    client: Any,
     pdf_path: Path,
     *,
     timeout_seconds: float,
@@ -228,7 +227,7 @@ async def _run_model_for_pdf(
 
 
 async def _evaluate(pdfs: list[Path], *, timeout_seconds: float) -> dict[str, Any]:
-    client: genai.Client | None = None
+    client: Any | None = None
     results: list[dict[str, Any]] = []
 
     for path in pdfs:
@@ -248,7 +247,7 @@ async def _evaluate(pdfs: list[Path], *, timeout_seconds: float) -> dict[str, An
             continue
         try:
             if client is None:
-                client = genai.Client(http_options=HttpOptions(api_version="v1"))
+                client = build_managed_runtime_client("gemini")
             results.append(
                 await _run_model_for_pdf(
                     client,

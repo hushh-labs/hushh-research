@@ -670,7 +670,10 @@ path = pathlib.Path(sys.argv[1])
 payload = {}
 mapping = {
     "ENVIRONMENT": "environment",
+    "HUSHH_GENAI_AUTH_MODE": "hushh_genai_auth_mode",
     "GOOGLE_GENAI_USE_VERTEXAI": "google_genai_use_vertexai",
+    "GOOGLE_CLOUD_PROJECT": "google_cloud_project",
+    "GOOGLE_CLOUD_LOCATION": "google_cloud_location",
     "DB_HOST": "db_host",
     "DB_PORT": "db_port",
     "DB_NAME": "db_name",
@@ -830,6 +833,10 @@ hydrate_backend_cloud_reference() {
 
   upsert_env_value "$file" "APP_RUNTIME_PROFILE" "$profile"
   upsert_env_value "$file" "ENVIRONMENT" "$env_name"
+  upsert_env_value "$file" "HUSHH_GENAI_AUTH_MODE" "vertex_adc"
+  upsert_env_value "$file" "GOOGLE_GENAI_USE_VERTEXAI" "true"
+  upsert_env_value "$file" "GOOGLE_CLOUD_PROJECT" "$project"
+  upsert_env_value "$file" "GOOGLE_CLOUD_LOCATION" "global"
 
   local front_secret=""
   if front_secret="$(resolve_cloud_or_cached_secret_value "$project" "APP_FRONTEND_ORIGIN" "$cache_file")" || \
@@ -839,7 +846,7 @@ hydrate_backend_cloud_reference() {
     append_missing_required "$profile" "missing secret APP_FRONTEND_ORIGIN in ${project}"
   fi
 
-  for key in PORT CORS_ALLOWED_ORIGINS GOOGLE_GENAI_USE_VERTEXAI OTEL_ENABLED DB_HOST DB_PORT DB_NAME DB_UNIX_SOCKET CONSENT_SSE_ENABLED SYNC_REMOTE_ENABLED DEVELOPER_API_ENABLED OBS_DATA_STALE_RATIO_THRESHOLD; do
+  for key in PORT CORS_ALLOWED_ORIGINS HUSHH_GENAI_AUTH_MODE GOOGLE_GENAI_USE_VERTEXAI GOOGLE_CLOUD_PROJECT GOOGLE_CLOUD_LOCATION OTEL_ENABLED DB_HOST DB_PORT DB_NAME DB_UNIX_SOCKET CONSENT_SSE_ENABLED SYNC_REMOTE_ENABLED DEVELOPER_API_ENABLED OBS_DATA_STALE_RATIO_THRESHOLD; do
     set_if_non_empty "$file" "$key" "$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" "$key" "$cache_file")"
   done
 
@@ -849,7 +856,6 @@ hydrate_backend_cloud_reference() {
 
   set_mapped_secret_key_or_cached "$file" "$profile" "$project" "APP_SIGNING_KEY" "true" "$cache_file" APP_SIGNING_KEY SECRET_KEY
   set_mapped_secret_key_or_cached "$file" "$profile" "$project" "VAULT_DATA_KEY" "true" "$cache_file" VAULT_DATA_KEY VAULT_ENCRYPTION_KEY
-  set_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_API_KEY" "true" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_MAPS_API_KEY" "false" "$cache_file"
   set_mapped_secret_key_or_cached "$file" "$profile" "$project" "FIREBASE_ADMIN_CREDENTIALS_JSON" "true" "$cache_file" FIREBASE_ADMIN_CREDENTIALS_JSON FIREBASE_SERVICE_ACCOUNT_JSON
   set_secret_key_or_cached "$file" "$profile" "$project" "DB_USER" "true" "$cache_file"

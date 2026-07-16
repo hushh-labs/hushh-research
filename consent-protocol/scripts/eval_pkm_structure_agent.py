@@ -3578,14 +3578,6 @@ def _gate_failures_for_summary(
 def _execution_context(args: argparse.Namespace) -> dict[str, Any]:
     """Return reproducibility evidence without recording credentials or prompts."""
 
-    api_key_source = next(
-        (
-            name
-            for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY")
-            if os.getenv(name)
-        ),
-        "none",
-    )
     try:
         genai_sdk_version = importlib.metadata.version("google-genai")
     except importlib.metadata.PackageNotFoundError:
@@ -3598,7 +3590,11 @@ def _execution_context(args: argparse.Namespace) -> dict[str, Any]:
         "agent_contract_timeout_seconds": pkm_agent_lab_module._AGENT_CONTRACT_TIMEOUT_SECONDS,
         "agent_contract_max_attempts": pkm_agent_lab_module._AGENT_CONTRACT_MAX_ATTEMPTS,
         "google_genai_sdk_version": genai_sdk_version,
-        "api_key_source": api_key_source,
+        "credential_mode": str(os.getenv("HUSHH_GENAI_AUTH_MODE") or "vertex_adc").strip(),
+        "vertex_project_configured": bool(
+            str(os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GCP_PROJECT") or "").strip()
+        ),
+        "vertex_location": str(os.getenv("GOOGLE_CLOUD_LOCATION") or "global").strip(),
         "github_actions": os.getenv("GITHUB_ACTIONS") == "true",
         "deployment_environment": str(os.getenv("ENVIRONMENT") or os.getenv("DEPLOY_ENV") or ""),
         "shadow_replay_enabled": not bool(args.skip_shadow),
