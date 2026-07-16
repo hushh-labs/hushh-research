@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -154,3 +155,46 @@ async def test_evaluator_fails_closed_on_hidden_inner_agent_timeout():
     assert result.timed_out is False
     assert summary["inner_timeout_count"] == 1
     assert failures == ["synthetic:candidate_minimal:inner_timeout 1"]
+
+
+@pytest.mark.asyncio
+async def test_synthetic_only_main_never_initializes_pkm_service(monkeypatch, tmp_path):
+    args = SimpleNamespace(
+        env_file=None,
+        json_out=str(tmp_path / "report.json"),
+        phase="fresh_chain_60",
+        max_prompts_per_persona=1,
+        skip_shadow=True,
+        shadow_users="",
+        model="",
+        per_prompt_timeout_seconds=1.0,
+        enforce_gates=False,
+    )
+    monkeypatch.setattr(eval_script, "parse_args", lambda: args)
+    monkeypatch.setattr(eval_script, "get_pkm_agent_lab_service", lambda: object())
+    monkeypatch.setattr(
+        eval_script,
+        "PersonalKnowledgeModelService",
+        lambda: pytest.fail("synthetic-only evaluation must not initialize PKM storage"),
+    )
+    monkeypatch.setattr(
+        eval_script,
+        "build_phase_personas",
+        lambda **_: ([{"user_id": "synthetic", "prompts": []}], {}),
+    )
+    monkeypatch.setattr(eval_script, "_mode_matrix", lambda _: [("test", "", False)])
+    monkeypatch.setattr(eval_script, "resolve_shadow_users", lambda _: [])
+    monkeypatch.setattr(eval_script, "_gate_thresholds", lambda _: {})
+    monkeypatch.setattr(
+        eval_script,
+        "_run_synthetic_mode",
+        lambda **_: asyncio.sleep(0, result={"mode": "test", "summary": {}}),
+    )
+    monkeypatch.setattr(
+        eval_script,
+        "_build_quality_gate",
+        lambda **_: {"status": "pass", "failures": [], "thresholds": {}},
+    )
+    monkeypatch.setattr(eval_script, "_manual_kpi_summary", lambda **_: {})
+
+    assert await eval_script.main() == 0
