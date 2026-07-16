@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -50,5 +51,34 @@ describe("reviewer route bootstrap contract", () => {
     expect(source).toContain(`routeId: "${routeId}"`);
     expect(source).toContain(`marker: "${marker}"`);
     expect(source).toContain('dataState: "unavailable-valid"');
+  });
+
+  it("keeps a terminal reviewer beacon in RIA picks setup compatibility mode", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/ria/picks/page.tsx"),
+      "utf8",
+    );
+
+    expect(source).toMatch(
+      /riaCapability === "setup"[\s\S]*routeId: "\/ria\/picks"[\s\S]*marker: "native-route-ria-picks"[\s\S]*dataState: "unavailable-valid"/,
+    );
+  });
+
+  it("keeps the BYOK reviewer harness on the memory-only passphrase fallback", () => {
+    const source = readFileSync(
+      resolve(
+        process.cwd(),
+        "../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs",
+      ),
+      "utf8",
+    );
+
+    expect(source).toContain('page.locator("#unlock-passphrase")');
+    expect(source).toContain("unlock with passphrase");
+    expect(source).toContain("unlockInput.fill(reviewerPassphrase)");
+    expect(source).toContain("bootstrapErrorClass");
+    expect(source).toContain("userMatches");
+    expect(source).toContain("const maxAttempts = 3");
+    expect(source).toContain("await context.close().catch(() => undefined)");
   });
 });

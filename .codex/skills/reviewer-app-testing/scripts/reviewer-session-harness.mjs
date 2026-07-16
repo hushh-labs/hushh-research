@@ -144,19 +144,61 @@ export async function createReviewerSessionHarness({
     };
   }
 
-  async function waitForUnlock(page) {
+  async function waitForUnlock(page, unlockTimeoutMs = timeoutMs) {
     const reviewerButton = page.getByRole("button", { name: /continue as reviewer/i });
-    if (await reviewerButton.isVisible().catch(() => false)) await reviewerButton.click();
-    await page.waitForFunction(
-      (expectedUserId) => {
+    const unlockInput = page.locator("#unlock-passphrase");
+    const unlockButton = page
+      .getByRole("button", { name: /unlock with passphrase/i })
+      .first();
+    const terminalFailures = new Set(["auth_error", "uid_mismatch", "vault_error"]);
+    const deadline = Date.now() + unlockTimeoutMs;
+    let reviewerLoginSubmitted = false;
+    let manualPassphraseFilled = false;
+    let manualUnlockSubmitted = false;
+
+    const safeBootstrapState = async () =>
+      page.evaluate((expectedUserId) => {
         const bridge = window.__HUSHH_NATIVE_TEST__;
-        return (
-          bridge?.bootstrapState === "vault_unlocked" &&
-          bridge?.bootstrapUserId === expectedUserId
+        const bootstrapUserId = String(bridge?.bootstrapUserId || "");
+        return {
+          state: String(bridge?.bootstrapState || ""),
+          errorClass: String(bridge?.bootstrapErrorClass || ""),
+          path: window.location.pathname,
+          userMatches: Boolean(bootstrapUserId && bootstrapUserId === expectedUserId),
+        };
+      }, reviewerUid);
+
+    while (Date.now() < deadline) {
+      const bootstrap = await safeBootstrapState();
+      if (bootstrap.state === "vault_unlocked" && bootstrap.userMatches) return;
+      if (terminalFailures.has(bootstrap.state)) {
+        throw new Error(
+          `Reviewer vault bootstrap failed (state=${bootstrap.state}, error_class=${bootstrap.errorClass || "unknown"}, path=${bootstrap.path}, user_match=${bootstrap.userMatches}).`
         );
-      },
-      reviewerUid,
-      { timeout: timeoutMs }
+      }
+
+      if (!reviewerLoginSubmitted && await reviewerButton.isVisible().catch(() => false)) {
+        await reviewerButton.click({ noWaitAfter: true });
+        reviewerLoginSubmitted = true;
+      }
+
+      if (!manualUnlockSubmitted && await unlockInput.isVisible().catch(() => false)) {
+        if (!manualPassphraseFilled) {
+          await unlockInput.fill(reviewerPassphrase);
+          manualPassphraseFilled = true;
+        }
+        if (await unlockButton.isEnabled().catch(() => false)) {
+          await unlockButton.click({ noWaitAfter: true });
+          manualUnlockSubmitted = true;
+        }
+      }
+
+      await page.waitForTimeout(250);
+    }
+
+    const bootstrap = await safeBootstrapState();
+    throw new Error(
+      `Reviewer vault bootstrap timed out (state=${bootstrap.state || "unknown"}, error_class=${bootstrap.errorClass || "none"}, path=${bootstrap.path}, user_match=${bootstrap.userMatches}).`
     );
   }
 
@@ -188,17 +230,32 @@ export async function createReviewerSessionHarness({
   }
 
   async function openSession(browser, redirect) {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-    const page = await context.newPage();
-    page.setDefaultTimeout(timeoutMs);
-    page.setDefaultNavigationTimeout(timeoutMs);
-    const capture = attachMemoryOnlyCapture(page);
-    await installBridge(page);
-    await page.goto(`${normalizedOrigin}/login?redirect=${encodeURIComponent(redirect)}`, {
-      waitUntil: "domcontentloaded",
+    const maxAttempts = 3;
+    const attemptTimeoutMs = Math.max(20_000, Math.floor(timeoutMs / maxAttempts));
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+      const page = await context.newPage();
+      page.setDefaultTimeout(attemptTimeoutMs);
+      page.setDefaultNavigationTimeout(attemptTimeoutMs);
+      const capture = attachMemoryOnlyCapture(page);
+      await installBridge(page);
+      try {
+        await page.goto(`${normalizedOrigin}/login?redirect=${encodeURIComponent(redirect)}`, {
+          waitUntil: "domcontentloaded",
+        });
+        await waitForUnlock(page, attemptTimeoutMs);
+        return { context, page, capture };
+      } catch (error) {
+        lastError = error;
+        await context.close().catch(() => undefined);
+      }
+    }
+
+    throw new Error(`Reviewer session bootstrap failed after ${maxAttempts} attempts.`, {
+      cause: lastError,
     });
-    await waitForUnlock(page);
-    return { context, page, capture };
   }
 
   async function fetchOwnerJson(pathname, ownerToken, { allow404 = false } = {}) {
