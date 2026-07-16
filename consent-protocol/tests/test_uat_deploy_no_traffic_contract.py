@@ -31,8 +31,15 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
     )
 
 
-def test_production_deploy_keeps_default_traffic_behavior() -> None:
+def test_production_deploy_builds_candidates_without_serving_traffic() -> None:
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
-    assert "_CLOUD_RUN_NO_TRAFFIC" not in production_workflow
-    assert "--no-traffic" not in production_workflow
+    assert "_CLOUD_RUN_NO_TRAFFIC=true" in production_workflow
+    assert (
+        '--to-revisions="${{ steps.candidate-state.outputs.backend_revision }}=100"'
+        in production_workflow
+    )
+    assert (
+        '--to-revisions="${{ steps.candidate-state.outputs.frontend_revision }}=100"'
+        in production_workflow
+    )

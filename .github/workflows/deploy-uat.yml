@@ -319,7 +319,7 @@ jobs:
           PKM_UPGRADE_REVIEWER_SECRET_PROJECT="${{ env.GCP_PROJECT_ID }}" \
           PKM_UPGRADE_REVIEWER_ENV_FILE="$reviewer_env_file" \
           PKM_UPGRADE_STRUCTURE_AGENT_EVAL=1 \
-          PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL="${{ env.APP_FRONTEND_ORIGIN }}" \
+          PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED=1 \
             ./scripts/ci/pkm-upgrade-gate.sh
 
       - name: Deploy backend using Cloud Build
@@ -618,6 +618,17 @@ jobs:
           node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs \
             2>&1 | tee /tmp/uat-reviewer-byok.log
 
+      - name: Verify live PKM, investor, and RIA runtime audits
+        id: verify-pkm-runtime-audit
+        continue-on-error: true
+        shell: bash
+        env:
+          PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL: ${{ env.APP_FRONTEND_ORIGIN }}
+          PKM_UPGRADE_REVIEWER_SECRET_PROJECT: ${{ env.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          ./scripts/ci/pkm-runtime-audit.sh 2>&1 | tee /tmp/uat-pkm-runtime-audit.log
+
       - name: Classify UAT release outcome
         if: always()
         id: classify-uat-release
@@ -633,6 +644,7 @@ jobs:
           SEMANTIC_ATTEMPT_1: ${{ steps.verify-uat-1.outcome }}
           SEMANTIC_ATTEMPT_2: ${{ steps.verify-uat-2.outcome }}
           REVIEWER_BYOK_OUTCOME: ${{ steps.verify-reviewer-byok.outcome }}
+          PKM_RUNTIME_AUDIT_OUTCOME: ${{ steps.verify-pkm-runtime-audit.outcome }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -680,6 +692,7 @@ jobs:
           semantic_success = os.environ.get("SEMANTIC_ATTEMPT_1") == "success" or os.environ.get("SEMANTIC_ATTEMPT_2") == "success"
           db_outcome = os.environ.get("DB_OUTCOME", "")
           reviewer_byok_success = os.environ.get("REVIEWER_BYOK_OUTCOME") == "success"
+          pkm_runtime_audit_success = os.environ.get("PKM_RUNTIME_AUDIT_OUTCOME") == "success"
 
           blocking: list[str] = []
           backend_failure = False
@@ -760,6 +773,13 @@ jobs:
               if os.environ.get("DEPLOY_FRONTEND") == "true":
                   frontend_failure = True
 
+          if not pkm_runtime_audit_success:
+              append_unique(blocking, ["pkm_runtime_audit_failed"])
+              if os.environ.get("DEPLOY_BACKEND") == "true":
+                  backend_failure = True
+              if os.environ.get("DEPLOY_FRONTEND") == "true":
+                  frontend_failure = True
+
           blocking = list(dict.fromkeys(blocking))
           release_failed = bool(blocking)
 
@@ -802,6 +822,10 @@ jobs:
                   "outcome": os.environ.get("REVIEWER_BYOK_OUTCOME", ""),
                   "success": reviewer_byok_success,
               },
+              "pkm_runtime_audit": {
+                  "outcome": os.environ.get("PKM_RUNTIME_AUDIT_OUTCOME", ""),
+                  "success": pkm_runtime_audit_success,
+              },
           }
 
           Path("/tmp/uat-release-classification.json").write_text(
@@ -818,6 +842,7 @@ jobs:
               handle.write(f"provenance_success={'true' if backend_provenance_success and frontend_provenance_success else 'false'}\n")
               handle.write(f"semantic_success={'true' if semantic_success else 'false'}\n")
               handle.write(f"reviewer_byok_success={'true' if reviewer_byok_success else 'false'}\n")
+              handle.write(f"pkm_runtime_audit_success={'true' if pkm_runtime_audit_success else 'false'}\n")
           PY
 
       - name: Roll back backend revision
@@ -939,6 +964,7 @@ jobs:
                   "semantic_success": "${{ steps.classify-uat-release.outputs.semantic_success }}",
                   "db_contract": "${{ steps.postdeploy-db-gate.outcome }}",
                   "reviewer_byok": "${{ steps.verify-reviewer-byok.outcome }}",
+                  "pkm_runtime_audit": "${{ steps.verify-pkm-runtime-audit.outcome }}",
                   "blocking_classifications": "${{ steps.classify-uat-release.outputs.blocking_classifications }}",
               },
               "rollback_targets": {
@@ -973,6 +999,7 @@ jobs:
             /tmp/uat-release-verify-attempt-1.json
             /tmp/uat-release-verify-attempt-2.json
             /tmp/uat-reviewer-byok.log
+            /tmp/uat-pkm-runtime-audit.log
             /tmp/uat-release-classification.json
             /tmp/uat-release-status.json
 
