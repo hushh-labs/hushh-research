@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from hushh_mcp.services import pkm_agent_lab_service as pkm_agent_lab_module
 from scripts import eval_pkm_structure_agent as eval_script
 
@@ -35,6 +37,9 @@ def test_quality_gate_flags_fallback_fragmentation_and_mutation_drift():
                     "fragmentation_score": 0.50,
                     "finance_contamination_count": 1,
                     "unresolved_domain_count": 1,
+                    "inner_timeout_count": 1,
+                    "inner_budget_exhausted_count": 1,
+                    "inner_failure_count": 1,
                 },
             }
         ],
@@ -57,6 +62,9 @@ def test_quality_gate_flags_fallback_fragmentation_and_mutation_drift():
     assert "fragmentation" in failures
     assert "finance_contamination" in failures
     assert "unresolved_domain" in failures
+    assert "inner_timeout" in failures
+    assert "inner_budget_exhausted" in failures
+    assert "inner_agent_failure" in failures
 
 
 def test_fragmentation_ignores_non_durable_alternative_domains():
@@ -85,3 +93,64 @@ def test_fragmentation_ignores_non_durable_alternative_domains():
     ]
 
     assert eval_script._durable_domain_fragmentation_score(results) == 1.0
+
+
+@pytest.mark.asyncio
+async def test_evaluator_fails_closed_on_hidden_inner_agent_timeout():
+    class TraceService:
+        async def generate_structure_preview(self, **kwargs):
+            assert kwargs["capture_execution_trace"] is True
+            return {
+                "intent_frame": {
+                    "save_class": "durable",
+                    "intent_class": "preference",
+                    "mutation_intent": "create",
+                    "requires_confirmation": False,
+                },
+                "structure_decision": {"target_domain": "food"},
+                "write_mode": "confirm_first",
+                "validation_hints": [],
+                "used_fallback": True,
+                "performance": {
+                    "agent_execution": [{"agent_id": "memory_intent_agent", "status": "timeout"}]
+                },
+            }
+
+    case = eval_script.PromptCase(
+        case_id="trace-timeout",
+        message="I prefer Thai food.",
+        expected_save_class="durable",
+        expected_intent_class="preference",
+        expected_mutation_intent="create",
+        expected_domains=("food",),
+        expect_confirmation=True,
+        category="preference",
+    )
+    result = await eval_script._evaluate_case(
+        service=TraceService(),
+        case=case,
+        state={"domains": [], "memories": []},
+        user_id="synthetic-user",
+        model_override="test-model",
+        strict_small_model=True,
+        per_prompt_timeout_seconds=1.0,
+        domain_registry_override=[],
+    )
+    summary = eval_script._summarize_results([result])
+    failures = eval_script._gate_failures_for_summary(
+        label="synthetic:candidate_minimal",
+        summary=summary,
+        thresholds={
+            "schema_ok_rate": 0.0,
+            "domain_ok_rate": 0.0,
+            "mutation_ok_rate": 0.0,
+            "intent_ok_rate": 0.0,
+            "fallback_rate": 1.0,
+            "fragmentation_score_min": 0.0,
+            "fragmentation_score_max": 2.0,
+        },
+    )
+
+    assert result.timed_out is False
+    assert summary["inner_timeout_count"] == 1
+    assert failures == ["synthetic:candidate_minimal:inner_timeout 1"]

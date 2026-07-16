@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib.metadata
 import json
 import os
 import sys
@@ -26,6 +27,7 @@ MONOREPO_ROOT = CONSENT_PROTOCOL_ROOT.parent
 if str(CONSENT_PROTOCOL_ROOT) not in sys.path:
     sys.path.insert(0, str(CONSENT_PROTOCOL_ROOT))
 
+from hushh_mcp.services import pkm_agent_lab_service as pkm_agent_lab_module  # noqa: E402
 from hushh_mcp.services.domain_contracts import CANONICAL_DOMAIN_REGISTRY  # noqa: E402
 from hushh_mcp.services.personal_knowledge_model_service import (  # noqa: E402
     PersonalKnowledgeModelService,
@@ -210,6 +212,9 @@ class EvaluationResult:
     timed_out: bool
     finance_contamination: bool
     unresolved_domain: bool
+    inner_timeout_count: int
+    inner_budget_exhausted_count: int
+    inner_failure_count: int
     save_class_ok: bool
     intent_ok: bool
     mutation_ok: bool
@@ -3005,6 +3010,7 @@ async def _evaluate_case(
                 model_override=model_override,
                 strict_small_model=strict_small_model,
                 domain_registry_override=domain_registry_override,
+                capture_execution_trace=True,
             ),
             timeout=per_prompt_timeout_seconds,
         )
@@ -3031,6 +3037,17 @@ async def _evaluate_case(
         bool(frame.get("requires_confirmation")) or actual_write_mode == "confirm_first"
     )
     validation_hints = list(result.get("validation_hints") or [])
+    execution_trace = (result.get("performance") or {}).get("agent_execution") or []
+    trace_statuses = [
+        str(item.get("status") or "") for item in execution_trace if isinstance(item, dict)
+    ]
+    inner_timeout_count = trace_statuses.count("timeout")
+    inner_budget_exhausted_count = trace_statuses.count("budget_exhausted")
+    inner_failure_count = sum(
+        1
+        for status in trace_statuses
+        if status in {"client_unavailable", "invalid_response", "error"}
+    )
     finance_contamination = (
         actual_domain == "financial"
         and "financial" not in case.expected_domains
@@ -3066,6 +3083,9 @@ async def _evaluate_case(
         timed_out=timed_out,
         finance_contamination=finance_contamination,
         unresolved_domain=unresolved_domain,
+        inner_timeout_count=inner_timeout_count,
+        inner_budget_exhausted_count=inner_budget_exhausted_count,
+        inner_failure_count=inner_failure_count,
         save_class_ok=str(frame.get("save_class") or "") == case.expected_save_class,
         intent_ok=str(frame.get("intent_class") or "") == case.expected_intent_class,
         mutation_ok=str(frame.get("mutation_intent") or "") == case.expected_mutation_intent,
@@ -3333,6 +3353,9 @@ def _summarize_results(results: list[EvaluationResult]) -> dict[str, Any]:
             "confirmation_ok_rate": 0.0,
             "fallback_rate": 0.0,
             "timeout_count": 0,
+            "inner_timeout_count": 0,
+            "inner_budget_exhausted_count": 0,
+            "inner_failure_count": 0,
             "finance_contamination_count": 0,
             "unresolved_domain_count": 0,
             "fragmentation_score": 0.0,
@@ -3369,6 +3392,9 @@ def _summarize_results(results: list[EvaluationResult]) -> dict[str, Any]:
         "confirmation_ok_rate": _rate("confirmation_ok"),
         "fallback_rate": fallback_rate,
         "timeout_count": sum(1 for item in results if item.timed_out),
+        "inner_timeout_count": sum(item.inner_timeout_count for item in results),
+        "inner_budget_exhausted_count": sum(item.inner_budget_exhausted_count for item in results),
+        "inner_failure_count": sum(item.inner_failure_count for item in results),
         "finance_contamination_count": finance_contamination_count,
         "unresolved_domain_count": unresolved_domain_count,
         "fragmentation_score": fragmentation_score,
@@ -3537,7 +3563,46 @@ def _gate_failures_for_summary(
         )
     if int(summary.get("unresolved_domain_count") or 0) > 0:
         failures.append(f"{label}:unresolved_domain {summary.get('unresolved_domain_count')}")
+    for key, display_name in (
+        ("timeout_count", "outer_timeout"),
+        ("inner_timeout_count", "inner_timeout"),
+        ("inner_budget_exhausted_count", "inner_budget_exhausted"),
+        ("inner_failure_count", "inner_agent_failure"),
+    ):
+        count = int(summary.get(key) or 0)
+        if count > 0:
+            failures.append(f"{label}:{display_name} {count}")
     return failures
+
+
+def _execution_context(args: argparse.Namespace) -> dict[str, Any]:
+    """Return reproducibility evidence without recording credentials or prompts."""
+
+    api_key_source = next(
+        (
+            name
+            for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY")
+            if os.getenv(name)
+        ),
+        "none",
+    )
+    try:
+        genai_sdk_version = importlib.metadata.version("google-genai")
+    except importlib.metadata.PackageNotFoundError:
+        genai_sdk_version = "not-installed"
+    return {
+        "model": str(args.model or "").strip(),
+        "strict_small_model": True,
+        "per_prompt_timeout_seconds": float(args.per_prompt_timeout_seconds),
+        "runtime_preview_budget_seconds": pkm_agent_lab_module._PREVIEW_TOTAL_BUDGET_SECONDS,
+        "agent_contract_timeout_seconds": pkm_agent_lab_module._AGENT_CONTRACT_TIMEOUT_SECONDS,
+        "agent_contract_max_attempts": pkm_agent_lab_module._AGENT_CONTRACT_MAX_ATTEMPTS,
+        "google_genai_sdk_version": genai_sdk_version,
+        "api_key_source": api_key_source,
+        "github_actions": os.getenv("GITHUB_ACTIONS") == "true",
+        "deployment_environment": str(os.getenv("ENVIRONMENT") or os.getenv("DEPLOY_ENV") or ""),
+        "shadow_replay_enabled": not bool(args.skip_shadow),
+    }
 
 
 def _build_quality_gate(
@@ -3627,6 +3692,7 @@ async def main() -> int:
         "duration_seconds": round(time.time() - started_at, 2),
         "env_file": str(env_file) if env_file else "",
         "phase": args.phase,
+        "execution_context": _execution_context(args),
         "shadow_users": shadow_users,
         "synthetic_persona_count": len(personas),
         "synthetic_prompt_count": sum(len(persona["prompts"]) for persona in personas),

@@ -128,8 +128,8 @@ def test_uat_deploy_runs_protected_pkm_gate_and_reviewer_byok_rehearsal():
     workflow = (ROOT.parent / ".github/workflows/deploy-uat.yml").read_text()
 
     assert "PKM_UPGRADE_PROTECTED_UAT=1" in workflow
-    assert "PKM_UPGRADE_REVIEWER_SHAPE_AUDIT=1" in workflow
     assert "PKM_UPGRADE_STRUCTURE_AGENT_EVAL=1" in workflow
+    assert "--skip-shadow" in (ROOT.parent / "scripts/ci/pkm-upgrade-gate.sh").read_text()
     assert "PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED=1" in workflow
     assert "verify-reviewer-byok" in workflow
     assert "reviewer_byok_continuity_failed" in workflow

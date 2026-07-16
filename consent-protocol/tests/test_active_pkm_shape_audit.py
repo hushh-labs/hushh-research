@@ -39,11 +39,11 @@ def test_shape_audit_contract_has_no_event_sample_lane():
     assert '"complete": segment_offset == 0' in source
 
 
-def test_protected_gate_rejects_partial_shape_audit():
+def test_gate_prohibits_reviewer_decryption_audit_in_ci():
     gate = (ROOT.parent / "scripts/ci/pkm-upgrade-gate.sh").read_text()
 
-    assert 'p["pagination"]["has_more"] is False' in gate
-    assert 'p["preservation_receipt"]["complete"] is True' in gate
+    assert "PKM_UPGRADE_REVIEWER_SHAPE_AUDIT is prohibited in CI" in gate
+    assert "audit_active_pkm_shape_readonly.py" not in gate
 
 
 def test_live_runtime_audit_loads_canonical_reviewer_secrets_in_memory():
