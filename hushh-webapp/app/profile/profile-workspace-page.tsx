@@ -2068,7 +2068,7 @@ function ProfilePageContent() {
               label: "Regulatory profile",
               purpose:
                 "updates official RIA license, CRD, firm, certification, and business location information.",
-              actionId: "ria.profile.refresh_license",
+              actionId: "route.profile_regulatory",
               role: "card",
               voiceAliases: [
                 "update my RIA license",
@@ -4029,7 +4029,7 @@ function ProfilePageContent() {
                   density="compact"
                   disabled={riaRegulatoryRow.disabled}
                   voiceControlId="profile_ria_regulatory"
-                  voiceActionId="ria.profile.refresh_license"
+                  voiceActionId="route.profile_regulatory"
                   voiceLabel="Regulatory profile"
                   voicePurpose="Open your RIA advisor profile to view, edit, verify, or delete it."
                   onClick={openRegulatoryPanel}

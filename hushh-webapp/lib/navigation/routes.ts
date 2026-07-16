@@ -17,6 +17,7 @@ export const ROUTES = {
   LOGOUT: "/logout",
   PHONE_MANDATE: "/register-phone",
   PROFILE: "/profile",
+  PROFILE_REGULATORY: "/profile/regulatory",
   PROFILE_ACCOUNT: "/profile/account",
   PROFILE_ACCOUNT_PHONE: "/profile/account/phone",
   PROFILE_PREFERENCES: "/profile/preferences",

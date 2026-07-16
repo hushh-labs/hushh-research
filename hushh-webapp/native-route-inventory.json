@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-06-17",
-  "total_routes": 91,
-  "native_required_routes": 85,
+  "total_routes": 92,
+  "native_required_routes": 86,
   "excluded_routes": 6,
   "routes": [
     {
@@ -524,6 +524,18 @@
       ]
     },
     {
+      "route": "/profile/regulatory",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fprofile%2Fregulatory",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/regulatory",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
       "route": "/profile/account",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Faccount",
@@ -951,13 +963,12 @@
       "route": "/ria/profile",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fria%2Fprofile",
-      "expectedMarker": "native-route-ria-profile",
-      "expectedRoute": "/ria/profile",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/profile/regulatory",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
-        "loaded",
-        "unavailable-valid"
+        "loaded"
       ]
     },
     {

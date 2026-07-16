@@ -2,10 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, ClipboardCheck, Loader2, RotateCcw, Trash2 } from "lucide-react";
+import {
+  ArrowRight,
+  ClipboardCheck,
+  Loader2,
+  MessageCircle,
+  Pencil,
+  RotateCcw,
+  Trash2,
+} from "lucide-react";
 
 import { RiaCompatibilityState } from "@/components/ria/ria-page-shell";
-import { OnboardingStepReview } from "@/components/ria/onboarding/onboarding-step-review";
 import { OnboardingStepServices } from "@/components/ria/onboarding/onboarding-step-services";
 import {
   SettingsDetailPanel,
@@ -59,6 +66,197 @@ export interface RiaProfileSectionProps {
   loading?: boolean;
   /** Re-pull the RIA onboarding status from the host after a mutation. */
   onRefresh: (force?: boolean) => unknown;
+}
+
+type RiaProfileReviewSummary = ReturnType<typeof mapRiaStatusToReviewProps>;
+
+function formatRiaDisplayValue(value: string | number | null | undefined) {
+  const normalized = String(value ?? "").trim();
+  return normalized || "Not provided";
+}
+
+function formatRiaListValue(values: readonly string[] | null | undefined) {
+  const normalized = (values || [])
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean);
+  return normalized.length > 0 ? normalized.join(", ") : "Not provided";
+}
+
+function ProfileSummaryValue({
+  children,
+  muted = false,
+}: {
+  children: string;
+  muted?: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        "block max-w-[15rem] text-right text-[14px] leading-snug tracking-normal [overflow-wrap:anywhere] sm:max-w-[20rem]",
+        muted ? "text-muted-foreground" : "text-foreground",
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+function RiaProfileSummaryRow({
+  title,
+  value,
+  testId,
+}: {
+  title: string;
+  value: string;
+  testId: string;
+}) {
+  const displayValue = formatRiaDisplayValue(value);
+  return (
+    <SettingsRow
+      title={title}
+      trailing={
+        <ProfileSummaryValue muted={displayValue === "Not provided"}>
+          {displayValue}
+        </ProfileSummaryValue>
+      }
+      stackTrailingOnMobile
+      testId={testId}
+    />
+  );
+}
+
+function RiaRegulatoryProfileSummary({
+  reviewProps,
+  onEditSection,
+  onAskKaiUpdateAnything,
+}: {
+  reviewProps: RiaProfileReviewSummary;
+  onEditSection: (section: "license" | "services") => void;
+  onAskKaiUpdateAnything: () => void;
+}) {
+  const certifications = formatRiaListValue(reviewProps.certifications);
+  const services = formatRiaListValue(reviewProps.servicesOffered);
+  const fees = formatRiaListValue(reviewProps.feeStructure);
+  const advisorAccess = reviewProps.advisoryAccessReady ? "Ready" : "Pending";
+
+  return (
+    <div className="space-y-4">
+      <SettingsGroup testId="ria-profile-assistant">
+        <SettingsRow
+          icon={MessageCircle}
+          iconTone="blue"
+          title="Ask Kai to update anything"
+          description="Open Kai and describe what should change in this profile."
+          onClick={onAskKaiUpdateAnything}
+          chevron
+          testId="ria-profile-ask-kai"
+        />
+      </SettingsGroup>
+
+      <SettingsGroup eyebrow="Profile" title="Licence" testId="ria-profile-licence-summary">
+        <RiaProfileSummaryRow
+          title="Advisor"
+          value={reviewProps.advisorName}
+          testId="ria-profile-summary-advisor"
+        />
+        <RiaProfileSummaryRow
+          title="Firm"
+          value={reviewProps.firmName}
+          testId="ria-profile-summary-firm"
+        />
+        <RiaProfileSummaryRow
+          title="CRD"
+          value={reviewProps.crdNumber}
+          testId="ria-profile-summary-crd"
+        />
+        <RiaProfileSummaryRow
+          title="Regulator"
+          value={reviewProps.regulator}
+          testId="ria-profile-summary-regulator"
+        />
+        <RiaProfileSummaryRow
+          title="Status"
+          value={reviewProps.regulatorStatus || advisorAccess}
+          testId="ria-profile-summary-status"
+        />
+        <RiaProfileSummaryRow
+          title="Certifications"
+          value={certifications}
+          testId="ria-profile-summary-certifications"
+        />
+        <SettingsRow
+          icon={Pencil}
+          title="Edit licence information"
+          description="Re-run licence verification from onboarding."
+          onClick={() => onEditSection("license")}
+          chevron
+          testId="ria-profile-edit-license"
+        />
+      </SettingsGroup>
+
+      <SettingsGroup title="Services" testId="ria-profile-services-summary">
+        <RiaProfileSummaryRow
+          title="Services"
+          value={services}
+          testId="ria-profile-summary-services"
+        />
+        <RiaProfileSummaryRow
+          title="Fees"
+          value={fees}
+          testId="ria-profile-summary-fees"
+        />
+        <RiaProfileSummaryRow
+          title="Min engagement"
+          value={reviewProps.minEngagementAmount}
+          testId="ria-profile-summary-min-engagement"
+        />
+        <SettingsRow
+          title="Bio"
+          description={formatRiaDisplayValue(reviewProps.bio)}
+          testId="ria-profile-summary-bio"
+        />
+        <SettingsRow
+          icon={Pencil}
+          title="Edit services"
+          description="Update services, fees, bio, and minimum engagement."
+          onClick={() => onEditSection("services")}
+          chevron
+          testId="ria-profile-edit-services"
+        />
+      </SettingsGroup>
+
+      <SettingsGroup title="Location" testId="ria-profile-location-summary">
+        <RiaProfileSummaryRow
+          title="City"
+          value={reviewProps.city}
+          testId="ria-profile-summary-city"
+        />
+        <RiaProfileSummaryRow
+          title="Area"
+          value={reviewProps.areaLocality}
+          testId="ria-profile-summary-area"
+        />
+        <RiaProfileSummaryRow
+          title="Address"
+          value={reviewProps.fullStreetAddress}
+          testId="ria-profile-summary-address"
+        />
+        <RiaProfileSummaryRow
+          title="PIN / ZIP"
+          value={reviewProps.pinZip}
+          testId="ria-profile-summary-pin-zip"
+        />
+        <SettingsRow
+          icon={Pencil}
+          title="Edit location"
+          description="Update your public business location."
+          onClick={() => onEditSection("services")}
+          chevron
+          testId="ria-profile-edit-location"
+        />
+      </SettingsGroup>
+    </div>
+  );
 }
 
 /**
@@ -345,22 +543,8 @@ export function RiaProfileSection({
 
   return (
     <div className="space-y-6">
-      <OnboardingStepReview
-        advisorName={reviewProps.advisorName}
-        firmName={reviewProps.firmName}
-        crdNumber={reviewProps.crdNumber}
-        regulator={reviewProps.regulator}
-        regulatorStatus={reviewProps.regulatorStatus}
-        certifications={reviewProps.certifications}
-        servicesOffered={reviewProps.servicesOffered}
-        feeStructure={reviewProps.feeStructure}
-        minEngagementAmount={reviewProps.minEngagementAmount}
-        bio={reviewProps.bio}
-        city={reviewProps.city}
-        pinZip={reviewProps.pinZip}
-        areaLocality={reviewProps.areaLocality}
-        fullStreetAddress={reviewProps.fullStreetAddress}
-        advisoryAccessReady={reviewProps.advisoryAccessReady}
+      <RiaRegulatoryProfileSummary
+        reviewProps={reviewProps}
         onEditSection={handleEditSection}
         onAskKaiUpdateAnything={handleAskKai}
       />

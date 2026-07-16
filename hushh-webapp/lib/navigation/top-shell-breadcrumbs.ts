@@ -68,6 +68,7 @@ function profilePanelLabel(panel: ProfilePanel | null): string | null {
   if (panel === "security") return "Security";
   if (panel === "support") return "Support & feedback";
   if (panel === "gmail") return "Gmail receipts";
+  if (panel === "regulatory") return "Regulatory profile";
   return null;
 }
 
@@ -282,7 +283,6 @@ export function resolveTopShellBreadcrumb(
     [ROUTES.RIA_WORKSPACE, "Workspace"],
     [ROUTES.RIA_REQUESTS, "Requests"],
     [ROUTES.RIA_SETTINGS, "Settings"],
-    [ROUTES.RIA_PROFILE, "Profile"],
   ];
   for (const [route, label] of riaSubroutes) {
     if (pathname === route || pathname.startsWith(`${route}/`)) {

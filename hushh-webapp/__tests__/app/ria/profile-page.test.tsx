@@ -29,6 +29,8 @@ vi.mock("lucide-react", () => ({
   ArrowRight: () => <span />,
   ClipboardCheck: () => <span />,
   Loader2: () => <span />,
+  MessageCircle: () => <span />,
+  Pencil: () => <span />,
   RotateCcw: () => <span />,
   Trash2: () => <span />,
 }));
@@ -56,8 +58,14 @@ vi.mock("@/components/app-ui/settings-ui", () => ({
     open: boolean;
     children: React.ReactNode;
   }) => (open ? <div data-testid="edit-panel">{children}</div> : null),
-  SettingsGroup: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="manage-group">{children}</div>
+  SettingsGroup: ({
+    children,
+    testId = "manage-group",
+  }: {
+    children: React.ReactNode;
+    testId?: string;
+  }) => (
+    <div data-testid={testId}>{children}</div>
   ),
   SettingsRow: ({
     title,
@@ -242,6 +250,10 @@ describe("RiaProfileSection manage actions", () => {
   it("renders the Manage group with re-initiate and delete rows", async () => {
     renderSection();
     await waitFor(() => {
+      expect(screen.queryByTestId("step-review")).toBeNull();
+      expect(screen.getByTestId("ria-profile-licence-summary")).toBeTruthy();
+      expect(screen.getByTestId("ria-profile-services-summary")).toBeTruthy();
+      expect(screen.getByTestId("ria-profile-location-summary")).toBeTruthy();
       expect(screen.getByTestId("ria-profile-reinitiate")).toBeTruthy();
       expect(screen.getByTestId("ria-profile-delete")).toBeTruthy();
     });

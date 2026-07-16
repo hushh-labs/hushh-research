@@ -233,9 +233,6 @@ export function resolveRiaActiveNav(
     return "dashboard";
   }
   if (normalizedPathname === ROUTES.AGENT) return "search";
-  if (isBottomNavRoute(normalizedPathname, ROUTES.RIA_PROFILE)) {
-    return "profile";
-  }
   if (isBottomNavRoute(normalizedPathname, ROUTES.PROFILE)) {
     return "profile";
   }

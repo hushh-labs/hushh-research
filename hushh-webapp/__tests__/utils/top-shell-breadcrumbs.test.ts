@@ -280,6 +280,29 @@ describe("top shell breadcrumbs", () => {
         { label: "Preferences", href: undefined },
       ],
     });
+
+    expect(resolveTopShellBreadcrumb("/profile/regulatory")).toEqual({
+      backHref: "/profile",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/profile" },
+        { label: "Regulatory profile", href: undefined },
+      ],
+    });
+
+    const regulatoryParams = new URLSearchParams();
+    regulatoryParams.set("panel", "regulatory");
+
+    expect(resolveTopShellBreadcrumb("/profile", regulatoryParams)).toEqual({
+      backHref: "/profile",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/profile" },
+        { label: "Regulatory profile", href: undefined },
+      ],
+    });
   });
 
   it("routes legacy receipts back to canonical Gmail", () => {
