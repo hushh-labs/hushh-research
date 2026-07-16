@@ -1,7 +1,7 @@
 {
   "schema_version": "kai.local_action_contract.v1",
   "surface_id": "one_kyc",
-  "surface_title": "Email",
+  "surface_title": "KYC",
   "docs_references": [
     "docs/reference/kai/kai-action-gateway-vnext.md",
     "docs/reference/architecture/one-email-kyc.md",
@@ -20,9 +20,10 @@
   "actions": [
     {
       "action_id": "route.one_kyc",
-      "label": "Open Email",
-      "meaning": "Navigates to One email request review.",
+      "label": "Open KYC",
+      "meaning": "Navigates to One's approval-gated request review.",
       "aliases": [
+        "open kyc",
         "open email",
         "open email helper",
         "show email requests",
@@ -45,9 +46,10 @@
     },
     {
       "action_id": "kyc.aliases.manage",
-      "label": "Manage Verified Emails",
-      "meaning": "Opens the verified email address panel used to match email requests.",
+      "label": "Manage verified addresses",
+      "meaning": "Opens the verified address panel used to match incoming requests.",
       "aliases": [
+        "manage verified addresses",
         "manage verified emails",
         "add email address",
         "show matching emails"
@@ -58,15 +60,15 @@
       "execution_policy": "manual_only",
       "execution_target": {
         "status": "unwired",
-        "reason": "Requires opening the local verified email panel in /one/kyc."
+        "reason": "Requires opening the local verified address panel in /one/kyc."
       },
       "control_ids": ["one-kyc-aliases"],
-      "state_exposure": ["verified email count", "pending email count"]
+      "state_exposure": ["verified address count", "pending address count"]
     },
     {
       "action_id": "kyc.workflow.sync_status",
-      "label": "Sync Email Status",
-      "meaning": "Refreshes the selected email request status after consent approval.",
+      "label": "Sync request status",
+      "meaning": "Refreshes the selected request status after consent approval.",
       "aliases": ["sync email", "refresh request status"],
       "search_keywords": ["email", "sync", "consent"],
       "guard_ids": ["auth_required"],
@@ -81,8 +83,8 @@
     },
     {
       "action_id": "kyc.draft.review",
-      "label": "Review Email Draft",
-      "meaning": "Reads or focuses the current approval-gated email draft.",
+      "label": "Review response draft",
+      "meaning": "Reads or focuses the current approval-gated response draft.",
       "aliases": ["review email draft", "show email draft"],
       "search_keywords": ["email", "draft", "review"],
       "guard_ids": ["auth_required"],
@@ -97,8 +99,8 @@
     },
     {
       "action_id": "kyc.draft.request_redraft",
-      "label": "Request Email Redraft",
-      "meaning": "Requests a new email draft revision from typed or spoken user instructions.",
+      "label": "Request response revision",
+      "meaning": "Requests a new response draft revision from typed or spoken user instructions.",
       "aliases": ["redraft email", "revise email draft"],
       "search_keywords": ["email", "redraft", "revise"],
       "guard_ids": ["auth_required"],
@@ -113,8 +115,8 @@
     },
     {
       "action_id": "kyc.draft.approve_send",
-      "label": "Approve Email Send",
-      "meaning": "Sends the email draft only after explicit user approval.",
+      "label": "Approve response",
+      "meaning": "Sends the response draft only after explicit user approval.",
       "aliases": ["approve email send", "send email reply"],
       "search_keywords": ["email", "send", "approve"],
       "guard_ids": ["auth_required", "explicit_confirmation_required"],
@@ -122,15 +124,15 @@
       "execution_policy": "manual_only",
       "execution_target": {
         "status": "unwired",
-        "reason": "Voice must not send mail until the selected workflow and explicit confirmation are wired to the same UI approval endpoint."
+        "reason": "Voice must not send a response until the selected workflow and explicit confirmation are wired to the same UI approval endpoint."
       },
       "control_ids": ["one-kyc-approve-send"],
       "state_exposure": ["approved draft body", "send status"]
     },
     {
       "action_id": "kyc.draft.reject",
-      "label": "Reject Email Draft",
-      "meaning": "Rejects the current email draft and blocks the workflow.",
+      "label": "Reject response draft",
+      "meaning": "Rejects the current response draft and blocks the workflow.",
       "aliases": ["reject email draft", "block email request"],
       "search_keywords": ["email", "reject", "block"],
       "guard_ids": ["auth_required"],

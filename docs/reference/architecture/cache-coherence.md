@@ -216,6 +216,13 @@ This prevents transient localhost policy from bouncing a setup route through
 phone verification and keeps a cold session to one authenticated admission
 request.
 
+The `POST /api/vault/bootstrap-state` BFF is intentionally uncached at the
+server layer. Setup completion and active journey state are mutable admission
+facts; process-local stale-while-revalidate entries cannot be invalidated
+reliably across runtime instances. Client-side single-flight and the
+session-safe bootstrap cache retain the performance benefit without allowing a
+stale server response to admit or block a setup transition.
+
 Nested routes that render one workspace must share one cache contract and still appear as distinct route IDs in the generated screen manifest. Profile settings are the current reference case:
 
 - `/profile/account`, `/profile/preferences`, `/profile/security`, `/profile/my-data`, `/profile/access`, `/profile/connected-systems`, `/profile/gmail`, and `/profile/support` render through the shared profile workspace.

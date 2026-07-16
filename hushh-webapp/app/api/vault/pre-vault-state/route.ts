@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
 import { validateFirebaseToken } from "@/lib/auth/validate";
 import { isDevelopment } from "@/lib/config";
-import { invalidateBootstrapStateForUser } from "@/app/api/vault/_utils/bootstrap-state-hot-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +62,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (body.userId) invalidateBootstrapStateForUser(body.userId);
     return NextResponse.json(payload);
   } catch (error) {
     console.error("[API] Vault pre-vault-state error:", error);

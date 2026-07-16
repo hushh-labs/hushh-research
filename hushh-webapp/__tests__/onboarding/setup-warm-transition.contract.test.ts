@@ -79,4 +79,31 @@ describe("setup warm-transition contract", () => {
     expect(loading).toContain("return null");
     expect(loading).not.toContain("RouteLoadingState");
   });
+
+  it("keeps Finance import open after root setup is skipped and resumes its terminal", () => {
+    const coordinator = read(
+      "components/onboarding/setup/setup-capability-coordinator.tsx",
+    );
+    const financeImport = read(
+      "app/one/setup/finance/import/finance-import-onboarding-setup-client.tsx",
+    );
+
+    expect(financeImport).toContain("allowResolvedRootReentry: true");
+    expect(financeImport).toContain("resumeReadinessFromCallback: true");
+    expect(coordinator).toContain(
+      "A root-level skip never resolves an active capability",
+    );
+    expect(coordinator).toContain("setCallbackReadiness(true)");
+  });
+
+  it("does not send an unconfirmed Finance source choice to Kai", () => {
+    const flow = read("components/kai/kai-flow.tsx");
+    const settlement = flow.slice(
+      flow.indexOf("const finishFinanceSetupIfActive"),
+      flow.indexOf("const {\n    data: financialResource"),
+    );
+
+    expect(settlement).toContain("Finance setup could not be confirmed");
+    expect(settlement).toContain("return true;");
+  });
 });

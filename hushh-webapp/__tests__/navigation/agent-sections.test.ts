@@ -8,6 +8,18 @@ import {
 import { ROUTES } from "@/lib/navigation/routes";
 
 describe("agent sections", () => {
+  it("lists One first while preserving the internal root action id", () => {
+    const sections = getAgentSections();
+
+    expect(sections[0]).toMatchObject({
+      id: "agents",
+      label: "One",
+      href: ROUTES.ONE_HOME,
+      voiceRouteActionId: "route.one_agents",
+    });
+    expect(resolveAgentSectionForPath(ROUTES.ONE_HOME)?.label).toBe("One");
+  });
+
   it("exposes Finance and RIA as standalone adjacent top-level agents", () => {
     const sections = getAgentSections();
     const ids = sections.map((section) => section.id);
@@ -42,5 +54,11 @@ describe("agent sections", () => {
     expect(finance?.href).toBe(ROUTES.KAI_HOME);
     expect(finance?.bottomNavScope).toBe("investor");
     expect(finance?.label).toBe("Finance");
+  });
+
+  it("keeps Finance selected throughout its onboarding workspace", () => {
+    expect(resolveAgentSectionForPath(ROUTES.ONE_SETUP_FINANCE)?.id).toBe("finance");
+    expect(resolveAgentSectionForPath(ROUTES.ONE_SETUP_FINANCE_IMPORT)?.id).toBe("finance");
+    expect(resolveAgentSectionForPath(ROUTES.KAI_PLAID_OAUTH_RETURN)?.id).toBe("finance");
   });
 });

@@ -33,6 +33,7 @@ import {
 import { VaultUnlockDialog } from "./vault-unlock-dialog";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
+import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 import {
   hasIncompleteNativeUiFlowSession,
   isNativeTestVaultBootstrapManaged,
@@ -66,6 +67,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     preferPassphraseUnlockForAutomation(nativeTestConfig);
 
   const { user, loading: authLoading, signOut } = useAuth();
+  useSessionChromeSuppression(authLoading);
   const userId = user?.uid ?? null;
   const { beginTask, completeTaskStep, endTask } = useStepProgress();
   const [hasVault, setHasVault] = useState<boolean | null>(null);

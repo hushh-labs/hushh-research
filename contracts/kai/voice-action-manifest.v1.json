@@ -1915,11 +1915,12 @@
     },
     {
       "id": "route.one_kyc",
-      "label": "Open Email",
-      "meaning": "Navigates to One email request review.",
+      "label": "Open KYC",
+      "meaning": "Navigates to One's approval-gated request review.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "agent_kyc",
       "aliases": [
+        "open kyc",
         "open email",
         "open email helper",
         "show email requests",
@@ -1958,7 +1959,7 @@
           {
             "type": "action",
             "action_id": "route.one_kyc",
-            "label": "Open Email",
+            "label": "Open KYC",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/kyc",
@@ -1993,11 +1994,12 @@
     },
     {
       "id": "kyc.aliases.manage",
-      "label": "Manage Verified Emails",
-      "meaning": "Opens the verified email address panel used to match email requests.",
+      "label": "Manage verified addresses",
+      "meaning": "Opens the verified address panel used to match incoming requests.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "agent_kyc",
       "aliases": [
+        "manage verified addresses",
         "manage verified emails",
         "add email address",
         "show matching emails"
@@ -2022,7 +2024,7 @@
       "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
-        "reason": "Requires opening the local verified email panel in /one/kyc."
+        "reason": "Requires opening the local verified address panel in /one/kyc."
       },
       "external_callback": null,
       "goal": {
@@ -2034,7 +2036,7 @@
           {
             "type": "action",
             "action_id": "kyc.aliases.manage",
-            "label": "Manage Verified Emails",
+            "label": "Manage verified addresses",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/kyc",
@@ -2069,8 +2071,8 @@
     },
     {
       "id": "kyc.workflow.sync_status",
-      "label": "Sync Email Status",
-      "meaning": "Refreshes the selected email request status after consent approval.",
+      "label": "Sync request status",
+      "meaning": "Refreshes the selected request status after consent approval.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "agent_kyc",
       "aliases": [
@@ -2109,7 +2111,7 @@
           {
             "type": "action",
             "action_id": "kyc.workflow.sync_status",
-            "label": "Sync Email Status",
+            "label": "Sync request status",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/kyc",
@@ -2144,8 +2146,8 @@
     },
     {
       "id": "kyc.draft.review",
-      "label": "Review Email Draft",
-      "meaning": "Reads or focuses the current approval-gated email draft.",
+      "label": "Review response draft",
+      "meaning": "Reads or focuses the current approval-gated response draft.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "agent_kyc",
       "aliases": [
@@ -2184,7 +2186,7 @@
           {
             "type": "action",
             "action_id": "kyc.draft.review",
-            "label": "Review Email Draft",
+            "label": "Review response draft",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/kyc",
@@ -2219,8 +2221,8 @@
     },
     {
       "id": "kyc.draft.request_redraft",
-      "label": "Request Email Redraft",
-      "meaning": "Requests a new email draft revision from typed or spoken user instructions.",
+      "label": "Request response revision",
+      "meaning": "Requests a new response draft revision from typed or spoken user instructions.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "agent_kyc",
       "aliases": [
@@ -2259,7 +2261,7 @@
           {
             "type": "action",
             "action_id": "kyc.draft.request_redraft",
-            "label": "Request Email Redraft",
+            "label": "Request response revision",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/kyc",
@@ -2294,8 +2296,8 @@
     },
     {
       "id": "kyc.draft.approve_send",
-      "label": "Approve Email Send",
-      "meaning": "Sends the email draft only after explicit user approval.",
+      "label": "Approve response",
+      "meaning": "Sends the response draft only after explicit user approval.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "agent_kyc",
       "aliases": [
@@ -2323,7 +2325,7 @@
       "activation_policy": "none",
       "execution_hint": {
         "status": "unwired",
-        "reason": "Voice must not send mail until the selected workflow and explicit confirmation are wired to the same UI approval endpoint."
+        "reason": "Voice must not send a response until the selected workflow and explicit confirmation are wired to the same UI approval endpoint."
       },
       "external_callback": null,
       "goal": {
@@ -2335,7 +2337,7 @@
           {
             "type": "action",
             "action_id": "kyc.draft.approve_send",
-            "label": "Approve Email Send",
+            "label": "Approve response",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/kyc",
@@ -2370,8 +2372,8 @@
     },
     {
       "id": "kyc.draft.reject",
-      "label": "Reject Email Draft",
-      "meaning": "Rejects the current email draft and blocks the workflow.",
+      "label": "Reject response draft",
+      "meaning": "Rejects the current response draft and blocks the workflow.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "agent_kyc",
       "aliases": [
@@ -2410,7 +2412,7 @@
           {
             "type": "action",
             "action_id": "kyc.draft.reject",
-            "label": "Reject Email Draft",
+            "label": "Reject response draft",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/kyc",
@@ -2892,7 +2894,7 @@
     {
       "id": "setup.finish_email",
       "label": "Finish KYC setup",
-      "meaning": "Records a verified email identity and initialized client connector, then returns to setup.",
+      "meaning": "Records KYC readiness and an initialized client connector, then returns to setup.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "aliases": [
@@ -2909,7 +2911,7 @@
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "A verified email identity and client connector are ready."
+          "KYC readiness and the client connector are ready."
         ]
       },
       "guard_ids": [
@@ -8827,11 +8829,13 @@
     },
     {
       "id": "setup.open_email",
-      "label": "Email",
-      "meaning": "Opens email setup: turn drafting on or off for replies One prepares at one@hushh.ai.",
+      "label": "KYC",
+      "meaning": "Opens KYC setup so you can choose whether One prepares responses for approval.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "aliases": [
+        "set up kyc",
+        "open kyc setup",
         "let one draft for me",
         "set up email",
         "open email setup"
@@ -8868,7 +8872,7 @@
           {
             "type": "action",
             "action_id": "setup.open_email",
-            "label": "Email",
+            "label": "KYC",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/email",

@@ -1635,6 +1635,8 @@ def _fallback_sector_rotation_from_watchlist(
 def _build_market_overview(
     spy_quote: dict[str, Any] | None,
     qqq_quote: dict[str, Any] | None,
+    dia_quote: dict[str, Any] | None,
+    iwm_quote: dict[str, Any] | None,
     vix_payload: dict[str, Any],
     status_payload: dict[str, Any],
     sparklines: dict[str, list[float]] | None = None,
@@ -1660,6 +1662,8 @@ def _build_market_overview(
     out = [
         metric_from_quote("S&P 500", "SPY", spy_quote, degraded=not bool(spy_quote)),
         metric_from_quote("NASDAQ 100", "QQQ", qqq_quote, degraded=not bool(qqq_quote)),
+        metric_from_quote("DOW 30", "DIA", dia_quote, degraded=not bool(dia_quote)),
+        metric_from_quote("Russell 2000", "IWM", iwm_quote, degraded=not bool(iwm_quote)),
         {
             "id": "volatility",
             "label": vix_payload["label"],
@@ -2102,7 +2106,10 @@ async def _get_market_insights_payload(
             if str(item.get("quote_symbol") or "").strip()
         ]
 
-        core_symbols = ["SPY", "QQQ"]
+        # ETFs provide the available, liquid quote proxies for these benchmark
+        # indices through the same provider contract as the existing SPY/QQQ
+        # tiles. Keeping them in this cached bundle avoids per-tile fetches.
+        core_symbols = ["SPY", "QQQ", "DIA", "IWM"]
         symbol_set = sorted({*watchlist_symbols, *core_symbols, *renaissance_symbols})
         quotes_key = f"quotes:{','.join(symbol_set)}"
 
@@ -2291,6 +2298,8 @@ async def _get_market_insights_payload(
         aggregated_cache_hit = aggregated_cache_hit and quotes_cache_hit
         spy_quote = quote_map.get("SPY") if isinstance(quote_map, dict) else None
         qqq_quote = quote_map.get("QQQ") if isinstance(quote_map, dict) else None
+        dia_quote = quote_map.get("DIA") if isinstance(quote_map, dict) else None
+        iwm_quote = quote_map.get("IWM") if isinstance(quote_map, dict) else None
         quoted_watchlist_symbols = [
             s
             for s in watchlist_symbols
@@ -2649,7 +2658,7 @@ async def _get_market_insights_payload(
             for row in (movers_payload.get(bucket) or [])
             if isinstance(row, dict) and str(row.get("symbol") or "").strip()
         ]
-        sparkline_symbol_set = sorted({"SPY", "QQQ", *mover_symbols})
+        sparkline_symbol_set = sorted({"SPY", "QQQ", "DIA", "IWM", *mover_symbols})
         # Movers itself is cached (key "movers:us"), so this symbol set is
         # stable for the lifetime of that cache entry. Cache the batch series
         # fetch the same way instead of hitting FMP on every request - this is
@@ -2682,7 +2691,13 @@ async def _get_market_insights_payload(
                     row["sparkline"] = series or None
 
         market_overview = _build_market_overview(
-            spy_quote, qqq_quote, vix_payload, status_payload, sparklines=symbol_series
+            spy_quote,
+            qqq_quote,
+            dia_quote,
+            iwm_quote,
+            vix_payload,
+            status_payload,
+            sparklines=symbol_series,
         )
 
         sparkline_points, sparkline_degraded, sparkline_sources = await _build_sparkline_points(

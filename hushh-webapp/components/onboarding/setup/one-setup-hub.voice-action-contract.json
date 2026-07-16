@@ -68,14 +68,16 @@
     },
     {
       "action_id": "setup.open_email",
-      "label": "Email",
-      "meaning": "Opens email setup: turn drafting on or off for replies One prepares at one@hushh.ai.",
+      "label": "KYC",
+      "meaning": "Opens KYC setup so you can choose whether One prepares responses for approval.",
       "aliases": [
+        "set up kyc",
+        "open kyc setup",
         "let one draft for me",
         "set up email",
         "open email setup"
       ],
-      "search_keywords": ["email", "draft", "toggle", "one@hushh.ai"],
+      "search_keywords": ["kyc", "email", "draft", "toggle"],
       "reachability": {
         "routes": ["/one/setup"],
         "screens": ["one_setup_hub", "one_setup"],

@@ -240,14 +240,14 @@ function emailWorkflowBusyLabel(busy: string | null): string | null {
   if (busy === "approve") return "Sending approved reply...";
   if (busy === "reject") return "Rejecting request...";
   if (busy === "redraft") return "Redrafting reply...";
-  if (busy === "alias") return "Updating verified email...";
+  if (busy === "alias") return "Updating verified address...";
   if (busy === "confirm-proposal") return "Confirming proposal...";
   return "Working...";
 }
 
 function scopeCandidateDescription(candidate: OneKycScopeCandidate): string {
   const description = candidate.description || dataLabelForCandidate(candidate);
-  const reason = candidate.reason || "Detected from this email.";
+  const reason = candidate.reason || "Detected from this request.";
   if (!reason || reason === description) return description;
   return `${description} ${reason}`;
 }
@@ -489,7 +489,7 @@ export function OneKycWorkspace({
   const busyLabel = emailWorkflowBusyLabel(busy);
   const showInitialLoading = loading && workflows.length === 0;
   const listRefreshLabel =
-    loading && workflows.length > 0 ? "Checking for new emails..." : null;
+    loading && workflows.length > 0 ? "Checking for new requests..." : null;
   const verifiedAliases = useMemo(
     () =>
       emailAliases.filter((alias) => alias.verification_status === "verified"),
@@ -508,8 +508,8 @@ export function OneKycWorkspace({
   const voiceSurfaceMetadata = useMemo(
     () => ({
       screenId: "one_kyc",
-      title: "Email",
-      purpose: "Approval-gated email request review for one@hushh.ai.",
+      title: "KYC",
+      purpose: "Approval-gated review of information requests.",
       sections: [
         {
           id: "one_kyc_inbox",
@@ -521,19 +521,19 @@ export function OneKycWorkspace({
         },
         {
           id: "one_kyc_aliases",
-          title: "Verified email addresses",
+          title: "Verified addresses",
         },
       ],
       controls: [
         {
           id: "one-kyc-open",
-          label: "Open Email",
+          label: "Open KYC",
           type: "route",
           actionId: "route.one_kyc",
         },
         {
           id: "one-kyc-aliases",
-          label: "Manage verified emails",
+          label: "Manage verified addresses",
           type: "button",
           actionId: "kyc.aliases.manage",
           state: aliasPanelOpen ? "open" : "closed",
@@ -707,7 +707,7 @@ export function OneKycWorkspace({
           toast.error(
             err instanceof Error
               ? err.message
-              : "One could not check recent emails.",
+              : "One could not check recent requests.",
           );
         });
       }
@@ -762,7 +762,7 @@ export function OneKycWorkspace({
     } catch (err) {
       setConnectorReady(false);
       const message =
-        err instanceof Error ? err.message : "Unable to load email requests.";
+        err instanceof Error ? err.message : "Unable to load requests.";
       if (hadCachedWorkflows) {
         toast.error(message);
       } else {
@@ -921,7 +921,7 @@ export function OneKycWorkspace({
         }
         if (!cancelled) {
           setError(
-            oneKycErrorMessage(err, "Unable to prepare the email draft."),
+            oneKycErrorMessage(err, "Unable to prepare the response draft."),
           );
         }
       } finally {
@@ -1057,7 +1057,7 @@ export function OneKycWorkspace({
       }
       const localDraft = localDrafts[workflow.workflow_id];
       if (action === "approve" && !localDraft) {
-        setError("Prepare the email draft before approving send.");
+        setError("Prepare the response draft before approving send.");
         return;
       }
       setBusy(action);
@@ -1070,7 +1070,7 @@ export function OneKycWorkspace({
         };
         if (action === "redraft") {
           if (!localDraft) {
-            setError("Prepare the email draft before revising it.");
+            setError("Prepare the response draft before revising it.");
             return;
           }
           try {
@@ -1099,7 +1099,7 @@ export function OneKycWorkspace({
         let next: OneKycWorkflow;
         if (action === "approve") {
           if (!localDraft) {
-            setError("Prepare the email draft before approving send.");
+            setError("Prepare the response draft before approving send.");
             return;
           }
           const checks = {
@@ -1216,14 +1216,14 @@ export function OneKycWorkspace({
         } else if (action === "reject") {
           next = await OneKycService.rejectDraft({
             ...input,
-            reason: "Rejected from Email.",
+            reason: "Rejected from KYC.",
           });
         } else {
           next = await refreshWorkflowState(workflow);
         }
         updateWorkflow(next);
       } catch (err) {
-        setError(oneKycErrorMessage(err, "Email action failed."));
+        setError(oneKycErrorMessage(err, "KYC action failed."));
       } finally {
         setBusy(null);
       }
@@ -1288,7 +1288,7 @@ export function OneKycWorkspace({
       });
       if (lookup.missing_request_ids.length > 0) {
         throw new Error(
-          "One could not find the linked access request. Sync this email once so access can refresh.",
+          "One could not find the linked access request. Sync this request once so access can refresh.",
         );
       }
       return lookup.items.map(pendingLookupItemToPendingConsent);
@@ -1319,7 +1319,7 @@ export function OneKycWorkspace({
         } else if (consents.length === 1) {
           const consent = consents[0];
           if (!consent) {
-            throw new Error("No access request is ready for this email yet.");
+            throw new Error("No access request is ready for this request yet.");
           }
           const promise = handleApprove(consent, { quiet: true });
           toast.promise(promise, {
@@ -1371,7 +1371,7 @@ export function OneKycWorkspace({
         if (requestIds.length === 1) {
           const requestId = requestIds[0];
           if (!requestId) {
-            throw new Error("No access request is ready for this email yet.");
+            throw new Error("No access request is ready for this request yet.");
           }
           const promise = handleDeny(requestId, { quiet: true });
           toast.promise(promise, {
@@ -1636,8 +1636,8 @@ export function OneKycWorkspace({
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow="One"
-          title="Email"
-          description="Review emails that ask for your personal information, choose what to share, and send replies only after you approve."
+          title="KYC"
+          description="Review requests for personal information, choose what to share, and approve each response."
           icon={ShieldCheck}
           accent="neutral"
           actions={
@@ -1649,7 +1649,7 @@ export function OneKycWorkspace({
                   onClick={() => setAliasPanelOpen(true)}
                 >
                   <MailPlus className="size-4" />
-                  Email aliases
+                  Verified addresses
                 </button>
               )}
               <button
@@ -1685,7 +1685,7 @@ export function OneKycWorkspace({
 
         <div className="w-full">
           {(!vaultKey || !vaultOwnerToken) ? (
-            <SettingsGroup title="Vault required" description="You must have a Vault set up to use Email review.">
+            <SettingsGroup title="Vault required" description="You must have a Vault set up to use KYC review.">
               <SettingsRow
                 icon={AlertTriangle}
                 title="Vault missing"
@@ -1699,13 +1699,13 @@ export function OneKycWorkspace({
                   <SettingsRow
                     icon={AlertTriangle}
                     title="Unsupported Account"
-                    description="Your primary account uses an Apple Private Relay ID. Email request functionality is not supported for proxy addresses."
+                    description="Your primary account uses an Apple Private Relay ID. Request review is not supported for proxy addresses."
                   />
                 ) : showInitialLoading ? (
                 <SettingsRow
                   icon={Inbox}
                   title="Checking requests"
-                  description="Looking for emails matched to your verified addresses."
+                  description="Looking for requests matched to your verified addresses."
                   trailing={
                     <Loader2 className="size-4 animate-spin text-muted-foreground" />
                   }
@@ -1715,14 +1715,14 @@ export function OneKycWorkspace({
                 <SettingsRow
                   icon={Inbox}
                   title="No matched requests"
-                  description="New emails appear here after One matches them to one of your verified addresses."
+                  description="New requests appear here after One matches them to one of your verified addresses."
                 />
               ) : (
                 workflows.map((workflow) => (
                   <SettingsRow
                     key={workflow.workflow_id}
                     icon={statusIcon(workflow.status)}
-                    title={workflow.subject || "Email request"}
+                    title={workflow.subject || "Information request"}
                     description={[
                       workflow.counterparty_label ||
                         workflow.sender_email ||
@@ -1793,7 +1793,7 @@ export function OneKycWorkspace({
         <SettingsDetailPanel
           open={detailOpen && Boolean(selected)}
           onOpenChange={setDetailOpen}
-          title={selected?.subject || "Email request"}
+          title={selected?.subject || "Information request"}
           description={
             selected?.counterparty_label ||
             selected?.sender_email ||
@@ -1804,7 +1804,7 @@ export function OneKycWorkspace({
         >
           {!selected ? null : (
             <div className="space-y-4">
-              <SettingsGroup embedded title="Email request">
+              <SettingsGroup embedded title="Information request">
                 <SettingsRow
                   icon={statusIcon(selected.status)}
                   title="Status"
@@ -1943,7 +1943,7 @@ export function OneKycWorkspace({
                   description={
                     selectedAccessApproved
                       ? "Review the information for this reply. Change it if One picked the wrong section."
-                      : "One picked this from the email. Change it if the match looks wrong."
+                      : "One picked this from the request. Change it if the match looks wrong."
                   }
                 >
                   {selectedAccessApproved && !selectedScopeSelectionChanged ? (
@@ -2303,8 +2303,8 @@ export function OneKycWorkspace({
             <AlertDialogHeader>
               <AlertDialogTitle>Remove this request?</AlertDialogTitle>
               <AlertDialogDescription>
-                This removes the request from your Email list. It does not
-                delete the original email or any saved data.
+                This removes the request from your KYC list. It does not
+                delete the source message or any saved information.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -2376,8 +2376,8 @@ export function OneKycWorkspace({
         <SettingsDetailPanel
           open={aliasPanelOpen}
           onOpenChange={setAliasPanelOpen}
-          title="Verified emails"
-          description={isPrivateRelay ? "Apple Private Relay email addresses cannot be used as verifiable aliases." : "Add addresses people already use so One can match requests without extra work."}
+          title="Verified addresses"
+          description={isPrivateRelay ? "Apple Private Relay addresses cannot be used for verification." : "Add addresses people already use so One can match requests without extra work."}
         >
           <div className="space-y-4">
             <SettingsGroup embedded title="Ready to match">
@@ -2399,8 +2399,8 @@ export function OneKycWorkspace({
               ) : (
                 <SettingsRow
                   icon={MailPlus}
-                  title="No verified emails yet"
-                  description="Add the email address people already use for requests."
+                  title="No verified addresses yet"
+                  description="Add an address people already use for requests."
                 />
               )}
             </SettingsGroup>
@@ -2422,7 +2422,7 @@ export function OneKycWorkspace({
 
             <SettingsGroup
               embedded
-              title={aliasChallenge ? "Enter code" : "Add an email"}
+              title={aliasChallenge ? "Enter code" : "Add an address"}
               description={
                 aliasChallenge
                   ? `Use the code sent for ${aliasChallenge.email}.`
@@ -2477,7 +2477,7 @@ export function OneKycWorkspace({
                     ) : (
                       <BadgeCheck className="size-4" />
                     )}
-                    {busy === "alias" ? "Verifying..." : "Verify email"}
+                    {busy === "alias" ? "Verifying..." : "Verify address"}
                   </button>
                 </div>
               </div>

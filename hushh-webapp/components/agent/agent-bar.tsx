@@ -46,7 +46,6 @@ import {
   ROUTES,
   isFoundationPublicRoute,
   isOneSetupRoute,
-  isRiaRoute,
 } from "@/lib/navigation/routes";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { usePersonaState } from "@/lib/persona/persona-context";
@@ -951,17 +950,12 @@ export function AgentBar() {
     isLoginRoute ||
     isFoundationPublic;
 
-  // RIA sub-agent = Apple-style ALWAYS-PINNED ask-bar (matches the pinned nav).
-  // This is route-scoped, not persona-scoped: /one must keep the build-48
-  // shared ask bar even if the last active persona is RIA.
-  const isRiaChrome = isRiaRoute(pathname ?? "");
-
   // The bar is mounted above the scroll root, so it cannot rely on inherited
   // route-shell geometry. Bind its transform directly to the shared motion
   // state without pulling scroll frames through the voice tree.
   useKaiBottomChromeElementTranslation(
     agentBarShellRef,
-    !physicalNavbarAbsent && !isRiaChrome,
+    !physicalNavbarAbsent,
   );
 
   const hint = useMemo(() => resolveAgentBarHint(pathname), [pathname]);
@@ -1387,9 +1381,6 @@ export function AgentBar() {
           "backdrop-blur-xl",
           "bg-white/95 text-[#1d1d1f] shadow-2xl",
           "dark:bg-[#1c1c1e]/95 dark:text-[#f5f5f7]",
-          // RIA: warm cream ask-bar pill (#F7F3EC) per the (1) design.
-          isRiaChrome &&
-            "!bg-[#f7f3ec] !text-[color:var(--ria-ink)] !shadow-none !backdrop-blur-none !ring-1 !ring-[color:var(--ria-divider-outer)]",
           barHidden
             ? "pointer-events-none translate-y-1 scale-[0.98] opacity-0"
             : "translate-y-0 scale-100 opacity-100",

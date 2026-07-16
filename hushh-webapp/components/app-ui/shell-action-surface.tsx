@@ -23,7 +23,7 @@ const shellActionSurfaceVariants = cva(
         icon:
           "h-9 w-9 items-center justify-center text-muted-foreground hover:text-foreground active:scale-90",
         pill:
-          "h-9 min-w-0 max-w-full items-center justify-center gap-1.5 px-3.5 text-[14px] font-medium tracking-normal text-[#1d1d1f] active:scale-[0.97] dark:text-[#f5f5f7] sm:gap-2 sm:px-4 sm:text-base",
+          "h-9 min-w-0 max-w-full items-center justify-center gap-1.5 px-3.5 text-[14px] font-medium tracking-normal text-foreground active:scale-[0.97] sm:gap-2 sm:px-4 sm:text-base",
       },
     },
     defaultVariants: {
