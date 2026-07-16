@@ -79,6 +79,15 @@ def _single_segment(message: str):
     }
 
 
+def test_default_preview_budget_outlives_one_tail_contract_without_unbounded_wait() -> None:
+    assert pkm_agent_lab_module._AGENT_CONTRACT_TIMEOUT_SECONDS == 10.0
+    assert pkm_agent_lab_module._PREVIEW_TOTAL_BUDGET_SECONDS == 35.0
+    assert (
+        pkm_agent_lab_module._PREVIEW_TOTAL_BUDGET_SECONDS
+        < pkm_agent_lab_module._AGENT_CONTRACT_TIMEOUT_SECONDS * 4
+    )
+
+
 @pytest.mark.asyncio
 async def test_agent_contract_retries_one_timeout_within_preview_budget(monkeypatch):
     service = PKMAgentLabService()
