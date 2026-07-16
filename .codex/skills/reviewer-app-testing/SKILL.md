@@ -58,8 +58,9 @@ Non-owned surfaces:
 3. Authenticate, unlock, derive the wrapper key locally, and verify `vaultKeyHash`.
 4. Keep passphrase, tokens, key, and decrypted information in memory throughout the same-session route chain.
 5. Use Next client navigation and assert `vault_unlocked` after every protected route transition.
-6. Close the context, then test cold-session authentication and re-unlock separately.
-7. Hand domain assertions to the owning spoke while retaining this BYOK/session contract.
+6. Fail the route chain on critical first-party vault, consent, connection, notification, or PKM API 5xx responses.
+7. Close the context, then test cold-session authentication and re-unlock separately.
+8. Hand domain assertions to the owning spoke while retaining this BYOK/session contract.
 
 ## Handoff Rules
 

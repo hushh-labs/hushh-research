@@ -10,6 +10,14 @@ function endpointPath(rawUrl) {
   }
 }
 
+const CRITICAL_REVIEWER_API_PATHS = [
+  "/api/vault/bootstrap-state",
+  "/api/consent/center/summary",
+  "/api/one/connections",
+  "/api/notifications/register",
+  "/api/pkm",
+];
+
 async function waitForValue(readValue, label, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -64,6 +72,7 @@ export async function createReviewerSessionHarness({
   function attachMemoryOnlyCapture(page) {
     let vaultState = null;
     let ownerToken = "";
+    const criticalApiFailures = [];
     const responsePromises = new Set();
     page.on("request", (request) => {
       if (!endpointPath(request.url()).startsWith("/api/pkm/")) return;
@@ -71,7 +80,17 @@ export async function createReviewerSessionHarness({
       if (authorization.startsWith("Bearer ")) ownerToken = authorization.slice(7);
     });
     page.on("response", (response) => {
-      if (endpointPath(response.url()) !== "/api/vault/get" || !response.ok()) return;
+      const pathname = endpointPath(response.url());
+      if (
+        response.status() >= 500 &&
+        CRITICAL_REVIEWER_API_PATHS.some(
+          (criticalPath) =>
+            pathname === criticalPath || pathname.startsWith(`${criticalPath}/`)
+        )
+      ) {
+        criticalApiFailures.push({ pathname, status: response.status() });
+      }
+      if (pathname !== "/api/vault/get" || !response.ok()) return;
       const pending = response
         .json()
         .then((payload) => {
@@ -89,6 +108,13 @@ export async function createReviewerSessionHarness({
         const state = await waitForValue(() => vaultState, "encrypted vault state", timeoutMs);
         await Promise.all([...responsePromises]);
         return state;
+      },
+      assertNoCriticalApiFailures(label) {
+        if (criticalApiFailures.length === 0) return;
+        const summary = criticalApiFailures
+          .map(({ pathname, status }) => `${pathname}:${status}`)
+          .join(",");
+        throw new Error(`${label} observed critical first-party API failures: ${summary}`);
       },
     };
   }

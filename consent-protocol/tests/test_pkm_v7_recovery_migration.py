@@ -143,6 +143,9 @@ def test_uat_deploy_runs_protected_pkm_gate_and_reviewer_byok_rehearsal():
         "Promote deployed revisions to UAT traffic"
     )
     assert "--skip-shadow" in candidate_evaluator
+    assert "--phase,release_chain_24" in candidate_evaluator
+    assert "--fail-fast" in candidate_evaluator
+    assert "--phase,fresh_chain_60" not in candidate_evaluator
     assert "GOOGLE_API_KEY=GOOGLE_API_KEY:latest" not in candidate_evaluator
     assert "HUSHH_GENAI_AUTH_MODE=vertex_adc" in candidate_evaluator
     assert "GOOGLE_GENAI_USE_VERTEXAI=true" in candidate_evaluator
@@ -161,6 +164,15 @@ def test_uat_deploy_runs_protected_pkm_gate_and_reviewer_byok_rehearsal():
     assert "reviewer_byok_continuity_failed" in workflow
     assert "verify-pkm-runtime-audit" in workflow
     assert "outputs.run_pkm_runtime_audit == 'true'" in workflow
+    assert "steps.postdeploy-db-gate.outcome != 'failure'" in workflow
+    assert (
+        workflow.count(
+            "steps.verify-uat-1.outcome == 'success' || steps.verify-uat-2.outcome == 'success'"
+        )
+        == 2
+    )
+    assert '"upstream_authority_failed"' in workflow
+    assert 'semantic_required = db_outcome != "failure"' in workflow
     assert "REVIEWER_BYOK_REQUIRED" in workflow
     assert "PKM_RUNTIME_AUDIT_REQUIRED" in workflow
     assert "pkm_runtime_audit_failed" in workflow

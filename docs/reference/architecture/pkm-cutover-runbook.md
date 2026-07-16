@@ -167,7 +167,7 @@ Pair the shape audit with the structure-agent chain eval:
 
 ```bash
 cd consent-protocol
-python3 scripts/eval_pkm_structure_agent.py --phase fresh_chain_60 --env-file .env
+python3 scripts/eval_pkm_structure_agent.py --phase release_chain_24 --fail-fast --env-file .env
 ```
 
 The eval uses `REVIEWER_UID` as its first shadow user when present. This keeps daily prompt-chain checks aligned to the real reviewer-shaped domain/scope surface while still avoiding plaintext PKM in model prompts.

@@ -52,17 +52,33 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
 
     assert '"DB_POOL_MIN_SIZE=${_DB_POOL_MIN_SIZE}"' in backend_build
     assert '"DB_POOL_MAX_SIZE=${_DB_POOL_MAX_SIZE}"' in backend_build
+    assert '"DB_SQLALCHEMY_POOL_SIZE=${_DB_SQLALCHEMY_POOL_SIZE}"' in backend_build
+    assert '"DB_SQLALCHEMY_MAX_OVERFLOW=${_DB_SQLALCHEMY_MAX_OVERFLOW}"' in backend_build
     assert '"--max=${_CLOUD_RUN_MAX_INSTANCES}"' in backend_build
     assert '"--min=${_CLOUD_RUN_MIN_INSTANCES}"' in backend_build
     assert '"--min-instances=0"' in backend_build
     assert '_DB_POOL_MIN_SIZE: "1"' in backend_build
     assert '_DB_POOL_MAX_SIZE: "8"' in backend_build
+    assert '_DB_SQLALCHEMY_POOL_SIZE: "4"' in backend_build
+    assert '_DB_SQLALCHEMY_MAX_OVERFLOW: "4"' in backend_build
+
+    assert "_DB_POOL_MIN_SIZE=1" in uat_workflow
+    assert "_DB_POOL_MAX_SIZE=4" in uat_workflow
+    assert "_DB_SQLALCHEMY_POOL_SIZE=2" in uat_workflow
+    assert "_DB_SQLALCHEMY_MAX_OVERFLOW=2" in uat_workflow
+    assert "_CLOUD_RUN_MIN_INSTANCES=1" in uat_workflow
+    assert "_CLOUD_RUN_MAX_INSTANCES=3" in uat_workflow
+    # UAT may consume at most 8 database connections per instance and 24 total.
+    assert (4 + 2 + 2) * 3 == 24
+
+    assert "_DB_POOL_MIN_SIZE=1" in production_workflow
+    assert "_DB_POOL_MAX_SIZE=8" in production_workflow
+    assert "_DB_SQLALCHEMY_POOL_SIZE=4" in production_workflow
+    assert "_DB_SQLALCHEMY_MAX_OVERFLOW=4" in production_workflow
+    assert "_CLOUD_RUN_MIN_INSTANCES=1" in production_workflow
+    assert "_CLOUD_RUN_MAX_INSTANCES=5" in production_workflow
 
     for workflow in (uat_workflow, production_workflow):
-        assert "_DB_POOL_MIN_SIZE=1" in workflow
-        assert "_DB_POOL_MAX_SIZE=8" in workflow
-        assert "_CLOUD_RUN_MIN_INSTANCES=1" in workflow
-        assert "_CLOUD_RUN_MAX_INSTANCES=5" in workflow
         assert 'BACKEND_REVISION_RETENTION: "3"' in workflow
         assert 'FRONTEND_REVISION_RETENTION: "10"' in workflow
 
