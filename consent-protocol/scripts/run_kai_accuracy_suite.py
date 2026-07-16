@@ -45,8 +45,13 @@ def _run_step(name: str, cmd: list[str]) -> dict[str, Any]:
 
 def _has_live_model_credentials() -> bool:
     """Return True when runtime appears configured for live Gemini/Vertex calls."""
-    if os.getenv("GOOGLE_API_KEY", "").strip():
-        return True
+    auth_mode = str(os.getenv("HUSHH_GENAI_AUTH_MODE") or "vertex_adc").strip().lower()
+    if auth_mode == "developer_api_key":
+        return bool(
+            os.getenv("GOOGLE_API_KEY", "").strip() or os.getenv("GEMINI_API_KEY", "").strip()
+        )
+    if auth_mode != "vertex_adc":
+        return False
 
     uses_vertex = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").strip().lower() in {
         "1",
@@ -62,8 +67,9 @@ def _has_live_model_credentials() -> bool:
         os.getenv("GOOGLE_CLOUD_LOCATION", "").strip()
         or os.getenv("GOOGLE_CLOUD_REGION", "").strip()
     )
-    has_adc = bool(os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip())
-    return has_project and has_location and has_adc
+    # Hosted ADC comes from the Cloud Run service identity and deliberately
+    # has no GOOGLE_APPLICATION_CREDENTIALS file.
+    return has_project and has_location
 
 
 def parse_args() -> argparse.Namespace:
@@ -173,10 +179,10 @@ def main() -> int:
                 "duration_seconds": 0.0,
                 "stdout": "",
                 "stderr": (
-                    "Missing live model credentials: set GOOGLE_API_KEY or "
-                    "Vertex credentials (GOOGLE_GENAI_USE_VERTEXAI=true, "
-                    "GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION/REGION, "
-                    "GOOGLE_APPLICATION_CREDENTIALS)."
+                    "Missing live model credentials: configure Vertex workload ADC "
+                    "(HUSHH_GENAI_AUTH_MODE=vertex_adc, GOOGLE_GENAI_USE_VERTEXAI=true, "
+                    "GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION/REGION) or select "
+                    "developer_api_key explicitly for a local-only run."
                 ),
                 "skipped": False,
             }

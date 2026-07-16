@@ -7,9 +7,10 @@ Extracts text via OCR then applies regex and LLM extraction.
 
 import io
 import logging
-import os
 import re
 from typing import List
+
+from hushh_mcp.runtime_providers import build_managed_runtime_client
 
 from ..agent import EnhancedHolding, EnhancedPortfolio
 
@@ -68,13 +69,9 @@ class ImageParser:
         """Lazy load Gemini client for LLM extraction."""
         if self._gemini_client is None:
             try:
-                from google import genai
-
-                api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
-                if api_key:
-                    self._gemini_client = genai.Client(api_key=api_key)
-            except ImportError:
-                logger.warning("google.genai not installed")
+                self._gemini_client = build_managed_runtime_client("gemini")
+            except Exception as exc:
+                logger.warning("Managed Gemini client is unavailable: %s", type(exc).__name__)
         return self._gemini_client
 
     async def parse(self, image_bytes: bytes, filename: str) -> EnhancedPortfolio:

@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import time
 from collections import OrderedDict
 from copy import deepcopy
@@ -14,6 +15,7 @@ from typing import Any
 
 from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
+from hushh_mcp.runtime_providers import build_managed_runtime_client
 from hushh_mcp.services.domain_contracts import (
     CANONICAL_DOMAIN_REGISTRY,
     DYNAMIC_DOMAIN_CONTRACT_VERSION,
@@ -639,25 +641,46 @@ class PKMAgentLabService:
     def client(self):
         if self._client is not None:
             return self._client
-        api_key = (
+        developer_api_key = (
             str(os.getenv("GEMINI_API_KEY", "")).strip()
             or str(os.getenv("GOOGLE_API_KEY", "")).strip()
             or str(os.getenv("GOOGLE_GENAI_API_KEY", "")).strip()
         )
-        if not api_key:
-            return None
         try:
-            from google import genai
-
-            # The GenAI SDK derives managed Vertex mode and endpoint selection
-            # from the configured environment. Passing an explicit location with
-            # an API key is invalid, so deployments select `global` through
-            # GOOGLE_CLOUD_LOCATION rather than this constructor.
-            self._client = genai.Client(api_key=api_key)
+            self._client = build_managed_runtime_client(
+                "gemini",
+                developer_api_key,
+            )
         except Exception as exc:
             logger.warning("pkm.agent_lab_client_unavailable error=%s", exc)
             self._client = None
         return self._client
+
+    @staticmethod
+    def _is_retryable_provider_error(exc: Exception) -> bool:
+        status_code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+        if status_code in {429, 500, 503}:
+            return True
+        message = str(exc).lower()
+        markers = (
+            "resource_exhausted",
+            "resource exhausted",
+            "service_unavailable",
+            "service unavailable",
+            "internal server error",
+            "status 429",
+            "status 500",
+            "status 503",
+            "code 429",
+            "code 500",
+            "code 503",
+        )
+        return any(marker in message for marker in markers)
+
+    @staticmethod
+    def _provider_retry_delay_seconds(attempt: int) -> float:
+        exponential_delay = min(1.5, 0.5 * (2 ** max(0, attempt - 1)))
+        return exponential_delay + (secrets.randbelow(251) / 1000.0)
 
     @staticmethod
     def _preview_cache_key(
@@ -1458,10 +1481,34 @@ class PKMAgentLabService:
                 record("timeout", attempts=attempt)
                 return None
             except Exception as exc:
+                can_retry = (
+                    attempt < _AGENT_CONTRACT_MAX_ATTEMPTS
+                    and self._is_retryable_provider_error(exc)
+                )
+                if can_retry:
+                    retry_delay_seconds = self._provider_retry_delay_seconds(attempt)
+                    retry_budget_seconds = (
+                        max(0.0, deadline - time.perf_counter()) if deadline is not None else None
+                    )
+                    if (
+                        retry_budget_seconds is None
+                        or retry_budget_seconds > retry_delay_seconds + 0.25
+                    ):
+                        logger.warning(
+                            "pkm.agent_contract_provider_retry agent=%s attempt=%s "
+                            "max_attempts=%s delay_seconds=%s error_type=%s",
+                            getattr(manifest, "id", "unknown"),
+                            attempt,
+                            _AGENT_CONTRACT_MAX_ATTEMPTS,
+                            round(retry_delay_seconds, 3),
+                            type(exc).__name__,
+                        )
+                        await asyncio.sleep(retry_delay_seconds)
+                        continue
                 logger.warning(
-                    "pkm.agent_contract_failed agent=%s error=%s",
+                    "pkm.agent_contract_failed agent=%s error_type=%s",
                     getattr(manifest, "id", "unknown"),
-                    exc,
+                    type(exc).__name__,
                 )
                 record("error", attempts=attempt, error_type=type(exc).__name__)
                 return None

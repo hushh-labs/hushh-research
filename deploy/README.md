@@ -158,11 +158,10 @@ Private partner gateway handoff files are not stored in this public repo. Keep l
      --require-plaid
    ```
 
-   Required backend secrets (8):
+   Required backend secrets (7):
 
    - `APP_SIGNING_KEY`
    - `VAULT_DATA_KEY`
-   - `GOOGLE_API_KEY`
    - `FIREBASE_ADMIN_CREDENTIALS_JSON`
    - `APP_FRONTEND_ORIGIN`
    - `BACKEND_RUNTIME_CONFIG_JSON`
@@ -175,7 +174,7 @@ Private partner gateway handoff files are not stored in this public repo. Keep l
    - `PLAID_SECRET`
    - `PLAID_ACCESS_TOKEN_KEY`
 
-   **Note:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `CONSENT_SSE_ENABLED`, and `SYNC_REMOTE_ENABLED` are set as Cloud Run env vars (not secrets). **Do not use `DATABASE_URL`** — migrations and scripts use DB_* only (strict parity). Delete `DATABASE_URL` from Secret Manager if present.
+   **Note:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `CONSENT_SSE_ENABLED`, and `SYNC_REMOTE_ENABLED` are set as Cloud Run env vars (not secrets). Managed Gemini uses the Cloud Run service identity through Vertex ADC (`HUSHH_GENAI_AUTH_MODE=vertex_adc`); do not mount a hosted Gemini API key or `GOOGLE_APPLICATION_CREDENTIALS`. **Do not use `DATABASE_URL`** — migrations and scripts use DB_* only (strict parity). Delete `DATABASE_URL` from Secret Manager if present.
    Plaid webhook and callback settings are runtime env vars, not dashboard secrets:
    `PLAID_ENV`, `PLAID_CLIENT_NAME`, `PLAID_COUNTRY_CODES`, `PLAID_WEBHOOK_URL`, `PLAID_REDIRECT_PATH`, `PLAID_TX_HISTORY_DAYS`.
    UAT and production use the live/shared Plaid credential set; local development stays on sandbox-only credentials.
@@ -334,13 +333,13 @@ gcloud builds submit --config=deploy/frontend.cloudbuild.yaml
 
 All required secrets must exist in Google Cloud Secret Manager before deployment. Run the parity audit script, then create any missing secrets manually.
 
-**Backend (8 baseline secrets):** `APP_SIGNING_KEY`, `VAULT_DATA_KEY`, `GOOGLE_API_KEY`, `FIREBASE_ADMIN_CREDENTIALS_JSON`, `APP_FRONTEND_ORIGIN`, `BACKEND_RUNTIME_CONFIG_JSON`, `DB_USER`, `DB_PASSWORD`
+**Backend (7 baseline secrets):** `APP_SIGNING_KEY`, `VAULT_DATA_KEY`, `FIREBASE_ADMIN_CREDENTIALS_JSON`, `APP_FRONTEND_ORIGIN`, `BACKEND_RUNTIME_CONFIG_JSON`, `DB_USER`, `DB_PASSWORD`
 **Backend voice secrets when voice is enabled (2):** `OPENAI_API_KEY`, `VOICE_RUNTIME_CONFIG_JSON`
 **Backend market-data secrets when Kai market home is enabled (2):** `FINNHUB_API_KEY`, `PMP_API_KEY`
 **Backend Plaid secrets when brokerage is enabled (3):** `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ACCESS_TOKEN_KEY`
 
 **Note:** 
-- `DB_HOST`, `DB_PORT`, `DB_NAME`, `CONSENT_SSE_ENABLED`, and `SYNC_REMOTE_ENABLED` are set as Cloud Run env vars (not secrets) in `backend.cloudbuild.yaml`
+- `DB_HOST`, `DB_PORT`, `DB_NAME`, `CONSENT_SSE_ENABLED`, `SYNC_REMOTE_ENABLED`, and the Vertex ADC contract are set as Cloud Run env vars (not secrets) in `backend.cloudbuild.yaml`
 - Plaid Cloud Run env remains env-var based: `PLAID_ENV`, `PLAID_CLIENT_NAME`, `PLAID_COUNTRY_CODES`, `PLAID_WEBHOOK_URL`, `PLAID_REDIRECT_PATH`, `PLAID_TX_HISTORY_DAYS`
 - Migrations use DB_* only (no DATABASE_URL). See docs/reference/operations/env-and-secrets.md.
 - **Action required:** Create `DB_USER` and `DB_PASSWORD` secrets in Secret Manager if they don't exist:

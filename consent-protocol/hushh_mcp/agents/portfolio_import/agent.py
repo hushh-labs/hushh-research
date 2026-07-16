@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 from hushh_mcp.agents.base_agent import HushhAgent
 from hushh_mcp.constants import GEMINI_MODEL, ConsentScope
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
+from hushh_mcp.runtime_providers import build_managed_runtime_client
 
 logger = logging.getLogger(__name__)
 
@@ -188,15 +189,9 @@ class PortfolioImportAgent(HushhAgent):
         """Lazy load Gemini client using new google.genai SDK."""
         if self._gemini_client is None:
             try:
-                from google import genai
-
-                api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
-                if api_key:
-                    self._gemini_client = genai.Client(api_key=api_key)
-                else:
-                    logger.warning("No Gemini API key found")
-            except ImportError:
-                logger.warning("google.genai not installed")
+                self._gemini_client = build_managed_runtime_client("gemini")
+            except Exception as exc:
+                logger.warning("Managed Gemini client is unavailable: %s", type(exc).__name__)
         return self._gemini_client
 
     # ==================== Main Entry Point ====================
