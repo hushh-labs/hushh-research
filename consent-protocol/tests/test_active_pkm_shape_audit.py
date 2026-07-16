@@ -47,12 +47,12 @@ def test_protected_gate_rejects_partial_shape_audit():
 
 
 def test_live_runtime_audit_loads_canonical_reviewer_secrets_in_memory():
-    gate = (ROOT.parent / "scripts/ci/pkm-upgrade-gate.sh").read_text()
+    audit = (ROOT.parent / "scripts/ci/pkm-runtime-audit.sh").read_text()
 
-    assert "load_reviewer_runtime_secrets" in gate
-    assert "--secret=REVIEWER_UID" in gate
-    assert "--secret=REVIEWER_VAULT_PASSPHRASE" in gate
-    assert "export REVIEWER_UID REVIEWER_VAULT_PASSPHRASE" in gate
-    assert gate.index("load_reviewer_runtime_secrets\n  cd") < gate.index(
+    assert "load_reviewer_runtime_secrets" in audit
+    assert "--secret=REVIEWER_UID" in audit
+    assert "--secret=REVIEWER_VAULT_PASSPHRASE" in audit
+    assert "export REVIEWER_UID REVIEWER_VAULT_PASSPHRASE" in audit
+    assert audit.index("load_reviewer_runtime_secrets\ncd") < audit.index(
         "node ./scripts/testing/verify-signed-in-routes.mjs"
     )
