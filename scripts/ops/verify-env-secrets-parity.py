@@ -435,6 +435,29 @@ def _serving_container_env_map(
     return common, revisions
 
 
+def _selected_container_env_map(
+    project: str,
+    region: str,
+    service: str,
+    service_json: dict[str, Any] | None,
+    revision: str | None,
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    selected_revision = str(revision or "").strip()
+    if not selected_revision:
+        return _serving_container_env_map(project, region, service_json)
+
+    revision_json = _describe_run_revision(project, region, selected_revision)
+    revision_service = str(
+        (revision_json or {})
+        .get("metadata", {})
+        .get("labels", {})
+        .get("serving.knative.dev/service", "")
+    ).strip()
+    if revision_service != service:
+        return {}, [selected_revision]
+    return _container_env_map(revision_json), [selected_revision]
+
+
 def _runtime_source_label(entry: dict[str, Any]) -> str:
     value_from = entry.get("valueFrom")
     if isinstance(value_from, dict):
@@ -545,6 +568,14 @@ def main() -> int:
         help="Reserved for parity interface",
     )
     parser.add_argument(
+        "--backend-revision",
+        help="Optional exact no-traffic backend candidate revision to inspect.",
+    )
+    parser.add_argument(
+        "--frontend-revision",
+        help="Optional exact no-traffic frontend candidate revision to inspect.",
+    )
+    parser.add_argument(
         "--require-native-artifacts",
         action="store_true",
         help="Also require native Firebase artifact secrets for native release checks.",
@@ -617,6 +648,8 @@ def main() -> int:
         "region": args.region,
         "backend_service": args.backend_service,
         "frontend_service": args.frontend_service,
+        "backend_revision": args.backend_revision,
+        "frontend_revision": args.frontend_revision,
         "required": {
             "backend": list(BACKEND_REQUIRED),
             "frontend": list(FRONTEND_REQUIRED),
@@ -705,11 +738,19 @@ def main() -> int:
     if args.assert_runtime_env_contract:
         frontend_json = _describe_run_service(args.project, args.region, args.frontend_service)
         backend_json = _describe_run_service(args.project, args.region, args.backend_service)
-        frontend_env, frontend_revisions = _serving_container_env_map(
-            args.project, args.region, frontend_json
+        frontend_env, frontend_revisions = _selected_container_env_map(
+            args.project,
+            args.region,
+            args.frontend_service,
+            frontend_json,
+            args.frontend_revision,
         )
-        backend_env, backend_revisions = _serving_container_env_map(
-            args.project, args.region, backend_json
+        backend_env, backend_revisions = _selected_container_env_map(
+            args.project,
+            args.region,
+            args.backend_service,
+            backend_json,
+            args.backend_revision,
         )
 
         frontend_entries = [

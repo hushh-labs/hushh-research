@@ -43,7 +43,9 @@ env:
   BACKEND_SERVICE: consent-protocol
   FRONTEND_SERVICE: hushh-webapp
   APP_FRONTEND_ORIGIN: https://one.hushh.ai
-  CLOUD_RUN_REVISION_RETENTION: "10"
+  CONSENT_API_PUBLIC_ORIGIN: https://api.hushh.ai
+  BACKEND_REVISION_RETENTION: "3"
+  FRONTEND_REVISION_RETENTION: "10"
   BACKUP_BUCKET: hushh-pda-prod-db-backups
   BACKUP_PREFIX: prod/supabase-logical
   BACKUP_MAX_AGE_HOURS: "30"
@@ -317,7 +319,7 @@ jobs:
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
-            "--substitutions=_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID,_PLAID_SECRET_SECRET=PLAID_SECRET,_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY,_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY,_PMP_API_KEY_SECRET=PMP_API_KEY,_NEWSAPI_KEY_SECRET=NEWSAPI_KEY,_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID,_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET,_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI,_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY,_OPENAI_API_KEY_SECRET=OPENAI_API_KEY,_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY,_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON,_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN,_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }}"
+            "--substitutions=_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID,_PLAID_SECRET_SECRET=PLAID_SECRET,_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY,_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY,_PMP_API_KEY_SECRET=PMP_API_KEY,_NEWSAPI_KEY_SECRET=NEWSAPI_KEY,_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID,_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET,_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI,_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY,_OPENAI_API_KEY_SECRET=OPENAI_API_KEY,_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY,_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON,_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN,_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL,_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_DB_POOL_MIN_SIZE=1,_DB_POOL_MAX_SIZE=8,_CLOUD_RUN_MIN_INSTANCES=1,_CLOUD_RUN_MAX_INSTANCES=5,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }}"
 
       - name: Get backend URL
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -333,7 +335,7 @@ jobs:
       - name: Retain latest backend revisions
         if: steps.scope.outputs.deploy_backend == 'true'
         continue-on-error: true
-        run: bash scripts/ci/cloudrun-retention.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.CLOUD_RUN_REVISION_RETENTION }}"
+        run: bash scripts/ci/cloudrun-retention.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.BACKEND_REVISION_RETENTION }}"
 
       - name: Deploy frontend using Cloud Build
         if: steps.scope.outputs.deploy_frontend == 'true'
@@ -357,7 +359,7 @@ jobs:
       - name: Retain latest frontend revisions
         if: steps.scope.outputs.deploy_frontend == 'true'
         continue-on-error: true
-        run: bash scripts/ci/cloudrun-retention.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.CLOUD_RUN_REVISION_RETENTION }}"
+        run: bash scripts/ci/cloudrun-retention.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.FRONTEND_REVISION_RETENTION }}"
 
       - name: Resolve deployed candidate revisions
         id: candidate-state
@@ -383,11 +385,30 @@ jobs:
           echo "Backend candidate revision: ${backend_revision:-n/a}"
           echo "Frontend candidate revision: ${frontend_revision:-n/a}"
 
+      - name: Verify production candidate runtime env parity
+        id: verify-parity
+        if: steps.scope.outputs.deploy_backend == 'true' || steps.scope.outputs.deploy_frontend == 'true'
+        continue-on-error: true
+        run: |
+          python3 scripts/ops/verify-env-secrets-parity.py \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --region "${{ env.GCP_REGION }}" \
+            --backend-service "${{ env.BACKEND_SERVICE }}" \
+            --frontend-service "${{ env.FRONTEND_SERVICE }}" \
+            --backend-revision "${{ steps.candidate-state.outputs.backend_revision }}" \
+            --frontend-revision "${{ steps.candidate-state.outputs.frontend_revision }}" \
+            --require-plaid \
+            --require-market-data \
+            --require-gmail \
+            --require-voice \
+            --assert-runtime-env-contract
+
       # New revisions are deployed with --no-traffic (see _CLOUD_RUN_NO_TRAFFIC=true
       # above), so promotion is an explicit, reversible step: shift 100% to the
       # freshly built revision, then health-gate it, then auto-roll-back on failure.
       - name: Promote deployed revisions to production traffic
         id: promote-traffic
+        if: steps.verify-parity.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
@@ -429,22 +450,6 @@ jobs:
           bash scripts/ci/cloudrun-http-health.sh \
             "${{ steps.frontend-url.outputs.url }}" "/" 3 30 5 200
 
-      - name: Verify production runtime env parity
-        id: verify-parity
-        if: steps.scope.outputs.deploy_backend == 'true' || steps.scope.outputs.deploy_frontend == 'true'
-        continue-on-error: true
-        run: |
-          python3 scripts/ops/verify-env-secrets-parity.py \
-            --project "${{ env.GCP_PROJECT_ID }}" \
-            --region "${{ env.GCP_REGION }}" \
-            --backend-service "${{ env.BACKEND_SERVICE }}" \
-            --frontend-service "${{ env.FRONTEND_SERVICE }}" \
-            --require-plaid \
-            --require-market-data \
-            --require-gmail \
-            --require-voice \
-            --assert-runtime-env-contract
-
       - name: Classify production release outcome
         id: classify
         if: always()
@@ -463,10 +468,9 @@ jobs:
           parity_failed=false
           promote_failed=false
 
-          # Runtime health is the rollback trigger: only revert traffic when the
-          # newly promoted revision is not actually serving. A parity gap (e.g. a
-          # benign missing optional secret) fails the workflow for visibility but
-          # does NOT auto-revert a revision that is serving traffic healthily.
+          # Runtime health remains the rollback trigger after promotion. Candidate
+          # parity is a pre-traffic gate, so a parity failure leaves serving traffic
+          # untouched and fails the release without invoking rollback.
           if [ "$DEPLOY_BACKEND" = "true" ] && [ "$HEALTH_BACKEND" = "failure" ]; then
             backend_failure=true
           fi
@@ -480,23 +484,13 @@ jobs:
             promote_failed=true
           fi
 
-          # release_failed drives the workflow's final pass/fail. It is gated on
-          # things that mean prod is NOT correctly serving the new revision:
-          # a runtime-health failure (also triggers rollback) or a promote
-          # failure (traffic never cut over). A parity gap is NOT included: the
-          # runtime health gate already fails+rolls-back when a genuinely
-          # boot-critical secret is missing (the app crashes), so a parity
-          # mismatch that survives a healthy promote is a benign optional-feature
-          # gap (e.g. voice/Gmail secrets not yet provisioned). It is surfaced as
-          # a warning for visibility instead of failing a healthy production release.
+          # release_failed drives the workflow's final pass/fail. Required runtime
+          # parity is not optional: missing consent origins, provider credentials,
+          # or key mounts must fail closed before promotion.
           release_failed=false
           if [ "$backend_failure" = "true" ] || [ "$frontend_failure" = "true" ] \
-             || [ "$promote_failed" = "true" ]; then
+             || [ "$parity_failed" = "true" ] || [ "$promote_failed" = "true" ]; then
             release_failed=true
-          fi
-
-          if [ "$parity_failed" = "true" ] && [ "$release_failed" = "false" ]; then
-            echo "::warning title=Env parity gap::Production runtime env parity reported missing optional secrets, but the promoted revision is serving healthily. Provision the missing secrets to close the gap; not failing the release."
           fi
 
           {
@@ -507,7 +501,7 @@ jobs:
             echo "release_failed=$release_failed"
           } >> "$GITHUB_OUTPUT"
 
-          echo "Release classification: release_failed=$release_failed backend_failure=$backend_failure frontend_failure=$frontend_failure parity_failed=$parity_failed (warning-only) promote_failed=$promote_failed"
+          echo "Release classification: release_failed=$release_failed backend_failure=$backend_failure frontend_failure=$frontend_failure parity_failed=$parity_failed promote_failed=$promote_failed"
 
       - name: Roll back backend revision
         id: rollback-backend

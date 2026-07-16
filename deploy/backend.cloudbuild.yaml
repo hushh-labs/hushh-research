@@ -94,6 +94,36 @@ steps:
           runtime_environment="${_DEPLOY_ENV}"
         fi
 
+        require_non_negative_int() {
+          local name="$1"
+          local value="$2"
+          if ! [[ "${value}" =~ ^[0-9]+$ ]]; then
+            echo "${name} must be a non-negative integer, got '${value}'." >&2
+            exit 1
+          fi
+        }
+        require_positive_int() {
+          local name="$1"
+          local value="$2"
+          require_non_negative_int "${name}" "${value}"
+          if [[ "${value}" -lt 1 ]]; then
+            echo "${name} must be at least 1, got '${value}'." >&2
+            exit 1
+          fi
+        }
+        require_non_negative_int "_DB_POOL_MIN_SIZE" "${_DB_POOL_MIN_SIZE}"
+        require_positive_int "_DB_POOL_MAX_SIZE" "${_DB_POOL_MAX_SIZE}"
+        require_non_negative_int "_CLOUD_RUN_MIN_INSTANCES" "${_CLOUD_RUN_MIN_INSTANCES}"
+        require_positive_int "_CLOUD_RUN_MAX_INSTANCES" "${_CLOUD_RUN_MAX_INSTANCES}"
+        if [[ "${_DB_POOL_MAX_SIZE}" -lt "${_DB_POOL_MIN_SIZE}" ]]; then
+          echo "_DB_POOL_MAX_SIZE must be greater than or equal to _DB_POOL_MIN_SIZE." >&2
+          exit 1
+        fi
+        if [[ "${_CLOUD_RUN_MAX_INSTANCES}" -lt "${_CLOUD_RUN_MIN_INSTANCES}" ]]; then
+          echo "_CLOUD_RUN_MAX_INSTANCES must be greater than or equal to _CLOUD_RUN_MIN_INSTANCES." >&2
+          exit 1
+        fi
+
         env_vars=(
           "ENVIRONMENT=${runtime_environment}"
           "HUSHH_DEPLOY_ENV=${_DEPLOY_ENV}"
@@ -101,6 +131,8 @@ steps:
           "HUSHH_DEPLOY_SHA=${_DEPLOY_SHA}"
           "HUSHH_DEPLOY_RUN_ID=${_GITHUB_RUN_ID}"
           "CONSENT_API_PUBLIC_ORIGIN=${_CONSENT_API_PUBLIC_ORIGIN}"
+          "DB_POOL_MIN_SIZE=${_DB_POOL_MIN_SIZE}"
+          "DB_POOL_MAX_SIZE=${_DB_POOL_MAX_SIZE}"
           "RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS=${_RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS}"
           "RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS=${_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS}"
         )
@@ -145,8 +177,13 @@ steps:
           "--cpu=1"
           "--timeout=3600"
           "--session-affinity"
-          "--max-instances=10"
-          "--min-instances=1"
+          # Service-level limits bound aggregate database fan-out across traffic
+          # splits. Revision min=0 prevents no-traffic/retired revisions from
+          # pinning their own warm database pools.
+          "--max=${_CLOUD_RUN_MAX_INSTANCES}"
+          "--min=${_CLOUD_RUN_MIN_INSTANCES}"
+          "--max-instances=${_CLOUD_RUN_MAX_INSTANCES}"
+          "--min-instances=0"
           "--labels=${deploy_labels}"
           "--set-env-vars=^|^${env_var_string}"
           "--set-secrets=${secrets}"
@@ -214,6 +251,10 @@ substitutions:
   _APP_REVIEW_MODE: ""
   _CLOUD_RUN_NO_TRAFFIC: "false"
   _CONSENT_API_PUBLIC_ORIGIN: ""
+  _DB_POOL_MIN_SIZE: "1"
+  _DB_POOL_MAX_SIZE: "8"
+  _CLOUD_RUN_MIN_INSTANCES: "1"
+  _CLOUD_RUN_MAX_INSTANCES: "5"
   _RUNTIME_ENVIRONMENT: ""
   _IMAGE_TAG: v2.1.0
   _DEPLOY_ENV: manual
