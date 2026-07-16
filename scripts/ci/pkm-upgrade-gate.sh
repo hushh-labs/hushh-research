@@ -50,17 +50,19 @@ npx vitest run "${FRONTEND_TESTS[@]}"
 
 echo "Running backend compatibility and consent/RIA suites..."
 cd "$PROTOCOL_DIR"
-if [ -x .venv/bin/pytest ]; then
-  PYTEST_RUNNER=".venv/bin/pytest"
+if [ -n "${PROTOCOL_PYTHON:-}" ] && [ -x "$PROTOCOL_PYTHON" ]; then
+  PYTHON_RUNNER="$PROTOCOL_PYTHON"
+elif [ -x .venv/bin/python ]; then
+  PYTHON_RUNNER=".venv/bin/python"
 else
-  PYTEST_RUNNER="python3 -m pytest"
+  PYTHON_RUNNER="python3"
 fi
 TESTING="${TESTING:-true}" \
 APP_SIGNING_KEY="${APP_SIGNING_KEY:-test_secret_key_for_ci_only_32chars_min}" \
 VAULT_DATA_KEY="${VAULT_DATA_KEY:-0000000000000000000000000000000000000000000000000000000000000000}" \
 HUSHH_DEVELOPER_TOKEN="${HUSHH_DEVELOPER_TOKEN:-test_hushh_developer_token_for_ci}" \
 PYTHONPATH=. \
-  $PYTEST_RUNNER -q "${BACKEND_TESTS[@]}"
+  "$PYTHON_RUNNER" -m pytest -q "${BACKEND_TESTS[@]}"
 
 if [ "${PKM_UPGRADE_PROTECTED_UAT:-}" = "1" ] && [ "${PKM_UPGRADE_REVIEWER_SHAPE_AUDIT:-}" != "1" ]; then
   echo "Protected UAT requires PKM_UPGRADE_REVIEWER_SHAPE_AUDIT=1." >&2
@@ -112,14 +114,14 @@ if [ "${PKM_UPGRADE_REVIEWER_SHAPE_AUDIT:-}" = "1" ]; then
   if [ -n "${PKM_UPGRADE_REVIEWER_SECRET_VERSION:-}" ]; then
     SHAPE_AUDIT_ARGS+=(--gcp-secret-version "$PKM_UPGRADE_REVIEWER_SECRET_VERSION")
   fi
-  python3 scripts/audit_active_pkm_shape_readonly.py "${SHAPE_AUDIT_ARGS[@]}" >/tmp/hushh-pkm-shape-audit.json
-  python3 -c 'import json; p=json.load(open("/tmp/hushh-pkm-shape-audit.json")); assert p["schema_version"] == "pkm_reviewer_shape_audit.v2"; assert p["pagination"]["has_more"] is False; assert p["preservation_receipt"]["complete"] is True; assert p["preservation_receipt"]["rejected"] == 0'
+  "$PYTHON_RUNNER" scripts/audit_active_pkm_shape_readonly.py "${SHAPE_AUDIT_ARGS[@]}" >/tmp/hushh-pkm-shape-audit.json
+  "$PYTHON_RUNNER" -c 'import json; p=json.load(open("/tmp/hushh-pkm-shape-audit.json")); assert p["schema_version"] == "pkm_reviewer_shape_audit.v2"; assert p["pagination"]["has_more"] is False; assert p["preservation_receipt"]["complete"] is True; assert p["preservation_receipt"]["rejected"] == 0'
   echo "Reviewer-backed active PKM shape audit passed with redacted output."
 fi
 
 if [ "${PKM_UPGRADE_STRUCTURE_AGENT_EVAL:-}" = "1" ]; then
   echo "Running chained PKM structure-agent evaluation..."
-  python3 scripts/eval_pkm_structure_agent.py \
+  "$PYTHON_RUNNER" scripts/eval_pkm_structure_agent.py \
     --phase fresh_chain_60 \
     --enforce-gates \
     --json-out /tmp/hushh-pkm-structure-agent-eval.json
