@@ -9,6 +9,12 @@ FRONTEND_TESTS=(
   "__tests__/services/pkm-upgrade-orchestrator.test.ts"
   "__tests__/services/pkm-prepared-blob-store.test.ts"
   "__tests__/services/pkm-write-coordinator.test.ts"
+  "__tests__/services/pkm-upgrade-registry.test.ts"
+  "__tests__/services/pkm-manifest-union.test.ts"
+  "__tests__/services/pkm-historical-rehearsal.test.ts"
+  "__tests__/services/financial-v7-reader-compatibility.test.ts"
+  "__tests__/services/pkm-domain-resource.test.ts"
+  "__tests__/services/cache-sync-mutation-cascade.test.ts"
   "__tests__/services/pkm-natural-language.test.ts"
   "__tests__/services/unlock-warm-orchestrator.test.ts"
   "__tests__/services/ria-onboarding-flow.test.ts"
@@ -20,6 +26,11 @@ FRONTEND_TESTS=(
 BACKEND_TESTS=(
   "tests/test_pkm_upgrade_routes.py"
   "tests/test_pkm_upgrade_service.py"
+  "tests/test_pkm_v7_recovery_migration.py"
+  "tests/test_active_pkm_shape_audit.py"
+  "tests/test_offline_db.py"
+  "tests/services/test_account_service_cleanup_tables.py"
+  "tests/services/test_account_service_export.py"
   "tests/services/test_pkm_service_store_domain_data.py"
   "tests/services/test_pkm_agent_lab_service.py"
   "tests/services/test_portfolio_import_relevance.py"
@@ -51,9 +62,50 @@ HUSHH_DEVELOPER_TOKEN="${HUSHH_DEVELOPER_TOKEN:-test_hushh_developer_token_for_c
 PYTHONPATH=. \
   $PYTEST_RUNNER -q "${BACKEND_TESTS[@]}"
 
+if [ "${PKM_UPGRADE_PROTECTED_UAT:-}" = "1" ] && [ "${PKM_UPGRADE_REVIEWER_SHAPE_AUDIT:-}" != "1" ]; then
+  echo "Protected UAT requires PKM_UPGRADE_REVIEWER_SHAPE_AUDIT=1." >&2
+  exit 1
+fi
+
+POSTGRES_REHEARSAL_TARGET="${PKM_UPGRADE_POSTGRES_REHEARSAL_URL:-}"
+if [ -z "$POSTGRES_REHEARSAL_TARGET" ] \
+  && [ -n "${PGHOST:-}" ] \
+  && [ -n "${PGPORT:-}" ] \
+  && [ -n "${PGDATABASE:-}" ] \
+  && [ -n "${PGUSER:-}" ] \
+  && [ -n "${PGPASSWORD:-}" ]; then
+  POSTGRES_REHEARSAL_TARGET="postgresql://${PGUSER}@${PGHOST}:${PGPORT}/${PGDATABASE}"
+fi
+
+if [ "${PKM_UPGRADE_PROTECTED_UAT:-}" = "1" ] && [ -z "$POSTGRES_REHEARSAL_TARGET" ]; then
+  echo "Protected UAT requires a PostgreSQL rehearsal connection." >&2
+  exit 1
+fi
+
+if [ "${PKM_UPGRADE_PROTECTED_UAT:-}" = "1" ] && [ "${PKM_UPGRADE_STRUCTURE_AGENT_EVAL:-}" != "1" ]; then
+  echo "Protected UAT requires PKM_UPGRADE_STRUCTURE_AGENT_EVAL=1." >&2
+  exit 1
+fi
+
+if [ "${PKM_UPGRADE_PROTECTED_UAT:-}" = "1" ] && [ -z "${PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL:-}" ]; then
+  echo "Protected UAT requires PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL." >&2
+  exit 1
+fi
+
+if [ -n "$POSTGRES_REHEARSAL_TARGET" ]; then
+  if ! command -v psql >/dev/null 2>&1; then
+    echo "PostgreSQL rehearsal requested, but psql is unavailable." >&2
+    exit 1
+  fi
+  echo "Running transaction-rolled-back PKM v7 PostgreSQL rehearsal..."
+  psql "$POSTGRES_REHEARSAL_TARGET" \
+    -v ON_ERROR_STOP=1 \
+    -f "$PROTOCOL_DIR/db/verify/pkm_v7_zero_loss_rehearsal.sql"
+fi
+
 if [ "${PKM_UPGRADE_REVIEWER_SHAPE_AUDIT:-}" = "1" ]; then
   echo "Running reviewer-backed active PKM shape audit..."
-  SHAPE_AUDIT_ARGS=(--env-file .env)
+  SHAPE_AUDIT_ARGS=(--env-file "${PKM_UPGRADE_REVIEWER_ENV_FILE:-.env}")
   if [ -n "${PKM_UPGRADE_REVIEWER_SECRET_PROJECT:-}" ]; then
     SHAPE_AUDIT_ARGS+=(--gcp-secret-project "$PKM_UPGRADE_REVIEWER_SECRET_PROJECT")
   fi
@@ -61,7 +113,27 @@ if [ "${PKM_UPGRADE_REVIEWER_SHAPE_AUDIT:-}" = "1" ]; then
     SHAPE_AUDIT_ARGS+=(--gcp-secret-version "$PKM_UPGRADE_REVIEWER_SECRET_VERSION")
   fi
   python3 scripts/audit_active_pkm_shape_readonly.py "${SHAPE_AUDIT_ARGS[@]}" >/tmp/hushh-pkm-shape-audit.json
+  python3 -c 'import json; p=json.load(open("/tmp/hushh-pkm-shape-audit.json")); assert p["schema_version"] == "pkm_reviewer_shape_audit.v2"; assert p["pagination"]["has_more"] is False; assert p["preservation_receipt"]["complete"] is True; assert p["preservation_receipt"]["rejected"] == 0'
   echo "Reviewer-backed active PKM shape audit passed with redacted output."
+fi
+
+if [ "${PKM_UPGRADE_STRUCTURE_AGENT_EVAL:-}" = "1" ]; then
+  echo "Running chained PKM structure-agent evaluation..."
+  python3 scripts/eval_pkm_structure_agent.py \
+    --phase fresh_chain_60 \
+    --enforce-gates \
+    --json-out /tmp/hushh-pkm-structure-agent-eval.json
+fi
+
+if [ -n "${PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL:-}" ]; then
+  echo "Running live PKM, investor, and RIA runtime audits..."
+  cd "$WEB_DIR"
+  for route_filter in one/pkm one/kai ria; do
+    HUSHH_APP_ORIGIN="$PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL" \
+    HUSHH_VIEWPORT_FILTER=phone \
+    HUSHH_ROUTE_FILTER="$route_filter" \
+      node ./scripts/testing/verify-signed-in-routes.mjs
+  done
 fi
 
 echo "✅ PKM upgrade gate passed."

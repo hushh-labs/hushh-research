@@ -1,0 +1,58 @@
+{
+  "id": "reviewer-app-rehearsal",
+  "title": "Reviewer App Rehearsal",
+  "goal": "Prove BYOK unlock and protected app behavior without leaking secrets or confusing same-session navigation with cold-session reauthentication.",
+  "owner_skill": "security-audit",
+  "default_spoke": "reviewer-app-testing",
+  "task_type": "reviewer-app-rehearsal",
+  "affected_surfaces": [
+    ".codex/skills/reviewer-app-testing",
+    "hushh-webapp/scripts/testing/reviewer-test-identity.mjs",
+    "hushh-webapp/scripts/testing/verify-signed-in-routes.mjs",
+    "hushh-webapp/components/app-ui/native-test-bootstrap.tsx",
+    "hushh-webapp/components/app-ui/native-test-router.tsx"
+  ],
+  "required_reads": [
+    ".codex/skills/reviewer-app-testing/SKILL.md",
+    ".codex/skills/reviewer-app-testing/references/byok-reviewer-browser-contract.md",
+    "hushh-webapp/scripts/testing/reviewer-test-identity.mjs",
+    "hushh-webapp/lib/utils/browser-navigation.ts"
+  ],
+  "required_commands": [
+    "./scripts/ci/reviewer-app-testing-check.sh",
+    "./bin/hushh codex route-task reviewer-app-rehearsal --text"
+  ],
+  "verification_bundle": {
+    "id": "reviewer-app-rehearsal",
+    "commands": [
+      "./scripts/ci/reviewer-app-testing-check.sh"
+    ],
+    "tests": [
+      "node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs"
+    ]
+  },
+  "deliverables": [
+    "Reviewer identity and environment classification",
+    "Same-session BYOK continuity result",
+    "Cold-session reauthentication and re-unlock result",
+    "Domain-specific assertions and redacted failure classification"
+  ],
+  "impact_fields": [
+    "Mutation authority recorded",
+    "Routes and session boundaries recorded",
+    "No secret-bearing artifacts produced",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "security-audit",
+    "reviewer-app-testing",
+    "vault-pkm-governance",
+    "pkm-upgrade-rehearsal"
+  ],
+  "common_failures": [
+    "Using page.goto or reload inside a flow that claims same-session key continuity",
+    "Persisting vault material to traces, screenshots, logs, or test artifacts",
+    "Treating signed-in cookies as proof that the BYOK vault remains unlocked",
+    "Mutating or replacing the shared reviewer without explicit authority"
+  ]
+}

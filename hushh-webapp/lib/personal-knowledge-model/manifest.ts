@@ -30,6 +30,29 @@ export type StructureDecision = {
   contract_version: number;
 };
 
+export type PkmScopeRegistryEntry = {
+  scope_handle: string;
+  scope_label: string;
+  segment_ids: string[];
+  sensitivity_tier?: string;
+  scope_kind?: string;
+  scope_origin?: "dynamic" | "reserved";
+  scope_origin_code?: "d" | "r";
+  source_kind?: "manifest_branch" | "reserved_registry";
+  exposure_enabled?: boolean;
+  visibility_posture?: "private" | "consent_required";
+  default_projection_ready?: boolean;
+  default_projection_updated_at?: string | null;
+  owner_consent_override?: boolean;
+  summary_projection?: Record<string, unknown> & {
+    top_level_scope_path?: string;
+    consumer_visible?: boolean;
+    internal_only?: boolean;
+    visibility_reason?: string;
+    storage_mode?: string;
+  };
+};
+
 export type DomainManifest = {
   user_id?: string;
   domain: string;
@@ -38,6 +61,7 @@ export type DomainManifest = {
   pkm_contract_version?: string;
   readable_summary_version?: number;
   readable_projection_version?: string;
+  latest_upgrade_commit_id?: string | null;
   upgraded_at?: string | null;
   structure_decision?: Record<string, unknown>;
   summary_projection: Record<string, unknown>;
@@ -49,25 +73,7 @@ export type DomainManifest = {
   last_structured_at?: string | null;
   last_content_at?: string | null;
   paths: PathDescriptor[];
-  scope_registry?: Array<{
-    scope_handle: string;
-    scope_label: string;
-    segment_ids: string[];
-    sensitivity_tier?: string;
-    scope_kind?: string;
-    exposure_enabled?: boolean;
-    visibility_posture?: "private" | "consent_required";
-    default_projection_ready?: boolean;
-    default_projection_updated_at?: string | null;
-    owner_consent_override?: boolean;
-    summary_projection?: Record<string, unknown> & {
-      top_level_scope_path?: string;
-      consumer_visible?: boolean;
-      internal_only?: boolean;
-      visibility_reason?: string;
-      storage_mode?: string;
-    };
-  }>;
+  scope_registry?: PkmScopeRegistryEntry[];
 };
 
 function normalizePathSegment(segment: string): string {
@@ -180,7 +186,7 @@ function walkValue(
       !!value && typeof value === "object" && !isArray;
     const sensitivityLabel = inferSensitivityLabel(pathKey);
     const pathType: PathDescriptor["path_type"] = isArray ? "array" : isObject ? "object" : "leaf";
-    descriptors.set(pathKey, {
+    const nextDescriptor: PathDescriptor = {
       json_path: pathKey,
       parent_path: path.length > 1 ? joinPath(path.slice(0, -1)) : null,
       path_type: pathType,
@@ -189,13 +195,36 @@ function walkValue(
       sensitivity_label: sensitivityLabel,
       segment_id: path[0] || "root",
       source_agent: "pkm_structure_agent",
-    });
+    };
+    const existingDescriptor = descriptors.get(pathKey);
+    if (!existingDescriptor) {
+      descriptors.set(pathKey, nextDescriptor);
+    } else if (existingDescriptor.path_type !== nextDescriptor.path_type) {
+      // A heterogeneous array can contain scalar, object, and array values at
+      // the same logical `_items` path. The manifest contract has one path type,
+      // so retain the safest container type and never expose the ambiguous
+      // container itself. Descendant paths from every item are still recorded.
+      const typeRank: Record<PathDescriptor["path_type"], number> = {
+        leaf: 0,
+        object: 1,
+        array: 2,
+      };
+      descriptors.set(pathKey, {
+        ...existingDescriptor,
+        path_type:
+          typeRank[nextDescriptor.path_type] > typeRank[existingDescriptor.path_type]
+            ? nextDescriptor.path_type
+            : existingDescriptor.path_type,
+        exposure_eligibility: false,
+      });
+    }
   }
 
   if (Array.isArray(value)) {
-    const sample = value.find((item) => item !== undefined && item !== null);
-    if (sample !== undefined) {
-      walkValue(sample, [...path, "_items"], descriptors);
+    for (const item of value) {
+      if (item !== undefined) {
+        walkValue(item, [...path, "_items"], descriptors);
+      }
     }
     return;
   }

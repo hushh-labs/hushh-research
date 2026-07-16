@@ -8,10 +8,9 @@ import { logRequestAudit } from "@/lib/cache/request-audit-log";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import {
   buildFinancialDomainSummary,
+  getFinancialCompatibilityView,
   getActiveSource as getStoredActiveSource,
   getActiveStatementSnapshotId,
-  getPlaidPortfolio,
-  getStatementPortfolio,
   getStatementSnapshotOptions,
   isPlaidMirrorStale,
   setActivePlaidSource,
@@ -114,22 +113,23 @@ function buildResource(params: {
   cacheTier: KaiFinancialResourceAuditMeta["cacheTier"];
   source: KaiFinancialResourceAuditMeta["source"];
 }): KaiFinancialResource {
+  const compatibilityView = getFinancialCompatibilityView(params.financialDomain);
   const statementPortfolio =
-    getStatementPortfolio(params.financialDomain) ??
+    compatibilityView.statementPortfolio ??
     (params.initialStatementPortfolio && hasPortfolioHoldings(params.initialStatementPortfolio)
       ? params.initialStatementPortfolio
       : null);
   const statementSnapshots = getStatementSnapshotOptions(params.financialDomain);
   const activeStatementSnapshotId = getActiveStatementSnapshotId(params.financialDomain);
   const plaidPortfolio =
-    getPlaidPortfolio(params.financialDomain) ??
+    compatibilityView.plaidPortfolio ??
     ((params.plaidStatus?.aggregate?.portfolio_data as PortfolioData | null | undefined) ?? null);
   const availableSources = resolveAvailableSources({
     statementPortfolio,
     plaidPortfolio,
   });
   const storedActiveSource =
-    params.plaidStatus?.source_preference ?? getStoredActiveSource(params.financialDomain);
+    params.plaidStatus?.source_preference ?? compatibilityView.activeSource;
   const hasSavedStatementSnapshot = Boolean(activeStatementSnapshotId);
   const desiredSource: PortfolioSource =
     storedActiveSource === "plaid" ||

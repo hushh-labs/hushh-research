@@ -98,6 +98,57 @@ describe("runDomainUpgrade", () => {
     expect(comparePkmSemanticVersions("4.1.0", "5.0.0")).toBe(-1);
   });
 
+  it("proves occurrence-level moves and equal-value deduplication", () => {
+    const before = {
+      old_profile: { risk: "balanced" },
+      duplicate_risk: "balanced",
+      flags: [false, 0, "", null],
+      empty: {},
+    };
+    const after = {
+      profile: { risk: "balanced" },
+      flags: [false, 0, "", null],
+      empty: {},
+    };
+    const validation = validateLosslessDomainUpgrade(before, after, [
+      {
+        sourcePointer: "/old_profile/risk",
+        targetPointer: "/profile/risk",
+        classification: "moved",
+      },
+      {
+        sourcePointer: "/duplicate_risk",
+        targetPointer: "/profile/risk",
+        classification: "equal_value_deduplicated",
+      },
+    ]);
+
+    expect(validation.preserved).toBe(true);
+    expect(validation.receipt).toMatchObject({
+      moved: 1,
+      equalValueDeduplicated: 1,
+      rejected: 0,
+      complete: true,
+    });
+  });
+
+  it("rejects changed types, values, and missing occurrences without losing falsy values", () => {
+    const validation = validateLosslessDomainUpgrade(
+      { false_value: false, zero_value: 0, empty_value: "", null_value: null },
+      { false_value: 0, zero_value: 1, empty_value: "" }
+    );
+
+    expect(validation.preserved).toBe(false);
+    expect(validation.receipt.rejected).toBe(3);
+    expect(validation.issueCodes).toEqual(
+      expect.arrayContaining([
+        "source_occurrence_type_changed",
+        "source_occurrence_value_changed",
+        "source_occurrence_unmapped",
+      ])
+    );
+  });
+
   it("reports manifest blockers without depending on hardcoded domain keys", () => {
     const compatibility = inferPkmDomainCompatibility({
       domainData: { profile: { entities: {} } },

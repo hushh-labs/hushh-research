@@ -38,7 +38,7 @@ Non-owned surfaces:
 
 1. Broad trust-boundary and audit intake before the correct spoke is clear.
 2. IAM, consent, vault, PKM, streaming-safety, and verification questions spanning docs and code.
-3. Choosing whether the work belongs to IAM/consent, vault/PKM, quality contracts, or streaming contracts.
+3. Choosing whether the work belongs to IAM/consent, vault/PKM, reviewer/BYOK testing, PKM upgrade rehearsal, quality contracts, or streaming contracts.
 
 ## Do Not Use
 
@@ -65,9 +65,10 @@ Non-owned surfaces:
 
 1. Route consent scopes, actor model, and IAM/runtime gate work to `iam-consent-governance`.
 2. Route vault and PKM storage/boundary work to `vault-pkm-governance`.
-3. Route cross-surface test and verification policy to `quality-contracts`.
-4. Route SSE and streaming contract work to `streaming-contracts`.
-5. If the request begins as a cross-domain scan, start with `repo-context`.
+3. Route reviewer-account BYOK browser proof to `reviewer-app-testing`.
+4. Route zero-loss PKM upgrade acceptance to `pkm-upgrade-rehearsal`.
+5. Route cross-surface test policy to `quality-contracts` and streaming work to `streaming-contracts`.
+6. If the request begins as a cross-domain scan, start with `repo-context`.
 
 ## Required Checks
 

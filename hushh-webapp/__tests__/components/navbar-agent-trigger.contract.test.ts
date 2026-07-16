@@ -64,5 +64,19 @@ describe("Navbar bottom chrome contract", () => {
     )?.groups?.vars;
     expect(mirroredVars).toContain('"--bottom-chrome-hide-distance"');
     expect(mirroredVars).toContain('"--bottom-chrome-full-height"');
+
+    // Compact layouts intentionally keep one continuous ambient mask across
+    // the bottom cluster. Desktop separates the navigation and persistent
+    // Agent Bar vertically, so each must own a locally anchored fade rather
+    // than inheriting the navigation fade's transparent tail.
+    expect(providers).toContain("function SharedBottomChromeGlass()");
+    expect(providers).toContain("z-[108] md:hidden");
+    expect(providers).toContain("z-[108] hidden md:block");
+    expect(providers).toContain(
+      '"calc(var(--app-bottom-inset) + var(--bottom-chrome-fade-overscan))"',
+    );
+    expect(providers).toContain(
+      '"calc(3rem + var(--bottom-chrome-fade-overscan))"',
+    );
   });
 });

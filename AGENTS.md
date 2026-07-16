@@ -224,6 +224,17 @@ Subagents improve evidence quality; they do not replace repo skills, workflow ch
 3. Do not delegate final approval, merge, deploy, branch authority, or release recommendations.
 4. Require delegated handoffs to include claim inspected, classification, evidence checked, current repo truth, real gap, suggested boundary, blind-acceptance risk, scope, inspected surfaces, assumptions, validations, and unresolved risks.
 
+## Project-Wide BYOK Reviewer Browser Gate
+
+For browser tests that depend on an unlocked vault, decrypted information, or a BYOK key:
+
+1. Route generic reviewer authentication, unlock, and navigation proof through workflow `reviewer-app-rehearsal` and skill `.codex/skills/reviewer-app-testing/`.
+2. Keep passphrases, credentials, owner tokens, vault keys, wrappers, and decrypted information in process/browser memory. Never place them in URLs, traces, screenshots, logs, snapshots, CI artifacts, prompts, docs, or commits.
+3. Use the canonical environment-wired reviewer. Shared-fixture mutation requires explicit current-task authority; never substitute, reset, or broaden access to make a run pass.
+4. Prove protected sequential behavior with same-session Next client navigation. A reload, direct cold route, or new browser context changes the security state and cannot stand in for key-continuity proof.
+5. Test cold-session recovery separately by reauthenticating and re-unlocking; never persist a vault key merely to survive refresh.
+6. Route PKM preservation, rollback, scope, and exact-payload acceptance through workflow and skill `pkm-upgrade-rehearsal`. Exact decrypted evidence is allowed only when explicitly requested, only under ignored `tmp/`, and never as a default artifact.
+
 ## Project-Wide Branch Discipline Gate (HARD RULE)
 
 This is a hard, non-negotiable rule for every Codex/agent task in this repo. It exists because agents have repeatedly drifted: auto-creating branches, leaving the developer parked on a stray branch, and leaving temp branches uncleaned. Do not repeat this.

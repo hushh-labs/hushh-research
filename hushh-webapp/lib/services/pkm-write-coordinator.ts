@@ -42,9 +42,9 @@ type BaseContext = {
   currentEncryptedDomain: EncryptedDomainBlob | null;
   baseFullBlob: Record<string, unknown>;
   expectedDataVersion?: number;
-  upgradeContext?: PkmUpgradeContext;
   attempt: number;
   upgradedInSession: boolean;
+  upgradeContext?: PkmUpgradeContext;
 };
 
 type MergedWritePlan = {
@@ -92,7 +92,7 @@ function buildSyncCheckpoint(params: {
   );
   const currentManifestVersion = toNullableVersion(params.context.currentManifest?.manifest_version);
   const targetManifestVersion = toNullableVersion(params.plan.manifest?.manifest_version);
-  const upgradeRunId = params.context.upgradeContext?.runId || null;
+  const upgradeRunId = null;
 
   return {
     schemaVersion: "pkm_sync_checkpoint.v1",
@@ -161,27 +161,19 @@ async function buildWriteContext(params: {
   vaultOwnerToken: string;
   attempt: number;
   upgradedInSession: boolean;
-  upgradeContext?: PkmUpgradeContext;
 }): Promise<BaseContext> {
-  const [{ baseFullBlob, domainData, expectedDataVersion }, currentManifest, currentEncryptedDomain] =
-    await Promise.all([
-      PkmDomainResourceService.prepareDomainWriteContext({
-        userId: params.userId,
-        domain: params.domain,
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
-      }),
-      PersonalKnowledgeModelService.getDomainManifest(
-        params.userId,
-        params.domain,
-        params.vaultOwnerToken
-      ).catch(() => null),
-      PersonalKnowledgeModelService.getDomainData(
-        params.userId,
-        params.domain,
-        params.vaultOwnerToken
-      ).catch(() => null),
-    ]);
+  const {
+    baseFullBlob,
+    domainData,
+    expectedDataVersion,
+    manifest: currentManifest,
+    encryptedDomain: currentEncryptedDomain,
+  } = await PkmDomainResourceService.prepareDomainWriteContext({
+    userId: params.userId,
+    domain: params.domain,
+    vaultKey: params.vaultKey,
+    vaultOwnerToken: params.vaultOwnerToken,
+  });
 
   return {
     currentDomainData: domainData ?? {},
@@ -191,7 +183,6 @@ async function buildWriteContext(params: {
     expectedDataVersion,
     attempt: params.attempt,
     upgradedInSession: params.upgradedInSession,
-    upgradeContext: params.upgradeContext,
   };
 }
 
@@ -200,7 +191,7 @@ async function ensureWritableVersion(params: {
   domain: string;
   vaultKey: string;
   vaultOwnerToken: string;
-}): Promise<{ upgraded: boolean; upgradeContext?: PkmUpgradeContext }> {
+}): Promise<{ upgraded: boolean }> {
   const metadata = await PersonalKnowledgeModelService.getMetadata(
     params.userId,
     true,
@@ -266,30 +257,7 @@ async function ensureWritableVersion(params: {
       "This saved information was created by a newer app version. Update the app before changing it."
     );
   }
-  const upgradedDomain = refreshedStatus?.upgradableDomains.find(
-    (entry) => entry.domain === params.domain
-  );
-
-  return {
-    upgraded: true,
-    upgradeContext: refreshedStatus?.run?.runId
-      ? {
-          runId: refreshedStatus.run.runId,
-          priorDomainContractVersion:
-            domainStatus?.currentDomainContractVersion || manifestContractVersion || undefined,
-          newDomainContractVersion:
-            upgradedDomain?.targetDomainContractVersion ||
-            domainStatus?.targetDomainContractVersion ||
-            currentDomainContractVersion(params.domain),
-          priorReadableSummaryVersion:
-            domainStatus?.currentReadableSummaryVersion || manifestReadableVersion || undefined,
-          newReadableSummaryVersion:
-            upgradedDomain?.targetReadableSummaryVersion ||
-            domainStatus?.targetReadableSummaryVersion ||
-            CURRENT_READABLE_SUMMARY_VERSION,
-        }
-      : undefined,
-  };
+  return { upgraded: true };
 }
 
 export class PkmWriteCoordinator {
@@ -307,7 +275,6 @@ export class PkmWriteCoordinator {
 
     let upgradedInSession = false;
     let retryingAfterConflict = false;
-    let upgradeContext: PkmUpgradeContext | undefined;
 
     try {
       for (let attempt = 0; attempt <= MAX_CONFLICT_RETRIES; attempt += 1) {
@@ -319,7 +286,6 @@ export class PkmWriteCoordinator {
             vaultOwnerToken: params.vaultOwnerToken,
           });
           upgradedInSession = upgrade.upgraded;
-          upgradeContext = upgrade.upgradeContext;
         }
 
         const context = await buildWriteContext({
@@ -329,7 +295,6 @@ export class PkmWriteCoordinator {
           vaultOwnerToken: params.vaultOwnerToken,
           attempt,
           upgradedInSession,
-          upgradeContext,
         });
         const plan = await params.build(context);
         const mutationPlan = await buildConfirmedPkmMutationPlanV2({
@@ -362,7 +327,6 @@ export class PkmWriteCoordinator {
           writeProjections: plan.writeProjections,
           baseFullBlob: context.baseFullBlob,
           expectedDataVersion: context.currentEncryptedDomain?.dataVersion ?? context.expectedDataVersion,
-          upgradeContext: context.upgradeContext,
           syncCheckpoint,
           mutationPlan,
           cacheFullBlob: false,
@@ -423,7 +387,6 @@ export class PkmWriteCoordinator {
 
     let upgradedInSession = false;
     let retryingAfterConflict = false;
-    let upgradeContext: PkmUpgradeContext | undefined;
 
     try {
       for (let attempt = 0; attempt <= MAX_CONFLICT_RETRIES; attempt += 1) {
@@ -435,7 +398,6 @@ export class PkmWriteCoordinator {
             vaultOwnerToken: params.vaultOwnerToken,
           });
           upgradedInSession = upgrade.upgraded;
-          upgradeContext = upgrade.upgradeContext;
         }
 
         const context = await buildWriteContext({
@@ -445,7 +407,6 @@ export class PkmWriteCoordinator {
           vaultOwnerToken: params.vaultOwnerToken,
           attempt,
           upgradedInSession,
-          upgradeContext,
         });
         const plan = await params.build(context);
         const mergeMode = String(plan.mergeDecision?.merge_mode || "").trim().toLowerCase();
@@ -488,7 +449,6 @@ export class PkmWriteCoordinator {
           writeProjections: plan.writeProjections,
           baseFullBlob: context.baseFullBlob,
           expectedDataVersion: context.currentEncryptedDomain?.dataVersion ?? context.expectedDataVersion,
-          upgradeContext: context.upgradeContext,
           syncCheckpoint,
           mutationPlan,
           cacheFullBlob: false,

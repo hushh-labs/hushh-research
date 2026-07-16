@@ -933,8 +933,8 @@ def test_adapter_without_headers_omits_headers_kwarg(monkeypatch):
     assert "headers" not in captured["kwargs"]
 
 
-def test_resolve_system_uses_db_registry_when_flag_enabled(monkeypatch):
-    """With the flag on, the service resolves the DB-backed definition."""
+def test_resolve_system_uses_db_registry_by_default(monkeypatch):
+    """Runtime resolution always uses the DB-backed definition."""
     from hushh_mcp.services import connected_systems_service as svc
 
     db_definition = svc.ConnectedSystemDefinition(
@@ -952,11 +952,6 @@ def test_resolve_system_uses_db_registry_when_flag_enabled(monkeypatch):
         transport_headers=(("client_id", "cid"), ("client_secret", "sec")),
     )
 
-    monkeypatch.setattr(svc, "crm_registry_db_enabled", lambda: True, raising=False)
-    import hushh_mcp.runtime_settings as rs
-
-    monkeypatch.setattr(rs, "crm_registry_db_enabled", lambda: True)
-
     import hushh_mcp.services.crm_registry_repo as repo
 
     monkeypatch.setattr(repo, "load_active_definition", lambda system_id, db=None: db_definition)
@@ -970,25 +965,8 @@ def test_resolve_system_uses_db_registry_when_flag_enabled(monkeypatch):
     assert dict(resolved.transport_headers)["client_id"] == "cid"
 
 
-def test_resolve_system_falls_back_to_hardcoded_when_flag_disabled(monkeypatch):
-    """With the flag off, the service uses the in-code definition."""
-    import hushh_mcp.runtime_settings as rs
-
-    monkeypatch.setattr(rs, "crm_registry_db_enabled", lambda: False)
-
-    service = ConnectedSystemsService(
-        adapter=FakeExternalCrmAdapter(), store=InMemoryConnectedSystemIntentStore()
-    )
-    resolved = service.get_system(CONNECTED_SYSTEM_SALESFORCE_ID)
-    assert resolved.registry_source == "customer0_connected_system_registry"
-    assert resolved.transport_headers == ()
-
-
 def test_resolve_system_raises_when_db_row_missing(monkeypatch):
-    """Flag on but no DB row → no data found (NOT a hardcoded fallback)."""
-    import hushh_mcp.runtime_settings as rs
-
-    monkeypatch.setattr(rs, "crm_registry_db_enabled", lambda: True)
+    """A missing DB row produces no-data; runtime never falls back to code."""
 
     import hushh_mcp.services.crm_registry_repo as repo
 

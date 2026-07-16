@@ -20,14 +20,9 @@ CONNECTED_SYSTEM_SALESFORCE_ID = "salesforce-fsc-customer0"
 DEFAULT_TARGET = "Macys"
 DEFAULT_OBJECT_TYPE = "Contact"
 EXTERNAL_CRM_TRANSPORT = "external_crm_streamable_mcp"
+# This in-code fixture remains available only to explicit test registries. Runtime
+# resolution always loads active systems from enterprise_crm_registry.
 REGISTRY_SOURCE = "customer0_connected_system_registry"
-# Fallback (in-code) endpoint when the DB registry is disabled or the row is
-# missing. Points at the secured Omni Gateway, but the in-code definition carries
-# NO transport_headers — so an unauthenticated fallback call fails closed at the
-# gateway (411/401) rather than silently reaching an unauthenticated endpoint.
-# Production must use the DB registry (CRM_REGISTRY_DB_ENABLED=true) so gateway
-# transport auth and CRM credential custody come from the enterprise registry
-# contract rather than the public fallback definition.
 REGISTRY_MCP_ENDPOINT = (
     "https://hussh-og-nonprod-ingress-a3e0me.y4rjsf.usa-e2.cloudhub.io/crm-connect/v1/mcp"
 )
@@ -666,8 +661,6 @@ SALESFORCE_CRM_SYSTEM = ConnectedSystemDefinition(
     registry_source=REGISTRY_SOURCE,
     tool_catalog=EXTERNAL_CRM_TOOL_CATALOG,
 )
-
-REGISTERED_CONNECTED_SYSTEMS: tuple[ConnectedSystemDefinition, ...] = (SALESFORCE_CRM_SYSTEM,)
 
 
 class ExternalCrmStreamableMcpAdapter:
@@ -1335,13 +1328,9 @@ class ConnectedSystemsService:
         self.delete_enabled = True if delete_enabled is None else delete_enabled
 
     def _load_registry(self) -> tuple[ConnectedSystemDefinition, ...]:
-        from hushh_mcp.runtime_settings import crm_registry_db_enabled
+        from hushh_mcp.services import crm_registry_repo
 
-        if crm_registry_db_enabled():
-            from hushh_mcp.services import crm_registry_repo
-
-            return crm_registry_repo.load_active_definitions()
-        return REGISTERED_CONNECTED_SYSTEMS
+        return crm_registry_repo.load_active_definitions()
 
     def _adapter_for_system(
         self, system: ConnectedSystemDefinition
@@ -1363,32 +1352,25 @@ class ConnectedSystemsService:
     def _resolve_system(self, system_id: str) -> ConnectedSystemDefinition:
         """Resolve a connected system definition.
 
-        When CRM_REGISTRY_DB_ENABLED is on, the DB-backed enterprise CRM registry
-        is the ONLY source of truth: a missing/inactive row raises
-        ConnectedSystemNotFoundError ("no data found") rather than silently
-        falling back to a hardcoded definition. A decryption/configuration error
-        also surfaces (raised by the repo) so a misconfigured row fails loudly.
-
-        When the flag is off, the legacy hardcoded in-code registry is used.
+        The DB-backed enterprise CRM registry is the only runtime source of
+        truth: a missing/inactive row raises ConnectedSystemNotFoundError
+        ("no data found") rather than falling back to a hardcoded definition.
+        A decryption/configuration error also surfaces so a misconfigured row
+        fails loudly.
         """
-        from hushh_mcp.runtime_settings import crm_registry_db_enabled
-
         if self._registry_explicit:
             return self._registry_system(system_id)
 
-        if crm_registry_db_enabled():
-            from hushh_mcp.services import crm_registry_repo
+        from hushh_mcp.services import crm_registry_repo
 
-            definition = crm_registry_repo.load_active_definition(system_id)
-            if definition is None:
-                logger.warning("crm_registry.no_active_row system_id=%s db_enabled=true", system_id)
-                raise ConnectedSystemNotFoundError(
-                    "No active CRM registry entry found for this system.",
-                    code="CONNECTED_SYSTEM_REGISTRY_ROW_NOT_FOUND",
-                )
-            return definition
-
-        return self._registry_system(system_id)
+        definition = crm_registry_repo.load_active_definition(system_id)
+        if definition is None:
+            logger.warning("crm_registry.no_active_row system_id=%s", system_id)
+            raise ConnectedSystemNotFoundError(
+                "No active CRM registry entry found for this system.",
+                code="CONNECTED_SYSTEM_REGISTRY_ROW_NOT_FOUND",
+            )
+        return definition
 
     def _registry_system(self, system_id: str) -> ConnectedSystemDefinition:
         for system in self.registry:

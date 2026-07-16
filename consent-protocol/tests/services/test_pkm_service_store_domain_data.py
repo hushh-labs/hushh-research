@@ -1,4 +1,6 @@
 import json
+import re
+import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -16,6 +18,22 @@ from hushh_mcp.services.personal_knowledge_model_service import (
 def _unwrap(value):
     """Unwrap a JsonParam marker (used for JSONB-array RPC params) if present."""
     return value.value if isinstance(value, JsonParam) else value
+
+
+def test_pkm_rpc_payload_unwraps_direct_postgres_and_supabase_shapes():
+    payload = {"schema_version": "pkm_domain_snapshot.v1", "content_revision": 7}
+
+    direct = SimpleNamespace(data=[{"get_pkm_domain_snapshot_v1": payload}])
+    supabase = SimpleNamespace(data=[payload])
+
+    assert (
+        PersonalKnowledgeModelService._unwrap_rpc_payload(direct, "get_pkm_domain_snapshot_v1")
+        == payload
+    )
+    assert (
+        PersonalKnowledgeModelService._unwrap_rpc_payload(supabase, "get_pkm_domain_snapshot_v1")
+        == payload
+    )
 
 
 def _confirmed_create_plan(*, user_id: str, domain: str, scope: str = "portfolio") -> dict:
@@ -115,11 +133,11 @@ class _StubSupabase:
 
     def rpc(self, function_name: str, params=None):
         self.rpc_calls.append({"function_name": function_name, "params": params or {}})
-        if function_name == "commit_pkm_domain_mutation_v3":
+        if function_name == "commit_pkm_domain_mutation_v4":
             return _StubSupabaseTable(
                 rows=[
                     {
-                        "commit_pkm_domain_mutation_v3": {
+                        "commit_pkm_domain_mutation_v4": {
                             "success": True,
                             "conflict": False,
                             "data_version": 1,
@@ -221,7 +239,7 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
     assert result["success"] is True
     assert len(service._supabase.rpc_calls) == 1
     rpc_call = service._supabase.rpc_calls[0]
-    assert rpc_call["function_name"] == "commit_pkm_domain_mutation_v3"
+    assert rpc_call["function_name"] == "commit_pkm_domain_mutation_v4"
     params = rpc_call["params"]
     assert "PRIVATE USER SENTENCE" not in json.dumps(params["p_manifest_row"])
     assert "PRIVATE USER SENTENCE" not in json.dumps(params["p_summary_patch"])
@@ -229,6 +247,14 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
     assert "message_excerpt" not in params["p_manifest_row"]["summary_projection"]
     assert params["p_expected_content_revision"] == 0
     assert params["p_next_content_revision"] == 1
+    commit_namespace = uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        "https://hushh.ai/contracts/pkm/domain-mutation/v1",
+    )
+    assert params["p_commit_id"] == str(
+        uuid.uuid5(commit_namespace, "user-1:financial:pkm_plan_confirmed_001")
+    )
+    assert re.fullmatch(r"[0-9a-f]{64}", params["p_request_fingerprint"])
     assert {row["segment_id"] for row in _unwrap(params["p_segment_rows"])} == {"root"}
     assert params["p_manifest_row"]["path_count"] == 4
     assert params["p_manifest_row"]["externalizable_path_count"] == 2
@@ -972,6 +998,9 @@ async def test_get_domain_manifest_normalizes_duplicate_scope_registry_rows(monk
             "segment_ids": ["advisor_package"],
             "sensitivity_tier": "confidential",
             "scope_kind": "subtree",
+            "scope_origin": "dynamic",
+            "scope_origin_code": "d",
+            "source_kind": "manifest_branch",
             "exposure_enabled": True,
             "visibility_posture": "consent_required",
             "default_projection_ready": False,
@@ -993,6 +1022,9 @@ async def test_get_domain_manifest_normalizes_duplicate_scope_registry_rows(monk
             "segment_ids": ["root"],
             "sensitivity_tier": "confidential",
             "scope_kind": "subtree",
+            "scope_origin": "dynamic",
+            "scope_origin_code": "d",
+            "source_kind": "manifest_branch",
             "exposure_enabled": False,
             "visibility_posture": "private",
             "default_projection_ready": False,

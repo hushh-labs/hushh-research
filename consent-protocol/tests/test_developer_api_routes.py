@@ -53,6 +53,13 @@ def test_list_scopes_returns_dynamic_catalog(monkeypatch):
     assert "cap.one.invoke" in names
     assert all("world" not in name for name in names)
     assert "attr.{domain_slug}.{scope_slug}.*" in names
+    descriptors = {item["name"]: item for item in payload["scopes"]}
+    assert descriptors["cap.one.invoke"]["scope_origin"] == "reserved"
+    assert descriptors["cap.one.invoke"]["scope_origin_code"] == "r"
+    assert descriptors["cap.one.invoke"]["source_kind"] == "reserved_registry"
+    assert descriptors["attr.{domain_slug}.{scope_slug}.*"]["scope_origin"] == "dynamic"
+    assert descriptors["attr.{domain_slug}.{scope_slug}.*"]["scope_origin_code"] == "d"
+    assert descriptors["attr.{domain_slug}.{scope_slug}.*"]["source_kind"] == "manifest_branch"
     assert payload["request_endpoint"] == "/api/v1/request-consent"
     assert payload["public_profile_export_endpoint"] == "/api/v1/public-profile-export"
     assert "hushh://info/developer-api" in payload["mcp_resources"]

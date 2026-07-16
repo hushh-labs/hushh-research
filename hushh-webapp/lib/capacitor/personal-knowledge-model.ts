@@ -191,12 +191,30 @@ export interface HushhPersonalKnowledgeModelPlugin {
     }>;
     expectedDataVersion?: number;
     upgradeContext?: {
+      schemaVersion: "pkm_upgrade_claim.v1";
+      claimId: string;
+      commitId: string;
+      ownerUserId: string;
       runId: string;
-      priorDomainContractVersion?: number;
-      newDomainContractVersion?: number;
-      priorReadableSummaryVersion?: number;
-      newReadableSummaryVersion?: number;
-      retryCount?: number;
+      domain: string;
+      sourceContentRevision: number;
+      sourceManifestRevision: number;
+      targetDomainContractVersion: number;
+      targetReadableSummaryVersion: number;
+      targetPkmContractVersion: string;
+      targetReadableProjectionVersion: string;
+      expiresAt: string;
+      mode: "real";
+    };
+    preservationReceipt?: {
+      schemaVersion: "pkm_preservation_receipt.v1";
+      totalSourceOccurrences: number;
+      preserved: number;
+      moved: number;
+      equalValueDeduplicated: number;
+      quarantined: number;
+      rejected: number;
+      complete: boolean;
     };
     mutationPlan?: Record<string, unknown>;
     syncCheckpoint?: PkmSyncCheckpointPluginMetadata;
@@ -207,6 +225,19 @@ export interface HushhPersonalKnowledgeModelPlugin {
     message?: string;
     dataVersion?: number;
     updatedAt?: string;
+    manifestRevision?: number;
+    commitId?: string;
+    archivedRevisionId?: string;
+    preservationReceipt?: {
+      schemaVersion: "pkm_preservation_receipt.v1";
+      totalSourceOccurrences: number;
+      preserved: number;
+      moved: number;
+      equalValueDeduplicated: number;
+      quarantined: number;
+      rejected: number;
+      complete: boolean;
+    };
   }>;
 
   getDomainData(options: {
@@ -236,6 +267,13 @@ export interface HushhPersonalKnowledgeModelPlugin {
     manifest_revision?: number;
     segment_ids?: string[];
   }>;
+
+  getDomainSnapshot(options: {
+    userId: string;
+    domain: string;
+    segmentIds?: string[];
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>>;
 
   clearDomain(options: {
     userId: string;

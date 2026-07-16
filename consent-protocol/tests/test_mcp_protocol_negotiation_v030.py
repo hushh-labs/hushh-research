@@ -44,7 +44,9 @@ def test_live_stdio_negotiates_supported_versions_and_lists_exact_tools(
         "VAULT_DATA_KEY": "0" * 64,
         "PYTHONPATH": str(root),
     }
-    env.pop("HUSHH_DEVELOPER_TOKEN", None)
+    # Keep the key present and empty so a maintainer's local dotenv file cannot
+    # repopulate it inside the spawned MCP process.
+    env["HUSHH_DEVELOPER_TOKEN"] = ""
     process = subprocess.Popen(  # noqa: S603 - fixed interpreter and repo-local server path
         [sys.executable, str(root / "mcp_server.py")],
         cwd=root,

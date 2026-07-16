@@ -8,6 +8,10 @@ import {
 } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import type { DomainSummary } from "@/lib/services/personal-knowledge-model-service";
 
+// Cross-runtime reserved segment contract. Information placed here remains
+// encrypted but must never appear in scope discovery or consent exports.
+export const PKM_QUARANTINE_SEGMENT_ID = "__quarantine_v1" as const;
+
 export type PkmDomainCapability =
   | "manifest_normalization"
   | "readable_summary"
@@ -41,6 +45,30 @@ export type PkmLosslessValidation = {
   beforeLeafCount: number;
   afterLeafCount: number;
   issueCodes: string[];
+  receipt: PreservationReceiptV1;
+};
+
+export type PkmOccurrenceClassification =
+  | "preserved"
+  | "moved"
+  | "equal_value_deduplicated"
+  | "quarantined";
+
+export type PkmOccurrenceLineage = {
+  sourcePointer: string;
+  targetPointer: string;
+  classification: PkmOccurrenceClassification;
+};
+
+export type PreservationReceiptV1 = {
+  schemaVersion: "pkm_preservation_receipt.v1";
+  totalSourceOccurrences: number;
+  preserved: number;
+  moved: number;
+  equalValueDeduplicated: number;
+  quarantined: number;
+  rejected: number;
+  complete: boolean;
 };
 
 export class PkmFutureVersionError extends Error {
@@ -71,70 +99,142 @@ function cloneRecord<T extends Record<string, unknown>>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function countLeaves(value: unknown): number {
-  if (Array.isArray(value)) {
-    return value.length === 0 ? 1 : value.reduce((sum, item) => sum + countLeaves(item), 0);
-  }
-  if (value && typeof value === "object") {
-    const children = Object.values(value as Record<string, unknown>);
-    return children.length === 0
-      ? 1
-      : children.reduce<number>((sum, child) => sum + countLeaves(child), 0);
-  }
-  return 1;
+type JsonOccurrence = { pointer: string; value: unknown; type: string };
+
+function escapeJsonPointer(value: string): string {
+  return value.replace(/~/g, "~0").replace(/\//g, "~1");
 }
 
-function verifyPreserved(before: unknown, after: unknown, issueCodes: Set<string>): void {
-  if (Array.isArray(before)) {
-    if (!Array.isArray(after)) {
-      issueCodes.add("array_type_changed");
-      return;
+function jsonValueType(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
+function enumerateOccurrences(value: unknown, pointer = ""): JsonOccurrence[] {
+  if (Array.isArray(value)) {
+    if (value.length === 0) return [{ pointer, value, type: "array" }];
+    return value.flatMap((item, index) => enumerateOccurrences(item, `${pointer}/${index}`));
+  }
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return [{ pointer, value, type: "object" }];
+    return entries.flatMap(([key, child]) =>
+      enumerateOccurrences(child, `${pointer}/${escapeJsonPointer(key)}`)
+    );
+  }
+  return [{ pointer, value, type: jsonValueType(value) }];
+}
+
+function jsonValuesEqual(left: unknown, right: unknown): boolean {
+  if (jsonValueType(left) !== jsonValueType(right)) return false;
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length === right.length && left.every((value, index) => jsonValuesEqual(value, right[index]));
+  }
+  if (left && right && typeof left === "object" && typeof right === "object") {
+    const leftEntries = Object.entries(left as Record<string, unknown>);
+    const rightRecord = right as Record<string, unknown>;
+    return (
+      leftEntries.length === Object.keys(rightRecord).length &&
+      leftEntries.every(([key, value]) =>
+        Object.prototype.hasOwnProperty.call(rightRecord, key) &&
+        jsonValuesEqual(value, rightRecord[key])
+      )
+    );
+  }
+  return Object.is(left, right);
+}
+
+function buildPreservationProof(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  lineage: PkmOccurrenceLineage[] = []
+): { receipt: PreservationReceiptV1; issueCodes: string[]; afterCount: number } {
+  const issueCodes = new Set<string>();
+  const sourceOccurrences = enumerateOccurrences(before);
+  const targetOccurrences = new Map(
+    enumerateOccurrences(after).map((occurrence) => [occurrence.pointer, occurrence])
+  );
+  const explicitLineage = new Map(lineage.map((entry) => [entry.sourcePointer, entry]));
+  const counts = {
+    preserved: 0,
+    moved: 0,
+    equalValueDeduplicated: 0,
+    quarantined: 0,
+    rejected: 0,
+  };
+
+  for (const source of sourceOccurrences) {
+    const declared = explicitLineage.get(source.pointer);
+    const classification = declared?.classification || "preserved";
+    const targetPointer = declared?.targetPointer ?? source.pointer;
+    const target = targetOccurrences.get(targetPointer);
+    if (!target) {
+      issueCodes.add("source_occurrence_unmapped");
+      issueCodes.add("field_dropped");
+      counts.rejected += 1;
+      continue;
     }
-    if (before.length !== after.length) {
-      issueCodes.add("array_length_changed");
-      return;
+    if (source.type !== target.type) {
+      issueCodes.add("source_occurrence_type_changed");
+      issueCodes.add("leaf_changed");
+      counts.rejected += 1;
+      continue;
     }
-    before.forEach((item, index) => verifyPreserved(item, after[index], issueCodes));
-    return;
+    if (!jsonValuesEqual(source.value, target.value)) {
+      issueCodes.add("source_occurrence_value_changed");
+      issueCodes.add("leaf_changed");
+      counts.rejected += 1;
+      continue;
+    }
+    if (classification === "preserved" && source.pointer !== targetPointer) {
+      issueCodes.add("preserved_occurrence_moved_without_lineage");
+      counts.rejected += 1;
+      continue;
+    }
+    if (classification === "moved" && source.pointer === targetPointer) {
+      issueCodes.add("moved_occurrence_has_same_pointer");
+      counts.rejected += 1;
+      continue;
+    }
+    if (classification === "preserved") counts.preserved += 1;
+    else if (classification === "moved") counts.moved += 1;
+    else if (classification === "equal_value_deduplicated") counts.equalValueDeduplicated += 1;
+    else counts.quarantined += 1;
   }
 
-  if (before && typeof before === "object") {
-    if (!after || typeof after !== "object" || Array.isArray(after)) {
-      issueCodes.add("object_type_changed");
-      return;
-    }
-    const afterRecord = after as Record<string, unknown>;
-    for (const [key, value] of Object.entries(before as Record<string, unknown>)) {
-      if (!Object.prototype.hasOwnProperty.call(afterRecord, key)) {
-        issueCodes.add("field_dropped");
-        continue;
-      }
-      verifyPreserved(value, afterRecord[key], issueCodes);
-    }
-    return;
-  }
-
-  if (!Object.is(before, after)) {
-    issueCodes.add("leaf_changed");
-  }
+  const totalSourceOccurrences = sourceOccurrences.length;
+  const classified =
+    counts.preserved +
+    counts.moved +
+    counts.equalValueDeduplicated +
+    counts.quarantined;
+  const complete = counts.rejected === 0 && classified === totalSourceOccurrences;
+  if (!complete) issueCodes.add("preservation_receipt_incomplete");
+  return {
+    receipt: {
+      schemaVersion: "pkm_preservation_receipt.v1",
+      totalSourceOccurrences,
+      ...counts,
+      complete,
+    },
+    issueCodes: [...issueCodes].sort(),
+    afterCount: enumerateOccurrences(after).length,
+  };
 }
 
 export function validateLosslessDomainUpgrade(
   before: Record<string, unknown>,
-  after: Record<string, unknown>
+  after: Record<string, unknown>,
+  lineage: PkmOccurrenceLineage[] = []
 ): PkmLosslessValidation {
-  const issueCodes = new Set<string>();
-  verifyPreserved(before, after, issueCodes);
-  const beforeLeafCount = countLeaves(before);
-  const afterLeafCount = countLeaves(after);
-  if (afterLeafCount < beforeLeafCount) {
-    issueCodes.add("leaf_count_decreased");
-  }
+  const proof = buildPreservationProof(before, after, lineage);
   return {
-    preserved: issueCodes.size === 0,
-    beforeLeafCount,
-    afterLeafCount,
-    issueCodes: [...issueCodes].sort(),
+    preserved: proof.receipt.complete,
+    beforeLeafCount: proof.receipt.totalSourceOccurrences,
+    afterLeafCount: proof.afterCount,
+    issueCodes: proof.issueCodes,
+    receipt: proof.receipt,
   };
 }
 

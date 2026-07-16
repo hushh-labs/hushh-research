@@ -75,7 +75,8 @@
     "094_one_onboarding_callback_attempt_v1.sql",
     "095_one_kyc_needs_confirm_status.sql",
     "096_atomic_pkm_mutation_v3_scope_posture.sql",
-    "097_redact_legacy_pkm_message_excerpts.sql"
+    "097_redact_legacy_pkm_message_excerpts.sql",
+    "098_pkm_v7_recovery_foundation.sql"
   ],
   "groups": {
     "iam": [
@@ -136,7 +137,8 @@
       "090_public_profile_projection_foundation.sql",
       "091_public_profile_projection_cutover.sql",
       "096_atomic_pkm_mutation_v3_scope_posture.sql",
-      "097_redact_legacy_pkm_message_excerpts.sql"
+      "097_redact_legacy_pkm_message_excerpts.sql",
+      "098_pkm_v7_recovery_foundation.sql"
     ],
     "developer": [
       "070_developer_registry.sql",

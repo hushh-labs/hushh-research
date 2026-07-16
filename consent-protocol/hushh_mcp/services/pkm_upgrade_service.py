@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import logging
+import os
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from db.db_client import JsonParam
 from hushh_mcp.services.domain_contracts import (
     CURRENT_PKM_CONTRACT_VERSION,
     CURRENT_PKM_MODEL_VERSION,
@@ -20,10 +23,21 @@ from hushh_mcp.services.personal_knowledge_model_service import (
 logger = logging.getLogger(__name__)
 
 _ACTIVE_RUN_STATUSES = {"planned", "running", "awaiting_local_auth_resume"}
-
-
-def _now_iso() -> str:
-    return datetime.now(UTC).isoformat()
+_RUN_TRANSITIONS = {
+    "planned": {"planned", "running", "failed", "canceled"},
+    "running": {"running", "awaiting_local_auth_resume", "completed", "failed", "canceled"},
+    "awaiting_local_auth_resume": {"running", "failed", "canceled"},
+    "completed": {"completed"},
+    "failed": {"failed"},
+    "canceled": {"canceled"},
+}
+_STEP_TRANSITIONS = {
+    "pending": {"pending", "running", "failed"},
+    "running": {"running", "conflict_retry", "completed", "failed"},
+    "conflict_retry": {"running", "conflict_retry", "completed", "failed"},
+    "completed": {"completed"},
+    "failed": {"failed"},
+}
 
 
 class PkmUpgradeService:
@@ -74,6 +88,64 @@ class PkmUpgradeService:
                 parsed = 0
             normalized.append(max(0, parsed))
         return normalized[0], normalized[1], normalized[2]
+
+    @staticmethod
+    def _env_flag(name: str, default: bool = False) -> bool:
+        raw = str(os.getenv(name, "true" if default else "false")).strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def _v7_cohort_bucket(user_id: str) -> int:
+        digest = hashlib.sha256(f"pkm-v7:{user_id}".encode("utf-8")).digest()
+        return int.from_bytes(digest[:4], "big") % 100
+
+    def _upgrade_policy(self, user_id: str) -> dict[str, Any]:
+        try:
+            cohort_percent = max(0, min(100, int(os.getenv("PKM_V7_COHORT_PERCENT", "0"))))
+        except (TypeError, ValueError):
+            cohort_percent = 0
+        stage = str(os.getenv("PKM_V7_STAGE", "off")).strip().lower()
+        if stage not in {"off", "reviewer", "internal", "1", "5", "25", "100"}:
+            stage = "off"
+        kill_switch_active = self._env_flag("PKM_V7_KILL_SWITCH_ACTIVE", True)
+        shadow_enabled = self._env_flag("PKM_V7_SHADOW_ENABLED", False)
+        write_promotion_enabled = self._env_flag("PKM_V7_WRITE_PROMOTION_ENABLED", False)
+        eligible = (
+            stage != "off"
+            and not kill_switch_active
+            and write_promotion_enabled
+            and self._v7_cohort_bucket(user_id) < cohort_percent
+        )
+        return {
+            "schema_version": "pkm_upgrade_policy.v1",
+            "stage": stage,
+            "shadow_enabled": shadow_enabled,
+            "write_promotion_enabled": write_promotion_enabled,
+            "kill_switch_active": kill_switch_active,
+            "eligible": eligible,
+            "cohort_percent": cohort_percent,
+            "target_domain": "financial",
+            "target_pkm_contract_version": "7.0.0",
+        }
+
+    def assert_upgrade_commit_allowed(
+        self,
+        *,
+        user_id: str,
+        upgrade_claim: dict[str, Any],
+    ) -> None:
+        """Re-evaluate rollout authority at commit time.
+
+        Claims are short-lived, but the kill switch must take effect
+        immediately even when a client obtained a claim before activation.
+        Pre-v7 upgrade claims remain governed by their existing server claim
+        and are not blocked by the financial v7 rollout switch.
+        """
+        target_contract = self._semantic_version(upgrade_claim.get("target_pkm_contract_version"))
+        if target_contract[0] < 7:
+            return
+        if not self._upgrade_policy(user_id)["eligible"]:
+            raise ValueError("PKM v7 commits are disabled by server rollout policy.")
 
     @staticmethod
     def _coerce_datetime(value: Any) -> datetime | None:
@@ -472,6 +544,10 @@ class PkmUpgradeService:
             "unsupported_domains": unsupported_domains,
             "last_upgraded_at": last_upgraded_at,
             "run": latest_run,
+            # Financial v7 is reader/shadow-first. Missing policy on older
+            # clients must also fail closed, so every status response carries
+            # an explicit server-owned kill switch.
+            "upgrade_policy": self._upgrade_policy(user_id),
         }
 
     async def _maybe_reconcile_current_index(
@@ -528,18 +604,17 @@ class PkmUpgradeService:
         latest_run = status_payload.get("run")
         if latest_run and latest_run.get("status") in _ACTIVE_RUN_STATUSES:
             if latest_run["status"] == "awaiting_local_auth_resume":
-                now_iso = _now_iso()
-                (
-                    self.supabase.table("pkm_upgrade_runs")
-                    .update(
-                        {
-                            "status": "running",
-                            "resume_count": self._to_int(latest_run.get("resume_count"), 0) + 1,
-                            "last_checkpoint_at": now_iso,
-                        }
-                    )
-                    .eq("run_id", latest_run["run_id"])
-                    .execute()
+                await self.pkm_service._run_rpc(
+                    "start_or_resume_pkm_upgrade_v1",
+                    {
+                        "p_user_id": user_id,
+                        "p_run_id": latest_run["run_id"],
+                        "p_from_model_version": status_payload.get("model_version") or 1,
+                        "p_to_model_version": CURRENT_PKM_MODEL_VERSION,
+                        "p_initiated_by": initiated_by,
+                        "p_mode": mode,
+                        "p_step_rows": JsonParam([]),
+                    },
                 )
             return await self.build_status(user_id)
 
@@ -553,47 +628,35 @@ class PkmUpgradeService:
             return status_payload
 
         run_id = f"pkm_upgrade_{uuid.uuid4().hex}"
-        now_iso = _now_iso()
-        run_row = {
-            "run_id": run_id,
-            "user_id": user_id,
-            "status": "running",
-            "from_model_version": status_payload.get("model_version") or 1,
-            "to_model_version": CURRENT_PKM_MODEL_VERSION,
-            "current_domain": upgradable_domains[0]["domain"],
-            "initiated_by": initiated_by,
-            "resume_count": 0,
-            "started_at": now_iso,
-            "last_checkpoint_at": now_iso,
-            "completed_at": None,
-            "last_error": None,
-        }
-        self.supabase.table("pkm_upgrade_runs").insert(run_row).execute()
         step_rows = [
             {
-                "run_id": run_id,
                 "domain": domain_state["domain"],
-                "status": "pending",
                 "from_domain_contract_version": domain_state["current_domain_contract_version"],
                 "to_domain_contract_version": domain_state["target_domain_contract_version"],
                 "from_readable_summary_version": domain_state["current_readable_summary_version"],
                 "to_readable_summary_version": domain_state["target_readable_summary_version"],
-                "attempt_count": 0,
-                "checkpoint_payload": {},
             }
             for domain_state in upgradable_domains
         ]
-        if step_rows:
-            self.supabase.table("pkm_upgrade_steps").upsert(
-                step_rows,
-                on_conflict="run_id,domain",
-            ).execute()
+        await self.pkm_service._run_rpc(
+            "start_or_resume_pkm_upgrade_v1",
+            {
+                "p_user_id": user_id,
+                "p_run_id": run_id,
+                "p_from_model_version": status_payload.get("model_version") or 1,
+                "p_to_model_version": CURRENT_PKM_MODEL_VERSION,
+                "p_initiated_by": initiated_by,
+                "p_mode": mode,
+                "p_step_rows": JsonParam(step_rows),
+            },
+        )
         return await self.build_status(user_id)
 
     async def mark_run_status(
         self,
         *,
         run_id: str,
+        user_id: str,
         status: str,
         current_domain: str | None = None,
         last_error: str | None = None,
@@ -602,20 +665,111 @@ class PkmUpgradeService:
         if not runs:
             return None
         current = runs[0]
-        payload: dict[str, Any] = {
-            "status": status,
-            "current_domain": current_domain
-            if current_domain is not None
-            else current.get("current_domain"),
-            "last_checkpoint_at": _now_iso(),
-        }
-        if last_error is not None:
-            payload["last_error"] = last_error
-        if status == "completed":
-            payload["completed_at"] = _now_iso()
-        (self.supabase.table("pkm_upgrade_runs").update(payload).eq("run_id", run_id).execute())
-        updated = await self._list_runs_for_run_id(run_id)
-        return updated[0] if updated else None
+        if current.get("user_id") != user_id:
+            raise PermissionError("PKM upgrade run is not owned by authenticated user.")
+        allowed = _RUN_TRANSITIONS.get(str(current.get("status") or ""), set())
+        if status not in allowed:
+            raise ValueError("Invalid PKM upgrade run state transition.")
+        result = await self.pkm_service._run_rpc(
+            "transition_pkm_upgrade_run_v1",
+            {
+                "p_user_id": user_id,
+                "p_run_id": run_id,
+                "p_target_status": status,
+                "p_current_domain": current_domain,
+                "p_set_current_domain": current_domain is not None,
+                "p_last_error": last_error,
+                "p_set_last_error": last_error is not None,
+            },
+        )
+        payload = self.pkm_service._unwrap_rpc_payload(result, "transition_pkm_upgrade_run_v1")
+        return payload if isinstance(payload, dict) else None
+
+    async def issue_claim(
+        self,
+        *,
+        user_id: str,
+        run_id: str,
+        domain: str,
+        source_content_revision: int,
+        source_manifest_revision: int,
+    ) -> dict[str, Any] | None:
+        runs = await self._list_runs_for_run_id(run_id)
+        if not runs:
+            return None
+        if runs[0].get("user_id") != user_id:
+            raise PermissionError("PKM upgrade run is not owned by authenticated user.")
+        status_payload = await self.build_status(user_id)
+        domain_state = next(
+            (
+                entry
+                for entry in (status_payload.get("upgradable_domains") or [])
+                if entry.get("domain") == domain
+            ),
+            None,
+        )
+        if not domain_state:
+            raise ValueError("PKM domain is not eligible for an upgrade claim.")
+        self.assert_upgrade_commit_allowed(
+            user_id=user_id,
+            upgrade_claim={
+                "target_pkm_contract_version": domain_state.get("target_pkm_contract_version")
+            },
+        )
+        rpc_result = await self.pkm_service._run_rpc(
+            "issue_pkm_upgrade_claim_v1",
+            {
+                "p_user_id": user_id,
+                "p_run_id": run_id,
+                "p_domain": domain,
+                "p_source_content_revision": max(0, source_content_revision),
+                "p_source_manifest_revision": max(0, source_manifest_revision),
+                "p_target_domain_contract_version": domain_state["target_domain_contract_version"],
+                "p_target_readable_summary_version": domain_state[
+                    "target_readable_summary_version"
+                ],
+                "p_target_pkm_contract_version": domain_state["target_pkm_contract_version"],
+                "p_target_readable_projection_version": domain_state[
+                    "target_readable_projection_version"
+                ],
+                "p_lease_seconds": 300,
+            },
+        )
+        payload = self.pkm_service._unwrap_rpc_payload(rpc_result, "issue_pkm_upgrade_claim_v1")
+        return payload if isinstance(payload, dict) else None
+
+    async def rollback_revision(
+        self,
+        *,
+        user_id: str,
+        run_id: str,
+        domain: str,
+        revision_id: str,
+        expected_content_revision: int,
+        expected_manifest_revision: int,
+        rollback_commit_id: str,
+    ) -> dict[str, Any] | None:
+        runs = await self._list_runs_for_run_id(run_id)
+        if not runs:
+            return None
+        if runs[0].get("user_id") != user_id:
+            raise PermissionError("PKM upgrade run is not owned by authenticated user.")
+        rpc_result = await self.pkm_service._run_rpc(
+            "rollback_pkm_domain_revision_v1",
+            {
+                "p_user_id": user_id,
+                "p_run_id": run_id,
+                "p_domain": domain,
+                "p_revision_id": revision_id,
+                "p_expected_content_revision": max(0, expected_content_revision),
+                "p_expected_manifest_revision": max(0, expected_manifest_revision),
+                "p_rollback_commit_id": rollback_commit_id,
+            },
+        )
+        payload = self.pkm_service._unwrap_rpc_payload(
+            rpc_result, "rollback_pkm_domain_revision_v1"
+        )
+        return payload if isinstance(payload, dict) else None
 
     async def _list_runs_for_run_id(self, run_id: str) -> list[dict[str, Any]]:
         try:
@@ -631,6 +785,7 @@ class PkmUpgradeService:
         self,
         *,
         run_id: str,
+        user_id: str,
         domain: str,
         status: str,
         checkpoint_payload: dict[str, Any] | None = None,
@@ -638,48 +793,55 @@ class PkmUpgradeService:
         last_completed_content_revision: int | None = None,
         last_completed_manifest_version: int | None = None,
     ) -> dict[str, Any] | None:
+        runs = await self._list_runs_for_run_id(run_id)
+        if not runs:
+            return None
+        if runs[0].get("user_id") != user_id:
+            raise PermissionError("PKM upgrade run is not owned by authenticated user.")
         rows = await self._list_steps(run_id)
         current = next((row for row in rows if row["domain"] == domain), None)
         if current is None:
             return None
-        payload: dict[str, Any] = {
-            "status": status,
-            "checkpoint_payload": checkpoint_payload
-            if isinstance(checkpoint_payload, dict)
-            else {},
-        }
-        if attempt_count is not None:
-            payload["attempt_count"] = max(0, attempt_count)
-        else:
-            payload["attempt_count"] = current["attempt_count"]
-        if last_completed_content_revision is not None:
-            payload["last_completed_content_revision"] = last_completed_content_revision
-        if last_completed_manifest_version is not None:
-            payload["last_completed_manifest_version"] = last_completed_manifest_version
-        (
-            self.supabase.table("pkm_upgrade_steps")
-            .update(payload)
-            .eq("run_id", run_id)
-            .eq("domain", domain)
-            .execute()
+        allowed = _STEP_TRANSITIONS.get(str(current.get("status") or ""), set())
+        if status not in allowed:
+            raise ValueError("Invalid PKM upgrade step state transition.")
+        result = await self.pkm_service._run_rpc(
+            "transition_pkm_upgrade_step_v1",
+            {
+                "p_user_id": user_id,
+                "p_run_id": run_id,
+                "p_domain": domain,
+                "p_target_status": status,
+                "p_checkpoint_payload": JsonParam(
+                    checkpoint_payload if isinstance(checkpoint_payload, dict) else {}
+                ),
+                "p_attempt_count": max(0, attempt_count) if attempt_count is not None else None,
+                "p_last_completed_content_revision": last_completed_content_revision,
+                "p_last_completed_manifest_version": last_completed_manifest_version,
+            },
         )
-        if status in {"running", "conflict_retry"}:
-            await self.mark_run_status(run_id=run_id, status="running", current_domain=domain)
-        return next(
-            (step for step in await self._list_steps(run_id) if step["domain"] == domain), None
-        )
+        payload = self.pkm_service._unwrap_rpc_payload(result, "transition_pkm_upgrade_step_v1")
+        updated_step = payload if isinstance(payload, dict) else None
+        return updated_step
 
-    async def complete_run(self, run_id: str) -> dict[str, Any] | None:
+    async def complete_run(self, run_id: str, *, user_id: str) -> dict[str, Any] | None:
         runs = await self._list_runs_for_run_id(run_id)
         if not runs:
             return None
         run = runs[0]
+        if run.get("user_id") != user_id:
+            raise PermissionError("PKM upgrade run is not owned by authenticated user.")
         steps = await self._list_steps(run_id)
         if any(step["status"] != "completed" for step in steps):
             raise ValueError("Cannot complete PKM upgrade run with unfinished steps.")
 
         now = datetime.now(UTC)
-        await self.mark_run_status(run_id=run_id, status="completed", current_domain=None)
+        await self.mark_run_status(
+            run_id=run_id,
+            user_id=user_id,
+            status="completed",
+            current_domain=None,
+        )
 
         index = await self.pkm_service.get_index_v2(run["user_id"])
         if index is None:
@@ -693,6 +855,7 @@ class PkmUpgradeService:
         self,
         run_id: str,
         *,
+        user_id: str,
         last_error: str | None = None,
         error_context: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
@@ -700,6 +863,8 @@ class PkmUpgradeService:
         if not runs:
             return None
         run = runs[0]
+        if run.get("user_id") != user_id:
+            raise PermissionError("PKM upgrade run is not owned by authenticated user.")
         normalized_error_context = self._normalize_error_context(error_context)
         if normalized_error_context:
             step_domain = self._clean_text(
@@ -716,6 +881,7 @@ class PkmUpgradeService:
                         checkpoint_payload["stage"] = stage
                     await self.update_step(
                         run_id=run_id,
+                        user_id=user_id,
                         domain=step_domain,
                         status="failed",
                         checkpoint_payload=checkpoint_payload,
@@ -728,7 +894,12 @@ class PkmUpgradeService:
                         ),
                     )
 
-        await self.mark_run_status(run_id=run_id, status="failed", last_error=last_error)
+        await self.mark_run_status(
+            run_id=run_id,
+            user_id=user_id,
+            status="failed",
+            last_error=last_error,
+        )
         return await self.build_status(runs[0]["user_id"])
 
 
