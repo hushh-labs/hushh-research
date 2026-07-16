@@ -37,9 +37,9 @@ DEFAULT_REPORT_PATH = CONSENT_PROTOCOL_ROOT / "artifacts" / "pkm_structure_agent
 DEFAULT_PRIMARY_MODEL = "gemini-3.5-flash"
 DEFAULT_SECONDARY_MODEL = ""
 DEFAULT_REFERENCE_MODEL = ""
-# The evaluator must outlive the runtime preview's 30-second deadline so it
+# The evaluator must outlive the runtime preview's 35-second deadline so it
 # records the service result instead of manufacturing an earlier timeout.
-DEFAULT_PER_PROMPT_TIMEOUT_SECONDS = 35.0
+DEFAULT_PER_PROMPT_TIMEOUT_SECONDS = 40.0
 DEFAULT_SHADOW_USERS = [
     "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
     "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
