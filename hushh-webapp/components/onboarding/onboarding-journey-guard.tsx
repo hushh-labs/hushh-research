@@ -10,6 +10,7 @@ import {
   buildOneSetupRoute,
   isCapabilityOnboardingRoute,
   isOnboardingAdmissionExemptRoute,
+  isOneSetupRoute,
   isOneSetupSurfaceRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
@@ -17,8 +18,15 @@ import {
   PreVaultUserStateService,
   type PreVaultUserState,
 } from "@/lib/services/pre-vault-user-state-service";
+import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 
-const SETUP_REDIRECT_WATCHDOG_MS = 2400;
+const SETUP_REDIRECT_RETRY_MS = 1200;
+const SETUP_REDIRECT_FAILURE_MS = 2400;
+const SETUP_BOOTSTRAP_RETRY_MS = 300;
+
+function waitForBootstrapRetry(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, SETUP_BOOTSTRAP_RETRY_MS));
+}
 
 function hasExplicitIncompleteSetup(state: PreVaultUserState): boolean {
   if (PreVaultUserStateService.isSetupResolved(state)) return false;
@@ -82,13 +90,19 @@ export function OnboardingJourneyGuard({
   const cachedState = userId
     ? PreVaultUserStateService.getCachedBootstrapState?.(userId) ?? null
     : null;
+  const persistentSetupResolved = Boolean(
+    userId &&
+      !cachedState &&
+      OneSetupCompletionHintService.isResolved(userId),
+  );
   const cachedAdmissionAllowsCurrentRoute = Boolean(
-    cachedState &&
-      admissionAllowsCurrentRoute({
-        state: cachedState,
-        pathname,
-        setupSurface,
-      }),
+    persistentSetupResolved ||
+      (cachedState &&
+        admissionAllowsCurrentRoute({
+          state: cachedState,
+          pathname,
+          setupSurface,
+        })),
   );
 
   useEffect(() => {
@@ -116,6 +130,18 @@ export function OnboardingJourneyGuard({
         return;
       }
 
+      // Setup completion is a one-time, non-sensitive admission fact. Hydrate
+      // it synchronously from the user-scoped positive latch so a returning
+      // user does not wait on the same bootstrap request after every WebView or
+      // browser restart. Explicit backend-incomplete responses and sign-out
+      // clear this latch; vault keys and owner tokens remain memory-only.
+      if (persistentSetupResolved) {
+        redirectTargetRef.current = null;
+        setError(null);
+        setChecking(false);
+        return;
+      }
+
       // A fresh session record is already sufficient to admit this route.
       // Do not toggle checking on every client navigation: it adds two root
       // renders and competes with the nested vault/phone guards despite no
@@ -137,9 +163,21 @@ export function OnboardingJourneyGuard({
       setChecking(true);
       setError(null);
       try {
-        const state =
-          cachedState ??
-          (await PreVaultUserStateService.bootstrapState(userId));
+        let state = cachedState;
+        if (!state) {
+          try {
+            state = await PreVaultUserStateService.bootstrapState(userId);
+          } catch {
+            // Native auth restoration and cross-tab web auth can publish the
+            // user before the token provider or proxy is ready. Retry once
+            // with a forced read; never create an unbounded setup loop.
+            await waitForBootstrapRetry();
+            if (cancelled) return;
+            state = await PreVaultUserStateService.bootstrapState(userId, {
+              force: true,
+            });
+          }
+        }
         if (cancelled) return;
 
         // A missing legacy mirror is not evidence that an established account
@@ -165,17 +203,30 @@ export function OnboardingJourneyGuard({
         redirectTargetRef.current = redirectTarget;
         setRedirecting(true);
         router.replace(redirectTarget);
-        // Watchdog (from main): if the client router never lands on the setup
-        // route, force a hard navigation; otherwise release the loader.
+        // Keep the redirect inside the App Router. A document navigation here
+        // would destroy the memory-only vault key and could re-enter this gate
+        // indefinitely. Retry once, then expose a recoverable error.
         redirectWatchdogRef.current = setTimeout(() => {
           if (cancelled || typeof window === "undefined") return;
-          if (window.location.pathname !== ROUTES.ONE_SETUP) {
-            window.location.assign(redirectTarget);
+          if (isOneSetupRoute(window.location.pathname)) {
+            setRedirecting(false);
+            setChecking(false);
             return;
           }
-          setRedirecting(false);
-          setChecking(false);
-        }, SETUP_REDIRECT_WATCHDOG_MS);
+          router.replace(redirectTarget);
+          redirectWatchdogRef.current = setTimeout(() => {
+            if (cancelled || typeof window === "undefined") return;
+            if (isOneSetupRoute(window.location.pathname)) {
+              setRedirecting(false);
+              setChecking(false);
+              return;
+            }
+            redirectTargetRef.current = null;
+            setRedirecting(false);
+            setChecking(false);
+            setError("Unable to open setup. Please retry.");
+          }, SETUP_REDIRECT_FAILURE_MS);
+        }, SETUP_REDIRECT_RETRY_MS);
       } catch (cause) {
         console.warn(
           "[OnboardingJourneyGuard] Failed to verify setup admission:",
@@ -199,6 +250,7 @@ export function OnboardingJourneyGuard({
     currentHref,
     exempt,
     pathname,
+    persistentSetupResolved,
     retryNonce,
     router,
     setupSurface,
@@ -227,6 +279,15 @@ export function OnboardingJourneyGuard({
             }}
           >
             Retry
+          </Button>
+          <Button
+            size="sm"
+            variant="muted"
+            effect="fade"
+            className="mt-3"
+            onClick={() => router.push(ROUTES.PROFILE)}
+          >
+            Open profile
           </Button>
         </div>
       </div>

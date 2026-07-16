@@ -19,6 +19,7 @@ import {
 import { AuthService } from "@/lib/services/auth-service";
 import { CapabilityTourService } from "@/lib/services/capability-tour-service";
 import { OneLocationService } from "@/lib/one-location/service";
+import { RiaService } from "@/lib/services/ria-service";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 
 /**
@@ -43,6 +44,8 @@ export interface UseCapabilitySetupStatesOptions {
   enrichVault?: boolean;
   /** Resolve OAuth connection status (Gmail, Connected Systems). Default false. */
   enrichOauth?: boolean;
+  /** Resolve whether an RIA profile is onboarded (getOnboardingStatus). Default false. */
+  enrichRia?: boolean;
 }
 
 export interface UseCapabilitySetupStatesResult {
@@ -63,7 +66,7 @@ export interface UseCapabilitySetupStatesResult {
 export function useCapabilitySetupStates(
   options: UseCapabilitySetupStatesOptions = {}
 ): UseCapabilitySetupStatesResult {
-  const { enrichVault = false, enrichOauth = false } = options;
+  const { enrichVault = false, enrichOauth = false, enrichRia = false } = options;
 
   const { user } = useAuth();
   const { isVaultUnlocked, getVaultKey, getVaultOwnerToken } = useVault();
@@ -92,6 +95,10 @@ export function useCapabilitySetupStates(
   const [locationRecipientKeyReady, setLocationRecipientKeyReady] = useState<
     boolean | undefined
   >(undefined);
+  // RIA onboarded: undefined until we've fetched (or when not opted in).
+  const [riaOnboarded, setRiaOnboarded] = useState<boolean | undefined>(
+    undefined
+  );
 
   // ---- ALWAYS: coarse pre-vault mirror ------------------------------------
   useEffect(() => {
@@ -248,7 +255,7 @@ export function useCapabilitySetupStates(
   }, [enrichOauth, userId]);
 
   // ---- WHEN UNLOCKED: location recipient-key readiness --------------------
-  // One lightweight `getState` once the vault is unlocked, so the Onepoint tile
+  // One lightweight `getState` once the vault is unlocked, so the Location tile
   // reads "Ready" vs "Set up location" instead of a generic "Unlock to view".
   // Locked → leave undefined so the resolver keeps the honest "Unlock to view".
   useEffect(() => {
@@ -276,6 +283,40 @@ export function useCapabilitySetupStates(
       cancelled = true;
     };
   }, [userId, isVaultUnlocked, getVaultOwnerToken]);
+
+  // ---- OPT-IN: RIA onboarded status ---------------------------------------
+  // One lightweight, cached `getOnboardingStatus` so the RIA tile reads "Ready"
+  // (→ Complete) once an RIA profile exists — mirroring how location auto-
+  // completes from its recipient key. Not vault-gated (the profile exists
+  // regardless of unlock). Any failure leaves `undefined` so the resolver falls
+  // back to the honest vault-gated state instead of fabricating one.
+  useEffect(() => {
+    if (!enrichRia || !userId) {
+      setRiaOnboarded(undefined);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const idToken = await AuthService.getIdToken();
+        if (!idToken) {
+          if (!cancelled) setRiaOnboarded(undefined);
+          return;
+        }
+        const status = await RiaService.getOnboardingStatus(idToken, {
+          userId,
+        }).catch(() => null);
+        if (!cancelled) {
+          setRiaOnboarded(status ? status.exists === true : undefined);
+        }
+      } catch {
+        if (!cancelled) setRiaOnboarded(undefined);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enrichRia, userId]);
 
   const markExplored = useCallback(
     async (capabilityId: string) => {
@@ -313,6 +354,7 @@ export function useCapabilitySetupStates(
       oauthConnections,
       exploredCapabilityIds: exploredIds,
       locationRecipientKeyReady,
+      riaOnboarded,
     }),
     [
       userId,
@@ -324,6 +366,7 @@ export function useCapabilitySetupStates(
       oauthConnections,
       exploredIds,
       locationRecipientKeyReady,
+      riaOnboarded,
     ]
   );
 

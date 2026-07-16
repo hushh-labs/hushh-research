@@ -79,9 +79,7 @@ def generate(seed: int) -> dict[str, Any]:
     sex = _weighted(rng, M.SEX_WEIGHTS)
     urbanicity = _weighted(rng, M.URBANICITY[region])
     income_tier = _weighted(rng, M.INCOME_TIERS[region])
-    education = (
-        "none_or_primary" if age < 12 else _weighted(rng, M.EDUCATION_BY_TIER[income_tier])
-    )
+    education = "none_or_primary" if age < 12 else _weighted(rng, M.EDUCATION_BY_TIER[income_tier])
 
     if age < 15:
         occ_group, occ_status = "student", "student"
@@ -123,7 +121,9 @@ def generate(seed: int) -> dict[str, Any]:
 
     disability: list[str] = []
     if rng.random() < 0.16:
-        disability.append(rng.choice(["vision", "hearing", "mobility", "cognitive", "chronic_pain"]))
+        disability.append(
+            rng.choice(["vision", "hearing", "mobility", "cognitive", "chronic_pain"])
+        )
     else:
         disability.append("none")
 
@@ -137,32 +137,63 @@ def generate(seed: int) -> dict[str, Any]:
     # every other value for a given seed is unchanged.
     if sex != "intersex":
         sex = M.GIVEN_NAME_SEX.get(given, sex)
-    lang_tag = {"south_asia": "en-IN", "east_asia": "zh-CN", "sub_saharan_africa": "en-KE",
-                "southeast_asia": "id-ID", "europe": "en-GB", "latam_caribbean": "es-MX",
-                "mena": "ar-EG", "north_america": "en-US", "central_asia_oceania": "en-AU"}[region]
+    lang_tag = {
+        "south_asia": "en-IN",
+        "east_asia": "zh-CN",
+        "sub_saharan_africa": "en-KE",
+        "southeast_asia": "id-ID",
+        "europe": "en-GB",
+        "latam_caribbean": "es-MX",
+        "mena": "ar-EG",
+        "north_america": "en-US",
+        "central_asia_oceania": "en-AU",
+    }[region]
     email = f"{given.lower()}.{family.lower().replace(' ', '')}.{pid[-6:]}@profiles.example"
     phone_anchor = f"+999{seed % 10_000_000_000:010d}"  # +999 reserved/fictional prefix
 
     # ---- psychographics (mildly correlated axes) ----
     base = rng.gauss(50, 18)
     traits = {
-        "openness": _clamp(int(rng.gauss(50 + (education in ("tertiary", "postgraduate")) * 8, 16))),
+        "openness": _clamp(
+            int(rng.gauss(50 + (education in ("tertiary", "postgraduate")) * 8, 16))
+        ),
         "conscientiousness": _clamp(int(rng.gauss(52, 16))),
         "extraversion": _clamp(int(rng.gauss(50, 18))),
         "agreeableness": _clamp(int(rng.gauss(54, 15))),
         "emotional_stability": _clamp(int(rng.gauss(base * 0.3 + 35, 14))),
     }
-    risk_tolerance = _clamp(int(rng.gauss(
-        38 + traits["openness"] * 0.2 + (income_tier in ("t4_50_to_200usd_day", "t5_over_200usd_day")) * 10 - max(0, age - 50) * 0.4,
-        14,
-    )))
+    risk_tolerance = _clamp(
+        int(
+            rng.gauss(
+                38
+                + traits["openness"] * 0.2
+                + (income_tier in ("t4_50_to_200usd_day", "t5_over_200usd_day")) * 10
+                - max(0, age - 50) * 0.4,
+                14,
+            )
+        )
+    )
 
     # ---- world model ----
     relationships = []
-    rel_roles = ["parent", "sibling", "spouse", "child", "close friend", "cousin",
-                 "neighbor", "coworker", "mentor", "accountant", "doctor", "community elder"]
+    rel_roles = [
+        "parent",
+        "sibling",
+        "spouse",
+        "child",
+        "close friend",
+        "cousin",
+        "neighbor",
+        "coworker",
+        "mentor",
+        "accountant",
+        "doctor",
+        "community elder",
+    ]
     for role in _pick(rng, rel_roles, rng.randint(3, 7)):
-        closeness = _weighted(rng, [("inner_circle", 0.25), ("close", 0.35), ("regular", 0.3), ("peripheral", 0.1)])
+        closeness = _weighted(
+            rng, [("inner_circle", 0.25), ("close", 0.35), ("regular", 0.3), ("peripheral", 0.1)]
+        )
         trusted_for = []
         if role in ("spouse", "parent") and closeness == "inner_circle":
             trusted_for = ["attr.financial", "attr.health", "attr.location"]
@@ -179,14 +210,27 @@ def generate(seed: int) -> dict[str, Any]:
         places.append({"kind": "work", "label": occ_title})
     if occ_status == "student":
         places.append({"kind": "school", "label": "campus"})
-    for kind in _pick(rng, ["market", "worship", "clinic", "gym", "third_place"], rng.randint(1, 3)):
+    for kind in _pick(
+        rng, ["market", "worship", "clinic", "gym", "third_place"], rng.randint(1, 3)
+    ):
         places.append({"kind": kind, "label": kind})
 
-    routines = _pick(rng, [
-        "early riser", "evening market run", "weekly family call", "daily commute",
-        "weekend religious service", "morning exercise", "late-night study",
-        "seasonal harvest rhythm", "monthly remittance day", "weekly ledger day",
-    ], rng.randint(2, 4))
+    routines = _pick(
+        rng,
+        [
+            "early riser",
+            "evening market run",
+            "weekly family call",
+            "daily commute",
+            "weekend religious service",
+            "morning exercise",
+            "late-night study",
+            "seasonal harvest rhythm",
+            "monthly remittance day",
+            "weekly ledger day",
+        ],
+        rng.randint(2, 4),
+    )
 
     devices = [_weighted(rng, M.DEVICES_BY_TIER[income_tier])]
     if rng.random() < 0.4:
@@ -196,7 +240,9 @@ def generate(seed: int) -> dict[str, Any]:
 
     # ---- knowledge model ----
     has_bank = income_tier not in ("t1_under_2usd_day",) or rng.random() < 0.35
-    risk_profile = ("conservative", "balanced", "growth", "aggressive")[min(3, risk_tolerance // 26)]
+    risk_profile = ("conservative", "balanced", "growth", "aggressive")[
+        min(3, risk_tolerance // 26)
+    ]
     holdings: list[dict[str, Any]] = []
     total_value = 0.0
     if age >= 18:
@@ -212,22 +258,50 @@ def generate(seed: int) -> dict[str, Any]:
             True: ["equity", "etf", "bond", "cash", "gold", "crypto", "real_estate"],
             False: ["cash", "gold", "livestock", "informal_savings"],
         }[wealth_scale >= 14_000]
-        tickers = ["VTI", "VXUS", "BND", "GLD", "AAPL", "MSFT", "NVDA", "RELIANCE", "TSM", "SAP", "VALE", "BTC"]
+        tickers = [
+            "VTI",
+            "VXUS",
+            "BND",
+            "GLD",
+            "AAPL",
+            "MSFT",
+            "NVDA",
+            "RELIANCE",
+            "TSM",
+            "SAP",
+            "VALE",
+            "BTC",
+        ]
         for _ in range(n_holdings):
             asset = rng.choice(asset_pools)
             value = round(wealth_scale * rng.uniform(0.1, 0.9), 2)
-            holdings.append({
-                "ticker": rng.choice(tickers) if asset in ("equity", "etf") else asset.upper()[:6],
-                "asset_class": asset,
-                "value_usd": value,
-            })
+            holdings.append(
+                {
+                    "ticker": rng.choice(tickers)
+                    if asset in ("equity", "etf")
+                    else asset.upper()[:6],
+                    "asset_class": asset,
+                    "value_usd": value,
+                }
+            )
             total_value += value
         if has_bank:
             cash = round(wealth_scale * rng.uniform(0.05, 0.4), 2)
             holdings.append({"ticker": "CASH", "asset_class": "cash", "value_usd": cash})
             total_value += cash
-    debts = _pick(rng, ["home loan", "vehicle loan", "education loan", "shop credit",
-                        "medical debt", "credit card", "family loan"], rng.randint(0, 2))
+    debts = _pick(
+        rng,
+        [
+            "home loan",
+            "vehicle loan",
+            "education loan",
+            "shop credit",
+            "medical debt",
+            "credit card",
+            "family loan",
+        ],
+        rng.randint(0, 2),
+    )
     money_goals = _pick(rng, M.ASPIRATIONS_POOL, 2)
 
     knowledge_model = {
@@ -241,57 +315,160 @@ def generate(seed: int) -> dict[str, Any]:
             "money_goals": money_goals,
         },
         "professional": {
-            "skills": _pick(rng, ["negotiation", "bookkeeping", "customer care", "coding",
-                                  "machine repair", "teaching", "logistics", "design",
-                                  "irrigation", "sales", "writing", "first aid"], rng.randint(2, 4)),
-            "years_experience": max(0, age - 18 - rng.randint(0, 6)) if occ_status not in ("student",) else 0,
-            "work_style": rng.choice(["steady and careful", "fast and improvisational",
-                                      "collaborative", "independent", "seasonal bursts"]),
+            "skills": _pick(
+                rng,
+                [
+                    "negotiation",
+                    "bookkeeping",
+                    "customer care",
+                    "coding",
+                    "machine repair",
+                    "teaching",
+                    "logistics",
+                    "design",
+                    "irrigation",
+                    "sales",
+                    "writing",
+                    "first aid",
+                ],
+                rng.randint(2, 4),
+            ),
+            "years_experience": max(0, age - 18 - rng.randint(0, 6))
+            if occ_status not in ("student",)
+            else 0,
+            "work_style": rng.choice(
+                [
+                    "steady and careful",
+                    "fast and improvisational",
+                    "collaborative",
+                    "independent",
+                    "seasonal bursts",
+                ]
+            ),
         },
         "social": {
-            "community_roles": _pick(rng, ["religious group member", "sports club", "parents' association",
-                                           "savings circle", "union member", "volunteer", "online community mod"],
-                                     rng.randint(0, 2)),
-            "network_size_bucket": _weighted(rng, [("tight", 0.3), ("moderate", 0.4), ("wide", 0.24), ("very_wide", 0.06)]),
+            "community_roles": _pick(
+                rng,
+                [
+                    "religious group member",
+                    "sports club",
+                    "parents' association",
+                    "savings circle",
+                    "union member",
+                    "volunteer",
+                    "online community mod",
+                ],
+                rng.randint(0, 2),
+            ),
+            "network_size_bucket": _weighted(
+                rng, [("tight", 0.3), ("moderate", 0.4), ("wide", 0.24), ("very_wide", 0.06)]
+            ),
         },
         "health": {
-            "fitness_habit": _weighted(rng, [("sedentary", 0.28), ("light", 0.32), ("moderate", 0.24), ("active", 0.13), ("athlete", 0.03)]),
-            "conditions_bucket": (["none"] if age < 35 and rng.random() < 0.75
-                                  else _pick(rng, ["metabolic", "cardio", "respiratory", "musculoskeletal",
-                                                   "mental_wellness", "vision_hearing"], rng.randint(1, 2))),
-            "sleep_pattern": _weighted(rng, [("short", 0.22), ("irregular", 0.26), ("regular", 0.44), ("long", 0.08)]),
+            "fitness_habit": _weighted(
+                rng,
+                [
+                    ("sedentary", 0.28),
+                    ("light", 0.32),
+                    ("moderate", 0.24),
+                    ("active", 0.13),
+                    ("athlete", 0.03),
+                ],
+            ),
+            "conditions_bucket": (
+                ["none"]
+                if age < 35 and rng.random() < 0.75
+                else _pick(
+                    rng,
+                    [
+                        "metabolic",
+                        "cardio",
+                        "respiratory",
+                        "musculoskeletal",
+                        "mental_wellness",
+                        "vision_hearing",
+                    ],
+                    rng.randint(1, 2),
+                )
+            ),
+            "sleep_pattern": _weighted(
+                rng, [("short", 0.22), ("irregular", 0.26), ("regular", 0.44), ("long", 0.08)]
+            ),
         },
         "interests": _pick(rng, M.INTERESTS_POOL, rng.randint(3, 6)),
     }
 
     # ---- behavioral signals ----
-    digital_hours = round(max(0.0, rng.gauss(
-        {"feature_phone": 1.2, "none": 0.2}.get(devices[0], 3.8) + (age < 30) * 1.2 - (age > 60) * 1.0, 1.4)), 1)
+    digital_hours = round(
+        max(
+            0.0,
+            rng.gauss(
+                {"feature_phone": 1.2, "none": 0.2}.get(devices[0], 3.8)
+                + (age < 30) * 1.2
+                - (age > 60) * 1.0,
+                1.4,
+            ),
+        ),
+        1,
+    )
     behavioral = {
         "digital_hours_per_day": min(18.0, digital_hours),
         "primary_jobs_to_be_done": _pick(rng, M.JOBS_TO_BE_DONE_POOL, rng.randint(2, 4)),
-        "shopping_style": _weighted(rng, [("necessity_only", 0.24), ("value_hunter", 0.30), ("planner", 0.20),
-                                          ("impulse", 0.14), ("premium", 0.07), ("ethical", 0.05)]),
+        "shopping_style": _weighted(
+            rng,
+            [
+                ("necessity_only", 0.24),
+                ("value_hunter", 0.30),
+                ("planner", 0.20),
+                ("impulse", 0.14),
+                ("premium", 0.07),
+                ("ethical", 0.05),
+            ],
+        ),
         "media_diet": _pick(rng, M.MEDIA_DIET_POOL, rng.randint(2, 4)),
-        "agent_use_cases": _pick(rng, ["taxes and paperwork", "price comparison", "appointment wrangling",
-                                       "family logistics", "money tracking", "learning plans",
-                                       "health reminders", "document vault", "job search", "translations"],
-                                 rng.randint(2, 4)),
+        "agent_use_cases": _pick(
+            rng,
+            [
+                "taxes and paperwork",
+                "price comparison",
+                "appointment wrangling",
+                "family logistics",
+                "money tracking",
+                "learning plans",
+                "health reminders",
+                "document vault",
+                "job search",
+                "translations",
+            ],
+            rng.randint(2, 4),
+        ),
     }
 
     # ---- consent posture ----
-    stance = _weighted(rng, [("open", 0.14), ("pragmatic", 0.46), ("guarded", 0.3), ("fortress", 0.1)])
+    stance = _weighted(
+        rng, [("open", 0.14), ("pragmatic", 0.46), ("guarded", 0.3), ("fortress", 0.1)]
+    )
     stance_base = {"open": 72, "pragmatic": 55, "guarded": 34, "fortress": 15}[stance]
     share = {
-        fam: _clamp(int(rng.gauss(stance_base + (12 if fam in ("attr.entertainment", "attr.shopping") else 0)
-                                  - (18 if fam in ("attr.health", "attr.financial") else 0), 12)))
+        fam: _clamp(
+            int(
+                rng.gauss(
+                    stance_base
+                    + (12 if fam in ("attr.entertainment", "attr.shopping") else 0)
+                    - (18 if fam in ("attr.health", "attr.financial") else 0),
+                    12,
+                )
+            )
+        )
         for fam in M.SCOPE_FAMILIES
     }
     consent_posture = {
         "privacy_stance": stance,
         "default_grant_duration_days": rng.choice([7, 14, 30, 30, 60, 90]),
         "share_willingness": share,
-        "revocation_tendency": _weighted(rng, [("rarely", 0.5), ("sometimes", 0.38), ("often", 0.12)]),
+        "revocation_tendency": _weighted(
+            rng, [("rarely", 0.5), ("sometimes", 0.38), ("often", 0.12)]
+        ),
     }
 
     return {

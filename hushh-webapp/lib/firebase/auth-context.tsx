@@ -30,6 +30,7 @@ import {
   onAuthStateChanged,
 } from "firebase/auth";
 import { auth, prepareRecaptchaVerifier, resetRecaptcha } from "./config";
+import { NativeAuthRestoreEpoch } from "./native-auth-restore-epoch";
 import { Capacitor } from "@capacitor/core";
 import { AuthService } from "@/lib/services/auth-service";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
@@ -132,6 +133,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const router = useRouter();
   const userRef = useRef<User | null>(null);
   const authRecoveryInFlightRef = useRef(false);
+  // Firebase JS commonly emits `null` before the native keychain/provider has
+  // finished restoring. Until this flips, native restoration owns the loading
+  // state and the JS listener must not publish a false signed-out transition.
+  const nativeRestoreSettledRef = useRef(!IS_NATIVE);
+  const nativeRestoreEpochRef = useRef(new NativeAuthRestoreEpoch());
 
   const applyAuthUser = useCallback((nextUser: User | null) => {
     userRef.current = nextUser;
@@ -167,10 +173,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const refreshUser = useCallback(async (): Promise<User | null> => {
     if (Capacitor.isNativePlatform()) {
-      const nativeUser = await AuthService.restoreNativeSession();
-      applyAuthUser(nativeUser);
-      setLoading(false);
-      return nativeUser;
+      const restoreEpoch = nativeRestoreEpochRef.current.begin();
+      nativeRestoreSettledRef.current = false;
+      try {
+        const nativeUser = await AuthService.restoreNativeSession();
+        if (!nativeRestoreEpochRef.current.isCurrent(restoreEpoch)) {
+          return userRef.current;
+        }
+        applyAuthUser(nativeUser);
+        return nativeUser;
+      } finally {
+        if (nativeRestoreEpochRef.current.isCurrent(restoreEpoch)) {
+          nativeRestoreSettledRef.current = true;
+          setLoading(false);
+        }
+      }
     }
 
     const currentUser = auth.currentUser;
@@ -193,24 +210,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const checkAuth = useCallback(async () => {
     // 1. Native Session Restoration
     if (Capacitor.isNativePlatform()) {
+      const restoreEpoch = nativeRestoreEpochRef.current.begin();
+      nativeRestoreSettledRef.current = false;
       try {
         const nativeUser = await AuthService.restoreNativeSession();
 
+        if (!nativeRestoreEpochRef.current.isCurrent(restoreEpoch)) {
+          return;
+        }
+
         if (nativeUser) {
-          console.log(
-            "🍎 [AuthProvider] Native session restored:",
-            nativeUser.uid
-          );
+          console.log("🍎 [AuthProvider] Native session restored");
           applyAuthUser(nativeUser);
         } else {
           console.log("🍎 [AuthProvider] No native session found");
           applyAuthUser(null);
         }
-      } catch (e) {
-        console.warn("🍎 [AuthProvider] Native restore error:", e);
+      } catch (_error) {
+        if (!nativeRestoreEpochRef.current.isCurrent(restoreEpoch)) {
+          return;
+        }
+        console.warn("🍎 [AuthProvider] Native restore error");
         applyAuthUser(null);
         // User will need to log in again
       } finally {
+        if (!nativeRestoreEpochRef.current.isCurrent(restoreEpoch)) {
+          return;
+        }
+        nativeRestoreSettledRef.current = true;
         // ✅ CRITICAL: Always set loading to false after native check
         // This ensures VaultLockGuard can proceed (to login or vault unlock)
         setLoading(false);
@@ -286,6 +313,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // The Firebase JS SDK often fires 'null' on startup or network change in Capacitor apps
       // Use ref to check current user without adding `user` to dependencies
       if (IS_NATIVE) {
+        if (!firebaseUser && !nativeRestoreSettledRef.current) {
+          console.log(
+            "🍎 [AuthContext] Ignoring Firebase Null State While Native Restore Is Pending"
+          );
+          return;
+        }
         if (!firebaseUser && userRef.current) {
           console.log(
             "🍎 [AuthContext] Ignoring Firebase Null State (Native Mode)"
@@ -310,6 +343,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     redirectTo?: string;
     skipFcmCleanup?: boolean;
   }): Promise<void> => {
+    // A restore that began before sign-out must never repopulate auth state.
+    nativeRestoreEpochRef.current.invalidate();
+    nativeRestoreSettledRef.current = true;
     const currentUid = user?.uid ?? null;
     const redirectTo = options?.redirectTo || ROUTES.HOME;
     try {
@@ -374,17 +410,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
         authRecoveryInFlightRef.current = true;
         try {
           if (Capacitor.isNativePlatform()) {
+            const restoreEpoch = nativeRestoreEpochRef.current.begin();
+            nativeRestoreSettledRef.current = false;
             const [nativeUser, refreshedToken] = await Promise.all([
               AuthService.restoreNativeSession(),
               AuthService.getIdToken(true),
             ]);
 
-            if (nativeUser && refreshedToken) {
+            if (!nativeRestoreEpochRef.current.isCurrent(restoreEpoch)) {
+              return;
+            }
+
+            if (
+              nativeUser &&
+              refreshedToken
+            ) {
               console.info("🍎 [AuthProvider] Recovered native session after auth invalidation");
               applyAuthUser(nativeUser);
               setLoading(false);
               return;
             }
+            nativeRestoreSettledRef.current = true;
           }
 
           await signOut({ redirectTo: ROUTES.LOGIN });
@@ -658,6 +704,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     refreshUser,
     setNativeUser: (user: User | null) => {
       console.log("🍎 [AuthContext] Manually setting Native User");
+      // AuthStep has a confirmed native Apple result. Invalidate any launch or
+      // resume restore that started before the Apple sheet completed.
+      nativeRestoreEpochRef.current.invalidate();
+      nativeRestoreSettledRef.current = true;
       applyAuthUser(user);
       setLoading(false);
     },

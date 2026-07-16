@@ -67,7 +67,7 @@ describe("OneDashboardPage", () => {
       bodyText.indexOf("Finish setup"),
     );
     expect(
-      screen.getByRole("heading", { name: "Agents (9)" }),
+      screen.getByRole("heading", { name: "Agents (8)" }),
     ).toBeTruthy();
 
     // Every dashboard tile enters the same static setup workspace as the hub.
@@ -115,7 +115,7 @@ describe("OneDashboardPage", () => {
       screen.getByRole("link", { name: "Open Email" }).getAttribute("href"),
     ).toBe(buildOneSetupCapabilityRoute("email"));
     expect(
-      screen.getByRole("link", { name: "Open Onepoint" }).getAttribute("href"),
+      screen.getByRole("link", { name: "Open Location" }).getAttribute("href"),
     ).toBe(buildOneSetupCapabilityRoute("location"));
     expect(
       screen
@@ -138,7 +138,7 @@ describe("OneDashboardPage", () => {
     // The dashboard is the complete user-facing roster. Only six agents are
     // setup capabilities; Memory, Consent/Nav, and Marketplace are direct
     // workspaces and never inflate setup progress.
-    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(9);
+    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(8);
     expect(screen.getByRole("link", { name: "Open Memory" }).getAttribute("href")).toBe(
       ROUTES.PKM,
     );
@@ -146,10 +146,8 @@ describe("OneDashboardPage", () => {
       "/consents",
     );
     expect(
-      screen
-        .getByRole("link", { name: "Open Information Marketplace" })
-        .getAttribute("href"),
-    ).toBe(ROUTES.ONE_MARKETPLACE);
+      screen.queryByRole("link", { name: "Open Information Marketplace" }),
+    ).toBeNull();
     expect(screen.getByTestId("one-finish-setup")).toHaveTextContent(
       "2 of 6 setup steps ready",
     );
@@ -175,7 +173,7 @@ describe("OneDashboardPage", () => {
     // The exact six setup capabilities read Ready when completed.
     expect(screen.getAllByText("Ready")).toHaveLength(6);
     expect(
-      screen.getByRole("heading", { name: "Agents (9)" }),
+      screen.getByRole("heading", { name: "Agents (8)" }),
     ).toBeTruthy();
     expect(screen.queryByText("Finish setup")).toBeNull();
   });

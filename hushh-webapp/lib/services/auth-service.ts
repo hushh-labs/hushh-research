@@ -411,6 +411,28 @@ export class AuthService {
    * for a pre-approved reviewer UID. No reviewer password is exposed to clients.
    */
   static async signInWithCustomToken(customToken: string): Promise<AuthResult> {
+    if (Capacitor.isNativePlatform()) {
+      const nativeResult = await FirebaseAuthentication.signInWithCustomToken({
+        token: customToken,
+      });
+      if (!nativeResult.user) {
+        throw new Error("Native custom-token login returned no user");
+      }
+      const idTokenResult = await FirebaseAuthentication.getIdToken();
+      const idToken = idTokenResult.token || "";
+      if (!idToken) {
+        throw new Error("Native custom-token login returned no ID token");
+      }
+      return {
+        user: this.createUserFromNative(
+          nativeResult.user,
+          idToken,
+          "custom",
+        ),
+        idToken,
+      };
+    }
+
     const result = await firebaseSignInWithCustomToken(auth, customToken);
     const idToken = await result.user.getIdToken();
     return {
@@ -688,6 +710,10 @@ export class AuthService {
 
       const idToken = result.idToken;
       const nativeAuthUser = result.user;
+      const nativeUid = this.getNativeUserField(
+        nativeAuthUser as unknown as Record<string, unknown>,
+        ["uid", "id"],
+      );
 
       this.debugLog("✅ [AuthService] Got Apple ID token");
 
@@ -732,9 +758,23 @@ export class AuthService {
         }
       }
 
-      // Construct final User object
+      // A stale Firebase JS session can survive while the native Apple sheet
+      // establishes a new account. It must not be paired with the new native
+      // token; use the native wrapper until JS reports the matching UID.
+      const matchingFirebaseUser =
+        firebaseUser && nativeUid && firebaseUser.uid === nativeUid
+          ? firebaseUser
+          : null;
+      if (firebaseUser && !matchingFirebaseUser) {
+        this.debugLog(
+          "🍎 [AuthService] Ignoring stale Firebase JS user after native Apple sign-in",
+        );
+      }
+
+      // Construct final User object.
       const user =
-        firebaseUser || this.createUserFromNativeApple(nativeAuthUser, idToken);
+        matchingFirebaseUser ||
+        this.createUserFromNativeApple(nativeAuthUser, idToken);
 
       toast.success("Signed in successfully", { id: toastId });
 
@@ -1383,13 +1423,33 @@ export class AuthService {
       }
     }
 
-    // Fallback to Capacitor Firebase plugin
+    // Browser auth is owned exclusively by the Firebase JS SDK. Calling the
+    // Capacitor plugin's web shim here turns a normal signed-out state into a
+    // noisy runtime error and cannot recover a browser session.
+    if (!Capacitor.isNativePlatform()) return null;
+
+    // Prefer the shared Capacitor Firebase plugin when it owns the native
+    // session. On iOS, Apple/Google sign-in may instead be restored by the
+    // app-owned HushhAuth keychain plugin, so a FirebaseAuthentication runtime
+    // error is not evidence that the authenticated session has no token.
     try {
       const result = await FirebaseAuthentication.getIdToken();
-      return result.token;
-    } catch {
-      return null;
+      if (result.token) return result.token;
+    } catch (error) {
+      this.debugError(
+        "[AuthService] FirebaseAuthentication token lookup failed",
+        error,
+      );
     }
+
+    try {
+      const result = await HushhAuth.getIdToken();
+      return result.idToken || null;
+    } catch (error) {
+      this.debugError("[AuthService] HushhAuth token lookup failed", error);
+    }
+
+    return null;
   }
 
   /**

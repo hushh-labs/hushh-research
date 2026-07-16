@@ -1,0 +1,68 @@
+{
+  "id": "pkm-upgrade-rehearsal",
+  "role": "spoke",
+  "owner_family": "security-audit",
+  "primary_scope": "pkm-upgrade-rehearsal",
+  "description": "Use when proving zero-loss PKM upgrades with historical fixtures, reviewer rehearsals, rollback, scopes, and exact encrypted/decrypted artifacts.",
+  "owned_paths": [
+    ".codex/skills/pkm-upgrade-rehearsal",
+    ".codex/skills/pkm-upgrade-rehearsal/scripts/reviewer-pkm-app-rehearsal.mjs",
+    "consent-protocol/scripts/audit_active_pkm_shape_readonly.py",
+    "consent-protocol/scripts/eval_pkm_structure_agent.py",
+    "scripts/ci/pkm-upgrade-gate.sh"
+  ],
+  "non_owned_paths": [
+    "consent-protocol/hushh_mcp/vault",
+    "hushh-webapp/scripts/testing/reviewer-test-identity.mjs",
+    "consent-protocol/db/migrations"
+  ],
+  "task_types": [
+    "pkm-upgrade-rehearsal",
+    "data-model-audit",
+    "release-readiness"
+  ],
+  "required_reads": [
+    ".codex/skills/reviewer-app-testing/references/byok-reviewer-browser-contract.md",
+    ".codex/skills/pkm-upgrade-rehearsal/references/reviewer-pkm-upgrade-contract.md",
+    "docs/reference/architecture/pkm-cutover-runbook.md",
+    "docs/reference/architecture/pkm-storage-adr.md",
+    "consent-protocol/docs/reference/personal-knowledge-model.md",
+    "scripts/ci/pkm-upgrade-gate.sh"
+  ],
+  "required_commands": [
+    "./scripts/ci/pkm-upgrade-gate.sh",
+    "./bin/hushh codex data-model-audit",
+    "./scripts/ci/reviewer-app-testing-check.sh"
+  ],
+  "verification_bundles": [
+    {
+      "id": "pkm-upgrade-rehearsal",
+      "commands": [
+        "./scripts/ci/pkm-upgrade-gate.sh",
+        "./bin/hushh codex data-model-audit",
+        "./scripts/ci/reviewer-app-testing-check.sh"
+      ],
+      "tests": [
+        "./scripts/ci/pkm-upgrade-gate.sh"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "security-audit",
+    "reviewer-app-testing",
+    "vault-pkm-governance",
+    "uat-scoped-deploy"
+  ],
+  "adjacent_skills": [
+    "security-audit",
+    "reviewer-app-testing",
+    "vault-pkm-governance",
+    "uat-scoped-deploy"
+  ],
+  "risk_tags": [
+    "pkm-information-loss",
+    "scope-authority-drift",
+    "rollback-failure",
+    "reviewer-fixture-mutation"
+  ]
+}

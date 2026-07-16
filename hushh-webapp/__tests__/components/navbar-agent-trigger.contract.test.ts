@@ -32,9 +32,14 @@ describe("Navbar bottom chrome contract", () => {
     expect(agentBar).toContain('data-native-voice-control-id="one_voice_agent_bar_start"');
     expect(agentBar).toContain('onClick={handleVoiceStartClick}');
     expect(agentBar).toContain('aria-label="Start conversation"');
+    expect(agentBar).toContain("loading: authLoading");
+    expect(agentBar).toContain("!agentPopover ||\n    authLoading ||");
     expect(agentBar).toContain('const isRiaChrome = isRiaRoute(pathname ?? "")');
     expect(agentBar).not.toContain('const isRiaChrome = activePersona === "ria"');
     expect(agentBar).toContain("useKaiBottomChromeElementTranslation");
+    expect(agentBar).toContain(
+      "max(var(--app-bottom-inset), calc(var(--bottom-nav-offset)",
+    );
     expect(agentBar).not.toContain("useKaiBottomChromeVisibility");
     expect(agentBar).not.toContain(
       "calc(var(--bottom-chrome-progress, 0) * var(--agent-bar-hide-distance))",
@@ -59,5 +64,19 @@ describe("Navbar bottom chrome contract", () => {
     )?.groups?.vars;
     expect(mirroredVars).toContain('"--bottom-chrome-hide-distance"');
     expect(mirroredVars).toContain('"--bottom-chrome-full-height"');
+
+    // Compact layouts intentionally keep one continuous ambient mask across
+    // the bottom cluster. Desktop separates the navigation and persistent
+    // Agent Bar vertically, so each must own a locally anchored fade rather
+    // than inheriting the navigation fade's transparent tail.
+    expect(providers).toContain("function SharedBottomChromeGlass()");
+    expect(providers).toContain("z-[108] md:hidden");
+    expect(providers).toContain("z-[108] hidden md:block");
+    expect(providers).toContain(
+      '"calc(var(--app-bottom-inset) + var(--bottom-chrome-fade-overscan))"',
+    );
+    expect(providers).toContain(
+      '"calc(3rem + var(--bottom-chrome-fade-overscan))"',
+    );
   });
 });

@@ -47,6 +47,7 @@ export type ExecuteAgentGatewayActionInput = {
   setAnalysisParams: (params: AnalysisParams | null) => void;
   switchPersona?: (target: Persona) => Promise<unknown>;
   executionContext?: LocalOnboardingActionContext;
+  signal?: AbortSignal;
 };
 
 function hasPublishedActionInventory(
@@ -66,6 +67,27 @@ function hasPublishedActionInventory(
 function isActionInActiveInventory(
   input: ExecuteAgentGatewayActionInput,
 ): boolean {
+  const activeLayer = input.surfaceMetadata?.interactionLayer;
+  const routeIsBlockedByActiveLayer = Boolean(
+    activeLayer &&
+      activeLayer.lifecycle !== "closing" &&
+      (activeLayer.blocksUnderlyingActions ||
+        activeLayer.modality === "modal" ||
+        activeLayer.modality === "blocking" ||
+        activeLayer.agentContinuity !== "interactive"),
+  );
+
+  if (input.actionId.startsWith("route.") && !routeIsBlockedByActiveLayer) {
+    const action = getKaiActionById(input.actionId);
+    if (
+      action &&
+      action.execution_policy === "allow_direct" &&
+      action.execution_target.status === "wired"
+    ) {
+      return true;
+    }
+  }
+
   if (input.allowedActionIds) {
     return input.allowedActionIds.includes(input.actionId);
   }
@@ -511,6 +533,18 @@ export async function executeAgentGatewayAction(
   }
 
   if (action.execution_target.path === "local_handler") {
+    if (input.signal?.aborted) {
+      return buildResult({
+        status: "failed",
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary: "Action was interrupted.",
+        reason: "execution_aborted",
+      });
+    }
+
     const handler = await waitForLocalOnboardingHandler(action.action_id);
     if (!handler) {
       return buildResult({
@@ -523,11 +557,25 @@ export async function executeAgentGatewayAction(
         reason: "local_handler_not_mounted",
       });
     }
+
     try {
-      const handlerResult = await handler(
-        input.slots || {},
-        input.executionContext,
+      const abortPromise = new Promise<never>((_, reject) => {
+        if (input.signal) {
+          const onAbort = () => reject(new Error("Action was interrupted."));
+          if (input.signal.aborted) onAbort();
+          else input.signal.addEventListener("abort", onAbort);
+        }
+      });
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("The action took too long to complete.")), 15000)
       );
+
+      const handlerResult = await Promise.race([
+        handler(input.slots || {}, input.executionContext),
+        abortPromise,
+        timeoutPromise,
+      ]);
+
       return buildLocalHandlerResult({
         actionId: action.action_id,
         label: action.label,
@@ -536,6 +584,7 @@ export async function executeAgentGatewayAction(
         handlerResult,
       });
     } catch (error) {
+      const isAbort = error instanceof Error && error.message === "Action was interrupted.";
       return buildResult({
         status: "failed",
         actionId: action.action_id,
@@ -546,7 +595,7 @@ export async function executeAgentGatewayAction(
           error instanceof Error && error.message
             ? error.message
             : `${action.label} failed to run.`,
-        reason: "local_handler_error",
+        reason: isAbort ? "execution_aborted" : "local_handler_error",
       });
     }
   }

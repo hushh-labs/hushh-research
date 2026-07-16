@@ -89,9 +89,9 @@ describe("app bottom navigation", () => {
       type: "command",
       mode: "search",
     });
-    // Profile is scope-aware: in the RIA sub-agent it opens the RIA profile;
-    // in One / investor scopes it stays the global profile.
-    expect(resolveBottomNavHref("profile", "ria")).toBe(ROUTES.RIA_PROFILE);
+    // Profile is unified across scopes — the RIA advisor profile now lives inside
+    // the global /profile section (Regulatory profile panel), so every scope opens it.
+    expect(resolveBottomNavHref("profile", "ria")).toBe(ROUTES.PROFILE);
     expect(resolveBottomNavHref("profile", "one")).toBe(ROUTES.PROFILE);
     expect(resolveBottomNavHref("profile", "investor")).toBe(ROUTES.PROFILE);
   });

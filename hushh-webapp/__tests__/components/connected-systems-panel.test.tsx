@@ -197,12 +197,14 @@ describe("ConnectedSystemsPanel", () => {
     });
     expect(screen.getAllByText(/Mailing city/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Stored CRM information/i)).toBeNull();
-    expect(screen.getByText("Find existing record")).toBeTruthy();
-    expect(screen.getByText("Create my Macy's record")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Find my record/i })).toBeTruthy();
+    expect(screen.getByText("Link my Macy's record")).toBeTruthy();
+    expect(screen.queryByText("Find existing record")).toBeNull();
+    expect(screen.queryByText("Create my Macy's record")).toBeNull();
     expect(screen.getByRole("button", { name: /Suggest sample details/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Suggest a sample change/i })).toBeNull();
-    expect(screen.getByRole("button", { name: /Create record/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Link this system/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Find my record$/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Create record$/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Approve$/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Random new Contact/i })).toBeNull();
     expect(screen.queryByText(/Delete Macy's Contact/i)).toBeNull();
@@ -228,8 +230,7 @@ describe("ConnectedSystemsPanel", () => {
     );
 
     expect(await screen.findByText("Looking for your saved CRM record")).toBeTruthy();
-    expect(screen.queryByText("Create my Macy's record")).toBeNull();
-    expect(screen.queryByText("Find existing record")).toBeNull();
+    expect(screen.queryByText("Link my Macy's record")).toBeNull();
 
     resolveBinding({
       systemId: "salesforce-fsc-customer0",
@@ -247,8 +248,7 @@ describe("ConnectedSystemsPanel", () => {
     });
 
     expect(await screen.findByText("Update my Macy's information")).toBeTruthy();
-    expect(screen.queryByText("Create my Macy's record")).toBeNull();
-    expect(screen.queryByText("Find existing record")).toBeNull();
+    expect(screen.queryByText("Link my Macy's record")).toBeNull();
   });
 
   it("refreshes CRM record details without an id search field", async () => {
@@ -340,11 +340,10 @@ describe("ConnectedSystemsPanel", () => {
       />
     );
 
-    expect(await screen.findByText("Find existing record")).toBeTruthy();
+    expect(await screen.findByText("Link my Macy's record")).toBeTruthy();
     expect(screen.queryByText(/Record linking is still being prepared/i)).toBeNull();
     expect(screen.queryByText(/Record linking is temporarily unavailable/i)).toBeNull();
     expect(screen.queryByText("Connected Systems workflow storage is not ready.")).toBeNull();
-    expect(screen.getByText("Create my Macy's record")).toBeTruthy();
   });
 
   it("fills sample create details without changing registered lookup fields", async () => {
@@ -367,7 +366,7 @@ describe("ConnectedSystemsPanel", () => {
       expect((screen.getByDisplayValue("4155551212") as HTMLInputElement).disabled).toBe(true);
       expect(screen.getByDisplayValue(/\(415\) 555-1212/)).toBeTruthy();
       expect(screen.getByDisplayValue(/New York|Chicago|San Francisco|Atlanta/)).toBeTruthy();
-      expect((screen.getByRole("button", { name: /Create record/i }) as HTMLButtonElement).disabled).toBe(false);
+      expect((screen.getByRole("button", { name: /Link this system/i }) as HTMLButtonElement).disabled).toBe(false);
     });
   });
 
@@ -404,8 +403,8 @@ describe("ConnectedSystemsPanel", () => {
       />
     );
 
-    await screen.findByRole("button", { name: /Create record/i });
-    fireEvent.click(screen.getByRole("button", { name: /Create record/i }));
+    await screen.findByRole("button", { name: /Link this system/i });
+    fireEvent.click(screen.getByRole("button", { name: /Link this system/i }));
 
     expect(await screen.findByText("CRM rejected the create request.")).toBeTruthy();
     expect(screen.queryByText("Last update")).toBeNull();
@@ -455,12 +454,11 @@ describe("ConnectedSystemsPanel", () => {
       />
     );
 
-    await screen.findByRole("button", { name: /Create record/i });
-    fireEvent.click(screen.getByRole("button", { name: /Create record/i }));
+    await screen.findByRole("button", { name: /Link this system/i });
+    fireEvent.click(screen.getByRole("button", { name: /Link this system/i }));
 
     expect(await screen.findByText("Update my Macy's information")).toBeTruthy();
-    expect(screen.queryByText("Find existing record")).toBeNull();
-    expect(screen.queryByText("Create my Macy's record")).toBeNull();
+    expect(screen.queryByText("Link my Macy's record")).toBeNull();
     expect(screen.getByText("Delete record")).toBeTruthy();
     expect(screen.getAllByText(/003gK00000createdQAA/).length).toBeGreaterThan(0);
   });
@@ -506,13 +504,12 @@ describe("ConnectedSystemsPanel", () => {
       />
     );
 
-    await screen.findByRole("button", { name: /Create record/i });
-    fireEvent.click(screen.getByRole("button", { name: /Create record/i }));
+    await screen.findByRole("button", { name: /Link this system/i });
+    fireEvent.click(screen.getByRole("button", { name: /Link this system/i }));
 
     expect(await screen.findByText("Update my Macy's information")).toBeTruthy();
     await waitFor(() => {
-      expect(screen.queryByText("Find existing record")).toBeNull();
-      expect(screen.queryByText("Create my Macy's record")).toBeNull();
+      expect(screen.queryByText("Link my Macy's record")).toBeNull();
       expect(screen.getByText("Delete record")).toBeTruthy();
       expect(screen.getAllByText(/003gK00000recordOnlyQAA/).length).toBeGreaterThan(0);
     });

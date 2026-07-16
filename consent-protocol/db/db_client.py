@@ -85,9 +85,33 @@ def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
     return value
 
 
+class JsonParam:
+    """Explicit marker telling ``rpc``/``execute_raw`` to serialize this value
+    as JSON/JSONB rather than passing it through as a native array parameter
+    (e.g. a Postgres ``TEXT[]`` or ``vector``). Wrap any JSONB array argument
+    (a list of row objects, or a plain list bound to a JSONB column/param)
+    with this before passing it to ``rpc()``.
+    """
+
+    __slots__ = ("value",)
+
+    def __init__(self, value: Any):
+        self.value = value
+
+
 def _adapt_db_param_value(value: Any, dialect_name: str | None = None) -> Any:
-    """Adapt JSON-like values for the active DB driver."""
+    """Adapt JSON-like values for the active DB driver.
+
+    Plain dicts are always JSON/JSONB. A list containing JSON objects also
+    maps to a JSONB array (Postgres arrays cannot hold dicts) and is
+    auto-detected; lists of scalars stay as native arrays (e.g. ``TEXT[]``)
+    unless explicitly wrapped in ``JsonParam``, in which case they are always
+    serialized as JSON/JSONB too.
+    """
     is_postgres = bool(dialect_name and dialect_name.startswith("postgres"))
+    if isinstance(value, JsonParam):
+        inner = value.value
+        return PsycopgJson(inner) if is_postgres else json.dumps(inner)
     if isinstance(value, dict):
         return PsycopgJson(value) if is_postgres else json.dumps(value)
     # A list containing JSON objects maps to a jsonb array (Postgres arrays

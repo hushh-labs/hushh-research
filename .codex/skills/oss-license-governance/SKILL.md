@@ -72,7 +72,7 @@ Non-owned surfaces:
 
 1. If the task is broader repo governance, use `repo-operations`.
 2. If the task is documentation-home governance, use `docs-governance`.
-3. If the task is subtree routing or upstream-first sync policy, use `subtree-upstream-governance`.
+3. If the task is subtree routing or optional-mirror sync policy, use `subtree-upstream-governance`.
 4. If the task is package-runtime behavior beyond the license surface, use `backend` or `frontend`.
 
 ## Required Checks

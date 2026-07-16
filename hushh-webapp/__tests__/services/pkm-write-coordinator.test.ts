@@ -73,8 +73,10 @@ vi.mock("@/lib/cache/cache-sync-service", () => ({
 }));
 
 vi.mock("@/lib/personal-knowledge-model/upgrade-contracts", () => ({
-  CURRENT_PKM_CONTRACT_VERSION: "5.0.0",
+  CURRENT_PKM_CONTRACT_VERSION: "6.0.0",
+  CURRENT_READABLE_PROJECTION_VERSION: "6.0.0",
   CURRENT_READABLE_SUMMARY_VERSION: 1,
+  comparePkmSemanticVersions: vi.fn((left: string, right: string) => left.localeCompare(right)),
   currentDomainContractVersion: vi.fn(() => 2),
 }));
 
@@ -109,11 +111,18 @@ function stubWriteContext(overrides?: {
   expectedDataVersion?: number;
   currentEncryptedDomain?: Record<string, unknown> | null;
 }) {
-  prepareDomainWriteContextMock.mockResolvedValue({
+  prepareDomainWriteContextMock.mockImplementation(async () => ({
     baseFullBlob: overrides?.baseFullBlob ?? { existing: { foo: "bar" } },
     domainData: overrides?.domainData ?? { items: [] },
-    expectedDataVersion: overrides?.expectedDataVersion ?? 1,
-  });
+    expectedDataVersion:
+      Number(overrides?.currentEncryptedDomain?.dataVersion) ||
+      overrides?.expectedDataVersion ||
+      1,
+    encryptedDomain: overrides?.currentEncryptedDomain ?? null,
+    manifest: await pkmGetDomainManifestMock(),
+    snapshot: null,
+    etag: "snapshot-etag",
+  }));
   pkmGetDomainDataMock.mockResolvedValue(overrides?.currentEncryptedDomain ?? null);
 }
 
@@ -300,6 +309,49 @@ describe("PkmWriteCoordinator", () => {
         }),
       );
     });
+
+    it("records an explicitly confirmed merged-domain deletion as delete", async () => {
+      pkmGetMetadataMock.mockResolvedValue({ upgradableDomains: [] });
+      pkmGetDomainManifestMock.mockResolvedValue({
+        domain: "food",
+        manifest_version: 1,
+        domain_contract_version: 2,
+        readable_summary_version: 1,
+        summary_projection: {},
+        top_level_scope_paths: ["profile", "preferences"],
+        externalizable_paths: [],
+        paths: [],
+      });
+      stubWriteContext({ domainData: { favorite: "sushi" } });
+      pkmStoreMergedDomainWithPreparedBlobMock.mockResolvedValue({
+        success: true,
+        conflict: false,
+        dataVersion: 2,
+        fullBlob: { food: {} },
+      });
+
+      await PkmWriteCoordinator.saveMergedDomain({
+        ...BASE_PARAMS,
+        build: () => ({
+          domainData: {},
+          summary: { item_count: 0 },
+          operation: "delete",
+          scopePath: "preferences.favorite",
+        }),
+      });
+
+      expect(pkmStoreMergedDomainWithPreparedBlobMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mutationPlan: expect.objectContaining({
+            operation: "delete",
+            proposed_scope: "preferences",
+            confirmation_receipt: expect.objectContaining({
+              displayed_scope: "preferences",
+            }),
+          }),
+        })
+      );
+    });
   });
 
   describe("conflict retry", () => {
@@ -412,6 +464,63 @@ describe("PkmWriteCoordinator", () => {
       expect(result.success).toBe(true);
       expect(result.conflict).toBe(false);
       expect(upgradeEnsureRunningMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("fails closed before writing when the saved model requires a newer client", async () => {
+      pkmGetMetadataMock.mockResolvedValue({
+        upgradeStatus: "client_update_required",
+        upgradableDomains: [],
+      });
+      pkmGetDomainManifestMock.mockResolvedValue(null);
+
+      const result = await PkmWriteCoordinator.saveMergedDomain({
+        ...BASE_PARAMS,
+        build: BUILD_CALLBACK,
+      });
+
+      expect(result.saveState).toBe("failed");
+      expect(result.success).toBe(false);
+      expect(pkmStoreMergedDomainWithPreparedBlobMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("backend write throws", () => {
+    it("converts a thrown storeDomainData 500 into a graceful failed result instead of propagating", async () => {
+      stubNoUpgradeNeeded();
+      stubWriteContext();
+      pkmStoreMergedDomainWithPreparedBlobMock.mockRejectedValue(
+        new Error(
+          'Failed to store domain data: 500 - {"detail":"Failed to store domain data"}',
+        ),
+      );
+
+      const result = await PkmWriteCoordinator.saveMergedDomain({
+        ...BASE_PARAMS,
+        build: BUILD_CALLBACK,
+      });
+
+      expect(result.saveState).toBe("failed");
+      expect(result.success).toBe(false);
+      // The raw backend error text must never reach the caller/UI verbatim.
+      expect(result.message).not.toContain("Failed to store domain data: 500");
+      expect(result.message).toMatch(/vault/i);
+    });
+
+    it("requires recipient re-review when sharing changes during the write", async () => {
+      stubNoUpgradeNeeded();
+      stubWriteContext();
+      pkmStoreMergedDomainWithPreparedBlobMock.mockRejectedValue(
+        new Error('409 {"code":"PKM_SHARING_IMPACT_CHANGED"}')
+      );
+
+      const result = await PkmWriteCoordinator.saveMergedDomain({
+        ...BASE_PARAMS,
+        build: BUILD_CALLBACK,
+      });
+
+      expect(result.saveState).toBe("failed");
+      expect(result.message).toMatch(/sharing changed/i);
+      expect(result.message).toMatch(/confirm again/i);
     });
   });
 });

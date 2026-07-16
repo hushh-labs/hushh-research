@@ -191,7 +191,7 @@ export function useOneLocationConsentActions(
             );
             if (!requester?.keyId || !requester.publicKeyJwk) {
               throw new Error(
-                "They need to open Onepoint once before approval can finish.",
+                "They need to open Location once before approval can finish.",
               );
             }
             const response = await OneLocationService.approveRequest({

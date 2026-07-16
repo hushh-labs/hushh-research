@@ -28,6 +28,7 @@ from hushh_mcp.integrations.plaid import (
     PlaidHttpClient,
     PlaidRuntimeConfig,
 )
+from hushh_mcp.integrations.plaid.config import local_plaid_environment_choices
 from hushh_mcp.kai_import import build_financial_analytics_v2
 from hushh_mcp.runtime_settings import get_optional_plaid_access_token_key
 
@@ -154,6 +155,12 @@ class PlaidPortfolioService:
         self._warned_fallback_encryption_key = False
         self._runtime_config: PlaidRuntimeConfig | None = None
         self._client: PlaidHttpClient | None = None
+        # Environment-scoped configs/clients, keyed by environment name. Used
+        # only when a caller passes an explicit `environment` override (local
+        # dev's dual sandbox/production connect buttons); the default
+        # `self.config`/`self.client` above are untouched for every other path.
+        self._env_configs: dict[str, PlaidRuntimeConfig] = {}
+        self._env_clients: dict[str, PlaidHttpClient] = {}
 
     @property
     def db(self):
@@ -172,6 +179,31 @@ class PlaidPortfolioService:
         if self._client is None:
             self._client = PlaidHttpClient(self.config)
         return self._client
+
+    def _config_for(self, environment: str | None) -> PlaidRuntimeConfig:
+        """Resolve the runtime config for an explicit environment, if given.
+
+        Falls back to the default `self.config` when `environment` is None or
+        matches the default environment already. Only local dev can actually
+        switch environment (see `PlaidRuntimeConfig.from_env`); everywhere
+        else this is a no-op passthrough to the default config.
+        """
+        normalized = _clean_text(environment).lower() or None
+        if not normalized or normalized == self.config.environment:
+            return self.config
+        if normalized not in self._env_configs:
+            self._env_configs[normalized] = PlaidRuntimeConfig.from_env(
+                environment_override=normalized
+            )
+        return self._env_configs[normalized]
+
+    def _client_for(self, environment: str | None) -> PlaidHttpClient:
+        normalized = _clean_text(environment).lower() or None
+        if not normalized or normalized == self.config.environment:
+            return self.client
+        if normalized not in self._env_clients:
+            self._env_clients[normalized] = PlaidHttpClient(self._config_for(normalized))
+        return self._env_clients[normalized]
 
     def _track_background_task(
         self,
@@ -208,7 +240,11 @@ class PlaidPortfolioService:
         return self.config.configured
 
     def configuration_status(self) -> dict[str, Any]:
-        return self.config.to_status()
+        status = self.config.to_status()
+        available_environments = local_plaid_environment_choices()
+        status["available_environments"] = available_environments
+        status["local_dual_environment_enabled"] = len(available_environments) > 1
+        return status
 
     def _country_codes(self) -> list[str]:
         return list(self.config.country_codes)
@@ -303,8 +339,14 @@ class PlaidPortfolioService:
         )
         return plaintext.decode("utf-8")
 
-    async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return await self.client.post(path, payload)
+    async def _post(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        environment: str | None = None,
+    ) -> dict[str, Any]:
+        return await self._client_for(environment).post(path, payload)
 
     def _row_metadata(self, row: dict[str, Any] | None) -> dict[str, Any]:
         if not isinstance(row, dict):
@@ -692,7 +734,11 @@ class PlaidPortfolioService:
         status = _clean_text(row.get("status"), default="active")
         if status != "removed":
             access_token = self._decrypt_access_token(row)
-            await self._post("/item/remove", {"access_token": access_token})
+            await self._post(
+                "/item/remove",
+                {"access_token": access_token},
+                environment=_clean_text(row.get("plaid_env")) or None,
+            )
 
         metadata = self._row_metadata(row)
         metadata.update(
@@ -910,8 +956,15 @@ class PlaidPortfolioService:
         sec_type = _clean_text(security.get("type")).lower()
         sec_subtype = _clean_text(security.get("subtype")).lower()
         hint = f"{symbol} {name} {sec_type} {sec_subtype}".lower()
+        # Plaid's own is_cash_equivalent flag is authoritative when present
+        # (e.g. sweep vehicles, money market cash positions); trust it before
+        # falling back to string heuristics.
+        if security.get("is_cash_equivalent") is True:
+            return "cash_equivalent"
         if sec_type == "cash" or "money market" in hint or "sweep" in hint:
             return "cash_equivalent"
+        if sec_type == "cryptocurrency" or "crypto" in hint:
+            return "real_asset"
         if sec_type in {"equity", "etf", "mutual fund"}:
             return "equity"
         if sec_type == "fixed income" or sec_subtype in {"bond", "bill", "note", "cd"}:
@@ -1053,6 +1106,13 @@ class PlaidPortfolioService:
         }
 
     def _summarize_transactions(self, transactions: list[dict[str, Any]]) -> dict[str, Any]:
+        # Plaid's investment transaction `amount` sign convention: positive
+        # means cash left the account (e.g. a buy), negative means cash
+        # entered the account (e.g. a sell, dividend, interest, or cash
+        # contribution/deposit). See
+        # https://plaid.com/docs/api/products/investments/#investments-transactions-get
+        # We normalize these to conventional positive-income/positive-fee
+        # reporting below.
         dividends = 0.0
         interest = 0.0
         fees = 0.0
@@ -1064,16 +1124,21 @@ class PlaidPortfolioService:
             subtype = _clean_text(row.get("subtype")).lower()
             tx_type = _clean_text(row.get("type")).lower()
             amount = _to_float(row.get("amount")) or 0.0
+            # Per-trade commission/fee attached to a buy or sell transaction.
             fee_amount = _to_float(row.get("fees")) or 0.0
             fees += fee_amount
-            if "dividend" in subtype or "dividend" in tx_type:
-                dividends += amount
+            if tx_type == "fee":
+                # Standalone fee transactions (e.g. account maintenance fees)
+                # carry the charge in `amount`, not `fees` (which is 0 here).
+                fees += amount
+            elif "dividend" in subtype or "dividend" in tx_type:
+                dividends += -amount
             elif "interest" in subtype or "interest" in tx_type:
-                interest += amount
+                interest += -amount
             elif subtype in {"deposit", "contribution", "transfer in"} or "contribution" in subtype:
-                contributions += amount
+                contributions += -amount
             elif subtype in {"withdrawal", "transfer out"}:
-                withdrawals += abs(amount)
+                withdrawals += amount
             elif "buy" in subtype or tx_type == "buy":
                 buys += abs(amount)
             elif "sell" in subtype or tx_type == "sell":
@@ -1288,7 +1353,12 @@ class PlaidPortfolioService:
         canonical_portfolio["analytics_v2"] = analytics
         return canonical_portfolio
 
-    async def _fetch_all_investment_transactions(self, access_token: str) -> list[dict[str, Any]]:
+    async def _fetch_all_investment_transactions(
+        self,
+        access_token: str,
+        *,
+        environment: str | None = None,
+    ) -> list[dict[str, Any]]:
         start_date = (date.today() - timedelta(days=self._tx_history_days())).isoformat()
         end_date = date.today().isoformat()
         offset = 0
@@ -1305,6 +1375,7 @@ class PlaidPortfolioService:
                     "count": count,
                     "offset": offset,
                 },
+                environment=environment,
             )
             rows = payload.get("investment_transactions")
             page_rows = rows if isinstance(rows, list) else []
@@ -1325,13 +1396,18 @@ class PlaidPortfolioService:
         institution_name: str | None,
         status: str = "active",
         sync_status: str = "completed",
+        environment: str | None = None,
+        plaid_env: str | None = None,
     ) -> dict[str, Any]:
         holdings_payload = await self._post(
             "/investments/holdings/get",
             {"access_token": access_token},
+            environment=environment,
         )
         try:
-            transactions = await self._fetch_all_investment_transactions(access_token)
+            transactions = await self._fetch_all_investment_transactions(
+                access_token, environment=environment
+            )
         except PlaidApiError as exc:
             logger.warning(
                 "plaid.transactions_sync_failed user_id=%s item_id=%s error_code=%s status=%s",
@@ -1497,7 +1573,7 @@ class PlaidPortfolioService:
                 "access_token_algorithm": envelope["algorithm"],
                 "institution_id": institution_id,
                 "institution_name": institution_name,
-                "plaid_env": self._plaid_env(),
+                "plaid_env": plaid_env or self._plaid_env(),
                 "status": status,
                 "sync_status": sync_status,
                 "latest_accounts_json": json.dumps(normalized_accounts),
@@ -1657,10 +1733,18 @@ class PlaidPortfolioService:
         user_id: str,
         item_id: str | None = None,
         redirect_uri: str | None = None,
+        environment: str | None = None,
     ) -> dict[str, Any]:
-        if not self.is_configured():
+        """Create a Plaid Link token.
+
+        ``environment`` optionally overrides which Plaid environment to use
+        (e.g. "production" from local dev's secondary connect button). It
+        only takes effect locally; see `PlaidRuntimeConfig.from_env`.
+        """
+        config = self._config_for(environment)
+        if not config.configured:
             return {
-                **self.configuration_status(),
+                **config.to_status(),
                 "mode": "unconfigured",
                 "link_token": None,
                 "expiration": None,
@@ -1695,10 +1779,15 @@ class PlaidPortfolioService:
             payload["access_token"] = self._decrypt_access_token(existing)
             payload["update"] = {"account_selection_enabled": True}
             mode = "update"
+            # Update mode must use the environment the item was originally
+            # created under, not whatever the caller requested, since the
+            # access token is only valid against its original client/secret.
+            environment = _clean_text(existing.get("plaid_env")) or environment
+            config = self._config_for(environment)
         else:
             payload["products"] = ["investments"]
 
-        response = await self._post("/link/token/create", payload)
+        response = await self._post("/link/token/create", payload, environment=environment)
         link_token = _clean_text(response.get("link_token")) or None
         expiration = _clean_text(response.get("expiration")) or None
         resume_session_id = None
@@ -1713,7 +1802,7 @@ class PlaidPortfolioService:
             )
             resume_session_id = _clean_text(session.get("resume_session_id")) or None
         return {
-            **self.configuration_status(),
+            **config.to_status(),
             "mode": mode,
             "link_token": link_token,
             "expiration": expiration,
@@ -1754,13 +1843,23 @@ class PlaidPortfolioService:
         public_token: str,
         metadata: dict[str, Any] | None = None,
         resume_session_id: str | None = None,
+        environment: str | None = None,
     ) -> dict[str, Any]:
-        if not self.is_configured():
+        """Exchange a Link public_token for an access_token and sync the item.
+
+        ``environment`` must match whatever environment the originating
+        `create_link_token` call used, since the public_token is only valid
+        against the matching client_id/secret pair (local dev's secondary
+        connect button only).
+        """
+        config = self._config_for(environment)
+        if not config.configured:
             return self._aggregate_status_payload(user_id=user_id)
 
         exchange = await self._post(
             "/item/public_token/exchange",
             {"public_token": public_token},
+            environment=environment,
         )
         item_id = _clean_text(exchange.get("item_id"))
         access_token = _clean_text(exchange.get("access_token"))
@@ -1794,6 +1893,8 @@ class PlaidPortfolioService:
             institution_name=institution_name,
             status="active",
             sync_status="completed",
+            environment=environment,
+            plaid_env=config.environment,
         )
 
         current_source = self.get_active_source(user_id)
@@ -2689,6 +2790,7 @@ class PlaidPortfolioService:
         run_id: str,
     ) -> None:
         item_id = _clean_text(item_row.get("item_id"))
+        item_environment = _clean_text(item_row.get("plaid_env")) or None
         self._update_refresh_run(
             run_id=run_id,
             status="running",
@@ -2699,7 +2801,11 @@ class PlaidPortfolioService:
             refresh_method = "investments_refresh"
             fallback_reason = None
             try:
-                await self._post("/investments/refresh", {"access_token": access_token})
+                await self._post(
+                    "/investments/refresh",
+                    {"access_token": access_token},
+                    environment=item_environment,
+                )
             except PlaidApiError as exc:
                 if exc.error_code == "PRODUCT_NOT_SUPPORTED":
                     refresh_method = "holdings_get_fallback"
@@ -2729,6 +2835,8 @@ class PlaidPortfolioService:
                 institution_name=_clean_text(item_row.get("institution_name")) or None,
                 status="active",
                 sync_status="completed",
+                environment=item_environment,
+                plaid_env=item_environment,
             )
             result_summary = sync_result.get("summary") if isinstance(sync_result, dict) else {}
             if self._is_refresh_run_canceled(run_id=run_id):

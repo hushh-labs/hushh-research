@@ -59,6 +59,7 @@ const NAVIGATION_TIMEOUT_MS = 120000;
 const CLIENT_NAVIGATION_CONTEXT_KEY = "__hushhSignedInRouteContextProbe";
 const INTERNAL_APP_NAVIGATION_REQUEST_EVENT = "app-internal-navigation-requested";
 const REVIEWER_BOOTSTRAP_ROUTE = "/ria";
+const REVIEWER_BOOTSTRAP_ROUTE_IDS = [REVIEWER_BOOTSTRAP_ROUTE, "/ria/onboarding"];
 const SAME_SESSION_SHELL_ROUTES = new Set([
   "/agent",
   "/one",
@@ -583,7 +584,7 @@ async function ensureReviewerSession(page) {
 
   process.stdout.write(`→ wait for reviewer route beacon\n`);
   try {
-    await waitForRouteBeacon(page, [REVIEWER_BOOTSTRAP_ROUTE]);
+    await waitForRouteBeacon(page, REVIEWER_BOOTSTRAP_ROUTE_IDS);
   } catch (error) {
     const diagnostics = await captureRouteDiagnostics(page);
     throw new Error(

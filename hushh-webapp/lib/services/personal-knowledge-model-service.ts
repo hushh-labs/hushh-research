@@ -28,6 +28,7 @@ import {
   buildPersonalKnowledgeModelStructureArtifacts,
   type DomainManifest,
   type PathDescriptor,
+  type PkmScopeRegistryEntry,
   type StructureDecision,
 } from "@/lib/personal-knowledge-model/manifest";
 import {
@@ -77,6 +78,7 @@ export interface PkmUpgradeDomainState {
   blockedReasons?: string[];
   upgradedAt: string | null;
   needsUpgrade: boolean;
+  unsupportedFutureVersion?: boolean;
 }
 
 export interface PersonalKnowledgeModelMetadata {
@@ -94,6 +96,7 @@ export interface PersonalKnowledgeModelMetadata {
   targetReadableProjectionVersion?: string | null;
   upgradeStatus: string;
   upgradableDomains: PkmUpgradeDomainState[];
+  unsupportedDomains?: PkmUpgradeDomainState[];
   lastUpgradedAt: string | null;
   suggestedDomains: string[];
   lastUpdated: string | null;
@@ -120,12 +123,31 @@ export interface EncryptedDomainBlob extends EncryptedValue {
   segmentIds?: string[];
 }
 
+export interface DomainSnapshotV1 {
+  schemaVersion: "pkm_domain_snapshot.v1";
+  userId: string;
+  domain: string;
+  encryptedBlob: EncryptedDomainBlob;
+  contentRevision: number;
+  manifest: DomainManifest | null;
+  manifestRevision: number;
+  paths: PathDescriptor[];
+  scopes: PkmScopeRegistryEntry[];
+  updatedAt: string | null;
+  etag: string;
+  segmentIds: string[];
+}
+
 export interface StoreDomainDataResult {
   success: boolean;
   conflict?: boolean;
   message?: string;
   dataVersion?: number;
   updatedAt?: string;
+  manifestRevision?: number;
+  commitId?: string;
+  archivedRevisionId?: string;
+  preservationReceipt?: PreservationReceiptV1;
 }
 
 export const GEMINI_RUNTIME_CREDENTIAL_REF =
@@ -141,12 +163,31 @@ export const RUNTIME_CREDENTIAL_MODE_REF =
 export type RuntimeCredentialMode = "byok" | "hushh_managed_vertex";
 
 export interface PkmUpgradeContext {
+  schemaVersion: "pkm_upgrade_claim.v1";
+  claimId: string;
+  commitId: string;
+  ownerUserId: string;
   runId: string;
-  priorDomainContractVersion?: number;
-  newDomainContractVersion?: number;
-  priorReadableSummaryVersion?: number;
-  newReadableSummaryVersion?: number;
-  retryCount?: number;
+  domain: string;
+  sourceContentRevision: number;
+  sourceManifestRevision: number;
+  targetDomainContractVersion: number;
+  targetReadableSummaryVersion: number;
+  targetPkmContractVersion: string;
+  targetReadableProjectionVersion: string;
+  expiresAt: string;
+  mode: "real";
+}
+
+export interface PreservationReceiptV1 {
+  schemaVersion: "pkm_preservation_receipt.v1";
+  totalSourceOccurrences: number;
+  preserved: number;
+  moved: number;
+  equalValueDeduplicated: number;
+  quarantined: number;
+  rejected: number;
+  complete: boolean;
 }
 
 export interface PkmSyncCheckpointMetadata {
@@ -162,6 +203,15 @@ export interface PkmSyncCheckpointMetadata {
   upgradedInSession: boolean;
   conflictRetry: boolean;
   upgradeRunId?: string | null;
+}
+
+export interface PkmMutationSharingImpact {
+  activeRecipientCount: number;
+  recipientLabels: string[];
+  entersNextExportRevision: boolean;
+  summary: string;
+  affectedGrantIds: string[];
+  affectedExportIds: string[];
 }
 
 type DecryptedFullBlobCacheEntry = {
@@ -307,6 +357,7 @@ export class PersonalKnowledgeModelService {
   private static encryptedDataInflight = new Map<string, Promise<EncryptedUserBlob | null>>();
   private static domainDataInflight = new Map<string, Promise<EncryptedDomainBlob | null>>();
   private static domainManifestInflight = new Map<string, Promise<DomainManifest | null>>();
+  private static domainSnapshotInflight = new Map<string, Promise<DomainSnapshotV1 | null>>();
   private static tickerSyncInflight = new Map<string, Promise<void>>();
   private static tickerSyncSignatureByUser = new Map<string, string>();
   private static tickerSyncLastAt = new Map<string, number>();
@@ -320,6 +371,7 @@ export class PersonalKnowledgeModelService {
       this.encryptedDataInflight,
       this.domainDataInflight,
       this.domainManifestInflight,
+      this.domainSnapshotInflight,
       this.tickerSyncInflight,
       this.migrationInflight,
     ]) {
@@ -794,6 +846,13 @@ export class PersonalKnowledgeModelService {
 
   private static normalizeSegmentIds(segmentIds?: string[] | null): string[] {
     return [...new Set((segmentIds || []).map((segmentId) => this.canonicalSegmentId(segmentId)))];
+  }
+
+  private static normalizeSemanticVersion(value: unknown): string {
+    const normalized = String(value || "").trim();
+    return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(normalized)
+      ? normalized
+      : "0.0.0";
   }
 
   static resolveSegmentIdsForPaths(params: {
@@ -1839,6 +1898,7 @@ export class PersonalKnowledgeModelService {
     domainData?: Record<string, unknown>;
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
+    preservationReceipt?: PreservationReceiptV1;
     mutationPlan?: PkmMutationPlanV2;
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
@@ -1850,6 +1910,12 @@ export class PersonalKnowledgeModelService {
         Number(params.summary.domain_contract_version) || currentDomainContractVersion(params.domain),
       readable_summary_version:
         Number(params.summary.readable_summary_version) || CURRENT_READABLE_SUMMARY_VERSION,
+      pkm_contract_version: this.normalizeSemanticVersion(
+        params.summary.pkm_contract_version || params.manifest?.pkm_contract_version
+      ),
+      readable_projection_version: this.normalizeSemanticVersion(
+        params.summary.readable_projection_version || params.manifest?.readable_projection_version
+      ),
       upgraded_at:
         typeof params.summary.upgraded_at === "string" && params.summary.upgraded_at.trim().length > 0
           ? params.summary.upgraded_at
@@ -1865,6 +1931,12 @@ export class PersonalKnowledgeModelService {
           readable_summary_version:
             Number(params.manifest.readable_summary_version) ||
             CURRENT_READABLE_SUMMARY_VERSION,
+          pkm_contract_version: this.normalizeSemanticVersion(
+            params.manifest.pkm_contract_version
+          ),
+          readable_projection_version: this.normalizeSemanticVersion(
+            params.manifest.readable_projection_version
+          ),
           upgraded_at:
             typeof params.manifest.upgraded_at === "string" &&
             params.manifest.upgraded_at.trim().length > 0
@@ -1880,6 +1952,14 @@ export class PersonalKnowledgeModelService {
               Number(manifestSummaryProjection.readable_summary_version) ||
               Number(params.manifest.readable_summary_version) ||
               CURRENT_READABLE_SUMMARY_VERSION,
+            pkm_contract_version: this.normalizeSemanticVersion(
+              manifestSummaryProjection.pkm_contract_version ||
+                params.manifest.pkm_contract_version
+            ),
+            readable_projection_version: this.normalizeSemanticVersion(
+              manifestSummaryProjection.readable_projection_version ||
+                params.manifest.readable_projection_version
+            ),
             upgraded_at:
               typeof manifestSummaryProjection.upgraded_at === "string" &&
               manifestSummaryProjection.upgraded_at.trim().length > 0
@@ -1906,6 +1986,7 @@ export class PersonalKnowledgeModelService {
         writeProjections: params.writeProjections,
         expectedDataVersion: params.expectedDataVersion,
         upgradeContext: params.upgradeContext,
+        preservationReceipt: params.preservationReceipt,
         mutationPlan: params.mutationPlan,
         syncCheckpoint: params.syncCheckpoint,
         vaultOwnerToken: this.getVaultOwnerToken(params.vaultOwnerToken),
@@ -1940,6 +2021,10 @@ export class PersonalKnowledgeModelService {
         message: resolvedMessage,
         dataVersion: resolvedDataVersion,
         updatedAt: resolvedUpdatedAt,
+        manifestRevision: result.manifestRevision,
+        commitId: result.commitId,
+        archivedRevisionId: result.archivedRevisionId,
+        preservationReceipt: result.preservationReceipt,
       };
     }
 
@@ -1967,13 +2052,35 @@ export class PersonalKnowledgeModelService {
       payload.expected_data_version = Math.max(0, Number(params.expectedDataVersion));
     }
     if (params.upgradeContext?.runId) {
-      payload.upgrade_context = {
+      payload.upgrade_claim = {
+        schema_version: params.upgradeContext.schemaVersion,
+        claim_id: params.upgradeContext.claimId,
+        commit_id: params.upgradeContext.commitId,
+        owner_user_id: params.upgradeContext.ownerUserId,
         run_id: params.upgradeContext.runId,
-        prior_domain_contract_version: params.upgradeContext.priorDomainContractVersion,
-        new_domain_contract_version: params.upgradeContext.newDomainContractVersion,
-        prior_readable_summary_version: params.upgradeContext.priorReadableSummaryVersion,
-        new_readable_summary_version: params.upgradeContext.newReadableSummaryVersion,
-        retry_count: params.upgradeContext.retryCount,
+        domain: params.upgradeContext.domain,
+        source_content_revision: params.upgradeContext.sourceContentRevision,
+        source_manifest_revision: params.upgradeContext.sourceManifestRevision,
+        target_domain_contract_version: params.upgradeContext.targetDomainContractVersion,
+        target_readable_summary_version: params.upgradeContext.targetReadableSummaryVersion,
+        target_pkm_contract_version: params.upgradeContext.targetPkmContractVersion,
+        target_readable_projection_version:
+          params.upgradeContext.targetReadableProjectionVersion,
+        expires_at: params.upgradeContext.expiresAt,
+        mode: params.upgradeContext.mode,
+      };
+      if (!params.preservationReceipt) {
+        throw new Error("A preservation receipt is required for a PKM upgrade write.");
+      }
+      payload.preservation_receipt = {
+        schema_version: params.preservationReceipt.schemaVersion,
+        total_source_occurrences: params.preservationReceipt.totalSourceOccurrences,
+        preserved: params.preservationReceipt.preserved,
+        moved: params.preservationReceipt.moved,
+        equal_value_deduplicated: params.preservationReceipt.equalValueDeduplicated,
+        quarantined: params.preservationReceipt.quarantined,
+        rejected: params.preservationReceipt.rejected,
+        complete: params.preservationReceipt.complete,
       };
     }
     if (params.syncCheckpoint) {
@@ -2066,6 +2173,37 @@ export class PersonalKnowledgeModelService {
       message: resolvedMessage,
       dataVersion: resolvedDataVersion,
       updatedAt: resolvedUpdatedAt,
+      manifestRevision:
+        typeof data.manifest_revision === "number" ? data.manifest_revision : undefined,
+      commitId: typeof data.commit_id === "string" ? data.commit_id : undefined,
+      archivedRevisionId:
+        typeof data.archived_revision_id === "string" ? data.archived_revision_id : undefined,
+      preservationReceipt:
+        data.preservation_receipt && typeof data.preservation_receipt === "object"
+          ? {
+              schemaVersion: "pkm_preservation_receipt.v1",
+              totalSourceOccurrences: Number(
+                (data.preservation_receipt as Record<string, unknown>)
+                  .total_source_occurrences || 0
+              ),
+              preserved: Number(
+                (data.preservation_receipt as Record<string, unknown>).preserved || 0
+              ),
+              moved: Number((data.preservation_receipt as Record<string, unknown>).moved || 0),
+              equalValueDeduplicated: Number(
+                (data.preservation_receipt as Record<string, unknown>)
+                  .equal_value_deduplicated || 0
+              ),
+              quarantined: Number(
+                (data.preservation_receipt as Record<string, unknown>).quarantined || 0
+              ),
+              rejected: Number(
+                (data.preservation_receipt as Record<string, unknown>).rejected || 0
+              ),
+              complete:
+                (data.preservation_receipt as Record<string, unknown>).complete === true,
+            }
+          : undefined,
     };
   }
 
@@ -2140,6 +2278,40 @@ export class PersonalKnowledgeModelService {
           (scope) => scope === "pkm.read" || scope.endsWith(".*")
         ),
       scopeEntries: Array.isArray(data.scope_entries) ? data.scope_entries : undefined,
+    };
+  }
+
+  static async getMutationSharingImpact(params: {
+    userId: string;
+    domain: string;
+    scopePath: string;
+    vaultOwnerToken: string;
+  }): Promise<PkmMutationSharingImpact> {
+    const query = new URLSearchParams({ scope_path: params.scopePath });
+    const response = await ApiService.apiFetch(
+      `${this.PKM_API_PREFIX}/memory/mutation-impact/${encodeURIComponent(params.userId)}/${encodeURIComponent(params.domain)}?${query}`,
+      { headers: this.getAuthHeaders(params.vaultOwnerToken) }
+    );
+    if (!response.ok) {
+      throw new Error("Current sharing could not be verified. Refresh and try again.");
+    }
+    const payload = (await response.json()) as Record<string, unknown>;
+    return {
+      activeRecipientCount: Math.max(0, Number(payload.active_recipient_count) || 0),
+      recipientLabels: Array.isArray(payload.recipient_labels)
+        ? payload.recipient_labels.map(String).filter(Boolean)
+        : [],
+      entersNextExportRevision: payload.enters_next_export_revision === true,
+      summary:
+        typeof payload.summary === "string" && payload.summary.trim()
+          ? payload.summary.trim()
+          : "No active recipients are affected.",
+      affectedGrantIds: Array.isArray(payload.affected_grant_ids)
+        ? payload.affected_grant_ids.map(String).filter(Boolean)
+        : [],
+      affectedExportIds: Array.isArray(payload.affected_export_ids)
+        ? payload.affected_export_ids.map(String).filter(Boolean)
+        : [],
     };
   }
 
@@ -2666,6 +2838,13 @@ export class PersonalKnowledgeModelService {
     metadata: PersonalKnowledgeModelMetadata | null;
     fetchedDomains: Array<{ domain: string; blob: EncryptedDomainBlob | null }>;
   }): Promise<void> {
+    // Zero-loss gate: the former background cutover wrote segmented domains
+    // under a caller-created string. Keep the legacy ciphertext readable, but
+    // do not mutate it until the upgrade orchestrator has obtained a
+    // revision-bound server claim and preservation receipt.
+    return;
+
+    /* c8 ignore start -- retained temporarily as migration reference only */
     if (!params.legacyEncrypted) {
       return;
     }
@@ -2691,8 +2870,8 @@ export class PersonalKnowledgeModelService {
     const dedupeKey = this.inflightKey([
       "pkm_migration",
       params.userId,
-      params.legacyEncrypted.updatedAt || "na",
-      params.legacyEncrypted.dataVersion || "na",
+      params.legacyEncrypted?.updatedAt || "na",
+      params.legacyEncrypted?.dataVersion || "na",
     ]);
     const existing = this.migrationInflight.get(dedupeKey);
     if (existing) {
@@ -2738,11 +2917,6 @@ export class PersonalKnowledgeModelService {
           manifest: structureArtifacts.manifest,
           portfolioData,
           domainData,
-          upgradeContext: {
-            runId: "legacy_domain_cutover_v5",
-            newDomainContractVersion: currentDomainContractVersion(domain),
-            newReadableSummaryVersion: CURRENT_READABLE_SUMMARY_VERSION,
-          },
           vaultOwnerToken: params.vaultOwnerToken,
         });
       }
@@ -2756,6 +2930,7 @@ export class PersonalKnowledgeModelService {
         this.migrationInflight.delete(dedupeKey);
       }
     }
+    /* c8 ignore stop */
   }
 
   /**
@@ -2857,6 +3032,7 @@ export class PersonalKnowledgeModelService {
     manifest?: DomainManifest;
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
+    preservationReceipt?: PreservationReceiptV1;
     vaultOwnerToken?: string;
   }): Promise<{
     success: boolean;
@@ -2896,6 +3072,7 @@ export class PersonalKnowledgeModelService {
     writeProjections?: PkmWriteProjection[];
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
+    preservationReceipt?: PreservationReceiptV1;
     mutationPlan?: PkmMutationPlanV2;
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
@@ -2952,6 +3129,7 @@ export class PersonalKnowledgeModelService {
       domainData: merged.domainData,
       expectedDataVersion: params.expectedDataVersion,
       upgradeContext: params.upgradeContext,
+      preservationReceipt: params.preservationReceipt,
       mutationPlan: params.mutationPlan,
       syncCheckpoint: params.syncCheckpoint,
       vaultOwnerToken: params.vaultOwnerToken,
@@ -3004,6 +3182,7 @@ export class PersonalKnowledgeModelService {
     writeProjections?: PkmWriteProjection[];
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
+    preservationReceipt?: PreservationReceiptV1;
     mutationPlan?: PkmMutationPlanV2;
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
@@ -3042,6 +3221,7 @@ export class PersonalKnowledgeModelService {
     writeProjections?: PkmWriteProjection[];
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
+    preservationReceipt?: PreservationReceiptV1;
     mutationPlan?: PkmMutationPlanV2;
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
@@ -3101,6 +3281,7 @@ export class PersonalKnowledgeModelService {
       domainData: merged.domainData,
       expectedDataVersion: params.expectedDataVersion,
       upgradeContext: params.upgradeContext,
+      preservationReceipt: params.preservationReceipt,
       mutationPlan: params.mutationPlan,
       syncCheckpoint: params.syncCheckpoint,
       vaultOwnerToken: params.vaultOwnerToken,
@@ -3149,6 +3330,7 @@ export class PersonalKnowledgeModelService {
     writeProjections?: PkmWriteProjection[];
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
+    preservationReceipt?: PreservationReceiptV1;
     vaultOwnerToken?: string;
   }): Promise<PkmPreparedDomainValidationResult> {
     const baseFullBlob =
@@ -3178,6 +3360,12 @@ export class PersonalKnowledgeModelService {
         Number(params.summary.readable_summary_version) ||
         Number(params.manifest?.readable_summary_version) ||
         CURRENT_READABLE_SUMMARY_VERSION,
+      pkm_contract_version: this.normalizeSemanticVersion(
+        params.summary.pkm_contract_version || params.manifest?.pkm_contract_version
+      ),
+      readable_projection_version: this.normalizeSemanticVersion(
+        params.summary.readable_projection_version || params.manifest?.readable_projection_version
+      ),
       upgraded_at:
         typeof params.summary.upgraded_at === "string" && params.summary.upgraded_at.trim().length > 0
           ? params.summary.upgraded_at
@@ -3193,6 +3381,12 @@ export class PersonalKnowledgeModelService {
           readable_summary_version:
             Number(params.manifest.readable_summary_version) ||
             CURRENT_READABLE_SUMMARY_VERSION,
+          pkm_contract_version: this.normalizeSemanticVersion(
+            params.manifest.pkm_contract_version
+          ),
+          readable_projection_version: this.normalizeSemanticVersion(
+            params.manifest.readable_projection_version
+          ),
           upgraded_at:
             typeof params.manifest.upgraded_at === "string" &&
             params.manifest.upgraded_at.trim().length > 0
@@ -3208,6 +3402,14 @@ export class PersonalKnowledgeModelService {
               Number(manifestSummaryProjection.readable_summary_version) ||
               Number(params.manifest.readable_summary_version) ||
               CURRENT_READABLE_SUMMARY_VERSION,
+            pkm_contract_version: this.normalizeSemanticVersion(
+              manifestSummaryProjection.pkm_contract_version ||
+                params.manifest.pkm_contract_version
+            ),
+            readable_projection_version: this.normalizeSemanticVersion(
+              manifestSummaryProjection.readable_projection_version ||
+                params.manifest.readable_projection_version
+            ),
             upgraded_at:
               typeof manifestSummaryProjection.upgraded_at === "string" &&
               manifestSummaryProjection.upgraded_at.trim().length > 0
@@ -3239,14 +3441,35 @@ export class PersonalKnowledgeModelService {
       payload.expected_data_version = Math.max(0, Number(params.expectedDataVersion));
     }
     if (params.upgradeContext?.runId) {
-      payload.upgrade_context = {
+      payload.upgrade_claim = {
+        schema_version: params.upgradeContext.schemaVersion,
+        claim_id: params.upgradeContext.claimId,
+        commit_id: params.upgradeContext.commitId,
+        owner_user_id: params.upgradeContext.ownerUserId,
         run_id: params.upgradeContext.runId,
-        prior_domain_contract_version: params.upgradeContext.priorDomainContractVersion,
-        new_domain_contract_version: params.upgradeContext.newDomainContractVersion,
-        prior_readable_summary_version: params.upgradeContext.priorReadableSummaryVersion,
-        new_readable_summary_version: params.upgradeContext.newReadableSummaryVersion,
-        retry_count: params.upgradeContext.retryCount,
+        domain: params.upgradeContext.domain,
+        source_content_revision: params.upgradeContext.sourceContentRevision,
+        source_manifest_revision: params.upgradeContext.sourceManifestRevision,
+        target_domain_contract_version: params.upgradeContext.targetDomainContractVersion,
+        target_readable_summary_version: params.upgradeContext.targetReadableSummaryVersion,
+        target_pkm_contract_version: params.upgradeContext.targetPkmContractVersion,
+        target_readable_projection_version:
+          params.upgradeContext.targetReadableProjectionVersion,
+        expires_at: params.upgradeContext.expiresAt,
+        mode: params.upgradeContext.mode,
       };
+      if (params.preservationReceipt) {
+        payload.preservation_receipt = {
+          schema_version: params.preservationReceipt.schemaVersion,
+          total_source_occurrences: params.preservationReceipt.totalSourceOccurrences,
+          preserved: params.preservationReceipt.preserved,
+          moved: params.preservationReceipt.moved,
+          equal_value_deduplicated: params.preservationReceipt.equalValueDeduplicated,
+          quarantined: params.preservationReceipt.quarantined,
+          rejected: params.preservationReceipt.rejected,
+          complete: params.preservationReceipt.complete,
+        };
+      }
     }
 
     const response = await ApiService.apiFetch(`${this.PKM_API_PREFIX}/store-domain/validate`, {
@@ -3638,6 +3861,164 @@ export class PersonalKnowledgeModelService {
       return null;
     }
     return { ...cached };
+  }
+
+  static async getDomainSnapshot(params: {
+    userId: string;
+    domain: string;
+    vaultOwnerToken?: string;
+    segmentIds?: string[];
+    force?: boolean;
+  }): Promise<DomainSnapshotV1 | null> {
+    const normalizedSegmentIds = this.normalizeSegmentIds(params.segmentIds);
+    const dedupeKey = this.inflightKey([
+      "domain_snapshot_v1",
+      params.userId,
+      params.domain,
+      normalizedSegmentIds.join(",") || "all_segments",
+      params.vaultOwnerToken ? "vault_owner" : "anonymous",
+      params.force ? "force" : "normal",
+    ]);
+    const existing = this.domainSnapshotInflight.get(dedupeKey);
+    if (existing) return existing;
+
+    const request = (async (): Promise<DomainSnapshotV1 | null> => {
+      const query = normalizedSegmentIds.length
+        ? `?${normalizedSegmentIds
+            .map((segmentId) => `segment_ids=${encodeURIComponent(segmentId)}`)
+            .join("&")}`
+        : "";
+      let payload: Record<string, unknown>;
+      let responseEtag = "";
+      if (Capacitor.isNativePlatform()) {
+        try {
+          payload = await HushhPersonalKnowledgeModel.getDomainSnapshot({
+            userId: params.userId,
+            domain: params.domain,
+            segmentIds: normalizedSegmentIds.length ? normalizedSegmentIds : undefined,
+            vaultOwnerToken: params.vaultOwnerToken,
+          });
+        } catch (error) {
+          if (/HTTP (?:Error )?404|\b404\b/i.test(String(error))) return null;
+          throw error;
+        }
+      } else {
+        const response = await ApiService.apiFetch(
+          `${this.PKM_API_PREFIX}/domain-snapshot/${encodeURIComponent(params.userId)}/${encodeURIComponent(params.domain)}${query}`,
+          {
+            headers: {
+              ...this.getAuthHeaders(params.vaultOwnerToken),
+              ...(params.force ? { "Cache-Control": "no-cache" } : {}),
+            },
+            cache: "no-store",
+          }
+        );
+        if (response.status === 404) return null;
+        if (!response.ok) {
+          throw new Error(`Failed to load coherent PKM domain snapshot: ${response.status}`);
+        }
+        responseEtag = response.headers.get("etag") || "";
+        payload = (await response.json()) as Record<string, unknown>;
+      }
+      const encryptedPayload = payload.encrypted_blob as Record<string, unknown> | undefined;
+      if (!encryptedPayload) return null;
+      const rawSegments =
+        encryptedPayload.segments && typeof encryptedPayload.segments === "object"
+          ? (encryptedPayload.segments as Record<string, Record<string, unknown>>)
+          : {};
+      const segments = Object.fromEntries(
+        Object.entries(rawSegments).map(([segmentId, segment]) => [
+          segmentId,
+          {
+            ciphertext: String(segment.ciphertext || ""),
+            iv: String(segment.iv || ""),
+            tag: String(segment.tag || ""),
+            algorithm: String(segment.algorithm || "aes-256-gcm"),
+          },
+        ])
+      );
+      const contentRevision = Math.max(0, Number(payload.content_revision) || 0);
+      const manifestRevision = Math.max(0, Number(payload.manifest_revision) || 0);
+      const etag = String(payload.etag || responseEtag || "");
+      if (!etag) {
+        throw new Error("Coherent PKM domain snapshot is missing its ETag.");
+      }
+      const encryptedBlob: EncryptedDomainBlob = {
+        ciphertext: String(encryptedPayload.ciphertext || ""),
+        iv: String(encryptedPayload.iv || ""),
+        tag: String(encryptedPayload.tag || ""),
+        algorithm: String(encryptedPayload.algorithm || "aes-256-gcm"),
+        segments,
+        storageMode:
+          payload.storage_mode === "legacy_full_blob" ? "legacy_full_blob" : "domain",
+        dataVersion: contentRevision,
+        manifestRevision,
+        updatedAt: typeof payload.updated_at === "string" ? payload.updated_at : undefined,
+        segmentIds: Array.isArray(payload.segment_ids)
+          ? payload.segment_ids.map(String).filter(Boolean)
+          : Object.keys(segments).sort(),
+      };
+      const manifest =
+        payload.manifest && typeof payload.manifest === "object"
+          ? (payload.manifest as DomainManifest)
+          : null;
+      const paths = Array.isArray(payload.paths) ? (payload.paths as PathDescriptor[]) : [];
+      const scopes = Array.isArray(payload.scopes)
+        ? (payload.scopes as PkmScopeRegistryEntry[])
+        : [];
+      return {
+        schemaVersion: "pkm_domain_snapshot.v1",
+        userId: String(payload.user_id || params.userId),
+        domain: String(payload.domain || params.domain),
+        encryptedBlob,
+        contentRevision,
+        manifest: manifest ? { ...manifest, paths, scope_registry: scopes } : null,
+        manifestRevision,
+        paths,
+        scopes,
+        updatedAt: typeof payload.updated_at === "string" ? payload.updated_at : null,
+        etag,
+        segmentIds: encryptedBlob.segmentIds || [],
+      };
+    })();
+
+    this.domainSnapshotInflight.set(dedupeKey, request);
+    try {
+      return await request;
+    } finally {
+      if (this.domainSnapshotInflight.get(dedupeKey) === request) {
+        this.domainSnapshotInflight.delete(dedupeKey);
+      }
+    }
+  }
+
+  static async loadDomainSnapshot(params: {
+    userId: string;
+    domain: string;
+    vaultKey: string;
+    vaultOwnerToken?: string;
+    segmentIds?: string[];
+    force?: boolean;
+  }): Promise<{ snapshot: DomainSnapshotV1 | null; data: Record<string, unknown> | null }> {
+    const snapshot = await this.getDomainSnapshot(params);
+    if (!snapshot) return { snapshot: null, data: null };
+    const decrypted = await this.decryptDomainBlob({
+      vaultKey: params.vaultKey,
+      domain: params.domain,
+      blob: snapshot.encryptedBlob,
+      segmentIds: params.segmentIds,
+    });
+    if (snapshot.encryptedBlob.storageMode === "legacy_full_blob") {
+      const domainData = decrypted[params.domain];
+      return {
+        snapshot,
+        data:
+          domainData && typeof domainData === "object" && !Array.isArray(domainData)
+            ? (domainData as Record<string, unknown>)
+            : {},
+      };
+    }
+    return { snapshot, data: decrypted };
   }
 
   static async loadDomainDataWithBlob(params: {

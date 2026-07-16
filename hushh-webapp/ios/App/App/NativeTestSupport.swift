@@ -3,6 +3,107 @@ import UIKit
 import WebKit
 import FirebaseAuth
 
+enum NativeTestDiagnostics {
+    struct VaultBridgeParity {
+        let wrapperCount: Bool
+        let encryptedVaultKey: Bool
+        let salt: Bool
+        let iv: Bool
+
+        var allFields: Bool {
+            wrapperCount && encryptedVaultKey && salt && iv
+        }
+    }
+
+    private static let lock = NSLock()
+    private static var storedVaultBridgeParity: VaultBridgeParity?
+
+    static func recordVaultBridgeParity(_ parity: VaultBridgeParity) {
+        lock.lock()
+        storedVaultBridgeParity = parity
+        lock.unlock()
+    }
+
+    static func vaultBridgeParity() -> VaultBridgeParity? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedVaultBridgeParity
+    }
+}
+
+enum NativeTestArtifactSanitizer {
+    private static let sensitiveKeyFragments = [
+        "body", "email", "error", "message", "passphrase", "payload", "reason",
+        "response", "secret", "token", "uid", "userid", "requestid",
+    ]
+    private static let allowedErrorClasses: Set<String> = [
+        "authentication", "identity", "network", "not_found", "other",
+        "permission", "rate_limit", "reference_error", "syntax_error",
+        "timeout", "type_error", "vault",
+    ]
+
+    static func errorClass(_ rawValue: Any?) -> String {
+        let value = String(describing: rawValue ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !value.isEmpty else { return "" }
+        if allowedErrorClasses.contains(value) { return value }
+        if value.contains("uid") || value.contains("identity") { return "identity" }
+        if value.contains("401") || value.contains("403") || value.contains("auth") || value.contains("sign in") {
+            return "authentication"
+        }
+        if value.contains("404") || value.contains("not found") { return "not_found" }
+        if value.contains("timeout") || value.contains("timed out") { return "timeout" }
+        if value.contains("network") || value.contains("connection") || value.contains("fetch") {
+            return "network"
+        }
+        if value.contains("vault") || value.contains("decrypt") || value.contains("crypto") {
+            return "vault"
+        }
+        if value.contains("permission") || value.contains("denied") { return "permission" }
+        if value.contains("typeerror") { return "type_error" }
+        if value.contains("referenceerror") { return "reference_error" }
+        if value.contains("syntaxerror") { return "syntax_error" }
+        return "other"
+    }
+
+    static func userMatchStatus(userId: String, expectedUserId: String) -> String {
+        guard !userId.isEmpty, !expectedUserId.isEmpty else { return "" }
+        return userId == expectedUserId ? "1" : "0"
+    }
+
+    static func routePath(_ rawValue: String) -> String {
+        guard let components = URLComponents(string: "https://native-test.local\(rawValue)") else {
+            return "/"
+        }
+        return components.path.isEmpty ? "/" : components.path
+    }
+
+    static func sanitizeReport(_ value: Any, key: String = "") -> Any {
+        let normalizedKey = key.replacingOccurrences(of: "_", with: "").lowercased()
+        let sensitiveKey = sensitiveKeyFragments.contains { normalizedKey.contains($0) }
+        if sensitiveKey && !normalizedKey.hasSuffix("class") {
+            return "<redacted>"
+        }
+        if normalizedKey == "route" || normalizedKey.hasSuffix("route") {
+            return routePath(String(describing: value))
+        }
+        if let dictionary = value as? [String: Any] {
+            return dictionary.reduce(into: [String: Any]()) { result, entry in
+                result[entry.key] = sanitizeReport(entry.value, key: entry.key)
+            }
+        }
+        if let array = value as? [Any] {
+            return array.map { sanitizeReport($0, key: key) }
+        }
+        if let string = value as? String,
+           string.range(of: #"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#, options: [.regularExpression, .caseInsensitive]) != nil {
+            return "<redacted>"
+        }
+        return value
+    }
+}
+
 struct NativeTestConfiguration {
     let enabled: Bool
     let initialRoute: String?
@@ -16,22 +117,27 @@ struct NativeTestConfiguration {
     let showStatusOverlay: Bool
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
-        enabled = arguments.contains("-UITestMode")
-        initialRoute = NativeTestConfiguration.value(for: "-UITestInitialRoute", in: arguments)
+        #if DEBUG
+        let testModeEnabled = arguments.contains("-UITestMode")
+        #else
+        let testModeEnabled = false
+        #endif
+        enabled = testModeEnabled
+        initialRoute = testModeEnabled ? NativeTestConfiguration.value(for: "-UITestInitialRoute", in: arguments) : nil
         expectedMarker = NativeTestConfiguration.value(for: "-UITestExpectedMarker", in: arguments)
         expectedRoute =
             NativeTestConfiguration.value(for: "-UITestExpectedRoute", in: arguments)
             ?? NativeTestConfiguration.deriveExpectedRoute(from: initialRoute)
-        autoReviewerLogin = NativeTestConfiguration.boolValue(for: "-UITestAutoReviewerLogin", in: arguments)
-        vaultPassphrase = NativeTestConfiguration.value(for: "-UITestVaultPassphrase", in: arguments)
-        expectedUserId = NativeTestConfiguration.value(for: "-UITestExpectedUserId", in: arguments)
+        autoReviewerLogin = testModeEnabled && NativeTestConfiguration.boolValue(for: "-UITestAutoReviewerLogin", in: arguments)
+        vaultPassphrase = testModeEnabled ? NativeTestConfiguration.value(for: "-UITestVaultPassphrase", in: arguments) : nil
+        expectedUserId = testModeEnabled ? NativeTestConfiguration.value(for: "-UITestExpectedUserId", in: arguments) : nil
         resetAppState = NativeTestConfiguration.boolValue(
             for: "-UITestResetAppState",
             in: arguments,
             defaultValue: true
         )
-        runUiFlows = NativeTestConfiguration.boolValue(for: "-UITestRunUiFlows", in: arguments)
-        showStatusOverlay = NativeTestConfiguration.boolValue(for: "-UITestShowStatusOverlay", in: arguments)
+        runUiFlows = testModeEnabled && NativeTestConfiguration.boolValue(for: "-UITestRunUiFlows", in: arguments)
+        showStatusOverlay = testModeEnabled && NativeTestConfiguration.boolValue(for: "-UITestShowStatusOverlay", in: arguments)
     }
 
     var injectedScript: String {
@@ -72,9 +178,26 @@ struct NativeTestConfiguration {
           }
           bridge.bootstrapState = bridge.bootstrapState || "";
           bridge.bootstrapUserId = bridge.bootstrapUserId || "";
-          bridge.bootstrapError = bridge.bootstrapError || "";
-          bridge.lastJsError = "";
-          bridge.lastUnhandledRejection = "";
+          bridge.bootstrapErrorClass = bridge.bootstrapErrorClass || "";
+          bridge.lastJsErrorClass = "";
+          bridge.lastUnhandledRejectionClass = "";
+          function classifyError(value) {
+            var text = "";
+            try {
+              text = String(value && (value.name || value.message || value) || "").toLowerCase();
+            } catch (_) {}
+            if (!text) return "";
+            if (text.indexOf("401") >= 0 || text.indexOf("403") >= 0 || text.indexOf("auth") >= 0) return "authentication";
+            if (text.indexOf("404") >= 0 || text.indexOf("not found") >= 0) return "not_found";
+            if (text.indexOf("timeout") >= 0 || text.indexOf("timed out") >= 0) return "timeout";
+            if (text.indexOf("network") >= 0 || text.indexOf("connection") >= 0 || text.indexOf("fetch") >= 0) return "network";
+            if (text.indexOf("vault") >= 0 || text.indexOf("decrypt") >= 0 || text.indexOf("crypto") >= 0) return "vault";
+            if (text.indexOf("permission") >= 0 || text.indexOf("denied") >= 0) return "permission";
+            if (text.indexOf("typeerror") >= 0) return "type_error";
+            if (text.indexOf("referenceerror") >= 0) return "reference_error";
+            if (text.indexOf("syntaxerror") >= 0) return "syntax_error";
+            return "other";
+          }
           try {
             var root = document.documentElement;
             if (root) {
@@ -88,15 +211,14 @@ struct NativeTestConfiguration {
           try {
             window.addEventListener("error", function(event) {
               try {
-                bridge.lastJsError = String(event && (event.message || event.error || "unknown_js_error"));
+                bridge.lastJsErrorClass = classifyError(event && (event.error || event.message));
               } catch (_) {}
             });
             window.addEventListener("unhandledrejection", function(event) {
               try {
-                var reason = event && event.reason ? event.reason : "unknown_unhandled_rejection";
-                bridge.lastUnhandledRejection = typeof reason === "string" ? reason : JSON.stringify(reason);
+                bridge.lastUnhandledRejectionClass = classifyError(event && event.reason);
               } catch (_) {
-                bridge.lastUnhandledRejection = "unserializable_unhandled_rejection";
+                bridge.lastUnhandledRejectionClass = "other";
               }
             });
           } catch (_) {}
@@ -133,13 +255,12 @@ struct NativeTestConfiguration {
                 return text === "continue as reviewer";
               });
             } catch (_) {}
-            var bodySnippet = "";
             var visible404 = false;
             try {
-              bodySnippet = ((document.body && document.body.innerText) || "").trim().slice(0, 160);
+              var bodyText = ((document.body && document.body.innerText) || "").trim().slice(0, 400);
               visible404 =
-                bodySnippet.indexOf("404") >= 0 ||
-                bodySnippet.toLowerCase().indexOf("not found") >= 0;
+                bodyText.indexOf("404") >= 0 ||
+                bodyText.toLowerCase().indexOf("not found") >= 0;
             } catch (_) {}
             if (!markerFound && bridge.expectedMarker) {
               try {
@@ -176,17 +297,30 @@ struct NativeTestConfiguration {
               portfolioStreamLastSeq: bridge.portfolioStreamLastSeq || "",
               portfolioStreamLastError: bridge.portfolioStreamLastError || "",
               triggerReviewerLoginPresent: typeof bridge.triggerReviewerLogin === "function",
+              triggerVaultUnlockPresent: typeof bridge.triggerVaultUnlock === "function",
+              vaultPassphraseConfigured: typeof bridge.vaultPassphrase === "string" && bridge.vaultPassphrase.length > 0,
+              expectedUserConfigured: typeof bridge.expectedUserId === "string" && bridge.expectedUserId.length > 0,
+              vaultCryptoStage: bridge.vaultCryptoStage || "",
+              vaultCryptoErrorName: bridge.vaultCryptoErrorName || "",
+              vaultCryptoSubtleAvailable: bridge.vaultCryptoSubtleAvailable === true,
+              vaultCryptoPassphraseMatchesConfig: bridge.vaultCryptoPassphraseMatchesConfig === true,
+              vaultCryptoPassphraseUtf8Length: String(bridge.vaultCryptoPassphraseUtf8Length || 0),
+              vaultCryptoSaltLength: String(bridge.vaultCryptoSaltLength || 0),
+              vaultCryptoIvLength: String(bridge.vaultCryptoIvLength || 0),
+              vaultCryptoCiphertextLength: String(bridge.vaultCryptoCiphertextLength || 0),
               domTestEnabled: "",
               domAutoReviewerLogin: "",
               reviewerButtonFound: reviewerButtonFound,
-              jsError: bridge.lastJsError || "",
-              jsRejection: bridge.lastUnhandledRejection || "",
-              bodySnippet: bodySnippet,
+              jsErrorClass: bridge.lastJsErrorClass || "",
+              jsRejectionClass: bridge.lastUnhandledRejectionClass || "",
+              longImportWait: bridge.uiFlowLongWait === true,
               visible404: visible404,
               markerFound: markerFound,
               bootstrapState: bridge.bootstrapState || "",
-              bootstrapUserId: bridge.bootstrapUserId || "",
-              bootstrapError: bridge.bootstrapError || "",
+              bootstrapUserMatchesExpected: !!bridge.bootstrapUserId && !!bridge.expectedUserId
+                ? bridge.bootstrapUserId === bridge.expectedUserId
+                : null,
+              bootstrapErrorClass: bridge.bootstrapErrorClass || "",
               title: document.title || "",
               routeId: beacon ? (beacon.routeId || "") : "",
               authState: beacon ? (beacon.authState || "") : "",
@@ -197,7 +331,7 @@ struct NativeTestConfiguration {
               uiFlowStepIndex: String(bridge.uiFlowStepIndex ?? ""),
               uiFlowStepType: bridge.uiFlowStepType || "",
               uiFlowStepStartedAt: bridge.uiFlowStepStartedAt || "",
-              uiFlowError: bridge.uiFlowError || "",
+              uiFlowErrorClass: classifyError(bridge.uiFlowErrorClass || bridge.uiFlowError || ""),
               uiFlowsComplete: bridge.uiFlowsComplete === true,
               uiFlowsOk: bridge.uiFlowsOk === true
             };
@@ -235,6 +369,10 @@ struct NativeTestConfiguration {
               bridge._vaultTimer = window.setInterval(function() {
                 try {
                   if (typeof bridge.triggerVaultUnlock === "function") {
+                    if (bridge._vaultUnlockSubmitted === true) {
+                      return;
+                    }
+                    bridge._vaultUnlockSubmitted = true;
                     bridge.triggerVaultUnlock();
                     return;
                   }
@@ -266,7 +404,8 @@ struct NativeTestConfiguration {
                     var text = (button.textContent || "").trim().toLowerCase();
                     return text === "unlock with passphrase";
                   });
-                  if (unlockButton && !unlockButton.disabled) {
+                  if (unlockButton && !unlockButton.disabled && bridge._vaultUnlockSubmitted !== true) {
+                    bridge._vaultUnlockSubmitted = true;
                     unlockButton.click();
                   }
                 } catch (_) {}
@@ -390,11 +529,13 @@ struct NativeTestConfiguration {
             domAutoReviewerLogin: "",
             reviewerButtonFound: false,
             bootstrapState: bridge.bootstrapState || "",
-            bootstrapUserId: bridge.bootstrapUserId || "",
-            bootstrapError: bridge.bootstrapError || "",
-            jsError: bridge.lastJsError || "",
-            jsRejection: bridge.lastUnhandledRejection || "",
-            bodySnippet: "",
+            bootstrapUserMatchesExpected: !!bridge.bootstrapUserId && !!bridge.expectedUserId
+              ? bridge.bootstrapUserId === bridge.expectedUserId
+              : null,
+            bootstrapErrorClass: bridge.bootstrapErrorClass || "",
+            jsErrorClass: bridge.lastJsErrorClass || "",
+            jsRejectionClass: bridge.lastUnhandledRejectionClass || "",
+            longImportWait: bridge.uiFlowLongWait === true,
             markerFound: false,
             title: document.title || "",
             routeId: "",
@@ -406,7 +547,7 @@ struct NativeTestConfiguration {
             uiFlowStepIndex: String(bridge.uiFlowStepIndex ?? ""),
             uiFlowStepType: bridge.uiFlowStepType || "",
             uiFlowStepStartedAt: bridge.uiFlowStepStartedAt || "",
-            uiFlowError: bridge.uiFlowError || "",
+            uiFlowErrorClass: bridge.uiFlowErrorClass || "",
             uiFlowsComplete: bridge.uiFlowsComplete === true,
             uiFlowsOk: bridge.uiFlowsOk === true
           });
@@ -533,7 +674,6 @@ enum NativeTestStatusStore {
     static func write(_ status: String) {
         guard let url = statusFileURL() else { return }
         try? status.write(to: url, atomically: true, encoding: .utf8)
-        UIPasteboard.general.string = status
     }
 
     static func writeUiReport(_ report: String) {
@@ -547,16 +687,15 @@ enum NativeTestStatusStore {
         if let uiReportUrl = uiReportFileURL() {
             try? FileManager.default.removeItem(at: uiReportUrl)
         }
-        UIPasteboard.general.string = nil
     }
 
     private static func statusFileURL() -> URL? {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
             .appendingPathComponent(fileName)
     }
 
     private static func uiReportFileURL() -> URL? {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
             .appendingPathComponent(uiReportFileName)
     }
 }

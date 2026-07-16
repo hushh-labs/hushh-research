@@ -2,6 +2,16 @@ import Foundation
 import XCTest
 
 final class AppUITests: XCTestCase {
+    private enum VaultBootstrapAction {
+        case none
+        case progressed
+        case relaunch
+    }
+
+    private var vaultCreationSubmitted = false
+    private var vaultCreationRelaunched = false
+    private var vaultUnlockSubmitted = false
+
     struct RouteCase {
         let name: String
         let initialRoute: String
@@ -15,6 +25,9 @@ final class AppUITests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+        vaultCreationSubmitted = false
+        vaultCreationRelaunched = false
+        vaultUnlockSubmitted = false
     }
 
     func testPublicAndAuthRoutes() throws {
@@ -47,6 +60,21 @@ final class AppUITests: XCTestCase {
                 expectedRoutePrefix: nil,
                 autoReviewerLogin: true,
                 expectedAuth: "anonymous",
+                allowedDataStates: ["loaded"]
+            ),
+        ])
+    }
+
+    func testAuthenticatedSetupBootstrapRoute() throws {
+        try assertRoutes([
+            RouteCase(
+                name: "one-setup",
+                initialRoute: "/login?redirect=%2Fone%2Fsetup",
+                expectedMarker: "native-route-one-setup",
+                expectedRoute: "/one/setup",
+                expectedRoutePrefix: nil,
+                autoReviewerLogin: true,
+                expectedAuth: "authenticated",
                 allowedDataStates: ["loaded"]
             ),
         ])
@@ -225,10 +253,66 @@ final class AppUITests: XCTestCase {
     }
 
     func testReviewerUiInteractionFlows() throws {
+        assertReviewerPassphraseAliasesMatch()
         let app = launchUiInteractionAuditApp()
         let status = try waitForUiFlowsComplete(app, timeout: uiInteractionFlowTimeout())
-        XCTAssertEqual(status["ui_complete"], "1", "UI interaction flows did not complete. Last status: \(status)")
-        XCTAssertEqual(status["ui_ok"], "1", "UI interaction flows failed. Last status: \(status)")
+        XCTAssertEqual(status["bootstrap"], "vault_unlocked", "Native reviewer vault bootstrap did not complete")
+        XCTAssertEqual(status["ui_complete"], "1", "UI interaction flows did not complete. \(statusSummaryForLog(status))")
+        XCTAssertEqual(status["ui_ok"], "1", "UI interaction flows failed. \(statusSummaryForLog(status))")
+        app.terminate()
+    }
+
+    func testPhysicalMicrophoneCaptureSmoke() throws {
+        let app = XCUIApplication()
+        app.terminate()
+        app.launchArguments = [
+            "-UITestMode",
+            "-UITestInitialRoute", "/",
+            "-UITestExpectedMarker", "native-route-home",
+            "-UITestExpectedRoute", "/",
+            "-UITestAutoReviewerLogin", "false",
+            "-UITestResetAppState", "true",
+        ]
+        app.launch()
+
+        let endButton = app.buttons["End conversation"]
+        if endButton.waitForExistence(timeout: 8), endButton.isHittable {
+            endButton.tap()
+        }
+
+        let startButtons = [
+            app.buttons["Start conversation with One"],
+            app.buttons["Start conversation"],
+        ]
+        guard let startButton = startButtons.first(where: {
+            $0.waitForExistence(timeout: 10) && $0.isHittable
+        }) else {
+            XCTFail("One Voice start control did not appear")
+            return
+        }
+        startButton.tap()
+
+        let listening = app.descendants(matching: .any).matching(
+            NSPredicate(
+                format: "label ==[c] %@ OR value ==[c] %@ OR label BEGINSWITH[c] %@",
+                "Listening",
+                "Listening",
+                "Audio detected"
+            )
+        ).firstMatch
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline, !listening.exists {
+            _ = dismissKnownModals(app: app)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+
+        XCTAssertTrue(listening.exists, "Physical microphone capture never reached listening state")
+        XCTAssertFalse(
+            app.staticTexts.containing(
+                NSPredicate(format: "label CONTAINS[c] %@", "Microphone access is blocked")
+            ).firstMatch.exists,
+            "WebView reported microphone access blocked"
+        )
         app.terminate()
     }
 
@@ -247,6 +331,25 @@ final class AppUITests: XCTestCase {
 
     @discardableResult
     private func dismissKnownModals(app: XCUIApplication, scanAllButtons: Bool = false) -> Bool {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        if springboard.alerts.count > 0 {
+            let alert = springboard.alerts.element(boundBy: 0)
+            let alertText = ([alert.label, alert.identifier]
+                + alert.staticTexts.allElementsBoundByIndex.map(\.label))
+                .joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            if alertText.contains("local network") ||
+                alertText.contains("find and connect") ||
+                alertText.contains("microphone") {
+                let allowButton = springboard.buttons["Allow"]
+                if allowButton.exists, allowButton.isHittable {
+                    allowButton.tap()
+                    return true
+                }
+            }
+        }
+
         let exactLabels = [
             "Don\u{2019}t Allow",
             "Don't Allow",
@@ -289,7 +392,6 @@ final class AppUITests: XCTestCase {
             }
         }
 
-        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         if springboard.alerts.count > 0 {
             for label in exactLabels {
                 let springboardButton = springboard.buttons[label]
@@ -332,11 +434,91 @@ final class AppUITests: XCTestCase {
                 return trimmed
             }
         }
-        return "test#123"
+        XCTFail("Missing reviewer vault passphrase in the UI test environment")
+        return ""
+    }
+
+    private func assertReviewerPassphraseAliasesMatch() {
+        let environment = ProcessInfo.processInfo.environment
+        let primary = environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? ""
+        let canonical = environment["REVIEWER_VAULT_PASSPHRASE"] ?? ""
+        XCTAssertFalse(primary.isEmpty, "Forwarded reviewer vault passphrase is missing")
+        XCTAssertFalse(canonical.isEmpty, "Canonical reviewer vault passphrase is missing")
+        XCTAssertEqual(primary, canonical, "Forwarded reviewer vault passphrase differs from canonical reviewer configuration")
+        if !primary.isEmpty, primary == canonical {
+            print("native-ui-reviewer-passphrase-match true")
+        }
+    }
+
+    private func replaceText(in field: XCUIElement, with value: String) {
+        field.tap()
+        field.typeKey("a", modifierFlags: .command)
+        field.typeText(value)
+    }
+
+    private func attemptFreshVaultBootstrap(app: XCUIApplication) -> VaultBootstrapAction {
+        guard !vaultCreationRelaunched else {
+            return .none
+        }
+
+        let continueButton = app.buttons["Continue to Vault Setup"]
+        if continueButton.exists, continueButton.isHittable {
+            continueButton.tap()
+            return .progressed
+        }
+
+        if !vaultCreationSubmitted {
+            let passphraseField = app.secureTextFields["Enter your passphrase"]
+            let confirmationField = app.secureTextFields["Confirm your passphrase"]
+            if passphraseField.waitForExistence(timeout: 0.25),
+               confirmationField.waitForExistence(timeout: 0.25),
+               passphraseField.isHittable,
+               confirmationField.isHittable {
+                let passphrase = reviewerVaultPassphrase()
+                replaceText(in: passphraseField, with: passphrase)
+                replaceText(in: confirmationField, with: passphrase)
+
+                let createButton = app.buttons["Create Vault"]
+                let deadline = Date().addingTimeInterval(3)
+                while Date() < deadline, !(createButton.exists && createButton.isHittable) {
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+                }
+                if createButton.exists, createButton.isHittable {
+                    createButton.tap()
+                    vaultCreationSubmitted = true
+                    return .progressed
+                }
+            }
+        }
+
+        if vaultCreationSubmitted {
+            let recoveryContinueButton = app.buttons["I've Saved My Recovery Key"]
+            if recoveryContinueButton.waitForExistence(timeout: 0.25),
+               recoveryContinueButton.isHittable {
+                recoveryContinueButton.tap()
+                _ = recoveryContinueButton.waitForNonExistence(timeout: 15)
+                vaultCreationRelaunched = true
+                return .relaunch
+            }
+        }
+
+        return .none
     }
 
     @discardableResult
     private func attemptVaultPassphraseUnlock(app: XCUIApplication) -> Bool {
+        guard !vaultUnlockSubmitted else {
+            return false
+        }
+        let vaultCreationControls = [
+            app.buttons["Continue to Vault Setup"],
+            app.buttons["Create Vault"],
+            app.buttons["I've Saved My Recovery Key"],
+        ]
+        if vaultCreationControls.contains(where: { $0.exists }) {
+            return false
+        }
+
         let passphrase = reviewerVaultPassphrase()
         let vaultKeyField = app.secureTextFields["Enter vault key"]
         let passphraseField = app.secureTextFields["Enter your passphrase"]
@@ -380,10 +562,10 @@ final class AppUITests: XCTestCase {
                     identifier.contains("vault-key") ||
                     identifier.contains("unlock-passphrase")
                 guard looksLikePassphrase || count == 1 else { continue }
-                field.tap()
-                field.typeText(passphrase)
+                replaceText(in: field, with: passphrase)
                 for unlockButton in unlockButtons {
                     if unlockButton.waitForExistence(timeout: 2), unlockButton.isHittable {
+                        vaultUnlockSubmitted = true
                         unlockButton.tap()
                         return true
                     }
@@ -395,6 +577,7 @@ final class AppUITests: XCTestCase {
     }
 
     private func launchUiInteractionAuditApp() -> XCUIApplication {
+        vaultUnlockSubmitted = false
         let app = XCUIApplication()
         app.terminate()
         let environment = ProcessInfo.processInfo.environment
@@ -451,8 +634,29 @@ final class AppUITests: XCTestCase {
         var lastProgressKey = ""
         var lastStatusPollAt = Date.distantPast
         var lastStatusLogAt = Date.distantPast
+        var lastVaultBootstrapAttemptAt = Date.distantPast
+        var lastBootstrapState = ""
+        var authenticatedBootstrapObservedAt: Date?
 
         while Date() < deadline {
+            if Date().timeIntervalSince(lastVaultBootstrapAttemptAt) >= 1 {
+                switch attemptFreshVaultBootstrap(app: app) {
+                case .none:
+                    break
+                case .progressed:
+                    lastProgressAt = Date()
+                case .relaunch:
+                    lastProgressAt = Date()
+                    lastStatus = [:]
+                    lastFlowLabel = ""
+                    lastProgressKey = ""
+                    app.terminate()
+                    app.launch()
+                    RunLoop.current.run(until: Date().addingTimeInterval(1))
+                }
+                lastVaultBootstrapAttemptAt = Date()
+            }
+
             let inLongImportWait = isLongImportWaitStatus(lastStatus)
             if !inLongImportWait && Date().timeIntervalSince(lastModalAttemptAt) >= 2 {
                 let scanAllButtons = Date().timeIntervalSince(lastFullModalScanAt) >= 10
@@ -472,6 +676,12 @@ final class AppUITests: XCTestCase {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 if !current.isEmpty {
                     lastStatus = parseStatus(current)
+                    let bootstrapState = lastStatus["bootstrap"] ?? ""
+                    if !bootstrapState.isEmpty, bootstrapState != lastBootstrapState {
+                        print("native-ui-bootstrap \(bootstrapState)")
+                        lastBootstrapState = bootstrapState
+                        authenticatedBootstrapObservedAt = bootstrapState == "authenticated" ? Date() : nil
+                    }
                     if Date().timeIntervalSince(lastStatusLogAt) >= 15 {
                         print("native-ui-status \(statusSummaryForLog(lastStatus))")
                         lastStatusLogAt = Date()
@@ -479,16 +689,9 @@ final class AppUITests: XCTestCase {
                     if lastStatus["ui_complete"] == "1" {
                         return lastStatus
                     }
-                    let bootstrapUid = lastStatus["bootstrap_uid"] ?? ""
-                    if let expectedUid = ProcessInfo.processInfo.environment["HUSHH_UI_TEST_REVIEWER_UID"]
-                        ?? ProcessInfo.processInfo.environment["REVIEWER_UID"],
-                       !expectedUid.isEmpty,
-                       !bootstrapUid.isEmpty,
-                       bootstrapUid != expectedUid,
+                    if lastStatus["bootstrap_uid_ok"] == "0",
                        Date().timeIntervalSince(lastProgressAt) >= 20 {
-                        XCTFail(
-                            "Signed in as unexpected uid \(bootstrapUid), expected \(expectedUid). Uninstall the app or reset device session before UITest."
-                        )
+                        XCTFail("Reviewer identity mismatch. Reset the simulator session and verify reviewer configuration.")
                         return lastStatus
                     }
                     let flowLabel = lastStatus["ui_flow"] ?? ""
@@ -497,7 +700,7 @@ final class AppUITests: XCTestCase {
                         lastStatus["ui_step"] ?? "",
                         lastStatus["ui_step_type"] ?? "",
                         lastStatus["route"] ?? "",
-                        lastStatus["ui_error"] ?? "",
+                        lastStatus["ui_error_class"] ?? "",
                     ].joined(separator: "|")
                     if !flowLabel.isEmpty, flowLabel != lastFlowLabel {
                         lastFlowLabel = flowLabel
@@ -510,9 +713,15 @@ final class AppUITests: XCTestCase {
                 }
             }
 
+            let bootstrapState = lastStatus["bootstrap"] ?? ""
+            let authenticatedFallbackReady =
+                bootstrapState == "authenticated" &&
+                authenticatedBootstrapObservedAt.map {
+                    Date().timeIntervalSince($0) >= 5
+                } == true
             let shouldTryVaultUnlock =
                 !isLongImportWaitStatus(lastStatus) &&
-                lastStatus["bootstrap"] != "vault_unlocked" &&
+                (bootstrapState.isEmpty || bootstrapState == "vault_error" || authenticatedFallbackReady) &&
                 !(lastStatus["auth"] == "authenticated" && lastStatus["data"] == "loaded")
             if shouldTryVaultUnlock && Date().timeIntervalSince(lastUnlockAttemptAt) >= 3 {
                 if attemptVaultPassphraseUnlock(app: app) {
@@ -523,9 +732,8 @@ final class AppUITests: XCTestCase {
 
             let stallTimeout = uiInteractionStallTimeout(lastStatus, totalTimeout: timeout)
             if Date().timeIntervalSince(lastProgressAt) >= stallTimeout {
-                let visible = visibleButtonLabels(app: app).joined(separator: ", ")
                 XCTFail(
-                    "UI interaction flows stalled for \(Int(stallTimeout))s. ui_flow=\(lastFlowLabel) visible_buttons=[\(visible)] last_status=\(lastStatus)"
+                    "UI interaction flows stalled for \(Int(stallTimeout))s. \(statusSummaryForLog(lastStatus))"
                 )
                 return lastStatus
             }
@@ -534,9 +742,8 @@ final class AppUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(idleInterval))
         }
 
-        let visible = visibleButtonLabels(app: app).joined(separator: ", ")
         XCTFail(
-            "UI interaction flows timed out after \(Int(timeout))s. visible_buttons=[\(visible)] last_status=\(lastStatus)"
+            "UI interaction flows timed out after \(Int(timeout))s. \(statusSummaryForLog(lastStatus))"
         )
         return lastStatus
     }
@@ -548,12 +755,11 @@ final class AppUITests: XCTestCase {
         let flow = status["ui_flow"] ?? ""
         let route = status["route"] ?? ""
         let stepType = status["ui_step_type"] ?? ""
-        let body = (status["body"] ?? "").lowercased()
         if isLongImportWaitStatus(
             flow: flow,
             route: route,
             stepType: stepType,
-            body: body
+            longWait: status["long_wait"] == "1"
         ) {
             return min(totalTimeout, 660)
         }
@@ -566,7 +772,7 @@ final class AppUITests: XCTestCase {
             flow: status["ui_flow"] ?? "",
             route: status["route"] ?? "",
             stepType: status["ui_step_type"] ?? "",
-            body: (status["body"] ?? "").lowercased()
+            longWait: status["long_wait"] == "1"
         )
     }
 
@@ -574,20 +780,38 @@ final class AppUITests: XCTestCase {
         flow: String,
         route: String,
         stepType: String,
-        body: String
+        longWait: Bool
     ) -> Bool {
         let isImportFlow = flow == "native-investor-kai-import-e2e"
         let isImportRoute = normalizeRoute(route).hasPrefix("/kai/import")
         let isLongImportStep =
             stepType == "wait_button" ||
             stepType == "assert_text" ||
-            body.contains("importing portfolio")
+            longWait
 
         return isImportFlow && isImportRoute && isLongImportStep
     }
 
     private func statusSummaryForLog(_ status: [String: String]) -> String {
         let keys = [
+            "bootstrap",
+            "vaultcfg",
+            "uidcfg",
+            "vault_trigger",
+            "vault_struct_available",
+            "vault_struct",
+            "vault_struct_wrappers",
+            "vault_struct_encrypted",
+            "vault_struct_salt",
+            "vault_struct_iv",
+            "vault_crypto_stage",
+            "vault_crypto_error_class",
+            "vault_crypto_subtle",
+            "vault_crypto_passphrase_match",
+            "vault_crypto_passphrase_bytes",
+            "vault_crypto_salt_bytes",
+            "vault_crypto_iv_bytes",
+            "vault_crypto_ciphertext_bytes",
             "ui_flow",
             "ui_step",
             "ui_step_type",
@@ -598,25 +822,31 @@ final class AppUITests: XCTestCase {
             "data",
             "ui_complete",
             "ui_ok",
-            "ui_error",
+            "ui_error_class",
             "portfolio_start_state",
             "portfolio_start_status",
-            "portfolio_start_run",
-            "portfolio_start_error",
+            "portfolio_start_run_present",
+            "portfolio_start_error_class",
             "portfolio_stream_state",
-            "portfolio_stream_run",
+            "portfolio_stream_run_present",
             "portfolio_events",
             "portfolio_last_event",
             "portfolio_last_seq",
-            "portfolio_stream_error",
+            "portfolio_stream_error_class",
+            "bootstrap_uid_ok",
+            "bootstrap_error_class",
+            "jserr_class",
+            "jsrej_class",
+            "long_wait",
         ]
 
-        return keys.compactMap { key in
+        var summary: [String] = keys.compactMap { key -> String? in
             guard let value = status[key], !value.isEmpty else {
                 return nil
             }
             return "\(key)=\(value)"
-        }.joined(separator: " ")
+        }
+        return summary.joined(separator: " ")
     }
 
     private func reviewerRoute(
@@ -643,7 +873,7 @@ final class AppUITests: XCTestCase {
             let status = try waitForSatisfiedStatus(app, route: route, timeout: 90)
             XCTAssertTrue(
                 route.allowedDataStates.contains(status["data"] ?? ""),
-                "Unexpected data state for \(route.name): \(status)"
+                "Unexpected data state for \(route.name): \(statusSummaryForLog(status))"
             )
             app.terminate()
         }
@@ -728,7 +958,10 @@ final class AppUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.35))
         }
 
-        XCTFail("Route \(route.name) never satisfied native status checks. Last status: \(lastStatus)")
+        XCTFail(
+            "Route \(route.name) never satisfied native status checks. "
+                + statusSummaryForLog(parseStatus(lastStatus))
+        )
         return parseStatus(lastStatus)
     }
 

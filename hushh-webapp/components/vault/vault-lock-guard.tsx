@@ -21,6 +21,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -28,11 +29,9 @@ import { VaultService } from "@/lib/services/vault-service";
 import { VaultUnlockDialog } from "./vault-unlock-dialog";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
+import { isSessionUnlockedOnce } from "@/lib/vault/vault-session-latch";
 import {
-  isSessionUnlockedOnce,
-  markSessionUnlocked,
-} from "@/lib/vault/vault-session-latch";
-import {
+  hasIncompleteNativeUiFlowSession,
   isNativeTestVaultBootstrapManaged,
   preferPassphraseUnlockForAutomation,
   useNativeTestConfig,
@@ -56,21 +55,38 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   const nativeTestConfig = useNativeTestConfig();
   const nativeTestBootstrapManaged =
     isNativeTestVaultBootstrapManaged(nativeTestConfig);
+  const nativeUiFlowResumePending = hasIncompleteNativeUiFlowSession();
+  const holdRouteForNativeTest =
+    nativeTestBootstrapManaged || nativeUiFlowResumePending;
+  const isNativePlatform = Capacitor.isNativePlatform();
   const skipGeneratedDefaultUnlock =
     preferPassphraseUnlockForAutomation(nativeTestConfig);
 
-  // Latch: once unlocked, remember for the rest of this JS session
-  if (isVaultUnlocked && !isSessionUnlockedOnce()) {
-    markSessionUnlocked();
-  }
   const { user, loading: authLoading, signOut } = useAuth();
   const userId = user?.uid ?? null;
   const { beginTask, completeTaskStep, endTask } = useStepProgress();
   const [hasVault, setHasVault] = useState<boolean | null>(null);
+  const [nativeAuthGraceElapsed, setNativeAuthGraceElapsed] = useState(
+    !isNativePlatform,
+  );
   const authStepDoneRef = useRef(false);
   const vaultStepDoneRef = useRef(false);
   const nativeReplayAttemptedRef = useRef(false);
   const PROGRESS_SCOPE = "vault-lock-guard";
+
+  useEffect(() => {
+    if (!isNativePlatform || authLoading || userId) {
+      if (!isNativePlatform || userId) {
+        setNativeAuthGraceElapsed(true);
+      }
+      return undefined;
+    }
+    if (nativeAuthGraceElapsed) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setNativeAuthGraceElapsed(true), 2_000);
+    return () => window.clearTimeout(timer);
+  }, [authLoading, isNativePlatform, nativeAuthGraceElapsed, userId]);
 
   useEffect(() => {
     if (!userId) {
@@ -91,13 +107,22 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   useEffect(() => {
     if (authLoading) return;
     if (userId) return;
+    if (holdRouteForNativeTest) return;
+    if (isNativePlatform && !nativeAuthGraceElapsed) return;
 
     if (typeof window !== "undefined") {
       const currentPath =
         window.location.pathname + window.location.search + window.location.hash;
       router.replace(`/login?redirect=${encodeURIComponent(currentPath)}`);
     }
-  }, [authLoading, router, userId]);
+  }, [
+    authLoading,
+    holdRouteForNativeTest,
+    isNativePlatform,
+    nativeAuthGraceElapsed,
+    router,
+    userId,
+  ]);
 
   useEffect(() => {
     if (isVaultUnlocked) {
@@ -184,7 +209,22 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   // session, render children immediately. The latch prevents the dialog from
   // flashing during route transitions where React state briefly resets.
   // ============================================================================
-  if (isVaultUnlocked || isSessionUnlockedOnce()) {
+  const bootstrapState =
+    typeof window !== "undefined"
+      ? window.__HUSHH_NATIVE_TEST__?.bootstrapState ?? ""
+      : "";
+  if (nativeTestBootstrapManaged && bootstrapState === "uid_mismatch") {
+    return (
+      <div
+        role="alert"
+        className="flex min-h-[50vh] items-center justify-center px-6 text-center text-sm text-muted-foreground"
+      >
+        Reviewer session unavailable. Verify the UAT reviewer account configuration.
+      </div>
+    );
+  }
+
+  if (isVaultUnlocked || isSessionUnlockedOnce(userId)) {
     return <>{children}</>;
   }
 
@@ -199,6 +239,12 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
   // No user - redirect to login
   if (!user) {
+    if (
+      holdRouteForNativeTest ||
+      (isNativePlatform && !nativeAuthGraceElapsed)
+    ) {
+      return <HushhLoader label="Restoring reviewer session..." />;
+    }
     return <HushhLoader label="Redirecting to login..." />;
   }
 
@@ -212,10 +258,6 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
   if (nativeTestBootstrapManaged) {
     // UITest-only: NativeTestBootstrap unlocks via passphrase while we show a loader.
-    const bootstrapState =
-      typeof window !== "undefined"
-        ? window.__HUSHH_NATIVE_TEST__?.bootstrapState ?? ""
-        : "";
     if (bootstrapState === "vault_error" || bootstrapState === "auth_error") {
       // Fall through to passphrase-only unlock dialog below.
     } else {
@@ -236,9 +278,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
       enableGeneratedDefault={!skipGeneratedDefaultUnlock}
       title="Unlock Vault"
       description="Unlock your Vault to continue."
-      onSuccess={() => {
-        markSessionUnlocked();
-      }}
+      onSuccess={() => undefined}
       // Escape hatch for the HARD gate only: a user who forgot their vault
       // password has no other way out (the focused credential surface covers
       // persistent chrome). signOut() fully clears the session and redirects

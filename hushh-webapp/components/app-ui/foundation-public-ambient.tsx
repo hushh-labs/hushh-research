@@ -13,7 +13,7 @@ export function FoundationPublicAmbient() {
     <div
       aria-hidden
       data-foundation-public="true"
-      className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-[#FCF9F2] dark:bg-[#100D0A]"
+      className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-[#f5f5f7] dark:bg-[#1c1c1e]"
     >
       <div className="one-grain absolute inset-0" />
     </div>

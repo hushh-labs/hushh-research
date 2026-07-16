@@ -52,7 +52,6 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "sync_remote_enabled": "SYNC_REMOTE_ENABLED",
     "developer_api_enabled": "DEVELOPER_API_ENABLED",
     "remote_mcp_enabled": "REMOTE_MCP_ENABLED",
-    "crm_registry_db_enabled": "CRM_REGISTRY_DB_ENABLED",
     "cors_allowed_origins": "CORS_ALLOWED_ORIGINS",
     "obs_data_stale_ratio_threshold": "OBS_DATA_STALE_RATIO_THRESHOLD",
     "passkey_allowed_rp_ids": "PASSKEY_ALLOWED_RP_IDS",
@@ -263,13 +262,6 @@ def get_omnigateway_transport_headers() -> tuple[tuple[str, str], ...]:
     if client_secret:
         headers.append(("client_secret", client_secret))
     return tuple(headers)
-
-
-def crm_registry_db_enabled() -> bool:
-    """Feature flag: resolve Connected Systems from the DB-backed enterprise CRM
-    registry (decrypting credentials with VAULT_DATA_KEY) instead of the
-    hardcoded in-code definition. Defaults off until cutover."""
-    return _bool_from_value(_clean_env("CRM_REGISTRY_DB_ENABLED"), default=False)
 
 
 @lru_cache(maxsize=1)

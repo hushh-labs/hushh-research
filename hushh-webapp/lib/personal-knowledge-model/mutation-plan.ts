@@ -40,6 +40,8 @@ export type PkmMutationPlanV2 = {
     summary: string;
   };
   semantic_contract_version: string;
+  writer_id: string;
+  structure_agent_id: string;
   source_revision: number;
   confirmation_receipt: {
     version: 2;
@@ -53,6 +55,13 @@ export type PkmMutationPlanV2 = {
     sharing_impact_acknowledged: boolean;
   };
 };
+
+const MACHINE_PROVENANCE_ID = /^[a-z][a-z0-9_.:-]{0,127}$/;
+
+function normalizedWriterId(value: string): string {
+  const candidate = String(value || "").trim().toLowerCase();
+  return MACHINE_PROVENANCE_ID.test(candidate) ? candidate : "owner_confirmed_write";
+}
 
 function titleize(value: string): string {
   return value
@@ -86,13 +95,29 @@ async function sha256Hex(value: string): Promise<string> {
   return Math.abs(hash >>> 0).toString(16).padStart(12, "0");
 }
 
-function normalizedScope(manifest: DomainManifest | null | undefined): string {
-  return (
-    manifest?.top_level_scope_paths?.find((scope) => typeof scope === "string" && scope.trim()) ||
-    "profile"
-  )
-    .trim()
-    .toLowerCase();
+function normalizedScope(params: {
+  currentManifest?: DomainManifest | null;
+  targetManifest?: DomainManifest | null;
+  scopePath?: string;
+}): string {
+  const [requestedScopePart = ""] = String(params.scopePath || "").trim().split(".", 1);
+  const requestedScope = requestedScopePart.toLowerCase();
+  const allowedScopes = new Set(
+    [params.currentManifest, params.targetManifest]
+      .flatMap((manifest) => manifest?.top_level_scope_paths || [])
+      .map((scope) => {
+        const [topLevelScope = ""] = String(scope || "").trim().split(".", 1);
+        return topLevelScope.toLowerCase();
+      })
+      .filter(Boolean)
+  );
+  if (requestedScope) {
+    if (allowedScopes.size > 0 && !allowedScopes.has(requestedScope)) {
+      throw new Error("The confirmed PKM scope is not present in the current manifest.");
+    }
+    return requestedScope;
+  }
+  return allowedScopes.values().next().value || "profile";
 }
 
 function registryHandle(
@@ -110,6 +135,7 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
   domain: string;
   currentManifest?: DomainManifest | null;
   targetManifest?: DomainManifest | null;
+  scopePath?: string;
   operation?: PkmMutationOperation;
   confidence?: number;
   explanation?: string;
@@ -121,7 +147,11 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
   }
 
   const domain = params.domain.trim().toLowerCase();
-  const scope = normalizedScope(params.targetManifest || params.currentManifest);
+  const scope = normalizedScope({
+    currentManifest: params.currentManifest,
+    targetManifest: params.targetManifest,
+    scopePath: params.scopePath,
+  });
   const generatedHandle = `s_${(
     await sha256Hex(`${params.userId}:${domain}:${scope}`)
   ).slice(0, 12)}`;
@@ -154,6 +184,8 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
       summary: sharingImpact?.summary || "No active recipients are affected.",
     },
     semantic_contract_version: CURRENT_PKM_CONTRACT_VERSION,
+    writer_id: normalizedWriterId(params.confirmation.source),
+    structure_agent_id: "pkm_structure_agent",
     source_revision: Math.max(0, params.sourceRevision || 0),
     confirmation_receipt: {
       version: 2,

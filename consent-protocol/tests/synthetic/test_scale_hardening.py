@@ -33,7 +33,7 @@ def test_profile_id_is_wide_enough_to_be_unique_across_8b() -> None:
     across the whole address space must be far below 1, or the id cannot double
     as a stable user_id. 96 bits (24 hex) gives ~4e-10; 64 bits gave ~1.7."""
     bits = PROFILE_ID_HEX * 4
-    expected_collisions = ADDRESS_SPACE * ADDRESS_SPACE / (2 * (2 ** bits))
+    expected_collisions = ADDRESS_SPACE * ADDRESS_SPACE / (2 * (2**bits))
     assert expected_collisions < 1e-6, (
         f"{bits}-bit profile_id expects {expected_collisions:.2e} collisions "
         f"across {ADDRESS_SPACE:,} — widen PROFILE_ID_HEX"
@@ -43,7 +43,7 @@ def test_profile_id_is_wide_enough_to_be_unique_across_8b() -> None:
 def test_profile_id_shape_matches_schema_pattern() -> None:
     pid = profile_id_for_seed(4193772206)
     assert pid.startswith("synth_")
-    hexpart = pid[len("synth_"):]
+    hexpart = pid[len("synth_") :]
     assert len(hexpart) == PROFILE_ID_HEX
     assert all(c in "0123456789abcdef" for c in hexpart)
 
@@ -94,8 +94,7 @@ def test_golden_fixture_matches_committed_snapshot() -> None:
     )
     for seed, expected in GOLDEN_HASHES.items():
         assert _golden_hash(seed) == expected, (
-            f"determinism drift at seed {seed}: got {_golden_hash(seed)}, "
-            f"expected {expected}"
+            f"determinism drift at seed {seed}: got {_golden_hash(seed)}, expected {expected}"
         )
 
 

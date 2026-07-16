@@ -10,7 +10,8 @@ export type ProfilePanel =
   | "preferences"
   | "security"
   | "support"
-  | "gmail";
+  | "gmail"
+  | "regulatory";
 
 export type ProfileDetail =
   | `domain:${string}`
@@ -52,7 +53,8 @@ export function normalizeProfilePanel(value: string | null): ProfilePanel | null
     value === "preferences" ||
     value === "security" ||
     value === "support" ||
-    value === "gmail"
+    value === "gmail" ||
+    value === "regulatory"
   ) {
     return value;
   }
@@ -250,6 +252,14 @@ export function buildProfileRoute(params?: {
       );
     }
     return appendQuery(ROUTES.PROFILE_SUPPORT, {}, params?.searchParams);
+  }
+
+  if (panel === "regulatory") {
+    return appendQuery(
+      ROUTES.PROFILE,
+      { panel: "regulatory" },
+      params?.searchParams,
+    );
   }
 
   return appendQuery(ROUTES.PROFILE, {}, params?.searchParams);

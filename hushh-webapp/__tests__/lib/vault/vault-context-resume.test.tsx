@@ -9,7 +9,19 @@ const mocks = vi.hoisted(() => ({
   pausePkmUpgrade: vi.fn().mockResolvedValue(undefined),
   pauseConsentExport: vi.fn(),
   invalidateVaultState: vi.fn(),
+  markSessionUnlocked: vi.fn(),
   resetSessionUnlocked: vi.fn(),
+  authUser: {
+    uid: "vault-owner",
+    displayName: "Vault Owner",
+    email: "owner@example.test",
+    photoURL: null,
+  } as {
+    uid: string;
+    displayName: string;
+    email: string;
+    photoURL: string | null;
+  } | null,
 }));
 
 vi.mock("@capacitor/core", () => ({
@@ -27,12 +39,7 @@ vi.mock("@capacitor/app", () => ({
 
 vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({
-    user: {
-      uid: "vault-owner",
-      displayName: "Vault Owner",
-      email: "owner@example.test",
-      photoURL: null,
-    },
+    user: mocks.authUser,
   }),
 }));
 
@@ -84,7 +91,7 @@ vi.mock("@/lib/services/vault-service", () => ({
 }));
 
 vi.mock("@/lib/vault/vault-session-latch", () => ({
-  markSessionUnlocked: vi.fn(),
+  markSessionUnlocked: mocks.markSessionUnlocked,
   resetSessionUnlocked: mocks.resetSessionUnlocked,
 }));
 
@@ -149,6 +156,12 @@ function setVisibility(state: DocumentVisibilityState) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.nativePlatform = false;
+  mocks.authUser = {
+    uid: "vault-owner",
+    displayName: "Vault Owner",
+    email: "owner@example.test",
+    photoURL: null,
+  };
   mocks.appStateListener = null;
   mocks.addListener.mockImplementation(
     async (
@@ -234,5 +247,29 @@ describe("VaultProvider app-resume expiry recovery", () => {
 
     view.unmount();
     await waitFor(() => expect(mocks.removeListener).toHaveBeenCalled());
+  });
+
+  it("fails closed and clears memory credentials when the authenticated UID changes", async () => {
+    const view = renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+    expect(screen.getByTestId("vault-status").textContent).toBe("unlocked");
+    expect(mocks.markSessionUnlocked).toHaveBeenCalledWith("vault-owner");
+
+    mocks.authUser = {
+      uid: "different-user",
+      displayName: "Different User",
+      email: "different@example.test",
+      photoURL: null,
+    };
+    view.rerender(
+      <VaultProvider>
+        <VaultHarness />
+      </VaultProvider>,
+    );
+
+    expect(screen.getByTestId("vault-status").textContent).toBe("locked");
+    expect(screen.getByTestId("vault-token").textContent).toBe("none");
+    expect(screen.getByTestId("vault-key").textContent).toBe("none");
+    await waitFor(() => expect(mocks.resetSessionUnlocked).toHaveBeenCalled());
   });
 });

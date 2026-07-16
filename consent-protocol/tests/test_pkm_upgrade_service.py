@@ -71,6 +71,51 @@ class _FakePkmService:
         return self
 
 
+def test_v7_commit_policy_is_fail_closed_by_default(monkeypatch):
+    for name in (
+        "PKM_V7_STAGE",
+        "PKM_V7_COHORT_PERCENT",
+        "PKM_V7_KILL_SWITCH_ACTIVE",
+        "PKM_V7_WRITE_PROMOTION_ENABLED",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(ValueError, match="disabled by server rollout policy"):
+        PkmUpgradeService().assert_upgrade_commit_allowed(
+            user_id="user_123",
+            upgrade_claim={"target_pkm_contract_version": "7.0.0"},
+        )
+
+
+def test_v7_commit_policy_rechecks_kill_switch_at_commit_time(monkeypatch):
+    monkeypatch.setenv("PKM_V7_STAGE", "100")
+    monkeypatch.setenv("PKM_V7_COHORT_PERCENT", "100")
+    monkeypatch.setenv("PKM_V7_WRITE_PROMOTION_ENABLED", "true")
+    monkeypatch.setenv("PKM_V7_KILL_SWITCH_ACTIVE", "false")
+    service = PkmUpgradeService()
+
+    service.assert_upgrade_commit_allowed(
+        user_id="user_123",
+        upgrade_claim={"target_pkm_contract_version": "7.0.0"},
+    )
+
+    monkeypatch.setenv("PKM_V7_KILL_SWITCH_ACTIVE", "true")
+    with pytest.raises(ValueError, match="disabled by server rollout policy"):
+        service.assert_upgrade_commit_allowed(
+            user_id="user_123",
+            upgrade_claim={"target_pkm_contract_version": "7.0.0"},
+        )
+
+
+def test_v6_upgrade_claim_is_not_blocked_by_v7_kill_switch(monkeypatch):
+    monkeypatch.setenv("PKM_V7_KILL_SWITCH_ACTIVE", "true")
+
+    PkmUpgradeService().assert_upgrade_commit_allowed(
+        user_id="user_123",
+        upgrade_claim={"target_pkm_contract_version": "6.0.0"},
+    )
+
+
 @pytest.mark.asyncio
 async def test_build_status_treats_missing_manifest_as_bootstrap_from_version_zero():
     service = PkmUpgradeService()
@@ -180,6 +225,51 @@ async def test_build_status_reads_contract_versions_from_manifest_summary_projec
 
     assert status["upgrade_status"] == "current"
     assert status["upgradable_domains"] == []
+
+
+@pytest.mark.asyncio
+async def test_build_status_fails_closed_for_future_domain_and_semantic_versions():
+    service = PkmUpgradeService()
+    service._pkm_service = _FakePkmService(
+        model_version=CURRENT_PKM_MODEL_VERSION,
+        manifest={
+            "domain_contract_version": current_domain_contract_version("financial") + 1,
+            "readable_summary_version": CURRENT_READABLE_SUMMARY_VERSION,
+            "pkm_contract_version": "7.0.0",
+            "readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
+            "paths": [{"json_path": "profile"}],
+        },
+    )
+
+    async def _no_runs(_user_id: str):
+        return None
+
+    service._get_latest_run = _no_runs  # type: ignore[method-assign]
+
+    status = await service.start_or_resume_run("user_123")
+
+    assert status["upgrade_status"] == "client_update_required"
+    assert status["upgradable_domains"] == []
+    assert status["unsupported_domains"][0]["unsupported_future_version"] is True
+    assert "client_update_required" in status["unsupported_domains"][0]["blocked_reasons"]
+
+
+@pytest.mark.asyncio
+async def test_build_status_fails_closed_for_future_model_version_without_domains():
+    service = PkmUpgradeService()
+    fake = _FakePkmService(model_version=CURRENT_PKM_MODEL_VERSION + 1)
+    fake._index.available_domains = []
+    service._pkm_service = fake
+
+    async def _no_runs(_user_id: str):
+        return None
+
+    service._get_latest_run = _no_runs  # type: ignore[method-assign]
+
+    status = await service.start_or_resume_run("user_123")
+
+    assert status["upgrade_status"] == "client_update_required"
+    assert status["stored_model_version"] == CURRENT_PKM_MODEL_VERSION + 1
 
 
 @pytest.mark.asyncio

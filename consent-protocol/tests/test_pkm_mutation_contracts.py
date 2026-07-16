@@ -9,6 +9,7 @@ from hushh_mcp.services.domain_contracts import (
     validate_dynamic_top_level_domain,
 )
 from hushh_mcp.services.pkm_mutation_contracts import (
+    PKM_MAX_AFFECTED_SHARING_IDS,
     PkmMutationPlanV2,
     ScopeDescriptorV2,
     validate_mutation_plan_for_write,
@@ -65,6 +66,8 @@ def test_internal_domain_is_never_semantically_proposed() -> None:
 
 def test_confirmed_mutation_plan_binds_subject_and_domain() -> None:
     plan = PkmMutationPlanV2.model_validate(_plan())
+    assert plan.writer_id == "owner_confirmed_write"
+    assert plan.structure_agent_id == "pkm_structure_agent"
     validate_mutation_plan_for_write(
         plan=plan,
         authenticated_user_id="user-1",
@@ -76,6 +79,17 @@ def test_confirmed_mutation_plan_binds_subject_and_domain() -> None:
             authenticated_user_id="user-2",
             domain="home_projects",
         )
+
+
+def test_mutation_plan_keeps_writer_and_structure_provenance_distinct() -> None:
+    plan = PkmMutationPlanV2.model_validate(
+        _plan(writer_id="kai_profile_setup_sync", structure_agent_id="pkm_structure_agent")
+    )
+    assert plan.writer_id == "kai_profile_setup_sync"
+    assert plan.structure_agent_id == "pkm_structure_agent"
+
+    with pytest.raises(ValidationError):
+        PkmMutationPlanV2.model_validate(_plan(writer_id="user@example.com"))
 
 
 def test_confirmation_receipt_must_match_plan() -> None:
@@ -99,6 +113,21 @@ def test_active_recipient_impact_requires_acknowledgement() -> None:
     )
     with pytest.raises(ValidationError, match="sharing_impact_acknowledgement_required"):
         PkmMutationPlanV2.model_validate(payload)
+
+
+def test_large_exact_sharing_impact_stays_reviewable_within_the_issuance_cap() -> None:
+    grant_ids = [f"grant-{index}" for index in range(1_001)]
+    plan = PkmMutationPlanV2.model_validate(_plan(affected_grant_ids=grant_ids))
+    assert plan.affected_grant_ids == grant_ids
+
+    with pytest.raises(ValidationError, match="too_long"):
+        PkmMutationPlanV2.model_validate(
+            _plan(
+                affected_grant_ids=[
+                    f"grant-{index}" for index in range(PKM_MAX_AFFECTED_SHARING_IDS + 1)
+                ]
+            )
+        )
 
 
 def test_scope_descriptor_is_strict_and_domain_bound() -> None:

@@ -26,7 +26,46 @@ from hushh_mcp.services.one_email_kyc_service import (
     OneEmailKycConfig,
     OneEmailKycError,
     OneEmailKycService,
+    _canonical_one_email_scope,
+    _snap_kyc_scope,
+    _validate_one_email_data_scope,
 )
+
+
+def test_snap_kyc_scope_maps_invented_paths_to_real_segments():
+    available = {
+        "identity": ["bank", "drivers_license", "passport", "profile", "tax"],
+        "financial": ["documents", "portfolio"],
+    }
+    # substring: tax_id -> tax
+    assert _snap_kyc_scope("attr.identity.tax_id", available) == "attr.identity.tax"
+    # keyword group: cash_positions -> bank
+    assert _snap_kyc_scope("attr.identity.cash_positions", available) == "attr.identity.bank"
+    # exact match is preserved
+    assert _snap_kyc_scope("attr.identity.passport", available) == "attr.identity.passport"
+    # unknown path with no confident match is left as-is
+    assert _snap_kyc_scope("attr.identity.zzz", available) == "attr.identity.zzz"
+    # no available paths for domain -> unchanged
+    assert _snap_kyc_scope("attr.identity.tax_id", {}) == "attr.identity.tax_id"
+
+
+def test_canonical_one_email_scope_prefixes_bare_llm_scopes():
+    # Pass-1 LLM can emit bare scopes; they must survive select_scopes validation.
+    for bare in ("identity.passport", "identity.tax_id", "financial.cash_positions"):
+        canonical = _canonical_one_email_scope(bare)
+        assert canonical == f"attr.{bare}"
+        # Canonical form must pass the lane grammar that select_scopes enforces.
+        assert _validate_one_email_data_scope(canonical) == canonical
+
+
+def test_canonical_one_email_scope_preserves_valid_and_rejects_junk():
+    assert _canonical_one_email_scope("attr.identity.*") == "attr.identity.*"
+    assert (
+        _canonical_one_email_scope("  ATTR.Financial.Portfolio.*  ") == "attr.financial.portfolio.*"
+    )
+    assert _canonical_one_email_scope("") is None
+    assert _canonical_one_email_scope(None) is None
+    assert _canonical_one_email_scope("attr..bad") is None
 
 
 def _b64url(value: str) -> str:

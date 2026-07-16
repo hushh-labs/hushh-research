@@ -18,9 +18,9 @@
     "class_counts": {
       "public/static": 3,
       "realtime/SSE": 2,
-      "hidden flow": 12,
-      "vault-backed": 36,
+      "vault-backed": 40,
       "redirect/alias": 29,
+      "hidden flow": 8,
       "auth/pre-vault": 6,
       "RIA/provider": 9,
       "PKM-secure": 2
@@ -134,8 +134,8 @@
     {
       "route": "/blog",
       "page_file": "app/blog/page.tsx",
-      "route_contract_mode": "hidden",
-      "screen_class": "hidden flow",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
       "cache_policy": "memory-only",
       "cache_keys": [],
       "resource_classes": [
@@ -179,8 +179,8 @@
     {
       "route": "/blog/[slug]",
       "page_file": "app/blog/[slug]/page.tsx",
-      "route_contract_mode": "hidden",
-      "screen_class": "hidden flow",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
       "cache_policy": "memory-only",
       "cache_keys": [],
       "resource_classes": [
@@ -3881,8 +3881,8 @@
     {
       "route": "/research",
       "page_file": "app/research/page.tsx",
-      "route_contract_mode": "hidden",
-      "screen_class": "hidden flow",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
       "cache_policy": "memory-only",
       "cache_keys": [],
       "resource_classes": [
@@ -3926,8 +3926,8 @@
     {
       "route": "/research/protocol",
       "page_file": "app/research/protocol/page.tsx",
-      "route_contract_mode": "hidden",
-      "screen_class": "hidden flow",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
       "cache_policy": "memory-only",
       "cache_keys": [],
       "resource_classes": [
@@ -4345,11 +4345,11 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": true,
+        "cache_service": false,
         "use_stale_resource": false,
-        "device_cache": true,
+        "device_cache": false,
         "secure_cache": false,
-        "cache_sync": true,
+        "cache_sync": false,
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
@@ -4357,7 +4357,9 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": []
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
     },
     {
       "route": "/ria/requests",

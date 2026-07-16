@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 84,
+  "expected_migration_version": 98,
   "migration_version_policy": "minimum",
   "required_functions": [
     "merge_domain_summary",
@@ -8,7 +8,18 @@
     "remove_domain_summary_key",
     "upsert_pkm_data_blob",
     "auto_register_domain",
-    "get_user_pkm_metadata"
+    "get_user_pkm_metadata",
+    "get_pkm_domain_snapshot_v1",
+    "start_or_resume_pkm_upgrade_v1",
+    "transition_pkm_upgrade_run_v1",
+    "transition_pkm_upgrade_step_v1",
+    "issue_pkm_upgrade_claim_v1",
+    "archive_pkm_domain_revision_v1",
+    "commit_pkm_domain_mutation_v4",
+    "rollback_pkm_domain_revision_v1",
+    "delete_pkm_domain_v2",
+    "prune_expired_pkm_domain_revisions_v1",
+    "prune_expired_pkm_recovery_for_user_v1"
   ],
   "required_tables": {
     "vault_keys": [
@@ -151,7 +162,10 @@
       "summary_projection",
       "top_level_scope_paths",
       "domain_contract_version",
+      "pkm_contract_version",
       "readable_summary_version",
+      "readable_projection_version",
+      "latest_upgrade_commit_id",
       "upgraded_at",
       "created_at",
       "updated_at"
@@ -167,6 +181,9 @@
       "default_projection_ready",
       "default_projection_updated_at",
       "owner_consent_override",
+      "scope_origin",
+      "scope_origin_code",
+      "source_kind",
       "created_at",
       "updated_at"
     ],
@@ -230,6 +247,7 @@
       "to_model_version",
       "current_domain",
       "initiated_by",
+      "mode",
       "resume_count",
       "started_at",
       "last_checkpoint_at",
@@ -251,8 +269,39 @@
       "last_completed_content_revision",
       "last_completed_manifest_version",
       "checkpoint_payload",
+      "last_claim_id",
+      "last_commit_id",
+      "last_archived_revision_id",
+      "preservation_receipt",
       "created_at",
       "updated_at"
+    ],
+    "pkm_domain_revisions": [
+      "revision_id", "user_id", "domain", "source_content_revision",
+      "source_manifest_revision", "is_origin", "archive_reason",
+      "source_commit_id", "manifest_snapshot", "path_rows_snapshot",
+      "scope_rows_snapshot", "index_domain_summary_snapshot",
+      "index_domain_present", "retention_expires_at", "restored_count",
+      "last_restored_at", "created_at"
+    ],
+    "pkm_domain_revision_segments": [
+      "revision_id", "segment_id", "ciphertext", "iv", "tag", "algorithm",
+      "original_content_revision", "original_manifest_revision", "size_bytes", "created_at"
+    ],
+    "pkm_domain_commits": [
+      "commit_id", "user_id", "domain", "commit_kind", "request_fingerprint",
+      "run_id", "claim_id",
+      "expected_content_revision", "expected_manifest_revision",
+      "result_content_revision", "result_manifest_revision",
+      "archived_revision_id", "retention_expires_at", "created_at"
+    ],
+    "pkm_upgrade_claims": [
+      "claim_id", "commit_id", "run_id", "user_id", "domain", "status",
+      "source_content_revision", "source_manifest_revision",
+      "target_domain_contract_version", "target_readable_summary_version",
+      "target_pkm_contract_version", "target_readable_projection_version",
+      "expires_at", "issued_at", "committed_at", "target_content_revision",
+      "target_manifest_revision", "archived_revision_id", "preservation_receipt"
     ],
     "consent_audit": [
       "id",

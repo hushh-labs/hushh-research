@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from scripts import eval_pkm_structure_agent as eval_script
 
 
@@ -45,3 +47,31 @@ def test_quality_gate_flags_fallback_fragmentation_and_mutation_drift():
     assert "fragmentation" in failures
     assert "finance_contamination" in failures
     assert "unresolved_domain" in failures
+
+
+def test_fragmentation_ignores_non_durable_alternative_domains():
+    results = [
+        SimpleNamespace(
+            expected_save_class="durable",
+            expected_domains=["food"],
+            actual_save_class="durable",
+            actual_domain="food",
+            actual_write_mode="can_save",
+        ),
+        SimpleNamespace(
+            expected_save_class="ambiguous",
+            expected_domains=["professional", "travel", "shopping", "food"],
+            actual_save_class="ambiguous",
+            actual_domain="ria",
+            actual_write_mode="do_not_save",
+        ),
+        SimpleNamespace(
+            expected_save_class="ephemeral",
+            expected_domains=["financial"],
+            actual_save_class="ephemeral",
+            actual_domain="professional",
+            actual_write_mode="do_not_save",
+        ),
+    ]
+
+    assert eval_script._durable_domain_fragmentation_score(results) == 1.0

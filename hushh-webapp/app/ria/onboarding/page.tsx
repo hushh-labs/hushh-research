@@ -25,6 +25,7 @@ import {
   normalizeInternalRouteHref,
   ROUTES,
 } from "@/lib/navigation/routes";
+import { buildProfileRoute } from "@/lib/navigation/profile-routes";
 import {
   buildRiaOnboardingSteps,
   canContinueRiaOnboardingStep,
@@ -55,6 +56,7 @@ import { trackEvent } from "@/lib/observability/client";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
 import { resolveAppEnvironment } from "@/lib/app-env";
 import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 
 const LICENSE_VERIFICATION_TIMEOUT_MS = 90_000;
 const SCRAPE_POLL_INTERVAL_MS = 5_000;
@@ -402,7 +404,7 @@ export default function RiaOnboardingPage({
     onboardingEntryHandledRef.current = true;
     if (hasEditIntent) return;
     if (riaCapability === "switch") {
-      router.replace(ROUTES.RIA_PROFILE);
+      router.replace(buildProfileRoute({ panel: "regulatory" }));
     }
   }, [hasEditIntent, personaLoading, personaRefreshing, riaCapability, router]);
 
@@ -812,6 +814,27 @@ export default function RiaOnboardingPage({
 
       await refreshPersonaState({ force: true });
 
+      // Durably mark the RIA setup step complete so the /one dashboard "N of 6"
+      // count includes it (and updates live via the pre-vault bootstrap-cache
+      // "set" event the dashboard hook subscribes to). Only for the standalone
+      // path — in setupMode the setup-hub coordinator writes this on "Finish",
+      // so we avoid racing it. Best-effort + idempotent: enrichRia still
+      // reconciles the dashboard count on the next load if this write fails.
+      if (!setupMode) {
+        try {
+          const current = await PreVaultUserStateService.bootstrapState(user.uid);
+          if (!current.setupCapabilityIds.includes("ria")) {
+            const next = Array.from(
+              new Set([...current.setupCapabilityIds, "ria"]),
+            ).sort();
+            // syncSetupCapabilities REPLACES the stored set, so pass the union.
+            await PreVaultUserStateService.syncSetupCapabilities(user.uid, next);
+          }
+        } catch {
+          // best-effort; dashboard enrichRia reconciles the count on next load.
+        }
+      }
+
       if (advisoryOutcome === "verified" || advisoryOutcome === "active") {
         await RiaOnboardingDraftLocalService.clear(user.uid);
         setShouldPersistDraft(false);
@@ -862,7 +885,7 @@ export default function RiaOnboardingPage({
             router.replace(ROUTES.ONE_SETUP_RIA);
           }
         } else {
-          router.replace(ROUTES.RIA_PROFILE);
+          router.replace(buildProfileRoute({ panel: "regulatory" }));
         }
       }
     } catch (submitError) {

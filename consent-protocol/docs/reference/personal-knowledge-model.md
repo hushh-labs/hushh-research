@@ -27,7 +27,8 @@ flowchart LR
   index["pkm_index<br/>PK user_id<br/>available_domains<br/>domain_summaries<br/>total_attributes"]
   events["pkm_events<br/>append-only<br/>operation_type, path_set<br/>metadata"]
   projections["pkm_default_available_projections<br/>safe projection payload<br/>revocable"]
-  upgrades["pkm_migration_state<br/>pkm_upgrade_runs<br/>pkm_upgrade_steps"]
+  upgrades["pkm_migration_state<br/>pkm_upgrade_runs / steps / claims<br/>pkm_domain_commits"]
+  revisions["pkm_domain_revisions<br/>pkm_domain_revision_segments<br/>encrypted before-images"]
 
   user --> blob
   user --> manifest
@@ -40,6 +41,9 @@ flowchart LR
   scopes --> projections
   upgrades --> blob
   upgrades --> manifest
+  blob --> revisions
+  manifest --> revisions
+  revisions -->|owner rollback to new monotonic revision| blob
 ```
 
 ### PKM read/write and cache map
@@ -70,9 +74,9 @@ sequenceDiagram
   alt fresh cache
     Cache-->>UI: decrypted snapshot
   else cache miss
-    UI->>Api: GET /domain-data/{user_id}/{domain}?segment_ids=...
-    Api->>DB: read encrypted pkm_blobs rows
-    Api-->>UI: encrypted_blob only
+    UI->>Api: GET /domain-snapshot/{user_id}/{domain}?segment_ids=...
+    Api->>DB: coherently read encrypted blobs + exact manifest revision
+    Api-->>UI: DomainSnapshotV1 + ETag
     UI->>Vault: decrypt selected segments locally
     UI->>Cache: hydrate memory and secure device cache
   end
@@ -126,6 +130,57 @@ flowchart TB
   Generic client-side PKM upgrade runs for post-cutover schema and readability evolution.
 - `pkm_upgrade_steps`
   Per-domain resumable checkpoints for generic PKM upgrades. No plaintext or key material is stored here.
+- `pkm_upgrade_claims`
+  Short-lived server-issued authority bound to owner, run, domain, source revisions,
+  exact target contracts, commit id, and expiry.
+- `pkm_domain_commits`
+  Idempotent commit receipts and aggregate preservation results. No user values or
+  persistent value hashes are stored here.
+- `pkm_domain_revisions` and `pkm_domain_revision_segments`
+  Immutable encrypted before-images plus the exact manifest/path/scope/index metadata
+  needed to restore the domain without revision rollback or information loss.
+
+## PKM information planes
+
+| Plane | Contains | Excludes |
+| --- | --- | --- |
+| Encrypted core | One canonical copy of owner-authored facts, preferences, goals, relationships, entities, and durable decisions | Parser output, raw documents, debug fields, workflow state, market caches |
+| Encrypted source artifacts | Original statements, normalized extracts, receipts, and immutable source evidence addressed by content id | Agent-ready summaries and duplicate canonical holdings |
+| Derived views | Private-agent memory cards, Kai compatibility views, summaries, embeddings, analytics, and consent projections | New authoritative owner information |
+| Control and audit | Manifests, revisions, scope registry, coarse events, claims, and aggregate upgrade receipts | Plaintext values, prompts, model output, and raw extracts |
+| Recovery and quarantine | Lifetime encrypted origin snapshot, rolling rollback revisions, and uncertain legacy information | Private-agent context, MCP discovery, or public projections |
+
+No field is deleted because it appears noisy. It must be classified into one of these
+planes. Unknown or conflicting information is preserved in an encrypted, private,
+non-exportable quarantine until deterministic local proof can place or restore it. The
+reserved encrypted segment id is `__quarantine_v1`; it is rejected if any manifest path
+makes it externalizable or any scope registry entry references it.
+
+## Upgrade safety contract
+
+1. Load `DomainSnapshotV1`; decrypt only ciphertext bound to its content and manifest revisions.
+2. Transform locally and classify every JSON occurrence as preserved, moved,
+   equal-value deduplicated, quarantined, or rejected.
+3. Accept only a complete aggregate `PreservationReceiptV1` with zero rejected occurrences.
+4. Obtain `UpgradeClaimV1`; commit with its exact idempotency key before the claim expires.
+5. Archive the active encrypted revision and commit the new active state atomically.
+6. On ambiguous transport failure, succeed only when `latest_upgrade_commit_id` matches
+   the claim commit id.
+7. Rollback restores ciphertext and metadata into a new monotonic revision and refreshes
+   affected encrypted exports. Owner-published public-profile projections are not
+   automatically republished; they remain owner-approved snapshots.
+
+The mandatory gate rehearses synthetic historical versions 0 through 4, heterogeneous
+arrays, sparse and unknown keys, financial statement/Plaid/KYC memory, Gmail-derived
+memory, private scopes, retired aliases, encryption round trips, idempotency, and rollback.
+Protected UAT additionally requires the redacted reviewer shape audit and live PKM/Kai/RIA
+route audit, the chained structure-agent evaluation, and the transaction-rolled-back
+PostgreSQL RPC rehearsal in `db/verify/pkm_v7_zero_loss_rehearsal.sql`. The gate requires
+`PKM_UPGRADE_REVIEWER_SHAPE_AUDIT=1`, `PKM_UPGRADE_STRUCTURE_AGENT_EVAL=1`,
+`PKM_UPGRADE_POSTGRES_REHEARSAL_URL`, and `PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL` when
+`PKM_UPGRADE_PROTECTED_UAT=1`. Financial v7 readers may ship while the server policy
+remains `off`; v7 writes require explicit cohort eligibility and an inactive kill switch,
+which is rechecked when the commit reaches the API rather than only when a claim is issued.
 
 ## Authority and sync model
 
@@ -223,7 +278,7 @@ sequenceDiagram
   participant Exports as consent_exports
 
   Connector->>Connector: generate X25519 keypair locally
-  Connector->>MCP: discover_user_domains(user_id)
+  Connector->>MCP: search_user_scopes(user_identifier)
   MCP->>PKM: read sanitized index/scope registry
   PKM-->>MCP: domains + dynamic scope handles
   Connector->>MCP: request_consent(scope, connector_public_key, key_id, alg)
@@ -239,7 +294,9 @@ sequenceDiagram
   Client->>Client: wrap export key to connector public key with X25519-AES256-GCM
   Client->>Consent: approve request with ciphertext + wrapped_key_bundle
   Consent->>Exports: store encrypted_data, iv, tag, wrapped_key_bundle, revisions
-  Connector->>MCP: get_encrypted_scoped_export(consent_token, expected_scope)
+  Connector->>MCP: check_consent_status(request_ref)
+  MCP-->>Connector: grant_ref after approval
+  Connector->>MCP: get_encrypted_scoped_export(grant_ref, expected_scope)
   MCP->>Exports: read ciphertext package
   Exports-->>MCP: encrypted export only
   MCP-->>Connector: encrypted_data + wrapped_key_bundle

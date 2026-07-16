@@ -38,6 +38,27 @@ function titleizeSegment(segment: string): string {
     .join(" ");
 }
 
+/**
+ * Human label for an open Location quick-action flow (the `?action=…` slug).
+ * Used as the third breadcrumb crumb while the flow is open so the top-bar
+ * reads "One › Location › Check-In" etc. Falls back to a titleized slug.
+ */
+function oneLocationActionLabel(action: string): string {
+  const labels: Record<string, string> = {
+    share: "Share location",
+    ask: "Ask someone",
+    invite: "Invite to Circle",
+    "temp-link": "Public link",
+    "check-in": "Check-In",
+    "drive-to": "Drive To",
+    "pick-me-up": "Pick Me Up",
+    "safe-arrival": "Safe Arrival",
+    sos: "Safety",
+    privacy: "Privacy",
+  };
+  return labels[action] ?? titleizeSegment(action);
+}
+
 function profilePanelLabel(panel: ProfilePanel | null): string | null {
   if (panel === "account") return "Account";
   if (panel === "my-data") return "Memory";
@@ -94,6 +115,41 @@ export function resolveTopShellBreadcrumb(
   searchParams?: URLSearchParams | { get(name: string): string | null } | null,
 ): TopShellBreadcrumbConfig | null {
   pathname = normalizeBreadcrumbPathname(pathname);
+
+  if (
+    pathname === ROUTES.DEVELOPERS ||
+    pathname === ROUTES.RESEARCH ||
+    pathname === ROUTES.BLOG ||
+    pathname === ROUTES.RESEARCH_PROTOCOL
+  ) {
+    return {
+      backHref: ROUTES.HOME,
+      width: "content",
+      align: "center",
+      items: [],
+    };
+  }
+
+  if (pathname.startsWith(`${ROUTES.BLOG}/`)) {
+    return {
+      backHref: ROUTES.BLOG,
+      width: "content",
+      align: "center",
+      items: [
+        { label: "Blog", href: ROUTES.BLOG },
+        { label: "Post" },
+      ],
+    };
+  }
+
+  if (pathname.startsWith(`${ROUTES.RESEARCH}/`) && pathname !== ROUTES.RESEARCH_PROTOCOL) {
+    return {
+      backHref: ROUTES.RESEARCH,
+      width: "content",
+      align: "center",
+      items: [],
+    };
+  }
 
   if (pathname === ROUTES.KAI_ANALYSIS) {
     const debateId = String(searchParams?.get("debate_id") || "").trim();
@@ -426,6 +482,28 @@ export function resolveTopShellBreadcrumb(
   if (pathname === ROUTES.ONE_LOCATION) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     const fromProfile = originHref === ROUTES.PROFILE;
+    // A Location quick-action flow (Check-In, Drive To, Pick Me Up, Safe
+    // Arrival, SOS/Alert, Share, Ask, Invite, Privacy, Temp link) is a
+    // sub-screen of the Location hub, tracked via `?action=…`. While one is
+    // open, the SINGLE top-left back button must return to the Location hub
+    // (strip the action param) rather than leaving to /one. This is the only
+    // back affordance on those screens — the in-content back arrows were
+    // removed to fix the "two back buttons" UX.
+    const action = String(searchParams?.get("action") || "").trim();
+    if (action) {
+      return {
+        backHref: ROUTES.ONE_LOCATION,
+        width: "profile",
+        align: "center",
+        items: [
+          fromProfile
+            ? { label: "Profile", href: ROUTES.PROFILE }
+            : { label: "One", href: ROUTES.ONE_HOME },
+          { label: "Location", href: ROUTES.ONE_LOCATION },
+          { label: oneLocationActionLabel(action) },
+        ],
+      };
+    }
     return {
       backHref:
         resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,

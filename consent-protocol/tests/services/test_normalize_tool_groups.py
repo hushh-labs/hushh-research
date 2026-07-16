@@ -287,10 +287,13 @@ class TestVisibleToolNamesForGroups:
 
     def test_core_consent_group_returns_its_tools(self):
         result = visible_tool_names_for_groups([TOOL_GROUP_CORE_CONSENT])
-        assert "discover_user_domains" in result
-        assert "request_consent" in result
-        assert "check_consent_status" in result
-        assert "validate_token" in result
+        assert result == (
+            "search_user_scopes",
+            "prepare_campaign_context",
+            "request_consent",
+            "check_consent_status",
+            "get_encrypted_scoped_export",
+        )
 
     def test_ria_read_group_returns_its_tools(self):
         result = visible_tool_names_for_groups([TOOL_GROUP_RIA_READ])

@@ -42,7 +42,21 @@ function applyEnvValues(values = {}) {
 }
 
 function ensureUatEnv() {
-  const uatValues = parseEnvFile(uatEnvPath);
+  // CI and isolated release worktrees inject the public UAT build contract
+  // through the process environment. Keep the ignored local overlay as the
+  // developer default, but let an explicit environment value win so the
+  // archive is reproducible from the exact release SHA.
+  const uatValues = {
+    ...parseEnvFile(uatEnvPath),
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(
+        ([key, value]) =>
+          (key === "APP_RUNTIME_PROFILE" || key.startsWith("NEXT_PUBLIC_")) &&
+          typeof value === "string" &&
+          value.trim().length > 0,
+      ),
+    ),
+  };
   const backendUrl = String(uatValues.NEXT_PUBLIC_BACKEND_URL || "").trim().replace(/\/$/, "");
 
   if (!backendUrl || isLocalBackend(backendUrl)) {
@@ -52,6 +66,7 @@ function ensureUatEnv() {
   }
 
   applyEnvValues({
+    NEXT_DIST_DIR: ".next-native-uat",
     APP_RUNTIME_PROFILE: uatValues.APP_RUNTIME_PROFILE || "uat",
     NEXT_PUBLIC_APP_ENV: uatValues.NEXT_PUBLIC_APP_ENV || "uat",
     NEXT_PUBLIC_BACKEND_URL: backendUrl,

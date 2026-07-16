@@ -302,7 +302,7 @@ export function StreamingTextDisplay({
           className={cn(
             "sticky bottom-2 left-1/2 -translate-x-1/2 z-10",
             "px-4 py-2 rounded-full",
-            "bg-primary text-primary-foreground text-xs font-medium",
+            "bg-primary text-primary-foreground text-xs font-semibold",
             "shadow-lg hover:shadow-xl transition-all",
             "animate-in fade-in slide-in-from-bottom-2",
             "flex items-center gap-1.5"

@@ -18,9 +18,11 @@ function Defs({ id }: { id: string }) {
   return (
     <defs>
       <linearGradient id={`${id}-gold`} x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stopColor="#F4D79A" />
-        <stop offset="45%" stopColor="var(--app-accent)" />
-        <stop offset="100%" stopColor="var(--app-accent-deep)" />
+        {/* Standardized hero foil stops (shared with intro "One" + wordmark
+            "ssh"): bright shine into system accent into deep shade. */}
+        <stop offset="0%" stopColor="var(--app-accent-hero-to)" />
+        <stop offset="45%" stopColor="var(--app-accent-hero-mid)" />
+        <stop offset="100%" stopColor="var(--app-accent-hero-from)" />
       </linearGradient>
       <radialGradient id={`${id}-hot`} cx="35%" cy="30%" r="75%">
         <stop offset="0%" stopColor="#FFF6E0" />

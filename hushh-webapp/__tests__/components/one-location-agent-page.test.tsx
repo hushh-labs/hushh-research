@@ -30,7 +30,9 @@ const {
   mockSendConnectionRequest,
   mockTrackEvent,
   mockRouterPush,
+  mockRouterReplace,
   mockSearchParamsGet,
+  mockSearchParams,
   mockCopyToClipboard,
 } = vi.hoisted(() => ({
   mockUseRequireAuth: vi.fn(),
@@ -60,18 +62,24 @@ const {
   mockSendConnectionRequest: vi.fn(),
   mockTrackEvent: vi.fn(),
   mockRouterPush: vi.fn(),
+  mockRouterReplace: vi.fn(),
   mockSearchParamsGet: vi.fn(),
+  mockSearchParams: {
+    get: vi.fn(),
+    toString: () => "",
+  },
   mockCopyToClipboard: vi.fn(),
 }));
 
+mockSearchParams.get = mockSearchParamsGet;
+
 vi.mock("next/navigation", () => ({
+  usePathname: () => "/one/location",
   useRouter: () => ({
     push: mockRouterPush,
+    replace: mockRouterReplace,
   }),
-  useSearchParams: () => ({
-    get: mockSearchParamsGet,
-    toString: () => "",
-  }),
+  useSearchParams: () => mockSearchParams,
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -133,7 +141,7 @@ vi.mock("@/lib/one-location/service", () => ({
     captureCurrentPosition: mockCaptureCurrentPosition,
     watchCurrentPosition: vi.fn().mockResolvedValue(null),
     clearWatch: vi.fn(),
-    clearLocationWatch: vi.fn(),
+    clearLocationWatch: vi.fn().mockResolvedValue(undefined),
     startBackgroundShare: vi.fn().mockResolvedValue({ started: false }),
     stopBackgroundShare: vi.fn().mockResolvedValue(undefined),
     requestAlwaysAuthorization: vi
@@ -395,7 +403,7 @@ async function skipLocationEntryFlow(options: { expectMain?: boolean } = {}) {
   fireEvent.click(screen.getByRole("button", { name: "Skip" }));
   if (options.expectMain !== false) {
     expect(
-      await screen.findByRole("heading", { name: "Onepoint" }),
+      await screen.findByRole("heading", { name: "Location" }),
     ).toBeTruthy();
   }
 }
@@ -650,7 +658,7 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     expect(
-      await screen.findByRole("heading", { name: "Onepoint" }),
+      await screen.findByRole("heading", { name: "Location" }),
     ).toBeTruthy();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     expect(
@@ -807,7 +815,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(
-      await screen.findByRole("heading", { name: "Onepoint" }),
+      await screen.findByRole("heading", { name: "Location" }),
     ).toBeTruthy();
     // Completing onboarding persists the one-time intro flag so the marketing
     // intro never shows again for this user.
@@ -840,7 +848,7 @@ describe("OneLocationAgentPage", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(
-      await screen.findByRole("heading", { name: "Onepoint" }),
+      await screen.findByRole("heading", { name: "Location" }),
     ).toBeTruthy();
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     // Completing onboarding persists the one-time intro flag.
@@ -866,7 +874,7 @@ describe("OneLocationAgentPage", () => {
       render(<OneLocationAgentPage />);
 
       expect(
-        await screen.findByRole("heading", { name: "Onepoint" }),
+        await screen.findByRole("heading", { name: "Location" }),
       ).toBeTruthy();
       expect(
         screen.queryByRole("heading", {
@@ -1439,7 +1447,7 @@ describe("OneLocationAgentPage", () => {
     );
     await waitFor(() =>
       expect(
-        screen.getByRole("heading", { name: "Onepoint" }),
+        screen.getByRole("heading", { name: "Location" }),
       ).toBeTruthy(),
     );
   });

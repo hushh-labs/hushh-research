@@ -55,9 +55,10 @@ const FLOW_CONTROL_SHELL_CLASS_NAME =
 const FLOW_CONTROL_CLASS_NAME =
   "type-callout h-full rounded-[inherit] border-0 bg-transparent px-4 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent";
 const FLOW_SURFACE_RADIUS_CLASS_NAME = "rounded-[18px]";
-// 10a/11a immersive: solid black pill CTA (inverts to white in dark mode).
+// Theme-aware flat accent pill CTA (follows the accent preference: iOS Blue
+// default, Molten Gold opt-in). No gradient, no decorative shadow.
 const FLOW_CTA_CLASS_NAME =
-  "h-[54px] rounded-full border border-[rgba(214,175,106,0.55)] !bg-[#F4EAD6] !text-[#17130C] shadow-[0_10px_24px_rgba(0,0,0,0.2)] transition-transform hover:!bg-[#EFE2C7] active:scale-[0.99] motion-reduce:active:scale-100 dark:!bg-[#F4EAD6] dark:!text-[#17130C] dark:hover:!bg-[#EFE2C7]";
+  "h-[54px] rounded-full border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100";
 
 export type PhoneVerificationFlowMode = "link" | "replace";
 

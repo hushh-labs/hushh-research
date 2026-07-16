@@ -91,6 +91,28 @@ function snapshotKey(userId: string): string {
   return `${PKM_UPGRADE_SNAPSHOT_PREFIX}:${userId}`;
 }
 
+const PKM_UPGRADE_METADATA_REPAIR_ACK_PREFIX = "pkm_upgrade_metadata_repair_ack_v1";
+
+function metadataRepairAckKey(userId: string): string {
+  return `${PKM_UPGRADE_METADATA_REPAIR_ACK_PREFIX}:${userId}`;
+}
+
+/**
+ * Metadata-only reconciliation (no real domain to upgrade) always resolves to
+ * the same stored/effective version pair for a given user until real
+ * progress happens server-side. Without this guard, any backend edge case
+ * that leaves that gap unrepaired (e.g. no PKM index row yet) would replay
+ * the "up to date" toast on every single app load. Track the last pair we
+ * already surfaced and skip re-notifying for the same one.
+ */
+function hasAlreadyAckedMetadataRepair(userId: string, versionPairKey: string): boolean {
+  return getLocalItem(metadataRepairAckKey(userId)) === versionPairKey;
+}
+
+function ackMetadataRepair(userId: string, versionPairKey: string): void {
+  setLocalItem(metadataRepairAckKey(userId), versionPairKey);
+}
+
 function rehearsalSessionKey(userId: string): string {
   return `${PKM_UPGRADE_REHEARSAL_SESSION_PREFIX}:${userId}`;
 }
@@ -487,7 +509,10 @@ export class PkmUpgradeOrchestrator {
       throw error;
     }
 
-    const needsMetadataRepair = needsVisibleMetadataReconciliation(priorStatus);
+    const versionPairKey = `${priorStatus.storedModelVersion}->${priorStatus.effectiveModelVersion}`;
+    const needsMetadataRepair =
+      needsVisibleMetadataReconciliation(priorStatus) &&
+      !hasAlreadyAckedMetadataRepair(params.userId, versionPairKey);
     if (!priorStatus.run && priorStatus.upgradableDomains.length === 0 && !needsMetadataRepair) {
       const snapshot = readSnapshot(params.userId);
       if (snapshot?.taskId) {
@@ -500,6 +525,10 @@ export class PkmUpgradeOrchestrator {
       }
       clearSnapshot(params.userId);
       return;
+    }
+
+    if (needsMetadataRepair) {
+      ackMetadataRepair(params.userId, versionPairKey);
     }
 
     const repairTaskId = needsMetadataRepair
@@ -733,10 +762,12 @@ export class PkmUpgradeOrchestrator {
     runId: string | null;
   }): Promise<{
     domainBlobDataVersion: number | undefined;
+    domainManifestRevision: number;
     upgradedDomainData: Record<string, unknown>;
     nextManifest: DomainManifest;
     nextSummary: Record<string, unknown>;
     structureDecision: Record<string, unknown>;
+    preservationReceipt: ReturnType<typeof runDomainUpgrade>["losslessValidation"]["receipt"];
     timings: PkmUpgradeTimings;
   }> {
     const totalStart = nowMs();
@@ -752,21 +783,18 @@ export class PkmUpgradeOrchestrator {
     });
 
     const decryptStart = nowMs();
-    const domainBlob = await PersonalKnowledgeModelService.getDomainData(
-      params.userId,
-      params.stepDomain,
-      params.vaultOwnerToken
-    );
-    if (!domainBlob) {
-      throw new Error(`No encrypted PKM domain blob found for ${params.stepDomain}.`);
-    }
-
-    const domainData = await PersonalKnowledgeModelService.loadDomainData({
+    const loadedSnapshot = await PersonalKnowledgeModelService.loadDomainSnapshot({
       userId: params.userId,
       domain: params.stepDomain,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
+      force: true,
     });
+    const domainSnapshot = loadedSnapshot.snapshot;
+    if (!domainSnapshot) {
+      throw new Error(`No encrypted PKM domain blob found for ${params.stepDomain}.`);
+    }
+    const domainData = loadedSnapshot.data;
     if (!domainData) {
       throw new Error(`Could not decrypt ${params.stepDomain} for upgrade.`);
     }
@@ -781,25 +809,7 @@ export class PkmUpgradeOrchestrator {
       },
     });
     const manifestStart = nowMs();
-    let existingManifest: DomainManifest | null = null;
-    try {
-      existingManifest = await PersonalKnowledgeModelService.getDomainManifest(
-        params.userId,
-        params.stepDomain,
-        params.vaultOwnerToken
-      );
-    } catch (error) {
-      const metadata = failureMetadata({
-        error,
-        route: PKM_UPGRADE_ROUTE,
-        domain: params.stepDomain,
-        stage: "loading_manifest",
-        runId: params.runId,
-        mode: params.mode,
-      });
-      AppBackgroundTaskService.updateTask(params.taskId, { metadata });
-      throw error;
-    }
+    const existingManifest: DomainManifest | null = domainSnapshot.manifest;
     const manifestReadMs = Math.round(nowMs() - manifestStart);
 
     const domainSummary =
@@ -838,6 +848,7 @@ export class PkmUpgradeOrchestrator {
     });
     const readableMetadata = buildReadableUpgradeSummary({
       domain: params.stepDomain,
+      domainData: upgradeResult.domainData,
       domainSummary,
       manifest: structureArtifacts.manifest,
       upgradedAt,
@@ -877,13 +888,15 @@ export class PkmUpgradeOrchestrator {
     const structureRebuildMs = Math.round(nowMs() - structureStart);
 
     return {
-      domainBlobDataVersion: domainBlob.dataVersion,
+      domainBlobDataVersion: domainSnapshot.contentRevision,
+      domainManifestRevision: domainSnapshot.manifestRevision,
       upgradedDomainData: upgradeResult.domainData,
       nextManifest,
       nextSummary,
       structureDecision:
         (nextManifest.structure_decision as Record<string, unknown> | undefined) ||
         structureArtifacts.structureDecision,
+      preservationReceipt: upgradeResult.losslessValidation.receipt,
       timings: {
         manifestReadMs,
         decryptLoadMs,
@@ -1116,6 +1129,23 @@ export class PkmUpgradeOrchestrator {
         mode: run.mode || "real",
         runId: run.runId,
       });
+      const upgradeClaim = await PkmUpgradeService.issueClaim({
+        runId: run.runId,
+        domain: params.stepDomain,
+        userId: params.userId,
+        sourceContentRevision: prepared.domainBlobDataVersion || 0,
+        sourceManifestRevision: prepared.domainManifestRevision,
+        vaultOwnerToken: params.vaultOwnerToken,
+      });
+      if (
+        upgradeClaim.ownerUserId !== params.userId ||
+        upgradeClaim.runId !== run.runId ||
+        upgradeClaim.domain !== params.stepDomain ||
+        upgradeClaim.sourceContentRevision !== (prepared.domainBlobDataVersion || 0) ||
+        upgradeClaim.sourceManifestRevision !== prepared.domainManifestRevision
+      ) {
+        throw new Error("PKM upgrade claim does not match the coherent source snapshot.");
+      }
 
       let stored: Awaited<ReturnType<typeof PersonalKnowledgeModelService.storeMergedDomain>>;
       try {
@@ -1127,14 +1157,8 @@ export class PkmUpgradeOrchestrator {
           summary: prepared.nextSummary,
           manifest: prepared.nextManifest,
           expectedDataVersion: prepared.domainBlobDataVersion,
-          upgradeContext: {
-            runId: run.runId,
-            priorDomainContractVersion: domainState.currentDomainContractVersion,
-            newDomainContractVersion: domainState.targetDomainContractVersion,
-            priorReadableSummaryVersion: domainState.currentReadableSummaryVersion,
-            newReadableSummaryVersion: domainState.targetReadableSummaryVersion,
-            retryCount: attempt - 1,
-          },
+          upgradeContext: upgradeClaim,
+          preservationReceipt: prepared.preservationReceipt,
           vaultOwnerToken: params.vaultOwnerToken,
         });
       } catch (error) {
@@ -1142,25 +1166,14 @@ export class PkmUpgradeOrchestrator {
           throw error;
         }
 
-        const persistedManifest = await PersonalKnowledgeModelService.getDomainManifest(
-          params.userId,
-          params.stepDomain,
-          params.vaultOwnerToken
-        ).catch(() => null);
-        const persistedBlob = await PersonalKnowledgeModelService.getDomainData(
-          params.userId,
-          params.stepDomain,
-          params.vaultOwnerToken
-        ).catch(() => null);
-        const persistedDomainVersion = Number(
-          persistedManifest?.domain_contract_version || 0
-        );
-        const persistedReadableVersion = Number(
-          persistedManifest?.readable_summary_version || 0
-        );
+        const persistedSnapshot = await PersonalKnowledgeModelService.getDomainSnapshot({
+          userId: params.userId,
+          domain: params.stepDomain,
+          vaultOwnerToken: params.vaultOwnerToken,
+          force: true,
+        }).catch(() => null);
         const landedUpgrade =
-          persistedDomainVersion >= domainState.targetDomainContractVersion &&
-          persistedReadableVersion >= domainState.targetReadableSummaryVersion;
+          persistedSnapshot?.manifest?.latest_upgrade_commit_id === upgradeClaim.commitId;
 
         if (!landedUpgrade) {
           throw error;
@@ -1171,8 +1184,8 @@ export class PkmUpgradeOrchestrator {
           conflict: false,
           message:
             "Recovered after an ambiguous PKM proxy timeout once the upgraded domain was confirmed.",
-          dataVersion: persistedBlob?.dataVersion,
-          updatedAt: persistedBlob?.updatedAt,
+          dataVersion: persistedSnapshot?.contentRevision,
+          updatedAt: persistedSnapshot?.updatedAt || undefined,
           fullBlob: {},
         };
       }
@@ -1288,13 +1301,23 @@ export class PkmUpgradeOrchestrator {
       structureDecision: prepared.structureDecision,
       expectedDataVersion: prepared.domainBlobDataVersion,
       upgradeContext: {
+        schemaVersion: "pkm_upgrade_claim.v1",
+        claimId: "00000000-0000-4000-8000-000000000001",
+        commitId: "00000000-0000-4000-8000-000000000002",
+        ownerUserId: params.userId,
         runId: `rehearsal_${params.userId}`,
-        priorDomainContractVersion: params.stepPlan.currentDomainContractVersion,
-        newDomainContractVersion: params.stepPlan.targetDomainContractVersion,
-        priorReadableSummaryVersion: params.stepPlan.currentReadableSummaryVersion,
-        newReadableSummaryVersion: params.stepPlan.targetReadableSummaryVersion,
-        retryCount: 0,
+        domain: params.stepDomain,
+        sourceContentRevision: prepared.domainBlobDataVersion || 0,
+        sourceManifestRevision: prepared.domainManifestRevision,
+        targetDomainContractVersion: params.stepPlan.targetDomainContractVersion,
+        targetReadableSummaryVersion: params.stepPlan.targetReadableSummaryVersion,
+        targetPkmContractVersion: params.stepPlan.targetPkmContractVersion || "6.0.0",
+        targetReadableProjectionVersion:
+          params.stepPlan.targetReadableProjectionVersion || "6.0.0",
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+        mode: "real",
       },
+      preservationReceipt: prepared.preservationReceipt,
       vaultOwnerToken: params.vaultOwnerToken,
     });
     const validationMs = Math.round(nowMs() - validationStart);

@@ -66,6 +66,7 @@ import {
   type ProfileStackEntry,
 } from "@/components/profile/profile-stack-navigator";
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
+import { RiaProfileSection } from "@/components/ria/profile/ria-profile-section";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { RuntimeSecretSettingsCard } from "@/components/profile/runtime-secret-settings-card";
 import { ThemeToggleLean } from "@/components/theme-toggle";
@@ -103,7 +104,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
-import { resolveDeveloperRuntime } from "@/lib/developers/runtime";
+import { isPkmDeveloperHost } from "@/app/one/pkm/developer-visibility";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import {
   DELETE_ACCOUNT_DIALOG_DESCRIPTION,
@@ -528,12 +529,19 @@ function profileRouteNeedsWorkspaceData(panel: ProfilePanel | null): boolean {
 }
 
 function ProfilePageContent() {
-  const canShowPkmAgentLab = resolveDeveloperRuntime().environment === "local";
+  const [canShowPkmAgentLab, setCanShowPkmAgentLab] = useState(false);
   const appAccent = useAccent();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchParamsString = searchParams.toString();
+
+  useEffect(() => {
+    setCanShowPkmAgentLab(
+      process.env.NODE_ENV === "development" &&
+        isPkmDeveloperHost(window.location.hostname)
+    );
+  }, []);
 
   const {
     user,
@@ -643,14 +651,6 @@ function ProfilePageContent() {
   const [loadingRiaOnboardingStatus, setLoadingRiaOnboardingStatus] =
     useState(false);
   const [riaOnboardingStatusError, setRiaOnboardingStatusError] = useState<
-    string | null
-  >(null);
-  const [showRegulatoryRefresh, setShowRegulatoryRefresh] = useState(false);
-  const [regulatoryLicenseNumber, setRegulatoryLicenseNumber] = useState("");
-  const [regulatoryRegulator, setRegulatoryRegulator] = useState("SEC");
-  const [refreshingRegulatoryProfile, setRefreshingRegulatoryProfile] =
-    useState(false);
-  const [regulatoryRefreshMessage, setRegulatoryRefreshMessage] = useState<
     string | null
   >(null);
   const [supportKind, setSupportKind] =
@@ -2032,10 +2032,6 @@ function ProfilePageContent() {
       ? currentRiaRegulatorMetadata
       : null) ||
     "SEC";
-  const currentRiaFirm =
-    riaOnboardingStatus?.advisory_firm_legal_name ||
-    riaOnboardingStatus?.display_name ||
-    "Official regulator record";
   const profileVoiceSurfaceMetadata = useMemo(() => {
     const profileHomeControls = [
       {
@@ -2285,15 +2281,13 @@ function ProfilePageContent() {
         ? "passphrase_dialog"
         : showVaultUnlock
           ? "vault_unlock"
-          : showRegulatoryRefresh
-            ? "ria_license_refresh"
-            : supportComposeKind
-              ? "support_compose"
-              : activeDetail
-                ? `${activePanel}_${activeDetail}`
-                : activePanel
-                  ? `${activePanel}_panel`
-                  : null,
+          : supportComposeKind
+            ? "support_compose"
+            : activeDetail
+              ? `${activePanel}_${activeDetail}`
+              : activePanel
+                ? `${activePanel}_panel`
+                : null,
       availableActions,
       activeControlId: activeVoiceControlId,
       lastInteractedControlId: lastVoiceControlId,
@@ -2302,7 +2296,6 @@ function ProfilePageContent() {
         ...(sendingSupportMessage ? ["support_message"] : []),
         ...(switchingVaultMethod ? ["vault_method_update"] : []),
         ...(savingMarketplaceOptIn ? ["marketplace_visibility_update"] : []),
-        ...(refreshingRegulatoryProfile ? ["ria_license_refresh"] : []),
       ],
       screenMetadata: {
         profile_panel: activePanel,
@@ -2349,12 +2342,10 @@ function ProfilePageContent() {
     phoneNumber,
     profileSummary.totalAttributes,
     profileSummary.totalDomains,
-    refreshingRegulatoryProfile,
     savingMarketplaceOptIn,
     securitySummaryText,
     sendingSupportMessage,
     shouldShowRiaRegulatoryRow,
-    showRegulatoryRefresh,
     showVaultUnlock,
     supportComposeKind,
     switchingVaultMethod,
@@ -2431,82 +2422,13 @@ function ProfilePageContent() {
   const openPreferencesPanel = () =>
     updateProfileView({ panel: "preferences", detail: null }, "push");
   const openSecurityPanel = () => openVaultBackedPanel("security");
-  const openRegulatoryProfileRow = async () => {
-    if (riaRegulatoryRow.action === "wait") return;
+  const openRegulatoryPanel = () => {
+    // No profile yet → send to onboarding (the panel would just redirect anyway).
     if (riaRegulatoryRow.action === "onboarding") {
       router.push(ROUTES.RIA_ONBOARDING);
       return;
     }
-
-    const latestStatus =
-      riaOnboardingStatus ?? (await refreshRiaOnboardingStatus(true));
-    if (!latestStatus?.exists) {
-      router.push(ROUTES.RIA_ONBOARDING);
-      return;
-    }
-
-    setRegulatoryLicenseNumber(getProfileRiaRefreshLicenseNumber(latestStatus));
-    setRegulatoryRegulator(latestStatus.regulator || "SEC");
-    setRegulatoryRefreshMessage(null);
-    setShowRegulatoryRefresh(true);
-  };
-
-  const submitRegulatoryProfileRefresh = async () => {
-    if (!user?.uid || !user.getIdToken) return;
-    const nextLicenseNumber = regulatoryLicenseNumber.trim();
-    if (!nextLicenseNumber) {
-      setRegulatoryRefreshMessage("Enter a license or CRD number first.");
-      return;
-    }
-
-    setRefreshingRegulatoryProfile(true);
-    setRegulatoryRefreshMessage(null);
-    try {
-      const idToken = await user.getIdToken();
-      const result = await RiaService.refreshLicenseProfile(idToken, {
-        license_number: nextLicenseNumber,
-        regulator: regulatoryRegulator.trim() || undefined,
-        force_live_verification: true,
-      });
-
-      if (!result.updated) {
-        const message =
-          result.message ||
-          "The regulator did not return a verified profile. No fields were changed.";
-        setRegulatoryRefreshMessage(message);
-        toast.error("Official RIA information was not updated.", {
-          description: message,
-        });
-        return;
-      }
-
-      CacheSyncService.onPersonaStateChanged(user.uid, {
-        preservePersonaState: true,
-      });
-      const nextStatus = await refreshRiaOnboardingStatus(true);
-      if (nextStatus) {
-        setRegulatoryLicenseNumber(
-          getProfileRiaRefreshLicenseNumber(nextStatus),
-        );
-        setRegulatoryRegulator(
-          nextStatus.regulator || regulatoryRegulator || "SEC",
-        );
-      }
-      await refreshPersonaState({ force: true });
-      toast.success("Official RIA information updated.");
-      setShowRegulatoryRefresh(false);
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Couldn't update official RIA information.";
-      setRegulatoryRefreshMessage(message);
-      toast.error("Couldn't update official RIA information.", {
-        description: message,
-      });
-    } finally {
-      setRefreshingRegulatoryProfile(false);
-    }
+    updateProfileView({ panel: "regulatory", detail: null }, "push");
   };
 
   const handlePreviewDomainPermission = async (
@@ -3789,7 +3711,23 @@ function ProfilePageContent() {
 
   const profileStackEntries: ProfileStackEntry[] = [];
 
-  if (!routeBlockedByVault && activePanel === "account") {
+  if (activePanel === "regulatory") {
+    // The full RIA advisor profile (view / edit / re-initiate / delete / license)
+    // lives here so it renders inside the unified /profile section — not a bespoke
+    // /ria/profile screen. Not vault-gated: RIA status is not behind the vault.
+    profileStackEntries.push({
+      key: "panel:regulatory",
+      title: "Regulatory profile",
+      description: "View, edit, verify, or delete your RIA advisor profile.",
+      content: (
+        <RiaProfileSection
+          status={riaOnboardingStatus}
+          loading={loadingRiaOnboardingStatus}
+          onRefresh={refreshRiaOnboardingStatus}
+        />
+      ),
+    });
+  } else if (!routeBlockedByVault && activePanel === "account") {
     profileStackEntries.push({
       key: "panel:account",
       title: "Account",
@@ -4093,8 +4031,8 @@ function ProfilePageContent() {
                   voiceControlId="profile_ria_regulatory"
                   voiceActionId="ria.profile.refresh_license"
                   voiceLabel="Regulatory profile"
-                  voicePurpose="Update official RIA license and CRD information from the regulator."
-                  onClick={() => void openRegulatoryProfileRow()}
+                  voicePurpose="Open your RIA advisor profile to view, edit, verify, or delete it."
+                  onClick={openRegulatoryPanel}
                 />
               ) : null}
               <SettingsRow
@@ -4258,99 +4196,6 @@ function ProfilePageContent() {
           }}
         />
       )}
-
-      <Dialog
-        open={showRegulatoryRefresh}
-        onOpenChange={setShowRegulatoryRefresh}
-      >
-        <DialogContent className="w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-lg">
-          <DialogTitle>Update license data</DialogTitle>
-          <DialogDescription>
-            Refresh official regulator fields. Your bio, services, fees, email,
-            phone, and custom profile copy stay unchanged.
-          </DialogDescription>
-          <div className="space-y-4 pt-2">
-            <div className="rounded-2xl border bg-muted/30 px-4 py-3 text-sm">
-              <p className="font-medium text-foreground">{currentRiaFirm}</p>
-              <p className="mt-1 text-muted-foreground">
-                Current CRD {currentRiaLicenseNumber || "not stored"} -{" "}
-                {currentRiaRegulator}
-              </p>
-            </div>
-
-            <label className="block space-y-1.5">
-              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                License / CRD
-              </span>
-              <Input
-                value={regulatoryLicenseNumber}
-                onChange={(event) =>
-                  setRegulatoryLicenseNumber(event.target.value)
-                }
-                inputMode="numeric"
-                placeholder="Enter license or CRD number"
-                disabled={refreshingRegulatoryProfile}
-                spellCheck={false}
-                autoComplete="off"
-              />
-            </label>
-
-            <label className="block space-y-1.5">
-              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Regulator
-              </span>
-              <Input
-                value={regulatoryRegulator}
-                onChange={(event) => setRegulatoryRegulator(event.target.value)}
-                placeholder="SEC"
-                disabled={refreshingRegulatoryProfile}
-                spellCheck={false}
-                autoComplete="off"
-              />
-            </label>
-
-            {regulatoryRefreshMessage ? (
-              <p className="rounded-2xl bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                {regulatoryRefreshMessage}
-              </p>
-            ) : null}
-
-            <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:items-center sm:justify-end">
-              <Button
-                variant="none"
-                effect="fade"
-                size="default"
-                className="w-full sm:w-auto"
-                onClick={() => setShowRegulatoryRefresh(false)}
-                disabled={refreshingRegulatoryProfile}
-              >
-                Cancel
-              </Button>
-              <Button
-                size="default"
-                className="w-full sm:w-auto"
-                disabled={
-                  refreshingRegulatoryProfile || !regulatoryLicenseNumber.trim()
-                }
-                onClick={() => void submitRegulatoryProfileRefresh()}
-              >
-                {refreshingRegulatoryProfile ? (
-                  <>
-                    <Icon
-                      icon={Loader2}
-                      size="sm"
-                      className="mr-2 animate-spin"
-                    />
-                    Updating...
-                  </>
-                ) : (
-                  "Update official information"
-                )}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <Dialog
         open={passphraseDialogOpen}

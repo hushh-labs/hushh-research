@@ -568,6 +568,8 @@ The daily scheduled workflow `.github/workflows/prod-supabase-backup-posture.yml
 
 ## Upstream CI (consent-protocol standalone)
 
-The consent-protocol has its own full CI pipeline at [hushh-labs/consent-protocol](https://github.com/hushh-labs/consent-protocol/actions). It now runs on all branches plus merge queue and includes: secret scan, lint, typecheck, test, security scan, Docker build verification, and a final status gate.
+The optional consent-protocol mirror has its own full CI pipeline at [hushh-labs/consent-protocol](https://github.com/hushh-labs/consent-protocol/actions). It runs on all branches plus merge queue and includes: secret scan, lint, typecheck, test, security scan, Docker build verification, and a final status gate.
 
-The monorepo `protocol-check` job is a lightweight mirror. For full coverage, PRs to the upstream repo are the authoritative gate.
+The monorepo is authoritative. Its protocol and release gates determine merge
+and deploy readiness. Mirror publication and mirror CI are optional maintainer
+operations and must not delay a monorepo release or UAT deploy.

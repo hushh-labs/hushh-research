@@ -1,0 +1,29 @@
+{
+  "skill_name": "reviewer-app-testing",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "run the reviewer Playwright flow and keep the BYOK vault unlocked across Next navigation",
+        "top_k": 3
+      },
+      {
+        "prompt": "prove decrypted information stays memory-only while the reviewer moves through protected routes",
+        "top_k": 3
+      },
+      {
+        "prompt": "test same-session vault key continuity and then a separate cold-session re-unlock",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "change the vault encryption wrapper and ordinary PKM persistence service",
+        "owner": "vault-pkm-governance"
+      },
+      {
+        "prompt": "prove a PKM v7 transform preserves every occurrence and rolls back",
+        "owner": "pkm-upgrade-rehearsal"
+      }
+    ]
+  }
+}

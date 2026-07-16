@@ -4,6 +4,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
 import type { KeyboardResize, KeyboardStyle } from "@capacitor/keyboard";
 
 const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || "").trim();
+const WEB_DIR = process.env.NEXT_DIST_DIR?.trim() || "out";
 
 function hostFromUrl(raw: string | undefined): string | null {
   if (!raw) return null;
@@ -40,7 +41,10 @@ const NORMALIZED_BACKEND_URL = (() => {
 const config: CapacitorConfig = {
   appId: "com.hushh.app",
   appName: "Hussh One",
-  webDir: "out",
+  // Next writes static exports into `distDir` when it is overridden. Native
+  // release builds use that override to avoid colliding with a live web dev
+  // server, so Capacitor must consume the same directory.
+  webDir: WEB_DIR,
 
   // iOS-specific configuration
   ios: {
@@ -68,16 +72,14 @@ const config: CapacitorConfig = {
   },
 
   plugins: {
-    // Keyboard handling: `resize: "native"` (the plugin default) shrinks the
-    // WKWebView frame by the keyboard height, so 100dvh/svh and position:fixed
-    // bottom elements sit above the keyboard on EVERY screen with no per-screen
-    // JS — the standard iOS behavior. `scrollEnabled:false` (ios block) keeps
-    // the native scroll from fighting the frame shrink; all app scrolling is via
-    // inner overflow-y containers. NOTE: the chat popover must NOT also subtract
-    // a manual keyboard-height (that would double-shrink) — its sheet is plain
-    // 100dvh, which now shrinks with the webview.
+    // Keyboard handling: `resize: "body"` shrinks the document body height instead 
+    // of the entire WKWebView frame (which "native" does). "native" causes severe
+    // layout thrashing and lag on iOS during keyboard animations because every dvh
+    // unit recalculates 60 times a second. "body" avoids this while still letting
+    // normal-flow content scroll above the keyboard. For fixed elements like sheets,
+    // they must either naturally sit in the scrolled body or respond to visualViewport.
     Keyboard: {
-      resize: "native" as KeyboardResize,
+      resize: "none" as KeyboardResize,
       style: "LIGHT" as KeyboardStyle,
       resizeOnFullScreen: false,
     },

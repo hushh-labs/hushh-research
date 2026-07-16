@@ -65,19 +65,16 @@ describe("investor-kai-action-registry", () => {
     expect(voiceAction?.id).toBe("analysis.resume_active");
     expect(voiceAction?.wiring.status).toBe("wired");
 
-    const pkmPreviewAction = getInvestorKaiActionByVoiceToolCall({
+    const removedPkmPreviewAction = getInvestorKaiActionByVoiceToolCall({
       tool_name: "capture_pkm_memory",
       args: {
         message: "I prefer quiet hotel rooms away from elevators.",
         mode: "preview",
       },
     });
-    expect(pkmPreviewAction?.id).toBe("profile.pkm.preview_capture");
-    expect(pkmPreviewAction?.wiring.status).toBe("wired");
+    expect(removedPkmPreviewAction).toBeNull();
 
-    const pkmSaveAction = getInvestorKaiActionById("profile.pkm.save_capture");
-    expect(pkmSaveAction?.risk.executionPolicy).toBe("manual_only");
-    expect(pkmSaveAction?.wiring.status).toBe("unwired");
+    expect(getInvestorKaiActionById("profile.pkm.save_capture")).toBeNull();
   });
 
   it("marks legacy/dead actions explicitly", () => {
@@ -157,7 +154,7 @@ describe("investor-kai-action-registry", () => {
     ]);
   });
 
-  it("lists surface-specific actions for Gmail and PKM routes", () => {
+  it("lists Gmail actions without exposing localhost-only PKM Lab actions", () => {
     const gmailActions = listInvestorKaiActionsForSurface({
       screen: "gmail",
       href: "/one/gmail",
@@ -178,11 +175,7 @@ describe("investor-kai-action-registry", () => {
       pathname: "/profile/pkm-agent-lab",
     }).map((action) => action.id);
 
-    expect(pkmActions).toEqual(
-      expect.arrayContaining([
-        "profile.pkm.preview_capture",
-        "profile.pkm.save_capture",
-      ])
-    );
+    expect(pkmActions).not.toContain("profile.pkm.preview_capture");
+    expect(pkmActions).not.toContain("profile.pkm.save_capture");
   });
 });

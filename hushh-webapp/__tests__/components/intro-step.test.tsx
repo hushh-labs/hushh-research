@@ -68,4 +68,20 @@ describe("IntroStep voice contract", () => {
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
   });
+
+  it("keeps the root public navigation to Research and Developers", () => {
+    render(<IntroStep onLogin={vi.fn()} />);
+
+    const publicNav = screen.getByRole("navigation", { name: "Explore Hushh" });
+    expect(publicNav.querySelectorAll("a")).toHaveLength(2);
+    expect(screen.getByRole("link", { name: "Research" })).toHaveAttribute(
+      "href",
+      "/research",
+    );
+    expect(screen.getByRole("link", { name: "Developers" })).toHaveAttribute(
+      "href",
+      "/developers",
+    );
+    expect(screen.queryByRole("link", { name: "Blog" })).toBeNull();
+  });
 });

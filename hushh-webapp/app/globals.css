@@ -180,6 +180,27 @@ a, button, input, select, textarea {
   --foundation-headline-line: 1.294;
   --foundation-headline-weight: 600;
   --foundation-headline-tracking: -0.01em;
+  /* Editorial rungs (Apple grammar): lead = product-tile subcopy;
+     lead-airy = weight-300 "light atmosphere" reads (rare, deliberate);
+     tagline = sub-tile / sub-nav category assertion;
+     dense-link = footer / utility link stacks (relaxed 2.41 leading).
+     Weight ladder is 300 / 400 / 600 / 700; 500 is deliberately absent. */
+  --foundation-lead-size: 1.75rem;
+  --foundation-lead-line: 1.14;
+  --foundation-lead-weight: 400;
+  --foundation-lead-tracking: 0.007em;
+  --foundation-lead-airy-size: 1.5rem;
+  --foundation-lead-airy-line: 1.5;
+  --foundation-lead-airy-weight: 300;
+  --foundation-lead-airy-tracking: 0;
+  --foundation-tagline-size: 1.3125rem;
+  --foundation-tagline-line: 1.19;
+  --foundation-tagline-weight: 600;
+  --foundation-tagline-tracking: 0.011em;
+  --foundation-dense-link-size: 1.0625rem;
+  --foundation-dense-link-line: 2.41;
+  --foundation-dense-link-weight: 400;
+  --foundation-dense-link-tracking: 0;
   --foundation-body-size: 1.0625rem;
   --foundation-body-line: 1.471;
   --foundation-body-weight: 400;
@@ -238,10 +259,12 @@ a, button, input, select, textarea {
   --app-accent-fg: #ffffff;                 /* text on solid accent */
   --app-accent-hover: #0070ea;              /* pressed/hover partner of the solid fill */
   --app-accent-ring: rgba(0, 122, 255, 0.25);
-  /* Hero gradient stops (intro "One" molten text + brand glyph strokes). */
-  --app-accent-hero-from: #0a4d9e;
+  /* Hero gradient stops (intro "One" molten text + wordmark "ssh" + brand
+     glyph strokes). Blue-to-dark: deep navy edges into the system blue with
+     a bright shine band, so the foil stays legible on light canvases. */
+  --app-accent-hero-from: #0a2f5e;
   --app-accent-hero-mid: #007aff;
-  --app-accent-hero-to: #8fc3ff;
+  --app-accent-hero-to: #4a9eff;
 
   /* Legacy gold names now ALIAS the accent family so every existing
      consumer follows the accent preference automatically. The literal
@@ -252,6 +275,18 @@ a, button, input, select, textarea {
   --foundation-accent-surface-strong: var(--app-accent-surface-strong);
   --foundation-accent-border: var(--app-accent-border);
   --foundation-crimson: #9a1b1b;
+
+  /* ── Tile system (Apple grammar) ────────────────────────────────────
+     Full-bleed marketing/onboarding tiles alternate light and near-black
+     canvases; the COLOR CHANGE is the divider (no borders, no shadows,
+     no rounding on tiles). The three dark steps create the faintest
+     separation when dark tiles stack. Parchment = --foundation-off. */
+  --app-tile-dark-1: #272729;
+  --app-tile-dark-2: #2a2a2c;
+  --app-tile-dark-3: #252527;
+  /* In-copy links on dark tiles: the base accent disappears against
+     near-black, so dark-tile copy links use the bright partner. */
+  --app-accent-link-on-dark: var(--app-accent-bright);
 
   /* Runtime CSS variable fallbacks for dynamic primitives/charts. */
   --anchor-width: 16rem;
@@ -278,6 +313,22 @@ a, button, input, select, textarea {
   --radius-md: 20px;
   --radius-lg: 28px;
 
+  /* ── Apple radius grammar (see design-system.md → "Radius grammar") ──
+     A shape is a MEANING, not a decoration:
+       pill  = action signal (primary CTAs, chips, search, toggles)
+       lg    = utility cards (our shipped card contract stays 20/22/24px
+               via --app-card-radius-*; 18px is the compact analog)
+       md    = capsule secondary buttons
+       sm    = compact utility rects (nav utility buttons, inline imagery)
+       xs    = subtle chip links (rare)
+     Do not invent radii between these stops in new components. */
+  --app-radius-none: 0px;
+  --app-radius-xs: 5px;
+  --app-radius-sm: 8px;
+  --app-radius-md: 11px;
+  --app-radius-lg: 18px;
+  --app-radius-pill: 9999px;
+
   /* Shadow elevation scale — Apple iCloud single-shadow model */
   --theme-color-fillSecondary: rgba(120, 120, 128, 0.36);
   --shadow-xs: 0 4px 12px 0 rgba(120, 120, 128, 0.08);
@@ -286,11 +337,19 @@ a, button, input, select, textarea {
   --shadow-lg: 0 11px 34px 0 rgba(120, 120, 128, 0.22);
   --shadow-xl: 0 16px 48px 0 rgba(120, 120, 128, 0.28);
 
+  /* Product shadow — the ONE photographic drop-shadow (Apple grammar).
+     Reserved for imagery resting on a surface (product renders, map badges
+     floating over photography). Never on cards, buttons, or text; UI
+     elevation comes from surface change and backdrop blur instead. */
+  --app-shadow-product: 3px 5px 30px 0 rgba(0, 0, 0, 0.22);
+
   /* Glass blur scale */
   --blur-light: 4px;
   --blur-standard: 8px;
   --blur-heavy: 16px;
   --app-shared-chrome-mask-blur: 1.25px;
+  /* Frosted chrome baseline (sub-nav / sticky-bar grade backdrop filter). */
+  --app-blur-frosted: saturate(180%) blur(20px);
 
   /* Lucide defaults (see docs/reference/quality/design-system.md): change once to update all icons. */
   --lucide-stroke-width: 1;
@@ -419,6 +478,12 @@ a, button, input, select, textarea {
   --motion-ease-accelerate: cubic-bezier(0.3, 0, 1, 1);
   --motion-ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
   --motion-ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Press physics: the system-wide active/pressed state is a uniform scale
+     shrink layered over the md-ripple. One value everywhere so every control
+     carries the same tactile weight; consumed by the .press-scale utility. */
+  --motion-press-scale: 0.95;
+  --motion-press-duration: var(--motion-duration-xs);
 
   --motion-page-enter-duration: var(--motion-duration-xl);
   --motion-deck-duration: var(--motion-duration-xl);
@@ -1810,21 +1875,24 @@ html.native-ios {
      too faint on dark surfaces. */
 
   /* ── App accent family (dark) ── iOS Blue default; gold overrides live
-     under html[data-accent="gold"].dark below. #4a9eff is Location's own
-     dark companion for text AND fills (check-in-flow dark tokens). */
-  --app-accent: #4a9eff;
-  --app-accent-deep: #4a9eff;               /* TEXT / icons on dark = Location dark blue */
-  --app-accent-bright: #9bc9ff;
-  --app-accent-tint: rgba(74, 158, 255, 0.15);
-  --app-accent-surface: rgba(74, 158, 255, 0.15);
-  --app-accent-surface-strong: rgba(74, 158, 255, 0.24);
-  --app-accent-border: rgba(74, 158, 255, 0.35);
+     under html[data-accent="gold"].dark below. ONE Action Blue across both
+     themes (Apple grammar: never a second accent, never a theme-shifted
+     shade): identical hex to light so CTAs, the hero "One" foil, and the
+     wordmark "ssh" read the same everywhere. Only the translucent washes
+     (tint/surface) keep alpha form so they sit on dark canvases. */
+  --app-accent: #007aff;
+  --app-accent-deep: #007aff;               /* TEXT / icons = same system blue */
+  --app-accent-bright: #4a9eff;
+  --app-accent-tint: rgba(0, 122, 255, 0.15);
+  --app-accent-surface: rgba(0, 122, 255, 0.15);
+  --app-accent-surface-strong: rgba(0, 122, 255, 0.24);
+  --app-accent-border: rgba(0, 122, 255, 0.35);
   --app-accent-fg: #ffffff;                 /* Apple system blue always pairs with white */
-  --app-accent-hover: #66adff;
-  --app-accent-ring: rgba(74, 158, 255, 0.30);
-  --app-accent-hero-from: #2f6fbe;
-  --app-accent-hero-mid: #4a9eff;
-  --app-accent-hero-to: #dcecff;
+  --app-accent-hover: #0070ea;
+  --app-accent-ring: rgba(0, 122, 255, 0.30);
+  --app-accent-hero-from: #0a2f5e;
+  --app-accent-hero-mid: #007aff;
+  --app-accent-hero-to: #4a9eff;
 
   --background: oklch(0.146 0.004 285.9);
   --foreground: oklch(0.971 0.003 286.4);
@@ -2172,13 +2240,19 @@ html.native-ios {
     vector-effect: non-scaling-stroke;
   }
 
-  /* Global cursor-pointer for all interactive elements */
+  /* Global cursor-pointer for all interactive elements. Disabled controls
+     opt back out (not-allowed) so unclickable never masquerades as clickable. */
   button,
   [role="button"],
   a,
   [data-interactive],
   summary {
     cursor: pointer;
+  }
+  button:disabled,
+  button[aria-disabled="true"],
+  [role="button"][aria-disabled="true"] {
+    cursor: not-allowed;
   }
   body {
     @apply bg-background text-foreground;
@@ -2515,12 +2589,12 @@ md-ripple.morphy-md-ripple {
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
-  color: #007aff !important;
+  color: var(--app-accent) !important;
   font-weight: 600;
 }
 
 .dark .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
-  color: #4a9eff !important;
+  color: var(--app-accent) !important;
 }
 
 .kai-bottom-nav-pill [role="radio"] svg {
@@ -2536,7 +2610,7 @@ md-ripple.morphy-md-ripple {
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] svg {
   opacity: 1;
   stroke-width: 1.95;
-  filter: drop-shadow(0 3px 8px color-mix(in srgb, #007aff 28%, transparent));
+  filter: drop-shadow(0 3px 8px color-mix(in srgb, var(--app-accent) 28%, transparent));
   transform: translateY(-0.5px);
 }
 
@@ -2685,6 +2759,21 @@ md-ripple.morphy-md-ripple {
 
 /* Standard interaction transitions for buttons, cards, links */
 @layer utilities {
+  /* System-wide press physics: uniform scale shrink on active, layered over
+     the md-ripple. Apply to buttons, chips, segmented tabs, and any control
+     that should carry tactile press weight. The utility owns ONLY the active
+     transform; each consumer keeps `transform` in its own transition list so
+     color/opacity fades are never clobbered. GPU-composited; stands down
+     under prefers-reduced-motion. */
+  .press-scale:active:not(:disabled) {
+    transform: scale(var(--motion-press-scale));
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .press-scale:active:not(:disabled) {
+      transform: none;
+    }
+  }
+
   .morphy-transition {
     transition: all 200ms ease-in-out;
   }
@@ -3119,11 +3208,15 @@ html[data-accent="gold"].dark {
   .type-display,
   .type-title1,
   .type-title2,
-  .type-title3 {
+  .type-title3,
+  .type-lead,
+  .type-tagline {
     font-family: var(--font-app-display);
   }
 
   .type-headline,
+  .type-lead-airy,
+  .type-dense-link,
   .type-body,
   .type-callout,
   .type-subhead,
@@ -3166,6 +3259,34 @@ html[data-accent="gold"].dark {
     font-weight: var(--foundation-headline-weight);
     line-height: var(--foundation-headline-line);
     letter-spacing: var(--foundation-headline-tracking);
+  }
+
+  .type-lead {
+    font-size: var(--foundation-lead-size);
+    font-weight: var(--foundation-lead-weight);
+    line-height: var(--foundation-lead-line);
+    letter-spacing: var(--foundation-lead-tracking);
+  }
+
+  .type-lead-airy {
+    font-size: var(--foundation-lead-airy-size);
+    font-weight: var(--foundation-lead-airy-weight);
+    line-height: var(--foundation-lead-airy-line);
+    letter-spacing: var(--foundation-lead-airy-tracking);
+  }
+
+  .type-tagline {
+    font-size: var(--foundation-tagline-size);
+    font-weight: var(--foundation-tagline-weight);
+    line-height: var(--foundation-tagline-line);
+    letter-spacing: var(--foundation-tagline-tracking);
+  }
+
+  .type-dense-link {
+    font-size: var(--foundation-dense-link-size);
+    font-weight: var(--foundation-dense-link-weight);
+    line-height: var(--foundation-dense-link-line);
+    letter-spacing: var(--foundation-dense-link-tracking);
   }
 
   .type-body {

@@ -19,7 +19,6 @@ import sys
 # Force offline DB so we never touch prod; isolate to a temp sqlite file.
 os.environ["DB_OFFLINE"] = "1"
 os.environ.setdefault("OFFLINE_DB_PATH", "/tmp/crm_e2e_offline.db")
-os.environ["CRM_REGISTRY_DB_ENABLED"] = "true"
 
 from db.db_client import get_db  # noqa: E402
 from hushh_mcp.runtime_settings import (  # noqa: E402

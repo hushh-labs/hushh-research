@@ -7,7 +7,7 @@
         "top_k": 3
       },
       {
-        "prompt": "the upstream-first coordination policy between the repos needs updating",
+        "prompt": "the optional mirror coordination policy between the repos needs updating",
         "top_k": 3
       },
       {

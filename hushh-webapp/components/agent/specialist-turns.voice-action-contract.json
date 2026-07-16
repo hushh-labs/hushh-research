@@ -70,12 +70,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
-        "status": "wired",
-        "path": "voice_tool",
-        "target": "specialist_chat.turn",
-        "params": {
-          "delegate_agent_id": "agent_email"
-        }
+        "status": "unwired",
+        "reason": "Email specialist turns require an ingress-minted, task-bound information authority context before delegation.",
+        "intended_handler": "specialist_chat.turn"
       },
       "control_ids": [
         "agent_chat_email_turn"
@@ -331,12 +328,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "execution_target": {
-        "status": "wired",
-        "path": "voice_tool",
-        "target": "specialist_chat.turn",
-        "params": {
-          "delegate_agent_id": "agent_connections"
-        }
+        "status": "unwired",
+        "reason": "Connections specialist turns require an ingress-minted, task-bound information and action authority context before delegation.",
+        "intended_handler": "specialist_chat.turn"
       },
       "control_ids": [
         "agent_chat_connections_turn"
@@ -447,12 +441,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
-        "status": "wired",
-        "path": "voice_tool",
-        "target": "specialist_chat.turn",
-        "params": {
-          "delegate_agent_id": "agent_gmail"
-        }
+        "status": "unwired",
+        "reason": "Gmail specialist turns require an ingress-minted, task-bound information authority context before delegation.",
+        "intended_handler": "specialist_chat.turn"
       },
       "control_ids": [
         "agent_chat_gmail_turn"
@@ -675,12 +666,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "execution_target": {
-        "status": "wired",
-        "path": "voice_tool",
-        "target": "specialist_chat.turn",
-        "params": {
-          "delegate_agent_id": "agent_connected_systems"
-        }
+        "status": "unwired",
+        "reason": "Connected Systems turns require an ingress-minted, task-bound information and action authority context before delegation.",
+        "intended_handler": "specialist_chat.turn"
       },
       "control_ids": [
         "agent_chat_connected_systems_turn"

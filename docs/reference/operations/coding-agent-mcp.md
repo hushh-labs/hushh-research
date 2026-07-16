@@ -77,8 +77,18 @@ Do not inline these values in committed config.
 
 Purpose:
 
-1. Access Hussh consent/data tools and internal self-documentation.
-2. Verify the same dynamic scope discovery, consent, and encrypted scoped export contract shipped through `@hushh/mcp`.
+1. Access the four core Hussh consent tools, the campaign compatibility tool, and internal self-documentation.
+2. Verify the same dynamic scope search, consent-reference lifecycle, and encrypted scoped export contract shipped through `@hushh/mcp`.
+
+Public tools:
+
+1. `search_user_scopes`
+2. `prepare_campaign_context` (Hussh ADK compatibility only)
+3. `request_consent`
+4. `check_consent_status`
+5. `get_encrypted_scoped_export`
+
+Use bearer-header authentication only. MCP results must not expose caller or Firebase identifiers, developer or consent tokens, private keys, internal URLs, backend payloads, or exception text.
 
 Public onboarding source:
 
@@ -291,12 +301,14 @@ Operator precedence:
 12. Use `.codex/skills/uat-scoped-deploy/` for scoped UAT deploys and Cloud Run region/provenance proof.
 13. Use `.codex/skills/frontend-native-surface-mapper/` before route/API/native/plugin/voice mapping work.
 14. Use `.codex/skills/frontend-cache-coherence/` for warm-cache UX, TTL, stale background refresh, and reviewer-backed screen cache proof.
-15. Use `.codex/skills/morphy-ax/` for shared Agent Experience state, typed semantic-assessment validation, compatibility projection, and performance budgets.
-15. Use `.codex/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
-16. Use `.codex/skills/future-planner/` for future-state roadmap concepts, R&D architecture notes, and planning-only assessments that must stay separate from north-star vision and active implementation docs.
-17. Use `.codex/skills/planning-board/` for `Hussh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.
-18. Use `.codex/skills/agent-orchestration-governance/` when changing repo-scoped custom agents, `.codex/config.toml` agent limits, or delegation authority and handoff rules.
-19. Use [hussh-code-persona.md](./hussh-code-persona.md) as the durable engineering persona contract before turning founder-language or product non-deviation guidance into skill or agent policy.
+15. Use `.codex/skills/reviewer-app-testing/` with workflow `reviewer-app-rehearsal` for canonical reviewer BYOK unlock, memory-only protected information, same-session Next navigation, and separate cold-session re-unlock proof.
+16. Use `.codex/skills/pkm-upgrade-rehearsal/` with workflow `pkm-upgrade-rehearsal` for zero-loss historical fixtures, scope/rollback acceptance, and reviewer payload rehearsal before PKM upgrades.
+17. Use `.codex/skills/morphy-ax/` for shared Agent Experience state, typed semantic-assessment validation, compatibility projection, and performance budgets.
+18. Use `.codex/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
+19. Use `.codex/skills/future-planner/` for future-state roadmap concepts, R&D architecture notes, and planning-only assessments that must stay separate from north-star vision and active implementation docs.
+20. Use `.codex/skills/planning-board/` for `Hussh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.
+21. Use `.codex/skills/agent-orchestration-governance/` when changing repo-scoped custom agents, `.codex/config.toml` agent limits, or delegation authority and handoff rules.
+22. Use [hussh-code-persona.md](./hussh-code-persona.md) as the durable engineering persona contract before turning founder-language or product non-deviation guidance into skill or agent policy.
 
 If a developer has not configured MCP yet:
 

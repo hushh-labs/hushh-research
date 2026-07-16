@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  hasIncompleteNativeUiFlowSession,
   isNativeTestVaultBootstrapManaged,
   isNativeUiTestSession,
   preferPassphraseUnlockForAutomation,
@@ -12,6 +13,7 @@ describe("native test automation guards", () => {
     vi.unstubAllGlobals();
     document.documentElement.removeAttribute("data-hushh-native-test-enabled");
     delete (window as Window & { __HUSHH_NATIVE_TEST__?: unknown }).__HUSHH_NATIVE_TEST__;
+    window.sessionStorage.removeItem("__hushh_native_ui_flow_state_v1");
   });
 
   it("does not bypass biometric unlock for normal app users", () => {
@@ -31,7 +33,7 @@ describe("native test automation guards", () => {
     window.__HUSHH_NATIVE_TEST__ = {
       enabled: true,
       autoReviewerLogin: true,
-      vaultPassphrase: "test#123",
+      vaultPassphrase: "fixture-only-passphrase",
       expectedUserId: "reviewer-uid",
     };
 
@@ -45,5 +47,24 @@ describe("native test automation guards", () => {
     vi.stubGlobal("navigator", { webdriver: true });
     expect(preferPassphraseUnlockForAutomation()).toBe(true);
     expect(isNativeUiTestSession()).toBe(false);
+  });
+
+  it("recognizes only a structurally valid incomplete native flow resume marker", () => {
+    window.sessionStorage.setItem(
+      "__hushh_native_ui_flow_state_v1",
+      JSON.stringify({
+        started: true,
+        complete: false,
+        nextIndex: 1,
+        report: { startedAt: "2026-07-14T00:00:00.000Z", flows: [] },
+      }),
+    );
+    expect(hasIncompleteNativeUiFlowSession()).toBe(true);
+
+    window.sessionStorage.setItem(
+      "__hushh_native_ui_flow_state_v1",
+      JSON.stringify({ started: true, complete: false }),
+    );
+    expect(hasIncompleteNativeUiFlowSession()).toBe(false);
   });
 });

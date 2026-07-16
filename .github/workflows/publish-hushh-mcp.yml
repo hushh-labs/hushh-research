@@ -42,6 +42,11 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
 
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: "3.13"
+          protocol-dir: ./consent-protocol
+
       - name: Install package dependencies
         working-directory: ${{ env.PACKAGE_DIR }}
         run: npm ci
@@ -73,5 +78,15 @@ jobs:
           set -euo pipefail
           PACKAGE_NAME="$(node -p "require('./packages/hushh-mcp/package.json').name")"
           PACKAGE_VERSION="$(node -p "require('./packages/hushh-mcp/package.json').version")"
-          npm cache clean --force
-          npx --yes "${PACKAGE_NAME}@${PACKAGE_VERSION}" --help
+          PACKAGE_SPEC="${PACKAGE_NAME}@${PACKAGE_VERSION}"
+          PUBLISHED_METADATA="$(npm view "${PACKAGE_SPEC}" version dist.integrity dist.shasum dist.attestations --json)"
+          PUBLISHED_METADATA="${PUBLISHED_METADATA}" node <<'NODE'
+          const metadata = JSON.parse(process.env.PUBLISHED_METADATA);
+          if (!metadata.version || !metadata["dist.integrity"] || !metadata["dist.shasum"]) {
+            throw new Error("Published package metadata is missing version or integrity fields.");
+          }
+          if (!metadata["dist.attestations"]) {
+            throw new Error("Published package is missing npm provenance attestations.");
+          }
+          NODE
+          HUSHH_MCP_PACKAGE_SPEC="${PACKAGE_SPEC}" npm --prefix packages/hushh-mcp run verify:packed-runtime

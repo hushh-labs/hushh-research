@@ -1,7 +1,7 @@
 {
   "id": "subtree-upstream-governance",
   "title": "Subtree Upstream Governance",
-  "goal": "Keep upstream-first sync rules, maintainer-only subtree policy, and cross-repo metadata alignment stable between consent-protocol and hushh-research.",
+  "goal": "Keep the monorepo-authoritative, optional-mirror policy and maintainer-only subtree operations stable between consent-protocol and hushh-research.",
   "owner_skill": "subtree-upstream-governance",
   "default_spoke": null,
   "task_type": "subtree-upstream-governance",
@@ -18,24 +18,21 @@
     "contributing.md"
   ],
   "required_commands": [
-    "./scripts/ci/subtree-sync-check.sh",
     "python3 scripts/licenses/verify_apache_surface.py",
     "./bin/hushh docs verify"
   ],
   "verification_bundle": {
     "id": "subtree-upstream-governance",
     "commands": [
-      "./scripts/ci/subtree-sync-check.sh",
       "python3 scripts/licenses/verify_apache_surface.py",
       "./bin/hushh docs verify"
     ],
     "tests": [
-      "./scripts/ci/subtree-sync-check.sh",
       "./bin/hushh docs verify"
     ]
   },
   "deliverables": [
-    "upstream-first routing note",
+    "optional-mirror routing note",
     "subtree policy update",
     "root/subtree parity verification note"
   ],

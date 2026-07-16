@@ -476,7 +476,40 @@ function ListingPreviewToggle({ presentation }: { presentation: PkmSectionPrevie
   );
 }
 
+// Marketplace is temporarily disabled (route + Agent Chat surfacing). The full
+// implementation below is preserved so it can be re-enabled by restoring the
+// default export to `OneMarketplacePageImpl` directly.
+const ONE_MARKETPLACE_ROUTE_ENABLED = false;
+
 export default function OneMarketplacePage() {
+  if (!ONE_MARKETPLACE_ROUTE_ENABLED) {
+    return <OneMarketplaceDisabledView />;
+  }
+  return <OneMarketplacePageImpl />;
+}
+
+function OneMarketplaceDisabledView() {
+  return (
+    <PkmSettingsShell
+      eyebrow="One / Marketplace"
+      title="Information Marketplace"
+      description="This section is temporarily unavailable."
+    >
+      <NativeTestBeacon
+        routeId="/one/marketplace"
+        marker="native-route-one-marketplace"
+        authState="authenticated"
+        dataState="empty-valid"
+      />
+      <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed p-10 text-center text-sm text-muted-foreground">
+        <Store className="h-6 w-6 opacity-60" aria-hidden />
+        <p>The Information Marketplace is temporarily disabled.</p>
+      </div>
+    </PkmSettingsShell>
+  );
+}
+
+function OneMarketplacePageImpl() {
   const { user } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const token = vaultOwnerToken ?? undefined;

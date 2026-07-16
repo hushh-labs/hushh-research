@@ -23,6 +23,12 @@ TABLES = [
     "pkm_scope_registry",
     "pkm_default_available_projections",
     "pkm_migration_state",
+    "pkm_upgrade_runs",
+    "pkm_upgrade_steps",
+    "pkm_upgrade_claims",
+    "pkm_domain_revisions",
+    "pkm_domain_revision_segments",
+    "pkm_domain_commits",
     # vault + runtime tables required at startup / used by review flow
     "vault_keys",
     "vault_key_wrappers",

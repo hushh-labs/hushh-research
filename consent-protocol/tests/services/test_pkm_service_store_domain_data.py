@@ -1,3 +1,6 @@
+import json
+import re
+import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -5,10 +8,32 @@ from unittest.mock import AsyncMock
 import pytest
 
 import hushh_mcp.services.consent_db as consent_db_module
+from db.db_client import JsonParam
 from hushh_mcp.services.personal_knowledge_model_service import (
     PersonalKnowledgeModelIndex,
     PersonalKnowledgeModelService,
 )
+
+
+def _unwrap(value):
+    """Unwrap a JsonParam marker (used for JSONB-array RPC params) if present."""
+    return value.value if isinstance(value, JsonParam) else value
+
+
+def test_pkm_rpc_payload_unwraps_direct_postgres_and_supabase_shapes():
+    payload = {"schema_version": "pkm_domain_snapshot.v1", "content_revision": 7}
+
+    direct = SimpleNamespace(data=[{"get_pkm_domain_snapshot_v1": payload}])
+    supabase = SimpleNamespace(data=[payload])
+
+    assert (
+        PersonalKnowledgeModelService._unwrap_rpc_payload(direct, "get_pkm_domain_snapshot_v1")
+        == payload
+    )
+    assert (
+        PersonalKnowledgeModelService._unwrap_rpc_payload(supabase, "get_pkm_domain_snapshot_v1")
+        == payload
+    )
 
 
 def _confirmed_create_plan(*, user_id: str, domain: str, scope: str = "portfolio") -> dict:
@@ -23,6 +48,8 @@ def _confirmed_create_plan(*, user_id: str, domain: str, scope: str = "portfolio
         "friendly_scope_name": scope.replace("_", " ").title(),
         "confidence": 1.0,
         "explanation": "The owner reviewed and confirmed this encrypted PKM write.",
+        "writer_id": "kai_profile_setup_sync",
+        "structure_agent_id": "pkm_structure_agent",
         "confirmation_receipt": {
             "version": 2,
             "receipt_id": "pkm_receipt_confirmed_001",
@@ -106,9 +133,17 @@ class _StubSupabase:
 
     def rpc(self, function_name: str, params=None):
         self.rpc_calls.append({"function_name": function_name, "params": params or {}})
-        if function_name == "commit_pkm_domain_mutation_v2":
+        if function_name == "commit_pkm_domain_mutation_v4":
             return _StubSupabaseTable(
-                rows=[{"success": True, "conflict": False, "data_version": 1}]
+                rows=[
+                    {
+                        "commit_pkm_domain_mutation_v4": {
+                            "success": True,
+                            "conflict": False,
+                            "data_version": 1,
+                        }
+                    }
+                ]
             )
         return _StubSupabaseTable(rows=[{}])
 
@@ -146,6 +181,10 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
         },
         manifest={
             "manifest_version": 1,
+            "summary_projection": {
+                "message_excerpt": "PRIVATE USER SENTENCE",
+                "path_count": 4,
+            },
             "paths": [
                 {"json_path": "portfolio", "path_type": "object"},
                 {"json_path": "portfolio.holdings", "path_type": "array"},
@@ -164,6 +203,10 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
         structure_decision={
             "action": "create_domain",
             "target_domain": "financial",
+            "summary_projection": {
+                "message_excerpt": "PRIVATE USER SENTENCE",
+                "intent_class": "portfolio_update",
+            },
             "json_paths": [
                 "portfolio",
                 "portfolio.holdings",
@@ -196,15 +239,27 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
     assert result["success"] is True
     assert len(service._supabase.rpc_calls) == 1
     rpc_call = service._supabase.rpc_calls[0]
-    assert rpc_call["function_name"] == "commit_pkm_domain_mutation_v2"
+    assert rpc_call["function_name"] == "commit_pkm_domain_mutation_v4"
     params = rpc_call["params"]
+    assert "PRIVATE USER SENTENCE" not in json.dumps(params["p_manifest_row"])
+    assert "PRIVATE USER SENTENCE" not in json.dumps(params["p_summary_patch"])
+    assert "PRIVATE USER SENTENCE" not in json.dumps(_unwrap(params["p_event_rows"]))
+    assert "message_excerpt" not in params["p_manifest_row"]["summary_projection"]
     assert params["p_expected_content_revision"] == 0
     assert params["p_next_content_revision"] == 1
-    assert {row["segment_id"] for row in params["p_segment_rows"]} == {"root"}
+    commit_namespace = uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        "https://hushh.ai/contracts/pkm/domain-mutation/v1",
+    )
+    assert params["p_commit_id"] == str(
+        uuid.uuid5(commit_namespace, "user-1:financial:pkm_plan_confirmed_001")
+    )
+    assert re.fullmatch(r"[0-9a-f]{64}", params["p_request_fingerprint"])
+    assert {row["segment_id"] for row in _unwrap(params["p_segment_rows"])} == {"root"}
     assert params["p_manifest_row"]["path_count"] == 4
     assert params["p_manifest_row"]["externalizable_path_count"] == 2
-    assert len(params["p_path_rows"]) == 4
-    assert len(params["p_scope_rows"]) == 2
+    assert len(_unwrap(params["p_path_rows"])) == 4
+    assert len(_unwrap(params["p_scope_rows"])) == 2
     assert params["p_refresh_tokens"] == ["HCT:test-continuous"]
     summary_payload = params["p_summary_patch"]
     assert summary_payload["storage_mode"] == "per_domain_blob"
@@ -217,13 +272,19 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
         "Captured from: latest note",
     ]
 
-    assert [event["operation_type"] for event in params["p_event_rows"]] == [
+    event_rows = _unwrap(params["p_event_rows"])
+    assert [event["operation_type"] for event in event_rows] == [
         "structure_create",
         "content_write",
         "decision_projection",
     ]
-    assert params["p_event_rows"][2]["metadata"]["projection_mode"] == "replace_all"
-    assert params["p_event_rows"][2]["metadata"]["decisions"][0]["ticker"] == "AAPL"
+    assert event_rows[0]["source_agent"] == "pkm_structure_agent"
+    assert event_rows[1]["source_agent"] == "kai_profile_setup_sync"
+    assert "mutation_plan" not in event_rows[0]["metadata"]
+    assert event_rows[0]["metadata"]["provenance"]["writer_id"] == "kai_profile_setup_sync"
+    assert "friendly_domain_name" not in str(event_rows[0]["metadata"])
+    assert event_rows[2]["metadata"]["projection_mode"] == "replace_all"
+    assert event_rows[2]["metadata"]["decisions"][0]["ticker"] == "AAPL"
 
 
 @pytest.mark.asyncio
@@ -249,6 +310,62 @@ async def test_update_domain_summary_uses_atomic_pkm_index_rpc():
     assert rpc_call["params"]["p_patch"]["holdings_count"] == 3
     assert rpc_call["params"]["p_patch"]["readable_summary"] == "Updated holdings."
     assert "pkm_index" not in service._supabase.tables
+
+
+def test_structure_rewrite_preserves_existing_scope_posture_exactly():
+    service = PersonalKnowledgeModelService()
+    decision = service._normalize_structure_decision(
+        "financial",
+        {
+            "action": "match_existing_domain",
+            "json_paths": ["profile", "profile.risk_score"],
+            "top_level_scope_paths": ["profile"],
+            "externalizable_paths": ["profile.risk_score"],
+        },
+    )
+    manifest = service._normalize_manifest_payload(
+        "user-1",
+        "financial",
+        {
+            "manifest_version": 4,
+            "paths": [
+                {"json_path": "profile", "path_type": "object"},
+                {"json_path": "profile.risk_score", "path_type": "leaf"},
+            ],
+            "top_level_scope_paths": ["profile"],
+            "externalizable_paths": ["profile.risk_score"],
+        },
+        decision,
+    )
+    scope_handle = manifest.scope_registry[0].scope_handle
+    service._preserve_scope_registry_posture(
+        manifest,
+        {
+            "scope_registry": [
+                {
+                    "scope_handle": scope_handle,
+                    "scope_label": "Profile",
+                    "segment_ids": ["profile"],
+                    "exposure_enabled": True,
+                    "visibility_posture": "consent_required",
+                    "default_projection_ready": True,
+                    "default_projection_updated_at": "2026-07-01T12:00:00+00:00",
+                    "owner_consent_override": True,
+                    "summary_projection": {
+                        "top_level_scope_path": "profile",
+                        "storage_mode": "manifest",
+                    },
+                }
+            ]
+        },
+    )
+
+    preserved = manifest.scope_registry[0]
+    assert preserved.exposure_enabled is True
+    assert preserved.visibility_posture == "consent_required"
+    assert preserved.default_projection_ready is True
+    assert preserved.default_projection_updated_at == "2026-07-01T12:00:00+00:00"
+    assert preserved.owner_consent_override is True
 
 
 @pytest.mark.asyncio
@@ -422,6 +539,19 @@ async def test_mutation_sharing_impact_reports_only_matching_active_recipients(m
                     "agent_id": "developer_health",
                 },
                 {
+                    "scope": "pkm.read",
+                    "token_id": "token_global",
+                    "request_id": "grant_global",
+                    "agent_id": "developer_planner",
+                    "metadata": {"developer_app_display_name": "Planner Pro"},
+                },
+                {
+                    "scope": "vault.owner",
+                    "token_id": "token_owner",
+                    "request_id": "grant_owner",
+                    "agent_id": "vault_owner",
+                },
+                {
                     "scope": "cap.one.invoke",
                     "token_id": "token_invoke",
                     "request_id": "grant_invoke",
@@ -430,12 +560,12 @@ async def test_mutation_sharing_impact_reports_only_matching_active_recipients(m
             ]
 
         async def get_consent_export_metadata(self, token_id: str):
-            revisions = {
-                "token_financial": 3,
-                "token_portfolio": 8,
+            exports = {
+                "token_financial": {"export_id": "export_financial", "export_revision": 3},
+                "token_portfolio": {"export_id": "export_portfolio", "export_revision": 8},
+                "token_global": {"export_id": "export_global", "export_revision": 5},
             }
-            revision = revisions.get(token_id)
-            return {"export_revision": revision} if revision is not None else None
+            return exports.get(token_id)
 
     monkeypatch.setattr(consent_db_module, "ConsentDBService", lambda: _FakeConsentDBService())
 
@@ -446,18 +576,136 @@ async def test_mutation_sharing_impact_reports_only_matching_active_recipients(m
     )
 
     assert impact == {
-        "active_recipient_count": 1,
-        "recipient_labels": ["Hushh Technologies"],
+        "active_recipient_count": 2,
+        "recipient_labels": ["Hushh Technologies", "Planner Pro"],
         "enters_next_export_revision": True,
         "summary": (
-            "This change will enter the next encrypted export revision for Hushh Technologies."
+            "This change will enter the next encrypted export revision for "
+            "2 active recipients: Hushh Technologies, Planner Pro."
         ),
-        "affected_grant_ids": ["grant_financial", "grant_portfolio"],
+        "affected_grant_ids": ["grant_financial", "grant_global", "grant_portfolio"],
         "affected_export_ids": [
-            "grant_financial:revision:3",
-            "grant_portfolio:revision:8",
+            "export_financial",
+            "export_global",
+            "export_portfolio",
         ],
     }
+
+
+@pytest.mark.asyncio
+async def test_mutation_sharing_impact_fails_closed_without_authoritative_grant_id(monkeypatch):
+    service = PersonalKnowledgeModelService()
+
+    class _LegacyConsentDBService:
+        async def get_active_tokens(self, _user_id: str):
+            return [
+                {
+                    "scope": "pkm.read",
+                    "token_id": "token_legacy_with_a_long_authoritative_value",
+                    "id": "token_legacy_with_a_",
+                    "agent_id": "developer_legacy",
+                }
+            ]
+
+        async def get_consent_export_metadata(self, _token_id: str):
+            raise AssertionError("Missing grant identity must fail before export lookup")
+
+    monkeypatch.setattr(
+        consent_db_module,
+        "ConsentDBService",
+        lambda: _LegacyConsentDBService(),
+    )
+
+    with pytest.raises(RuntimeError, match="authoritative request_id"):
+        await service.get_mutation_sharing_impact(
+            user_id="user-legacy",
+            domain="financial",
+            scope_path="portfolio",
+        )
+
+
+@pytest.mark.asyncio
+async def test_mutation_sharing_impact_preserves_duplicate_labels_by_recipient(monkeypatch):
+    service = PersonalKnowledgeModelService()
+
+    class _DuplicateLabelConsentDBService:
+        async def get_active_tokens(self, _user_id: str):
+            return [
+                {
+                    "scope": "pkm.read",
+                    "request_id": "grant_alpha",
+                    "agent_id": "developer_alpha",
+                    "metadata": {"developer_app_display_name": "Trusted Partner"},
+                },
+                {
+                    "scope": "pkm.read",
+                    "request_id": "grant_beta",
+                    "agent_id": "developer_beta",
+                    "metadata": {"developer_app_display_name": "Trusted Partner"},
+                },
+            ]
+
+        async def get_consent_export_metadata(self, _token_id: str):
+            return None
+
+    monkeypatch.setattr(
+        consent_db_module,
+        "ConsentDBService",
+        lambda: _DuplicateLabelConsentDBService(),
+    )
+
+    impact = await service.get_mutation_sharing_impact(
+        user_id="user-duplicate-labels",
+        domain="financial",
+        scope_path="portfolio",
+    )
+
+    assert impact["active_recipient_count"] == 2
+    assert impact["recipient_labels"] == ["Trusted Partner", "Trusted Partner"]
+    assert "2 active recipients" in impact["summary"]
+
+
+@pytest.mark.asyncio
+async def test_mutation_sharing_impact_compacts_large_recipient_sets(monkeypatch):
+    service = PersonalKnowledgeModelService()
+    active_recipient_count = 125
+
+    class _LargeConsentDBService:
+        async def get_active_tokens(self, _user_id: str):
+            return [
+                {
+                    "scope": "pkm.read",
+                    "request_id": f"grant_{index:03d}",
+                    "agent_id": f"developer_{index:03d}",
+                    "metadata": {
+                        "developer_app_display_name": f"{'A' * 180} {index:03d}",
+                    },
+                }
+                for index in range(active_recipient_count)
+            ]
+
+        async def get_consent_export_metadata(self, _token_id: str):
+            return None
+
+    monkeypatch.setattr(
+        consent_db_module,
+        "ConsentDBService",
+        lambda: _LargeConsentDBService(),
+    )
+
+    impact = await service.get_mutation_sharing_impact(
+        user_id="user-large-recipient-set",
+        domain="financial",
+        scope_path="portfolio",
+    )
+
+    assert impact["active_recipient_count"] == active_recipient_count
+    assert len(impact["recipient_labels"]) == 100
+    assert all(len(label) <= 96 for label in impact["recipient_labels"][:-1])
+    assert impact["recipient_labels"][-1] == "and 26 more recipients"
+    assert "125 active recipients" in impact["summary"]
+    assert "and 122 more recipients" in impact["summary"]
+    assert len(impact["summary"]) <= 512
 
 
 @pytest.mark.asyncio
@@ -750,6 +998,9 @@ async def test_get_domain_manifest_normalizes_duplicate_scope_registry_rows(monk
             "segment_ids": ["advisor_package"],
             "sensitivity_tier": "confidential",
             "scope_kind": "subtree",
+            "scope_origin": "dynamic",
+            "scope_origin_code": "d",
+            "source_kind": "manifest_branch",
             "exposure_enabled": True,
             "visibility_posture": "consent_required",
             "default_projection_ready": False,
@@ -771,6 +1022,9 @@ async def test_get_domain_manifest_normalizes_duplicate_scope_registry_rows(monk
             "segment_ids": ["root"],
             "sensitivity_tier": "confidential",
             "scope_kind": "subtree",
+            "scope_origin": "dynamic",
+            "scope_origin_code": "d",
+            "source_kind": "manifest_branch",
             "exposure_enabled": False,
             "visibility_posture": "private",
             "default_projection_ready": False,

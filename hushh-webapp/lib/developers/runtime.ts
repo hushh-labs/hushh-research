@@ -31,7 +31,7 @@ function normalizeOrigin(value: string | null | undefined): string | null {
 
 function resolveEnvironment(origin: string | null): DeveloperEnvironment {
   if (!origin) {
-    return "local";
+    return "production";
   }
 
   const hostname = new URL(origin).hostname.toLowerCase();
@@ -108,8 +108,14 @@ function normalizeMcpUrl(value: string): string {
   }
 }
 
+// The remote MCP endpoint requires "Authorization: Bearer <token>"; it
+// rejects query-string ?token=... auth (verified live against
+// api.uat.hushh.ai/mcp/, which returns DEVELOPER_TOKEN_REQUIRED asking for
+// the Bearer header even when a ?token= query param is present). Keep the
+// URL bare and surface the header requirement everywhere this template is
+// shown instead of baking a broken query param into the copy-paste value.
 function buildRemoteMcpUrlTemplate(mcpUrl: string): string {
-  return `${normalizeMcpUrl(mcpUrl)}?token=<developer-token>`;
+  return normalizeMcpUrl(mcpUrl);
 }
 
 export function resolveDeveloperRuntime(currentOrigin?: string | null): DeveloperRuntime {

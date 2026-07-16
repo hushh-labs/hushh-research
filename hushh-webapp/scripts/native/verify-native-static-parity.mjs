@@ -71,6 +71,7 @@ const androidPermissions = [
 const allowedAndroidPermissions = new Set([
   "android.permission.INTERNET",
   "android.permission.RECORD_AUDIO",
+  "android.permission.MODIFY_AUDIO_SETTINGS",
   "android.permission.ACCESS_FINE_LOCATION",
   "android.permission.ACCESS_COARSE_LOCATION",
   "android.permission.READ_CONTACTS",
@@ -85,6 +86,9 @@ if (unexpectedAndroidPermissions.length > 0) {
 }
 if (!androidManifest.includes('android.permission.RECORD_AUDIO')) {
   fail("AndroidManifest.xml must include android.permission.RECORD_AUDIO.");
+}
+if (!androidManifest.includes('android.permission.MODIFY_AUDIO_SETTINGS')) {
+  fail("AndroidManifest.xml must include android.permission.MODIFY_AUDIO_SETTINGS.");
 }
 if (!androidManifest.includes('android.permission.ACCESS_FINE_LOCATION')) {
   fail("AndroidManifest.xml must include android.permission.ACCESS_FINE_LOCATION.");

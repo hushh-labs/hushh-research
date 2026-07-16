@@ -179,6 +179,7 @@ jobs:
               - 'scripts/ci/**'
             backend:
               - 'consent-protocol/**'
+              - 'packages/hushh-mcp/**'
               - '.github/workflows/ci.yml'
               - '.github/workflows/queue-validation.yml'
               - '.github/workflows/main-post-merge-smoke.yml'
@@ -357,6 +358,29 @@ jobs:
           VAULT_DATA_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
           HUSHH_DEVELOPER_TOKEN: "test_hushh_developer_token_for_ci"
 
+  mcp-package-check:
+    name: "MCP Package"
+    needs: [preflight-gate]
+    if: needs.preflight-gate.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: packages/hushh-mcp/package-lock.json
+
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          protocol-dir: ./consent-protocol
+
+      - name: Verify packed MCP runtime and release artifacts
+        run: bash scripts/ci/orchestrate.sh mcp-package
+
   # ============================================================================
   # Integration Check (route contracts; runs when frontend or backend paths changed)
   # ============================================================================
@@ -438,6 +462,7 @@ jobs:
       - web-core-check
       - web-targeted-check
       - protocol-check
+      - mcp-package-check
       - integration-check
       - main-freshness-gate
     if: always()
@@ -456,6 +481,7 @@ jobs:
           WEB_CORE="${{ needs['web-core-check'].result }}"
           WEB_TARGETED="${{ needs['web-targeted-check'].result }}"
           PROTOCOL="${{ needs['protocol-check'].result }}"
+          MCP_PACKAGE="${{ needs['mcp-package-check'].result }}"
           INTEGRATION="${{ needs['integration-check'].result }}"
           MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
 
@@ -468,11 +494,12 @@ jobs:
           printf 'web-core-check=%s\n' "$WEB_CORE"
           printf 'web-targeted-check=%s\n' "$WEB_TARGETED"
           printf 'protocol-check=%s\n' "$PROTOCOL"
+          printf 'mcp-package-check=%s\n' "$MCP_PACKAGE"
           printf 'integration-check=%s\n' "$INTEGRATION"
           printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
 
           fail=0
-          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$PROTOCOL" "$INTEGRATION" "$MAIN_FRESHNESS"; do
+          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$PROTOCOL" "$MCP_PACKAGE" "$INTEGRATION" "$MAIN_FRESHNESS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi

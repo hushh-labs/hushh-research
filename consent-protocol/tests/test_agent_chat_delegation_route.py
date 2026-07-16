@@ -1,15 +1,16 @@
-"""The stream route delegates location turns to dispatch and relays frames,
-without invoking the central planner. Non-location turns are untouched."""
+"""Typed Agent Chat uses One's semantic head and preserves its SSE contract."""
 
 from __future__ import annotations
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes.kai import agent_chat
 from hushh_mcp.adk_bridge import dispatch as dispatch_mod
 from hushh_mcp.adk_bridge.connected_systems_agent import get_connected_systems_a2a
-from hushh_mcp.adk_bridge.contract import A2ADirective, SpecialistTurnResult
+from hushh_mcp.adk_bridge.contract import SpecialistTurnResult
+from hushh_mcp.one_adk.text_runtime import OneTextDirective, OneTextStreamEvent
 from hushh_mcp.services.agent_chat_service import (
     AgentChatActionPlan,
     PreparedAgentChatTurn,
@@ -29,6 +30,10 @@ class _MinimalFakeService:
         self.stream_tokens = ["general response"]
         self.saved_messages: list[dict] = []
         self.action_plan: AgentChatActionPlan | None = None
+        self.one_events: list[OneTextStreamEvent] = [
+            OneTextStreamEvent(kind="token", text="general response")
+        ]
+        self.one_turn_calls: list[dict] = []
 
     async def prepare_agent_runtime(self, *, runtime_credential=None, runtime_credential_mode=None):
         return PreparedAgentRuntime(
@@ -59,7 +64,7 @@ class _MinimalFakeService:
         screen_context=None,
         deterministic_crm_first=True,
     ):
-        return self.action_plan
+        raise AssertionError("typed Agent Chat must not call the legacy action planner")
 
     async def stream_response(
         self,
@@ -71,8 +76,13 @@ class _MinimalFakeService:
         action_plan=None,
         pkm_context=None,
     ):
-        for token in self.stream_tokens:
-            yield token
+        raise AssertionError("typed Agent Chat must not call the legacy response stream")
+        yield  # pragma: no cover
+
+    async def stream_one_turn(self, **kwargs):
+        self.one_turn_calls.append(kwargs)
+        for event in self.one_events:
+            yield event
 
     async def add_message(self, **kwargs):
         self.saved_messages.append(kwargs)
@@ -90,24 +100,19 @@ def _make_app(user_id: str = "u1") -> FastAPI:
 
 
 def test_location_turn_is_delegated(monkeypatch):
-    """Location message triggers delegation; events are start, token, specialist_directive, complete."""
-
-    async def stub(task):
-        return SpecialistTurnResult(
-            conversation_id="c-loc",
-            text="Ready to share with Mom.",
-            directive=A2ADirective(kind="action", payload={"id": "act-1", "type": "publish_share"}),
-            is_complete=False,
-            state_changed=False,
-            model="one+location",
-        )
-
-    # Use monkeypatch so the registry is restored after this test.
-    monkeypatch.setitem(dispatch_mod._REGISTRY, "agent_location", stub)
-
-    # Also patch the service so the planner path is observably different if it
-    # mistakenly runs (it would emit "general response" instead of the delegation frames).
+    """One, not a keyword router, emits the Location specialist directive."""
     service = _MinimalFakeService()
+    service.one_events = [
+        OneTextStreamEvent(kind="token", text="Ready to share with Mom."),
+        OneTextStreamEvent(
+            kind="directive",
+            directive=OneTextDirective(
+                kind="action",
+                payload={"id": "act-1", "type": "publish_share"},
+                delegate_agent_id="agent_location",
+            ),
+        ),
+    ]
     monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
 
     app = _make_app()
@@ -157,8 +162,7 @@ def test_explicit_delegate_agent_id_is_delegated(monkeypatch):
 
 
 def test_non_location_turn_uses_existing_path(monkeypatch):
-    """A general message is NOT delegated; it hits the planner path and never emits
-    specialist_directive."""
+    """A general message stays conversational inside One."""
 
     service = _MinimalFakeService()
     monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
@@ -176,28 +180,59 @@ def test_non_location_turn_uses_existing_path(monkeypatch):
     assert events and events[0] == "start"
 
 
-def test_llm_planned_connected_systems_turn_delegates_inline(monkeypatch):
-    """Brand wording can come from the LLM planner instead of the fallback classifier."""
-
-    monkeypatch.setitem(
-        dispatch_mod._REGISTRY,
-        "agent_connected_systems",
-        lambda task: get_connected_systems_a2a().handle(task),
-    )
+@pytest.mark.parametrize(
+    ("message", "action_id"),
+    [
+        ("take me to location", "route.one_location"),
+        ("take me to KYC", "route.one_kyc"),
+    ],
+)
+def test_route_phrasing_uses_one_generated_navigation_action(monkeypatch, message, action_id):
     service = _MinimalFakeService()
-    service.action_plan = AgentChatActionPlan(
-        call_id="crm-plan-1",
-        action_id="connected_system.crm.update.propose",
-        label="Propose CRM Update",
-        execution="frontend",
-        slots={
-            "systemId": "salesforce-fsc-customer0",
-            "objectType": "Contact",
-            "scope": "all_connected_crm_systems",
-            "additionalFieldsJson": '{"MailingCity":"Chicago"}',
-        },
-        message="Opening Connected Systems so you can review and approve the CRM update.",
+    service.one_events = [
+        OneTextStreamEvent(kind="token", text="Opening that screen."),
+        OneTextStreamEvent(
+            kind="directive",
+            directive=OneTextDirective(
+                kind="action",
+                payload={"actionId": action_id, "slots": {}},
+            ),
+        ),
+    ]
+    monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+
+    response = TestClient(_make_app()).post(
+        "/agent/chat/stream",
+        json={"user_id": "u1", "message": message},
     )
+
+    assert response.status_code == 200
+    assert f'"action_id": "{action_id}"' in response.text
+    assert "event: tool_waiting" in response.text
+    assert "specialist_directive" not in response.text
+    assert service.one_turn_calls[0]["message"] == message
+
+
+def test_llm_planned_connected_systems_turn_delegates_inline(monkeypatch):
+    """One can return a governed Connected Systems specialist directive."""
+    service = _MinimalFakeService()
+    service.one_events = [
+        OneTextStreamEvent(kind="token", text="Review the proposed CRM update in the app."),
+        OneTextStreamEvent(
+            kind="directive",
+            directive=OneTextDirective(
+                kind="action",
+                payload={
+                    "id": "crm-plan-1",
+                    "type": "connected_system.crm.update.propose",
+                    "actionId": "connected_system.crm.update.propose",
+                    "execution": "frontend",
+                    "slots": {"scope": "all_connected_crm_systems"},
+                },
+                delegate_agent_id="agent_connected_systems",
+            ),
+        ),
+    ]
     monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
 
     app = _make_app()
@@ -210,11 +245,11 @@ def test_llm_planned_connected_systems_turn_delegates_inline(monkeypatch):
     assert resp.status_code == 200
     events = _parse_sse(resp.text)
     assert events == ["start", "token", "specialist_directive", "complete"]
-    assert "Update all" in resp.text
+    assert "connected_system.crm.update.propose" in resp.text
 
 
-def test_connected_systems_delegate_result_accepts_multibrand_display(monkeypatch):
-    """Multi-brand CRM summaries are longer than selection chip labels."""
+def test_connected_systems_delegate_result_requires_attenuated_authority(monkeypatch):
+    """A raw vault-owner chat token must not become CRM hop authority."""
 
     monkeypatch.setitem(
         dispatch_mod._REGISTRY,
@@ -254,4 +289,5 @@ def test_connected_systems_delegate_result_accepts_multibrand_display(monkeypatc
     )
 
     assert resp.status_code == 200
-    assert "Found records in 3 of 3 connected CRM brands." in resp.text
+    assert "event: error" in resp.text
+    assert "Found records in 3 of 3 connected CRM brands." not in resp.text

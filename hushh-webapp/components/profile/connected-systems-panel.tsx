@@ -671,6 +671,10 @@ export function ConnectedSystemsPanel({
   const [readResolvedKey, setReadResolvedKey] = useState<string | null>(null);
   const autoLinkAttemptKeyRef = useRef<string | null>(null);
   const consumedAgentInstructionRef = useRef<string | null>(null);
+  // Tracks which systems (by systemId) have an active record binding, across
+  // ALL available systems, not just the one currently open in detail view.
+  // The step is complete once the person has linked any one of them.
+  const [boundSystemIds, setBoundSystemIds] = useState<Set<string>>(new Set());
 
   const selectedSystem =
     systems.find((system) => system.systemId === systemId) ||
@@ -695,9 +699,13 @@ export function ConnectedSystemsPanel({
   const crmRecords = useMemo(() => extractRecords(readResult), [readResult]);
   const hasReadback = Boolean(readResult);
   const activeBinding = binding?.status === "active" ? binding : null;
+  // Complete when ANY system has an active binding: the currently open one
+  // (instant, from local state) OR any other system already linked
+  // (from the cross-system aggregate below).
+  const anySystemBound = Boolean(activeBinding) || boundSystemIds.size > 0;
   useEffect(() => {
-    onSetupReadinessChange?.(Boolean(activeBinding));
-  }, [activeBinding, onSetupReadinessChange]);
+    onSetupReadinessChange?.(anySystemBound);
+  }, [anySystemBound, onSetupReadinessChange]);
   const schemaFieldSet = useMemo(
     () => new Set(supportedFields),
     [supportedFields],
@@ -855,6 +863,46 @@ export function ConnectedSystemsPanel({
   useEffect(() => {
     void refreshSystems();
   }, [refreshSystems]);
+
+  // Aggregate binding status across every OTHER listed system (the
+  // currently selected one is already tracked live via `activeBinding`/
+  // `refreshBinding`, so it is excluded here to avoid a redundant duplicate
+  // fetch) so completion can fire on ANY connected CRM, not only the one
+  // currently open in detail view. Best-effort and silent: a single
+  // system's lookup failing (e.g. one CRM briefly unavailable) must not
+  // block detecting completion from the others. Skipped entirely when there
+  // is only one system, since that system's own binding already covers it.
+  useEffect(() => {
+    if (!vaultOwnerToken || systems.length < 2) return;
+    let cancelled = false;
+    const otherSystems = systems.filter(
+      (system) => system.systemId !== selectedSystem?.systemId,
+    );
+    if (otherSystems.length === 0) return;
+    void (async () => {
+      const results = await Promise.all(
+        otherSystems.map(async (system) => {
+          try {
+            const response = await ConnectedSystemsService.getRecordBinding({
+              vaultOwnerToken,
+              systemId: system.systemId,
+              objectType: system.objectTypeDefault || "Contact",
+            });
+            return response.binding?.status === "active"
+              ? system.systemId
+              : null;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      if (cancelled) return;
+      setBoundSystemIds(new Set(results.filter((id): id is string => Boolean(id))));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSystem?.systemId, systems, vaultOwnerToken]);
 
   const refreshBinding = useCallback(async () => {
     if (!vaultOwnerToken || !selectedSystem || mode !== "detail") return null;
@@ -1346,6 +1394,42 @@ export function ConnectedSystemsPanel({
       });
       await readRecord({ silent: true, email, phone });
     }
+    return result;
+  };
+
+  /**
+   * Single create-or-update entry point for the unbound state: search for an
+   * existing record first, and only create a new one if the search comes back
+   * empty. Replaces the old two-button "Find my record" / "Create my record"
+   * split so the person takes one action instead of guessing which to try
+   * first.
+   */
+  const linkThisSystem = async () => {
+    const email = registeredEmail;
+    const phone = registeredPhone;
+    if (!email || !phone) {
+      toast.error(
+        "Add a verified email and phone number to your One profile before linking Macy's.",
+      );
+      return;
+    }
+    const found = await readRecord({
+      silent: true,
+      bindSearch: true,
+      email,
+      phone,
+    });
+    if (found?.binding?.status === "active") {
+      toast.success("Found your existing Macy's record and linked it.");
+      return;
+    }
+    if (!crmFieldValues.LastName.trim()) {
+      toast.error(
+        "No existing record was found. Add a last name below, then link again to create one.",
+      );
+      return;
+    }
+    await createRecordFromSchema();
   };
 
   const updateRecordFromSchema = async () => {
@@ -1460,57 +1544,6 @@ export function ConnectedSystemsPanel({
 
     return <p className="text-xs text-muted-foreground">{parts.join(" / ")}</p>;
   };
-
-  const renderRegisteredLookup = (buttonLabel: string) => (
-    <div className="space-y-3">
-      <div className="grid gap-3 sm:grid-cols-2">
-        {[
-          ["Registered email", registeredEmail || "Not registered"],
-          ["Registered phone", registeredPhone || "Not registered"],
-        ].map(([label, value]) => (
-          <div
-            key={label}
-            className="rounded-lg border border-border/60 bg-background/70 px-3 py-2.5"
-          >
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              {label}
-            </div>
-            <div className="mt-1 truncate text-sm font-medium text-foreground">
-              {value}
-            </div>
-          </div>
-        ))}
-      </div>
-      {!hasRegisteredLookup ? (
-        <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-300">
-          Add a verified email and phone number to your One profile before
-          finding a Macy's record.
-        </div>
-      ) : null}
-      <div className="flex justify-end">
-        <Button
-          type="button"
-          size="sm"
-          className="w-full sm:w-auto"
-          disabled={busy !== null || !hasRegisteredLookup}
-          onClick={() =>
-            void readRecord({
-              bindSearch: true,
-              email: registeredEmail,
-              phone: registeredPhone,
-            })
-          }
-        >
-          <Icon
-            icon={RefreshCw}
-            size="sm"
-            className={busy === "read" ? "mr-2 animate-spin" : "mr-2"}
-          />
-          {buttonLabel}
-        </Button>
-      </div>
-    </div>
-  );
 
   const renderCrmFieldGrid = () => (
     <div className="grid gap-3 sm:grid-cols-2">
@@ -1707,16 +1740,7 @@ export function ConnectedSystemsPanel({
       ) : null}
 
       {canShowUnboundRecordActions ? (
-        <SettingsGroup title="Find existing record">
-          <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-            {renderSchemaStatus()}
-            {renderRegisteredLookup("Find my record")}
-          </div>
-        </SettingsGroup>
-      ) : null}
-
-      {canShowUnboundRecordActions ? (
-        <SettingsGroup title={`Create my ${customerName} record`}>
+        <SettingsGroup title={`Link my ${customerName} record`}>
           <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
             <div className="flex flex-wrap items-center justify-between gap-2">
               {renderSchemaStatus()}
@@ -1755,24 +1779,56 @@ export function ConnectedSystemsPanel({
                 </Button>
               </div>
             </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                ["Registered email", registeredEmail || "Not registered"],
+                ["Registered phone", registeredPhone || "Not registered"],
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  className="rounded-lg border border-border/60 bg-background/70 px-3 py-2.5"
+                >
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    {label}
+                  </div>
+                  <div className="mt-1 truncate text-sm font-medium text-foreground">
+                    {value}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {!hasRegisteredLookup ? (
+              <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-300">
+                Add a verified email and phone number to your One profile
+                before linking a Macy's record.
+              </div>
+            ) : null}
             {renderCrmFieldGrid()}
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              We&apos;ll look for your existing record first, and only create
+              a new one if nothing matches.
+            </p>
             <div className="flex justify-end">
               <Button
                 type="button"
                 size="sm"
-                disabled={
-                  busy !== null ||
-                  !hasRegisteredLookup ||
-                  !crmFieldValues.LastName.trim()
-                }
-                onClick={() => void createRecordFromSchema()}
+                disabled={busy !== null || !hasRegisteredLookup}
+                onClick={() => void linkThisSystem()}
               >
                 <Icon
                   icon={SendHorizontal}
                   size="sm"
-                  className={busy === "create" ? "mr-2 animate-pulse" : "mr-2"}
+                  className={
+                    busy === "read" || busy === "create"
+                      ? "mr-2 animate-pulse"
+                      : "mr-2"
+                  }
                 />
-                {busy === "create" ? "Creating..." : "Create record"}
+                {busy === "read"
+                  ? "Looking for your record..."
+                  : busy === "create"
+                    ? "Creating your record..."
+                    : "Link this system"}
               </Button>
             </div>
           </div>

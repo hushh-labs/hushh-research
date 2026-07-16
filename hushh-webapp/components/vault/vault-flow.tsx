@@ -96,7 +96,6 @@ export function VaultFlow({
 }: VaultFlowProps) {
   const ACTION_BUTTON_SIZE = "lg" as const;
   const [step, setStep] = useState<VaultStep>("checking");
-  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [passphrase, setPassphrase] = useState("");
@@ -235,7 +234,6 @@ export function VaultFlow({
     signOutRequestedRef.current = true;
     setIsSigningOut(true);
     setIsUnlocking(false);
-    setShowSignOutConfirm(false);
     try {
       await onSignOut();
     } catch (signOutError) {
@@ -248,12 +246,6 @@ export function VaultFlow({
       setIsSigningOut(false);
     }
   }, [isSigningOut, onSignOut]);
-
-  const openSignOutConfirm = useCallback(() => {
-    if (!isSigningOut) {
-      setShowSignOutConfirm(true);
-    }
-  }, [isSigningOut]);
 
   // Initial Vault Status Check
   useEffect(() => {
@@ -804,62 +796,33 @@ export function VaultFlow({
   // Last-resort escape for a user who can't unlock (forgot the vault key AND
   // recovery key). Only rendered on the HARD gate (VaultLockGuard passes
   // onSignOut); it sits below the unlock methods so it's a deliberate last
-  // choice, and confirms before signing out to avoid an accidental tap.
+  // choice.
   const signOutEscape = onSignOut ? (
-    <div className="pt-2">
-      {showSignOutConfirm ? (
-        <div
-          role="group"
-          aria-label="Sign out confirmation"
-          className="rounded-[22px] border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] p-3 text-center"
-        >
-          <p className="type-footnote font-semibold text-foreground">
-            Sign out of this app?
-          </p>
-          <p className="mt-1 text-[12px] leading-snug text-muted-foreground">
-            Your vault stays encrypted. You can sign in again later.
-          </p>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onPointerUp={() => setShowSignOutConfirm(false)}
-              onClick={() => setShowSignOutConfirm(false)}
-              disabled={isSigningOut}
-              className="inline-flex min-h-11 items-center justify-center rounded-full bg-white/80 px-3 type-footnote font-semibold text-foreground shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)] disabled:opacity-50 dark:bg-white/10"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onPointerUp={(event) => {
-                event.preventDefault();
-                void handleConfirmSignOut();
-              }}
-              onClick={(event) => {
-                event.preventDefault();
-                void handleConfirmSignOut();
-              }}
-              disabled={isSigningOut}
-              className="inline-flex min-h-11 items-center justify-center rounded-full bg-[color:var(--app-accent)] px-3 type-footnote font-semibold text-[color:var(--app-accent-fg)] shadow-[0_10px_24px_var(--app-accent-ring)] disabled:opacity-50"
-            >
-              {isSigningOut ? "Signing out..." : "Sign out"}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onPointerUp={openSignOutConfirm}
-          onClick={openSignOutConfirm}
-          disabled={isSigningOut}
-          className="mx-auto flex min-h-11 items-center justify-center gap-1 rounded-full px-3 type-footnote disabled:opacity-50"
-        >
-          <span className="text-muted-foreground">Can&apos;t get in?</span>
-          <span className="font-semibold text-[color:var(--app-accent-deep)] underline-offset-2 hover:underline dark:text-[color:var(--app-accent-deep)]">
-            Sign out
-          </span>
-        </button>
-      )}
+    <div className="pt-2 flex justify-center">
+      <button
+        type="button"
+        onPointerUp={(event) => {
+          event.preventDefault();
+          void handleConfirmSignOut();
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          void handleConfirmSignOut();
+        }}
+        disabled={isSigningOut}
+        className="mx-auto flex min-h-11 items-center justify-center gap-1 rounded-full px-3 type-footnote disabled:opacity-50"
+      >
+        {isSigningOut ? (
+          <span className="text-muted-foreground font-semibold">Signing out...</span>
+        ) : (
+          <>
+            <span className="text-muted-foreground">Can&apos;t get in?</span>
+            <span className="font-semibold text-[color:var(--app-accent-deep)] underline-offset-2 hover:underline dark:text-[color:var(--app-accent-deep)]">
+              Sign out
+            </span>
+          </>
+        )}
+      </button>
     </div>
   ) : null;
 
@@ -1144,7 +1107,7 @@ export function VaultFlow({
                     effect="fill"
                     size="default"
                     fullWidth
-                    className="h-12 rounded-full type-headline border border-[rgba(214,175,106,0.55)] !bg-[#F4EAD6] !text-[#17130C] shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[#F4EAD6] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:!bg-[#F4EAD6] dark:!text-[#17130C] dark:hover:!bg-[#F4EAD6] dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
+                    className="h-12 rounded-full type-headline border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
                     onClick={() => void handleUnlockPassphrase()}
                     disabled={isUnlocking || !passphrase}
                   >
@@ -1304,7 +1267,7 @@ export function VaultFlow({
                   effect="fill"
                   size="default"
                   fullWidth
-                  className="h-12 rounded-full type-headline border border-[rgba(214,175,106,0.55)] !bg-[#F4EAD6] !text-[#17130C] shadow-[0_10px_24px_rgba(0,0,0,0.22)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[#F4EAD6] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:!bg-[#F4EAD6] dark:!text-[#17130C] dark:hover:!bg-[#F4EAD6] dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
+                  className="h-12 rounded-full type-headline border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:!bg-black/[0.08] disabled:!text-black/30 disabled:!shadow-none dark:disabled:!bg-white/10 dark:disabled:!text-white/30"
                   onClick={handleRecoveryKeySubmit}
                   disabled={isUnlocking || !recoveryKeyInput}
                 >

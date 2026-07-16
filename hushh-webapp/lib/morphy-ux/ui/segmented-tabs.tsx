@@ -53,7 +53,7 @@ export function SegmentedTabs({
               if (!isActive) onValueChange(option.value);
             }}
             className={cn(
-              "relative isolate flex min-h-9 min-w-0 items-center justify-center overflow-hidden rounded-full border px-4 py-2 text-center transition-[background-color,border-color,box-shadow,color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] sm:min-h-10 sm:px-4.5",
+              "press-scale relative isolate flex min-h-9 min-w-0 items-center justify-center overflow-hidden rounded-full border px-4 py-2 text-center transition-[background-color,border-color,box-shadow,color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] sm:min-h-10 sm:px-4.5",
               isActive
                 ? "z-10 border-[color:var(--app-segmented-active-border)] bg-[color:var(--app-segmented-active-surface)] text-[color:var(--app-segmented-active-foreground)] font-semibold shadow-[0_0_0_1px_var(--app-segmented-active-border),var(--shadow-xs)]"
                 : "border-transparent bg-transparent text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
@@ -61,7 +61,7 @@ export function SegmentedTabs({
           >
             {/* Ripple sits BEHIND the label (z-0) and never intercepts taps. */}
             <MaterialRipple variant="none" effect="fade" className="z-0" />
-            <span className="relative z-10 block min-w-0 truncate text-center text-xs font-medium tracking-tight sm:text-sm">
+            <span className="relative z-10 block min-w-0 truncate text-center text-xs tracking-tight sm:text-sm">
               {option.label}
             </span>
           </button>

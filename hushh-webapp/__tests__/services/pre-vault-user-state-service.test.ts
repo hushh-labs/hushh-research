@@ -31,6 +31,7 @@ vi.mock("@/lib/services/account-identity-service", () => ({
 }));
 
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -47,6 +48,7 @@ describe("PreVaultUserStateService.bootstrapState", () => {
     apiJsonMock.mockReset();
     getIdTokenMock.mockReset();
     primeVerifiedPhoneHintMock.mockReset();
+    window.localStorage.clear();
   });
 
   it("coalesces concurrent cold reads before Firebase token resolution", async () => {
@@ -98,6 +100,7 @@ describe("PreVaultUserStateService.bootstrapState", () => {
         userId,
         hasVault: true,
         phoneVerified: true,
+        setupCompleted: true,
       });
 
     await PreVaultUserStateService.bootstrapState(userId);
@@ -106,5 +109,31 @@ describe("PreVaultUserStateService.bootstrapState", () => {
     ).resolves.toMatchObject({ hasVault: true, phoneVerified: true });
 
     expect(apiJsonMock).toHaveBeenCalledTimes(2);
+    expect(OneSetupCompletionHintService.isResolved(userId)).toBe(true);
+  });
+
+  it("clears the positive latch only for explicit incomplete state", async () => {
+    const incompleteUserId = "bootstrap-explicit-incomplete-user";
+    const unknownUserId = "bootstrap-unknown-setup-user";
+    getIdTokenMock.mockResolvedValue("firebase-token");
+    OneSetupCompletionHintService.markResolved(incompleteUserId);
+    OneSetupCompletionHintService.markResolved(unknownUserId);
+    apiJsonMock
+      .mockResolvedValueOnce({
+        userId: incompleteUserId,
+        setupCompleted: false,
+      })
+      .mockResolvedValueOnce({
+        userId: unknownUserId,
+        setupCompleted: null,
+      });
+
+    await PreVaultUserStateService.bootstrapState(incompleteUserId);
+    await PreVaultUserStateService.bootstrapState(unknownUserId);
+
+    expect(
+      OneSetupCompletionHintService.isResolved(incompleteUserId),
+    ).toBe(false);
+    expect(OneSetupCompletionHintService.isResolved(unknownUserId)).toBe(true);
   });
 });

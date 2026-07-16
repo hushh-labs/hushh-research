@@ -46,6 +46,7 @@ function walkShareableFiles() {
   const out = [];
 
   const visit = (dir) => {
+    if (dir !== tmpRoot && fs.existsSync(path.join(dir, ".git"))) return;
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       if (ignoredDirs.has(entry.name)) continue;
       const full = resolveWorkspaceAsset(path.relative(repoRoot, path.join(dir, entry.name)));

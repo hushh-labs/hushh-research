@@ -186,7 +186,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             if components.path.count > 1 && components.path.hasSuffix("/") {
                 components.path = String(components.path.dropLast())
             }
-            return "\(components.path)\(components.percentEncodedQuery.map { "?\($0)" } ?? "")"
+            return components.path.isEmpty ? "/" : components.path
         }
 
         let route = (payload["route"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -207,40 +207,60 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         let activePersona = (payload["activePersona"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let primaryNavPersona = (payload["primaryNavPersona"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let personaSwitchStatus = (payload["personaSwitchStatus"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let personaSwitchError = (payload["personaSwitchError"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let personaSwitchErrorClass = NativeTestArtifactSanitizer.errorClass(payload["personaSwitchError"])
         let portfolioImportStartState = (payload["portfolioImportStartState"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let portfolioImportStartStatus = (payload["portfolioImportStartStatus"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let portfolioImportStartRunId = (payload["portfolioImportStartRunId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let portfolioImportStartError = (payload["portfolioImportStartError"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let portfolioImportStartRunPresent = ((payload["portfolioImportStartRunId"] as? String)?.isEmpty == false) ? "1" : "0"
+        let portfolioImportStartErrorClass = NativeTestArtifactSanitizer.errorClass(payload["portfolioImportStartError"])
         let portfolioStreamState = (payload["portfolioStreamState"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let portfolioStreamRunId = (payload["portfolioStreamRunId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let portfolioStreamRunPresent = ((payload["portfolioStreamRunId"] as? String)?.isEmpty == false) ? "1" : "0"
         let portfolioStreamEventCount = (payload["portfolioStreamEventCount"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let portfolioStreamLastEvent = (payload["portfolioStreamLastEvent"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let portfolioStreamLastSeq = (payload["portfolioStreamLastSeq"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let portfolioStreamLastError = (payload["portfolioStreamLastError"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let portfolioStreamLastErrorClass = NativeTestArtifactSanitizer.errorClass(payload["portfolioStreamLastError"])
         let triggerReviewerLoginPresent = (payload["triggerReviewerLoginPresent"] as? Bool ?? false) ? "1" : "0"
+        let triggerVaultUnlockPresent = (payload["triggerVaultUnlockPresent"] as? Bool ?? false) ? "1" : "0"
+        let vaultPassphraseConfigured = (payload["vaultPassphraseConfigured"] as? Bool ?? false) ? "1" : "0"
+        let expectedUserConfigured = (payload["expectedUserConfigured"] as? Bool ?? false) ? "1" : "0"
+        let vaultCryptoStage = (payload["vaultCryptoStage"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let vaultCryptoErrorName = (payload["vaultCryptoErrorName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let vaultCryptoSubtleAvailable = (payload["vaultCryptoSubtleAvailable"] as? Bool ?? false) ? "1" : "0"
+        let vaultCryptoPassphraseMatchesConfig = (payload["vaultCryptoPassphraseMatchesConfig"] as? Bool ?? false) ? "1" : "0"
+        let vaultCryptoPassphraseUtf8Length = (payload["vaultCryptoPassphraseUtf8Length"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let vaultCryptoSaltLength = (payload["vaultCryptoSaltLength"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let vaultCryptoIvLength = (payload["vaultCryptoIvLength"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let vaultCryptoCiphertextLength = (payload["vaultCryptoCiphertextLength"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let vaultBridgeParity = NativeTestDiagnostics.vaultBridgeParity()
+        let vaultBridgeParityAvailable = vaultBridgeParity == nil ? "0" : "1"
+        let vaultBridgeParityAll = vaultBridgeParity?.allFields == true ? "1" : "0"
+        let vaultBridgeWrapperCount = vaultBridgeParity?.wrapperCount == true ? "1" : "0"
+        let vaultBridgeEncrypted = vaultBridgeParity?.encryptedVaultKey == true ? "1" : "0"
+        let vaultBridgeSalt = vaultBridgeParity?.salt == true ? "1" : "0"
+        let vaultBridgeIv = vaultBridgeParity?.iv == true ? "1" : "0"
         let domTestEnabled = (payload["domTestEnabled"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let domAutoReviewerLogin = (payload["domAutoReviewerLogin"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let reviewerButtonFound = (payload["reviewerButtonFound"] as? Bool ?? false) ? "1" : "0"
         let bootstrapState = (payload["bootstrapState"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let bootstrapUserId = (payload["bootstrapUserId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let bootstrapError = (payload["bootstrapError"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let jsError = (payload["jsError"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let jsRejection = (payload["jsRejection"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let bodySnippet = (payload["bodySnippet"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let bootstrapUserMatchesExpected = payload["bootstrapUserMatchesExpected"] as? Bool
+        let bootstrapUidOk = bootstrapUserMatchesExpected.map { $0 ? "1" : "0" } ?? ""
+        let bootstrapErrorClass = NativeTestArtifactSanitizer.errorClass(payload["bootstrapErrorClass"])
+        let jsErrorClass = NativeTestArtifactSanitizer.errorClass(payload["jsErrorClass"])
+        let jsRejectionClass = NativeTestArtifactSanitizer.errorClass(payload["jsRejectionClass"])
+        let longWait = (payload["longImportWait"] as? Bool ?? false) ? "1" : "0"
         let visible404 = payload["visible404"] as? Bool ?? false
         let uiFlowsComplete = (payload["uiFlowsComplete"] as? Bool ?? false) ? "1" : "0"
         let uiFlowsOk = (payload["uiFlowsOk"] as? Bool ?? false) ? "1" : "0"
         let uiFlowCurrent = (payload["uiFlowCurrent"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let uiFlowStepIndex = (payload["uiFlowStepIndex"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let uiFlowStepType = (payload["uiFlowStepType"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let uiFlowError = (payload["uiFlowError"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let uiFlowErrorClass = NativeTestArtifactSanitizer.errorClass(payload["uiFlowErrorClass"])
         let routeReady = expectedRoute.isEmpty ? true : normalizeRoute(route) == normalizeRoute(expectedRoute)
         let documentReady = readyState == "interactive" || readyState == "complete"
         let markerFound = payload["markerFound"] as? Bool ?? false
         let ready = routeReady && documentReady && markerFound
 
-        let status = "route=\(route);ready=\(ready ? "1" : "0");marker=\(marker);auth=\(authState);data=\(dataState);doc=\(readyState);found=\(markerFound ? "1" : "0");routeok=\(routeReady ? "1" : "0");test=\(testEnabled);auto=\(autoReviewerLogin);bridge=\(bridgeBeaconPresent);uirunner=\(nativeUiRunnerPresent);runui=\(runUiFlows);uistarted=\(uiFlowsStarted);uifailed=\(uiFlowsFailed);uiboot=\(uiFlowBootstrapActive);persona=\(activePersona);primary_persona=\(primaryNavPersona);persona_switch=\(personaSwitchStatus);persona_error=\(personaSwitchError);portfolio_start_state=\(portfolioImportStartState);portfolio_start_status=\(portfolioImportStartStatus);portfolio_start_run=\(portfolioImportStartRunId);portfolio_start_error=\(portfolioImportStartError);portfolio_stream_state=\(portfolioStreamState);portfolio_stream_run=\(portfolioStreamRunId);portfolio_events=\(portfolioStreamEventCount);portfolio_last_event=\(portfolioStreamLastEvent);portfolio_last_seq=\(portfolioStreamLastSeq);portfolio_stream_error=\(portfolioStreamLastError);trigger=\(triggerReviewerLoginPresent);domtest=\(domTestEnabled);domauto=\(domAutoReviewerLogin);reviewer=\(reviewerButtonFound);bootstrap=\(bootstrapState);bootstrap_uid=\(bootstrapUserId);bootstrap_error=\(bootstrapError);jserr=\(jsError);jsrej=\(jsRejection);body=\(bodySnippet);visible404=\(visible404 ? "1" : "0");ui_complete=\(uiFlowsComplete);ui_ok=\(uiFlowsOk);ui_flow=\(uiFlowCurrent);ui_step=\(uiFlowStepIndex);ui_step_type=\(uiFlowStepType);ui_error=\(uiFlowError);error=\(errorCode)"
+        let safeRoute = normalizeRoute(route)
+        let status = "route=\(safeRoute);ready=\(ready ? "1" : "0");marker=\(marker);auth=\(authState);data=\(dataState);doc=\(readyState);found=\(markerFound ? "1" : "0");routeok=\(routeReady ? "1" : "0");test=\(testEnabled);auto=\(autoReviewerLogin);bridge=\(bridgeBeaconPresent);uirunner=\(nativeUiRunnerPresent);runui=\(runUiFlows);uistarted=\(uiFlowsStarted);uifailed=\(uiFlowsFailed);uiboot=\(uiFlowBootstrapActive);persona=\(activePersona);primary_persona=\(primaryNavPersona);persona_switch=\(personaSwitchStatus);persona_error_class=\(personaSwitchErrorClass);portfolio_start_state=\(portfolioImportStartState);portfolio_start_status=\(portfolioImportStartStatus);portfolio_start_run_present=\(portfolioImportStartRunPresent);portfolio_start_error_class=\(portfolioImportStartErrorClass);portfolio_stream_state=\(portfolioStreamState);portfolio_stream_run_present=\(portfolioStreamRunPresent);portfolio_events=\(portfolioStreamEventCount);portfolio_last_event=\(portfolioStreamLastEvent);portfolio_last_seq=\(portfolioStreamLastSeq);portfolio_stream_error_class=\(portfolioStreamLastErrorClass);trigger=\(triggerReviewerLoginPresent);vault_trigger=\(triggerVaultUnlockPresent);vaultcfg=\(vaultPassphraseConfigured);uidcfg=\(expectedUserConfigured);vault_crypto_stage=\(vaultCryptoStage);vault_crypto_error_class=\(NativeTestArtifactSanitizer.errorClass(vaultCryptoErrorName));vault_crypto_subtle=\(vaultCryptoSubtleAvailable);vault_crypto_passphrase_match=\(vaultCryptoPassphraseMatchesConfig);vault_crypto_passphrase_bytes=\(vaultCryptoPassphraseUtf8Length);vault_crypto_salt_bytes=\(vaultCryptoSaltLength);vault_crypto_iv_bytes=\(vaultCryptoIvLength);vault_crypto_ciphertext_bytes=\(vaultCryptoCiphertextLength);vault_struct_available=\(vaultBridgeParityAvailable);vault_struct=\(vaultBridgeParityAll);vault_struct_wrappers=\(vaultBridgeWrapperCount);vault_struct_encrypted=\(vaultBridgeEncrypted);vault_struct_salt=\(vaultBridgeSalt);vault_struct_iv=\(vaultBridgeIv);domtest=\(domTestEnabled);domauto=\(domAutoReviewerLogin);reviewer=\(reviewerButtonFound);bootstrap=\(bootstrapState);bootstrap_uid_ok=\(bootstrapUidOk);bootstrap_error_class=\(bootstrapErrorClass);jserr_class=\(jsErrorClass);jsrej_class=\(jsRejectionClass);long_wait=\(longWait);visible404=\(visible404 ? "1" : "0");ui_complete=\(uiFlowsComplete);ui_ok=\(uiFlowsOk);ui_flow=\(uiFlowCurrent);ui_step=\(uiFlowStepIndex);ui_step_type=\(uiFlowStepType);ui_error_class=\(uiFlowErrorClass);error_class=\(NativeTestArtifactSanitizer.errorClass(errorCode))"
         nativeTestStatusLabel?.update(status: status)
         NativeTestStatusStore.write(status)
     }
@@ -259,7 +279,8 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         }
 
         if let uiFlowReport = payload["uiFlowReport"] {
-            if let data = try? JSONSerialization.data(withJSONObject: uiFlowReport, options: [.prettyPrinted]),
+            let sanitizedReport = NativeTestArtifactSanitizer.sanitizeReport(uiFlowReport)
+            if let data = try? JSONSerialization.data(withJSONObject: sanitizedReport, options: [.prettyPrinted]),
                let json = String(data: data, encoding: .utf8) {
                 NativeTestStatusStore.writeUiReport(json)
             }

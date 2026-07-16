@@ -706,6 +706,22 @@ export function TopAppBar({ className }: TopAppBarProps) {
                           });
                           return;
                         }
+                        // Location quick-action flows (Check-In, Drive To, Pick
+                        // Me Up, Safe Arrival, SOS, Share, Ask, Invite, Privacy,
+                        // Temp link) are tracked via `/one/location?action=…`.
+                        // This is the SINGLE back button for those screens: strip
+                        // the action param via replace so it returns to the
+                        // Location hub without leaving a re-openable history entry
+                        // (a plain push would let OS-back reopen the flow).
+                        if (
+                          normalizedPathname === ROUTES.ONE_LOCATION &&
+                          (searchParams?.get("action") || "").trim()
+                        ) {
+                          router.replace(topShellBreadcrumb.backHref, {
+                            scroll: false,
+                          });
+                          return;
+                        }
                         router.push(topShellBreadcrumb.backHref, {
                           scroll: false,
                         });

@@ -238,9 +238,7 @@ export async function savePkmAgentLabResponse(params: {
         domainData: candidatePayload,
         summary: {
           ...nextSummaryProjection,
-          message_excerpt: String(card.source_text || params.message).slice(0, 160),
           source: "pkm_agent_lab",
-          card_id: card.card_id,
         },
         mergeDecision: card.merge_decision,
         structureDecision: nextStructureDecision,

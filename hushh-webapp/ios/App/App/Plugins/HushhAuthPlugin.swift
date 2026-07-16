@@ -214,7 +214,9 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
 
     // Ensure Firebase is initialized before any FirebaseAuth call.
     private func ensureFirebaseConfigured() -> Bool {
-        if FirebaseApp.app() != nil {
+        // Avoid FirebaseApp.app(): it logs an error for the expected
+        // first-launch state before this plugin configures Firebase.
+        if FirebaseApp.allApps?.isEmpty == false {
             return true
         }
         guard Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil else {
@@ -256,7 +258,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let self = self else { return }
             
             if let error = error {
-                print("❌ [\(self.TAG)] Google Sign-In failed: \(error.localizedDescription)")
+                print("❌ [\(self.TAG)] Google Sign-In failed")
                 call.reject("Sign-in failed: \(error.localizedDescription)")
                 return
             }
@@ -268,14 +270,14 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             
             let accessToken = user.accessToken.tokenString
-            print("✅ [\(self.TAG)] Got Google account: \(user.profile?.email ?? "unknown")")
+            print("✅ [\(self.TAG)] Google account received")
             
             // Exchange for Firebase credential
             let credential = GoogleAuthProvider.credential(withIDToken: idToken, accessToken: accessToken)
             
             Auth.auth().signIn(with: credential) { authResult, error in
                 if let error = error {
-                    print("❌ [\(self.TAG)] Firebase sign-in failed: \(error.localizedDescription)")
+                    print("❌ [\(self.TAG)] Firebase sign-in failed")
                     call.reject("Firebase sign-in failed: \(error.localizedDescription)")
                     return
                 }
@@ -285,7 +287,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                     return
                 }
                 
-                print("✅ [\(self.TAG)] Firebase sign-in success! UID: \(firebaseUser.uid)")
+                print("✅ [\(self.TAG)] Firebase sign-in succeeded")
                 
                 // Get Firebase ID token
                 firebaseUser.getIDToken { firebaseIdToken, error in
@@ -344,7 +346,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         do {
             try Auth.auth().signOut()
         } catch {
-            print("⚠️ [\(TAG)] Firebase sign out error: \(error.localizedDescription)")
+            print("⚠️ [\(TAG)] Firebase sign out failed")
         }
         
         // Sign out from Google
@@ -498,7 +500,7 @@ extension HushhAuthPlugin: ASAuthorizationControllerDelegate {
             return
         }
         
-        print("✅ [\(TAG)] Got Apple credential for: \(appleIDCredential.email ?? "(hidden email)")")
+        print("✅ [\(TAG)] Apple credential received")
         
         // Exchange for Firebase credential using Apple-specific method
         let credential = OAuthProvider.appleCredential(
@@ -511,7 +513,7 @@ extension HushhAuthPlugin: ASAuthorizationControllerDelegate {
             guard let self = self else { return }
             
             if let error = error {
-                print("❌ [\(self.TAG)] Firebase sign-in failed: \(error.localizedDescription)")
+                print("❌ [\(self.TAG)] Firebase sign-in failed")
                 self.appleSignInCall?.reject("Firebase sign-in failed: \(error.localizedDescription)")
                 self.appleSignInCall = nil
                 return
@@ -523,7 +525,7 @@ extension HushhAuthPlugin: ASAuthorizationControllerDelegate {
                 return
             }
             
-            print("✅ [\(self.TAG)] Firebase Apple sign-in success! UID: \(firebaseUser.uid)")
+            print("✅ [\(self.TAG)] Firebase Apple sign-in succeeded")
             
             // Get Firebase ID token
             firebaseUser.getIDToken { firebaseIdToken, error in
@@ -586,9 +588,9 @@ extension HushhAuthPlugin: ASAuthorizationControllerDelegate {
     public func authorizationController(controller: ASAuthorizationController,
                                         didCompleteWithError error: Error) {
         if let authError = error as? ASAuthorizationError {
-            print("❌ [\(TAG)] Apple Sign-In failed: code=\(authError.code.rawValue) description=\(error.localizedDescription)")
+            print("❌ [\(TAG)] Apple Sign-In failed: code=\(authError.code.rawValue)")
         } else {
-            print("❌ [\(TAG)] Apple Sign-In failed: \(error.localizedDescription)")
+            print("❌ [\(TAG)] Apple Sign-In failed")
         }
         
         // Check for user cancellation

@@ -116,6 +116,19 @@ class AccountService:
                 "DELETE FROM pkm_default_available_projections WHERE user_id = :user_id"
             ),
             "pkm_migration_state": text("DELETE FROM pkm_migration_state WHERE user_id = :user_id"),
+            "pkm_upgrade_claims": text("DELETE FROM pkm_upgrade_claims WHERE user_id = :user_id"),
+            "pkm_domain_commits": text("DELETE FROM pkm_domain_commits WHERE user_id = :user_id"),
+            "pkm_domain_revision_segments": text(
+                """
+                DELETE FROM pkm_domain_revision_segments
+                WHERE revision_id IN (
+                  SELECT revision_id FROM pkm_domain_revisions WHERE user_id = :user_id
+                )
+                """
+            ),
+            "pkm_domain_revisions": text(
+                "DELETE FROM pkm_domain_revisions WHERE user_id = :user_id"
+            ),
             "pkm_upgrade_runs": text("DELETE FROM pkm_upgrade_runs WHERE user_id = :user_id"),
             "pkm_upgrade_steps": text(
                 """
@@ -235,7 +248,9 @@ class AccountService:
                 """
                 SELECT user_id, domain, manifest_version, structure_decision,
                        summary_projection, top_level_scope_paths, domain_contract_version,
-                       readable_summary_version, upgraded_at, created_at, updated_at
+                       readable_summary_version, pkm_contract_version,
+                       readable_projection_version, latest_upgrade_commit_id,
+                       upgraded_at, created_at, updated_at
                 FROM pkm_manifests
                 WHERE user_id = :user_id
                 ORDER BY updated_at DESC
@@ -257,6 +272,33 @@ class AccountService:
                 FROM pkm_blobs
                 WHERE user_id = :user_id
                 ORDER BY updated_at DESC
+                """
+            ),
+            "encrypted_pkm_recovery_revisions": text(
+                """
+                SELECT revision_id, user_id, domain, source_content_revision,
+                       source_manifest_revision, is_origin, archive_reason,
+                       source_commit_id, manifest_snapshot, path_rows_snapshot,
+                       scope_rows_snapshot, index_domain_summary_snapshot,
+                       index_domain_present, retention_expires_at, restored_count,
+                       last_restored_at, created_at
+                FROM pkm_domain_revisions
+                WHERE user_id = :user_id
+                ORDER BY created_at DESC
+                """
+            ),
+            "encrypted_pkm_recovery_segments": text(
+                """
+                SELECT segments.revision_id, segments.segment_id, segments.ciphertext,
+                       segments.iv, segments.tag, segments.algorithm,
+                       segments.original_content_revision,
+                       segments.original_manifest_revision, segments.size_bytes,
+                       segments.created_at
+                FROM pkm_domain_revision_segments AS segments
+                JOIN pkm_domain_revisions AS revisions
+                  ON revisions.revision_id = segments.revision_id
+                WHERE revisions.user_id = :user_id
+                ORDER BY segments.created_at DESC, segments.segment_id
                 """
             ),
             "consent_audit": text(
@@ -458,6 +500,10 @@ class AccountService:
                 "connected_system_record_bindings",
                 "connected_system_intents",
                 "pkm_default_available_projections",
+                "pkm_upgrade_claims",
+                "pkm_domain_commits",
+                "pkm_domain_revision_segments",
+                "pkm_domain_revisions",
                 "pkm_upgrade_steps",
                 "pkm_upgrade_runs",
             ],
@@ -732,6 +778,10 @@ class AccountService:
             "pkm_migration_state": False,
             "pkm_upgrade_runs": False,
             "pkm_upgrade_steps": False,
+            "pkm_upgrade_claims": False,
+            "pkm_domain_commits": False,
+            "pkm_domain_revision_segments": False,
+            "pkm_domain_revisions": False,
             "world_model_index_v2": False,
             "plaid_items": False,
             "plaid_refresh_runs": False,
@@ -815,6 +865,10 @@ class AccountService:
                         "connected_system_record_bindings",
                         "connected_system_intents",
                         "pkm_default_available_projections",
+                        "pkm_upgrade_claims",
+                        "pkm_domain_commits",
+                        "pkm_domain_revision_segments",
+                        "pkm_domain_revisions",
                         "pkm_upgrade_steps",
                         "pkm_upgrade_runs",
                     ],
@@ -1177,6 +1231,10 @@ class AccountService:
             "pkm_migration_state": False,
             "pkm_upgrade_runs": False,
             "pkm_upgrade_steps": False,
+            "pkm_upgrade_claims": False,
+            "pkm_domain_commits": False,
+            "pkm_domain_revision_segments": False,
+            "pkm_domain_revisions": False,
             "plaid_items": False,
             "plaid_refresh_runs": False,
             "plaid_link_sessions": False,
@@ -1231,8 +1289,33 @@ class AccountService:
                 )
                 results["pkm_default_available_projections"] = True
                 self._delete_user_rows_if_table_exists(
-                    conn, table_name="pkm_upgrade_steps", params=params
+                    conn, table_name="pkm_upgrade_claims", params=params
                 )
+                results["pkm_upgrade_claims"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="pkm_domain_commits", params=params
+                )
+                results["pkm_domain_commits"] = True
+                if self._table_exists(conn, "pkm_domain_revision_segments"):
+                    conn.execute(
+                        text(
+                            """
+                            DELETE FROM pkm_domain_revision_segments
+                            WHERE revision_id IN (
+                              SELECT revision_id FROM pkm_domain_revisions
+                              WHERE user_id = :user_id
+                            )
+                            """
+                        ),
+                        params,
+                    )
+                results["pkm_domain_revision_segments"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="pkm_domain_revisions", params=params
+                )
+                results["pkm_domain_revisions"] = True
+                if self._table_exists(conn, "pkm_upgrade_steps"):
+                    conn.execute(self._delete_by_user_queries["pkm_upgrade_steps"], params)
                 results["pkm_upgrade_steps"] = True
                 self._delete_user_rows_if_table_exists(
                     conn, table_name="pkm_upgrade_runs", params=params
@@ -1397,6 +1480,18 @@ class AccountService:
                         conn,
                         table_name="pkm_blobs",
                         query_name="encrypted_pkm_blobs",
+                        params=params,
+                    ),
+                    "encrypted_pkm_recovery_revisions": self._fetch_optional_many_rows(
+                        conn,
+                        table_name="pkm_domain_revisions",
+                        query_name="encrypted_pkm_recovery_revisions",
+                        params=params,
+                    ),
+                    "encrypted_pkm_recovery_segments": self._fetch_optional_many_rows(
+                        conn,
+                        table_name="pkm_domain_revision_segments",
+                        query_name="encrypted_pkm_recovery_segments",
                         params=params,
                     ),
                     "consent_audit": self._fetch_optional_many_rows(

@@ -10,6 +10,7 @@ import {
   CACHE_TTL,
 } from "@/lib/services/cache-service";
 import { normalizeOneSetupCapabilityId } from "@/lib/onboarding/setup-capability-ids";
+import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 
 export type VaultStatus = "placeholder" | "active";
 
@@ -151,6 +152,16 @@ function normalizeResponse(
   };
 }
 
+function syncSetupCompletionHint(state: PreVaultUserState): void {
+  if (state.setupCompleted === true) {
+    OneSetupCompletionHintService.markResolved(state.userId);
+    return;
+  }
+  if (state.setupCompleted === false) {
+    OneSetupCompletionHintService.clear(state.userId);
+  }
+}
+
 function normalizeOnboardingPhase(
   value: unknown,
 ): PreVaultUserState["onboardingPhase"] {
@@ -253,6 +264,7 @@ export class PreVaultUserStateService {
         },
       );
       const normalized = normalizeResponse(userId, payload);
+      syncSetupCompletionHint(normalized);
       // Pre-vault bootstrap state changes infrequently and is updated by this service,
       // so keeping it warm for the session reduces repeated heavy bootstrap requests.
       CacheService.getInstance().set(cacheKey, normalized, CACHE_TTL.SESSION);
@@ -302,6 +314,7 @@ export class PreVaultUserStateService {
       },
     );
     const normalized = normalizeResponse(userId, payload);
+    syncSetupCompletionHint(normalized);
     CacheService.getInstance().set(
       CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId),
       normalized,
@@ -438,6 +451,7 @@ export class PreVaultUserStateService {
           setupStateUpdatedAt: completedAt,
         });
     CacheService.getInstance().set(cacheKey, next, CACHE_TTL.SESSION);
+    OneSetupCompletionHintService.markResolved(params.userId);
     return next;
   }
 }

@@ -82,7 +82,7 @@ Top-level owner skills:
 - `.codex/skills/repo-operations/`: CI/CD, branch protection, deploys, env parity, and runtime operations.
 - `.codex/skills/oss-license-governance/`: Apache-2.0 licensing, SPDX/REUSE, package metadata, and third-party notice governance.
 - `.codex/skills/contributor-onboarding/`: bootstrap, devcontainer, doctor, and contributor-first-run ownership.
-- `.codex/skills/subtree-upstream-governance/`: upstream-first coordination, subtree sync, and maintainer-only subtree policy.
+- `.codex/skills/subtree-upstream-governance/`: optional mirror coordination, subtree sync, and maintainer-only subtree policy.
 - `.codex/skills/analytics-observability-governance/`: GA4/Firebase/BigQuery topology, growth dashboard verification, environment split, and observability contract ownership.
 - `.codex/skills/planning-board/`: planning-board workflows for the `Hushh Engineering Core` board.
 - `.codex/skills/future-planner/`: future-state roadmap planning, R&D filtering, and promotion-boundary decisions.
@@ -95,6 +95,8 @@ Use `.codex/skills/github-contribution-governance/` as the repo-operations spoke
 Use `.codex/skills/uat-scoped-deploy/` as the repo-operations spoke for frontend-only/backend-only UAT deploys, Cloud Build timing proof, and Cloud Run region/provenance evidence.
 Use `.codex/skills/frontend-native-surface-mapper/` before route/API/native/plugin/voice mapping work so the generated frontend/native surface map stays authoritative.
 Use `.codex/skills/frontend-cache-coherence/` when a screen needs warm-cache UX, TTL, stale background refresh, or reviewer-backed cache behavior proof.
+Use `.codex/skills/reviewer-app-testing/` and workflow `reviewer-app-rehearsal` when Playwright must preserve an unlocked BYOK vault across same-session Next navigation and prove cold-session re-unlock separately.
+Use `.codex/skills/pkm-upgrade-rehearsal/` and workflow `pkm-upgrade-rehearsal` for historical-shape preservation, rollback, scope-origin, reviewer, and exact-payload acceptance before a PKM upgrade.
 
 Use `.codex/skills/morphy-ax/` and workflow `morphy-ax-governance` for shared agent-experience snapshots, presentation posture, typed semantic-assessment validation, compatibility, and AX performance budgets.
 Workflow packs under `.codex/workflows/` are the canonical recurring task surface for routing and onboarding.

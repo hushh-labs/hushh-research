@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback } from "react";
 import { HushhWordmark } from "@/components/app-ui/hushh-wordmark";
 import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
@@ -134,8 +135,9 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
           </div>
 
           <p className={styles.description}>
-            Everything stays encrypted in your vault. Nothing moves without your
-            consent.
+            Everything stays encrypted in your vault.
+            <br />
+            Nothing moves without your consent.
           </p>
         </div>
 
@@ -155,6 +157,12 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
               Claim your One
               <span aria-hidden>&rarr;</span>
             </span>
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+            >
+              <MaterialRipple variant="gradient" effect="fill" />
+            </span>
           </button>
 
           {/* Public destinations share the CTA width and use equal hit areas.
@@ -169,12 +177,6 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
               className={styles.link}
             >
               Research
-            </Link>
-            <Link
-              href={ROUTES.BLOG}
-              className={styles.link}
-            >
-              Blog
             </Link>
             <Link
               href={ROUTES.DEVELOPERS}

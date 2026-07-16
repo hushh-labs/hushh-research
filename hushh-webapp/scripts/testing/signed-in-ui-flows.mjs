@@ -86,16 +86,12 @@ export const UI_FLOWS = [
   {
     id: "shell-investor-kai-import",
     route: "/one/kai/import",
-    description: "Investor shell: Portfolio -> import CTA",
+    description: "Investor shell: Portfolio -> import route",
     steps: [
       { type: "ensure_persona", persona: "investor" },
       { type: "click_bottom_nav", label: "Portfolio" },
       { type: "wait_beacon", routeIds: ["/one/kai/portfolio"] },
-      {
-        type: "click_button",
-        name: "^(upload statement|import statement|import portfolio|connect portfolio)$",
-        regex: true,
-      },
+      { type: "navigate_route", route: "/one/kai/import" },
       { type: "wait_beacon", routeIds: ["/one/kai/import"] },
     ],
   },

@@ -222,6 +222,13 @@ describe("pkm profile presentation", () => {
         displayName: "Kyc Workflow",
       })
     ).toBe(false);
+    expect(
+      isConsumerVisiblePkmDomain({
+        ...domain,
+        key: "runtime_secrets",
+        displayName: "Runtime Secrets",
+      })
+    ).toBe(false);
 
     const presentation = buildPkmDomainPresentation({
       domain: {
@@ -243,7 +250,7 @@ describe("pkm profile presentation", () => {
     });
 
     expect(presentation.detailCount).toBe(1);
-    expect(presentation.sourceLabels).toEqual(["Saved memory"]);
+    expect(presentation.sourceLabels).toEqual([]);
 
     const summary = buildPkmProfileSummaryPresentation({
       metadata: null,
@@ -252,6 +259,30 @@ describe("pkm profile presentation", () => {
     });
     expect(summary.totalDomains).toBe(1);
     expect(summary.totalAttributes).toBe(1);
+  });
+
+  it("shows friendly provenance only when an explicit source is available", () => {
+    const fromGmail = buildPkmDomainPresentation({
+      domain: {
+        ...domain,
+        key: "shopping",
+        displayName: "Shopping",
+        readableSourceLabel: "gmail_receipts_sync",
+      },
+      activeGrants: [],
+    });
+    const withoutSource = buildPkmDomainPresentation({
+      domain: {
+        ...domain,
+        key: "portfolio",
+        displayName: "Portfolio",
+        readableSourceLabel: null,
+      },
+      activeGrants: [],
+    });
+
+    expect(fromGmail.sourceLabels).toEqual(["From Gmail"]);
+    expect(withoutSource.sourceLabels).toEqual([]);
   });
 
   it("does not treat structural-only path counts as user memory", () => {

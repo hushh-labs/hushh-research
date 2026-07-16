@@ -576,6 +576,7 @@
       "native_requirements": [],
       "optional_scopes": [
         "agent.kyc.redraft.llm",
+        "agent.kyc.disclose.llm",
         "pkm.write"
       ],
       "outputs": [],

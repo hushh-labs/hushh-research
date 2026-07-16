@@ -74,6 +74,8 @@ export interface OneCapability {
    * full `description` would truncate mid-word. Falls back to `description`.
    */
   previewLabel?: string;
+  /** Hide this capability from the primary One agent roster while its route remains available. */
+  isVisibleOnRoster?: boolean;
   href: string;
   icon: LucideIcon;
   tone: OneCapabilityTone;
@@ -170,7 +172,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     setupActionId: "setup.open_location",
     setupControlId: "one_setup_tile_location",
     agentId: "agent_location",
-    title: "Onepoint",
+    title: "Location",
     description: "Live location & Alerts",
     previewLabel: "Live location & Alerts",
     href: ROUTES.ONE_LOCATION,
@@ -216,6 +218,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     tone: "pkm",
     group: "access",
     isExploreOnly: true,
+    isVisibleOnRoster: false,
   },
   {
     id: "connected-systems",
@@ -237,8 +240,9 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
  * This order is product-authored and must not be re-ranked by status: people
  * should always see the same calm sequence while individual rows update.
  *
- * Memory, Consent, and Information Marketplace remain available in One; they
- * are not account-setup requirements.
+ * Memory and Consent remain available in One; they are not account-setup
+ * requirements. Information Marketplace remains route-addressable but is not
+ * shown in the primary agent roster while the surface is disabled.
  */
 export type OneSetupCapability = OneCapability & {
   id: OneSetupCapabilityId;

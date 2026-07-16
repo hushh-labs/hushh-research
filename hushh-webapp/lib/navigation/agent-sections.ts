@@ -156,7 +156,8 @@ function toAgentSection(capability: OneCapability): AgentSection {
 
 export function getAgentSections(): readonly AgentSection[] {
   const sections = ONE_CAPABILITIES.filter(
-    (capability) => capability.id !== "ria",
+    (capability) =>
+      capability.id !== "ria" && capability.isVisibleOnRoster !== false,
   ).map(toAgentSection);
   // RIA sits directly after Investor so the two finance personas stay
   // adjacent while remaining standalone top-level agents.

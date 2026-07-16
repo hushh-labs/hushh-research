@@ -36,11 +36,10 @@ describe("buildPkmSectionPreviewPresentation", () => {
     expect(presentation.groups[0].items[0]?.title).toBe("I live in New York City now.");
     expect(presentation.groups[0].items[0]?.subtitle).toBe("correction · active");
     expect(presentation.groups[0].items[0]?.deletable).toBe(true);
+    expect(JSON.stringify(presentation)).not.toContain("sf_residence_001");
     expect(
-      presentation.groups[0].items[0]?.fields.some(
-        (field) => field.label === "Entity Id" && field.value === "sf_residence_001"
-      )
-    ).toBe(true);
+      presentation.groups[0].items[0]?.fields.some((field) => field.label === "Entity Id")
+    ).toBe(false);
     expect(presentation.groups[0].items[0]?.sections?.[0]?.label).toBe("Observations");
   });
 
@@ -112,5 +111,45 @@ describe("buildPkmSectionPreviewPresentation", () => {
       "Merchant patterns",
       "Preference signals",
     ]);
+  });
+
+  it("removes secret-shaped fields and containers from consumer previews", () => {
+    const presentation = buildPkmSectionPreviewPresentation({
+      domain: "profile",
+      domainTitle: "Profile",
+      permissionLabel: "Profile",
+      topLevelScopePath: "",
+      value: {
+        display_name: "Reviewer",
+        api_key: "must-not-render",
+        secretMaterial: "must-not-render",
+        data_version: 6,
+        provenance: { writer_id: "must-not-render" },
+        payload_hash: "must-not-render",
+        runtime_secrets: {
+          llm: { client_secret: "must-not-render" },
+        },
+        preferences: {
+          theme: "dark",
+          vault_passphrase: "must-not-render",
+        },
+        connections: [
+          {
+            name: "Calendar",
+            access_token: "must-not-render",
+            status: "active",
+          },
+        ],
+      },
+    });
+
+    const serialized = JSON.stringify(presentation);
+    expect(serialized).toContain("Reviewer");
+    expect(serialized).toContain("Calendar");
+    expect(serialized).toContain("dark");
+    expect(serialized).not.toContain("must-not-render");
+    expect(serialized).not.toMatch(
+      /api key|runtime secrets|access token|passphrase|data version|provenance|payload hash/i
+    );
   });
 });

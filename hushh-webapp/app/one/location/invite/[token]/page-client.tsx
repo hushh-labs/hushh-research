@@ -231,7 +231,7 @@ export default function OneLocationCircleInvitePageClient() {
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-xs font-semibold uppercase tracking-[0.22em] text-[color:var(--app-accent)]">
-                Onepoint
+                Location
               </div>
               <h1 className="mt-2 text-[28px] font-medium leading-[1.12] tracking-normal sm:text-[32px]">
                 Join One
@@ -276,7 +276,7 @@ export default function OneLocationCircleInvitePageClient() {
               <div className="rounded-[var(--app-card-radius-standard)] border border-accent-border bg-accent-surface p-4 text-sm leading-6 text-foreground">
                 Accepting connects both of you on One. Live location still starts only
                 when someone taps Share Location, confirms permission, and sends an
-                encrypted share from Onepoint.
+                encrypted share from Location.
               </div>
 
               {claimError ? (

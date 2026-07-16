@@ -416,7 +416,7 @@ export function StreamingAccordion({
           <AccordionPrimitive.Trigger
             className={cn(
               "flex flex-1 items-center justify-between gap-3 px-4 py-3",
-              "text-left text-sm font-medium transition-all",
+              "text-left text-sm font-semibold transition-all",
               "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               "[&[data-state=open]>svg.chevron]:rotate-180"
             )}
@@ -484,7 +484,7 @@ export function StreamingAccordion({
                 className={cn(
                   "absolute bottom-2 left-1/2 -translate-x-1/2 z-10",
                   "px-3 py-1.5 rounded-full",
-                  "bg-primary text-primary-foreground text-xs font-medium",
+                  "bg-primary text-primary-foreground text-xs font-semibold",
                   "shadow-lg hover:shadow-xl transition-all",
                   "animate-in fade-in slide-in-from-bottom-2",
                   "flex items-center gap-1.5"

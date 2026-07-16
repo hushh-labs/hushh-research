@@ -59,6 +59,65 @@ function runtimeState(
 }
 
 describe("executeAgentGatewayAction", () => {
+  it("admits generated direct route actions outside the current screen inventory", async () => {
+    const router = { push: vi.fn() };
+
+    const result = await executeAgentGatewayAction({
+      actionId: "route.one_location",
+      allowedActionIds: [],
+      userId: "user_1",
+      router,
+      appRuntimeState: runtimeState(),
+      hasPortfolioData: true,
+      busyOperations: {},
+      setAnalysisParams: vi.fn(),
+    });
+
+    expect(router.push).toHaveBeenCalledWith(ROUTES.ONE_LOCATION);
+    expect(result).toMatchObject({
+      status: "started",
+      actionId: "route.one_location",
+      routeAfter: ROUTES.ONE_LOCATION,
+    });
+  });
+
+  it("keeps global route actions blocked behind an active blocking layer", async () => {
+    const router = { push: vi.fn() };
+
+    const result = await executeAgentGatewayAction({
+      actionId: "route.one_location",
+      allowedActionIds: [],
+      surfaceMetadata: {
+        interactionLayer: {
+          schemaVersion: "voice_interaction_layer.v1",
+          id: "vault-unlock",
+          kind: "vault",
+          modality: "blocking",
+          lifecycle: "open",
+          dismissible: false,
+          visibleActionIds: [],
+          visibleControlIds: [],
+          options: [],
+          blocksUnderlyingActions: true,
+          agentContinuity: "suppressed",
+        },
+      },
+      userId: "user_1",
+      router,
+      appRuntimeState: runtimeState(),
+      hasPortfolioData: true,
+      busyOperations: {},
+      setAnalysisParams: vi.fn(),
+    });
+
+    expect(router.push).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      status: "blocked",
+      actionId: "route.one_location",
+      reason: "action_not_in_active_inventory",
+    });
+  });
+
   it("routes Agent analysis.start tools to the comparison preview before debate launch", async () => {
     const router = {
       push: vi.fn(),

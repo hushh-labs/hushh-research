@@ -109,47 +109,47 @@ export const DEVELOPER_SECTIONS: DeveloperSection[] = [
   {
     id: "start",
     label: "Quick Start",
-    summary: "Remote MCP setup, the UAT server, and the one copy-ready happy path.",
+    summary: "One copy-ready Remote MCP setup.",
   },
   {
     id: "mcp",
     label: "Remote MCP",
-    summary: "Streamable MCP setup for remote-capable hosts.",
+    summary: "Direct streamable HTTP connection.",
   },
   {
     id: "access",
     label: "Developer Access",
-    summary: "Sign in, enable access, rotate tokens, and update your app identity.",
+    summary: "Tokens and app identity.",
   },
   {
     id: "overview",
     label: "Trust Model",
-    summary: "Auth identifies your app; user consent grants each scope.",
+    summary: "Authentication and consent stay separate.",
   },
   {
     id: "dynamic-scopes",
     label: "Dynamic Scopes",
-    summary: "Scopes come from the user’s indexed Personal Knowledge Model, not a hardcoded list.",
+    summary: "Discover available scopes per person.",
   },
   {
     id: "consent-flow",
     label: "Consent Flow",
-    summary: "Discover, request, approve in Kai, then read approved scoped information.",
+    summary: "Discover, request, approve, read.",
   },
   {
     id: "modes",
     label: "Advanced",
-    summary: "REST API and npm bridge options for non-default host needs.",
+    summary: "REST and npm fallbacks.",
   },
   {
     id: "api",
     label: "REST API",
-    summary: "Advanced direct HTTP endpoints for discovery, consent, and status checks.",
+    summary: "Versioned endpoint reference.",
   },
   {
     id: "faq",
     label: "Troubleshooting",
-    summary: "Answers to the common integration and trust-model questions.",
+    summary: "Answers from the current runtime contract.",
   },
 ];
 
@@ -161,24 +161,24 @@ export const PUBLIC_MCP_ENVIRONMENT = {
   remoteUrlTemplate: MCP_PUBLIC_DOCS.promotedEnvironment.remoteUrlTemplate,
 } as const;
 
+// Kept in sync with the live grammar returned by GET /api/v1/list-scopes
+// (verified against api.uat.hushh.ai — v2, 2 scope entries), rather than a
+// hand-maintained flat list that can drift from the actual API contract.
 export const PUBLIC_SCOPE_PATTERNS = [
-  "pkm.read",
-  "pkm.write",
-  "attr.{domain}.*",
-  "attr.{domain}.{subintent}.*",
-  "attr.{domain}.{path}",
+  "cap.one.invoke",
+  "attr.{domain_slug}.{scope_slug}.*",
 ] as const;
 
 export const CONSENT_FLOW_STEPS: ConsentFlowStep[] = [
   {
     title: "Discover",
     detail:
-      "Call discover_user_domains or GET /api/v1/user-scopes/{user_id} to inspect the exact scopes available for this user right now.",
+      "Call search_user_scopes with the caller-supplied user identifier to inspect the exact scopes available for this person right now.",
   },
   {
     title: "Request",
     detail:
-      "Send one discovered scope at a time to POST /api/v1/request-consent?token=... with your developer token and connector public-key bundle so Hussh can wrap the export key for client-side decryption.",
+      "Send one discovered scope at a time to POST /api/v1/request-consent with a Bearer developer token and connector public-key bundle so Hussh can wrap the export key for client-side decryption.",
   },
   {
     title: "Approve",
@@ -208,31 +208,37 @@ export const REST_ENDPOINTS: RestEndpoint[] = [
   {
     method: "GET",
     path: "/api/v1/tool-catalog",
-    auth: "Optional ?token=...",
+    auth: "Optional Authorization: Bearer",
     purpose: "Current tool visibility for the public developer lane or a specific developer app.",
   },
   {
     method: "GET",
     path: "/api/v1/user-scopes/{user_id}",
-    auth: "Developer token required",
+    auth: "Authorization: Bearer required",
     purpose: "Discovered scope strings and available domains for a specific user.",
   },
   {
     method: "GET",
     path: "/api/v1/consent-status",
-    auth: "Developer token required",
+    auth: "Authorization: Bearer required",
     purpose: "Poll the latest status for a scope or request id.",
   },
   {
     method: "POST",
     path: "/api/v1/request-consent",
-    auth: "Developer token required",
+    auth: "Authorization: Bearer required",
     purpose: "Create or reuse a consent request for one discovered scope.",
   },
   {
     method: "POST",
+    path: "/api/v1/public-profile-export",
+    auth: "Authorization: Bearer required",
+    purpose: "Publish or update an owner-controlled public-profile projection (separate from encrypted attr.* consent grants).",
+  },
+  {
+    method: "POST",
     path: "/api/v1/scoped-export",
-    auth: "Developer token required",
+    auth: "Authorization: Bearer required",
     purpose: "Return ciphertext and wrapped-key metadata for one approved grant.",
   },
 ];
@@ -291,7 +297,6 @@ export const DEVELOPER_SCOPE_NOTES = [
   "Discover available scopes per user at runtime instead of hardcoding a fixed universal list.",
   "The current Kai test-user shape is mostly financial, so early community integrations should expect financial-first examples.",
   "A broader active grant can satisfy a narrower request, but a narrower active grant never auto-upgrades to a broader parent scope.",
-  "The /developers surface stays technical. A separate consumer-facing PKM transparency view now lives in PKM Agent Lab.",
 ];
 
 export const DEVELOPER_SAMPLE_PAYLOADS: DeveloperSamplePayload[] = [
@@ -303,7 +308,6 @@ export const DEVELOPER_SAMPLE_PAYLOADS: DeveloperSamplePayload[] = [
   "user_id": "kai_test_user",
   "available_domains": ["financial"],
   "scopes": [
-    "pkm.read",
     "attr.financial.*",
     "attr.financial.portfolio.*",
     "attr.financial.profile.*",
@@ -414,7 +418,7 @@ export function buildIntegrationModes(_runtime: DeveloperRuntime): IntegrationMo
       id: "remote-mcp",
       title: "Remote/Streamable MCP",
       summary:
-        `Point remote-capable hosts at ${MCP_PUBLIC_DOCS.promotedEnvironment.label} and use the exact /mcp/?token=... URL shape.`,
+        `Point remote-capable hosts at ${MCP_PUBLIC_DOCS.promotedEnvironment.label} and use the trailing-slash /mcp/ endpoint with a Bearer token.`,
     },
     {
       id: "rest",
@@ -432,11 +436,19 @@ export function buildIntegrationModes(_runtime: DeveloperRuntime): IntegrationMo
 }
 
 export function buildRestSnippets(runtime: DeveloperRuntime, developerToken = "<developer-token>") {
+  // The developer API requires "Authorization: Bearer <token>"; it explicitly
+  // rejects query-string ?token=... auth (verified live against
+  // api.uat.hushh.ai/api/v1/user-scopes/{id}, which returns
+  // QUERY_TOKEN_AUTH_UNSUPPORTED for a query param and DEVELOPER_TOKEN_REQUIRED
+  // asking for the Bearer header when no auth is sent at all).
+  const authHeader = `-H "Authorization: Bearer ${developerToken}"`;
   return {
     base: `curl -s ${runtime.apiBaseUrl}`,
     discover: `curl -s \\
-  "${runtime.apiBaseUrl}/user-scopes/user_123?token=${developerToken}"`,
+  ${authHeader} \\
+  "${runtime.apiBaseUrl}/user-scopes/user_123"`,
     requestConsent: `curl -s -X POST \\
+  ${authHeader} \\
   -H "Content-Type: application/json" \\
   -d '{
     "user_id": "user_123",
@@ -448,17 +460,19 @@ export function buildRestSnippets(runtime: DeveloperRuntime, developerToken = "<
     "connector_key_id": "connector-key-1",
     "connector_wrapping_alg": "X25519-AES256-GCM"
   }' \\
-  "${runtime.apiBaseUrl}/request-consent?token=${developerToken}"`,
+  "${runtime.apiBaseUrl}/request-consent"`,
     checkStatus: `curl -s \\
-  "${runtime.apiBaseUrl}/consent-status?user_id=user_123&scope=attr.financial.*&token=${developerToken}"`,
+  ${authHeader} \\
+  "${runtime.apiBaseUrl}/consent-status?user_id=user_123&scope=attr.financial.*"`,
     scopedExport: `curl -s -X POST \\
+  ${authHeader} \\
   -H "Content-Type: application/json" \\
   -d '{
     "user_id": "user_123",
     "consent_token": "HCT:...",
     "expected_scope": "attr.financial.*"
   }' \\
-  "${runtime.apiBaseUrl}/scoped-export?token=${developerToken}"`,
+  "${runtime.apiBaseUrl}/scoped-export"`,
   };
 }
 
@@ -488,13 +502,11 @@ export function buildMcpSnippets(_runtime: DeveloperRuntime, developerToken = "<
 }
 
 export function buildWorkspaceSnippets(runtime: DeveloperRuntime, developerToken = "<developer-token>") {
-  const tokenizedRemoteUrl = runtime.remoteMcpUrlTemplate.replace(
-    "<developer-token>",
-    developerToken
-  );
   return {
     envVar: `HUSHH_DEVELOPER_TOKEN=${developerToken}`,
-    remoteUrl: tokenizedRemoteUrl,
-    restQuery: `?token=${developerToken}`,
+    remoteUrl: runtime.remoteMcpUrlTemplate,
+    // REST and MCP both require "Authorization: Bearer <token>"; query-string
+    // tokens are rejected by the live API.
+    authHeader: `Authorization: Bearer ${developerToken}`,
   };
 }

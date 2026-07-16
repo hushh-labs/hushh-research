@@ -345,19 +345,16 @@ If `granted_scope` is broader than `expected_scope`, narrow the decrypted JSON l
 
 ## Developer MCP Surface
 
-Campaign/customer-experience agents should prefer MCP `prepare_campaign_context`.
-It wraps the safe lifecycle: discover, select least-privilege scope, check grant
-reuse, request or reuse pending consent, bounded-poll, and fetch encrypted-export
-metadata. Use the lower-level calls directly only when implementing the
-lifecycle yourself.
+The v0.3 MCP surface is a safe projection over this compatible raw HTTP API:
 
-The public developer MCP flow is:
+1. `search_user_scopes(user_identifier, query?, domain?, cursor?, limit?)`
+2. `request_consent(user_identifier, scope, purpose, ...)`
+3. bounded `check_consent_status(request_ref)`
+4. `get_encrypted_scoped_export(grant_ref, expected_scope)`
 
-1. `discover_user_domains(user_id)`
-2. `check_consent_status(user_id, discovered_scope)`
-3. `request_consent(user_id, discovered_scope)` only when no active grant exists
-4. bounded `check_consent_status(user_id, discovered_scope, request_id)`
-5. `get_encrypted_scoped_export(user_id, consent_token, expected_scope=discovered_scope)`
+The MCP projection never returns raw HTTP `user_id` or `consent_token` fields.
+It resolves identity, tokens, app binding, and revocation internally. Raw
+`/api/v1` clients continue using the documented HTTP fields above.
 
 Machine-readable references:
 

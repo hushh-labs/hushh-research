@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import copy
 import email.utils
 import hashlib
 import html
@@ -452,6 +453,137 @@ def _validate_one_email_data_scope(scope: str) -> str:
             },
         )
     return normalized
+
+
+def _canonical_one_email_scope(scope: Any) -> str | None:
+    """Coerce a proposed scope to the ``attr.<domain>[.<path>][.*]`` lane grammar.
+
+    Pass-1 LLM routing (``classify_kyc_request``) can emit bare scopes such as
+    ``identity.passport`` or ``financial.cash_positions``. ``confirm_proposal``
+    subset-checks those against the raw proposal, but ``select_scopes`` then runs
+    ``_validate_one_email_data_scope`` which requires the ``attr.`` prefix — so an
+    un-normalized proposal is un-confirmable. Prefixing here (rather than
+    collapsing to ``attr.<domain>.*``) preserves scope granularity for data
+    minimization. Returns None for scopes that cannot be made well-formed.
+    """
+    normalized = _clean_text(scope).lower()
+    if not normalized:
+        return None
+    if not normalized.startswith("attr."):
+        normalized = f"attr.{normalized}"
+    return normalized if _ONE_EMAIL_ATTR_SCOPE_RE.fullmatch(normalized) else None
+
+
+# Keyword -> preferred segment groups for snapping invented scope paths onto real
+# PKM segments. Ordered; first group whose keyword appears in the path wins.
+_SCOPE_PATH_SNAP_GROUPS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("passport",), "passport"),
+    (("license", "licence", "driver", "dl"), "drivers_license"),
+    (("tax", "ssn", "tin", "itin", "w9", "w8", "w-9", "w-8", "taxpayer"), "tax"),
+    (
+        (
+            "bank",
+            "account",
+            "routing",
+            "cash",
+            "iban",
+            "swift",
+            "cheque",
+            "check",
+            "deposit",
+            "payout",
+            "funds",
+        ),
+        "bank",
+    ),
+    (
+        (
+            "address",
+            "name",
+            "contact",
+            "phone",
+            "email",
+            "dob",
+            "birth",
+            "nationality",
+            "citizen",
+            "profile",
+        ),
+        "profile",
+    ),
+)
+
+
+def _snap_kyc_scope(scope: str, available_scope_paths: dict[str, list[str]]) -> str:
+    """Snap a canonical ``attr.<domain>.<path>`` scope onto a real PKM segment.
+
+    Prompt-level grounding does not reliably stop the LLM from emitting familiar
+    but non-existent paths (``identity.tax_id``, ``identity.cash_positions``).
+    This deterministically maps the proposed path to an actually-stored top-level
+    segment for that domain (``tax_id`` -> ``tax``, ``cash_positions`` -> ``bank``),
+    so the eye-icon preview and export resolve to real data. Falls back to the
+    original scope when no confident match exists.
+    """
+    parts = scope.split(".")
+    if len(parts) < 3 or parts[0] != "attr":
+        return scope
+    domain = parts[1]
+    path_first = parts[2]
+    domain_paths = available_scope_paths.get(domain) or []
+    if not domain_paths or path_first in domain_paths:
+        return scope
+    # Substring match either direction (e.g. tax_id -> tax).
+    for candidate in domain_paths:
+        if candidate and (candidate in path_first or path_first in candidate):
+            return f"attr.{domain}.{candidate}"
+    # Keyword-group match (e.g. cash_positions -> bank).
+    for keywords, preferred in _SCOPE_PATH_SNAP_GROUPS:
+        if any(keyword in path_first for keyword in keywords) and preferred in domain_paths:
+            return f"attr.{domain}.{preferred}"
+    return scope
+
+
+def _resolve_kyc_scope_against_paths(
+    scope: Any, available_scope_paths: dict[str, list[str]]
+) -> str | None:
+    """Resolve any scope-ish string to a real ``attr.<domain>.<segment>`` using the
+    user's actual PKM paths.
+
+    Handles the failure modes seen from LLM routing: a missing domain
+    (``passport`` -> ``attr.identity.passport``), a wrong domain
+    (``financial.cash_positions`` -> ``attr.identity.bank``), and an invented
+    segment (``tax_id`` -> ``tax``). Falls back to plain canonicalization when no
+    confident match exists so the lane grammar is still satisfied.
+    """
+    if not available_scope_paths:
+        return _canonical_one_email_scope(scope)
+    raw = _clean_text(scope).lower()
+    if raw.startswith("attr."):
+        raw = raw[len("attr.") :]
+    parts = [part for part in raw.split(".") if part and part != "*"]
+    if not parts:
+        return _canonical_one_email_scope(scope)
+    # 1) Exact domain.segment already valid.
+    if (
+        len(parts) >= 2
+        and parts[0] in available_scope_paths
+        and parts[1] in available_scope_paths[parts[0]]
+    ):
+        return f"attr.{parts[0]}.{parts[1]}"
+    # 2) Substring match of any part against a real segment in any domain.
+    for domain, segments in available_scope_paths.items():
+        for segment in segments:
+            for part in parts:
+                if part == segment or segment in part or part in segment:
+                    return f"attr.{domain}.{segment}"
+    # 3) Keyword-group snap (cash/account -> bank, ssn/w9 -> tax, ...).
+    for part in parts:
+        for keywords, preferred in _SCOPE_PATH_SNAP_GROUPS:
+            if any(keyword in part for keyword in keywords):
+                for domain, segments in available_scope_paths.items():
+                    if preferred in segments:
+                        return f"attr.{domain}.{preferred}"
+    return _canonical_one_email_scope(scope)
 
 
 def _scope_description(scope: str) -> str:
@@ -1974,10 +2106,42 @@ class OneEmailKycService:
 
         # Pass 1: LLM routing — runs after sender match so we have user_id for PKM index.
         pkm_index = await self._load_pkm_index_for_user(user_match["user_id"])
+        available_scope_paths = await self._load_domain_scope_paths(
+            user_match["user_id"], list(pkm_index.get("available_domains") or [])
+        )
         proposal = await self.classify_kyc_request(
             subject=subject,
             body=body_text,
             pkm_index=pkm_index,
+            available_scope_paths=available_scope_paths,
+        )
+
+        # Canonicalize LLM-proposed scopes to the attr.<domain>[.path] grammar the
+        # consent lane enforces. classify_kyc_request can emit bare scopes
+        # (identity.passport); without this, confirm_proposal accepts them but the
+        # downstream select_scopes -> _validate_one_email_data_scope rejects them,
+        # making the proposal impossible to confirm. Drop any item that cannot be
+        # coerced to a well-formed scope.
+        if isinstance(proposal.get("requested_items"), list):
+            canonical_items = []
+            for item in proposal["requested_items"]:
+                if not isinstance(item, dict):
+                    continue
+                canonical_scope = _canonical_one_email_scope(item.get("scope"))
+                if not canonical_scope:
+                    continue
+                # Deterministically snap invented paths (tax_id, cash_positions)
+                # onto real stored segments (tax, bank) since prompt grounding
+                # alone doesn't reliably constrain the model.
+                canonical_scope = _snap_kyc_scope(canonical_scope, available_scope_paths)
+                canonical_items.append({**item, "scope": canonical_scope})
+            proposal["requested_items"] = canonical_items
+
+        logger.info(
+            "kyc.routing.grounded user=%s available_scope_paths=%s final_scopes=%s",
+            user_match.get("user_id"),
+            available_scope_paths,
+            [item.get("scope") for item in (proposal.get("requested_items") or [])],
         )
 
         # Build candidate_scopes from the proposal's requested_items so the existing
@@ -2085,6 +2249,59 @@ class OneEmailKycService:
             "computed_tags": index.computed_tags,
         }
 
+    # Top-level manifest keys that are structural metadata, not real data scopes.
+    _NON_DATA_SCOPE_PATHS = frozenset(
+        {
+            "schema_version",
+            "last_updated",
+            "updated_at",
+            "created_at",
+            "domain_intent",
+            "sources",
+            "source_metadata",
+            "analytics",
+            "raw_extract_v2",
+        }
+    )
+
+    async def _load_domain_scope_paths(
+        self, user_id: str, domains: list[str]
+    ) -> dict[str, list[str]]:
+        """Return real top-level scope paths (segment names) per domain.
+
+        Grounds Pass-1 routing in what the user actually has stored, so the model
+        proposes existing scopes (identity.tax, identity.bank) instead of inventing
+        paths that resolve to no data. Reads pkm_manifest_paths; fails soft to {}.
+        """
+        result: dict[str, list[str]] = {}
+        for domain in domains:
+            clean_domain = _clean_text(domain)
+            if not clean_domain:
+                continue
+            try:
+                rows = (
+                    self.db.execute_raw(
+                        "SELECT DISTINCT split_part(json_path, '.', 1) AS top_path "
+                        "FROM pkm_manifest_paths "
+                        "WHERE user_id = :user_id AND domain = :domain "
+                        "ORDER BY top_path",
+                        {"user_id": user_id, "domain": clean_domain},
+                    ).data
+                    or []
+                )
+            except Exception as exc:  # pragma: no cover - best-effort grounding
+                logger.warning("kyc.scope_paths_load_failed domain=%s: %s", clean_domain, exc)
+                continue
+            paths = [
+                str(row.get("top_path"))
+                for row in rows
+                if row.get("top_path")
+                and str(row.get("top_path")) not in self._NON_DATA_SCOPE_PATHS
+            ]
+            if paths:
+                result[clean_domain] = paths
+        return result
+
     async def _llm_generate_structured(
         self,
         *,
@@ -2131,7 +2348,12 @@ class OneEmailKycService:
         return parsed if isinstance(parsed, dict) else None
 
     async def classify_kyc_request(
-        self, *, subject: str, body: str, pkm_index: dict[str, Any]
+        self,
+        *,
+        subject: str,
+        body: str,
+        pkm_index: dict[str, Any],
+        available_scope_paths: dict[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Pass 1 — route the request to the correct PKM domain + fields.
 
@@ -2139,9 +2361,23 @@ class OneEmailKycService:
         summaries, NO raw values) to Gemini. Never sees real data. Replaces the
         keyword detectors (_looks_like_kyc / _detect_scope_candidates /
         _extract_required_fields).
+
+        ``available_scope_paths`` maps each available domain to its real
+        top-level scope paths (segment names) so the model routes to scopes that
+        actually exist in the user's PKM (e.g. ``identity.tax``, ``identity.bank``)
+        instead of inventing paths (``identity.tax_id``, ``financial.cash_positions``)
+        that resolve to no stored data.
         """
         if not _require_gemini_ready():
             return _gemini_unavailable_payload("Gemini unavailable for KYC routing")
+        scope_paths = available_scope_paths or {}
+        scope_paths_block = (
+            "Available scope paths per domain — you MUST choose scopes ONLY from "
+            "these (each scope is exactly 'attr.<domain>.<path>'):\n"
+            f"{json.dumps(scope_paths)}\n\n"
+            if scope_paths
+            else ""
+        )
         prompt = (
             "You classify an inbound email that requests personal data, and map it "
             "to the correct domain(s) in the user's personal knowledge model.\n"
@@ -2149,18 +2385,43 @@ class OneEmailKycService:
             "Example: 'provide your information to confirm a hotel booking' is a "
             "request for IDENTITY data (name, address), NOT travel itinerary data.\n\n"
             f"Available domains and summaries (NO values):\n{json.dumps(pkm_index)}\n\n"
+            f"{scope_paths_block}"
             f"Email subject: {_truncate(subject, 500)}\n"
             f"Email body: {_truncate(body, 4000)}\n\n"
-            "Return the routing JSON. For each requested item, pick the single most "
-            "appropriate domain and scope. Set confidence 0..1. If the email does not "
-            "request personal data, set classification='unsupported' and requested_items=[]."
+            "Return the routing JSON. For each requested item, set 'domain' to one of "
+            "the available domains and 'scope' to exactly 'attr.<domain>.<path>' where "
+            "<path> is one of that domain's available scope paths listed above. Do NOT "
+            "invent scope paths; pick the closest existing path (e.g. an SSN or tax form "
+            "maps to the 'tax' path, bank account details map to the 'bank' path). Set "
+            "confidence 0..1. If the email does not request personal data, set "
+            "classification='unsupported' and requested_items=[]."
         )
-        result = await self._llm_generate_structured(
-            prompt=prompt, response_schema=_KYC_ROUTING_SCHEMA
-        )
+        # Constrain the model to the user's REAL scopes via a schema enum, so it
+        # cannot invent paths (tax_id, bank_accounts) even if it ignores the
+        # prompt. Falls back to the free-text schema when no paths are known.
+        response_schema = self._kyc_routing_schema_for_paths(scope_paths)
+        result = await self._llm_generate_structured(prompt=prompt, response_schema=response_schema)
         if result is None:
             return _gemini_unavailable_payload("KYC routing produced no parseable result")
         return result
+
+    @staticmethod
+    def _kyc_routing_schema_for_paths(
+        scope_paths: dict[str, list[str]],
+    ) -> dict[str, Any]:
+        """Build a routing schema whose ``scope``/``domain`` fields are enums of
+        the user's real scopes, forcing grounded output. Returns the base
+        free-text schema when no scope paths are available."""
+        valid_scopes = sorted(
+            {f"attr.{domain}.{path}" for domain, paths in scope_paths.items() for path in paths}
+        )
+        if not valid_scopes:
+            return _KYC_ROUTING_SCHEMA
+        schema = copy.deepcopy(_KYC_ROUTING_SCHEMA)
+        item_props = schema["properties"]["requested_items"]["items"]["properties"]
+        item_props["scope"] = {"type": "STRING", "enum": valid_scopes}
+        item_props["domain"] = {"type": "STRING", "enum": sorted(scope_paths.keys())}
+        return schema
 
     def _looks_like_kyc(self, *, subject: str, body: str) -> bool:
         haystack = f"{subject}\n{body}".lower()
@@ -2902,12 +3163,24 @@ class OneEmailKycService:
                 code="ONE_KYC_NOT_AWAITING_CONFIRM",
             )
         proposal = (workflow.get("metadata") or {}).get("kyc_proposal") or {}
+        # Resolve both sides against the user's REAL PKM paths so malformed/bare
+        # routing output (identity.passport, attr.passport, financial.cash_positions)
+        # aligns on the same real scope (attr.identity.passport / attr.identity.bank)
+        # for the subset check and downstream consent creation.
+        available_scope_paths = await self._load_domain_scope_paths(
+            user_id,
+            list((await self._load_pkm_index_for_user(user_id)).get("available_domains") or []),
+        )
+
+        def _resolve(scope: Any) -> str | None:
+            return _resolve_kyc_scope_against_paths(scope, available_scope_paths)
+
         proposed_scopes = {
-            str(item.get("scope"))
+            resolved
             for item in proposal.get("requested_items", [])
-            if item.get("scope")
+            if (resolved := _resolve(item.get("scope")))
         }
-        approved = _dedupe(approved_scopes)
+        approved = _dedupe([resolved for scope in approved_scopes if (resolved := _resolve(scope))])
         invalid = [s for s in approved if s not in proposed_scopes]
         if not approved or invalid:
             raise OneEmailKycError(
@@ -2919,8 +3192,11 @@ class OneEmailKycService:
                     "proposed_scopes": sorted(proposed_scopes),
                 },
             )
+        approved_set = set(approved)
         confirmed_items = [
-            item for item in proposal.get("requested_items", []) if item.get("scope") in approved
+            item
+            for item in proposal.get("requested_items", [])
+            if _resolve(item.get("scope")) in approved_set
         ]
         self._update_workflow(
             workflow_id,
@@ -2950,16 +3226,36 @@ class OneEmailKycService:
                 code="ONE_KYC_SCOPE_SELECTION_NOT_ALLOWED",
             )
         metadata = workflow.get("metadata", {})
+        # Resolve every scope against the user's REAL PKM paths so malformed
+        # routing output (missing domain like `passport`, wrong domain like
+        # `financial.cash_positions`, invented segment like `tax_id`) becomes a
+        # real `attr.<domain>.<segment>` that the consent export can actually
+        # fulfill. Runs here because this is the code path that creates the
+        # consent requests.
+        available_scope_paths = await self._load_domain_scope_paths(
+            user_id,
+            list((await self._load_pkm_index_for_user(user_id)).get("available_domains") or []),
+        )
+
+        def _resolve(scope: Any) -> str | None:
+            return _resolve_kyc_scope_against_paths(scope, available_scope_paths)
+
         candidate_scopes = (
             [
-                _clean_text(candidate.get("scope"))
+                resolved
                 for candidate in metadata.get("candidate_scopes", [])
-                if isinstance(candidate, dict)
+                if isinstance(candidate, dict) and (resolved := _resolve(candidate.get("scope")))
             ]
             if isinstance(metadata, dict)
             else []
         )
-        selected = [_validate_one_email_data_scope(scope) for scope in _dedupe(selected_scopes)]
+        # Resolve incoming scopes before validation so callers (and older stored
+        # workflows) may pass bare/malformed scopes; _validate raises with the
+        # original scope when it cannot be coerced to the lane grammar.
+        selected = [
+            _validate_one_email_data_scope(_resolve(scope) or scope)
+            for scope in _dedupe(selected_scopes)
+        ]
         if not selected:
             raise OneEmailKycError(
                 "Select at least one scope for this One request.",

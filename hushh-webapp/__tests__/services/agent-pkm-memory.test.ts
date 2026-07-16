@@ -143,7 +143,7 @@ describe("agent PKM memory helpers", () => {
     });
 
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/pkm/agent-lab/structure",
+      "/api/pkm/memory/proposals",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
@@ -201,6 +201,15 @@ describe("agent PKM memory helpers", () => {
         vaultOwnerToken: "vault_token",
       })
     );
+    const write = pkmSavePreparedDomainMock.mock.calls[0]?.[0] as {
+      build: () => Promise<{ summary: Record<string, unknown> }>;
+    };
+    const plan = await write.build();
+    expect(JSON.stringify(plan.summary)).not.toContain(
+      "remember that I prefer concise summaries"
+    );
+    expect(plan.summary).not.toHaveProperty("message_excerpt");
+    expect(plan.summary).not.toHaveProperty("card_id");
     expect(peekAgentPkmContext({ userId: "user_1", message: "writing" })).toBeNull();
   });
 

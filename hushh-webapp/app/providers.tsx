@@ -91,6 +91,75 @@ const SHARED_BOTTOM_CHROME_GLASS_VARS = {
   "--app-bar-mask-overscan": "14px",
 } as const;
 
+const BOTTOM_CHROME_SCROLL_TRANSFORM =
+  "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)";
+
+/**
+ * The compact shell is one visual stack: the bottom navigation and Agent Bar
+ * deliberately share one continuous ambient fade. On desktop those controls
+ * occupy separate vertical regions, so each receives its own locally anchored
+ * fade. Reusing the viewport-anchored mobile mask there made the upper Agent
+ * Bar inherit the navigation's weak tail rather than its own tint.
+ */
+function SharedBottomChromeGlass() {
+  const commonStyle = {
+    transform: BOTTOM_CHROME_SCROLL_TRANSFORM,
+    ...SHARED_BOTTOM_CHROME_GLASS_VARS,
+  } as CSSProperties;
+
+  return (
+    <>
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-[108] md:hidden"
+      >
+        <div
+          className="w-full bar-glass bar-glass-bottom"
+          style={
+            {
+              ...commonStyle,
+              height: "var(--bottom-chrome-full-height)",
+            } as CSSProperties
+          }
+        />
+      </div>
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-[108] hidden md:block"
+      >
+        <div
+          className="w-full bar-glass bar-glass-bottom"
+          style={
+            {
+              ...commonStyle,
+              height:
+                "calc(var(--app-bottom-inset) + var(--bottom-chrome-fade-overscan))",
+            } as CSSProperties
+          }
+        />
+      </div>
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-x-0 z-[108] hidden md:block"
+        style={{
+          bottom:
+            "calc(max(var(--app-bottom-inset), calc(var(--bottom-nav-offset) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift))) + 0.5rem)",
+        }}
+      >
+        <div
+          className="w-full bar-glass bar-glass-bottom"
+          style={
+            {
+              ...commonStyle,
+              height: "calc(3rem + var(--bottom-chrome-fade-overscan))",
+            } as CSSProperties
+          }
+        />
+      </div>
+    </>
+  );
+}
+
 function AppShellFrame({ children }: ProvidersProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -119,6 +188,12 @@ function AppShellFrame({ children }: ProvidersProps) {
   const hideGlobalChrome = !topShellMetrics.shellVisible;
   const isFullscreenTopFlow = routeLayoutMode === "flow";
   const shouldLockFullscreenRoot = isFullscreenTopFlow;
+  const isPublicStandaloneRoute =
+    pathname === ROUTES.DEVELOPERS ||
+    pathname === ROUTES.RESEARCH ||
+    pathname === ROUTES.RESEARCH_PROTOCOL ||
+    pathname === ROUTES.BLOG ||
+    pathname.startsWith(`${ROUTES.BLOG}/`);
   const signedInShellContentOffset = useMemo(
     () =>
       resolveSignedInShellContentOffset({
@@ -168,13 +243,14 @@ function AppShellFrame({ children }: ProvidersProps) {
         // of them still render the fixed onboarding Agent Bar. The scroll root
         // owns the clearance for that fixed chrome so feature routes do not
         // need to guess at device safe areas or bar geometry.
-        "--app-scroll-bottom-pad": hideGlobalChrome
+        "--app-scroll-bottom-pad": hideGlobalChrome || isPublicStandaloneRoute
           ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
           : "var(--bottom-chrome-stack-height)",
       }) as CSSProperties,
     [
       chromeState.hideCommandBar,
       hideGlobalChrome,
+      isPublicStandaloneRoute,
       signedInShellContentOffset.style,
       topShellMetrics.contentOffsetMode,
       topShellMetrics.hasTabs,
@@ -182,7 +258,7 @@ function AppShellFrame({ children }: ProvidersProps) {
     ],
   );
   const showSharedBottomChromeGlass =
-    topShellMetrics.shellVisible && !isFullscreenTopFlow;
+    topShellMetrics.shellVisible && !isFullscreenTopFlow && !isPublicStandaloneRoute;
   // Drive the bottom-chrome hide animation through a CSS variable instead of a
   // render-coupled value. Reading the continuous scroll progress in this root
   // shell re-rendered the entire provider subtree on every scroll frame, which
@@ -392,22 +468,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                       <VaultContext.Consumer>
                         {() =>
                           showSharedBottomChromeGlass ? (
-                            <div
-                              aria-hidden
-                              className="pointer-events-none fixed inset-x-0 bottom-0 z-[108]"
-                            >
-                              <div
-                                className="w-full bar-glass bar-glass-bottom"
-                                style={
-                                  {
-                                    height: "var(--bottom-chrome-full-height)",
-                                    transform:
-                                      "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)",
-                                    ...SHARED_BOTTOM_CHROME_GLASS_VARS,
-                                  } as CSSProperties
-                                }
-                              />
-                            </div>
+                            <SharedBottomChromeGlass />
                           ) : null
                         }
                       </VaultContext.Consumer>
@@ -471,22 +532,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                       <VaultContext.Consumer>
                         {() =>
                           showSharedBottomChromeGlass ? (
-                            <div
-                              aria-hidden
-                              className="pointer-events-none fixed inset-x-0 bottom-0 z-[108]"
-                            >
-                              <div
-                                className="w-full bar-glass bar-glass-bottom"
-                                style={
-                                  {
-                                    height: "var(--bottom-chrome-full-height)",
-                                    transform:
-                                      "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)",
-                                    ...SHARED_BOTTOM_CHROME_GLASS_VARS,
-                                  } as CSSProperties
-                                }
-                              />
-                            </div>
+                            <SharedBottomChromeGlass />
                           ) : null
                         }
                       </VaultContext.Consumer>
