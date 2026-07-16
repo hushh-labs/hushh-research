@@ -94,6 +94,39 @@ if [ "${PKM_UPGRADE_PROTECTED_UAT:-}" = "1" ] && [ -z "${PKM_UPGRADE_RUNTIME_AUD
   exit 1
 fi
 
+load_reviewer_runtime_secrets() {
+  if [ -n "${REVIEWER_UID:-}" ] && [ -n "${REVIEWER_VAULT_PASSPHRASE:-}" ]; then
+    return 0
+  fi
+
+  local secret_project="${PKM_UPGRADE_REVIEWER_SECRET_PROJECT:-}"
+  local secret_version="${PKM_UPGRADE_REVIEWER_SECRET_VERSION:-latest}"
+  if [ -z "$secret_project" ]; then
+    echo "Live reviewer runtime audits require reviewer credentials or PKM_UPGRADE_REVIEWER_SECRET_PROJECT." >&2
+    return 1
+  fi
+  if ! command -v gcloud >/dev/null 2>&1; then
+    echo "Live reviewer runtime audits require gcloud for Secret Manager resolution." >&2
+    return 1
+  fi
+
+  if [ -z "${REVIEWER_UID:-}" ]; then
+    REVIEWER_UID="$(gcloud secrets versions access "$secret_version" \
+      --secret=REVIEWER_UID \
+      --project="$secret_project")"
+  fi
+  if [ -z "${REVIEWER_VAULT_PASSPHRASE:-}" ]; then
+    REVIEWER_VAULT_PASSPHRASE="$(gcloud secrets versions access "$secret_version" \
+      --secret=REVIEWER_VAULT_PASSPHRASE \
+      --project="$secret_project")"
+  fi
+  if [ -z "$REVIEWER_UID" ] || [ -z "$REVIEWER_VAULT_PASSPHRASE" ]; then
+    echo "Live reviewer runtime audits could not resolve the canonical reviewer identity." >&2
+    return 1
+  fi
+  export REVIEWER_UID REVIEWER_VAULT_PASSPHRASE
+}
+
 if [ -n "$POSTGRES_REHEARSAL_TARGET" ]; then
   if ! command -v psql >/dev/null 2>&1; then
     echo "PostgreSQL rehearsal requested, but psql is unavailable." >&2
@@ -129,6 +162,7 @@ fi
 
 if [ -n "${PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL:-}" ]; then
   echo "Running live PKM, investor, and RIA runtime audits..."
+  load_reviewer_runtime_secrets
   cd "$WEB_DIR"
   for route_filter in one/pkm one/kai ria; do
     HUSHH_APP_ORIGIN="$PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL" \
