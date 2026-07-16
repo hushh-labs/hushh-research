@@ -954,14 +954,20 @@ class UatKaiSmoke:
         manifest = self._fetch_domain_manifest(domain)
         blob_payload = self._fetch_domain_blob(domain)
         domain_data = self._decrypt_domain_blob(blob_payload)
-        projected = project_domain_data_for_scope(domain, scope, domain_data)
+        approved_paths = manifest.get("externalizable_paths") or []
+        projected = project_domain_data_for_scope(
+            domain,
+            scope,
+            domain_data,
+            approved_paths=approved_paths,
+        )
         export_payload = {
             **projected,
             "__export_metadata": {
                 "scope": scope,
                 "source_domain": domain,
                 "manifest_version": manifest.get("manifest_version"),
-                "approved_paths": manifest.get("externalizable_paths") or [],
+                "approved_paths": approved_paths,
                 "approved_segment_ids": blob_payload.get("segment_ids") or [],
                 "export_timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             },
@@ -1107,6 +1113,7 @@ class UatKaiSmoke:
             tag_b64=str(package["tag"]),
             ciphertext=ciphertext,
             connector_private_key=self.connector_private,
+            export_envelope=package.get("export_envelope"),
         )
 
     def request_developer_consent(

@@ -9,6 +9,7 @@ from hushh_mcp.consent.export_envelope import (
     ConsentExportEnvelopeSubmissionV2,
     connector_key_fingerprint,
 )
+from hushh_mcp.consent.export_projection import decrypt_scoped_export_package
 from scripts.uat_kai_regression_smoke import (
     SAMPLE_BROKERAGE_PATH,
     UatKaiSmoke,
@@ -46,6 +47,33 @@ def test_sample_brokerage_fixture_has_expected_holdings() -> None:
     assert sample["account_info"]["brokerage"] == "Demo Brokerage"
 
 
+def test_reviewer_export_projects_the_approved_brokerage_information() -> None:
+    sample = json.loads(SAMPLE_BROKERAGE_PATH.read_text(encoding="utf-8"))
+    domain_data = {
+        "schema_version": 3,
+        "portfolio": sample,
+        "updated_at": "2026-07-15T00:00:00Z",
+    }
+    _, manifest = _build_manifest_artifacts(
+        domain="financial",
+        domain_data=domain_data,
+        previous_manifest={"manifest_version": 4, "paths": []},
+    )
+    smoke = UatKaiSmoke.__new__(UatKaiSmoke)
+    smoke._fetch_domain_manifest = lambda _domain: manifest
+    smoke._fetch_domain_blob = lambda _domain: {"data_version": 7}
+    smoke._decrypt_domain_blob = lambda _blob: domain_data
+
+    payload, content_revision, manifest_revision = smoke._build_export_payload(
+        "attr.financial.portfolio.*"
+    )
+
+    assert len(payload["financial"]["portfolio"]["holdings"]) == 20
+    assert payload["financial"]["portfolio"]["account_info"]["brokerage"] == "Demo Brokerage"
+    assert content_revision == 7
+    assert manifest_revision == manifest["manifest_version"]
+
+
 def test_reviewer_approval_encrypts_a_bound_envelope_v2() -> None:
     smoke = UatKaiSmoke.__new__(UatKaiSmoke)
     connector = smoke._new_connector_keypair()
@@ -72,6 +100,22 @@ def test_reviewer_approval_encrypts_a_bound_envelope_v2() -> None:
     assert envelope.aad == aad
     assert envelope.ciphertext_bytes > 0
     assert package["connectorKeyId"] == connector.key_id
+
+    decrypted = decrypt_scoped_export_package(
+        wrapped_key_bundle={
+            "wrapped_export_key": package["wrappedExportKey"],
+            "wrapped_key_iv": package["wrappedKeyIv"],
+            "wrapped_key_tag": package["wrappedKeyTag"],
+            "sender_public_key": package["senderPublicKey"],
+        },
+        iv_b64=package["encryptedIv"],
+        tag_b64=package["encryptedTag"],
+        ciphertext=package["encryptedData"],
+        connector_private_key=connector.x25519_box,
+        export_envelope=package["exportEnvelope"],
+    )
+
+    assert decrypted == {"portfolio": {"holdings": [{"symbol": "AAPL"}]}}
 
 
 def test_uat_backend_deploy_sets_the_public_consent_resource_origin() -> None:
