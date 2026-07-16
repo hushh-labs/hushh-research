@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "hushh-one": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@hushh/mcp"
+      ],
+      "env": {
+        "CONSENT_API_URL": "https://api.uat.hushh.ai",
+        "HUSHH_DEVELOPER_TOKEN": "${HUSHH_DEVELOPER_TOKEN}"
+      },
+      "connectionTimeoutMs": 30000,
+      "requestTimeoutMs": 60000
+    }
+  }
+}
