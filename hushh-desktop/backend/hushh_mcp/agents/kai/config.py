@@ -48,17 +48,17 @@ AGENT_WEIGHTS = {
 # External data sources (for hybrid mode)
 EXTERNAL_SOURCES = {
     "sec_filings": {
-        "scope": "external.sec.filings",
+        "authority": "public_provider",
         "name": "SEC EDGAR Database",
         "description": "10-K/10-Q financial filings",
     },
     "market_data": {
-        "scope": "external.market.data",
+        "authority": "public_provider",
         "name": "Market Data APIs",
         "description": "Real-time prices, volume, historical data",
     },
     "news": {
-        "scope": "external.news.api",
+        "authority": "public_provider",
         "name": "Financial News APIs",
         "description": "Latest news articles and sentiment",
     },
