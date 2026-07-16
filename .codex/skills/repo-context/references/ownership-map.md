@@ -14,7 +14,7 @@ Use this reference after the initial scan to choose the correct owner skill firs
 8. `repo-operations`: CI/CD, env parity, deploy, branch protection, and repo operational tooling.
 9. `oss-license-governance`: Apache-2.0 surface, SPDX/REUSE, package license metadata, and third-party notice governance.
 10. `contributor-onboarding`: bootstrap, devcontainer, doctor, and contributor-first-run experience ownership.
-11. `subtree-upstream-governance`: upstream-first coordination, subtree sync policy, and maintainer-only subtree contract ownership.
+11. `subtree-upstream-governance`: optional-mirror coordination, subtree sync policy, and maintainer-only subtree contract ownership.
 12. `planning-board`: GitHub board workflows.
 13. `future-planner`: future-state roadmap planning, R&D filtering, and promotion-boundary decisions.
 14. `comms-community`: public/community explanation workflows.
