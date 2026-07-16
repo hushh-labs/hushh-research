@@ -33,7 +33,7 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 | Firebase ID Token     | Identity verification only       | 1 hour   | `Bearer <firebase-id-token>`   |
 | VAULT_OWNER Token     | Consent + identity for all data  | 24 hours | `Bearer <vault-owner-token>`   |
 | Agent Scoped Token    | Delegated MCP agent access       | 7 days   | `Bearer <consent-token>`       |
-| Developer Token       | External API and remote MCP access | N/A    | `Bearer <developer-token>` preferred; `?token=` legacy-compatible |
+| Developer Token       | External API and remote MCP access | N/A    | `Authorization: Bearer <developer-token>` only |
 
 ---
 
@@ -634,7 +634,12 @@ External developers (MCP agents, third-party apps) use the `/api/v1` endpoints:
 
 For MCP hosts, the recommended consumption surface is:
 
-`discover_user_domains` → `request_consent` → `check_consent_status` → `get_encrypted_scoped_export(expected_scope=original_scope)`
+`search_user_scopes` → `request_consent` → `check_consent_status` → `get_encrypted_scoped_export(expected_scope=original_scope)`
+
+The MCP lifecycle keeps caller identity as input-only information. It returns
+`request_ref` while approval is pending and `grant_ref` after approval; consent
+tokens and internal user identifiers stay inside the backend. The raw HTTP
+contract above remains available for direct integrations.
 
 Coverage rules:
 
@@ -662,8 +667,8 @@ attr.{domain}.{subintent}.{attribute}
 Scope strings are dynamic. Do not hardcode domain keys. Discover user-available scopes via:
 
 - `GET /api/pkm/scopes/{user_id}`
-- `GET /api/v1/user-scopes/{user_id}?token=<developer-token>`
-- `discover_user_domains(user_id)` in MCP
+- `GET /api/v1/user-scopes/{user_id}` with `Authorization: Bearer <developer-token>`
+- `search_user_scopes(user_identifier, query?, domain?)` in MCP; omit `query` to list all available scopes with pagination
 
 ### Token Format
 

@@ -380,7 +380,10 @@ Examples:
 - `attr.financial.profile.*`
 
 Dynamic scopes are discovered at runtime from PKM metadata and `domain_registry`.
-Use `GET /api/pkm/scopes/{user_id}` (or MCP `discover_user_domains`) instead of hardcoding domains.
+Use `GET /api/pkm/scopes/{user_id}` (or MCP
+`search_user_scopes(user_identifier, query?, domain?)`) instead of hardcoding
+domains. Omit the MCP query to page through every scope available to that user;
+the identifier is resolved internally and is never returned.
 
 ### Scope Hierarchy
 

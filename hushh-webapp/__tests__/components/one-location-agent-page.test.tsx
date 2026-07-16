@@ -30,7 +30,9 @@ const {
   mockSendConnectionRequest,
   mockTrackEvent,
   mockRouterPush,
+  mockRouterReplace,
   mockSearchParamsGet,
+  mockSearchParams,
   mockCopyToClipboard,
 } = vi.hoisted(() => ({
   mockUseRequireAuth: vi.fn(),
@@ -60,18 +62,24 @@ const {
   mockSendConnectionRequest: vi.fn(),
   mockTrackEvent: vi.fn(),
   mockRouterPush: vi.fn(),
+  mockRouterReplace: vi.fn(),
   mockSearchParamsGet: vi.fn(),
+  mockSearchParams: {
+    get: vi.fn(),
+    toString: () => "",
+  },
   mockCopyToClipboard: vi.fn(),
 }));
 
+mockSearchParams.get = mockSearchParamsGet;
+
 vi.mock("next/navigation", () => ({
+  usePathname: () => "/one/location",
   useRouter: () => ({
     push: mockRouterPush,
+    replace: mockRouterReplace,
   }),
-  useSearchParams: () => ({
-    get: mockSearchParamsGet,
-    toString: () => "",
-  }),
+  useSearchParams: () => mockSearchParams,
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -133,7 +141,7 @@ vi.mock("@/lib/one-location/service", () => ({
     captureCurrentPosition: mockCaptureCurrentPosition,
     watchCurrentPosition: vi.fn().mockResolvedValue(null),
     clearWatch: vi.fn(),
-    clearLocationWatch: vi.fn(),
+    clearLocationWatch: vi.fn().mockResolvedValue(undefined),
     startBackgroundShare: vi.fn().mockResolvedValue({ started: false }),
     stopBackgroundShare: vi.fn().mockResolvedValue(undefined),
     requestAlwaysAuthorization: vi

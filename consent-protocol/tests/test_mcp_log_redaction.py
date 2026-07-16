@@ -20,6 +20,7 @@ from mcp_modules.log_redaction import (
 def test_redact_mcp_arguments_hides_sensitive_tool_inputs() -> None:
     args = {
         "user_id": "owner@example.com",
+        "user_identifier": "owner-alias@example.com",
         "consent_token": "HCT:raw-consent-token.signature",  # noqa: S105
         "developer_token": "dev-token-123",  # noqa: S105
         "connector_key_id": "connector-prod-key",
@@ -56,6 +57,7 @@ def test_redact_mcp_arguments_hides_sensitive_tool_inputs() -> None:
         assert raw_value not in serialized
 
     assert redacted["user_id"] == REDACTED
+    assert redacted["user_identifier"] == REDACTED
     assert redacted["consent_token"] == REDACTED
     assert redacted["recipientUserId"] == REDACTED
     assert redacted["ownerEmail"] == REDACTED
@@ -66,17 +68,25 @@ def test_redact_mcp_arguments_hides_sensitive_tool_inputs() -> None:
 
 
 @pytest.mark.asyncio
-async def test_call_tool_logs_redacted_arguments_but_passes_raw_args(monkeypatch, caplog) -> None:
+async def test_call_tool_does_not_log_arguments_but_passes_raw_args(monkeypatch, caplog) -> None:
     raw_user_id = "owner@example.com"
     raw_consent_token = "HCT:raw-consent-token.signature"  # noqa: S105
     received_args = {}
 
-    async def _handler(args: dict) -> list[TextContent]:
+    async def _handler(args: dict) -> tuple[list[TextContent], dict]:
         received_args.update(args)
-        return [TextContent(type="text", text=json.dumps({"status": "ok"}))]
+        payload = {"status": "ok"}
+        return [TextContent(type="text", text=json.dumps(payload))], payload
 
     monkeypatch.setitem(mcp_server.HANDLERS, "redaction_probe", _handler)
+    monkeypatch.setitem(
+        mcp_server._PRIVATE_INPUT_SCHEMAS,
+        "redaction_probe",
+        {"type": "object", "additionalProperties": True},
+    )
     monkeypatch.setattr(mcp_server, "is_tool_allowed", lambda _name: True)
+    monkeypatch.setattr(mcp_server, "validate_public_tool_input", lambda _name, _args: True)
+    monkeypatch.setattr(mcp_server, "validate_public_tool_output", lambda _name, _value: True)
 
     with caplog.at_level(logging.INFO, logger="hushh-mcp-server"):
         result = await mcp_server.call_tool(
@@ -88,13 +98,14 @@ async def test_call_tool_logs_redacted_arguments_but_passes_raw_args(monkeypatch
             },
         )
 
-    assert json.loads(result[0].text) == {"status": "ok"}
+    assert json.loads(result[0][0].text) == {"status": "ok"}
+    assert result[1] == {"status": "ok"}
     assert received_args["user_id"] == raw_user_id
     assert received_args["consent_token"] == raw_consent_token
     assert raw_user_id not in caplog.text
     assert raw_consent_token not in caplog.text
-    assert '"ticker": "HUSHH"' in caplog.text
-    assert REDACTED in caplog.text
+    assert "HUSHH" not in caplog.text
+    assert "Arguments" not in caplog.text
 
 
 def test_redact_log_value_hides_provider_query_credentials() -> None:

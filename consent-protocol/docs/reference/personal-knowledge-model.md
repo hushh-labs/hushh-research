@@ -223,7 +223,7 @@ sequenceDiagram
   participant Exports as consent_exports
 
   Connector->>Connector: generate X25519 keypair locally
-  Connector->>MCP: discover_user_domains(user_id)
+  Connector->>MCP: search_user_scopes(user_identifier)
   MCP->>PKM: read sanitized index/scope registry
   PKM-->>MCP: domains + dynamic scope handles
   Connector->>MCP: request_consent(scope, connector_public_key, key_id, alg)
@@ -239,7 +239,9 @@ sequenceDiagram
   Client->>Client: wrap export key to connector public key with X25519-AES256-GCM
   Client->>Consent: approve request with ciphertext + wrapped_key_bundle
   Consent->>Exports: store encrypted_data, iv, tag, wrapped_key_bundle, revisions
-  Connector->>MCP: get_encrypted_scoped_export(consent_token, expected_scope)
+  Connector->>MCP: check_consent_status(request_ref)
+  MCP-->>Connector: grant_ref after approval
+  Connector->>MCP: get_encrypted_scoped_export(grant_ref, expected_scope)
   MCP->>Exports: read ciphertext package
   Exports-->>MCP: encrypted export only
   MCP-->>Connector: encrypted_data + wrapped_key_bundle

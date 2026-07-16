@@ -1757,6 +1757,43 @@ class ConsentDBService:
             }
         return None
 
+    async def get_request_status_for_agent(
+        self,
+        request_id: str,
+        *,
+        agent_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Resolve one lifecycle reference inside its developer-app boundary.
+
+        MCP callers intentionally do not carry a Firebase UID between lifecycle
+        steps.  The request reference plus the authenticated app is sufficient;
+        filtering by ``agent_id`` prevents cross-app reference probing.
+        """
+
+        supabase = self._get_supabase()
+        response = (
+            supabase.table("consent_audit")
+            .select(
+                "id,token_id,request_id,action,scope,agent_id,issued_at,"
+                "scope_description,metadata,expires_at,poll_timeout_at"
+            )
+            .eq("request_id", request_id)
+            .eq("agent_id", agent_id)
+            .order("issued_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if not response.data:
+            return None
+        row = response.data[0]
+        if not self._is_external_audit_row(row):
+            return None
+        return {
+            **row,
+            "metadata": self._parse_metadata(row.get("metadata")),
+            "approval_timeout_at": self._effective_pending_timeout_at(row),
+        }
+
     # =========================================================================
     # Consent Exports (MCP Zero-Knowledge Flow)
     # =========================================================================
@@ -1916,8 +1953,33 @@ class ConsentDBService:
             if response.data and len(response.data) > 0:
                 return self._normalize_export_row(response.data[0])
             return None
-        except Exception as e:
-            logger.error(f"Failed to get consent export: {e}")
+        except Exception as exc:
+            logger.error("Failed to get consent export error_type=%s", type(exc).__name__)
+            return None
+
+    async def get_consent_export_by_grant(
+        self,
+        grant_id: str,
+        *,
+        app_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Resolve the internal consent token for one app-bound grant reference."""
+
+        supabase = self._get_supabase()
+        try:
+            response = (
+                supabase.table("consent_exports")
+                .select("*")
+                .eq("grant_id", grant_id)
+                .eq("app_id", app_id)
+                .gt("expires_at", datetime.now(timezone.utc).isoformat())
+                .order("export_revision", desc=True)
+                .limit(1)
+                .execute()
+            )
+            return self._normalize_export_row(response.data[0]) if response.data else None
+        except Exception as exc:
+            logger.error("Failed to resolve app-bound consent export: %s", type(exc).__name__)
             return None
 
     async def get_consent_export_metadata(self, consent_token: str) -> Optional[Dict[str, Any]]:
@@ -1965,7 +2027,10 @@ class ConsentDBService:
             )
             return self._normalize_export_row(response.data[0]) if response.data else None
         except Exception as exc:
-            logger.error("Failed to get consent export resource: %s", exc)
+            logger.error(
+                "Failed to get consent export resource error_type=%s",
+                type(exc).__name__,
+            )
             return None
 
     async def mark_export_refresh_status(self, consent_token: str, refresh_status: str) -> bool:

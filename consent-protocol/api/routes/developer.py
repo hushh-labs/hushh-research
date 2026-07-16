@@ -50,6 +50,7 @@ from hushh_mcp.constants import (
 )
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.consent_request_links import build_consent_request_url
+from hushh_mcp.services.consent_request_lock import serialize_consent_request
 from hushh_mcp.services.developer_registry_service import (
     DEFAULT_PUBLIC_TOOL_GROUPS,
     DeveloperPrincipal,
@@ -58,6 +59,7 @@ from hushh_mcp.services.developer_registry_service import (
     visible_tool_names_for_groups,
 )
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
+from hushh_mcp.services.user_identifier_service import resolve_lookup_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -114,8 +116,7 @@ class DeveloperScopeCatalogResponse(BaseModel):
     )
     recommended_flow: list[str] = Field(
         default_factory=lambda: [
-            "discover_user_domains",
-            "read_public_profile_projection_when_available",
+            "search_user_scopes",
             "request_consent",
             "check_consent_status",
             "get_encrypted_scoped_export",
@@ -254,6 +255,39 @@ class DeveloperScopedExportRequest(BaseModel):
     user_id: str = Field(..., min_length=1, max_length=128)
     consent_token: str = Field(min_length=16, max_length=2048)
     expected_scope: str | None = Field(default=None, max_length=200)
+
+
+class MCPScopedExportRequest(BaseModel):
+    """App-bound export lookup used by the MCP projection layer only."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    grant_ref: str = Field(..., pattern=r"^req_[a-f0-9]{28}$", max_length=32)
+    expected_scope: str = Field(..., min_length=3, max_length=200)
+
+
+class MCPUserScopesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_identifier: str = Field(..., min_length=1, max_length=320)
+    country_iso2: str | None = Field(default=None, min_length=2, max_length=2)
+    country: str | None = Field(default=None, min_length=2, max_length=64)
+
+
+class MCPConsentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_identifier: str = Field(..., min_length=1, max_length=320)
+    scope: str = Field(..., min_length=3, max_length=200)
+    purpose: str = Field(..., min_length=8, max_length=280)
+    expiry_hours: int = Field(default=24, ge=24, le=2160)
+    approval_timeout_minutes: int = Field(default=1440, ge=5, le=1440)
+    refresh_policy: Literal["snapshot", "continuous_until_expiry"] = "snapshot"
+    connector_public_key: str | None = Field(default=None, min_length=40, max_length=128)
+    connector_key_id: str | None = Field(default=None, min_length=1, max_length=128)
+    connector_wrapping_alg: Literal["X25519-AES256-GCM"] | None = None
+    country_iso2: str | None = Field(default=None, min_length=2, max_length=2)
+    country: str | None = Field(default=None, min_length=2, max_length=64)
 
 
 class DeveloperPublicProfileExportRequest(BaseModel):
@@ -542,6 +576,94 @@ def _export_fields(export_metadata: dict[str, object] | None) -> ExportFields:
         "export_revision": _optional_int(metadata.get("export_revision")),
         "export_generated_at": _optional_str(metadata.get("export_generated_at")),
         "export_refresh_status": _optional_str(metadata.get("refresh_status")),
+    }
+
+
+def _pending_request_matches(
+    pending: dict[str, object],
+    *,
+    reason: str | None,
+    expiry_hours: int,
+    approval_timeout_minutes: int,
+    refresh_policy: str,
+    connector_key_id: str | None,
+    connector_wrapping_alg: str | None,
+    recipient_key_fingerprint: str | None,
+) -> bool:
+    """Return true only when a pending request is safe to reuse idempotently."""
+
+    metadata = _metadata_object_map(pending.get("metadata"))
+    pending_reason = str(pending.get("reason") or metadata.get("reason") or "").strip()
+    expected_reason = str(reason or "").strip()
+    pending_expiry = _optional_int(pending.get("expiryHours") or metadata.get("expiry_hours"))
+    pending_timeout = _optional_int(
+        pending.get("approvalTimeoutMinutes") or metadata.get("approval_timeout_minutes")
+    )
+    pending_refresh_policy = str(metadata.get("refresh_policy") or "snapshot").strip()
+    if (
+        pending_reason != expected_reason
+        or pending_expiry != expiry_hours
+        or pending_timeout != approval_timeout_minutes
+        or pending_refresh_policy != refresh_policy
+    ):
+        return False
+
+    if recipient_key_fingerprint is None:
+        return not any(
+            str(metadata.get(field) or "").strip()
+            for field in (
+                "connector_key_id",
+                "connector_wrapping_alg",
+                "recipient_key_fingerprint",
+            )
+        )
+    return (
+        str(metadata.get("connector_key_id") or "").strip() == str(connector_key_id or "")
+        and str(metadata.get("connector_wrapping_alg") or "").strip()
+        == str(connector_wrapping_alg or "")
+        and str(metadata.get("recipient_key_fingerprint") or "").strip()
+        == recipient_key_fingerprint
+    )
+
+
+def _pending_consent_response(
+    pending: dict[str, object],
+    *,
+    normalized_scope: str,
+    principal: DeveloperPrincipal,
+) -> dict[str, object]:
+    pending_metadata = _metadata_object_map(pending.get("metadata"))
+    return {
+        "status": "pending",
+        "message": "Consent request already pending in the Hussh app.",
+        "request_id": pending.get("id"),
+        "scope": normalized_scope,
+        **_coverage_fields(requested_scope=normalized_scope, granted_scope=None),
+        "scope_description": pending.get("scopeDescription")
+        or get_scope_description(normalized_scope),
+        "poll_timeout_at": pending.get("pollTimeoutAt"),
+        "approval_timeout_at": pending.get("approvalTimeoutAt"),
+        "approval_timeout_minutes": pending.get("approvalTimeoutMinutes"),
+        "expiry_hours": pending.get("expiryHours"),
+        "refresh_policy": pending_metadata.get("refresh_policy") or "snapshot",
+        "agent_id": principal.agent_id,
+        "app_id": principal.app_id,
+        "app_display_name": principal.display_name,
+        "request_url": pending.get("requestUrl"),
+        "requester_label": pending.get("requesterLabel"),
+        "requester_image_url": pending.get("requesterImageUrl"),
+        "reason": pending.get("reason") or pending_metadata.get("reason"),
+        "approval_surface": "/consents?tab=pending",
+        "is_scope_upgrade": bool(
+            pending.get("isScopeUpgrade") or pending_metadata.get("is_scope_upgrade")
+        ),
+        "existing_granted_scopes": pending.get("existingGrantedScopes")
+        or _normalize_scope_list(pending_metadata.get("existing_granted_scopes"))
+        or None,
+        "additional_access_summary": pending.get("additionalAccessSummary")
+        or str(pending_metadata.get("additional_access_summary") or "").strip()
+        or None,
+        **_offer_response_fields(pending_metadata),
     }
 
 
@@ -922,8 +1044,7 @@ def _developer_root_payload() -> dict[str, object]:
             "hushh://info/developer-api",
         ],
         "recommended_mcp_flow": [
-            "discover_user_domains",
-            "read_public_profile_projection_when_available",
+            "search_user_scopes",
             "request_consent",
             "check_consent_status",
             "get_encrypted_scoped_export",
@@ -1149,6 +1270,95 @@ async def search_user_scopes(
     )
 
 
+async def _resolve_mcp_user_identifier(
+    identifier: str,
+    *,
+    country_iso2: str | None,
+    country: str | None,
+) -> str:
+    """Resolve an MCP caller identifier without echoing or logging it."""
+
+    from firebase_admin import auth
+
+    try:
+        lookup_kind, lookup_value = resolve_lookup_identifier(
+            identifier=identifier,
+            email=None,
+            phone_number=None,
+            country_iso2=country_iso2,
+            country=country,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error_code": "INVALID_USER_IDENTIFIER",
+                "message": "The supplied user identifier is invalid.",
+            },
+        ) from exc
+
+    firebase_app = get_firebase_auth_app()
+    if firebase_app is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error_code": "IDENTITY_RESOLUTION_UNAVAILABLE",
+                "message": "User identity resolution is temporarily unavailable.",
+            },
+        )
+    try:
+        if lookup_kind == "email":
+            record = auth.get_user_by_email(lookup_value, app=firebase_app)
+        elif lookup_kind == "phone":
+            record = auth.get_user_by_phone_number(lookup_value, app=firebase_app)
+        else:
+            record = auth.get_user(lookup_value, app=firebase_app)
+    except auth.UserNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error_code": "USER_NOT_FOUND",
+                "message": "No matching Hussh account was found.",
+            },
+        ) from exc
+    except Exception as exc:
+        logger.error("mcp_identity_resolution_failed error_type=%s", type(exc).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error_code": "IDENTITY_RESOLUTION_UNAVAILABLE",
+                "message": "User identity resolution is temporarily unavailable.",
+            },
+        ) from exc
+    return str(record.uid)
+
+
+@developer_api_router.post("/mcp/search-scopes")
+@limiter.limit(RateLimits.SEARCH_SCOPES)
+async def get_mcp_user_scopes(
+    payload: MCPUserScopesRequest,
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Return scope entries without placing an internal identifier in the URL."""
+
+    _resolve_principal(
+        request=request,
+        token=None,
+        authorization=authorization,
+    )
+    user_id = await _resolve_mcp_user_identifier(
+        payload.user_identifier,
+        country_iso2=payload.country_iso2,
+        country=payload.country,
+    )
+    _domains, _scopes, scope_entries = await _get_user_scope_snapshot(
+        user_id,
+        detail="verbose",
+    )
+    return {"scope_entries": scope_entries}
+
+
 @developer_api_router.get("/consent-status", response_model=DeveloperConsentStatusResponse)
 async def get_consent_status(
     request: Request,
@@ -1333,6 +1543,57 @@ async def stream_consent_events(
     )
 
 
+@developer_api_router.get("/mcp/consent-status/{request_ref}")
+@limiter.limit(RateLimits.TOKEN_VALIDATION)
+async def get_mcp_consent_status(
+    request: Request,
+    request_ref: str = Path(pattern=r"^req_[a-f0-9]{28}$", max_length=32),
+    authorization: Optional[str] = Header(None),
+):
+    """Return the identifier-free MCP lifecycle projection for one app."""
+
+    principal = _resolve_principal(
+        request=request,
+        token=None,
+        authorization=authorization,
+    )
+    latest = await ConsentDBService().get_request_status_for_agent(
+        request_ref,
+        agent_id=principal.agent_id,
+    )
+    if not latest:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error_code": "CONSENT_REQUEST_NOT_FOUND",
+                "message": "No matching consent request was found for this developer app.",
+            },
+        )
+
+    action = str(latest.get("action") or "").strip().upper()
+    lifecycle = _CONSENT_REQUEST_STATUS_MAP.get(action, "expired")
+    approval_timeout_at = _optional_int(
+        latest.get("approval_timeout_at") or latest.get("poll_timeout_at")
+    )
+    if (
+        lifecycle == "pending"
+        and approval_timeout_at is not None
+        and approval_timeout_at <= int(time.time() * 1000)
+    ):
+        lifecycle = "expired"
+    expires_at = _optional_int(latest.get("expires_at"))
+    if lifecycle == "granted" and expires_at is not None and expires_at <= int(time.time() * 1000):
+        lifecycle = "expired"
+
+    return {
+        "status": lifecycle,
+        "expires_at": expires_at,
+        "poll_after_seconds": 5 if lifecycle == "pending" else None,
+        "approval_timeout_at": approval_timeout_at,
+        "grant_ref": request_ref if lifecycle == "granted" else None,
+    }
+
+
 @developer_api_router.post("/request-consent")
 @limiter.limit(RateLimits.CONSENT_REQUEST)
 async def request_consent(
@@ -1513,43 +1774,21 @@ async def request_consent(
         agent_id=principal.agent_id,
         scope=normalized_scope,
     )
-    if pending:
-        pending_metadata = _metadata_object_map(pending.get("metadata"))
-        return {
-            "status": "pending",
-            "message": "Consent request already pending in the Hussh app.",
-            "request_id": pending.get("id"),
-            "scope": normalized_scope,
-            **_coverage_fields(
-                requested_scope=normalized_scope,
-                granted_scope=None,
-            ),
-            "scope_description": pending.get("scopeDescription")
-            or get_scope_description(normalized_scope),
-            "poll_timeout_at": pending.get("pollTimeoutAt"),
-            "approval_timeout_at": pending.get("approvalTimeoutAt"),
-            "approval_timeout_minutes": pending.get("approvalTimeoutMinutes"),
-            "expiry_hours": pending.get("expiryHours"),
-            "refresh_policy": pending_metadata.get("refresh_policy") or "snapshot",
-            "agent_id": principal.agent_id,
-            "app_id": principal.app_id,
-            "app_display_name": principal.display_name,
-            "request_url": pending.get("requestUrl"),
-            "requester_label": pending.get("requesterLabel"),
-            "requester_image_url": pending.get("requesterImageUrl"),
-            "reason": pending.get("reason") or pending_metadata.get("reason"),
-            "approval_surface": "/consents?tab=pending",
-            "is_scope_upgrade": bool(
-                pending.get("isScopeUpgrade") or pending_metadata.get("is_scope_upgrade")
-            ),
-            "existing_granted_scopes": pending.get("existingGrantedScopes")
-            or _normalize_scope_list(pending_metadata.get("existing_granted_scopes"))
-            or None,
-            "additional_access_summary": pending.get("additionalAccessSummary")
-            or str(pending_metadata.get("additional_access_summary") or "").strip()
-            or None,
-            **_offer_response_fields(pending_metadata),
-        }
+    if pending and _pending_request_matches(
+        pending,
+        reason=payload.reason,
+        expiry_hours=expiry_hours,
+        approval_timeout_minutes=approval_timeout_minutes,
+        refresh_policy=payload.refresh_policy,
+        connector_key_id=payload.connector_key_id,
+        connector_wrapping_alg=connector_wrapping_alg,
+        recipient_key_fingerprint=recipient_key_fingerprint,
+    ):
+        return _pending_consent_response(
+            pending,
+            normalized_scope=normalized_scope,
+            principal=principal,
+        )
 
     if await service.was_recently_denied(
         payload.user_id,
@@ -1606,16 +1845,42 @@ async def request_consent(
         }
     )
 
-    await service.insert_event(
-        user_id=payload.user_id,
+    async with serialize_consent_request(
         agent_id=principal.agent_id,
+        user_id=payload.user_id,
         scope=normalized_scope,
-        action="REQUESTED",
-        request_id=request_id,
-        scope_description=scope_description,
-        poll_timeout_at=poll_timeout_at,
-        metadata=metadata,
-    )
+    ):
+        concurrent_pending = await service.get_pending_request_for_scope(
+            payload.user_id,
+            agent_id=principal.agent_id,
+            scope=normalized_scope,
+        )
+        if concurrent_pending and _pending_request_matches(
+            concurrent_pending,
+            reason=payload.reason,
+            expiry_hours=expiry_hours,
+            approval_timeout_minutes=approval_timeout_minutes,
+            refresh_policy=payload.refresh_policy,
+            connector_key_id=payload.connector_key_id,
+            connector_wrapping_alg=connector_wrapping_alg,
+            recipient_key_fingerprint=recipient_key_fingerprint,
+        ):
+            return _pending_consent_response(
+                concurrent_pending,
+                normalized_scope=normalized_scope,
+                principal=principal,
+            )
+
+        await service.insert_event(
+            user_id=payload.user_id,
+            agent_id=principal.agent_id,
+            scope=normalized_scope,
+            action="REQUESTED",
+            request_id=request_id,
+            scope_description=scope_description,
+            poll_timeout_at=poll_timeout_at,
+            metadata=metadata,
+        )
 
     logger.info(
         "developer_api.request_consent.created scope=%s app_id=%s",
@@ -1650,6 +1915,75 @@ async def request_consent(
         "additional_access_summary": scope_upgrade_fields["additional_access_summary"],
         **_offer_response_fields(metadata),
     }
+
+
+@developer_api_router.post("/mcp/request-consent")
+async def request_mcp_consent(
+    payload: MCPConsentRequest,
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Identifier-free MCP projection over the compatible raw request route."""
+
+    _resolve_principal(
+        request=request,
+        token=None,
+        authorization=authorization,
+    )
+    user_id = await _resolve_mcp_user_identifier(
+        payload.user_identifier,
+        country_iso2=payload.country_iso2,
+        country=payload.country,
+    )
+    raw = await request_consent(
+        DeveloperConsentRequest(
+            user_id=user_id,
+            scope=payload.scope,
+            reason=payload.purpose,
+            expiry_hours=payload.expiry_hours,
+            approval_timeout_minutes=payload.approval_timeout_minutes,
+            connector_public_key=payload.connector_public_key,
+            connector_key_id=payload.connector_key_id,
+            connector_wrapping_alg=payload.connector_wrapping_alg,
+            refresh_policy=payload.refresh_policy,
+        ),
+        request=request,
+        token=None,
+        authorization=authorization,
+    )
+    state = str(raw.get("status") or "").strip().lower()
+    if state == "denied_recently":
+        return {"status": "denied"}
+    if state not in {"pending", "already_granted"}:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error_code": "INVALID_CONSENT_RESPONSE",
+                "message": "The consent service returned an invalid lifecycle response.",
+            },
+        )
+    request_ref = str(raw.get("request_id") or "").strip()
+    if not request_ref:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error_code": "GRANT_REFERENCE_UNAVAILABLE",
+                "message": "The consent lifecycle reference is unavailable.",
+            },
+        )
+    granted = state == "already_granted"
+    response = {
+        "status": "granted" if granted else "pending",
+        "scope": str(raw.get("requested_scope") or raw.get("scope") or payload.scope),
+        "coverage_kind": raw.get("coverage_kind") if granted else None,
+        "expires_at": _optional_int(raw.get("expires_at")),
+        "poll_after_seconds": None if granted else 5,
+        "approval_timeout_at": _optional_int(
+            raw.get("approval_timeout_at") or raw.get("poll_timeout_at")
+        ),
+    }
+    response["grant_ref" if granted else "request_ref"] = request_ref
+    return response
 
 
 @developer_api_router.post(
@@ -1901,6 +2235,88 @@ async def get_scoped_export(
             else "Encrypted export ready. The granted scope is broader than expected_scope, so narrow it client-side after decrypting."
         ),
     )
+
+
+@developer_api_router.post("/mcp/scoped-export")
+@limiter.limit(RateLimits.TOKEN_VALIDATION)
+async def get_mcp_scoped_export(
+    payload: MCPScopedExportRequest,
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Resolve an app-bound grant reference without exposing its consent token."""
+
+    principal = _resolve_principal(
+        request=request,
+        token=None,
+        authorization=authorization,
+    )
+    export = await ConsentDBService().get_consent_export_by_grant(
+        payload.grant_ref,
+        app_id=principal.app_id,
+    )
+    if not export:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error_code": "GRANT_NOT_FOUND",
+                "message": "No active grant was found for this developer app.",
+            },
+        )
+
+    consent_token = str(export.get("consent_token") or "")
+    user_id = str(export.get("user_id") or "")
+    expected_scope = normalize_scope(payload.expected_scope)
+    _resolved_principal, token_obj, export_data = await _load_scoped_export_or_raise(
+        request=request,
+        token=None,
+        authorization=authorization,
+        user_id=user_id,
+        consent_token=consent_token,
+        expected_scope=expected_scope,
+    )
+    if not export_data.get("is_strict_zero_knowledge"):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail={
+                "error_code": "LEGACY_EXPORT_INVALIDATED",
+                "message": "This grant must be approved again using envelope v2.",
+            },
+        )
+
+    granted_scope = str(export_data.get("scope") or token_obj.scope_str or token_obj.scope.value)
+    export_id = str(export_data.get("export_id") or "")
+    export_revision = int(export_data.get("export_revision") or 1)
+    resource_origin = str(os.getenv("CONSENT_API_PUBLIC_ORIGIN") or "").strip().rstrip("/")
+    if not resource_origin:
+        resource_origin = str(request.base_url).rstrip("/")
+    resource_uri = (
+        f"{resource_origin}/api/v1/scoped-export/resources/{export_id}/revisions/{export_revision}"
+    )
+    return {
+        "status": "success",
+        "granted_scope": granted_scope,
+        "expected_scope": expected_scope,
+        "expires_at": _optional_int(token_obj.expires_at),
+        "export_revision": export_revision,
+        "iv": export_data.get("iv"),
+        "tag": export_data.get("tag"),
+        "wrapped_key_bundle": export_data.get("wrapped_key_bundle"),
+        "export_envelope": {
+            "version": export_data.get("envelope_version"),
+            "export_id": export_id,
+            "aad": export_data.get("envelope_aad"),
+            "aad_sha256": export_data.get("envelope_aad_sha256"),
+            "ciphertext_sha256": export_data.get("ciphertext_sha256"),
+            "ciphertext_bytes": export_data.get("ciphertext_bytes"),
+        },
+        "resource_link": {
+            "uri": resource_uri,
+            "name": f"Hussh encrypted export revision {export_revision}",
+            "mime_type": "application/octet-stream",
+            "size": export_data.get("ciphertext_bytes"),
+        },
+    }
 
 
 def _parse_single_byte_range(range_header: str | None, total_bytes: int) -> tuple[int, int] | None:

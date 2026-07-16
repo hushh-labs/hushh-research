@@ -6,6 +6,7 @@ MCP Server configuration.
 import os
 
 from hushh_mcp.runtime_settings import get_app_runtime_settings
+from mcp_modules.public_contract import get_public_contract, get_public_tool_names
 
 
 def _env_truthy(name: str, fallback: str = "false") -> bool:
@@ -50,12 +51,15 @@ CONSENT_TIMEOUT_SECONDS = int(os.environ.get("CONSENT_TIMEOUT_SECONDS", "120"))
 # SERVER INFO
 # ============================================================================
 
+_PUBLIC_CONTRACT = get_public_contract()
+_PUBLIC_TOOL_NAMES = get_public_tool_names()
+
 SERVER_INFO = {
     "name": "Hushh Consent MCP Server",
-    "version": "0.2.0",
+    "version": _PUBLIC_CONTRACT["server"]["version"],
     "protocol": "HushhMCP",
     "transport": "stdio",
-    "description": "Consent-first personal data access for AI agents; no data without explicit user approval. Scopes are dynamic from the Personal Knowledge Model registry; use discover_user_domains to get per-user scope strings.",
+    "description": "Consent-first scoped information access for private agents. Search dynamic scopes, request explicit approval, poll by reference, then retrieve the approved encrypted export.",
     "connector_capabilities": {
         "crypto_modes": ["local", "host"],
         "envelope_versions": [2],
@@ -65,33 +69,9 @@ SERVER_INFO = {
         "maximum_resource_bytes_env": "HUSHH_CONSENT_EXPORT_MAX_RAW_BYTES",
         "maximum_model_result_chars_env": "HUSHH_MCP_LOCAL_DECRYPT_MAX_JSON_CHARS",
     },
-    "tools_count": 7,
+    "tools_count": len(_PUBLIC_TOOL_NAMES),
     "tools": [
-        {
-            "name": "prepare_campaign_context",
-            "purpose": "Discover, select, reuse/request consent, and fetch encrypted-export metadata for campaign/customer-experience context",
-        },
-        {"name": "request_consent", "purpose": "Request user consent for a data scope"},
-        {
-            "name": "validate_token",
-            "purpose": "Validate a consent token (signature, expiry, scope)",
-        },
-        {
-            "name": "discover_user_domains",
-            "purpose": "Discover which domains a user has and scope strings to request",
-        },
-        {
-            "name": "list_scopes",
-            "purpose": "List dynamic consent scope categories from backend registry",
-        },
-        {
-            "name": "get_encrypted_scoped_export",
-            "purpose": "Fetch the encrypted wrapped-key export for any approved dynamic scope",
-        },
-        {
-            "name": "check_consent_status",
-            "purpose": "Check status of a pending consent request",
-        },
+        {"name": tool["name"], "purpose": tool["description"]} for tool in _PUBLIC_CONTRACT["tools"]
     ],
     "compliance": [
         "Consent First",

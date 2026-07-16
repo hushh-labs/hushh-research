@@ -77,8 +77,18 @@ Do not inline these values in committed config.
 
 Purpose:
 
-1. Access Hussh consent/data tools and internal self-documentation.
-2. Verify the same dynamic scope discovery, consent, and encrypted scoped export contract shipped through `@hushh/mcp`.
+1. Access the four core Hussh consent tools, the campaign compatibility tool, and internal self-documentation.
+2. Verify the same dynamic scope search, consent-reference lifecycle, and encrypted scoped export contract shipped through `@hushh/mcp`.
+
+Public tools:
+
+1. `search_user_scopes`
+2. `prepare_campaign_context` (Hussh ADK compatibility only)
+3. `request_consent`
+4. `check_consent_status`
+5. `get_encrypted_scoped_export`
+
+Use bearer-header authentication only. MCP results must not expose caller or Firebase identifiers, developer or consent tokens, private keys, internal URLs, backend payloads, or exception text.
 
 Public onboarding source:
 
