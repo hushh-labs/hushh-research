@@ -14,6 +14,11 @@ import {
   type AppPageShellWidth,
 } from "@/components/app-ui/app-page-shell";
 import {
+  NativeTestBeacon,
+  type NativeTestAuthState,
+  type NativeTestDataState,
+} from "@/components/app-ui/native-test-beacon";
+import {
   PageHeader,
   SectionHeader,
 } from "@/components/app-ui/page-sections";
@@ -117,12 +122,20 @@ export function RiaSurface({
 export function RiaCompatibilityState({
   title,
   description,
+  nativeTest,
 }: {
   title: string;
   description: string;
+  nativeTest?: {
+    routeId: string;
+    marker: string;
+    authState: NativeTestAuthState;
+    dataState: NativeTestDataState;
+  };
 }) {
   return (
     <section className="space-y-3">
+      {nativeTest ? <NativeTestBeacon {...nativeTest} /> : null}
       <SectionHeader
         eyebrow="Compatibility Mode"
         title={title}

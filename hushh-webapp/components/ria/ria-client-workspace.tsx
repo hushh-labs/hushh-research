@@ -477,6 +477,12 @@ export function RiaClientWorkspace({
       <RiaCompatibilityState
         title="Complete RIA onboarding"
         description="Finish onboarding before opening dedicated client workspaces."
+        nativeTest={{
+          routeId: "/ria/clients/[userId]",
+          marker: "native-route-ria-client-workspace",
+          authState: user ? "authenticated" : "pending",
+          dataState: "unavailable-valid",
+        }}
       />
     );
   }
