@@ -103,6 +103,8 @@ def test_protected_uat_gate_requires_live_recovery_rehearsal():
     assert "PKM_UPGRADE_POSTGRES_REHEARSAL_URL" in gate
     assert "PKM_UPGRADE_STRUCTURE_AGENT_EVAL" in gate
     assert "PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL" in gate
+    assert "PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED" in gate
+    assert "pkm-runtime-audit.sh" in gate
     assert "pkm_v7_zero_loss_rehearsal.sql" in gate
     assert "primary_method" in rehearsal
     assert "get_pkm_domain_snapshot_v1" in rehearsal
@@ -128,5 +130,14 @@ def test_uat_deploy_runs_protected_pkm_gate_and_reviewer_byok_rehearsal():
     assert "PKM_UPGRADE_PROTECTED_UAT=1" in workflow
     assert "PKM_UPGRADE_REVIEWER_SHAPE_AUDIT=1" in workflow
     assert "PKM_UPGRADE_STRUCTURE_AGENT_EVAL=1" in workflow
+    assert "PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED=1" in workflow
     assert "verify-reviewer-byok" in workflow
     assert "reviewer_byok_continuity_failed" in workflow
+    assert "verify-pkm-runtime-audit" in workflow
+    assert "pkm_runtime_audit_failed" in workflow
+    assert workflow.index("Promote deployed revisions to UAT traffic") < workflow.index(
+        "Verify live PKM, investor, and RIA runtime audits"
+    )
+    assert workflow.index("Verify live PKM, investor, and RIA runtime audits") < workflow.index(
+        "Classify UAT release outcome"
+    )

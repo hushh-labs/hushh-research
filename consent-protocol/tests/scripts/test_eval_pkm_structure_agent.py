@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from hushh_mcp.services import pkm_agent_lab_service as pkm_agent_lab_module
 from scripts import eval_pkm_structure_agent as eval_script
 
 
@@ -9,6 +10,15 @@ def test_persona_chain_keeps_hundred_case_crud_surface():
     assert len(prompts) == 100
     categories = {prompt.category for prompt in prompts}
     assert {"correction", "deletion", "ambiguous", "finance"}.issubset(categories)
+
+
+def test_evaluator_timeout_outlives_runtime_preview_budget(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["eval_pkm_structure_agent.py"])
+
+    args = eval_script.parse_args()
+
+    assert args.per_prompt_timeout_seconds == eval_script.DEFAULT_PER_PROMPT_TIMEOUT_SECONDS
+    assert args.per_prompt_timeout_seconds > pkm_agent_lab_module._PREVIEW_TOTAL_BUDGET_SECONDS
 
 
 def test_quality_gate_flags_fallback_fragmentation_and_mutation_drift():

@@ -37,6 +37,9 @@ DEFAULT_REPORT_PATH = CONSENT_PROTOCOL_ROOT / "artifacts" / "pkm_structure_agent
 DEFAULT_PRIMARY_MODEL = "gemini-3.5-flash"
 DEFAULT_SECONDARY_MODEL = ""
 DEFAULT_REFERENCE_MODEL = ""
+# The evaluator must outlive the runtime preview's 30-second deadline so it
+# records the service result instead of manufacturing an earlier timeout.
+DEFAULT_PER_PROMPT_TIMEOUT_SECONDS = 35.0
 DEFAULT_SHADOW_USERS = [
     "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
     "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
@@ -415,7 +418,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--per-prompt-timeout-seconds",
         type=float,
-        default=25.0,
+        default=DEFAULT_PER_PROMPT_TIMEOUT_SECONDS,
         help="Per-prompt live model timeout in seconds.",
     )
     parser.add_argument(

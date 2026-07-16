@@ -20,24 +20,22 @@ def _pkm_event_constraint_operations(migration_name: str) -> set[str] | None:
     return set(re.findall(r"'([^']+)'", match.group("body")))
 
 
-def test_pkm_cutover_replay_constraint_allows_later_event_operation_types():
+def test_replayed_pkm_event_constraints_allow_all_later_operation_types():
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     ordered = manifest["ordered_migrations"]
-    cutover = "030_pkm_cutover.sql"
-    cutover_index = ordered.index(cutover)
-    cutover_operations = _pkm_event_constraint_operations(cutover)
+    constraint_migrations = [
+        (migration_name, operations)
+        for migration_name in ordered
+        if (operations := _pkm_event_constraint_operations(migration_name)) is not None
+    ]
 
-    assert cutover_operations is not None
-
-    for migration_name in ordered[cutover_index + 1 :]:
-        later_operations = _pkm_event_constraint_operations(migration_name)
-        if later_operations is None:
-            continue
-        assert later_operations <= cutover_operations, (
-            f"{cutover} must allow every pkm_events.operation_type allowed by "
-            f"{migration_name}; release migrations replay {cutover} before later "
-            "constraint wideners on existing UAT/production data."
-        )
+    for index, (migration_name, operations) in enumerate(constraint_migrations):
+        for later_name, later_operations in constraint_migrations[index + 1 :]:
+            assert later_operations <= operations, (
+                f"{migration_name} must allow every pkm_events.operation_type allowed by "
+                f"{later_name}; release migrations replay historical constraints before "
+                "later wideners on existing UAT/production data."
+            )
 
 
 def test_pkm_cutover_replay_constraint_allows_current_service_events():
