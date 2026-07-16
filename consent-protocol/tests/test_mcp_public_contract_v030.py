@@ -33,6 +33,14 @@ REMOVED_TOOLS = {
 }
 
 
+def _monorepo_root() -> Path | None:
+    protocol_root = Path(__file__).resolve().parents[1]
+    candidate = protocol_root.parent
+    if (candidate / "packages" / "hushh-mcp").is_dir():
+        return candidate
+    return None
+
+
 def test_every_public_catalog_uses_core_plus_campaign_compatibility_contract() -> None:
     assert get_public_tool_names() == EXPECTED_TOOLS
     assert tuple(tool.name for tool in get_tool_definitions()) == EXPECTED_TOOLS
@@ -46,13 +54,14 @@ def test_every_public_catalog_uses_core_plus_campaign_compatibility_contract() -
     assert tuple(item["name"] for item in catalog["tools"]) == EXPECTED_TOOLS
     assert not REMOVED_TOOLS.intersection(item["name"] for item in catalog["tools"])
 
-    repo_root = Path(__file__).resolve().parents[2]
-    for public_docs_path in (
-        repo_root / "packages" / "hushh-mcp" / "public-docs.json",
-        repo_root / "hushh-webapp" / "lib" / "developers" / "public-docs.json",
-    ):
-        public_docs = json.loads(public_docs_path.read_text())
-        assert tuple(public_docs["publicTools"]) == EXPECTED_TOOLS
+    monorepo_root = _monorepo_root()
+    if monorepo_root is not None:
+        for public_docs_path in (
+            monorepo_root / "packages" / "hushh-mcp" / "public-docs.json",
+            monorepo_root / "hushh-webapp" / "lib" / "developers" / "public-docs.json",
+        ):
+            public_docs = json.loads(public_docs_path.read_text())
+            assert tuple(public_docs["publicTools"]) == EXPECTED_TOOLS
 
 
 def test_non_public_entitlement_groups_keep_definitions_and_handlers() -> None:
@@ -129,7 +138,10 @@ async def test_resources_advertise_core_lifecycle_and_campaign_compatibility() -
 
 
 def test_partner_gateway_is_generated_from_canonical_inputs_only() -> None:
-    package_root = Path(__file__).resolve().parents[2] / "packages" / "hushh-mcp"
+    monorepo_root = _monorepo_root()
+    if monorepo_root is None:
+        pytest.skip("npm gateway artifact is verified by monorepo package CI")
+    package_root = monorepo_root / "packages" / "hushh-mcp"
     manifest = json.loads((package_root / "gateway" / "hushh-mcp-gateway.json").read_text())
     assert set(manifest) == {"protocolVersion", "transport", "capabilities", "tools"}
     assert manifest["protocolVersion"] == "2024-11-05"

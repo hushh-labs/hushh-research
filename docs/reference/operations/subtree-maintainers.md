@@ -10,10 +10,10 @@ Normal contributors should not need subtree knowledge to clone the repo, boot th
 
 ## What Stays True
 
-- `consent-protocol/` still has an upstream synchronization contract.
-- upstream-first routing remains the default when the same policy must exist in both repos.
+- The monorepo `consent-protocol/` directory is the authoritative source for builds, releases, and deploys.
+- The standalone `hushh-labs/consent-protocol` repository is an optional mirror.
 - day-to-day contributors work monorepo-first
-- subtree sync and push behavior is a maintainer concern
+- optional mirror sync and push behavior is a maintainer concern
 
 ## Contributor Rule
 
@@ -27,7 +27,7 @@ If a contributor only needs to build and ship against the monorepo, the subtree 
 
 ## Maintainer Rule
 
-When subtree coordination is required:
+When a maintainer chooses to update the optional mirror:
 
 - keep it in maintainer docs
 - keep the commands small and explicit
@@ -47,8 +47,8 @@ or opt in for a single push:
 CONSENT_PRE_PUSH_SYNC_CHECK=1 git push
 ```
 
-CI keeps the advisory upstream-sync check as the shared evidence lane. Actual
-`sync` and `push` operations remain explicit maintainer commands and are never
-performed by the pre-push hook.
+CI keeps the advisory mirror-sync check as an informational evidence lane.
+Actual `sync` and `push` operations remain explicit maintainer commands, are
+never performed by the pre-push hook, and never gate merge, release, or deploy.
 
 The older, more detailed subtree notes may still exist temporarily during cleanup, but this page is the canonical ownership boundary.
