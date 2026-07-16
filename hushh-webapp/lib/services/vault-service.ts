@@ -58,6 +58,21 @@ export interface VaultState {
   wrappers: VaultWrapper[];
 }
 
+/**
+ * A native Firebase session can be restored a few frames after the React auth
+ * context has a user.  Keep that distinct from a real vault failure so route
+ * guards can wait for the session instead of presenting an unlock flow for a
+ * vault that may not exist yet.
+ */
+export class VaultAuthSessionNotReadyError extends Error {
+  readonly code = "VAULT_AUTH_SESSION_NOT_READY";
+
+  constructor() {
+    super("Vault authentication is still restoring.");
+    this.name = "VaultAuthSessionNotReadyError";
+  }
+}
+
 export class VaultService {
   private static readonly VAULT_STATE_CACHE_TTL_MS = 3 * 60 * 1000;
   private static readonly VAULT_CHECK_SESSION_TTL_MS = 30 * 60 * 1000;
@@ -819,10 +834,22 @@ export class VaultService {
       if (Capacitor.isNativePlatform()) {
         console.log("🔐 [VaultService] Using native plugin for checkVault");
         try {
-          const authToken = await this.getFirebaseToken();
+          // Native auth restoration can settle after the React auth context
+          // publishes its synthetic user.  Do not issue an unauthenticated
+          // hasVault request in that interval: its 401 is not evidence that a
+          // vault exists.  Reuse the platform-aware token resolver shared by
+          // onboarding/bootstrap, then make one bounded retry.
+          let authToken = await this.getFirebaseToken();
+          if (!authToken) {
+            await this.sleep(400);
+            authToken = await this.getFirebaseToken();
+          }
+          if (!authToken) {
+            throw new VaultAuthSessionNotReadyError();
+          }
           console.log(
             "🔐 [VaultService] Got auth token:",
-            authToken ? "yes" : "no",
+            "yes",
           );
           const result = await HushhVault.hasVault({ userId, authToken });
           console.log("🔐 [VaultService] hasVault result:", result);
@@ -1407,17 +1434,11 @@ export class VaultService {
    */
   private static async getFirebaseToken(): Promise<string | undefined> {
     try {
-      // Check Firebase JS SDK first (consistent across all platforms)
-      const user = auth.currentUser;
-      if (user) {
-        return await user.getIdToken();
-      }
-
-      // Fallback to native plugin if on native platform
-      if (Capacitor.isNativePlatform()) {
-        const result = await HushhAuth.getIdToken();
-        return result.idToken || undefined;
-      }
+      // AuthService is the single platform-aware resolver.  In particular it
+      // checks the Capacitor Firebase session before the app-owned keychain
+      // fallback, which prevents fresh native users from racing the vault
+      // bootstrap with an unauthenticated plugin call.
+      return (await AuthService.getIdToken()) || undefined;
     } catch (e) {
       console.warn("[VaultService] Failed to get Firebase token:", e);
     }

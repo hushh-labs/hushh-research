@@ -36,6 +36,7 @@ from hushh_mcp.constants import (
     KAI_SYNTHESIS_MAX_OUTPUT_TOKENS,
     ConsentScope,
 )
+from hushh_mcp.runtime_providers import build_managed_runtime_client
 from hushh_mcp.types import UserID
 
 logger = logging.getLogger(__name__)
@@ -200,11 +201,7 @@ def _initialize_gemini_client(force: bool = False) -> None:
             os.environ.setdefault("GOOGLE_CLOUD_PROJECT", _gemini_project)
             os.environ.setdefault("GCP_PROJECT", _gemini_project)
             os.environ.setdefault("GOOGLE_CLOUD_LOCATION", _gemini_location)
-            _gemini_client = genai.Client(
-                vertexai=True,
-                project=_gemini_project,
-                location=_gemini_location,
-            )
+            _gemini_client = build_managed_runtime_client("gemini")
             logger.info(
                 "[Kai LLM] Vertex client initialized (project=%s, location=%s, model=%s, source=%s)",
                 _gemini_project,

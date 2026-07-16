@@ -18,7 +18,7 @@ from typing import Any
 from google import genai
 from google.genai import types as genai_types
 
-from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.runtime_providers import build_managed_runtime_client
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,6 @@ class AgentVoiceSynthesis:
 
 class AgentVoiceService:
     def __init__(self, *, model: str | None = None, tts_model: str | None = None):
-        self.settings = get_core_security_settings()
         configured_model = model or os.getenv(AGENT_STT_MODEL_ENV, "").strip()
         self.model = configured_model or DEFAULT_AGENT_STT_MODEL
         configured_tts_model = tts_model or os.getenv(AGENT_TTS_MODEL_ENV, "").strip()
@@ -111,14 +110,8 @@ class AgentVoiceService:
         self.client: genai.Client | None = None
         self._client_error: str | None = None
 
-        api_key = self.settings.google_api_key or os.getenv("GOOGLE_API_KEY", "").strip()
-        if not api_key:
-            self._client_error = "GOOGLE_API_KEY is not configured."
-            logger.warning("Agent voice STT disabled: GOOGLE_API_KEY is not configured.")
-            return
-
         try:
-            self.client = genai.Client(api_key=api_key)
+            self.client = build_managed_runtime_client("gemini")
         except Exception as error:  # pragma: no cover - defensive SDK initialization guard
             self._client_error = str(error)
             logger.exception("Failed to initialize Gemini Agent voice client: %s", error)

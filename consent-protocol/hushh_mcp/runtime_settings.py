@@ -41,7 +41,11 @@ VOICE_RUNTIME_CONFIG_JSON_ENV = "VOICE_RUNTIME_CONFIG_JSON"
 
 _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "environment": "ENVIRONMENT",
+    "hushh_genai_auth_mode": "HUSHH_GENAI_AUTH_MODE",
     "google_genai_use_vertexai": "GOOGLE_GENAI_USE_VERTEXAI",
+    "google_cloud_project": "GOOGLE_CLOUD_PROJECT",
+    "google_cloud_location": "GOOGLE_CLOUD_LOCATION",
+    "hushh_vertex_locations": "HUSHH_VERTEX_LOCATIONS",
     "db_host": "DB_HOST",
     "db_port": "DB_PORT",
     "db_name": "DB_NAME",

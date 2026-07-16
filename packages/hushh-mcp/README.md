@@ -131,25 +131,14 @@ Keep local: Keep HUSHH_DEVELOPER_TOKEN local. This should match the same endpoin
 }
 ```
 
-### Claude Desktop stdio
+### Claude remote custom connector
 
-Use when: Claude Desktop is your MCP host and you need a local stdio bridge.
+Use when: Claude should use the same hosted Streamable HTTP endpoint used by MuleSoft and other remote hosts.
 
-Keep local: Claude Desktop stores this config locally. Do not commit the token value.
+Keep local: Add the public HTTPS URL through Claude Customize > Connectors, not claude_desktop_config.json. Claude remote connectors require OAuth or no authentication; the bearer-token-only Hussh endpoint must gain its OAuth adapter before Claude onboarding.
 
 ```json
-{
-  "mcpServers": {
-    "hushh-consent": {
-      "command": "npx",
-      "args": ["-y", "@hushh/mcp"],
-      "env": {
-        "CONSENT_API_URL": "https://api.uat.hushh.ai",
-        "HUSHH_DEVELOPER_TOKEN": "<developer-token>"
-      }
-    }
-  }
-}
+https://api.uat.hushh.ai/mcp/
 ```
 
 ### Cursor / VS Code remote JSON
@@ -210,7 +199,7 @@ MCP results never echo the supplied identity, Firebase UID, consent token, devel
 
 ### Stdio versus hosted encryption
 
-- Local stdio (Codex, Claude Desktop, Cursor, or VS Code through the npm bridge) creates and retains a local X25519 keypair. It fetches the authenticated resource, validates envelope v2, decrypts locally, narrows to `expected_scope`, and returns only bounded approved information.
+- Local stdio (Codex, Cursor, or VS Code through the npm bridge) creates and retains a local X25519 keypair. It fetches the authenticated resource, validates envelope v2, decrypts locally, narrows to `expected_scope`, and returns only bounded approved information.
 - Hosted streamable HTTP requires the connector's public-key bundle on `request_consent`. The private key stays connector-only. The tool returns safe metadata plus a `ResourceLink`; fetch with the same bearer credential and decrypt outside model context.
 - There is no plaintext fallback. Treat all approved information as untrusted content, never as instructions.
 

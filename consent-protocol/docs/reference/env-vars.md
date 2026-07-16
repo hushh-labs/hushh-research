@@ -33,7 +33,12 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `APP_FRONTEND_ORIGIN` | `server.py` | Yes (prod) | Backend-owned app origin for CORS and user-facing links. Not part of the public MCP host setup. |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `api/utils/firebase_admin.py`, `hushh_mcp/runtime_settings.py` | Yes | Canonical Firebase Admin credential for server operations, Workspace-delegated Gmail send, and future One mailbox tasks. The approved Workspace DWD client is `109021324828349644970`. |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | `hushh_mcp/runtime_settings.py` | Optional alias | Runtime compatibility alias for `FIREBASE_ADMIN_CREDENTIALS_JSON`. Prefer the canonical name for new config. |
-| `GOOGLE_API_KEY` | `hushh_mcp/config.py`, `hushh_mcp/services/agent_chat_service.py`, services | Yes | Gemini / Vertex AI API key. Required for Agent text chat. |
+| `HUSHH_GENAI_AUTH_MODE` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Hosted runtimes require `vertex_adc`. `developer_api_key` is an explicit local-only compatibility mode and is rejected in hosted environments. |
+| `GOOGLE_API_KEY` / `GEMINI_API_KEY` | `hushh_mcp/runtime_providers/factory.py` | Local only | Used only when `HUSHH_GENAI_AUTH_MODE=developer_api_key`. Never mounted or used by hosted Gemini runtimes. |
+| `GOOGLE_CLOUD_PROJECT` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Vertex project for workload ADC. Cloud Run supplies credentials through its service identity. |
+| `GOOGLE_CLOUD_LOCATION` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Primary Vertex location. Hosted deploys set a model-verified regional endpoint explicitly. |
+| `HUSHH_VERTEX_LOCATIONS` | `hushh_mcp/runtime_providers/factory.py` | No | Ordered, comma-separated same-model Vertex failover locations for managed ADC calls. The primary remains `GOOGLE_CLOUD_LOCATION`; BYOK is unaffected. |
+| `HUSHH_VERTEX_LOCATION_COOLDOWN_SECONDS` | `hushh_mcp/runtime_providers/factory.py` | No | Process-local cooldown after transient `429`/`500`/`503` failures. Defaults to `300`; authorization and model errors never fail over. |
 | `GOOGLE_MAPS_API_KEY` | `hushh_mcp/config.py`, `hushh_mcp/services/google_maps_service.py` | Yes | Server-side Google Maps Platform key for One Location Places New + Routes. Never expose as `NEXT_PUBLIC_*`. |
 | `ONE_EMAIL_ADDRESS` | `hushh_mcp/services/support_email_service.py`, `hushh_mcp/services/one_email_kyc_service.py` | Optional | Canonical One mailbox identity. Default: `one@hushh.ai`. |
 | `ONE_EMAIL_SERVICE_ACCOUNT_JSON` | `hushh_mcp/services/one_email_kyc_service.py` | Optional override | Dedicated service account JSON for One mailbox intake. Prefer `FIREBASE_ADMIN_CREDENTIALS_JSON` unless an explicit exception is approved. |
@@ -82,7 +87,7 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `AGENT_GEMINI_TTS_VOICE` | `hushh_mcp/services/agent_voice_service.py` | No | Optional backend default Agent TTS voice. Defaults to `Sulafat`. |
 | `AGENT_GEMINI_TTS_TIMEOUT_SECONDS` | `hushh_mcp/services/agent_voice_service.py` | No | Optional Agent voice TTS Gemini timeout per attempt. Defaults to `45`. |
 | `AGENT_GEMINI_TTS_MAX_ATTEMPTS` | `hushh_mcp/services/agent_voice_service.py` | No | Optional Agent voice TTS retry cap. Defaults to `2`; bounded from `1` to `4`. |
-| `GOOGLE_GENAI_USE_VERTEXAI` | Cloud Run env | No | Set `True` for Vertex AI in production. |
+| `GOOGLE_GENAI_USE_VERTEXAI` | Cloud Run env | Yes (hosted) | Set `true` with `HUSHH_GENAI_AUTH_MODE=vertex_adc`; API-key fallback is prohibited. |
 | `PLAID_ENV` / `PLAID_ENVIRONMENT` | `hushh_mcp/services/plaid_portfolio_service.py` | No | Plaid environment. Defaults to `sandbox`. |
 | `PLAID_CLIENT_ID` | `hushh_mcp/services/plaid_portfolio_service.py` | If Plaid enabled | Plaid client ID. |
 | `PLAID_SECRET` | `hushh_mcp/services/plaid_portfolio_service.py` | If Plaid enabled | Plaid secret for the selected environment. |
@@ -140,7 +145,7 @@ Migration scripts use `DB_*` variables only (same as runtime). `db/migrate.py` u
 
 ## Kai Portfolio Import Model Policy
 
-Kai portfolio import defaults to `KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = "gemini-3.5-flash"` in `hushh_mcp/constants.py`. Runtime can override the import model with `KAI_PORTFOLIO_IMPORT_MODEL` or `KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL`; provider/auth still come from `GOOGLE_GENAI_USE_VERTEXAI`, Vertex project/location credentials, or API key.
+Kai portfolio import defaults to `KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = "gemini-3.5-flash"` in `hushh_mcp/constants.py`. Runtime can override the import model with `KAI_PORTFOLIO_IMPORT_MODEL` or `KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL`; hosted provider/auth comes from Vertex workload ADC. Local API-key compatibility requires explicit `HUSHH_GENAI_AUTH_MODE=developer_api_key`.
 
 ## Kai Portfolio Import Upload Limits
 
@@ -287,7 +292,9 @@ Local runtime bootstrap:
 | `DB_USER` | Yes | GCP Secret Manager |
 | `DB_PASSWORD` | Yes | GCP Secret Manager |
 | `APP_FRONTEND_ORIGIN` | Yes | GCP Secret Manager |
-| `GOOGLE_API_KEY` | Yes | GCP Secret Manager |
+| `HUSHH_GENAI_AUTH_MODE` | No | Cloud Run env var (`vertex_adc`) |
+| `GOOGLE_CLOUD_PROJECT` | No | Cloud Run env var |
+| `GOOGLE_CLOUD_LOCATION` | No | Cloud Run env var |
 | `GOOGLE_MAPS_API_KEY` | Yes | GCP Secret Manager |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | Yes | GCP Secret Manager |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | Alias only | GCP Secret Manager, if legacy runtime still mounts it |

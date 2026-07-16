@@ -138,7 +138,7 @@ def test_create_runtime_client_uses_byok_key_without_env_fallback(monkeypatch):
     assert calls == [{"vertexai": False, "api_key": "USER_BYOK_KEY"}]
 
 
-def test_create_managed_runtime_client_uses_vertex_api_key(monkeypatch):
+def test_create_managed_runtime_client_uses_vertex_adc(monkeypatch):
     calls: list[dict] = []
 
     def fake_client(**kwargs):
@@ -146,11 +146,14 @@ def test_create_managed_runtime_client_uses_vertex_api_key(monkeypatch):
         return SimpleNamespace(kind="client")
 
     monkeypatch.setattr("google.genai.Client", fake_client)
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
 
     client = create_managed_runtime_client("gemini", " MANAGED_KEY ")
 
     assert client.kind == "client"
-    assert calls == [{"vertexai": True, "api_key": "MANAGED_KEY"}]
+    assert calls == [{"vertexai": True, "project": "hushh-test", "location": "global"}]
 
 
 @pytest.mark.anyio

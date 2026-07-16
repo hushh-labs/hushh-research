@@ -12,7 +12,9 @@ from __future__ import annotations
 import sys
 import time
 import types
+from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -31,6 +33,7 @@ from hushh_mcp.runtime_providers.normalized import (
     NormalizedResponse,
 )
 from hushh_mcp.runtime_providers.translate import to_neutral_request
+from hushh_mcp.runtime_providers.vertex_failover import VertexRegionalClient
 
 # --------------------------------------------------------------------------- #
 # genai-shaped request fakes (mirror google.genai types the chat service uses)
@@ -214,14 +217,28 @@ def test_normalized_chunk_candidates_empty_when_no_text():
 # --------------------------------------------------------------------------- #
 
 
+def test_genai_client_construction_is_centralized() -> None:
+    protocol_root = Path(__file__).resolve().parents[2]
+    factory_path = protocol_root / "hushh_mcp" / "runtime_providers" / "factory.py"
+    offenders: list[str] = []
+    for root in (protocol_root / "hushh_mcp", protocol_root / "api", protocol_root / "scripts"):
+        for path in root.rglob("*.py"):
+            if path == factory_path:
+                continue
+            if "genai.Client(" in path.read_text(encoding="utf-8"):
+                offenders.append(str(path.relative_to(protocol_root)))
+
+    assert offenders == []
+
+
 def test_build_runtime_client_requires_key():
     with pytest.raises(ValueError, match="BYOK runtime key is required"):
         build_runtime_client("anthropic", "   ")
 
 
-def test_build_managed_runtime_client_requires_key():
+def test_build_managed_non_gemini_runtime_client_requires_key():
     with pytest.raises(RuntimeError, match="Managed runtime API key is not configured"):
-        build_managed_runtime_client("gemini", "")
+        build_managed_runtime_client("anthropic", "")
 
 
 def test_factory_rejects_unknown_provider():
@@ -229,7 +246,7 @@ def test_factory_rejects_unknown_provider():
         build_runtime_client("mistral", "key")
 
 
-def test_factory_gemini_uses_genai_client(monkeypatch):
+def test_factory_gemini_uses_byok_and_managed_adc_clients(monkeypatch):
     calls: list[dict] = []
 
     def fake_client(**kwargs):
@@ -237,13 +254,199 @@ def test_factory_gemini_uses_genai_client(monkeypatch):
         return types.SimpleNamespace(kind="genai")
 
     monkeypatch.setattr("google.genai.Client", fake_client)
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
     byok = build_runtime_client("gemini", "K1")
     managed = build_managed_runtime_client("gemini", "K2")
     assert byok.kind == "genai" and managed.kind == "genai"
     assert calls == [
         {"vertexai": False, "api_key": "K1"},
-        {"vertexai": True, "api_key": "K2"},
+        {"vertexai": True, "project": "hushh-test", "location": "global"},
     ]
+
+
+def test_factory_managed_adc_ignores_legacy_environment_key(monkeypatch):
+    calls: list[dict] = []
+
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+    monkeypatch.setenv("GOOGLE_API_KEY", "LEGACY_KEY_MUST_NOT_BE_USED")
+    monkeypatch.setattr("google.genai.Client", lambda **kwargs: calls.append(kwargs) or object())
+
+    build_managed_runtime_client("gemini")
+
+    assert calls == [{"vertexai": True, "project": "hushh-test", "location": "us-central1"}]
+
+
+@pytest.mark.asyncio
+async def test_managed_vertex_failover_preserves_model_request_and_uses_adc(monkeypatch):
+    class ResourceExhaustedError(Exception):
+        status_code = 429
+
+    calls: list[dict[str, Any]] = []
+    requests: list[tuple[str, dict[str, Any]]] = []
+
+    def fake_client(**kwargs: Any) -> Any:
+        calls.append(kwargs)
+        location = str(kwargs["location"])
+        generate_content = AsyncMock()
+        if location == "global":
+            generate_content.side_effect = ResourceExhaustedError("RESOURCE_EXHAUSTED")
+        else:
+            generate_content.side_effect = lambda **request: (
+                requests.append((location, request)) or types.SimpleNamespace(text="OK")
+            )
+        return types.SimpleNamespace(
+            aio=types.SimpleNamespace(
+                models=types.SimpleNamespace(generate_content=generate_content)
+            )
+        )
+
+    monkeypatch.setattr("google.genai.Client", fake_client)
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+    monkeypatch.setenv("HUSHH_VERTEX_LOCATIONS", "global,asia-southeast1")
+
+    client = build_managed_runtime_client("gemini")
+    response = await client.aio.models.generate_content(
+        model="gemini-3.5-flash",
+        contents="Return OK",
+        config={"temperature": 0},
+    )
+
+    assert isinstance(client, VertexRegionalClient)
+    assert response.text == "OK"
+    assert calls == [
+        {"vertexai": True, "project": "hushh-test", "location": "global"},
+        {"vertexai": True, "project": "hushh-test", "location": "asia-southeast1"},
+    ]
+    assert requests == [
+        (
+            "asia-southeast1",
+            {
+                "model": "gemini-3.5-flash",
+                "contents": "Return OK",
+                "config": {"temperature": 0},
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_vertex_failover_cooldown_skips_exhausted_primary(monkeypatch):
+    class ResourceExhaustedError(Exception):
+        status_code = 429
+
+    global_generate = AsyncMock(side_effect=ResourceExhaustedError("RESOURCE_EXHAUSTED"))
+    regional_generate = AsyncMock(return_value=types.SimpleNamespace(text="OK"))
+
+    def fake_client(**kwargs: Any) -> Any:
+        generate = global_generate if kwargs["location"] == "global" else regional_generate
+        return types.SimpleNamespace(
+            aio=types.SimpleNamespace(models=types.SimpleNamespace(generate_content=generate))
+        )
+
+    client = VertexRegionalClient(
+        project="hushh-test",
+        locations=("global", "asia-southeast1"),
+        client_factory=fake_client,
+        cooldown_seconds=300,
+    )
+
+    first = await client.aio.models.generate_content(model="gemini-3.5-flash", contents="one")
+    second = await client.aio.models.generate_content(model="gemini-3.5-flash", contents="two")
+
+    assert first.text == second.text == "OK"
+    assert global_generate.await_count == 1
+    assert regional_generate.await_count == 2
+
+
+def test_vertex_failover_does_not_retry_authorization_failure() -> None:
+    class PermissionDeniedError(Exception):
+        status_code = 403
+
+    primary_generate = lambda **_kwargs: (_ for _ in ()).throw(  # noqa: E731
+        PermissionDeniedError("PERMISSION_DENIED")
+    )
+    regional_generate = lambda **_kwargs: types.SimpleNamespace(text="unexpected")  # noqa: E731
+    created: list[str] = []
+
+    def fake_client(**kwargs: Any) -> Any:
+        location = str(kwargs["location"])
+        created.append(location)
+        generate = primary_generate if location == "global" else regional_generate
+        return types.SimpleNamespace(models=types.SimpleNamespace(generate_content=generate))
+
+    client = VertexRegionalClient(
+        project="hushh-test",
+        locations=("global", "asia-southeast1"),
+        client_factory=fake_client,
+        cooldown_seconds=300,
+    )
+
+    with pytest.raises(PermissionDeniedError):
+        client.models.generate_content(model="gemini-3.5-flash", contents="blocked")
+
+    assert created == ["global"]
+
+
+def test_factory_developer_api_key_mode_is_explicit_and_local_only(monkeypatch):
+    calls: list[dict] = []
+
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "developer_api_key")
+    monkeypatch.setenv("GOOGLE_API_KEY", "LOCAL_DEVELOPER_KEY")
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setattr("google.genai.Client", lambda **kwargs: calls.append(kwargs) or object())
+
+    build_managed_runtime_client("gemini")
+
+    assert calls == [{"vertexai": False, "api_key": "LOCAL_DEVELOPER_KEY"}]
+
+
+def test_factory_rejects_developer_api_key_mode_in_hosted_environment(monkeypatch):
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "developer_api_key")
+    monkeypatch.setenv("GOOGLE_API_KEY", "HOSTED_KEY_MUST_NOT_BE_USED")
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+
+    with pytest.raises(RuntimeError, match="Hosted Gemini runtimes must use Vertex ADC"):
+        build_managed_runtime_client("gemini")
+
+
+def test_factory_hosted_adc_requires_explicit_vertex_contract(monkeypatch):
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+
+    with pytest.raises(RuntimeError, match="GOOGLE_GENAI_USE_VERTEXAI=true"):
+        build_managed_runtime_client("gemini")
+
+
+def test_factory_hosted_adc_requires_project_and_location(monkeypatch):
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("GCP_PROJECT", raising=False)
+    monkeypatch.delenv("GOOGLE_PROJECT", raising=False)
+    monkeypatch.delenv("GCLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("VERTEX_PROJECT_ID", raising=False)
+
+    with pytest.raises(RuntimeError, match="GOOGLE_CLOUD_PROJECT"):
+        build_managed_runtime_client("gemini")
+
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-test")
+    monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
+    monkeypatch.delenv("GCP_LOCATION", raising=False)
+    monkeypatch.delenv("VERTEX_LOCATION", raising=False)
+
+    with pytest.raises(RuntimeError, match="GOOGLE_CLOUD_LOCATION"):
+        build_managed_runtime_client("gemini")
 
 
 def test_factory_grok_uses_openai_transport_with_base_url(monkeypatch):

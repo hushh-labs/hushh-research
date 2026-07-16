@@ -45,8 +45,8 @@ function parseArgs(argv) {
     process.exit(1);
   }
 
-  if (!["light", "dark"].includes(args.theme)) {
-    throw new Error(`Unsupported theme: ${args.theme}. Use light or dark.`);
+  if (!["light", "dark", "molten-gold"].includes(args.theme)) {
+    throw new Error(`Unsupported theme: ${args.theme}. Use light, dark, or molten-gold.`);
   }
 
   return args;
@@ -77,7 +77,7 @@ Options:
   --html <path>       Optional HTML output path.
   --title <text>      Browser title and PDF header label.
   --subtitle <text>   Small header subtitle.
-  --theme <name>      Color theme: light (default) or dark.
+  --theme <name>      Color theme: light (default), dark, or molten-gold.
 `);
 }
 
@@ -306,10 +306,105 @@ function renderMarkdown(markdown) {
   return html.join("\n");
 }
 
-function buildHtml(markdown, { title, subtitle, theme }) {
-  const body = renderMarkdown(markdown);
+function extractCssBlock(source, selector, startAt = 0) {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const selectorPattern = new RegExp(`^\\s*${escapedSelector}\\s*\\{`, "m");
+  const scopedSource = source.slice(startAt);
+  const selectorMatch = selectorPattern.exec(scopedSource);
+  if (!selectorMatch) {
+    throw new Error(`Missing Morphy CSS selector: ${selector}`);
+  }
+
+  const openBrace = startAt + selectorMatch.index + selectorMatch[0].lastIndexOf("{");
+  let depth = 0;
+  for (let index = openBrace; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(openBrace + 1, index);
+    }
+  }
+  throw new Error(`Unclosed Morphy CSS selector: ${selector}`);
+}
+
+function readCssCustomProperties(block) {
+  return Object.fromEntries(
+    [...block.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/gi)].map(([, name, value]) => [name, value.trim()]),
+  );
+}
+
+function requireCssTokens(tokens, names, source) {
+  const missing = names.filter((name) => !tokens[name]);
+  if (missing.length) {
+    throw new Error(`Missing ${source} token(s): ${missing.join(", ")}`);
+  }
+}
+
+function visibleTitle(title) {
+  const withoutBrand = title.replace(/^hussh\s+/i, "").trim();
+  return withoutBrand || title;
+}
+
+async function moltenGoldPalette() {
+  const globals = await readFile(path.join(repoRoot, "hushh-webapp/app/globals.css"), "utf8");
+  const foundationStart = globals.lastIndexOf("\n.dark {");
+  const foundation = readCssCustomProperties(extractCssBlock(globals, ".dark", foundationStart));
+  const accent = readCssCustomProperties(
+    extractCssBlock(globals, 'html[data-accent="gold"].dark'),
+  );
+
+  requireCssTokens(
+    foundation,
+    ["--foundation-off", "--foundation-surface", "--foundation-ink", "--foundation-hairline"],
+    "Morphy dark Foundation",
+  );
+  requireCssTokens(
+    accent,
+    [
+      "--app-accent-deep",
+      "--app-accent-bright",
+      "--app-accent-surface",
+      "--app-accent-border",
+      "--app-accent-hero-from",
+      "--app-accent-hero-mid",
+      "--app-accent-hero-to",
+    ],
+    "Morphy Molten Gold",
+  );
+
+  return {
+    chromeColor: `color-mix(in srgb, ${foundation["--foundation-ink"]} 62%, transparent)`,
+    css: `
+        color-scheme: dark;
+        --bg: ${foundation["--foundation-off"]};
+        --bg-secondary: ${foundation["--foundation-surface"]};
+        --bg-tertiary: ${foundation["--foundation-hairline"]};
+        --fg: ${foundation["--foundation-ink"]};
+        --fg-secondary: color-mix(in srgb, ${foundation["--foundation-ink"]} 78%, ${foundation["--foundation-off"]});
+        --fg-tertiary: color-mix(in srgb, ${foundation["--foundation-ink"]} 54%, ${foundation["--foundation-off"]});
+        --separator: ${foundation["--foundation-hairline"]};
+        --separator-strong: ${accent["--app-accent-border"]};
+        --accent: ${accent["--app-accent-deep"]};
+        --accent-soft: ${accent["--app-accent-surface"]};
+        --accent-surface: ${accent["--app-accent-surface"]};
+        --blue: ${accent["--app-accent-bright"]};
+        --diagram-bg: ${foundation["--foundation-surface"]};
+        --brand-ink: ${foundation["--foundation-ink"]};
+        --brand-hero-from: ${accent["--app-accent-hero-from"]};
+        --brand-hero-mid: ${accent["--app-accent-hero-mid"]};
+        --brand-hero-to: ${accent["--app-accent-hero-to"]};`,
+  };
+}
+
+async function resolvePalette(theme) {
+  if (theme === "molten-gold") {
+    return moltenGoldPalette();
+  }
+
   const darkTheme = theme === "dark";
-  const palette = darkTheme
+  return {
+    chromeColor: darkTheme ? "rgba(235,235,245,.62)" : "rgba(60,60,67,.62)",
+    css: darkTheme
     ? `
         color-scheme: dark;
         --bg: #101114;
@@ -322,8 +417,13 @@ function buildHtml(markdown, { title, subtitle, theme }) {
         --separator-strong: rgba(235, 235, 245, 0.38);
         --accent: #e5c11c;
         --accent-soft: #403612;
+        --accent-surface: #1c1d21;
         --blue: #72adff;
-        --diagram-bg: #16171a;`
+        --diagram-bg: #16171a;
+        --brand-ink: var(--fg);
+        --brand-hero-from: var(--accent);
+        --brand-hero-mid: var(--accent);
+        --brand-hero-to: var(--accent);`
     : `
         color-scheme: light;
         --bg: #ffffff;
@@ -336,17 +436,27 @@ function buildHtml(markdown, { title, subtitle, theme }) {
         --separator-strong: rgba(60, 60, 67, 0.36);
         --accent: #dbb90f;
         --accent-soft: #fff3bf;
+        --accent-surface: #f5f5f7;
         --blue: #007aff;
-        --diagram-bg: #ffffff;`;
+        --diagram-bg: #ffffff;
+        --brand-ink: var(--fg);
+        --brand-hero-from: var(--accent);
+        --brand-hero-mid: var(--accent);
+        --brand-hero-to: var(--accent);`,
+  };
+}
+
+function buildHtml(markdown, { documentTitle, displayTitle, subtitle, palette }) {
+  const body = renderMarkdown(markdown);
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${escapeHtml(title)}</title>
+    <title>${escapeHtml(documentTitle)}</title>
     <style>
       :root {
-        ${palette}
+        ${palette.css}
       }
 
       @page {
@@ -378,12 +488,16 @@ function buildHtml(markdown, { title, subtitle, theme }) {
       }
 
       .brand {
-        color: var(--accent);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.12em;
+        height: 26px;
         margin-bottom: 8px;
-        text-transform: uppercase;
+        width: 82px;
+      }
+
+      .brand svg {
+        display: block;
+        height: 100%;
+        overflow: visible;
+        width: 100%;
       }
 
       .subtitle {
@@ -444,7 +558,7 @@ function buildHtml(markdown, { title, subtitle, theme }) {
       }
 
       blockquote {
-        background: var(--bg-secondary);
+        background: var(--accent-surface);
         border-left: 3px solid var(--accent);
         border-radius: 10px;
         color: var(--fg-secondary);
@@ -566,8 +680,22 @@ function buildHtml(markdown, { title, subtitle, theme }) {
   <body>
     <main class="shell">
       <header>
-        <div class="brand">Hussh</div>
-        <h1>${escapeHtml(title)}</h1>
+        <div class="brand">
+          <svg viewBox="73 8 460 146" role="img" aria-label="Hussh" preserveAspectRatio="xMinYMid meet">
+            <title>Hussh</title>
+            <defs>
+              <linearGradient id="hussh-pdf-wordmark-ssh" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stop-color="var(--brand-hero-from)" />
+                <stop offset="50%" stop-color="var(--brand-hero-mid)" />
+                <stop offset="100%" stop-color="var(--brand-hero-to)" />
+              </linearGradient>
+            </defs>
+            <text x="300" y="135" text-anchor="middle" font-family='"SF Pro Display", "SF Pro", "Helvetica Neue", Inter, system-ui, sans-serif' font-weight="700" font-size="160" letter-spacing="-5.6">
+              <tspan fill="var(--brand-ink)">hu</tspan><tspan fill="url(#hussh-pdf-wordmark-ssh)">ssh</tspan>
+            </text>
+          </svg>
+        </div>
+        <h1>${escapeHtml(displayTitle)}</h1>
         ${subtitle ? `<div class="subtitle">${escapeHtml(subtitle)}</div>` : ""}
       </header>
       ${body}
@@ -578,8 +706,9 @@ function buildHtml(markdown, { title, subtitle, theme }) {
 
 async function renderPdf({ input, output, html: htmlOutput, title, subtitle, theme }) {
   const markdown = rewriteShareableLinks(await readFile(input, "utf8"), input);
-  const html = buildHtml(markdown, { title, subtitle, theme });
-  const chromeColor = theme === "dark" ? "rgba(235,235,245,.62)" : "rgba(60,60,67,.62)";
+  const palette = await resolvePalette(theme);
+  const displayTitle = visibleTitle(title);
+  const html = buildHtml(markdown, { documentTitle: title, displayTitle, subtitle, palette });
   if (htmlOutput) {
     await mkdir(path.dirname(htmlOutput), { recursive: true });
     await writeFile(htmlOutput, html, "utf8");
@@ -596,8 +725,8 @@ async function renderPdf({ input, output, html: htmlOutput, title, subtitle, the
       format: "A4",
       printBackground: true,
       displayHeaderFooter: true,
-      headerTemplate: `<div style="font: 8px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; color: ${chromeColor}; width: 100%; padding: 0 14mm;">${escapeHtml(title)}</div>`,
-      footerTemplate: `<div style="font: 8px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; color: ${chromeColor}; width: 100%; padding: 0 14mm; text-align: right;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>`,
+      headerTemplate: `<div style="font: 8px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; color: ${palette.chromeColor}; width: 100%; padding: 0 14mm;">${escapeHtml(displayTitle)}</div>`,
+      footerTemplate: `<div style="font: 8px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; color: ${palette.chromeColor}; width: 100%; padding: 0 14mm; text-align: right;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>`,
       margin: { top: "18mm", right: "14mm", bottom: "18mm", left: "14mm" },
     });
   } finally {

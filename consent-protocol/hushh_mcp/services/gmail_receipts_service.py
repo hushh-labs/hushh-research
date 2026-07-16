@@ -33,6 +33,7 @@ from google.oauth2 import id_token as google_id_token
 
 from db.connection import get_pool
 from db.db_client import get_db
+from hushh_mcp.runtime_providers import build_managed_runtime_client
 from hushh_mcp.runtime_settings import (
     APP_SIGNING_KEY_ENV,
     GMAIL_OAUTH_TOKEN_KEY_ENV,
@@ -2269,12 +2270,8 @@ class GmailReceiptsService:
     async def _llm_extract_candidate(self, candidate: ReceiptCandidate) -> dict[str, Any] | None:
         if not self._llm_fallback_enabled():
             return None
-        api_key = _clean_text(os.getenv("GOOGLE_API_KEY"))
-        if not api_key:
-            return None
 
         try:
-            from google import genai  # type: ignore
             from google.genai import types as genai_types  # type: ignore
         except Exception:
             return None
@@ -2290,7 +2287,7 @@ class GmailReceiptsService:
         )
 
         try:
-            client = genai.Client(api_key=api_key)
+            client = build_managed_runtime_client("gemini")
             response = await client.aio.models.generate_content(
                 model=self._llm_model(),
                 contents=prompt,

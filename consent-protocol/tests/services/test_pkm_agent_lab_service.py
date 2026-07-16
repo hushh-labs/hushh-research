@@ -88,6 +88,25 @@ def test_default_preview_budget_outlives_one_tail_contract_without_unbounded_wai
     )
 
 
+def test_managed_client_uses_shared_adc_authority_without_api_key(monkeypatch) -> None:
+    sentinel = object()
+    calls: list[tuple[str, str]] = []
+
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_GENAI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        pkm_agent_lab_module,
+        "build_managed_runtime_client",
+        lambda provider, credential="": calls.append((provider, credential)) or sentinel,
+    )
+
+    service = PKMAgentLabService()
+
+    assert service.client is sentinel
+    assert calls == [("gemini", "")]
+
+
 @pytest.mark.asyncio
 async def test_agent_contract_retries_one_timeout_within_preview_budget(monkeypatch):
     service = PKMAgentLabService()
@@ -112,6 +131,62 @@ async def test_agent_contract_retries_one_timeout_within_preview_budget(monkeypa
 
     assert result == {"status": "ok"}
     assert generate_content.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_agent_contract_retries_transient_resource_exhausted(monkeypatch):
+    class ResourceExhaustedError(Exception):
+        status_code = 429
+
+    service = PKMAgentLabService()
+    generate_content = AsyncMock(
+        side_effect=[
+            ResourceExhaustedError("RESOURCE_EXHAUSTED"),
+            SimpleNamespace(parsed={"status": "ok"}, text=""),
+        ]
+    )
+    service._client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    )
+    sleep = AsyncMock()
+    monkeypatch.setattr(pkm_agent_lab_module.asyncio, "sleep", sleep)
+    monkeypatch.setattr(service, "_provider_retry_delay_seconds", lambda _attempt: 0.5)
+
+    result = await service._run_agent_contract(
+        manifest=SimpleNamespace(id="agent_test", model="test-model"),
+        prompt="Return a valid structured response.",
+        response_schema={"type": "OBJECT"},
+        timeout_seconds=3.0,
+    )
+
+    assert result == {"status": "ok"}
+    assert generate_content.await_count == 2
+    sleep.assert_awaited_once_with(0.5)
+
+
+@pytest.mark.asyncio
+async def test_agent_contract_does_not_retry_permission_denied(monkeypatch):
+    class PermissionDeniedError(Exception):
+        status_code = 403
+
+    service = PKMAgentLabService()
+    generate_content = AsyncMock(side_effect=PermissionDeniedError("PERMISSION_DENIED"))
+    service._client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    )
+    sleep = AsyncMock()
+    monkeypatch.setattr(pkm_agent_lab_module.asyncio, "sleep", sleep)
+
+    result = await service._run_agent_contract(
+        manifest=SimpleNamespace(id="agent_test", model="test-model"),
+        prompt="Return a valid structured response.",
+        response_schema={"type": "OBJECT"},
+        timeout_seconds=3.0,
+    )
+
+    assert result is None
+    assert generate_content.await_count == 1
+    sleep.assert_not_awaited()
 
 
 @pytest.mark.asyncio

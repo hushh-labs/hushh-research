@@ -222,7 +222,7 @@ The `RenaissanceService` provides lookup methods used by the losers analysis end
 | Model              | Gemini 3 Flash             |
 | SDK                | `google.genai` (new SDK)   |
 | Thinking Mode      | HIGH (full reasoning)      |
-| API Key            | `GOOGLE_API_KEY` from env  |
+| Hosted auth        | Vertex workload ADC through the Cloud Run service identity |
 | Streaming          | Token-by-token via `stream_gemini_response` |
 
 The LLM client is initialized in `hushh_mcp/operons/kai/llm.py` with graceful fallback if `google.genai` is not available.

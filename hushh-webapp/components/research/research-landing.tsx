@@ -22,7 +22,7 @@ export function ResearchLanding() {
         </div>
         <Hero
           kicker="Research"
-          title="Open protocols, given to the commons."
+          title="Open protocols, built for everyone."
           lede="PCHP is an open consent protocol for sharing information without giving up control."
         />
       </AppPageHeaderRegion>
