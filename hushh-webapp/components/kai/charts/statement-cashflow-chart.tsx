@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/chart";
 import {
   ChartSurfaceCard,
+  FallbackSurfaceCard,
   SurfaceInset,
 } from "@/components/app-ui/surfaces";
 import { cn } from "@/lib/utils";
@@ -58,7 +59,13 @@ export function StatementCashflowChart({
   );
 
   if (rows.length < 2) {
-    return null;
+    return (
+      <FallbackSurfaceCard
+        title="Statement Cashflow Signals"
+        detail="Cashflow signals will appear after at least two valid statement entries are available."
+        className={cn("min-w-0", className)}
+      />
+    );
   }
 
   const chartConfig: ChartConfig = {
