@@ -1594,9 +1594,7 @@ async def get_mcp_consent_status(
     }
 
 
-@developer_api_router.post("/request-consent")
-@limiter.limit(RateLimits.CONSENT_REQUEST)
-async def request_consent(
+async def _request_consent_impl(
     payload: DeveloperConsentRequest,
     request: Request,
     token: Optional[str] = Query(None, max_length=2048),
@@ -1917,6 +1915,24 @@ async def request_consent(
     }
 
 
+@developer_api_router.post("/request-consent")
+@limiter.limit(RateLimits.CONSENT_REQUEST)
+async def request_consent(
+    payload: DeveloperConsentRequest,
+    request: Request,
+    token: Optional[str] = Query(None, max_length=2048),
+    authorization: Optional[str] = Header(None),
+):
+    """Rate-limited raw developer consent route."""
+
+    return await _request_consent_impl(
+        payload,
+        request=request,
+        token=token,
+        authorization=authorization,
+    )
+
+
 @developer_api_router.post("/mcp/request-consent")
 async def request_mcp_consent(
     payload: MCPConsentRequest,
@@ -1935,7 +1951,10 @@ async def request_mcp_consent(
         country_iso2=payload.country_iso2,
         country=payload.country,
     )
-    raw = await request_consent(
+    # Call the undecorated implementation. Invoking the SlowAPI-decorated route
+    # directly makes its wrapper search positional arguments for ``Request``
+    # and can raise IndexError instead of executing the consent lifecycle.
+    raw = await _request_consent_impl(
         DeveloperConsentRequest(
             user_id=user_id,
             scope=payload.scope,

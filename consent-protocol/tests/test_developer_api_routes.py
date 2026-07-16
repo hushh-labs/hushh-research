@@ -1951,7 +1951,11 @@ def test_mcp_request_sanitizes_raw_consent_response(monkeypatch):
             "consent_token": "HCT:must-not-pass-through",
         }
 
-    monkeypatch.setattr(developer, "request_consent", _raw_request)
+    async def _decorated_route_must_not_be_called(*_args, **_kwargs):
+        raise AssertionError("MCP projection called the SlowAPI-decorated route")
+
+    monkeypatch.setattr(developer, "_request_consent_impl", _raw_request)
+    monkeypatch.setattr(developer, "request_consent", _decorated_route_must_not_be_called)
     client = TestClient(_build_app())
     response = client.post(
         "/api/v1/mcp/request-consent",
