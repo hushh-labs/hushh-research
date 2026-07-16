@@ -110,6 +110,12 @@ export function RiaClientAccountDetail({
       <RiaCompatibilityState
         title="Complete RIA onboarding"
         description="Finish onboarding before opening account detail routes."
+        nativeTest={{
+          routeId: "/ria/clients/[userId]/accounts/[accountId]",
+          marker: "native-route-ria-client-account-detail",
+          authState: user ? "authenticated" : "pending",
+          dataState: "unavailable-valid",
+        }}
       />
     );
   }
@@ -119,6 +125,12 @@ export function RiaClientAccountDetail({
       <RiaCompatibilityState
         title="Account detail is unavailable in this environment"
         description="The route is wired, but this environment still needs the full IAM schema before advisor-side account detail can load."
+        nativeTest={{
+          routeId: "/ria/clients/[userId]/accounts/[accountId]",
+          marker: "native-route-ria-client-account-detail",
+          authState: user ? "authenticated" : "pending",
+          dataState: "unavailable-valid",
+        }}
       />
     );
   }

@@ -27,4 +27,28 @@ describe("reviewer route bootstrap contract", () => {
       /if \(route\.mode === "redirect"\) \{[\s\S]*const override = ROUTE_OVERRIDES\[route\.route\];[\s\S]*override\?\.allowedPathnames/,
     );
   });
+
+  it.each([
+    [
+      "../../components/ria/ria-client-workspace.tsx",
+      "/ria/clients/[userId]",
+      "native-route-ria-client-workspace",
+    ],
+    [
+      "../../components/ria/ria-client-account-detail.tsx",
+      "/ria/clients/[userId]/accounts/[accountId]",
+      "native-route-ria-client-account-detail",
+    ],
+    [
+      "../../components/ria/ria-client-request-detail.tsx",
+      "/ria/clients/[userId]/requests/[requestId]",
+      "native-route-ria-client-request-detail",
+    ],
+  ])("keeps a terminal reviewer beacon in RIA compatibility mode for %s", (relativePath, routeId, marker) => {
+    const source = readFileSync(new URL(relativePath, import.meta.url), "utf8");
+
+    expect(source).toContain(`routeId: "${routeId}"`);
+    expect(source).toContain(`marker: "${marker}"`);
+    expect(source).toContain('dataState: "unavailable-valid"');
+  });
 });
