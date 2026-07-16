@@ -30,6 +30,56 @@ def test_evaluator_timeout_outlives_runtime_preview_budget(monkeypatch):
     assert args.per_prompt_timeout_seconds > pkm_agent_lab_module._PREVIEW_TOTAL_BUDGET_SECONDS
 
 
+def test_release_chain_is_small_but_covers_all_storage_decisions_and_domains():
+    personas, chain_state = eval_script.build_phase_personas(
+        phase="release_chain_24", max_prompts_per_persona=120
+    )
+    prompts = personas[0]["prompts"]
+
+    assert chain_state is True
+    assert len(prompts) == 24
+    assert {prompt.expected_mutation_intent for prompt in prompts} == {
+        "create",
+        "extend",
+        "correct",
+        "delete",
+        "no_op",
+    }
+    assert {prompt.expected_save_class for prompt in prompts} == {
+        "durable",
+        "ephemeral",
+        "ambiguous",
+    }
+    expected_domains = {domain for prompt in prompts for domain in prompt.expected_domains}
+    assert {
+        "financial",
+        "food",
+        "health",
+        "location",
+        "professional",
+        "shopping",
+        "social",
+        "travel",
+    }.issubset(expected_domains)
+
+
+def test_release_fail_fast_only_stops_zero_tolerance_failures():
+    healthy = SimpleNamespace(
+        timed_out=False,
+        schema_ok=True,
+        inner_timeout_count=0,
+        inner_budget_exhausted_count=0,
+        inner_failure_count=0,
+        finance_contamination=False,
+        unresolved_domain=False,
+    )
+    assert eval_script._decisive_release_failure(healthy) == ""
+
+    unhealthy = SimpleNamespace(**vars(healthy))
+    unhealthy.inner_timeout_count = 1
+    assert eval_script._decisive_release_failure(unhealthy) == "inner_timeout"
+
+
 def test_quality_gate_flags_fallback_fragmentation_and_mutation_drift():
     gate = eval_script._build_quality_gate(
         synthetic_reports=[

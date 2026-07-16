@@ -46,8 +46,14 @@ DEFAULT_SHADOW_USERS = [
     "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
     "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
 ]
-PHASE_ORDER = ("fresh_random_120", "fresh_chain_60", "fresh_chain_120")
+PHASE_ORDER = (
+    "release_chain_24",
+    "fresh_random_120",
+    "fresh_chain_60",
+    "fresh_chain_120",
+)
 PHASE_PROMPT_LIMIT = {
+    "release_chain_24": 24,
     "fresh_random_120": 120,
     "fresh_chain_60": 60,
     "fresh_chain_120": 120,
@@ -61,6 +67,34 @@ DEFAULT_GATE_THRESHOLDS = {
     "fragmentation_score_min": 0.80,
     "fragmentation_score_max": 1.20,
 }
+# Release coverage keeps one coherent chain across every storage decision class
+# and every canonical domain without repeating the long-form research matrix.
+_RELEASE_CHAIN_INDICES = (
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    22,
+    27,
+    28,
+    33,
+    34,
+)
 _GENERAL_DOMAIN_KEY = "general"
 _FINANCIAL_HINTS = {
     "stock",
@@ -393,7 +427,10 @@ def parse_args() -> argparse.Namespace:
         "--phase",
         choices=PHASE_ORDER,
         default="fresh_random_120",
-        help="Benchmark phase: 120 fresh single-turn prompts, 60 chained prompts, or 120 chained prompts.",
+        help=(
+            "Benchmark phase: 24-case release chain, 120 fresh single-turn prompts, "
+            "60 chained prompts, or 120 chained prompts."
+        ),
     )
     parser.add_argument(
         "--env-file",
@@ -450,6 +487,11 @@ def parse_args() -> argparse.Namespace:
         "--enforce-gates",
         action="store_true",
         help="Exit nonzero when PKM determinism quality gates fail.",
+    )
+    parser.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="Stop the release chain on a zero-tolerance infrastructure or schema failure.",
     )
     parser.add_argument(
         "--min-schema-ok-rate",
@@ -2889,7 +2931,11 @@ def build_phase_personas(
         ], False
 
     chain_seed = PERSONA_SEEDS[0]
-    chain_prompts = _build_fresh_chain(chain_seed)[:prompt_limit]
+    full_chain = _build_fresh_chain(chain_seed)
+    if phase == "release_chain_24":
+        chain_prompts = [full_chain[index] for index in _RELEASE_CHAIN_INDICES][:prompt_limit]
+    else:
+        chain_prompts = full_chain[:prompt_limit]
     return [
         {
             "persona_id": chain_seed.persona_id,
@@ -3106,6 +3152,7 @@ async def _run_synthetic_mode(
     strict_small_model: bool,
     chain_state: bool,
     per_prompt_timeout_seconds: float,
+    fail_fast: bool = False,
 ) -> dict[str, Any]:
     registry_override = _registry_override()
     persona_reports = []
@@ -3127,6 +3174,12 @@ async def _run_synthetic_mode(
             )
             persona_results.append(evaluation)
             all_results.append(evaluation)
+            if fail_fast:
+                decisive_failure = _decisive_release_failure(evaluation)
+                if decisive_failure:
+                    raise RuntimeError(
+                        f"PKM release evaluator stopped at {case.case_id}: {decisive_failure}"
+                    )
         persona_reports.append(
             {
                 "persona_id": persona["persona_id"],
@@ -3147,6 +3200,26 @@ async def _run_synthetic_mode(
         "personas": persona_reports,
         "summary": _summarize_results(all_results),
     }
+
+
+def _decisive_release_failure(result: EvaluationResult) -> str:
+    """Return only failures whose accepted count is always zero."""
+
+    if result.timed_out:
+        return "outer_timeout"
+    if not result.schema_ok:
+        return "schema_invalid"
+    if result.inner_timeout_count:
+        return "inner_timeout"
+    if result.inner_budget_exhausted_count:
+        return "inner_budget_exhausted"
+    if result.inner_failure_count:
+        return "inner_agent_failure"
+    if result.finance_contamination:
+        return "finance_contamination"
+    if result.unresolved_domain:
+        return "unresolved_domain"
+    return ""
 
 
 def _shadow_prompt_chain() -> list[PromptCase]:
@@ -3666,6 +3739,7 @@ async def main() -> int:
                 strict_small_model=strict_small_model,
                 chain_state=chain_state,
                 per_prompt_timeout_seconds=args.per_prompt_timeout_seconds,
+                fail_fast=bool(getattr(args, "fail_fast", False)),
             )
         )
         if not args.skip_shadow:

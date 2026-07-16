@@ -333,7 +333,7 @@ jobs:
         run: |
           set -euo pipefail
           started_at="$(date +%s)"
-          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_APP_REVIEW_MODE=true##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=8##_CLOUD_RUN_MIN_INSTANCES=1##_CLOUD_RUN_MAX_INSTANCES=5##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
+          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_APP_REVIEW_MODE=true##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=2##_DB_SQLALCHEMY_MAX_OVERFLOW=2##_CLOUD_RUN_MIN_INSTANCES=1##_CLOUD_RUN_MAX_INSTANCES=3##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
@@ -563,6 +563,7 @@ jobs:
             --report-path /tmp/uat-db-migration-guard-postdeploy.json
 
       - name: Bootstrap UAT runtime files for semantic verification
+        if: steps.postdeploy-db-gate.outcome != 'failure'
         shell: bash
         run: |
           set -euo pipefail
@@ -570,6 +571,7 @@ jobs:
           bash scripts/env/use_profile.sh uat
 
       - name: Load maintainer smoke overlay
+        if: steps.postdeploy-db-gate.outcome != 'failure'
         shell: bash
         run: |
           set -euo pipefail
@@ -611,6 +613,7 @@ jobs:
 
       - name: Semantic UAT verification
         id: verify-uat-1
+        if: steps.postdeploy-db-gate.outcome != 'failure'
         continue-on-error: true
         shell: bash
         run: |
@@ -624,7 +627,7 @@ jobs:
 
       - name: Semantic UAT verification retry
         id: verify-uat-2
-        if: steps.verify-uat-1.outcome == 'failure'
+        if: steps.postdeploy-db-gate.outcome != 'failure' && steps.verify-uat-1.outcome == 'failure'
         continue-on-error: true
         shell: bash
         run: |
@@ -639,7 +642,7 @@ jobs:
 
       - name: Verify reviewer BYOK navigation and cold re-unlock
         id: verify-reviewer-byok
-        if: steps.verification-plan.outputs.run_reviewer_byok == 'true'
+        if: steps.verification-plan.outputs.run_reviewer_byok == 'true' && (steps.verify-uat-1.outcome == 'success' || steps.verify-uat-2.outcome == 'success')
         continue-on-error: true
         shell: bash
         env:
@@ -652,7 +655,7 @@ jobs:
 
       - name: Verify live PKM, investor, and RIA runtime audits
         id: verify-pkm-runtime-audit
-        if: steps.verification-plan.outputs.run_pkm_runtime_audit == 'true'
+        if: steps.verification-plan.outputs.run_pkm_runtime_audit == 'true' && (steps.verify-uat-1.outcome == 'success' || steps.verify-uat-2.outcome == 'success')
         continue-on-error: true
         shell: bash
         env:
@@ -726,16 +729,24 @@ jobs:
               os.environ.get("DEPLOY_FRONTEND") != "true"
               or os.environ.get("FRONTEND_PROVENANCE_OUTCOME") == "success"
           )
-          semantic_success = os.environ.get("SEMANTIC_ATTEMPT_1") == "success" or os.environ.get("SEMANTIC_ATTEMPT_2") == "success"
           db_outcome = os.environ.get("DB_OUTCOME", "")
+          semantic_required = db_outcome != "failure"
+          semantic_success = (
+              not semantic_required
+              or os.environ.get("SEMANTIC_ATTEMPT_1") == "success"
+              or os.environ.get("SEMANTIC_ATTEMPT_2") == "success"
+          )
+          browser_authority_ready = semantic_required and semantic_success
           reviewer_byok_required = os.environ.get("REVIEWER_BYOK_REQUIRED") == "true"
           pkm_runtime_audit_required = os.environ.get("PKM_RUNTIME_AUDIT_REQUIRED") == "true"
           reviewer_byok_success = (
               not reviewer_byok_required
+              or not browser_authority_ready
               or os.environ.get("REVIEWER_BYOK_OUTCOME") == "success"
           )
           pkm_runtime_audit_success = (
               not pkm_runtime_audit_required
+              or not browser_authority_ready
               or os.environ.get("PKM_RUNTIME_AUDIT_OUTCOME") == "success"
           )
 
@@ -852,6 +863,7 @@ jobs:
                   },
               },
               "semantic": {
+                  "required": semantic_required,
                   "attempt_1": os.environ.get("SEMANTIC_ATTEMPT_1", ""),
                   "attempt_2": os.environ.get("SEMANTIC_ATTEMPT_2", ""),
                   "success": semantic_success,
@@ -865,11 +877,15 @@ jobs:
               },
               "reviewer_byok": {
                   "required": reviewer_byok_required,
+                  "authority_ready": browser_authority_ready,
+                  "skipped_reason": "" if browser_authority_ready or not reviewer_byok_required else "upstream_authority_failed",
                   "outcome": os.environ.get("REVIEWER_BYOK_OUTCOME", ""),
                   "success": reviewer_byok_success,
               },
               "pkm_runtime_audit": {
                   "required": pkm_runtime_audit_required,
+                  "authority_ready": browser_authority_ready,
+                  "skipped_reason": "" if browser_authority_ready or not pkm_runtime_audit_required else "upstream_authority_failed",
                   "outcome": os.environ.get("PKM_RUNTIME_AUDIT_OUTCOME", ""),
                   "success": pkm_runtime_audit_success,
               },
