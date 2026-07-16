@@ -28,6 +28,7 @@ BACKEND_TESTS=(
   "tests/test_pkm_upgrade_routes.py"
   "tests/test_pkm_upgrade_service.py"
   "tests/test_pkm_v7_recovery_migration.py"
+  "tests/test_pkm_event_operation_type_migration_contract.py"
   "tests/test_active_pkm_shape_audit.py"
   "tests/test_offline_db.py"
   "tests/services/test_account_service_cleanup_tables.py"
