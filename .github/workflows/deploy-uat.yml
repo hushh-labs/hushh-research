@@ -126,23 +126,6 @@ jobs:
           python-version: "3.13"
           protocol-dir: ./consent-protocol
 
-      - name: Set up Node runtime for protected PKM verification
-        uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: hushh-webapp/package-lock.json
-
-      - name: Install protected PKM browser dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm ci --prefix hushh-webapp
-          (
-            cd hushh-webapp
-            npx playwright install --with-deps chromium
-          )
-
       - name: Capture predeploy Cloud Run state
         id: predeploy-state
         shell: bash
@@ -200,6 +183,38 @@ jobs:
             --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
             --github-output "$GITHUB_OUTPUT" \
             --json
+
+      - name: Resolve UAT verification plan
+        id: verification-plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/resolve-uat-verification-plan.py \
+            --target-sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
+            --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
+            --deploy-backend "${{ steps.scope.outputs.deploy_backend }}" \
+            --deploy-frontend "${{ steps.scope.outputs.deploy_frontend }}" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Set up Node runtime for protected PKM verification
+        if: steps.verification-plan.outputs.requires_web_dependencies == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - name: Install protected PKM browser dependencies
+        if: steps.verification-plan.outputs.requires_web_dependencies == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --prefix hushh-webapp
+          (
+            cd hushh-webapp
+            npx playwright install --with-deps chromium
+          )
 
       - name: Sync canonical hosted runtime secrets
         shell: bash
@@ -299,15 +314,17 @@ jobs:
           BOOTSTRAP_FOCUS_PROFILE=uat bash scripts/env/bootstrap_profiles.sh --strict
           bash scripts/env/use_profile.sh uat
 
-          export PGHOST="$DB_HOST"
-          export PGPORT="$DB_PORT"
-          export PGDATABASE="$DB_NAME"
-          export PGUSER="$DB_USER"
-          export PGPASSWORD="$DB_PASSWORD"
-          PKM_UPGRADE_PROTECTED_UAT=1 \
-          PKM_UPGRADE_STRUCTURE_AGENT_EVAL_DEFERRED=1 \
-          PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED=1 \
-            ./scripts/ci/pkm-upgrade-gate.sh
+          if [ "${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}" = "true" ]; then
+            export PGHOST="$DB_HOST"
+            export PGPORT="$DB_PORT"
+            export PGDATABASE="$DB_NAME"
+            export PGUSER="$DB_USER"
+            export PGPASSWORD="$DB_PASSWORD"
+            PKM_UPGRADE_PROTECTED_UAT=1 \
+            PKM_UPGRADE_STRUCTURE_AGENT_EVAL_DEFERRED=1 \
+            PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED=1 \
+              ./scripts/ci/pkm-upgrade-gate.sh
+          fi
 
       - name: Deploy backend using Cloud Build
         id: deploy-backend
@@ -373,7 +390,7 @@ jobs:
 
       - name: Verify candidate PKM evaluator in Cloud Run
         id: verify-candidate-pkm-evaluator
-        if: steps.scope.outputs.deploy_backend == 'true'
+        if: steps.scope.outputs.deploy_backend == 'true' && steps.verification-plan.outputs.pkm_evaluator_runs != '0'
         shell: bash
         env:
           BACKEND_REVISION: ${{ steps.candidate-state.outputs.backend_revision }}
@@ -573,6 +590,25 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_ENV"
 
+          if [ "${{ steps.verification-plan.outputs.run_reviewer_byok }}" = "true" ]; then
+            reviewer_uid="$(gcloud secrets versions access latest \
+              --secret=REVIEWER_UID \
+              --project="${{ env.GCP_PROJECT_ID }}")"
+            reviewer_passphrase="$(gcloud secrets versions access latest \
+              --secret=REVIEWER_VAULT_PASSPHRASE \
+              --project="${{ env.GCP_PROJECT_ID }}")"
+            echo "::add-mask::$reviewer_uid"
+            echo "::add-mask::$reviewer_passphrase"
+            {
+              echo "REVIEWER_UID<<EOF"
+              printf '%s\n' "$reviewer_uid"
+              echo "EOF"
+              echo "REVIEWER_VAULT_PASSPHRASE<<EOF"
+              printf '%s\n' "$reviewer_passphrase"
+              echo "EOF"
+            } >> "$GITHUB_ENV"
+          fi
+
       - name: Semantic UAT verification
         id: verify-uat-1
         continue-on-error: true
@@ -603,6 +639,7 @@ jobs:
 
       - name: Verify reviewer BYOK navigation and cold re-unlock
         id: verify-reviewer-byok
+        if: steps.verification-plan.outputs.run_reviewer_byok == 'true'
         continue-on-error: true
         shell: bash
         env:
@@ -615,6 +652,7 @@ jobs:
 
       - name: Verify live PKM, investor, and RIA runtime audits
         id: verify-pkm-runtime-audit
+        if: steps.verification-plan.outputs.run_pkm_runtime_audit == 'true'
         continue-on-error: true
         shell: bash
         env:
@@ -640,6 +678,10 @@ jobs:
           SEMANTIC_ATTEMPT_2: ${{ steps.verify-uat-2.outcome }}
           REVIEWER_BYOK_OUTCOME: ${{ steps.verify-reviewer-byok.outcome }}
           PKM_RUNTIME_AUDIT_OUTCOME: ${{ steps.verify-pkm-runtime-audit.outcome }}
+          REVIEWER_BYOK_REQUIRED: ${{ steps.verification-plan.outputs.run_reviewer_byok }}
+          PKM_RUNTIME_AUDIT_REQUIRED: ${{ steps.verification-plan.outputs.run_pkm_runtime_audit }}
+          PKM_EVALUATOR_RUNS: ${{ steps.verification-plan.outputs.pkm_evaluator_runs }}
+          VERIFICATION_PLAN_REASON: ${{ steps.verification-plan.outputs.reason }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -686,8 +728,16 @@ jobs:
           )
           semantic_success = os.environ.get("SEMANTIC_ATTEMPT_1") == "success" or os.environ.get("SEMANTIC_ATTEMPT_2") == "success"
           db_outcome = os.environ.get("DB_OUTCOME", "")
-          reviewer_byok_success = os.environ.get("REVIEWER_BYOK_OUTCOME") == "success"
-          pkm_runtime_audit_success = os.environ.get("PKM_RUNTIME_AUDIT_OUTCOME") == "success"
+          reviewer_byok_required = os.environ.get("REVIEWER_BYOK_REQUIRED") == "true"
+          pkm_runtime_audit_required = os.environ.get("PKM_RUNTIME_AUDIT_REQUIRED") == "true"
+          reviewer_byok_success = (
+              not reviewer_byok_required
+              or os.environ.get("REVIEWER_BYOK_OUTCOME") == "success"
+          )
+          pkm_runtime_audit_success = (
+              not pkm_runtime_audit_required
+              or os.environ.get("PKM_RUNTIME_AUDIT_OUTCOME") == "success"
+          )
 
           blocking: list[str] = []
           backend_failure = False
@@ -814,12 +864,18 @@ jobs:
                   "outcome": db_outcome,
               },
               "reviewer_byok": {
+                  "required": reviewer_byok_required,
                   "outcome": os.environ.get("REVIEWER_BYOK_OUTCOME", ""),
                   "success": reviewer_byok_success,
               },
               "pkm_runtime_audit": {
+                  "required": pkm_runtime_audit_required,
                   "outcome": os.environ.get("PKM_RUNTIME_AUDIT_OUTCOME", ""),
                   "success": pkm_runtime_audit_success,
+              },
+              "verification_plan": {
+                  "reason": os.environ.get("VERIFICATION_PLAN_REASON", ""),
+                  "pkm_evaluator_runs": int(os.environ.get("PKM_EVALUATOR_RUNS") or "0"),
               },
           }
 
@@ -948,6 +1004,11 @@ jobs:
                   "frontend_url": "${{ steps.final-state.outputs.frontend_url }}",
               },
               "verification": {
+                  "plan_reason": "${{ steps.verification-plan.outputs.reason }}",
+                  "pkm_evaluator_runs": "${{ steps.verification-plan.outputs.pkm_evaluator_runs }}",
+                  "pkm_upgrade_gate_required": "${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}",
+                  "reviewer_byok_required": "${{ steps.verification-plan.outputs.run_reviewer_byok }}",
+                  "pkm_runtime_audit_required": "${{ steps.verification-plan.outputs.run_pkm_runtime_audit }}",
                   "parity_attempt_1": "${{ steps.verify-parity-1.outcome }}",
                   "parity_attempt_2": "${{ steps.verify-parity-2.outcome }}",
                   "parity_success": "${{ steps.classify-uat-release.outputs.parity_success }}",
@@ -1021,6 +1082,11 @@ jobs:
             echo "- Requested scope: \`${{ github.event.inputs.scope }}\`"
             echo "- Scope: \`${{ steps.scope.outputs.scope }}\`"
             echo "- Scope reason: \`${{ steps.scope.outputs.reason }}\`"
+            echo "- Verification plan: \`${{ steps.verification-plan.outputs.reason }}\`"
+            echo "- PKM evaluator runs: \`${{ steps.verification-plan.outputs.pkm_evaluator_runs }}\`"
+            echo "- PKM upgrade gate required: \`${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}\`"
+            echo "- Reviewer BYOK required: \`${{ steps.verification-plan.outputs.run_reviewer_byok }}\`"
+            echo "- PKM runtime audit required: \`${{ steps.verification-plan.outputs.run_pkm_runtime_audit }}\`"
             echo "- Backend deployed SHA before run: \`${{ steps.predeploy-state.outputs.backend_sha || 'unknown' }}\`"
             echo "- Frontend deployed SHA before run: \`${{ steps.predeploy-state.outputs.frontend_sha || 'unknown' }}\`"
             echo "- Status: \`$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8'))['status'])")\`"

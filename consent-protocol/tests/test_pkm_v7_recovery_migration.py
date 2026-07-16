@@ -135,6 +135,10 @@ def test_uat_deploy_runs_protected_pkm_gate_and_reviewer_byok_rehearsal():
     assert "PKM_UPGRADE_STRUCTURE_AGENT_EVAL_DEFERRED=1" in workflow
     assert "PKM_UPGRADE_STRUCTURE_AGENT_EVAL_DEFERRED" in gate
     assert "Verify candidate PKM evaluator in Cloud Run" in workflow
+    assert "Resolve UAT verification plan" in workflow
+    assert "resolve-uat-verification-plan.py" in workflow
+    assert "outputs.pkm_evaluator_runs != '0'" in workflow
+    assert "outputs.run_pkm_upgrade_gate" in workflow
     assert workflow.index("Verify candidate PKM evaluator in Cloud Run") < workflow.index(
         "Promote deployed revisions to UAT traffic"
     )
@@ -151,8 +155,14 @@ def test_uat_deploy_runs_protected_pkm_gate_and_reviewer_byok_rehearsal():
     assert "REVIEWER_" not in candidate_evaluator
     assert "PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED=1" in workflow
     assert "verify-reviewer-byok" in workflow
+    assert "outputs.run_reviewer_byok == 'true'" in workflow
+    assert "--secret=REVIEWER_UID" in workflow
+    assert "--secret=REVIEWER_VAULT_PASSPHRASE" in workflow
     assert "reviewer_byok_continuity_failed" in workflow
     assert "verify-pkm-runtime-audit" in workflow
+    assert "outputs.run_pkm_runtime_audit == 'true'" in workflow
+    assert "REVIEWER_BYOK_REQUIRED" in workflow
+    assert "PKM_RUNTIME_AUDIT_REQUIRED" in workflow
     assert "pkm_runtime_audit_failed" in workflow
     assert workflow.index("Promote deployed revisions to UAT traffic") < workflow.index(
         "Verify live PKM, investor, and RIA runtime audits"

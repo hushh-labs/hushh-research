@@ -29,6 +29,15 @@ The green `main` SHA is the deployment source of truth for a manual UAT dispatch
 7. records the deployment in the canonical `uat` GitHub environment
 8. loads the maintainer-only `REVIEWER_UID` / `REVIEWER_VAULT_PASSPHRASE` overlay and runs semantic release verification with bounded retry/rollback
 
+The UAT lane selects expensive verification from the diff between the exact
+deployed service revisions and the target SHA. The synthetic structure-agent
+evaluation, historical zero-loss rehearsal, and full PKM runtime browser audit
+run only when PKM upgrade machinery, stored-shape contracts, upgrade migrations,
+or upgrade fixtures change. Ordinary PKM reads/writes, prompts, model-provider
+changes, and unrelated releases use the standard release checks. Vault or
+reviewer-auth changes independently enable the BYOK navigation rehearsal. If a
+deployed SHA cannot be proven, selection fails closed to the complete suite.
+
 ### Backend Deployment
 
 ```bash
