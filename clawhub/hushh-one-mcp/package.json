@@ -1,6 +1,6 @@
 {
   "name": "@hushh/one-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "OpenClaw bundle for the Hussh One consent MCP and scoped PKM access flow.",
   "license": "Apache-2.0",
   "type": "module",
@@ -27,6 +27,22 @@
     "pkm",
     "consent"
   ],
+  "openclaw": {
+    "compat": {
+      "pluginApi": ">=2026.5.22"
+    },
+    "build": {
+      "openclawVersion": "2026.7.1"
+    },
+    "hostTargets": [
+      "openclaw"
+    ],
+    "environment": {
+      "variables": [
+        "HUSHH_DEVELOPER_TOKEN"
+      ]
+    }
+  },
   "files": [
     ".codex-plugin/",
     ".mcp.json",

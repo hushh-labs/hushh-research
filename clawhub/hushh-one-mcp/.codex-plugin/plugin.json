@@ -1,6 +1,6 @@
 {
   "name": "hushh-one-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "OpenClaw bundle for the Hussh One consent MCP, enabling agents to request explicit scoped access to a user's PKM through Hussh.",
   "author": {
     "name": "Hushh",
@@ -22,7 +22,7 @@
   "interface": {
     "displayName": "Hushh One MCP",
     "shortDescription": "Use Hussh One consented PKM access from OpenClaw.",
-    "longDescription": "Adds the Hussh One MCP bridge and agent guidance for discovering dynamic PKM scopes, requesting user consent in One/Kai, polling consent status, and retrieving scoped encrypted exports.",
+    "longDescription": "Adds the Hussh One MCP bridge and agent guidance for searching dynamic PKM scopes, requesting user consent in One/Kai, polling consent status, and retrieving scoped encrypted exports.",
     "developerName": "Hushh",
     "category": "Productivity",
     "capabilities": [
@@ -34,7 +34,7 @@
     "privacyPolicyURL": "https://hushh.ai/privacy",
     "termsOfServiceURL": "https://hushh.ai/terms",
     "defaultPrompt": [
-      "Discover a user's Hussh scopes before requesting consent.",
+      "Search a user's Hussh scopes before requesting consent.",
       "Request One consent for a narrow PKM scope.",
       "Check a Hussh consent request and fetch export metadata."
     ],

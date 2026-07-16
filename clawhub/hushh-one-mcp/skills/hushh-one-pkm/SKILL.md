@@ -5,7 +5,9 @@ description: Use when an OpenClaw agent needs to access a Hussh One user's Perso
 
 # Hushh One PKM Consent MCP
 
-Use Hussh One through the bundled MCP server `hushh-one`. OpenClaw exposes the tools as `hushh-one__<toolName>`.
+Use Hussh One through the MCP server `hushh-one`. OpenClaw exposes the tools as `hushh-one__<toolName>`.
+
+If this skill was installed standalone from ClawHub, ensure the operator also installed the plugin package `clawhub:@hushh/one-mcp`; the plugin contributes the MCP server config. The standalone skill only contributes agent instructions.
 
 ## Setup Gate
 
@@ -22,22 +24,21 @@ Never ask the user to paste the token into chat. Never put a developer token in 
 
 ## Consent Flow
 
-Prefer `hushh-one__prepare_campaign_context` for campaign, personalization, or customer-experience requests because it performs the full lifecycle with least-privilege scope selection.
+Prefer the four-tool lifecycle for new integrations. `hushh-one__prepare_campaign_context` remains available as a compatibility one-shot for campaign and customer-experience requests.
 
 For manual flows:
 
-1. Call `hushh-one__discover_user_domains` with the user's Firebase UID, registered email, or phone number.
-2. Choose the least-privilege discovered `attr.{domain}.{scope}.*` scope for the stated purpose.
-3. Call `hushh-one__check_consent_status` with `user_id` and `scope` before creating a new request.
-4. Call `hushh-one__request_consent` only when no active grant exists.
-5. If the request is pending, poll `hushh-one__check_consent_status` with the `request_id` or same `user_id` and `scope`.
-6. After consent is granted, call `hushh-one__get_encrypted_scoped_export` with `user_id`, `consent_token`, and the original `expected_scope`.
+1. Call `hushh-one__search_user_scopes` with the user's registered email, phone number, or Hussh account identifier as `user_identifier`.
+2. Choose the least-privilege returned `attr.{domain}.{scope}.*` scope for the stated purpose.
+3. Call `hushh-one__request_consent` with `user_identifier`, `scope`, and a plain-language `purpose`.
+4. If the request is pending, poll `hushh-one__check_consent_status` with the returned `request_ref` at the returned interval.
+5. After consent is granted, call `hushh-one__get_encrypted_scoped_export` with the returned `grant_ref` and the original `expected_scope`.
 
 The user approves or denies consent in the first-party Hussh One/Kai app. Do not ask the user for an approval link, do not impersonate the user, and do not bypass consent polling.
 
 ## Scope Rules
 
-Request only scopes returned by `discover_user_domains`.
+Request only scopes returned by `search_user_scopes`.
 
 Do not request or invent:
 

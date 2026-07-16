@@ -1,8 +1,8 @@
 # Hushh One MCP for OpenClaw
 
-OpenClaw bundle for the Hussh One consent MCP. It lets OpenClaw agents discover a user's available Personal Knowledge Model scopes, request explicit consent in Hussh One/Kai, poll approval status, and retrieve a scoped export through the Hussh MCP bridge.
+OpenClaw bundle plugin for the Hussh One consent MCP. It lets OpenClaw agents search a user's available Personal Knowledge Model scopes, request explicit consent in Hussh One/Kai, poll approval status, and retrieve a scoped export through the Hussh MCP bridge.
 
-This bundle does not grant direct access to user data. The developer token identifies the external app, and the user still approves each scoped request in Hussh.
+This bundle does not grant direct access to personal information. The developer token identifies the external app, and the user still approves each scoped request in Hussh.
 
 ## What This Bundle Adds
 
@@ -13,15 +13,15 @@ This bundle does not grant direct access to user data. The developer token ident
 
 The package includes a minimal `openclaw.plugin.json` because the current ClawHub package publish API requires plugin package metadata. OpenClaw still detects this package as a Codex bundle through `.codex-plugin/plugin.json`.
 
+This is published on ClawHub as a plugin package named `@hushh/one-mcp`. Search for it under ClawHub **Plugins**, not **Skills**. The included skill is named `hushh-one-pkm`; it can also be published separately for Skills-tab discovery, but installing that skill alone does not add the MCP server config.
+
 OpenClaw exposes Hussh tools with the `hushh-one__` prefix, for example:
 
+- `hushh-one__search_user_scopes`
 - `hushh-one__prepare_campaign_context`
-- `hushh-one__discover_user_domains`
 - `hushh-one__request_consent`
 - `hushh-one__check_consent_status`
 - `hushh-one__get_encrypted_scoped_export`
-- `hushh-one__validate_token`
-- `hushh-one__list_scopes`
 
 ## Get A Developer Token
 
@@ -34,8 +34,6 @@ OpenClaw exposes Hussh tools with the `hushh-one__` prefix, for example:
 Keep the token local. Do not put it in a URL, prompt, committed config file, or public issue.
 
 ## Install From ClawHub
-
-After this package is published:
 
 ```bash
 openclaw plugins install clawhub:@hushh/one-mcp
@@ -74,12 +72,11 @@ Recommended high-level flow:
 
 Manual flow:
 
-1. Call `hushh-one__discover_user_domains`.
-2. Pick a discovered least-privilege `attr.*` scope.
-3. Call `hushh-one__check_consent_status`.
-4. Call `hushh-one__request_consent` only if no active grant exists.
-5. Poll `hushh-one__check_consent_status` while pending.
-6. Call `hushh-one__get_encrypted_scoped_export` after approval.
+1. Call `hushh-one__search_user_scopes` with `user_identifier`, optional `query`, and optional `country_iso2` or `country` for national phone numbers.
+2. Pick the narrowest returned `attr.*` scope that satisfies the purpose.
+3. Call `hushh-one__request_consent` with `user_identifier`, the selected `scope`, and a plain-language `purpose`.
+4. If the response is pending, poll `hushh-one__check_consent_status` with the returned `request_ref`.
+5. After consent is granted, call `hushh-one__get_encrypted_scoped_export` with the returned `grant_ref` and original `expected_scope`.
 
 External agents must not request raw PKM, `pkm.read`, `pkm.write`, `vault.owner`, vault keys, connector private keys, or broad profile dumps.
 
@@ -91,6 +88,7 @@ clawhub login
 clawhub package validate ./clawhub/hushh-one-mcp
 clawhub package publish ./clawhub/hushh-one-mcp --family bundle-plugin --owner hushh --bundle-format codex --host-targets openclaw --dry-run
 clawhub package publish ./clawhub/hushh-one-mcp --family bundle-plugin --owner hushh --bundle-format codex --host-targets openclaw
+clawhub skill publish ./clawhub/hushh-one-mcp/skills/hushh-one-pkm --slug hushh-one-pkm --name "Hushh One PKM" --owner hushh
 ```
 
 The package name is `@hushh/one-mcp`, so the ClawHub publisher owner must be `hushh`. If publishing under a different owner, rename `package.json` before publishing.
