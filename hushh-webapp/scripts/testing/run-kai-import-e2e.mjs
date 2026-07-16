@@ -33,6 +33,7 @@ const appOrigin = (
 ).replace(/\/$/, "");
 const headless = process.env.PLAYWRIGHT_HEADLESS !== "0";
 const REVIEWER_BOOTSTRAP_ROUTE = "/ria";
+const REVIEWER_BOOTSTRAP_ROUTE_IDS = [REVIEWER_BOOTSTRAP_ROUTE, "/ria/onboarding"];
 const NAVIGATION_TIMEOUT_MS = 120_000;
 const IMPORT_TIMEOUT_MS = Number(process.env.KAI_IMPORT_E2E_TIMEOUT_MS || 10 * 60_000);
 const TERMINAL_DATA_STATES = [
@@ -307,7 +308,7 @@ async function ensureReviewerSession(page) {
     }
   }
 
-  await waitForRouteBeacon(page, [REVIEWER_BOOTSTRAP_ROUTE]);
+  await waitForRouteBeacon(page, REVIEWER_BOOTSTRAP_ROUTE_IDS);
 }
 
 async function firstVisible(locator) {
