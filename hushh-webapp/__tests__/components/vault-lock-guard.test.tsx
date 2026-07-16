@@ -17,6 +17,9 @@ const mocks = vi.hoisted(() => ({
     user: { uid: "user_1" } as { uid: string } | null,
     loading: false,
   },
+  VaultAuthSessionNotReadyError: class VaultAuthSessionNotReadyError extends Error {
+    readonly code = "VAULT_AUTH_SESSION_NOT_READY";
+  },
 }));
 
 vi.mock("@capacitor/core", () => ({
@@ -43,6 +46,7 @@ vi.mock("@/lib/vault/vault-context", () => ({
 }));
 
 vi.mock("@/lib/services/vault-service", () => ({
+  VaultAuthSessionNotReadyError: mocks.VaultAuthSessionNotReadyError,
   VaultService: {
     checkVault: mocks.checkVault,
     peekVaultPresence: mocks.peekVaultPresence,
@@ -165,6 +169,28 @@ describe("VaultLockGuard", () => {
 
     expect(screen.getByText("Restoring reviewer session...")).toBeTruthy();
     expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it("retries native vault discovery while the restored session token becomes available", async () => {
+    mocks.isNativePlatform.mockReturnValue(true);
+    mocks.peekVaultPresence.mockReturnValue(null);
+    mocks.checkVault.mockRejectedValueOnce(
+      new mocks.VaultAuthSessionNotReadyError(),
+    );
+    mocks.checkVault.mockResolvedValueOnce(false);
+
+    render(
+      <VaultLockGuard>
+        <div>Protected route</div>
+      </VaultLockGuard>,
+    );
+
+    expect(screen.getByText("Checking vault...")).toBeTruthy();
+    await waitFor(() => expect(mocks.checkVault).toHaveBeenCalledTimes(2), {
+      timeout: 1_500,
+    });
+    expect(await screen.findByText("Protected route")).toBeTruthy();
+    expect(screen.queryByTestId("vault-unlock-dialog")).toBeNull();
   });
 
   it("hard-gates a reviewer UID mismatch before any unlocked fast path", () => {

@@ -1047,7 +1047,8 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                     Connect with Remote MCP
                   </SurfaceCardTitle>
                   <SurfaceCardDescription className="max-w-3xl text-sm leading-6">
-                    Use the endpoint below with a developer token.
+                    Use the endpoint below with a bearer developer token. The core flow is scope
+                    search, consent request, bounded status polling, then encrypted export.
                   </SurfaceCardDescription>
                 </SurfaceCardHeader>
                 <SurfaceCardContent className="space-y-5">
@@ -1134,8 +1135,8 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                   <SurfaceCardHeader>
                     <SurfaceCardTitle>Public MCP tools</SurfaceCardTitle>
                     <SurfaceCardDescription>
-                      Public onboarding is UAT-first. The npm package, token env var, and slash-safe
-                      MCP URL below are the same contract shown on npm.
+                      Four tools are the recommended lifecycle. prepare_campaign_context remains
+                      only for the Hussh ADK campaign integration.
                     </SurfaceCardDescription>
                   </SurfaceCardHeader>
                   <SurfaceCardContent className="space-y-4">
@@ -1376,7 +1377,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                   <Accordion type="single" collapsible className="rounded-2xl border border-border/65 px-4">
                     <AccordionItem value="payload-examples" className="border-b-0">
                       <AccordionTrigger className="py-4 text-sm font-semibold hover:no-underline">
-                        Advanced payload examples
+                        Response examples
                       </AccordionTrigger>
                       <AccordionContent>
                         <div className="grid min-w-0 gap-4 pb-4 xl:grid-cols-2">

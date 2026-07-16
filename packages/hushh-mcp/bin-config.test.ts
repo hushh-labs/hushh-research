@@ -51,11 +51,6 @@ describe("hushh-mcp CLI config output", () => {
     expect(manifest.transport).toEqual({
       kind: "streamableHttp",
       path: "/mcp/",
-      auth: {
-        type: "bearer",
-        header: "Authorization",
-        note: "Authorization: Bearer <developer-token>. Query-string tokens (?token=) are not supported.",
-      },
     });
     expect(manifest.capabilities).toEqual({
       tools: true,

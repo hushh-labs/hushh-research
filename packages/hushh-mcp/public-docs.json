@@ -54,11 +54,11 @@
       "template": "{\n  \"mcpServers\": {\n    \"hushh-consent\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"{{PACKAGE_NAME}}\"],\n      \"env\": {\n        \"CONSENT_API_URL\": \"{{API_ORIGIN}}\",\n        \"{{TOKEN_ENV_VAR}}\": \"<developer-token>\"\n      }\n    }\n  }\n}"
     },
     {
-      "id": "claude-desktop",
-      "title": "Claude Desktop stdio",
-      "whenToUse": "Claude Desktop is your MCP host and you need a local stdio bridge.",
-      "secretNote": "Claude Desktop stores this config locally. Do not commit the token value.",
-      "template": "{\n  \"mcpServers\": {\n    \"hushh-consent\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"{{PACKAGE_NAME}}\"],\n      \"env\": {\n        \"CONSENT_API_URL\": \"{{API_ORIGIN}}\",\n        \"{{TOKEN_ENV_VAR}}\": \"<developer-token>\"\n      }\n    }\n  }\n}"
+      "id": "claude-remote",
+      "title": "Claude remote custom connector",
+      "whenToUse": "Claude should use the same hosted Streamable HTTP endpoint used by MuleSoft and other remote hosts.",
+      "secretNote": "Add the public HTTPS URL through Claude Customize > Connectors, not claude_desktop_config.json. Claude remote connectors require OAuth or no authentication; the bearer-token-only Hussh endpoint must gain its OAuth adapter before Claude onboarding.",
+      "template": "{{REMOTE_URL}}"
     },
     {
       "id": "cursor-vscode",

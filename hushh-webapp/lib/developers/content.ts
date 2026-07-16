@@ -178,7 +178,7 @@ export const CONSENT_FLOW_STEPS: ConsentFlowStep[] = [
   {
     title: "Request",
     detail:
-      "Send one discovered scope at a time to POST /api/v1/request-consent with a Bearer developer token and connector public-key bundle so Hussh can wrap the export key for client-side decryption.",
+      "Call request_consent with one returned scope and a plain-language purpose. Hosted connectors provide their X25519 public-key bundle here; local stdio manages its own keypair.",
   },
   {
     title: "Approve",
@@ -188,7 +188,7 @@ export const CONSENT_FLOW_STEPS: ConsentFlowStep[] = [
   {
     title: "Read",
     detail:
-      "After approval, fetch the encrypted export with get_encrypted_scoped_export or POST /api/v1/scoped-export and pass the original requested scope as expected_scope so your connector can narrow a reused broader grant locally after decrypting.",
+      "Use grant_ref with get_encrypted_scoped_export. Hosted MCP returns a ResourceLink for connector-side decryption; local stdio returns only bounded approved information.",
   },
 ];
 
@@ -275,9 +275,9 @@ export const FAQ_ITEMS: DeveloperFaqItem[] = [
       "Inside Kai. Your external agent requests consent, but the user approves or denies it in the Hussh product surface.",
   },
   {
-    question: "Do raw REST callers need to send a connector key?",
+    question: "When is a connector key required?",
     answer:
-      "Yes. Raw HTTP and MCP callers both provide connector_public_key, connector_key_id, and connector_wrapping_alg. Hussh wraps the export key to your public key and never manages your private key.",
+      "Hosted MCP and raw HTTP provide connector_public_key, connector_key_id, and connector_wrapping_alg on request_consent. The npm bridge manages its persistent X25519 keypair locally, so stdio callers do not provide private-key material to the model.",
   },
   {
     question: "When should I use remote MCP versus npm?",
@@ -301,114 +301,33 @@ export const DEVELOPER_SCOPE_NOTES = [
 
 export const DEVELOPER_SAMPLE_PAYLOADS: DeveloperSamplePayload[] = [
   {
-    title: "Sample discovery response",
+    title: "Scope search result",
     description:
-      "Sanitized example based on the current Kai-style test user. Right now the discovered surface is primarily financial.",
-    code: `{
-  "user_id": "kai_test_user",
-  "available_domains": ["financial"],
-  "scopes": [
-    "attr.financial.*",
-    "attr.financial.portfolio.*",
-    "attr.financial.profile.*",
-    "attr.financial.documents.*",
-    "attr.financial.analysis_history.*",
-    "attr.financial.runtime.*",
-    "attr.financial.analysis.decisions.*"
-  ],
-  "source": "pkm_index_v2 + manifest-backed scope discovery"
-}`,
-  },
-  {
-    title: "Sample scoped information response",
-    description:
-      "Illustrative encrypted export shape for an approved `attr.financial.*` grant. The connector unwraps the export key and decrypts locally.",
+      "The supplied person identifier is resolved internally and never appears in the result.",
     code: `{
   "status": "success",
-  "user_id": "kai_test_user",
-  "granted_scope": "attr.financial.*",
-  "expected_scope": "attr.financial.*",
-  "coverage_kind": "exact",
-  "encrypted_data": "<base64-ciphertext>",
-  "iv": "<base64-iv>",
-  "tag": "<base64-tag>",
-  "wrapped_key_bundle": {
-    "wrapped_export_key": "<base64-ciphertext>",
-    "wrapped_key_iv": "<base64-iv>",
-    "wrapped_key_tag": "<base64-tag>",
-    "sender_public_key": "<base64-x25519-public-key>",
-    "wrapping_alg": "X25519-AES256-GCM",
-    "connector_key_id": "connector-key-1"
-  },
-  "export_revision": 3,
-  "export_refresh_status": "current",
-  "zero_knowledge": true
+  "scopes": [{
+    "scope": "attr.financial.portfolio.*",
+    "domain": "financial",
+    "label": "Portfolio",
+    "description": "Approved portfolio holdings and allocation details."
+  }],
+  "next_cursor": null,
+  "has_more": false
 }`,
   },
   {
-    title: "Sample reused broader grant",
+    title: "Pending consent",
     description:
-      "If the app already holds a broader active grant and asks for a narrower branch, the request is reused immediately and the response tells you which broader scope is covering the ask.",
+      "Keep the opaque request_ref and poll only at the returned interval.",
     code: `{
-  "status": "already_granted",
-  "scope": "attr.financial.analytics.quality_metrics",
-  "requested_scope": "attr.financial.analytics.quality_metrics",
-  "granted_scope": "attr.financial.analytics.*",
-  "coverage_kind": "superset",
-  "covered_by_existing_grant": true,
-  "consent_token": "HCT:...",
-  "expires_at": 1760000000000
+  "status": "pending",
+  "scope": "attr.financial.portfolio.*",
+  "request_ref": "req_…",
+  "poll_after_seconds": 5,
+  "approval_timeout_at": 1760000000000,
+  "expires_at": null
 }`,
-  },
-  {
-    title: "Generate connector keypair locally",
-    description:
-      "Create the X25519 connector keypair on your own client or runtime. Only the base64 public key is shared with Hussh.",
-    code: `const keyPair = await crypto.subtle.generateKey(
-  { name: "X25519" },
-  true,
-  ["deriveBits"]
-);
-
-const connectorPublicKey = btoa(
-  String.fromCharCode(
-    ...new Uint8Array(await crypto.subtle.exportKey("raw", keyPair.publicKey))
-  )
-);`,
-  },
-  {
-    title: "Unwrap and decrypt locally",
-    description:
-      "After POST /api/v1/scoped-export returns ciphertext and a wrapped key bundle, unwrap the export key and decrypt on your side.",
-    code: `const sharedSecret = await crypto.subtle.deriveBits(
-  { name: "X25519", public: senderPublicKey },
-  connectorPrivateKey,
-  256
-);
-const wrappingKeyBytes = new Uint8Array(
-  await crypto.subtle.digest("SHA-256", sharedSecret)
-);
-const wrappingKey = await crypto.subtle.importKey(
-  "raw",
-  wrappingKeyBytes,
-  { name: "AES-GCM", length: 256 },
-  false,
-  ["decrypt"]
-);
-
-const rawExportKey = await crypto.subtle.decrypt(
-  { name: "AES-GCM", iv: wrappedKeyIvBytes },
-  wrappingKey,
-  concatBytes(wrappedExportKeyBytes, wrappedKeyTagBytes)
-);
-
-const exportKey = await crypto.subtle.importKey(
-  "raw",
-  rawExportKey,
-  { name: "AES-GCM", length: 256 },
-  false,
-  ["decrypt"]
-);`,
   },
 ];
 

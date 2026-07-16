@@ -25,7 +25,10 @@ import { Capacitor } from "@capacitor/core";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
-import { VaultService } from "@/lib/services/vault-service";
+import {
+  VaultAuthSessionNotReadyError,
+  VaultService,
+} from "@/lib/services/vault-service";
 import { VaultUnlockDialog } from "./vault-unlock-dialog";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
@@ -69,6 +72,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   const [nativeAuthGraceElapsed, setNativeAuthGraceElapsed] = useState(
     !isNativePlatform,
   );
+  const [nativeVaultCheckAttempt, setNativeVaultCheckAttempt] = useState(0);
   const authStepDoneRef = useRef(false);
   const vaultStepDoneRef = useRef(false);
   const nativeReplayAttemptedRef = useRef(false);
@@ -91,6 +95,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   useEffect(() => {
     if (!userId) {
       setHasVault(null);
+      setNativeVaultCheckAttempt(0);
       return;
     }
     if (isVaultUnlocked) {
@@ -101,6 +106,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     // session -> bootstrap) so re-mounts do not flash a loader.
     const cached = VaultService.peekVaultPresence(userId);
     setHasVault(cached);
+    setNativeVaultCheckAttempt(0);
   }, [isVaultUnlocked, userId]);
 
   // Redirect unauthenticated users (side-effect outside render)
@@ -166,6 +172,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
   useEffect(() => {
     let cancelled = false;
+    let retryTimer: number | undefined;
 
     async function checkVaultPresence() {
       if (authLoading || !userId || isVaultUnlocked) return;
@@ -180,6 +187,18 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
           setHasVault(exists);
         }
       } catch (error) {
+        if (
+          isNativePlatform &&
+          error instanceof VaultAuthSessionNotReadyError &&
+          nativeVaultCheckAttempt < 2
+        ) {
+          retryTimer = window.setTimeout(() => {
+            if (!cancelled) {
+              setNativeVaultCheckAttempt((attempt) => attempt + 1);
+            }
+          }, 400);
+          return;
+        }
         console.warn("[VaultLockGuard] Failed to check vault existence:", error);
         if (!cancelled) {
           // Fail closed on transient check failures to preserve existing secure behavior.
@@ -192,8 +211,17 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
     return () => {
       cancelled = true;
+      if (retryTimer !== undefined) {
+        window.clearTimeout(retryTimer);
+      }
     };
-  }, [authLoading, userId, isVaultUnlocked]);
+  }, [
+    authLoading,
+    isNativePlatform,
+    isVaultUnlocked,
+    nativeVaultCheckAttempt,
+    userId,
+  ]);
 
   useEffect(() => {
     if (isVaultUnlocked || authLoading || !userId || hasVault === null || vaultStepDoneRef.current) {
