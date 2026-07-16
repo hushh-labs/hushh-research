@@ -291,13 +291,15 @@ export function PhoneMandatePageContent() {
 
         {/* OTP controls sit directly on the shared hero background, matching
             the welcome/login pages. max-h + overflow-y-auto is a safety net:
-            with Keyboard.resize:"native" the viewport shrinks above the
-            keyboard, and the page root is overflow-hidden, so on a very short
-            screen (iPhone SE) a tall step scrolls WITHIN this region instead
-            of clipping. At rest the content is short so no scroll appears. */}
+            the page root is overflow-hidden, so on a very short screen
+            (iPhone SE) a tall step scrolls WITHIN this region instead of
+            clipping. It also subtracts --kb-height (KeyboardInsetManager;
+            resize:"none") so the region fits above the on-screen keyboard and
+            the focused OTP field is scrolled into view. Inert on desktop
+            (--kb-height:0). See mobile-bug-log B21. */}
         <div
           className="relative overflow-y-auto px-6 pb-6"
-          style={{ maxHeight: "calc(100dvh - 4rem)" }}
+          style={{ maxHeight: "calc(100dvh - 4rem - var(--kb-height, 0px))" }}
         >
           <PhoneVerificationFlow
             mode="link"

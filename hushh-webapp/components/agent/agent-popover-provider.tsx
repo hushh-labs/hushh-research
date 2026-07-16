@@ -289,10 +289,11 @@ function AgentPopoverSurface({
     );
   }, [customSize, sizeMode]);
 
-  // Keyboard avoidance is handled globally by @capacitor/keyboard
-  // `resize: "native"` (capacitor.config.ts): the WKWebView frame shrinks by
-  // the keyboard height, so the sheet's 100dvh shrinks with it and the composer
-  // stays above the keyboard — no per-screen JS, matching every other screen.
+  // Keyboard avoidance is global and event-driven: KeyboardInsetManager
+  // publishes the on-screen keyboard height as `--kb-height`, and the composer
+  // padding (`--agent-chat-composer-bottom`, globals.css) lifts by it. We keep
+  // Capacitor `resize:"none"` so the WKWebView frame never resizes (no per-frame
+  // dvh thrash / vault jank). See mobile-bug-log B21. Do NOT flip to "native".
   const panelStyle = useMemo<CSSProperties>(
     () =>
       ({

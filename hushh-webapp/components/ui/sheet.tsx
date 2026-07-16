@@ -71,8 +71,10 @@ function SheetContent({
             "data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left inset-y-0 left-0 h-full w-3/4 border-r sm:max-w-sm sm:rounded-r-[var(--app-card-radius-feature)]",
           side === "top" &&
             "data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top inset-x-0 top-0 h-auto border-b rounded-b-[var(--app-card-radius-feature)]",
+          // bottom sheet lifts above the on-screen keyboard by --kb-height
+          // (KeyboardInsetManager; 0 on desktop → inert), max-h shrinks to match.
           side === "bottom" &&
-            "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 h-auto max-h-[85dvh] overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] border-t rounded-t-[var(--app-card-radius-feature)]",
+            "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-[var(--kb-height,0px)] h-auto max-h-[calc(85dvh-var(--kb-height,0px))] overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] border-t rounded-t-[var(--app-card-radius-feature)]",
           className
         )}
         {...props}
