@@ -3645,7 +3645,10 @@ async def main() -> int:
     report_path.parent.mkdir(parents=True, exist_ok=True)
 
     service = get_pkm_agent_lab_service()
-    pkm_service = PersonalKnowledgeModelService()
+    # A synthetic-only rehearsal must not initialize the PKM database path.
+    # Besides keeping the job read-only, this lets the no-traffic Cloud Run
+    # candidate run with only its model credential.
+    pkm_service = PersonalKnowledgeModelService() if not args.skip_shadow else None
     personas, chain_state = build_phase_personas(
         phase=args.phase,
         max_prompts_per_persona=args.max_prompts_per_persona,
@@ -3670,6 +3673,8 @@ async def main() -> int:
             )
         )
         if not args.skip_shadow:
+            if pkm_service is None:
+                raise RuntimeError("Shadow replay requires a PKM service instance")
             shadow_reports.append(
                 await _run_shadow_mode(
                     service=service,
