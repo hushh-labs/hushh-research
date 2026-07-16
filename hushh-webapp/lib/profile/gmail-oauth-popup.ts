@@ -1,6 +1,7 @@
 "use client";
 
 const STORAGE_KEY = "one_gmail_oauth_popup_attempt_v1";
+const FALLBACK_ATTEMPT_KEY = "one_gmail_oauth_popup_attempt_fallback_v1";
 // A localStorage key (not sessionStorage, which does not cross the
 // popup/opener boundary) used as a fallback settlement signal. postMessage
 // is the primary channel, but if the popup's `window.opener` reference is
@@ -35,6 +36,20 @@ function getStorage(target?: Window | null): Storage | null {
   }
 }
 
+export function getGmailOAuthPopupSessionStorage(
+  target?: Window | null,
+): Storage | null {
+  return getStorage(target);
+}
+
+function getFallbackStorage(target?: Window | null): Storage | null {
+  try {
+    return target?.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function isAttemptId(value: unknown): value is string {
   return (
     typeof value === "string" &&
@@ -61,20 +76,31 @@ export function persistGmailOAuthPopupAttempt(
   attempt: GmailOAuthPopupAttempt,
 ): boolean {
   const targetStorage = getStorage(target);
-  if (!targetStorage) return false;
+  const fallbackStorage = getFallbackStorage(target);
+  let persisted = false;
   try {
-    targetStorage.setItem(STORAGE_KEY, JSON.stringify(attempt));
-    return true;
+    targetStorage?.setItem(STORAGE_KEY, JSON.stringify(attempt));
+    persisted = Boolean(targetStorage);
   } catch {
-    return false;
+    persisted = false;
   }
+  try {
+    fallbackStorage?.setItem(FALLBACK_ATTEMPT_KEY, JSON.stringify(attempt));
+    persisted = persisted || Boolean(fallbackStorage);
+  } catch {
+    // The fallback is best effort. Return whether the primary write succeeded.
+  }
+  return persisted;
 }
 
 export function readGmailOAuthPopupAttempt(): GmailOAuthPopupAttempt | null {
   if (typeof window === "undefined") return null;
   const targetStorage = getStorage(window);
-  const raw = targetStorage?.getItem(STORAGE_KEY);
-  if (!targetStorage || !raw) return null;
+  const fallbackStorage = getFallbackStorage(window);
+  const raw =
+    targetStorage?.getItem(STORAGE_KEY) ??
+    fallbackStorage?.getItem(FALLBACK_ATTEMPT_KEY);
+  if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<GmailOAuthPopupAttempt>;
     if (
@@ -90,16 +116,17 @@ export function readGmailOAuthPopupAttempt(): GmailOAuthPopupAttempt | null {
   } catch {
     // Discard malformed browser state below.
   }
-  targetStorage.removeItem(STORAGE_KEY);
+  targetStorage?.removeItem(STORAGE_KEY);
+  fallbackStorage?.removeItem(FALLBACK_ATTEMPT_KEY);
   return null;
 }
 
 export function clearGmailOAuthPopupAttempt(
   target?: Window | null,
 ): void {
-  getStorage(target ?? (typeof window === "undefined" ? null : window))?.removeItem(
-    STORAGE_KEY,
-  );
+  const resolvedTarget = target ?? (typeof window === "undefined" ? null : window);
+  getStorage(resolvedTarget)?.removeItem(STORAGE_KEY);
+  getFallbackStorage(resolvedTarget)?.removeItem(FALLBACK_ATTEMPT_KEY);
 }
 
 /**

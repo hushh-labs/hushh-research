@@ -14,7 +14,12 @@ export type OnboardingConnectorIntent = {
 };
 
 function storage(): Storage | null {
-  return typeof window === "undefined" ? null : window.sessionStorage;
+  if (typeof window === "undefined") return null;
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
 }
 
 function writeIntent(

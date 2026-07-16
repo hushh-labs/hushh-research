@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Loader2, Lock, Mail, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -73,12 +74,14 @@ import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-se
 import {
   clearGmailOAuthPopupAttempt,
   createGmailOAuthPopupAttempt,
+  getGmailOAuthPopupSessionStorage,
   isGmailOAuthPopupSettlement,
   navigateGmailOAuthPopup,
   openGmailOAuthPopup,
   readGmailOAuthPopupSettlementFallback,
   type GmailOAuthPopupAttempt,
 } from "@/lib/profile/gmail-oauth-popup";
+import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   usePublishVoiceSurfaceMetadata,
@@ -509,6 +512,7 @@ export default function GmailReceiptsPage({
     const attempt = gmailPopupAttempt;
 
     const clearAttempt = () => {
+      clearGmailOAuthPopupAttempt();
       gmailPopupRef.current = null;
       setGmailPopupAttempt((current) =>
         current?.attemptId === attempt.attemptId ? null : current,
@@ -612,17 +616,20 @@ export default function GmailReceiptsPage({
   const handleConnectGmail = useCallback((): Promise<boolean> => {
     if (!user?.uid || gmailActionBusy !== null) return Promise.resolve(false);
 
-    const attempt = createGmailOAuthPopupAttempt();
-    const popup = openGmailOAuthPopup(attempt);
-    if (!popup) {
+    if (Capacitor.isNativePlatform()) {
       toast.error(
-        "Allow the Gmail connection window, then try again. Your private vault stays open here.",
+        "Gmail connection needs the native Google handoff. Open Gmail on the web app to connect this inbox for now.",
       );
       return Promise.resolve(false);
     }
 
-    gmailPopupRef.current = popup;
-    setGmailPopupAttempt(attempt);
+    const attempt = createGmailOAuthPopupAttempt();
+    const popup = openGmailOAuthPopup(attempt);
+    if (popup) {
+      gmailPopupRef.current = popup;
+      setGmailPopupAttempt(attempt);
+    }
+
     setGmailActionBusy("connect");
 
     return (async () => {
@@ -630,74 +637,81 @@ export default function GmailReceiptsPage({
         const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
           force: true,
         }).catch(() => null);
-      const fromSetup = Boolean(
-        journey &&
-        !PreVaultUserStateService.isSetupResolved(journey) &&
-        journey.onboardingActiveCapability === "gmail",
-      );
-      const idToken = await user.getIdToken();
-      const isGoogleProvider =
-        user.providerData?.some(
-          (provider) => provider.providerId === "google.com",
-        ) ?? false;
+        const fromSetup = Boolean(
+          journey &&
+            !PreVaultUserStateService.isSetupResolved(journey) &&
+            journey.onboardingActiveCapability === "gmail",
+        );
+        const idToken = await user.getIdToken();
+        const isGoogleProvider =
+          user.providerData?.some(
+            (provider) => provider.providerId === "google.com",
+          ) ?? false;
 
-      const payload = await GmailReceiptsService.startConnect({
-        idToken,
-        userId: user.uid,
-        loginHint: isGoogleProvider ? user.email : null,
-        includeGrantedScopes: isGoogleProvider,
-      });
-
-      if (!payload.configured || !payload.authorize_url) {
-        throw new Error("Gmail OAuth is not configured for this environment.");
-      }
-
-      if (fromSetup) {
-        const intent = createOnboardingConnectorIntent("gmail");
-        await PreVaultUserStateService.syncOnboardingJourney({
+        const payload = await GmailReceiptsService.startConnect({
+          idToken,
           userId: user.uid,
-          phase: "external_connector",
-          activeCapability: "gmail",
-          callbackState: "pending",
-          callbackAttemptId: intent.correlationId,
-          expectedJourneyUpdatedAt: journey?.onboardingJourneyUpdatedAt,
+          loginHint: isGoogleProvider ? user.email : null,
+          includeGrantedScopes: isGoogleProvider,
         });
-        // Write the browser correlation marker only after the durable journey
-        // accepted the pending transition. A failed write must not cause an
-        // unrelated callback to be mistaken for onboarding later.
-        persistOnboardingConnectorIntent(intent);
-        if (
-          !persistOnboardingConnectorIntentInStorage(
-            popup.sessionStorage,
-            intent,
-          )
-        ) {
-          throw new Error(
-            "The Gmail connection window could not prepare its secure return.",
-          );
-        }
-      }
 
-      navigateGmailOAuthPopup(popup, payload.authorize_url);
-      return true;
-    } catch (error) {
-      clearOnboardingConnectorIntent();
-      clearGmailOAuthPopupAttempt(popup);
-      popup.close();
-      gmailPopupRef.current = null;
-      setGmailPopupAttempt(null);
-      setGmailActionBusy(null);
-      const message = sanitizeGmailUserMessage(error, {
-        fallback:
-          "We couldn't start Gmail connection right now. Please try again in a moment.",
-      });
-      console.error(
-        "[ProfileReceiptsPage] Failed to start Gmail OAuth:",
-        error,
-      );
-      toast.error(message);
-      return false;
-    }
+        if (!payload.configured || !payload.authorize_url) {
+          throw new Error("Gmail OAuth is not configured for this environment.");
+        }
+
+        if (fromSetup) {
+          const intent = createOnboardingConnectorIntent("gmail");
+          await PreVaultUserStateService.syncOnboardingJourney({
+            userId: user.uid,
+            phase: "external_connector",
+            activeCapability: "gmail",
+            callbackState: "pending",
+            callbackAttemptId: intent.correlationId,
+            expectedJourneyUpdatedAt: journey?.onboardingJourneyUpdatedAt,
+          });
+          // Write the browser correlation marker only after the durable journey
+          // accepted the pending transition. A failed write must not cause an
+          // unrelated callback to be mistaken for onboarding later.
+          persistOnboardingConnectorIntent(intent);
+          const popupIntentPersisted =
+            !popup ||
+            persistOnboardingConnectorIntentInStorage(
+              getGmailOAuthPopupSessionStorage(popup),
+              intent,
+            );
+          if (popup && !popupIntentPersisted) {
+            console.warn(
+              "[ProfileReceiptsPage] Gmail setup popup could not persist its browser correlation; the return route will recover from the durable journey.",
+            );
+          }
+        }
+
+        if (popup) {
+          navigateGmailOAuthPopup(popup, payload.authorize_url);
+        } else {
+          assignWindowLocation(payload.authorize_url);
+        }
+        return true;
+      } catch (error) {
+        clearOnboardingConnectorIntent();
+        if (popup) {
+          clearGmailOAuthPopupAttempt(popup);
+          popup.close();
+        }
+        gmailPopupRef.current = null;
+        setGmailPopupAttempt(null);
+        setGmailActionBusy(null);
+        const message = sanitizeGmailUserMessage(error, {
+          fallback:
+            "We couldn't start Gmail connection right now. Please try again in a moment.",
+        });
+        console.error(
+          "[ProfileReceiptsPage] Failed to start Gmail OAuth:",
+          error,
+        );
+        toast.error(message);
+        return false;
+      }
     })();
   }, [gmailActionBusy, user]);
 

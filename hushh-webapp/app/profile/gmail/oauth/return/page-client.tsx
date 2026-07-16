@@ -23,6 +23,7 @@ import { primeConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import {
   clearOnboardingConnectorIntent,
+  type OnboardingConnectorIntent,
   readOnboardingConnectorIntent,
 } from "@/lib/onboarding/onboarding-connector-intent";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
@@ -34,6 +35,10 @@ import {
 } from "@/lib/profile/gmail-oauth-popup";
 
 type CompleteStage = "loading" | "completing" | "redirecting" | "error";
+type OnboardingConnectorIntentRef = Pick<
+  OnboardingConnectorIntent,
+  "correlationId"
+>;
 
 function resolveErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) {
@@ -76,31 +81,42 @@ function settlePopupOpener(params: {
   return true;
 }
 
-function matchesPendingGmailSetupAttempt(
-  journey: Awaited<ReturnType<typeof PreVaultUserStateService.bootstrapState>> | null,
-  intent: ReturnType<typeof readOnboardingConnectorIntent>,
-): boolean {
-  return Boolean(
-    journey &&
-      intent &&
-      !PreVaultUserStateService.isSetupResolved(journey) &&
-      journey.onboardingPhase === "external_connector" &&
-      journey.onboardingActiveCapability === "gmail" &&
-      journey.onboardingCallbackState === "pending" &&
-      journey.onboardingCallbackAttemptId === intent.correlationId,
-  );
+function resolvePendingGmailSetupAttempt(
+  journey: Awaited<
+    ReturnType<typeof PreVaultUserStateService.bootstrapState>
+  > | null,
+  intent: OnboardingConnectorIntentRef | null,
+): OnboardingConnectorIntentRef | null {
+  if (
+    !journey ||
+    PreVaultUserStateService.isSetupResolved(journey) ||
+    journey.onboardingPhase !== "external_connector" ||
+    journey.onboardingActiveCapability !== "gmail" ||
+    journey.onboardingCallbackState !== "pending" ||
+    typeof journey.onboardingCallbackAttemptId !== "string"
+  ) {
+    return null;
+  }
+  const durableAttemptId = journey.onboardingCallbackAttemptId.trim();
+  if (!durableAttemptId) return null;
+  if (intent && durableAttemptId !== intent.correlationId) return null;
+  return intent ?? { correlationId: durableAttemptId };
 }
 
 async function settleGmailSetupAttempt(params: {
   userId: string;
-  intent: NonNullable<ReturnType<typeof readOnboardingConnectorIntent>>;
+  intent: OnboardingConnectorIntentRef;
   phase: "external_connector" | "capability_setup";
   callbackState: "cancelled" | "failed" | "succeeded";
 }): Promise<boolean> {
   const journey = await PreVaultUserStateService.bootstrapState(params.userId, {
     force: true,
   }).catch(() => null);
-  if (!matchesPendingGmailSetupAttempt(journey, params.intent)) return false;
+  const pendingAttempt = resolvePendingGmailSetupAttempt(
+    journey,
+    params.intent,
+  );
+  if (!pendingAttempt) return false;
   if (!journey) return false;
   await PreVaultUserStateService.syncOnboardingJourney({
     userId: params.userId,
@@ -108,7 +124,7 @@ async function settleGmailSetupAttempt(params: {
     activeCapability: "gmail",
     callbackState: params.callbackState,
     expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
-    expectedCallbackAttemptId: params.intent.correlationId,
+    expectedCallbackAttemptId: pendingAttempt.correlationId,
   });
   return true;
 }
@@ -155,15 +171,16 @@ export default function ProfileGmailOAuthReturnPageClient({
         user.uid,
         { force: true },
       ).catch(() => null);
-      const shouldReturnToSetup = matchesPendingGmailSetupAttempt(
+      const pendingSetupAttempt = resolvePendingGmailSetupAttempt(
         durableJourney,
         onboardingIntent,
       );
+      const shouldReturnToSetup = Boolean(pendingSetupAttempt);
       setReturnToSetup(shouldReturnToSetup);
       if (!shouldReturnToSetup) return;
       await settleGmailSetupAttempt({
         userId: user.uid,
-        intent: onboardingIntent!,
+        intent: pendingSetupAttempt!,
         phase: "external_connector",
         callbackState,
       }).catch((persistError) => {
@@ -234,10 +251,11 @@ export default function ProfileGmailOAuthReturnPageClient({
         user.uid,
         { force: true },
       ).catch(() => null);
-      const shouldReturnToSetup = matchesPendingGmailSetupAttempt(
+      const pendingSetupAttempt = resolvePendingGmailSetupAttempt(
         durableJourney,
         onboardingIntent,
       );
+      const shouldReturnToSetup = Boolean(pendingSetupAttempt);
       setReturnToSetup(shouldReturnToSetup);
       try {
         setStage("completing");
@@ -258,10 +276,10 @@ export default function ProfileGmailOAuthReturnPageClient({
         stashProfileGmailReturnStatus(status);
 
         setStage("redirecting");
-        if (shouldReturnToSetup && onboardingIntent) {
+        if (pendingSetupAttempt) {
           const settled = await settleGmailSetupAttempt({
             userId: user.uid,
-            intent: onboardingIntent,
+            intent: pendingSetupAttempt,
             phase: "capability_setup",
             callbackState: "succeeded",
           }).catch((error) => {
@@ -278,7 +296,9 @@ export default function ProfileGmailOAuthReturnPageClient({
           if (settlePopupOpener({ outcome: "succeeded" })) {
             return;
           }
-          router.replace(settled ? ROUTES.ONE_SETUP_GMAIL : buildProfileGmailReturnPath());
+          router.replace(
+            settled ? ROUTES.ONE_SETUP_GMAIL : buildProfileGmailReturnPath(),
+          );
         } else {
           if (settlePopupOpener({ outcome: "succeeded" })) {
             return;
@@ -303,10 +323,10 @@ export default function ProfileGmailOAuthReturnPageClient({
               });
               stashProfileGmailReturnStatus(status);
               setStage("redirecting");
-              if (shouldReturnToSetup && onboardingIntent) {
+              if (pendingSetupAttempt) {
                 const settled = await settleGmailSetupAttempt({
                   userId: user.uid,
-                  intent: onboardingIntent,
+                  intent: pendingSetupAttempt,
                   phase: "capability_setup",
                   callbackState: "succeeded",
                 }).catch((error) => {
@@ -320,7 +340,11 @@ export default function ProfileGmailOAuthReturnPageClient({
                 if (settlePopupOpener({ outcome: "succeeded" })) {
                   return;
                 }
-                router.replace(settled ? ROUTES.ONE_SETUP_GMAIL : buildProfileGmailReturnPath());
+                router.replace(
+                  settled
+                    ? ROUTES.ONE_SETUP_GMAIL
+                    : buildProfileGmailReturnPath(),
+                );
               } else {
                 if (settlePopupOpener({ outcome: "succeeded" })) {
                   return;
@@ -335,10 +359,10 @@ export default function ProfileGmailOAuthReturnPageClient({
         }
         setStage("error");
         setError(resolveErrorMessage(completeError));
-        if (shouldReturnToSetup && onboardingIntent) {
+        if (pendingSetupAttempt) {
           await settleGmailSetupAttempt({
             userId: user.uid,
-            intent: onboardingIntent,
+            intent: pendingSetupAttempt,
             phase: "external_connector",
             callbackState: "failed",
           }).catch(() => undefined);
