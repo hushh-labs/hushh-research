@@ -152,14 +152,26 @@ const DYNAMIC_ROUTE_FIXTURES = {
   },
 };
 
+const KAI_ONBOARDING_COMPATIBILITY_PATHNAMES = [
+  "/one/setup/finance",
+  "/one/setup/kai",
+  "/one",
+  "/one/kai",
+];
+const KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS = ["/one/setup/kai", "/one", "/one/kai"];
+
 const ROUTE_OVERRIDES = {
+  "/kai/onboarding": {
+    allowedPathnames: KAI_ONBOARDING_COMPATIBILITY_PATHNAMES,
+    allowedRouteIds: KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS,
+  },
   "/one/kai/onboarding": {
-    allowedPathnames: ["/one/kai/onboarding", "/one/kai"],
-    allowedRouteIds: ["/one/kai/onboarding", "/one/kai"],
+    allowedPathnames: KAI_ONBOARDING_COMPATIBILITY_PATHNAMES,
+    allowedRouteIds: KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS,
   },
   "/one/setup/kai": {
-    allowedPathnames: ["/one/setup/kai", "/one"],
-    allowedRouteIds: ["/one/setup/kai", "/one"],
+    allowedPathnames: KAI_ONBOARDING_COMPATIBILITY_PATHNAMES,
+    allowedRouteIds: KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS,
   },
   "/ria/onboarding": {
     allowedPathnames: ["/ria/onboarding", "/ria"],
@@ -465,12 +477,18 @@ function routeSpec(route) {
     if (!expectation) {
       throw new Error(`Missing redirect expectation for ${route.route}`);
     }
+    const override = ROUTE_OVERRIDES[route.route];
     return {
       kind: "redirect",
       route: route.route,
-      allowedPathnames: [expectation.expectedPathname],
-      expectedQueryIncludes: expectation.expectedQueryIncludes || [],
       ...expectation,
+      allowedPathnames:
+        override?.allowedPathnames ||
+        expectation.allowedPathnames ||
+        [expectation.expectedPathname].filter(Boolean),
+      allowedRouteIds:
+        override?.allowedRouteIds || expectation.allowedRouteIds || [route.route],
+      expectedQueryIncludes: expectation.expectedQueryIncludes || [],
     };
   }
 

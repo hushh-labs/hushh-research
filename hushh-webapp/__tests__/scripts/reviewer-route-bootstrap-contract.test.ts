@@ -16,4 +16,15 @@ describe("reviewer route bootstrap contract", () => {
     );
     expect(source).toContain("waitForRouteBeacon(page, REVIEWER_BOOTSTRAP_ROUTE_IDS)");
   });
+
+  it("accepts state-aware destinations for Kai onboarding compatibility redirects", () => {
+    const verifierPath = scripts[0];
+    const source = readFileSync(new URL(verifierPath, import.meta.url), "utf8");
+
+    expect(source).toContain('"/one/setup/finance"');
+    expect(source).toContain('"/one/kai"');
+    expect(source).toMatch(
+      /if \(route\.mode === "redirect"\) \{[\s\S]*const override = ROUTE_OVERRIDES\[route\.route\];[\s\S]*override\?\.allowedPathnames/,
+    );
+  });
 });
