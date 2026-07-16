@@ -174,7 +174,7 @@ Private partner gateway handoff files are not stored in this public repo. Keep l
    - `PLAID_SECRET`
    - `PLAID_ACCESS_TOKEN_KEY`
 
-   **Note:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `CONSENT_SSE_ENABLED`, and `SYNC_REMOTE_ENABLED` are set as Cloud Run env vars (not secrets). Managed Gemini uses the Cloud Run service identity through Vertex ADC (`HUSHH_GENAI_AUTH_MODE=vertex_adc`); do not mount a hosted Gemini API key or `GOOGLE_APPLICATION_CREDENTIALS`. **Do not use `DATABASE_URL`** — migrations and scripts use DB_* only (strict parity). Delete `DATABASE_URL` from Secret Manager if present.
+   **Note:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `CONSENT_SSE_ENABLED`, and `SYNC_REMOTE_ENABLED` are set as Cloud Run env vars (not secrets). Managed Gemini uses the Cloud Run service identity through Vertex ADC (`HUSHH_GENAI_AUTH_MODE=vertex_adc`) with bounded same-model regional failover from `HUSHH_VERTEX_LOCATIONS`; do not mount a hosted Gemini API key or `GOOGLE_APPLICATION_CREDENTIALS`. **Do not use `DATABASE_URL`** — migrations and scripts use DB_* only (strict parity). Delete `DATABASE_URL` from Secret Manager if present.
    Plaid webhook and callback settings are runtime env vars, not dashboard secrets:
    `PLAID_ENV`, `PLAID_CLIENT_NAME`, `PLAID_COUNTRY_CODES`, `PLAID_WEBHOOK_URL`, `PLAID_REDIRECT_PATH`, `PLAID_TX_HISTORY_DAYS`.
    UAT and production use the live/shared Plaid credential set; local development stays on sandbox-only credentials.

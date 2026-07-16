@@ -36,7 +36,9 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `HUSHH_GENAI_AUTH_MODE` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Hosted runtimes require `vertex_adc`. `developer_api_key` is an explicit local-only compatibility mode and is rejected in hosted environments. |
 | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | `hushh_mcp/runtime_providers/factory.py` | Local only | Used only when `HUSHH_GENAI_AUTH_MODE=developer_api_key`. Never mounted or used by hosted Gemini runtimes. |
 | `GOOGLE_CLOUD_PROJECT` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Vertex project for workload ADC. Cloud Run supplies credentials through its service identity. |
-| `GOOGLE_CLOUD_LOCATION` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Vertex location; hosted default is `global`. |
+| `GOOGLE_CLOUD_LOCATION` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Primary Vertex location. Hosted deploys set a model-verified regional endpoint explicitly. |
+| `HUSHH_VERTEX_LOCATIONS` | `hushh_mcp/runtime_providers/factory.py` | No | Ordered, comma-separated same-model Vertex failover locations for managed ADC calls. The primary remains `GOOGLE_CLOUD_LOCATION`; BYOK is unaffected. |
+| `HUSHH_VERTEX_LOCATION_COOLDOWN_SECONDS` | `hushh_mcp/runtime_providers/factory.py` | No | Process-local cooldown after transient `429`/`500`/`503` failures. Defaults to `300`; authorization and model errors never fail over. |
 | `GOOGLE_MAPS_API_KEY` | `hushh_mcp/config.py`, `hushh_mcp/services/google_maps_service.py` | Yes | Server-side Google Maps Platform key for One Location Places New + Routes. Never expose as `NEXT_PUBLIC_*`. |
 | `ONE_EMAIL_ADDRESS` | `hushh_mcp/services/support_email_service.py`, `hushh_mcp/services/one_email_kyc_service.py` | Optional | Canonical One mailbox identity. Default: `one@hushh.ai`. |
 | `ONE_EMAIL_SERVICE_ACCOUNT_JSON` | `hushh_mcp/services/one_email_kyc_service.py` | Optional override | Dedicated service account JSON for One mailbox intake. Prefer `FIREBASE_ADMIN_CREDENTIALS_JSON` unless an explicit exception is approved. |

@@ -44,7 +44,7 @@ gcloud run jobs create "$job_name" \
   --parallelism 1 \
   --max-retries 0 \
   --task-timeout 45m \
-  --set-env-vars "ENVIRONMENT=uat,HUSHH_DEPLOY_ENV=uat,HUSHH_GENAI_AUTH_MODE=vertex_adc,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=${GCP_PROJECT_ID},GOOGLE_CLOUD_LOCATION=global" \
+  --set-env-vars "^|^ENVIRONMENT=uat|HUSHH_DEPLOY_ENV=uat|HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${GCP_PROJECT_ID}|GOOGLE_CLOUD_LOCATION=asia-southeast1|HUSHH_VERTEX_LOCATIONS=asia-southeast1,asia-northeast1,asia-south1,europe-west2,global" \
   --command python \
   --args "scripts/eval_pkm_structure_agent.py,--phase,fresh_chain_60,--skip-shadow,--enforce-gates,--json-out,/tmp/pkm-structure-agent-eval.json" \
   --quiet
