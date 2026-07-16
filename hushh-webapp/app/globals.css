@@ -355,6 +355,11 @@ a, button, input, select, textarea {
   --lucide-stroke-width: 1;
   /* Safe area and fixed-bottom UI spacing tokens (single source of truth). */
   --app-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  /* On-screen keyboard height, published by KeyboardInsetManager (native +
+   * mobile web only). Stays 0px on desktop/laptop → every consumer below is a
+   * no-op there. Fixed/bottom-anchored surfaces subtract/pad by this so inputs
+   * sit above the keyboard. See mobile-bug-log B21. */
+  --kb-height: 0px;
   /* Effective safe-area used by bottom-fixed UI primitives.
    * Overridden on native iOS because WKWebView contentInset already applies bottom insets. */
   --app-safe-area-bottom-effective: var(--app-safe-area-bottom);
@@ -745,14 +750,40 @@ a, button, input, select, textarea {
 
 .agent-chat-workspace {
   --agent-chat-header-safe-top: var(--app-safe-area-top-effective);
-  --agent-chat-composer-bottom: calc(0.75rem + var(--app-safe-area-bottom-effective));
-  --agent-chat-composer-focused-bottom: calc(1.25rem + var(--app-safe-area-bottom-effective));
+  /* Lift the composer above the on-screen keyboard when it is up (--kb-height),
+   * otherwise use the resting safe-area gap. max() avoids double-counting the
+   * home-indicator inset (the keyboard already covers that zone). Inert on
+   * desktop where --kb-height is 0. */
+  --agent-chat-composer-bottom: max(
+    calc(0.75rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--kb-height, 0px) + 0.5rem)
+  );
+  --agent-chat-composer-focused-bottom: max(
+    calc(1.25rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--kb-height, 0px) + 0.5rem)
+  );
 }
 
 html.native-ios .agent-chat-workspace[data-agent-chat-workspace="page"] {
   --agent-chat-header-safe-top: max(64px, var(--app-safe-area-top-effective));
-  --agent-chat-composer-bottom: calc(1rem + var(--app-safe-area-bottom-effective));
-  --agent-chat-composer-focused-bottom: calc(1.75rem + var(--app-safe-area-bottom-effective));
+  --agent-chat-composer-bottom: max(
+    calc(1rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--kb-height, 0px) + 0.5rem)
+  );
+  --agent-chat-composer-focused-bottom: max(
+    calc(1.75rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--kb-height, 0px) + 0.5rem)
+  );
+}
+
+/* Keyboard avoidance for centered radix dialogs (KeyboardInsetManager sets
+   html.kb-open + --kb-height on a real on-screen keyboard only). Shrink the
+   dialog and shift its center up by half the keyboard height so it stays in the
+   band above the keyboard. Only active while kb-open, so desktop is untouched
+   (kb-open is never set there). See mobile-bug-log B21. */
+html.kb-open [data-slot="dialog-content"] {
+  max-height: calc(100dvh - 2rem - var(--kb-height, 0px));
+  margin-top: calc(var(--kb-height, 0px) / -2);
 }
 
 .app-page-shell {

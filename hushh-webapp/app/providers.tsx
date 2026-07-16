@@ -38,6 +38,7 @@ import { FoundationPublicAmbient } from "@/components/app-ui/foundation-public-a
 import { Navbar } from "@/components/navbar";
 import { Toaster } from "@/components/ui/sonner";
 import { StatusBarManager } from "@/components/status-bar-manager";
+import { KeyboardInsetManager } from "@/components/keyboard-inset-manager";
 import { usePathname, useRouter } from "next/navigation";
 import { ensureMorphyGsapReady } from "@/lib/morphy-ux/gsap-init";
 import { usePageEnterAnimation } from "@/lib/morphy-ux/hooks/use-page-enter";
@@ -592,6 +593,7 @@ export function Providers({ children }: ProvidersProps) {
       <ObservabilityRouteObserver />
       <StepProgressProvider>
         <StatusBarManager />
+        <KeyboardInsetManager />
         {/* Step-based progress bar at top of viewport */}
         <StepProgressBar />
         <AuthProvider>

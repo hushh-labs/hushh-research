@@ -13,6 +13,7 @@ export const ROUTE_ID_VALUES = [
   "logout",
   "phone_mandate",
   "profile",
+  "profile_regulatory",
   "profile_account",
   "profile_account_phone",
   "profile_preferences",
@@ -57,7 +58,6 @@ export const ROUTE_ID_VALUES = [
   "ria_clients",
   "ria_requests",
   "ria_picks",
-  "ria_profile",
   "ria_settings",
   "ria_workspace",
   "kai_home",
@@ -91,6 +91,7 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.LOGOUT) return "logout";
   if (pathname === ROUTES.PHONE_MANDATE) return "phone_mandate";
   if (pathname === ROUTES.PROFILE) return "profile";
+  if (pathname === ROUTES.PROFILE_REGULATORY) return "profile_regulatory";
   if (pathname === ROUTES.PROFILE_ACCOUNT) return "profile_account";
   if (pathname === ROUTES.PROFILE_ACCOUNT_PHONE) return "profile_account_phone";
   if (pathname === ROUTES.PROFILE_PREFERENCES) return "profile_preferences";
@@ -155,7 +156,7 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.RIA_CLIENTS) return "ria_clients";
   if (pathname === ROUTES.RIA_REQUESTS) return "ria_requests";
   if (pathname === ROUTES.RIA_PICKS) return "ria_picks";
-  if (pathname === ROUTES.RIA_PROFILE) return "ria_profile";
+  if (pathname === ROUTES.RIA_PROFILE) return "profile_regulatory";
   if (pathname === ROUTES.RIA_SETTINGS) return "ria_settings";
   if (
     pathname === ROUTES.RIA_WORKSPACE ||

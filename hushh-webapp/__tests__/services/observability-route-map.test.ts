@@ -66,6 +66,7 @@ describe("observability route map", () => {
     );
     expect(resolveRouteId("/marketplace/ria")).toBe("marketplace_ria_profile");
     expect(resolveRouteId("/register-phone")).toBe("phone_mandate");
+    expect(resolveRouteId("/profile/regulatory")).toBe("profile_regulatory");
     expect(resolveRouteId("/profile/pkm")).toBe("profile_pkm");
     expect(resolveRouteId("/profile/pkm-agent-lab")).toBe("profile_pkm_agent_lab");
     expect(resolveRouteId("/profile/receipts")).toBe("profile_receipts");
@@ -81,6 +82,7 @@ describe("observability route map", () => {
     expect(resolveRouteId("/ria/clients/user_123/requests/request_789")).toBe("ria_workspace");
     expect(resolveRouteId("/ria/picks")).toBe("ria_picks");
     expect(resolveRouteId("/ria/workspace")).toBe("ria_workspace");
+    expect(resolveRouteId("/ria/profile")).toBe("profile_regulatory");
     expect(resolveRouteId("/one/kai/plaid/oauth/return")).toBe("kai_plaid_oauth_return");
     expect(resolveRouteId("/one/kai/alpaca/oauth/return")).toBe("kai_alpaca_oauth_return");
     expect(resolveRouteId("/one/kai/funding-trade")).toBe("kai_funding_trade");

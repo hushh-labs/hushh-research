@@ -72,12 +72,15 @@ const config: CapacitorConfig = {
   },
 
   plugins: {
-    // Keyboard handling: `resize: "body"` shrinks the document body height instead 
-    // of the entire WKWebView frame (which "native" does). "native" causes severe
-    // layout thrashing and lag on iOS during keyboard animations because every dvh
-    // unit recalculates 60 times a second. "body" avoids this while still letting
-    // normal-flow content scroll above the keyboard. For fixed elements like sheets,
-    // they must either naturally sit in the scrolled body or respond to visualViewport.
+    // Keyboard handling — resize:"none" is intentional and load-bearing.
+    // "native" shrinks the whole WKWebView frame on every keyboard-animation
+    // frame, which recomputes every dvh/svh unit ~60x/sec → severe layout
+    // thrashing and vault jank (the reason it was reverted twice). Instead the
+    // frame stays fixed and keyboard AVOIDANCE is done in JS, event-driven:
+    // KeyboardInsetManager (components/keyboard-inset-manager.tsx) publishes the
+    // keyboard height as `--kb-height` once per show/hide, and fixed/bottom
+    // surfaces lift by it. This is jank-free AND covers every input surface.
+    // See mobile-bug-log B21. Do NOT flip this to "native" or "body".
     Keyboard: {
       resize: "none" as KeyboardResize,
       style: "LIGHT" as KeyboardStyle,

@@ -129,7 +129,10 @@ export function VaultUnlockDialog({
           // The form remains one calm, opaque sheet. A hard gate swaps only the
           // backdrop to the opaque theme canvas above; contextual unlock
           // prompts keep the shared modal scrim.
-          "mx-auto max-h-[92svh] overflow-hidden rounded-t-[34px] border-0 bg-white shadow-[0_-16px_50px_rgba(0,0,0,0.45)] outline-none focus:outline-none focus-visible:outline-none sm:max-w-md dark:bg-[#141416]",
+          // max-h as a vaul-direction variant so it deterministically overrides
+          // the base drawer max-h and shrinks by the keyboard height; the sheet
+          // itself lifts by --kb-height via the base DrawerContent. B21.
+          "mx-auto data-[vaul-drawer-direction=bottom]:max-h-[calc(92svh-var(--kb-height,0px))] overflow-hidden rounded-t-[34px] border-0 bg-white shadow-[0_-16px_50px_rgba(0,0,0,0.45)] outline-none focus:outline-none focus-visible:outline-none sm:max-w-md dark:bg-[#141416]",
         ].join(" ")}
       >
         <DrawerTitle className="sr-only">{title}</DrawerTitle>

@@ -1761,6 +1761,42 @@
     }
   },
   {
+    "route": "/profile/regulatory",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.regulatory",
+      "purpose": "Help the person view and manage the regulatory profile inside the unified Profile screen.",
+      "screen": "profile_regulatory",
+      "entryCue": "You can say “Open Regulatory Profile” to return to this profile panel.",
+      "proactivity": "on_entry",
+      "primaryActionId": "route.profile_regulatory",
+      "happyPathActionIds": ["route.profile_regulatory", "ria.profile.edit_services"],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/profile/account",
     "mode": "standard",
     "shellVerification": {
@@ -2969,15 +3005,16 @@
   },
   {
     "route": "/ria/profile",
-    "mode": "standard",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the unified /profile/regulatory surface.",
     "voicePlaybook": {
       "playbookId": "route.ria.profile",
-      "purpose": "Help the person understand and use the profile screen through its generated controls.",
-      "screen": "ria_profile",
-      "entryCue": "You can say “Open RIA Profile” to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.ria_profile",
-      "happyPathActionIds": ["route.ria_profile"],
+      "purpose": "Compatibility redirect only; it exposes no executable RIA profile actions.",
+      "screen": "profile_regulatory",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2987,9 +3024,9 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": "/ria/profile",
-      "returnPolicy": "stay",
+      "completionBoundary": "The compatibility redirect has no completion authority.",
+      "nextRoute": "/profile/regulatory",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   }

@@ -255,11 +255,7 @@ export function buildProfileRoute(params?: {
   }
 
   if (panel === "regulatory") {
-    return appendQuery(
-      ROUTES.PROFILE,
-      { panel: "regulatory" },
-      params?.searchParams,
-    );
+    return appendQuery(ROUTES.PROFILE_REGULATORY, {}, params?.searchParams);
   }
 
   return appendQuery(ROUTES.PROFILE, {}, params?.searchParams);
@@ -292,6 +288,10 @@ export function resolveProfileRouteState(
 
   if (normalizedPath === ROUTES.PROFILE) {
     return resolveProfileRouteStateFromSearchParams(query);
+  }
+
+  if (normalizedPath === ROUTES.PROFILE_REGULATORY) {
+    return { panel: "regulatory", detail: null };
   }
 
   if (normalizedPath === ROUTES.PROFILE_ACCOUNT) {

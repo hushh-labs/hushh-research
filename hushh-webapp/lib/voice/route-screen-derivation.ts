@@ -132,7 +132,7 @@ export function deriveVoiceRouteScreen(
     return { screen: "ria_onboarding", subview: query.get("step") || null };
   }
   if (normalizedPath === ROUTES.RIA_PROFILE) {
-    return { screen: "ria_profile", subview: query.get("tab") || null };
+    return { screen: "profile_regulatory", subview: query.get("tab") || null };
   }
   if (normalizedPath === ROUTES.RIA_CLIENTS) {
     return { screen: "ria_clients", subview: query.get("tab") || null };
@@ -221,6 +221,9 @@ export function deriveVoiceRouteScreen(
     if (panel === "security") {
       return { screen: "profile_security_panel", subview: tab || null };
     }
+    if (panel === "regulatory") {
+      return { screen: "profile_regulatory", subview: tab || null };
+    }
     if (tab === "preferences") {
       return { screen: "profile_preferences", subview: null };
     }
@@ -260,6 +263,9 @@ export function deriveVoiceRouteScreen(
     }
     if (panel === "my-data") {
       return { screen: "profile_my_data", subview: detail || null };
+    }
+    if (panel === "regulatory") {
+      return { screen: "profile_regulatory", subview: query.get("tab") || null };
     }
     return { screen: "profile_account", subview: detail || panel || null };
   }

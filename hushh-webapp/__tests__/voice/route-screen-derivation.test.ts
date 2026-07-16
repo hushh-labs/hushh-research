@@ -125,6 +125,10 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "profile_security_panel",
       subview: "vault",
     });
+    expect(deriveVoiceRouteScreen("/profile/regulatory")).toEqual({
+      screen: "profile_regulatory",
+      subview: null,
+    });
     expect(deriveVoiceRouteScreen("/one/kai/investments")).toEqual({
       screen: "kai_investments",
       subview: null,
@@ -144,6 +148,10 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "profile_privacy",
       subview: null,
     });
+    expect(deriveVoiceRouteScreen("/profile", "panel=regulatory")).toEqual({
+      screen: "profile_regulatory",
+      subview: null,
+    });
   });
 
   it("maps RIA roster, workspace, and detail routes to specific voice screens", () => {
@@ -152,7 +160,7 @@ describe("deriveVoiceRouteScreen", () => {
       subview: null,
     });
     expect(deriveVoiceRouteScreen("/ria/profile", "tab=services")).toEqual({
-      screen: "ria_profile",
+      screen: "profile_regulatory",
       subview: "services",
     });
     expect(deriveVoiceRouteScreen("/ria/clients")).toEqual({

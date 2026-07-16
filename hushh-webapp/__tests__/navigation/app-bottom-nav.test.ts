@@ -96,10 +96,12 @@ describe("app bottom navigation", () => {
     expect(resolveBottomNavHref("profile", "investor")).toBe(ROUTES.PROFILE);
   });
 
-  it("highlights the Profile tab on the RIA profile route", () => {
-    expect(resolveRiaActiveNav(ROUTES.RIA_PROFILE)).toBe("profile");
-    // Global profile still resolves to the profile slot in RIA scope too.
+  it("highlights the Profile tab on unified Profile routes in RIA scope", () => {
     expect(resolveRiaActiveNav(ROUTES.PROFILE)).toBe("profile");
+    expect(resolveRiaActiveNav(ROUTES.PROFILE_REGULATORY)).toBe("profile");
+    expect(resolveRiaActiveNav(`${ROUTES.PROFILE_REGULATORY}?tab=services`)).toBe(
+      "profile",
+    );
     // RIA home stays on its own tab.
     expect(resolveRiaActiveNav(ROUTES.RIA_HOME)).toBe("ria-home");
   });

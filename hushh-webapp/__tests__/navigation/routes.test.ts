@@ -66,6 +66,9 @@ describe("navigation routes", () => {
         detail: "support-compose:bug_report",
       }),
     ).toBe("/profile/support/compose?kind=bug_report");
+    expect(buildProfileRoute({ panel: "regulatory" })).toBe(
+      "/profile/regulatory",
+    );
     expect(buildProfileRoute({ panel: "gmail" })).toBe("/one/gmail");
     expect(
       buildProfileRoute({
@@ -94,12 +97,19 @@ describe("navigation routes", () => {
     expect(
       resolveProfileRouteState("/profile", "tab=privacy&detail=connection:abc"),
     ).toEqual({ panel: "access", detail: "connection:abc" });
+    expect(resolveProfileRouteState("/profile/regulatory")).toEqual({
+      panel: "regulatory",
+      detail: null,
+    });
     expect(
       buildCanonicalProfileRouteFromLegacyQuery(
         "/profile",
         "panel=support&detail=support-routing",
       ),
     ).toBe("/profile/support/routing");
+    expect(
+      buildCanonicalProfileRouteFromLegacyQuery("/profile", "panel=regulatory"),
+    ).toBe("/profile/regulatory");
     expect(
       buildCanonicalProfileRouteFromLegacyQuery(
         "/profile",

@@ -61,6 +61,7 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/logout`
 - `/agent`
 - `/profile`
+- `/profile/regulatory`
 - `/profile/account`
 - `/profile/account/phone`
 - `/profile/preferences`

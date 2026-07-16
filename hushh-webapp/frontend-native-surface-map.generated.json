@@ -4417,10 +4417,12 @@
         "profile.marketplace_visibility.toggle",
         "profile.sign_out",
         "profile.support.submit_message",
+        "ria.profile.edit_services",
         "route.profile",
         "route.profile_connected_systems",
         "route.profile_gmail_panel",
         "route.profile_pkm_agent_lab",
+        "route.profile_regulatory",
         "route.profile_security_panel",
         "route.profile_support_panel"
       ],
@@ -5516,6 +5518,75 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/profile/regulatory",
+      "page_file": "app/profile/regulatory/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.regulatory",
+          "purpose": "Help the person view and manage the regulatory profile inside the unified Profile screen.",
+          "screen": "profile_regulatory",
+          "entry_cue": "You can say “Open Regulatory Profile” to return to this profile panel.",
+          "proactivity": "on_entry",
+          "primary_action_id": "route.profile_regulatory",
+          "happy_path_action_ids": [
+            "route.profile_regulatory",
+            "ria.profile.edit_services"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/profile/regulatory",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fregulatory",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/profile/regulatory",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/profile/security",
       "page_file": "app/profile/security/page.tsx",
       "physical_page_exists": true,
@@ -6560,8 +6631,8 @@
       "page_file": "app/ria/profile/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
+        "mode": "redirect",
+        "exemption_reason": "Compatibility redirect route only launches the unified /profile/regulatory surface.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -6569,14 +6640,12 @@
         },
         "voice_playbook": {
           "playbook_id": "route.ria.profile",
-          "purpose": "Help the person understand and use the profile screen through its generated controls.",
-          "screen": "ria_profile",
-          "entry_cue": "You can say “Open RIA Profile” to use the primary control on this screen.",
-          "proactivity": "on_entry",
-          "primary_action_id": "route.ria_profile",
-          "happy_path_action_ids": [
-            "route.ria_profile"
-          ],
+          "purpose": "Compatibility redirect only; it exposes no executable RIA profile actions.",
+          "screen": "profile_regulatory",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -6586,9 +6655,9 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": "/ria/profile",
-          "return_policy": "stay",
+          "completion_boundary": "The compatibility redirect has no completion authority.",
+          "next_route": "/profile/regulatory",
+          "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
@@ -6596,13 +6665,12 @@
         "route": "/ria/profile",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fria%2Fprofile",
-        "expectedMarker": "native-route-ria-profile",
-        "expectedRoute": "/ria/profile",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/profile/regulatory",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loaded",
-          "unavailable-valid"
+          "loaded"
         ]
       },
       "shell": {
@@ -6612,11 +6680,8 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": "app/ria/profile/page.voice-action-contract.json",
-      "voice_action_contract_ids": [
-        "ria.profile.edit_services",
-        "route.ria_profile"
-      ],
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
