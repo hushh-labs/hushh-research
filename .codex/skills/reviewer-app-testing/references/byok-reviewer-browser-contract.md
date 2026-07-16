@@ -11,7 +11,7 @@ Use this contract for browser rehearsals whose result depends on protected infor
 ## Memory-only BYOK boundary
 
 1. The vault passphrase, Firebase credential, owner token, wrapper-derived vault key, decrypted PKM, and raw source information stay in process or browser memory.
-2. Derive the 256-bit vault key locally from the passphrase wrapper and verify it against `vaultKeyHash` before trusting decrypted information.
+2. The browser derives the 256-bit vault key locally from the passphrase wrapper and verifies it against `vaultKeyHash` before trusting decrypted information. Playwright's Node harness may observe only encrypted vault state and the key commitment; it must never derive, decrypt, or compare raw vault keys.
 3. Never place secrets or decrypted information in URLs, Playwright traces, screenshots, videos, console output, test snapshots, CI artifacts, model prompts, docs, or commits.
 4. Exact decrypted evidence may be written only when explicitly requested, only beneath ignored `tmp/`, with mode `0600`, and never as a default test artifact.
 
@@ -27,7 +27,7 @@ An unlocked browser context is a security state, not merely a signed-in cookie j
 
 ## Reusable harness
 
-`scripts/reviewer-session-harness.mjs` owns identity resolution, passphrase-wrapper decryption, vault-key integrity proof, memory-only owner-token capture, same-session client navigation, and fresh-context construction.
+`scripts/reviewer-session-harness.mjs` owns identity resolution, encrypted-state/key-commitment observation, memory-only owner-token capture, same-session client navigation, and fresh-context construction. Browser application code owns passphrase-wrapper decryption and vault-key integrity proof.
 
 Run the read-only baseline:
 

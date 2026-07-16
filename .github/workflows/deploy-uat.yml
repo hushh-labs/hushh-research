@@ -299,27 +299,13 @@ jobs:
           BOOTSTRAP_FOCUS_PROFILE=uat bash scripts/env/bootstrap_profiles.sh --strict
           bash scripts/env/use_profile.sh uat
 
-          reviewer_env_file="$(mktemp /tmp/uat-pkm-reviewer-env.XXXXXX)"
-          trap 'rm -f "${reviewer_env_file}"; kill "${PROXY_PID}" >/dev/null 2>&1 || true' EXIT
-          umask 077
-          {
-            printf 'DB_HOST=%s\n' "$DB_HOST"
-            printf 'DB_PORT=%s\n' "$DB_PORT"
-            printf 'DB_NAME=%s\n' "$DB_NAME"
-            printf 'DB_USER=%s\n' "$DB_USER"
-            printf 'DB_PASSWORD=%s\n' "$DB_PASSWORD"
-          } >"$reviewer_env_file"
-
           export PGHOST="$DB_HOST"
           export PGPORT="$DB_PORT"
           export PGDATABASE="$DB_NAME"
           export PGUSER="$DB_USER"
           export PGPASSWORD="$DB_PASSWORD"
           PKM_UPGRADE_PROTECTED_UAT=1 \
-          PKM_UPGRADE_REVIEWER_SHAPE_AUDIT=1 \
-          PKM_UPGRADE_REVIEWER_SECRET_PROJECT="${{ env.GCP_PROJECT_ID }}" \
-          PKM_UPGRADE_REVIEWER_ENV_FILE="$reviewer_env_file" \
-          PKM_UPGRADE_STRUCTURE_AGENT_EVAL=1 \
+          PKM_UPGRADE_STRUCTURE_AGENT_EVAL_DEFERRED=1 \
           PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED=1 \
             ./scripts/ci/pkm-upgrade-gate.sh
 
@@ -384,6 +370,14 @@ jobs:
 
           echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify candidate PKM evaluator in Cloud Run
+        id: verify-candidate-pkm-evaluator
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          BACKEND_REVISION: ${{ steps.candidate-state.outputs.backend_revision }}
+        run: ./scripts/ci/run-candidate-pkm-structure-agent-eval.sh
 
       - name: Promote deployed revisions to UAT traffic
         shell: bash

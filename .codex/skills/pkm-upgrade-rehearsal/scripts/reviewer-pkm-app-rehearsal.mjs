@@ -7,8 +7,8 @@ import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
   createReviewerSessionHarness,
-  decryptAesGcm,
 } from "../../reviewer-app-testing/scripts/reviewer-session-harness.mjs";
+import { defaultReviewerIdentityEnvFiles, resolveReviewerTestIdentity } from "../../../../hushh-webapp/scripts/testing/reviewer-test-identity.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,6 +18,7 @@ const appOrigin = String(
   process.env.PKM_REVIEWER_REHEARSAL_ORIGIN || "https://uat.one.hushh.ai"
 ).replace(/\/$/, "");
 const allowMutation = process.env.PKM_REVIEWER_REHEARSAL_ALLOW_MUTATION === "1";
+const allowDecryptedOutput = process.env.PKM_REVIEWER_REHEARSAL_ALLOW_DECRYPTED_OUTPUT === "1";
 const naturalPrompt =
   process.env.PKM_REVIEWER_REHEARSAL_PROMPT ||
   "Remember that I prefer index funds for long-term investing.";
@@ -40,7 +41,9 @@ function assertPrivateOutputPath(filePath, label) {
 }
 
 assertPrivateOutputPath(encryptedOutput, "Encrypted reviewer output");
-assertPrivateOutputPath(decryptedOutput, "Decrypted reviewer output");
+if (allowDecryptedOutput || process.env.PKM_REVIEWER_DECRYPTED_OUTPUT) {
+  assertPrivateOutputPath(decryptedOutput, "Decrypted reviewer output");
+}
 
 if (process.argv.includes("--help")) {
   process.stdout.write(
@@ -49,6 +52,7 @@ if (process.argv.includes("--help")) {
       "",
       "Required gate:",
       "  PKM_REVIEWER_REHEARSAL_ALLOW_MUTATION=1",
+      "  PKM_REVIEWER_REHEARSAL_ALLOW_DECRYPTED_OUTPUT=1 (only for explicitly requested local payload evidence)",
       "",
       "Optional:",
       "  PKM_REVIEWER_REHEARSAL_ORIGIN=https://uat.one.hushh.ai",
@@ -70,11 +74,22 @@ if (encryptedOutput === decryptedOutput) {
   throw new Error("Encrypted and decrypted output paths must be different.");
 }
 
+const explicitOutputCrypto = allowDecryptedOutput
+  ? await import("./reviewer-pkm-decrypted-output.mjs")
+  : null;
+const explicitOutputIdentity = allowDecryptedOutput
+  ? resolveReviewerTestIdentity({
+      envFiles: defaultReviewerIdentityEnvFiles({
+        repoRoot,
+        webDir: path.join(repoRoot, "hushh-webapp"),
+      }),
+    })
+  : null;
+
 const reviewer = await createReviewerSessionHarness({ repoRoot, appOrigin, timeoutMs });
 const {
   assertVaultContinuity,
   chromium,
-  deriveVaultKey,
   endpointPath,
   fetchOwnerJson,
   navigateInApp,
@@ -91,11 +106,14 @@ function encryptedBlobFromPayload(payload) {
 }
 
 function decryptDomainPayload(payload, domain, vaultKey) {
+  if (!explicitOutputCrypto) {
+    throw new Error("Decrypted reviewer output was not explicitly authorized.");
+  }
   const blob = encryptedBlobFromPayload(payload);
   const segments = blob.segments && typeof blob.segments === "object" ? blob.segments : {};
   if (Object.keys(segments).length === 0) {
     const decoded = JSON.parse(
-      decryptAesGcm(
+      explicitOutputCrypto.decryptAesGcm(
         { ciphertext: blob.ciphertext, iv: blob.iv, tag: blob.tag },
         vaultKey
       ).toString("utf8")
@@ -109,7 +127,7 @@ function decryptDomainPayload(payload, domain, vaultKey) {
   const domainData = {};
   for (const [segmentId, encryptedSegment] of Object.entries(segments)) {
     const parsed = JSON.parse(
-      decryptAesGcm(
+      explicitOutputCrypto.decryptAesGcm(
         {
           ciphertext: encryptedSegment.ciphertext,
           iv: encryptedSegment.iv,
@@ -286,7 +304,12 @@ let freshVaultKey;
 try {
   firstSession = await openReviewerSession(browser, "/one/kai/import");
   const firstVaultState = await firstSession.capture.vaultState();
-  firstVaultKey = deriveVaultKey(firstVaultState);
+  if (explicitOutputCrypto && explicitOutputIdentity) {
+    firstVaultKey = explicitOutputCrypto.deriveVaultKeyForExplicitOutput(
+      firstVaultState,
+      explicitOutputIdentity.reviewerVaultPassphrase
+    );
+  }
 
   const holdingsCount = await loadSampleBrokerage(firstSession.page);
   const firstOwnerToken = await firstSession.capture.ownerToken();
@@ -308,27 +331,31 @@ try {
   }
 
   const firstEncryptedPayload = await fetchExactFinancialPayload(firstOwnerToken);
-  const firstDecryptedPayload = decryptDomainPayload(
-    firstEncryptedPayload,
-    "financial",
-    firstVaultKey
-  );
+  const firstDecryptedPayload = firstVaultKey
+    ? decryptDomainPayload(firstEncryptedPayload, "financial", firstVaultKey)
+    : null;
 
   await firstSession.context.close();
   firstSession = null;
 
   freshSession = await openReviewerSession(browser, "/one/kai/portfolio");
   const freshVaultState = await freshSession.capture.vaultState();
-  freshVaultKey = deriveVaultKey(freshVaultState);
+  if (explicitOutputCrypto && explicitOutputIdentity) {
+    freshVaultKey = explicitOutputCrypto.deriveVaultKeyForExplicitOutput(
+      freshVaultState,
+      explicitOutputIdentity.reviewerVaultPassphrase
+    );
+  }
   const freshOwnerToken = await freshSession.capture.ownerToken();
   const freshEncryptedPayload = await fetchExactFinancialPayload(freshOwnerToken);
-  const freshDecryptedPayload = decryptDomainPayload(
-    freshEncryptedPayload,
-    "financial",
-    freshVaultKey
-  );
+  const freshDecryptedPayload = freshVaultKey
+    ? decryptDomainPayload(freshEncryptedPayload, "financial", freshVaultKey)
+    : null;
 
-  if (!isDeepStrictEqual(firstDecryptedPayload, freshDecryptedPayload)) {
+  if (
+    firstDecryptedPayload &&
+    !isDeepStrictEqual(firstDecryptedPayload, freshDecryptedPayload)
+  ) {
     throw new Error("Fresh-session PKM decrypt does not match the write session.");
   }
   if (!isDeepStrictEqual(firstEncryptedPayload, freshEncryptedPayload)) {
@@ -336,9 +363,11 @@ try {
   }
 
   writePrivateJson(encryptedOutput, freshEncryptedPayload);
-  writePrivateJson(decryptedOutput, freshDecryptedPayload);
+  if (freshDecryptedPayload) {
+    writePrivateJson(decryptedOutput, freshDecryptedPayload);
+  }
   process.stdout.write(
-    `[reviewer-pkm-rehearsal] PASS holdings=${holdingsCount} scopes=${updatedScopes.length} outputs=2\n`
+    `[reviewer-pkm-rehearsal] PASS holdings=${holdingsCount} scopes=${updatedScopes.length} outputs=${freshDecryptedPayload ? 2 : 1}\n`
   );
 } finally {
   firstVaultKey?.fill(0);

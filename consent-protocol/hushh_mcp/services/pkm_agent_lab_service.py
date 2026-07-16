@@ -1362,8 +1362,26 @@ class PKMAgentLabService:
         response_schema: dict[str, Any],
         model_override: str | None = None,
         timeout_seconds: float | None = None,
+        execution_trace: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any] | None:
+        started_at = time.perf_counter()
+        agent_id = str(getattr(manifest, "id", "unknown") or "unknown")
+
+        def record(status: str, *, attempts: int, error_type: str = "") -> None:
+            if execution_trace is None:
+                return
+            execution_trace.append(
+                {
+                    "agent_id": agent_id,
+                    "status": status,
+                    "attempts": attempts,
+                    "latency_ms": round((time.perf_counter() - started_at) * 1000, 2),
+                    "error_type": error_type,
+                }
+            )
+
         if self.client is None:
+            record("client_unavailable", attempts=0)
             return None
         deadline = time.perf_counter() + timeout_seconds if timeout_seconds is not None else None
         from google.genai import types as genai_types
@@ -1386,6 +1404,7 @@ class PKMAgentLabService:
                     attempt,
                     round(remaining_seconds, 3),
                 )
+                record("budget_exhausted", attempts=attempt - 1)
                 return None
             effective_timeout = _AGENT_CONTRACT_TIMEOUT_SECONDS
             if remaining_seconds is not None:
@@ -1407,7 +1426,11 @@ class PKMAgentLabService:
                 )
                 if parsed is None:
                     parsed = json.loads((response.text or "").strip() or "{}")
-                return parsed if isinstance(parsed, dict) else None
+                if isinstance(parsed, dict):
+                    record("success", attempts=attempt)
+                    return parsed
+                record("invalid_response", attempts=attempt)
+                return None
             except asyncio.TimeoutError:
                 can_retry = attempt < _AGENT_CONTRACT_MAX_ATTEMPTS
                 retry_budget_seconds = (
@@ -1432,6 +1455,7 @@ class PKMAgentLabService:
                     attempt,
                     round(effective_timeout, 3),
                 )
+                record("timeout", attempts=attempt)
                 return None
             except Exception as exc:
                 logger.warning(
@@ -1439,6 +1463,7 @@ class PKMAgentLabService:
                     getattr(manifest, "id", "unknown"),
                     exc,
                 )
+                record("error", attempts=attempt, error_type=type(exc).__name__)
                 return None
         return None
 
@@ -4170,6 +4195,7 @@ class PKMAgentLabService:
         strict_small_model: bool = False,
         domain_registry_override: list[dict[str, Any]] | None = None,
         deadline: float | None = None,
+        execution_trace: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         normalized_domains = [
             self._normalize_segment(domain) for domain in (current_domains or []) if domain
@@ -4199,6 +4225,7 @@ class PKMAgentLabService:
             response_schema=_FINANCIAL_GUARD_SCHEMA,
             model_override=model_override,
             timeout_seconds=self._remaining_preview_budget_seconds(deadline),
+            execution_trace=execution_trace,
         )
         financial_guard_used_fallback = financial_guard_raw is None
         financial_guard = self._sanitize_financial_guard_decision(
@@ -4262,6 +4289,7 @@ class PKMAgentLabService:
                     response_schema=_INTENT_FRAME_SCHEMA,
                     model_override=model_override,
                     timeout_seconds=self._remaining_preview_budget_seconds(deadline),
+                    execution_trace=execution_trace,
                 )
                 intent_used_fallback = intent_raw is None
                 intent_frame = self._sanitize_intent_frame(
@@ -4294,6 +4322,7 @@ class PKMAgentLabService:
                     response_schema=_MERGE_DECISION_SCHEMA,
                     model_override=model_override,
                     timeout_seconds=self._remaining_preview_budget_seconds(deadline),
+                    execution_trace=execution_trace,
                 )
                 merge_used_fallback = merge_raw is None
             merge_decision = self._sanitize_merge_decision(
@@ -4335,6 +4364,7 @@ class PKMAgentLabService:
                     response_schema=_STRUCTURE_PREVIEW_SCHEMA,
                     model_override=model_override,
                     timeout_seconds=self._remaining_preview_budget_seconds(deadline),
+                    execution_trace=execution_trace,
                 )
                 structure_used_fallback = structure_raw is None
             normalized_preview = self._normalize_structure_preview(
@@ -4412,6 +4442,7 @@ class PKMAgentLabService:
         model_override: str | None = None,
         strict_small_model: bool = False,
         domain_registry_override: list[dict[str, Any]] | None = None,
+        capture_execution_trace: bool = False,
     ) -> dict[str, Any]:
         total_started_at = time.perf_counter()
         normalized_domains = [
@@ -4427,17 +4458,19 @@ class PKMAgentLabService:
             strict_small_model=strict_small_model,
             domain_registry_override=domain_registry_override,
         )
-        cached_preview = self._get_cached_structure_preview(preview_cache_key)
-        if cached_preview is not None:
-            logger.info("pkm.agent_lab.preview_cache_hit user_id=%s", user_id)
-            return cached_preview
-        inflight_preview = _PREVIEW_INFLIGHT.get(preview_cache_key)
-        if inflight_preview is not None:
-            logger.info("pkm.agent_lab.preview_inflight_hit user_id=%s", user_id)
-            return deepcopy(await inflight_preview)
+        if not capture_execution_trace:
+            cached_preview = self._get_cached_structure_preview(preview_cache_key)
+            if cached_preview is not None:
+                logger.info("pkm.agent_lab.preview_cache_hit user_id=%s", user_id)
+                return cached_preview
+            inflight_preview = _PREVIEW_INFLIGHT.get(preview_cache_key)
+            if inflight_preview is not None:
+                logger.info("pkm.agent_lab.preview_inflight_hit user_id=%s", user_id)
+                return deepcopy(await inflight_preview)
 
         async def _build_preview() -> dict[str, Any]:
             errors: list[str] = []
+            execution_trace: list[dict[str, Any]] | None = [] if capture_execution_trace else None
             preview_deadline = time.perf_counter() + _PREVIEW_TOTAL_BUDGET_SECONDS
 
             segmentation_started_at = time.perf_counter()
@@ -4450,6 +4483,7 @@ class PKMAgentLabService:
                 response_schema=_SEGMENTATION_SCHEMA,
                 model_override=model_override,
                 timeout_seconds=self._remaining_preview_budget_seconds(preview_deadline),
+                execution_trace=execution_trace,
             )
             segmentation_latency_ms = round(
                 (time.perf_counter() - segmentation_started_at) * 1000, 2
@@ -4484,6 +4518,7 @@ class PKMAgentLabService:
                     strict_small_model=strict_small_model,
                     domain_registry_override=domain_registry_override,
                     deadline=preview_deadline,
+                    execution_trace=execution_trace,
                 )
                 preview_latency_ms = round((time.perf_counter() - preview_started_at) * 1000, 2)
                 card_id = f"card_{index:02d}"
@@ -4550,6 +4585,8 @@ class PKMAgentLabService:
                     self._remaining_preview_budget_seconds(preview_deadline) or 0.0, 3
                 ),
             }
+            if execution_trace is not None:
+                performance["agent_execution"] = execution_trace
 
             if primary_preview is None:
                 empty_manifest = self._build_manifest_from_payload(
@@ -4607,7 +4644,8 @@ class PKMAgentLabService:
                     "performance": performance,
                     "context_plan": context_plan,
                 }
-                self._set_cached_structure_preview(preview_cache_key, response_payload)
+                if not capture_execution_trace:
+                    self._set_cached_structure_preview(preview_cache_key, response_payload)
                 return response_payload
 
             validation_hints = list(primary_preview.get("validation_hints") or [])
@@ -4633,9 +4671,12 @@ class PKMAgentLabService:
                 merge_used_fallback=bool(response_payload.get("merge_used_fallback")),
                 structure_used_fallback=bool(response_payload.get("structure_used_fallback")),
             )
-            self._set_cached_structure_preview(preview_cache_key, response_payload)
+            if not capture_execution_trace:
+                self._set_cached_structure_preview(preview_cache_key, response_payload)
             return response_payload
 
+        if capture_execution_trace:
+            return deepcopy(await _build_preview())
         task = asyncio.create_task(_build_preview())
         _PREVIEW_INFLIGHT[preview_cache_key] = task
         try:

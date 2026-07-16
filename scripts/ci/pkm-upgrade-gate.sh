@@ -66,8 +66,8 @@ HUSHH_DEVELOPER_TOKEN="${HUSHH_DEVELOPER_TOKEN:-test_hushh_developer_token_for_c
 PYTHONPATH=. \
   "$PYTHON_RUNNER" -m pytest -q "${BACKEND_TESTS[@]}"
 
-if [ "${PKM_UPGRADE_PROTECTED_UAT:-}" = "1" ] && [ "${PKM_UPGRADE_REVIEWER_SHAPE_AUDIT:-}" != "1" ]; then
-  echo "Protected UAT requires PKM_UPGRADE_REVIEWER_SHAPE_AUDIT=1." >&2
+if [ -n "${PKM_UPGRADE_REVIEWER_SHAPE_AUDIT:-}" ]; then
+  echo "PKM_UPGRADE_REVIEWER_SHAPE_AUDIT is prohibited in CI. Use the post-deploy browser BYOK rehearsal." >&2
   exit 1
 fi
 
@@ -86,8 +86,16 @@ if [ "${PKM_UPGRADE_PROTECTED_UAT:-}" = "1" ] && [ -z "$POSTGRES_REHEARSAL_TARGE
   exit 1
 fi
 
-if [ "${PKM_UPGRADE_PROTECTED_UAT:-}" = "1" ] && [ "${PKM_UPGRADE_STRUCTURE_AGENT_EVAL:-}" != "1" ]; then
-  echo "Protected UAT requires PKM_UPGRADE_STRUCTURE_AGENT_EVAL=1." >&2
+if [ "${PKM_UPGRADE_PROTECTED_UAT:-}" = "1" ] \
+  && [ "${PKM_UPGRADE_STRUCTURE_AGENT_EVAL:-}" != "1" ] \
+  && [ "${PKM_UPGRADE_STRUCTURE_AGENT_EVAL_DEFERRED:-}" != "1" ]; then
+  echo "Protected UAT requires a local structure-agent evaluation or an explicit candidate-runtime evaluation deferral." >&2
+  exit 1
+fi
+
+if [ "${PKM_UPGRADE_STRUCTURE_AGENT_EVAL:-}" = "1" ] \
+  && [ "${PKM_UPGRADE_STRUCTURE_AGENT_EVAL_DEFERRED:-}" = "1" ]; then
+  echo "Choose one structure-agent evaluation location: local gate or candidate runtime." >&2
   exit 1
 fi
 
@@ -109,26 +117,28 @@ if [ -n "$POSTGRES_REHEARSAL_TARGET" ]; then
     -f "$PROTOCOL_DIR/db/verify/pkm_v7_zero_loss_rehearsal.sql"
 fi
 
-if [ "${PKM_UPGRADE_REVIEWER_SHAPE_AUDIT:-}" = "1" ]; then
-  echo "Running reviewer-backed active PKM shape audit..."
-  SHAPE_AUDIT_ARGS=(--env-file "${PKM_UPGRADE_REVIEWER_ENV_FILE:-.env}")
-  if [ -n "${PKM_UPGRADE_REVIEWER_SECRET_PROJECT:-}" ]; then
-    SHAPE_AUDIT_ARGS+=(--gcp-secret-project "$PKM_UPGRADE_REVIEWER_SECRET_PROJECT")
-  fi
-  if [ -n "${PKM_UPGRADE_REVIEWER_SECRET_VERSION:-}" ]; then
-    SHAPE_AUDIT_ARGS+=(--gcp-secret-version "$PKM_UPGRADE_REVIEWER_SECRET_VERSION")
-  fi
-  "$PYTHON_RUNNER" scripts/audit_active_pkm_shape_readonly.py "${SHAPE_AUDIT_ARGS[@]}" >/tmp/hushh-pkm-shape-audit.json
-  "$PYTHON_RUNNER" -c 'import json; p=json.load(open("/tmp/hushh-pkm-shape-audit.json")); assert p["schema_version"] == "pkm_reviewer_shape_audit.v2"; assert p["pagination"]["has_more"] is False; assert p["preservation_receipt"]["complete"] is True; assert p["preservation_receipt"]["rejected"] == 0'
-  echo "Reviewer-backed active PKM shape audit passed with redacted output."
-fi
-
 if [ "${PKM_UPGRADE_STRUCTURE_AGENT_EVAL:-}" = "1" ]; then
-  echo "Running chained PKM structure-agent evaluation..."
-  "$PYTHON_RUNNER" scripts/eval_pkm_structure_agent.py \
-    --phase fresh_chain_60 \
-    --enforce-gates \
-    --json-out /tmp/hushh-pkm-structure-agent-eval.json
+  EVAL_RUNS="${PKM_UPGRADE_STRUCTURE_AGENT_EVAL_RUNS:-1}"
+  if [ "${PKM_UPGRADE_PROTECTED_UAT:-}" = "1" ]; then
+    EVAL_RUNS=2
+  fi
+  if ! [[ "$EVAL_RUNS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "PKM_UPGRADE_STRUCTURE_AGENT_EVAL_RUNS must be a positive integer." >&2
+    exit 1
+  fi
+  for eval_run in $(seq 1 "$EVAL_RUNS"); do
+    echo "Running chained PKM structure-agent evaluation ${eval_run}/${EVAL_RUNS}..."
+    EVAL_ARGS=(
+      --phase fresh_chain_60
+      --enforce-gates
+      --json-out "/tmp/hushh-pkm-structure-agent-eval-${eval_run}.json"
+    )
+    if [ "${PKM_UPGRADE_PROTECTED_UAT:-}" = "1" ]; then
+      # Synthetic-only: no reviewer data, manifests, or decrypted PKM values enter the model.
+      EVAL_ARGS+=(--skip-shadow)
+    fi
+    "$PYTHON_RUNNER" scripts/eval_pkm_structure_agent.py "${EVAL_ARGS[@]}"
+  done
 fi
 
 if [ -n "${PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL:-}" ]; then

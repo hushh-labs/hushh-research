@@ -126,10 +126,21 @@ def test_protected_uat_gate_requires_live_recovery_rehearsal():
 
 def test_uat_deploy_runs_protected_pkm_gate_and_reviewer_byok_rehearsal():
     workflow = (ROOT.parent / ".github/workflows/deploy-uat.yml").read_text()
+    gate = (ROOT.parent / "scripts/ci/pkm-upgrade-gate.sh").read_text()
+    candidate_evaluator = (
+        ROOT.parent / "scripts/ci/run-candidate-pkm-structure-agent-eval.sh"
+    ).read_text()
 
     assert "PKM_UPGRADE_PROTECTED_UAT=1" in workflow
-    assert "PKM_UPGRADE_REVIEWER_SHAPE_AUDIT=1" in workflow
-    assert "PKM_UPGRADE_STRUCTURE_AGENT_EVAL=1" in workflow
+    assert "PKM_UPGRADE_STRUCTURE_AGENT_EVAL_DEFERRED=1" in workflow
+    assert "PKM_UPGRADE_STRUCTURE_AGENT_EVAL_DEFERRED" in gate
+    assert "Verify candidate PKM evaluator in Cloud Run" in workflow
+    assert workflow.index("Verify candidate PKM evaluator in Cloud Run") < workflow.index(
+        "Promote deployed revisions to UAT traffic"
+    )
+    assert "--skip-shadow" in candidate_evaluator
+    assert "GOOGLE_API_KEY=GOOGLE_API_KEY:latest" in candidate_evaluator
+    assert "REVIEWER_" not in candidate_evaluator
     assert "PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED=1" in workflow
     assert "verify-reviewer-byok" in workflow
     assert "reviewer_byok_continuity_failed" in workflow
