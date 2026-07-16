@@ -20,10 +20,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import hashlib
 import json
 import os
 import sys
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -69,6 +71,34 @@ UAT_SMOKE_USER_ID_KEY = "UAT_SMOKE_USER_ID"
 UAT_SMOKE_PASSPHRASE_KEY = "UAT_SMOKE_PASSPHRASE"  # noqa: S105
 KAI_TEST_USER_ID_KEY = "KAI_TEST_USER_ID"
 KAI_TEST_PASSPHRASE_KEY = "KAI_TEST_PASSPHRASE"  # noqa: S105
+# Keep these operational smoke constants aligned with domain_contracts.py. Importing
+# the services package before dotenv loading would eagerly require runtime secrets.
+CURRENT_PKM_CONTRACT_VERSION = "6.0.0"
+CURRENT_READABLE_PROJECTION_VERSION = "6.0.0"
+CURRENT_READABLE_SUMMARY_VERSION = 6
+FINANCIAL_DOMAIN_CONTRACT_VERSION = 4
+SAMPLE_BROKERAGE_PATH = (
+    REPO_ROOT / "hushh-webapp" / "public" / "demo-mode" / "portfolio-template.json"
+)
+
+_BLOCKED_EXTERNAL_PATH_PARTS = {
+    "changes",
+    "created_at",
+    "debug",
+    "debug_fields",
+    "entity_id",
+    "hash",
+    "metadata",
+    "parser_metadata",
+    "provenance",
+    "schema_version",
+    "source_agent",
+    "timestamps",
+    "updated_at",
+    "workflow",
+    "workflow_id",
+    "workflow_state",
+}
 
 
 def _b64encode(value: bytes) -> str:
@@ -136,6 +166,135 @@ def _partition_domain_segments(domain_data: dict[str, Any]) -> dict[str, Any]:
     if root_payload or not segmented:
         segmented["root"] = root_payload
     return segmented
+
+
+def _normalize_manifest_segment(value: str) -> str:
+    if str(value or "").strip().lower() == "_items":
+        return "_items"
+    return "".join(
+        char.lower() if char.isalnum() or char == "_" else "_" for char in str(value or "").strip()
+    ).strip("_")
+
+
+def _manifest_sensitivity(path: str) -> str | None:
+    normalized = path.lower()
+    if any(token in normalized for token in ("ssn", "tax", "account_number", "routing")):
+        return "restricted"
+    if any(token in normalized for token in ("risk", "holdings", "portfolio", "income")):
+        return "confidential"
+    return None
+
+
+def _build_manifest_artifacts(
+    *,
+    domain: str,
+    domain_data: dict[str, Any],
+    previous_manifest: dict[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Mirror the web PKM manifest builder for a pre-encrypted UAT write."""
+    descriptors: dict[str, dict[str, Any]] = {}
+
+    def _walk(value: Any, path: list[str]) -> None:
+        if value is None:
+            return
+        current_path = ".".join(path)
+        if current_path:
+            path_type = (
+                "array"
+                if isinstance(value, list)
+                else "object"
+                if isinstance(value, dict)
+                else "leaf"
+            )
+            externalizable = path_type == "leaf" and not any(
+                part in _BLOCKED_EXTERNAL_PATH_PARTS for part in current_path.split(".")
+            )
+            descriptors[current_path] = {
+                "json_path": current_path,
+                "parent_path": ".".join(path[:-1]) if len(path) > 1 else None,
+                "path_type": path_type,
+                "exposure_eligibility": externalizable,
+                "consent_label": current_path.replace(".", " ").replace("_", " ").title(),
+                "sensitivity_label": _manifest_sensitivity(current_path),
+                "segment_id": path[0] if path else "root",
+                "source_agent": "pkm_structure_agent",
+            }
+        if isinstance(value, list):
+            sample = next((item for item in value if item is not None), None)
+            if sample is not None:
+                _walk(sample, [*path, "_items"])
+            return
+        if not isinstance(value, dict):
+            return
+        for raw_key, child in value.items():
+            segment = _normalize_manifest_segment(str(raw_key))
+            if segment:
+                _walk(child, [*path, segment])
+
+    _walk(domain_data, [])
+    paths = [descriptors[path] for path in sorted(descriptors)]
+    json_paths = [path["json_path"] for path in paths]
+    top_level_scope_paths = sorted({path.split(".", 1)[0] for path in json_paths})
+    externalizable_paths = [
+        path["json_path"]
+        for path in paths
+        if path["exposure_eligibility"] and path["path_type"] == "leaf"
+    ]
+    previous_paths = {
+        str(path.get("json_path") or "")
+        for path in (previous_manifest or {}).get("paths") or []
+        if isinstance(path, dict)
+    }
+    has_new_paths = any(path not in previous_paths for path in json_paths)
+    action = (
+        "extend_domain"
+        if previous_manifest and has_new_paths
+        else ("match_existing_domain" if previous_manifest else "create_domain")
+    )
+    previous_version = int((previous_manifest or {}).get("manifest_version") or 0)
+    manifest_version = max(1, previous_version + (1 if action != "match_existing_domain" else 0))
+    summary_projection = {
+        "manifest_version": manifest_version,
+        "domain_contract_version": FINANCIAL_DOMAIN_CONTRACT_VERSION,
+        "readable_summary_version": CURRENT_READABLE_SUMMARY_VERSION,
+        "pkm_contract_version": CURRENT_PKM_CONTRACT_VERSION,
+        "readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
+        "consumer_visible": True,
+        "internal_only": False,
+        "path_count": len(json_paths),
+        "externalizable_path_count": len(externalizable_paths),
+        "top_level_scope_count": len(top_level_scope_paths),
+    }
+    structure_decision = {
+        "action": action,
+        "target_domain": domain,
+        "json_paths": json_paths,
+        "top_level_scope_paths": top_level_scope_paths,
+        "externalizable_paths": externalizable_paths,
+        "summary_projection": summary_projection,
+        "sensitivity_labels": {
+            path["json_path"]: path["sensitivity_label"]
+            for path in paths
+            if path.get("sensitivity_label")
+        },
+        "confidence": 1.0,
+        "source_agent": "pkm_structure_agent",
+        "writer_id": "uat_reviewer_sample_import",
+        "structure_agent_id": "pkm_structure_agent",
+        "contract_version": FINANCIAL_DOMAIN_CONTRACT_VERSION,
+    }
+    manifest = {
+        "manifest_version": manifest_version,
+        "domain_contract_version": FINANCIAL_DOMAIN_CONTRACT_VERSION,
+        "readable_summary_version": CURRENT_READABLE_SUMMARY_VERSION,
+        "upgraded_at": None,
+        "summary_projection": summary_projection,
+        "top_level_scope_paths": top_level_scope_paths,
+        "externalizable_paths": externalizable_paths,
+        "paths": paths,
+        "source_agent": "pkm_structure_agent",
+    }
+    return structure_decision, manifest
 
 
 @dataclass
@@ -401,14 +560,40 @@ class UatKaiSmoke:
                     }
                 )
                 narrowed_export = narrow_decrypted_export(decrypted_export, scope)
-                quality_metrics = (
-                    narrowed_export.get("financial", {})
-                    .get("analytics", {})
-                    .get("quality_metrics", {})
-                )
-                if not isinstance(quality_metrics, dict) or not quality_metrics:
+                financial_information = narrowed_export.get("financial") or {}
+                if not isinstance(financial_information, dict) or not financial_information:
                     raise RuntimeError(
-                        "MCP encrypted scoped export decrypted successfully but did not materialize financial analytics."
+                        "MCP encrypted scoped export decrypted successfully but did not materialize approved financial information."
+                    )
+                serialized_export = json.dumps(narrowed_export, sort_keys=True)
+                forbidden_values = (
+                    self.user_id,
+                    self.developer_token,
+                    self.auth.firebase_id_token if self.auth else None,
+                    self.auth.vault_owner_token if self.auth else None,
+                )
+                if any(value and value in serialized_export for value in forbidden_values):
+                    raise RuntimeError(
+                        "MCP scoped export exposed an internal identifier or credential."
+                    )
+
+                revoked = self.revoke_scope_access(scope=scope)
+                if str((revoked or {}).get("status") or "").strip().lower() != "revoked":
+                    raise RuntimeError(
+                        "MCP reviewer grant could not be revoked after verification."
+                    )
+                denied_export = self._parse_mcp_json(
+                    await session.call_tool(
+                        "get_encrypted_scoped_export",
+                        {
+                            "grant_ref": grant_ref,
+                            "expected_scope": scope,
+                        },
+                    )
+                )
+                if str(denied_export.get("error_code") or "") != "GRANT_NOT_FOUND":
+                    raise RuntimeError(
+                        "MCP revoked grant did not produce the stable denial contract."
                     )
 
     def _request(
@@ -940,11 +1125,10 @@ class UatKaiSmoke:
             "GET",
             "/api/v1/consent-status",
             params={
-                "token": self.developer_token,
                 "user_id": self.user_id,
                 "scope": scope,
             },
-            headers={"Content-Type": "application/json"},
+            headers={**self._developer_auth_headers(), "Content-Type": "application/json"},
         )
         return response.json()
 
@@ -1045,6 +1229,284 @@ class UatKaiSmoke:
         result = response.json()
         result["marker"] = marker
         return result
+
+    def _build_confirmed_portfolio_mutation_plan(
+        self,
+        *,
+        manifest: dict[str, Any],
+        source_revision: int,
+    ) -> dict[str, Any]:
+        impact = self._request(
+            "GET",
+            f"/api/pkm/memory/mutation-impact/{quote_plus(self.user_id)}/financial",
+            headers=self._vault_headers(),
+            params={"scope_path": "portfolio"},
+        ).json()
+        registry = manifest.get("scope_registry") or []
+        source_handle = next(
+            (
+                str(entry.get("scope_handle") or "").strip()
+                for entry in registry
+                if isinstance(entry, dict)
+                and str((entry.get("summary_projection") or {}).get("top_level_scope_path") or "")
+                == "portfolio"
+                and str(entry.get("scope_handle") or "").strip()
+            ),
+            "",
+        )
+        if not source_handle:
+            digest = hashlib.sha256(
+                f"{self.user_id}:financial:portfolio".encode("utf-8")
+            ).hexdigest()
+            source_handle = f"s_{digest[:12]}"
+        plan_id = f"pkm_plan_{uuid.uuid4().hex}"
+        return {
+            "version": 2,
+            "plan_id": plan_id,
+            "operation": "update",
+            "source_scope_handle": source_handle,
+            "target_scope_handle": source_handle,
+            "proposed_domain": "financial",
+            "proposed_scope": "portfolio",
+            "friendly_domain_name": "Financial",
+            "friendly_scope_name": "Portfolio",
+            "confidence": 1.0,
+            "explanation": "The reviewer approved loading the canonical sample brokerage into the financial portfolio.",
+            "affected_grant_ids": impact.get("affected_grant_ids") or [],
+            "affected_export_ids": impact.get("affected_export_ids") or [],
+            "sharing_impact": {
+                "active_recipient_count": int(impact.get("active_recipient_count") or 0),
+                "recipient_labels": impact.get("recipient_labels") or [],
+                "enters_next_export_revision": impact.get("enters_next_export_revision") is True,
+                "summary": str(impact.get("summary") or "No active recipients are affected."),
+            },
+            "semantic_contract_version": CURRENT_PKM_CONTRACT_VERSION,
+            "writer_id": "uat_reviewer_sample_import",
+            "structure_agent_id": "pkm_structure_agent",
+            "source_revision": max(0, int(source_revision or 0)),
+            "confirmation_receipt": {
+                "version": 2,
+                "receipt_id": f"pkm_receipt_{uuid.uuid4().hex}",
+                "plan_id": plan_id,
+                "confirmed_by_user_id": self.user_id,
+                "confirmed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "surface": "import",
+                "displayed_domain": "financial",
+                "displayed_scope": "portfolio",
+                "sharing_impact_acknowledged": True,
+            },
+        }
+
+    def load_sample_brokerage_into_pkm(self) -> str:
+        """Load the canonical web sample into the reviewer vault and return its MCP scope."""
+        sample = json.loads(SAMPLE_BROKERAGE_PATH.read_text(encoding="utf-8"))
+        holdings = sample.get("holdings") or []
+        if not isinstance(holdings, list) or not holdings:
+            raise RuntimeError("The canonical sample brokerage fixture has no holdings.")
+
+        current_manifest = self._fetch_domain_manifest("financial")
+        blob_payload = self._fetch_domain_blob("financial")
+        current_domain = self._decrypt_domain_blob(blob_payload)
+        if not isinstance(current_domain, dict):
+            raise RuntimeError("The reviewer financial domain is not a JSON object.")
+
+        now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        snapshot_id = f"stmt_uat_sample_{int(time.time())}"
+        captured_sections = sorted(
+            key
+            for key, value in sample.items()
+            if value not in (None, "", [], {}) and key not in {"domain_intent"}
+        )
+        canonical_portfolio = {
+            **sample,
+            "source_metadata": {
+                "source_type": "statement",
+                "source_label": "Statement",
+                "source_id": snapshot_id,
+                "active_snapshot_id": snapshot_id,
+                "is_editable": True,
+            },
+            "domain_intent": {
+                "primary": "financial",
+                "secondary": "portfolio",
+                "source": "uat_reviewer_sample_import",
+                "captured_sections": captured_sections,
+                "updated_at": now_iso,
+            },
+        }
+        existing_documents = current_domain.get("documents")
+        if not isinstance(existing_documents, dict):
+            existing_documents = {}
+        prior_statements = [
+            statement
+            for statement in (existing_documents.get("statements") or [])
+            if isinstance(statement, dict)
+            and not str(statement.get("id") or "").startswith("stmt_uat_sample_")
+        ]
+        snapshot = {
+            "id": snapshot_id,
+            "imported_at": now_iso,
+            "schema_version": 2,
+            "domain_intent": {
+                "primary": "financial",
+                "secondary": "documents",
+                "source": "uat_reviewer_sample_import",
+                "updated_at": now_iso,
+            },
+            "source": {
+                "brokerage": (sample.get("account_info") or {}).get("brokerage"),
+                "statement_period_start": (sample.get("account_info") or {}).get(
+                    "statement_period_start"
+                ),
+                "statement_period_end": (sample.get("account_info") or {}).get(
+                    "statement_period_end"
+                ),
+                "account_type": (sample.get("account_info") or {}).get("account_type"),
+            },
+            "account_info": sample.get("account_info"),
+            "account_summary": sample.get("account_summary"),
+            "holdings": holdings,
+            "asset_allocation": sample.get("asset_allocation"),
+            "canonical_v2": sample,
+            "parse_context": {
+                "parse_fallback": sample.get("parse_fallback") is True,
+                "sparse_sections": [],
+                "fallback_merge_applied": False,
+            },
+        }
+        statements = [snapshot, *prior_statements][:25]
+        documents = {
+            **existing_documents,
+            "schema_version": 1,
+            "statements": statements,
+            "domain_intent": {
+                "primary": "financial",
+                "secondary": "documents",
+                "source": "uat_reviewer_sample_import",
+                "captured_sections": captured_sections,
+                "updated_at": now_iso,
+            },
+        }
+        existing_sources = current_domain.get("sources")
+        if not isinstance(existing_sources, dict):
+            existing_sources = {}
+        existing_statement_source = existing_sources.get("statement")
+        if not isinstance(existing_statement_source, dict):
+            existing_statement_source = {}
+        next_domain = {
+            **current_domain,
+            "schema_version": 3,
+            "domain_intent": {
+                "primary": "financial",
+                "source": "domain_registry_prepopulate",
+                "contract_version": 2,
+                "updated_at": now_iso,
+            },
+            "portfolio": canonical_portfolio,
+            "documents": documents,
+            "sources": {
+                **existing_sources,
+                "active_source": "statement",
+                "statement": {
+                    **existing_statement_source,
+                    "source_type": "statement",
+                    "source_label": "Statement",
+                    "is_editable": True,
+                    "active_snapshot_id": snapshot_id,
+                    "snapshot_count": len(statements),
+                    "snapshots": statements,
+                    "updated_at": now_iso,
+                },
+            },
+            "updated_at": now_iso,
+        }
+        structure_decision, manifest = _build_manifest_artifacts(
+            domain="financial",
+            domain_data=next_domain,
+            previous_manifest=current_manifest,
+        )
+        summary = next(
+            (
+                domain.get("summary")
+                for domain in self.fetch_pkm_metadata().get("domains", [])
+                if str(domain.get("key") or "") == "financial"
+            ),
+            {},
+        )
+        if not isinstance(summary, dict):
+            summary = {}
+        account_info = sample.get("account_info") or {}
+        summary = {
+            **summary,
+            "intent_source": "uat_reviewer_sample_import",
+            "active_source": "statement",
+            "attribute_count": len(holdings),
+            "item_count": len(holdings),
+            "holdings_count": len(holdings),
+            "investable_positions_count": len(
+                [holding for holding in holdings if holding.get("is_investable") is True]
+            ),
+            "cash_positions_count": len(
+                [holding for holding in holdings if holding.get("is_cash_equivalent") is True]
+            ),
+            "documents_count": len(statements),
+            "last_brokerage": account_info.get("brokerage"),
+            "last_statement_total_value": sample.get("total_value"),
+            "domain_contract_version": FINANCIAL_DOMAIN_CONTRACT_VERSION,
+            "intent_map": [
+                "portfolio",
+                "analytics",
+                "profile",
+                "documents",
+                "analysis_history",
+                "runtime",
+                "analysis.decisions",
+            ],
+            "last_updated": now_iso,
+        }
+        source_revision = int(blob_payload.get("data_version") or 0)
+        mutation_plan = self._build_confirmed_portfolio_mutation_plan(
+            manifest=current_manifest,
+            source_revision=source_revision,
+        )
+        response = self._request(
+            "POST",
+            "/api/pkm/store-domain",
+            headers={**self._vault_headers(), "Content-Type": "application/json"},
+            json_body={
+                "user_id": self.user_id,
+                "domain": "financial",
+                "encrypted_blob": self._encrypt_domain_blob(next_domain),
+                "summary": summary,
+                "structure_decision": structure_decision,
+                "manifest": manifest,
+                "source_agent": "uat_reviewer_sample_import",
+                "expected_data_version": source_revision,
+                "mutation_plan": mutation_plan,
+            },
+        ).json()
+        if response.get("success") is not True:
+            raise RuntimeError("The sample brokerage PKM write did not succeed.")
+
+        stored_domain = self._decrypt_domain_blob(self._fetch_domain_blob("financial"))
+        stored_holdings = (stored_domain.get("portfolio") or {}).get("holdings") or []
+        stored_manifest = self._fetch_domain_manifest("financial")
+        if len(stored_holdings) != len(holdings):
+            raise RuntimeError("The sample brokerage PKM readback did not preserve every holding.")
+        if "portfolio" not in (stored_manifest.get("top_level_scope_paths") or []):
+            raise RuntimeError(
+                "The sample brokerage manifest did not expose the portfolio section."
+            )
+        if not any(
+            str(path).startswith("portfolio.")
+            for path in (stored_manifest.get("externalizable_paths") or [])
+        ):
+            raise RuntimeError("The sample brokerage manifest has no exportable portfolio fields.")
+        self.log(
+            "Loaded the canonical sample brokerage into the reviewer PKM "
+            f"with {len(stored_holdings)} holdings and verified encrypted readback."
+        )
+        return "attr.financial.portfolio.*"
 
     def list_refresh_jobs(self) -> dict[str, Any]:
         response = self._request(
@@ -1745,10 +2207,9 @@ class UatKaiSmoke:
     def run_mcp_consent(self) -> None:
         self.authenticate()
         self.derive_vault_key()
-        scope = "attr.financial.analytics.quality_metrics"
+        scope = self.load_sample_brokerage_into_pkm()
         for reset_scope in (
             scope,
-            "attr.financial.analytics.*",
             "attr.financial.*",
             "pkm.read",
         ):

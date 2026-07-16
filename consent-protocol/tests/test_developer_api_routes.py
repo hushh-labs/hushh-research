@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ast
 import asyncio
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi import FastAPI
@@ -2598,3 +2600,28 @@ def test_is_supported_scope_rejects_empty_string():
 
 def test_is_supported_scope_rejects_arbitrary_string():
     assert _is_supported_scope("admin.all") is False
+
+
+def test_uat_smoke_consent_status_uses_bearer_auth() -> None:
+    smoke_path = Path(__file__).resolve().parents[1] / "scripts" / "uat_kai_regression_smoke.py"
+    module = ast.parse(smoke_path.read_text(encoding="utf-8"))
+    status_function = next(
+        node
+        for node in ast.walk(module)
+        if isinstance(node, ast.FunctionDef) and node.name == "developer_consent_status"
+    )
+    string_literals = {
+        node.value
+        for node in ast.walk(status_function)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    bearer_calls = [
+        node
+        for node in ast.walk(status_function)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "_developer_auth_headers"
+    ]
+
+    assert "token" not in string_literals
+    assert bearer_calls

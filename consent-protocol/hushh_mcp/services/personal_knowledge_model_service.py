@@ -2392,6 +2392,12 @@ class PersonalKnowledgeModelService:
         payload = getattr(rpc_result, "data", rpc_result)
         if isinstance(payload, list) and payload:
             payload = payload[0]
+        if (
+            isinstance(payload, dict)
+            and len(payload) == 1
+            and "commit_pkm_domain_mutation_v3" in payload
+        ):
+            payload = payload["commit_pkm_domain_mutation_v3"]
         return payload if isinstance(payload, dict) else {"success": False, "conflict": False}
 
     async def get_mutation_sharing_impact(
