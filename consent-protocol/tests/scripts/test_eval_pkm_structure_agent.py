@@ -1,10 +1,16 @@
 import asyncio
+import os
+import subprocess
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from hushh_mcp.services import pkm_agent_lab_service as pkm_agent_lab_module
 from scripts import eval_pkm_structure_agent as eval_script
+
+CONSENT_PROTOCOL_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_persona_chain_keeps_hundred_case_crud_surface():
@@ -198,3 +204,32 @@ async def test_synthetic_only_main_never_initializes_pkm_service(monkeypatch, tm
     monkeypatch.setattr(eval_script, "_manual_kpi_summary", lambda **_: {})
 
     assert await eval_script.main() == 0
+
+
+def test_synthetic_evaluator_import_needs_no_core_vault_or_signing_key():
+    environment = os.environ.copy()
+    environment.pop("APP_SIGNING_KEY", None)
+    environment.pop("VAULT_DATA_KEY", None)
+    environment["PYTHONPATH"] = str(CONSENT_PROTOCOL_ROOT)
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import asyncio; "
+            "from hushh_mcp.services.pkm_agent_lab_service import get_pkm_agent_lab_service; "
+            "service = get_pkm_agent_lab_service(); "
+            "assert service.structure_manifest.name; "
+            "service._client = object(); "
+            "preview = asyncio.run(service.generate_structure_preview("
+            "user_id='synthetic', message='I prefer Thai food.', current_domains=[])); "
+            "assert preview['structure_decision']['target_domain'] == 'food'",
+        ],
+        cwd=CONSENT_PROTOCOL_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
