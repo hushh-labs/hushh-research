@@ -12,6 +12,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from hushh_mcp.agents.summary_reducer import SummaryReducerAgent
 from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.services.domain_contracts import CANONICAL_DOMAIN_REGISTRY
@@ -4410,6 +4411,29 @@ class PKMAgentLabService:
         update_intent: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         total_started_at = time.perf_counter()
+        if simulated_state is not None:
+            try:
+                # Compute a discovery-safe summary projection for logging/audit.
+                # The original simulated_state is kept intact because downstream
+                # service logic (_build_state_summary, _compact_state_summary)
+                # reads structured fields (memories, domains) that are not
+                # present in the SummaryProjection schema.
+                _simulated_summary = SummaryReducerAgent.reduce(
+                    "simulated",
+                    simulated_state,
+                    run_llm=False,
+                )
+                logger.debug(
+                    "pkm.agent_lab.summary_reducer_ok user_id=%s keys=%s",
+                    user_id,
+                    list(_simulated_summary.keys()),
+                )
+            except Exception as _reduce_err:
+                logger.warning(
+                    "pkm.agent_lab.summary_reducer_failed user_id=%s: %s",
+                    user_id,
+                    _reduce_err,
+                )
         normalized_domains = [
             self._normalize_segment(domain) for domain in (current_domains or []) if domain
         ]

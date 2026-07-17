@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from hushh_mcp.agents.summary_reducer import SummaryReducerAgent
 from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService
 
 
@@ -1057,6 +1058,64 @@ async def test_dynamic_scope_crud_matrix_uses_canonical_targets(
     assert "changes" not in card.get("candidate_payload", {})
     if expected_merge in {"correct_entity", "delete_entity"}:
         assert ".changes." not in str(card.get("merge_decision", {}))
+
+
+@pytest.mark.asyncio
+async def test_generate_structure_preview_invokes_summary_reducer_without_mutating_state(
+    monkeypatch,
+):
+    """SummaryReducerAgent must be invoked for audit, and simulated_state must
+    survive unmodified for downstream merge-decision logic.
+
+    A prior version of this wiring assigned SummaryReducerAgent.reduce()'s
+    output back onto simulated_state, replacing the rich dict (memories,
+    domains) with a SummaryProjection dict (presence_flags, counts,
+    freshness_markers only). Downstream methods read simulated_state["memories"]
+    and simulated_state["domains"], so that overwrite produced wrong merge
+    decisions. Verify the agent is called with the original state, and that
+    the original dict is not replaced.
+    """
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service,
+        "_load_domain_registry_choices",
+        AsyncMock(return_value=_registry_choices()),
+    )
+    monkeypatch.setattr(service, "_run_agent_contract", AsyncMock(return_value=None))
+
+    reduce_calls = []
+    original_reduce = SummaryReducerAgent.reduce
+
+    def _spy_reduce(domain, candidate_data, **kwargs):
+        reduce_calls.append((domain, candidate_data))
+        return original_reduce(domain, candidate_data, **kwargs)
+
+    monkeypatch.setattr(SummaryReducerAgent, "reduce", _spy_reduce)
+
+    simulated_state = {"domains": CRUD_MATRIX_STATE["domains"], "memories": CRUD_MATRIX_STATE["memories"]}
+
+    result = await service.generate_structure_preview(
+        user_id="user-reducer-check",
+        message="I prefer Cantonese restaurants for dinner.",
+        current_domains=CRUD_MATRIX_STATE["domains"],
+        simulated_state=simulated_state,
+    )
+
+    assert reduce_calls, "SummaryReducerAgent.reduce must be invoked when simulated_state is provided"
+    assert reduce_calls[0][0] == "simulated"
+    assert reduce_calls[0][1] is simulated_state
+
+    assert simulated_state["memories"] == CRUD_MATRIX_STATE["memories"]
+    assert simulated_state["domains"] == CRUD_MATRIX_STATE["domains"]
+    assert "presence_flags" not in simulated_state
+
+    # The matching prior memory (food_pref_001, same message) is only found if
+    # simulated_state still has its real "memories" list downstream. If the
+    # wiring had overwritten simulated_state with the SummaryProjection dict
+    # (no "memories" key), this would degrade to "create_entity" instead.
+    card = result["preview_cards"][0]
+    assert card["target_domain"] == "food"
+    assert card["merge_mode"] == "extend_entity"
 
 
 @pytest.mark.asyncio
