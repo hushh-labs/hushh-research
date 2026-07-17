@@ -103,8 +103,10 @@ safe area
    tab. It leads to the canonical Connect route.
 6. Tabs are horizontally scrollable when needed, retain clear selected state,
    and do not push or overlap the top-bar actions on a small viewport.
-7. The bottom utility bar remains right-aligned as a compact action group on
-   wide layouts and naturally centered within the safe page gutter on phones.
+7. The bottom utility frame uses the exact Agent Bar width constraint. On wide
+   layouts its compact action group is right-aligned to the Agent Bar’s edge;
+   on phones it stays centered inside that same frame. It must never align to
+   the wider page shell or viewport edge.
 
 ## Material Physics
 

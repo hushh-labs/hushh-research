@@ -99,6 +99,29 @@ def test_default_service_lists_real_registry_backed_salesforce_endpoint_without_
     }
 
 
+def test_default_service_reloads_active_registry_for_each_list(monkeypatch):
+    """A registry enable/disable is visible without recreating the service."""
+    from hushh_mcp.services import crm_registry_repo
+
+    active_definitions = (SALESFORCE_CRM_SYSTEM,)
+    monkeypatch.setattr(
+        crm_registry_repo,
+        "load_active_definitions",
+        lambda: active_definitions,
+    )
+
+    service = ConnectedSystemsService(
+        store=InMemoryConnectedSystemIntentStore(),
+        delete_enabled=False,
+    )
+    assert [system["systemId"] for system in service.list_systems()] == [
+        CONNECTED_SYSTEM_SALESFORCE_ID,
+    ]
+
+    active_definitions = ()
+    assert service.list_systems() == []
+
+
 @pytest.mark.asyncio
 async def test_registry_simulator_path_remains_available_for_deterministic_local_tests():
     adapter = ExternalCrmStreamableMcpAdapter(

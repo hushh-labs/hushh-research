@@ -1338,12 +1338,16 @@ class ConnectedSystemsService:
         return self.adapter or ExternalCrmStreamableMcpAdapter.from_registry(system)
 
     def list_systems(self) -> list[dict[str, Any]]:
+        # Registry entries are operational configuration. Unlike an explicit
+        # injected test registry, reload the active DB-backed set for each
+        # list request so enables/disables appear without a backend restart.
+        registry = self.registry if self._registry_explicit else self._load_registry()
         return [
             system.to_summary(
                 endpoint_configured=bool(system.transport_endpoint),
                 delete_enabled=self.delete_enabled,
             )
-            for system in self.registry
+            for system in registry
         ]
 
     def get_system(self, system_id: str) -> ConnectedSystemDefinition:

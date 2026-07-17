@@ -15,10 +15,18 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from pathlib import Path
 
 # Force offline DB so we never touch prod; isolate to a temp sqlite file.
 os.environ["DB_OFFLINE"] = "1"
 os.environ.setdefault("OFFLINE_DB_PATH", "/tmp/crm_e2e_offline.db")
+
+# `python scripts/ops/...` puts the script directory, not the protocol package,
+# on sys.path. Keep the operator command self-contained instead of requiring an
+# untracked PYTHONPATH export.
+PROTOCOL_ROOT = Path(__file__).resolve().parents[2]
+if str(PROTOCOL_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROTOCOL_ROOT))
 
 from db.db_client import get_db  # noqa: E402
 from hushh_mcp.runtime_settings import (  # noqa: E402

@@ -84,5 +84,14 @@ describe("Navbar bottom utilities", () => {
     expect(screen.getByRole("radiogroup", { name: "Route navigation" }).getAttribute("style")).toContain(
       "grid-template-columns: repeat(2, minmax(0, 1fr))",
     );
+    expect(screen.getByTestId("app-bottom-nav-frame").className).toContain(
+      "max-w-[min(calc(100vw-2rem),34rem)]",
+    );
+    expect(screen.getByTestId("app-bottom-nav-frame").className).toContain(
+      "justify-center",
+    );
+    expect(screen.getByTestId("app-bottom-nav-frame").className).toContain(
+      "md:justify-end",
+    );
   });
 });

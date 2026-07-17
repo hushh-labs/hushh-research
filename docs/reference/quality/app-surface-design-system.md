@@ -207,7 +207,7 @@ Rules:
 3. Finance and RIA navigation belongs in the signed-in top shell, not in the bottom bar. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`, `Clients`, and `Picks`. Tabs are driven by canonical route-tab definitions and are horizontally scrollable on small screens.
 4. `Connect` is a signed-in top-bar action. It is not a bottom utility or workspace tab.
 5. Use canonical route constants through `lib/navigation/app-bottom-nav.ts` and `lib/navigation/*-route-tabs.ts`; route files must not build their own shell navigation arrays.
-6. The Agent Bar and bottom utility bar share the measured bottom-chrome stack with a 4px resting join. Do not add component- or route-local offsets.
+6. The Agent Bar and bottom utility bar share the measured bottom-chrome stack with a 4px resting join. The utility frame uses the same width constraint as the Agent Bar: right-align within that frame on wide screens and center on phones. Do not add component- or route-local offsets.
 7. Bottom active state uses fill and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
 8. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
 9. The pending-consent count belongs on the One utility only; never duplicate it onto Profile or a workspace tab.

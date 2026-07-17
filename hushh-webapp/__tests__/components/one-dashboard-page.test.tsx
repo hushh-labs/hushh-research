@@ -58,9 +58,14 @@ describe("OneDashboardPage", () => {
     ).toBeNull();
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
     expect(screen.getByTestId("one-agents-grid")).toHaveAttribute(
-      "data-agent-roster-layout",
-      "2-column-cards",
+      "data-testid",
+      "one-agents-grid",
     );
+    expect(
+      screen.getByTestId("one-agents-grid").querySelector(
+        '[data-agent-roster-layout="grouped-icon-grid"]',
+      ),
+    ).toBeTruthy();
     expect(container.textContent).not.toContain("Finish setup");
     expect(
       screen.getByRole("heading", { name: "Agents (8)" }),
@@ -76,10 +81,10 @@ describe("OneDashboardPage", () => {
     expect(financeLink.className).not.toContain("translate");
     expect(screen.getByTestId("one-agent-tile-finance").style.width).toBe("");
     expect(screen.getByTestId("one-agent-tile-finance").className).toContain(
-      "grid-cols-[3.5rem_minmax(0,1fr)_1rem]",
+      "flex-col",
     );
-    expect(screen.getByTestId("one-agent-tile-finance").className).toContain(
-      "text-left",
+    expect(screen.getByTestId("one-agent-tile-finance").className).not.toContain(
+      "border-[color:var(--app-card-border-standard)]",
     );
     const expectedImageIcons = {
       finance: "/one/agents/finance.png",

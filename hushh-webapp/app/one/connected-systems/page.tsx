@@ -9,7 +9,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { PageHeader } from "@/components/app-ui/page-sections";
+import { SectionHeader } from "@/components/app-ui/page-sections";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
@@ -23,7 +23,7 @@ export default function ConnectedSystemsPage() {
   return (
     <AppPageShell
       as="main"
-      width="standard"
+      width="reading"
       className="pb-[calc(var(--app-bottom-inset)+var(--kai-command-fixed-ui,82px)+1.25rem)] sm:pb-10 md:pb-8"
       nativeTest={{
         routeId: "/one/connected-systems",
@@ -39,10 +39,8 @@ export default function ConnectedSystemsPage() {
         dataState="loaded"
       />
       <AppPageHeaderRegion>
-        <PageHeader
-          eyebrow="One / Setup"
-          title="Link your tools"
-          description="Choose an available CRM system, find your existing profile, or create one where profile creation is supported."
+        <SectionHeader
+          title="Connected systems"
           icon={Building2}
           accent="neutral"
         />

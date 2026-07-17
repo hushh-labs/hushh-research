@@ -399,62 +399,67 @@ export const Navbar = () => {
       }
     >
       <div
-        className={cn(
-          "relative flex items-stretch justify-center gap-2",
-          "pointer-events-none",
-        )}
-        style={{ width: bottomNavGroupWidth }}
-        ref={pillRef}
+        data-testid="app-bottom-nav-frame"
+        className="pointer-events-none mx-auto flex w-full max-w-[min(calc(100vw-2rem),34rem)] justify-center md:justify-end"
       >
         <div
-          className="min-w-0 pointer-events-auto"
-          style={{ width: bottomNavWidth }}
-        >
-          <SegmentedPill
-            size="compact"
-            layout="stacked"
-            hitArea="segment"
-            value={activeNav}
-            options={navOptions}
-            onValueChange={navigateTo}
-            ariaLabel="Route navigation"
-            className={cn(
-              "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
-              "[&_[aria-checked=true]]:text-[color:var(--app-accent)] [&_[aria-checked=true]]:font-semibold",
-              "[&_[data-segment-indicator]]:bg-black/[0.06] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-white/[0.1]",
-            )}
-          />
-        </div>
-        <button
-          type="button"
-          aria-label="Search"
-          data-native-voice-control-id="one_voice_open_command_search"
-          data-testid="one-voice-open-command-search"
           className={cn(
-            // A perfect circle matching the stacked pill's 52px min-height.
-            // Explicit equal h/w instead of aspect-square + self-stretch:
-            // WKWebView resolves aspect-ratio against a stretch-derived flex
-            // cross size as indefinite, which rendered this button as an oval
-            // on iOS while web looked fine.
-            "pointer-events-auto relative z-20 inline-flex h-[52px] w-[52px] shrink-0 self-center items-center justify-center overflow-hidden rounded-full",
-            "kai-bottom-search-action",
-            "transition-[color,transform,background-color] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)]",
-            // Hover styles behind (hover:hover) so iOS taps never latch a
-            // sticky hover background on the first touch.
-            "[@media(hover:hover)]:hover:bg-black/[0.08] [@media(hover:hover)]:hover:text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background [@media(hover:hover)]:dark:hover:bg-white/[0.1] active:scale-90 chrome-bottom-foreground",
+            "relative flex items-stretch justify-center gap-2",
+            "pointer-events-none",
           )}
-          onClick={() => {
-            if (busyOperations["portfolio_save"]) {
-              toast.info(
-                "Saving to vault. Please wait until encryption completes.",
-              );
-              return;
-            }
-            toggleKaiCommandBar();
-          }}
+          style={{ width: bottomNavGroupWidth }}
+          ref={pillRef}
         >
-          <Icon icon={SearchIcon} size="md" className="shrink-0" />
-        </button>
+          <div
+            className="min-w-0 pointer-events-auto"
+            style={{ width: bottomNavWidth }}
+          >
+            <SegmentedPill
+              size="compact"
+              layout="stacked"
+              hitArea="segment"
+              value={activeNav}
+              options={navOptions}
+              onValueChange={navigateTo}
+              ariaLabel="Route navigation"
+              className={cn(
+                "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
+                "[&_[aria-checked=true]]:text-[color:var(--app-accent)] [&_[aria-checked=true]]:font-semibold",
+                "[&_[data-segment-indicator]]:bg-black/[0.06] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-white/[0.1]",
+              )}
+            />
+          </div>
+          <button
+            type="button"
+            aria-label="Search"
+            data-native-voice-control-id="one_voice_open_command_search"
+            data-testid="one-voice-open-command-search"
+            className={cn(
+              // A perfect circle matching the stacked pill's 52px min-height.
+              // Explicit equal h/w instead of aspect-square + self-stretch:
+              // WKWebView resolves aspect-ratio against a stretch-derived flex
+              // cross size as indefinite, which rendered this button as an oval
+              // on iOS while web looked fine.
+              "pointer-events-auto relative z-20 inline-flex h-[52px] w-[52px] shrink-0 self-center items-center justify-center overflow-hidden rounded-full",
+              "kai-bottom-search-action",
+              "transition-[color,transform,background-color] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)]",
+              // Hover styles behind (hover:hover) so iOS taps never latch a
+              // sticky hover background on the first touch.
+              "[@media(hover:hover)]:hover:bg-black/[0.08] [@media(hover:hover)]:hover:text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background [@media(hover:hover)]:dark:hover:bg-white/[0.1] active:scale-90 chrome-bottom-foreground",
+            )}
+            onClick={() => {
+              if (busyOperations["portfolio_save"]) {
+                toast.info(
+                  "Saving to vault. Please wait until encryption completes.",
+                );
+                return;
+              }
+              toggleKaiCommandBar();
+            }}
+          >
+            <Icon icon={SearchIcon} size="md" className="shrink-0" />
+          </button>
+        </div>
       </div>
     </nav>
   );
