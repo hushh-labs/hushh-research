@@ -12,6 +12,10 @@ import {
 } from "@/components/ui/card";
 
 describe("Card", () => {
+  it("propagates custom class names", () => {
+    const { container } = render(<Card className="custom-card">Content</Card>);
+    expect(container.querySelector('[data-slot="card"]')?.className).toContain("custom-card");
+  });
   it("renders all data-slot contracts", () => {
     const { container } = render(
       <Card>
