@@ -36,6 +36,18 @@ describe("Accordion", () => {
     expect(container.querySelector('[data-slot="accordion"]')).toBeTruthy();
   });
 
+  it("propagates custom class names on root", () => {
+    const { container } = render(
+      <Accordion type="single" className="custom-accordion-root">
+        <AccordionItem value="item-1">
+          <AccordionTrigger>Trigger</AccordionTrigger>
+          <AccordionContent>Content</AccordionContent>
+        </AccordionItem>
+      </Accordion>,
+    );
+    expect(container.querySelector('[data-slot="accordion"]')?.className).toContain("custom-accordion-root");
+  });
+
   it("renders AccordionItem with data-slot='accordion-item'", () => {
     const { container } = render(
       <Accordion type="single">
