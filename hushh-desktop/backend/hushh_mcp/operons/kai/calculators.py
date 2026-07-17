@@ -404,3 +404,88 @@ def calculate_return_and_risk_metrics(
         "annualized_volatility": calculate_annualized_volatility(prices),
         "sharpe_ratio": calculate_sharpe_ratio(prices, risk_free_rate),
     }
+
+
+# ============================================================================
+# COMPOUND GROWTH PROJECTION
+# ============================================================================
+
+
+def calculate_compound_growth(
+    principal: float,
+    annual_rate: float,
+    years: float,
+    contributions_per_year: float = 0.0,
+    compounds_per_year: int = 1,
+) -> Dict[str, float]:
+    """
+    Project the future value of an investment under compound interest, with
+    optional regular contributions (ordinary annuity: contributions land at
+    the end of each compounding period, then earn interest going forward).
+
+    This is precisely the kind of multi-step financial math Kai's local
+    (on-device) chat mode is instructed to avoid answering directly (see
+    agent_chat_service.py's local_math_guardrail) -- small LLMs, local and
+    cloud alike, are unreliable at exactly this. A deterministic calculator
+    has no such failure mode, which is the whole point of exposing it as an
+    MCP tool any orchestrator (Hermes, Kai) can call for a precise answer
+    instead of asking a model to compute it.
+
+    Formula (per-period rate r = annual_rate / compounds_per_year, over
+    n = years * compounds_per_year periods):
+        FV_principal = P * (1 + r)^n
+        FV_contributions = C * [(1 + r)^n - 1] / r   (future value of an
+            ordinary annuity, C = contribution per compounding period)
+
+    Args:
+        principal: Starting amount.
+        annual_rate: Annual interest rate as a decimal (e.g. 0.07 for 7%).
+        years: Number of years to project (may be fractional).
+        contributions_per_year: Total additional amount contributed per
+            year, spread evenly across compounding periods. 0 by default.
+        compounds_per_year: Compounding frequency (1 = annual, 12 = monthly,
+            365 = daily). Must be a positive integer.
+
+    Returns:
+        Dict with future_value, total_contributions, total_principal_and_contributions,
+        and total_interest_earned.
+
+    Raises:
+        ValueError: if years < 0, compounds_per_year <= 0, or principal/
+            contributions_per_year < 0 -- deterministic tools should reject
+            nonsensical input rather than silently returning a meaningless
+            number.
+    """
+    if years < 0:
+        raise ValueError("years must be >= 0")
+    if compounds_per_year <= 0:
+        raise ValueError("compounds_per_year must be a positive integer")
+    if principal < 0 or contributions_per_year < 0:
+        raise ValueError("principal and contributions_per_year must be >= 0")
+
+    n_periods = years * compounds_per_year
+    contribution_per_period = contributions_per_year / compounds_per_year
+
+    if annual_rate == 0:
+        # Degenerate case: (1+r)^n - 1)/r is undefined at r=0 (0/0), and
+        # simplifies to n_periods * contribution_per_period directly.
+        future_value_principal = principal
+        future_value_contributions = contribution_per_period * n_periods
+    else:
+        r = annual_rate / compounds_per_year
+        growth_factor = (1.0 + r) ** n_periods
+        future_value_principal = principal * growth_factor
+        future_value_contributions = (
+            contribution_per_period * (growth_factor - 1.0) / r if r != 0 else 0.0
+        )
+
+    future_value = future_value_principal + future_value_contributions
+    total_contributions = contribution_per_period * n_periods
+    total_principal_and_contributions = principal + total_contributions
+
+    return {
+        "future_value": future_value,
+        "total_contributions": total_contributions,
+        "total_principal_and_contributions": total_principal_and_contributions,
+        "total_interest_earned": future_value - total_principal_and_contributions,
+    }
