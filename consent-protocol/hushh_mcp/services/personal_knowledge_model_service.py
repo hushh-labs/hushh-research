@@ -182,6 +182,7 @@ class PersonalKnowledgeModelService:
         self._domain_registry = None
         self._scope_generator = None
         self._blob_upsert_rpc_supported: Optional[bool] = None
+        self._background_reconcile_tasks: set[asyncio.Task] = set()
 
     _SUMMARY_BLOCKLIST = {"holdings", "total_value", "vault_key", "password"}
     _FINANCIAL_ENRICHMENT_INT_KEYS = {"investable_positions_count", "cash_positions_count"}
@@ -1294,9 +1295,13 @@ class PersonalKnowledgeModelService:
 
     def _schedule_index_reconcile(self, user_id: str) -> None:
         try:
-            asyncio.create_task(self.reconcile_user_index_domains(user_id))
+            loop = asyncio.get_running_loop()
         except RuntimeError:
             logger.debug("Skipping background reconcile schedule for %s; no active loop", user_id)
+            return
+        task = loop.create_task(self.reconcile_user_index_domains(user_id))
+        self._background_reconcile_tasks.add(task)
+        task.add_done_callback(self._background_reconcile_tasks.discard)
 
     async def resolve_metadata_index(
         self,
