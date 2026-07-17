@@ -76,29 +76,21 @@ def _is_reviewer_byok(path: str) -> bool:
     }
 
 
-def _is_pkm_runtime(path: str) -> bool:
-    return _is_pkm_upgrade(path)
-
-
 @dataclass(frozen=True)
 class VerificationPlan:
     changed_files: tuple[str, ...]
     pkm_evaluator_runs: int
     run_pkm_upgrade_gate: bool
     run_reviewer_byok: bool
-    run_pkm_runtime_audit: bool
     reason: str
 
     def as_dict(self) -> dict[str, object]:
-        requires_web_dependencies = (
-            self.run_pkm_upgrade_gate or self.run_reviewer_byok or self.run_pkm_runtime_audit
-        )
+        requires_web_dependencies = self.run_pkm_upgrade_gate or self.run_reviewer_byok
         return {
             "changed_files": list(self.changed_files),
             "pkm_evaluator_runs": self.pkm_evaluator_runs,
             "run_pkm_upgrade_gate": self.run_pkm_upgrade_gate,
             "run_reviewer_byok": self.run_reviewer_byok,
-            "run_pkm_runtime_audit": self.run_pkm_runtime_audit,
             "requires_web_dependencies": requires_web_dependencies,
             "reason": self.reason,
         }
@@ -116,7 +108,7 @@ def resolve_plan(
         deploy_frontend and not frontend_base_sha
     )
     if missing_base:
-        return VerificationPlan((), 1, True, True, True, "conservative:missing_deployed_sha")
+        return VerificationPlan((), 1, True, True, "conservative:missing_deployed_sha")
 
     changed: set[str] = set()
     if deploy_backend:
@@ -127,13 +119,11 @@ def resolve_plan(
     pkm_upgrade = any(_is_pkm_upgrade(path) for path in changed)
     evaluator_runs = 1 if pkm_upgrade else 0
     reviewer_byok = any(_is_reviewer_byok(path) for path in changed)
-    pkm_runtime = any(_is_pkm_runtime(path) for path in changed)
     active = [
         name
         for name, enabled in (
             ("pkm_upgrade", pkm_upgrade),
             ("reviewer_byok", reviewer_byok),
-            ("pkm_runtime", pkm_runtime),
         )
         if enabled
     ]
@@ -142,7 +132,6 @@ def resolve_plan(
         evaluator_runs,
         pkm_upgrade,
         reviewer_byok,
-        pkm_runtime,
         f"changed_paths:{','.join(active) if active else 'standard'}",
     )
 
