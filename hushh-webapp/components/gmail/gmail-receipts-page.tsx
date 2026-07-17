@@ -501,7 +501,9 @@ export default function ProfileReceiptsPage() {
       toast.message("Syncing your receipts now.");
     } catch (error) {
       pendingSyncFeedbackRef.current = false;
-      console.error("[ProfileReceiptsPage] Failed to start Gmail sync:", error);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[ProfileReceiptsPage] Failed to start Gmail sync:", error);
+      }
       toast.error(
         sanitizeGmailUserMessage(error, {
           fallback:
