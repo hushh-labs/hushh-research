@@ -517,6 +517,44 @@ export function isKaiOnboardingCompleted(
   return resolveKaiOnboardingCompletion(profile).completed;
 }
 
+const TRANSIENT_LOAD_ERROR_FLAG = "__transientLoadError";
+
+/**
+ * Attaches a NON-ENUMERABLE diagnostic marker to a fallback profile so a
+ * transient load failure (e.g. vault decrypt / network error) is
+ * distinguishable from a genuinely new user, WITHOUT changing the enumerable
+ * KaiProfileV2 shape.
+ *
+ * Non-enumerable means the marker is excluded from JSON.stringify, object
+ * spread ({ ...profile }), Object.keys iteration, and the typed contract. It
+ * therefore cannot leak into a vault write or pollute any consumer that
+ * enumerates keys. Read it only via isTransientProfileFallback().
+ */
+function markTransientFallback(profile: KaiProfileV2): KaiProfileV2 {
+  Object.defineProperty(profile, TRANSIENT_LOAD_ERROR_FLAG, {
+    value: true,
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
+  return profile;
+}
+
+/**
+ * Sanctioned read path for the transient-failure marker set by
+ * KaiProfileService.getProfile when a load throws. Lets a caller distinguish a
+ * degraded "system error" default from a real "brand-new user" default.
+ */
+export function isTransientProfileFallback(
+  profile: KaiProfileV2 | null | undefined
+): boolean {
+  return Boolean(
+    profile &&
+      (profile as Record<string, unknown>)[TRANSIENT_LOAD_ERROR_FLAG] === true
+  );
+}
+
+
 export class KaiProfileService {
   static async getProfile(params: {
     userId: string;
@@ -539,11 +577,17 @@ export class KaiProfileService {
       return profile;
     } catch (error) {
       console.warn("[KaiProfileService] Failed to load financial.profile:", error);
-      const fallback = createDefaultProfile();
+      // Mark the fallback so callers can distinguish a transient load failure
+      // (degraded "system error") from a genuinely new user. The marker is
+      // non-enumerable, so it is NOT persisted to cache/vault and does not
+      // change the KaiProfileV2 shape. Use the SHORT TTL so a recovered load
+      // re-resolves the real profile quickly.
+      const fallback = markTransientFallback(createDefaultProfile());
       cache.set(cacheKey, fallback, CACHE_TTL.SHORT);
       return fallback;
     }
   }
+
 
   static async savePreferences(params: {
     userId: string;
