@@ -26,7 +26,6 @@ import {
   Check,
   ChevronDown,
   Code2,
-  Compass,
   Database,
   FileCheck2,
   FolderSearch,
@@ -49,6 +48,7 @@ import {
   APP_SHELL_FRAME_STYLE,
 } from "@/components/app-ui/app-page-shell";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -873,17 +873,6 @@ export function TopAppBar({ className }: TopAppBarProps) {
                     <OnboardingRouteActions />
                   ) : (
                     <>
-                      {normalizedPathname !== ROUTES.CONNECT ? (
-                        <ShellActionSurface
-                          variant="pill"
-                          aria-label="Open Connect"
-                          onClick={() => router.push(ROUTES.CONNECT)}
-                          className="gap-1.5 px-3"
-                        >
-                          <Compass className="h-4 w-4" />
-                          <span>Connect</span>
-                        </ShellActionSurface>
-                      ) : null}
                       <ConsentInboxDropdown
                         renderTrigger={({ pendingCount }) => (
                           <ShellActionSurface
@@ -940,6 +929,30 @@ export function TopAppBar({ className }: TopAppBarProps) {
                           </ShellActionSurface>
                         )}
                       />
+                      <ShellActionSurface
+                        variant="icon"
+                        aria-label="Open Profile"
+                        onClick={() => router.push(ROUTES.PROFILE)}
+                        className="p-0"
+                      >
+                        <Avatar className="h-9 w-9">
+                          {user?.photoURL ? (
+                            <AvatarImage src={user.photoURL} alt="" />
+                          ) : null}
+                          <AvatarFallback className="bg-transparent text-muted-foreground">
+                            {user?.displayName ? (
+                              user.displayName
+                                .split(" ")
+                                .map((part) => part[0])
+                                .join("")
+                                .slice(0, 2)
+                                .toUpperCase()
+                            ) : (
+                              <UserRound className="h-5 w-5" />
+                            )}
+                          </AvatarFallback>
+                        </Avatar>
+                      </ShellActionSurface>
                     </>
                   )}
                 </div>

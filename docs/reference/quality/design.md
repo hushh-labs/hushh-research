@@ -78,7 +78,7 @@ contract.
 
 ```text
 safe area
-┌ One / current workspace     workspace tabs                 Connect + alerts ┐
+┌ One / current workspace     workspace tabs                  alerts + Profile ┐
 │ Finance                     Market · Portfolio · Analysis                    │
 └──────────────────────────────────────────────────────────────────────────────┘
                                      route content
@@ -99,8 +99,9 @@ safe area
    the active workspace owns its finite tabs. Finance uses Market, Portfolio,
    and Analysis. RIA uses Home, Clients, and Picks. Generic One/Profile routes
    do not invent workspace tabs.
-5. Connect is a signed-in top-bar action, not a bottom tab and not a workspace
-   tab. It leads to the canonical Connect route.
+5. The rightmost signed-in top-bar control is Profile. It uses the signed-in
+   person's image when available and the same generic/initial fallback as the
+   Profile route. Connect remains a route but is not shell chrome.
 6. Tabs are horizontally scrollable when needed, retain clear selected state,
    and do not push or overlap the top-bar actions on a small viewport.
 7. The bottom utility frame uses the exact Agent Bar width constraint. On wide
