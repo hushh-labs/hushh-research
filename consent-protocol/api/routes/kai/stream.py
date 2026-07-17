@@ -1597,7 +1597,12 @@ async def analyze_stream_generator(
             logger.error("[Kai Stream] Fundamental agent error: %s", e)
             yield create_event(
                 "agent_error",
-                {"agent": "fundamental", "error": str(e), "round": 1, "phase": "analysis"},
+                {
+                    "agent": "fundamental",
+                    "error": "Fundamental analysis is temporarily unavailable.",
+                    "round": 1,
+                    "phase": "analysis",
+                },
             )
             degraded_agents.append("fundamental")
             fundamental_insight = _build_fallback_fundamental_insight(ticker, e)
@@ -1737,7 +1742,12 @@ async def analyze_stream_generator(
             logger.error("[Kai Stream] Sentiment agent error: %s", e)
             yield create_event(
                 "agent_error",
-                {"agent": "sentiment", "error": str(e), "round": 1, "phase": "analysis"},
+                {
+                    "agent": "sentiment",
+                    "error": "Sentiment analysis is temporarily unavailable.",
+                    "round": 1,
+                    "phase": "analysis",
+                },
             )
             degraded_agents.append("sentiment")
             sentiment_insight = _build_fallback_sentiment_insight(ticker, e)
@@ -1872,7 +1882,12 @@ async def analyze_stream_generator(
             logger.error("[Kai Stream] Valuation agent error: %s", e)
             yield create_event(
                 "agent_error",
-                {"agent": "valuation", "error": str(e), "round": 1, "phase": "analysis"},
+                {
+                    "agent": "valuation",
+                    "error": "Valuation analysis is temporarily unavailable.",
+                    "round": 1,
+                    "phase": "analysis",
+                },
             )
             degraded_agents.append("valuation")
             valuation_insight = _build_fallback_valuation_insight(ticker, e)
