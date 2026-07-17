@@ -102,6 +102,7 @@ export function RecoveryKeyDialog({
             </Button>
 
             <Button
+              type="button"
               onClick={handleDownload}
               className="w-full"
             >
@@ -113,6 +114,7 @@ export function RecoveryKeyDialog({
 
         <DialogFooter>
           <Button
+            type="button"
             onClick={onContinue}
             variant="gradient"
             effect="glass"
