@@ -111,7 +111,7 @@ def test_consent_status_rejects_oversized_query_params_before_auth(monkeypatch):
     assert response.status_code == 422
 
 
-def test_tool_catalog_rejects_oversized_query_token_before_auth(monkeypatch):
+def test_tool_catalog_rejects_oversized_token_before_auth(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
 
@@ -121,7 +121,7 @@ def test_tool_catalog_rejects_oversized_query_token_before_auth(monkeypatch):
     assert response.status_code == 422
 
 
-def test_request_consent_rejects_oversized_query_token_before_auth(monkeypatch):
+def test_request_consent_rejects_oversized_token_before_auth(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
 
@@ -135,7 +135,7 @@ def test_request_consent_rejects_oversized_query_token_before_auth(monkeypatch):
     assert response.status_code == 422
 
 
-def test_scoped_export_rejects_oversized_query_token_before_auth(monkeypatch):
+def test_scoped_export_rejects_oversized_token_before_auth(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
 
