@@ -2,13 +2,16 @@
 
 import { useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, type LucideIcon } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 
 import {
   getCapabilityStatusDisplay,
   type CapabilityStatusTone,
 } from "@/lib/onboarding/capability-status-display";
-import { type OneCapabilityTone } from "@/lib/onboarding/one-capabilities";
+import {
+  type OneCapabilityIcon,
+  type OneCapabilityTone,
+} from "@/lib/onboarding/one-capabilities";
 import {
   isCapabilitySetupComplete,
   type CapabilityStatus,
@@ -47,7 +50,7 @@ export interface CapabilitySetupTileProps {
   resumeActionLabel: string;
   href: string;
   voiceControlId: string;
-  icon: LucideIcon;
+  icon: OneCapabilityIcon;
   tone: OneCapabilityTone;
   status: CapabilityStatus;
   /** Explore-only capability — its badge reads "Explore"/"Explored". */
@@ -65,7 +68,7 @@ export function CapabilitySetupTile({
   resumeActionLabel,
   href,
   voiceControlId,
-  icon: Icon,
+  icon,
   tone,
   status,
   isExploreOnly = false,
@@ -95,7 +98,7 @@ export function CapabilitySetupTile({
       leading={
         <AgentSectionIcon
           id={capabilityId}
-          icon={Icon}
+          icon={icon}
           tone={tone}
           size="menu"
         />

@@ -1,0 +1,96 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024"
+     xmlns="http://www.w3.org/2000/svg" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="170" y1="110" x2="850" y2="920" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F6C75B"/>
+      <stop offset="0.46" stop-color="#E3A12E"/>
+      <stop offset="1" stop-color="#B96D12"/>
+    </linearGradient>
+
+    <radialGradient id="topGlow" cx="0" cy="0" r="1"
+      gradientUnits="userSpaceOnUse"
+      gradientTransform="translate(290 190) rotate(48) scale(770)">
+      <stop stop-color="#FFFFFF" stop-opacity="0.34"/>
+      <stop offset="0.48" stop-color="#FFFFFF" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="panel" x1="216" y1="348" x2="790" y2="704" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#FFF7E8"/>
+    </linearGradient>
+
+    <linearGradient id="toggle" x1="575" y1="458" x2="788" y2="612" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E6A02A"/>
+      <stop offset="1" stop-color="#B86A10"/>
+    </linearGradient>
+
+    <linearGradient id="avatar" x1="279" y1="420" x2="440" y2="610" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D9901D"/>
+      <stop offset="1" stop-color="#9F5810"/>
+    </linearGradient>
+
+    <linearGradient id="edge" x1="86" y1="58" x2="934" y2="966" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.55"/>
+      <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#6C3600" stop-opacity="0.26"/>
+    </linearGradient>
+
+    <filter id="panelShadow" x="-20%" y="-30%" width="140%" height="180%">
+      <feDropShadow dx="0" dy="28" stdDeviation="30" flood-color="#6E3700" flood-opacity="0.26"/>
+    </filter>
+
+    <filter id="knobShadow" x="-60%" y="-60%" width="220%" height="220%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#6E3700" flood-opacity="0.22"/>
+    </filter>
+
+    <clipPath id="clip">
+      <rect width="1024" height="1024" rx="232"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#clip)">
+    <rect width="1024" height="1024" rx="232" fill="url(#bg)"/>
+    <rect width="1024" height="1024" rx="232" fill="url(#topGlow)"/>
+
+    <!-- Quiet depth -->
+    <path d="M0 0H1024V332C915 175 739 92 526 92C297 92 118 185 0 354V0Z"
+          fill="#FFFFFF" fill-opacity="0.07"/>
+
+    <!-- Consent control card -->
+    <g filter="url(#panelShadow)">
+      <rect x="170" y="336" width="684" height="352" rx="116"
+            fill="url(#panel)"
+            stroke="#FFFFFF" stroke-opacity="0.9" stroke-width="5"/>
+    </g>
+
+    <!-- Person identity -->
+    <circle cx="342" cy="462" r="66" fill="url(#avatar)"/>
+    <path d="M246 612C259 545 296 514 342 514C388 514 425 545 438 612"
+          fill="url(#avatar)"/>
+
+    <!-- Permission toggle -->
+    <rect x="514" y="438" width="244" height="146" rx="73"
+          fill="url(#toggle)"/>
+    <circle cx="685" cy="511" r="58" fill="#FFFFFF" filter="url(#knobShadow)"/>
+
+    <!-- Clear granted state -->
+    <path d="M656 511L678 533L718 488"
+          stroke="#C97916" stroke-width="21"
+          stroke-linecap="round" stroke-linejoin="round"/>
+
+    <!-- Minimal permission detail -->
+    <rect x="514" y="614" width="188" height="24" rx="12"
+          fill="#C98118" fill-opacity="0.17"/>
+    <rect x="514" y="614" width="116" height="24" rx="12"
+          fill="#C98118" fill-opacity="0.55"/>
+
+    <!-- Optical highlight -->
+    <path d="M202 385C286 326 735 319 821 397"
+          stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="8"
+          stroke-linecap="round"/>
+
+    <rect x="10" y="10" width="1004" height="1004" rx="222"
+          stroke="url(#edge)" stroke-width="20"/>
+  </g>
+</svg>

@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { type LucideIcon } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -24,6 +23,7 @@ import {
 } from "@/lib/onboarding/capability-setup-copy";
 import {
   getOneSetupCapability,
+  type OneCapabilityIcon,
   type OneCapabilityTone,
 } from "@/lib/onboarding/one-capabilities";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
@@ -303,7 +303,7 @@ interface SetupItem {
   id: string;
   copy: CapabilitySetupCopy;
   status: CapabilityStatus;
-  icon: LucideIcon;
+  icon: OneCapabilityIcon;
   tone: OneCapabilityTone;
   voiceControlId: string;
   isActionable: boolean;

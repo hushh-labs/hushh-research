@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  ChevronRight,
   Grid2X2,
   List,
-  type LucideIcon,
 } from "lucide-react";
 
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
@@ -14,6 +14,7 @@ import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
   getOneSetupCapability,
   ONE_CAPABILITIES,
+  type OneCapabilityIcon,
   type OneCapabilityTone,
 } from "@/lib/onboarding/one-capabilities";
 import {
@@ -31,7 +32,7 @@ type OneAgentMode = {
   title: string;
   description: string;
   href: string;
-  icon: LucideIcon;
+  icon: OneCapabilityIcon;
   status: string;
   statusTone: CapabilityStatusTone;
   tone: OneCapabilityTone;
@@ -41,7 +42,6 @@ type OneAgentMode = {
 type AgentRosterView = "grid" | "list";
 
 const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
-const ONE_AGENT_TILE_WIDTH = "5.75rem";
 
 function buildModes(
   statusById: Record<string, CapabilityStatus>,
@@ -91,6 +91,11 @@ function statusClassName(mode: OneAgentMode): string {
   return "text-muted-foreground";
 }
 
+function gridStatusClassName(mode: OneAgentMode): string {
+  if (mode.statusTone === "ready") return "text-[#138a3d] dark:text-[#5ee283]";
+  return "text-muted-foreground";
+}
+
 function AgentTile({ mode }: { mode: OneAgentMode }) {
   return (
     <Link
@@ -99,38 +104,35 @@ function AgentTile({ mode }: { mode: OneAgentMode }) {
       data-testid={`one-agent-tile-${mode.id}`}
       title={mode.description}
       className={cn(
-        // A launcher tile has fixed icon and copy tracks. This keeps the icon
-        // wells on the same optical centerline in both axes even when labels
-        // or statuses differ, while the outer roster adapts by viewport.
-        "group grid min-h-[8.5rem] grid-rows-[4rem_2.5rem] content-center justify-items-center gap-2 rounded-[22px] px-1.5 py-2 text-center",
-        "transition-[background-color] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-        "hover:bg-black/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:hover:bg-white/[0.06] motion-reduce:transition-none",
+        "group grid min-h-[5.75rem] grid-cols-[3.5rem_minmax(0,1fr)_1rem] items-center gap-3 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-3 py-3 text-left shadow-[var(--app-card-shadow-standard)]",
+        "transition-[background-color,border-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
+        "hover:border-[color:var(--app-card-border-strong)] hover:bg-[color:var(--app-card-surface-compact)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100",
       )}
-      style={{ width: ONE_AGENT_TILE_WIDTH }}
     >
       <AgentSectionIcon
         id={mode.id}
         icon={mode.icon}
         tone={mode.tone}
-        className="self-center justify-self-center"
+        size="card"
+        className="self-center"
       />
-      <span className="w-full min-w-0 self-start space-y-0.5 text-center">
-        <span
-          className="block truncate text-[12.5px] font-semibold leading-tight text-foreground"
-          style={{ maxWidth: ONE_AGENT_TILE_WIDTH }}
-        >
+      <span className="min-w-0 self-center">
+        <span className="block text-[15px] font-semibold leading-tight text-foreground">
           {mode.title}
         </span>
         <span
           className={cn(
-            "block truncate text-[11px] font-medium leading-tight",
-            statusClassName(mode),
+            "mt-1 block text-[12.5px] font-medium leading-tight",
+            gridStatusClassName(mode),
           )}
-          style={{ maxWidth: ONE_AGENT_TILE_WIDTH }}
         >
           {mode.status}
         </span>
       </span>
+      <ChevronRight
+        className="h-4 w-4 justify-self-end text-muted-foreground transition-transform duration-[var(--motion-duration-sm)] group-hover:translate-x-0.5 motion-reduce:transition-none"
+        aria-hidden
+      />
     </Link>
   );
 }
@@ -187,7 +189,7 @@ function AgentRosterViewToggle({
         className={cn(
           "h-8 w-8 rounded-[10px]",
           value === "grid"
-            ? "bg-background text-foreground shadow-[0_1px_5px_rgba(0,0,0,0.12)] dark:bg-background"
+            ? "bg-accent text-accent-foreground shadow-[0_1px_5px_rgba(0,0,0,0.14)] hover:bg-accent dark:bg-accent"
             : "bg-transparent text-muted-foreground shadow-none hover:bg-foreground/[0.06] hover:text-foreground dark:bg-transparent",
         )}
       >
@@ -201,7 +203,7 @@ function AgentRosterViewToggle({
         className={cn(
           "h-8 w-8 rounded-[10px]",
           value === "list"
-            ? "bg-background text-foreground shadow-[0_1px_5px_rgba(0,0,0,0.12)] dark:bg-background"
+            ? "bg-accent text-accent-foreground shadow-[0_1px_5px_rgba(0,0,0,0.14)] hover:bg-accent dark:bg-accent"
             : "bg-transparent text-muted-foreground shadow-none hover:bg-foreground/[0.06] hover:text-foreground dark:bg-transparent",
         )}
       >
@@ -258,7 +260,7 @@ export function OneAgentRoster({
       {view === "grid" ? (
         <div
           data-testid="one-agents-grid"
-          data-agent-roster-layout="3-to-9"
+          data-agent-roster-layout="2-column-cards"
           className={styles.oneAgentGrid}
         >
           {modes.map((mode) => (

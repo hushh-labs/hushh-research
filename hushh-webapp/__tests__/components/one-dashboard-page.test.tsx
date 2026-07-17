@@ -59,7 +59,7 @@ describe("OneDashboardPage", () => {
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
     expect(screen.getByTestId("one-agents-grid")).toHaveAttribute(
       "data-agent-roster-layout",
-      "3-to-9",
+      "2-column-cards",
     );
     expect(container.textContent).not.toContain("Finish setup");
     expect(
@@ -74,30 +74,31 @@ describe("OneDashboardPage", () => {
       buildOneSetupCapabilityRoute("finance"),
     );
     expect(financeLink.className).not.toContain("translate");
-    expect(screen.getByTestId("one-agent-tile-finance").style.width).toBe(
-      "5.75rem",
-    );
-    // The compact grid uses 3×3; wide screens place all nine fixed-width cells
-    // in one row. Every tile fixes its icon and copy tracks so the icon wells
-    // share the same centerline at either density.
+    expect(screen.getByTestId("one-agent-tile-finance").style.width).toBe("");
     expect(screen.getByTestId("one-agent-tile-finance").className).toContain(
-      "grid-rows-[4rem_2.5rem]",
+      "grid-cols-[3.5rem_minmax(0,1fr)_1rem]",
     );
     expect(screen.getByTestId("one-agent-tile-finance").className).toContain(
-      "justify-items-center",
+      "text-left",
     );
-    // Each tile's icon chip carries its own brand tone (bug fix: the icon
-    // component previously ignored the tone prop entirely and rendered every
-    // tile with the same neutral chip).
-    const financeIcon = financeLink.querySelector("span[aria-hidden]");
-    expect(financeIcon?.className).toContain("justify-self-center");
-    expect(financeIcon?.className).toContain("bg-[#B85CF6]");
-    const financeGlyph = financeIcon?.querySelector("svg");
-    expect(financeGlyph?.className.baseVal).toContain("!text-[#1d1d1f]");
-    expect(financeGlyph?.className.baseVal).toContain("dark:!text-white");
-    expect(financeIcon?.className).toContain("text-[#1d1d1f]");
-    expect(financeIcon?.className).toContain("dark:text-white");
-    expect(financeLink.querySelector("[class*='bg-[#34c759]']")).toBeNull();
+    const expectedImageIcons = {
+      finance: "/one/agents/finance.png",
+      ria: "/one/agents/ria.png",
+      gmail: "/one/agents/gmail.png",
+      email: "/one/agents/email.png",
+      pkm: "/one/agents/memory.svg",
+      consent: "/one/agents/consent.svg",
+      "connected-systems": "/one/agents/connected-systems.svg",
+    } as const;
+    for (const [id, src] of Object.entries(expectedImageIcons)) {
+      const icon = screen.getAllByTestId(`one-agent-icon-${id}`)[0];
+      expect(icon).toHaveAttribute("data-agent-icon-kind", "image");
+      expect(icon).toHaveAttribute("data-agent-icon-src", src);
+    }
+    expect(screen.getAllByTestId("one-agent-icon-location")[0]).toHaveAttribute(
+      "data-agent-icon-kind",
+      "lucide",
+    );
     const riaLink = screen.getByRole("link", { name: "Open RIA" });
     expect(riaLink.getAttribute("href")).toBe(buildOneSetupCapabilityRoute("ria"));
     // Agents model: the route link is a normal app-icon tile, not a large
