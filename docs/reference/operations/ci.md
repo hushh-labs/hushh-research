@@ -184,8 +184,16 @@ Local/UAT release rehearsal should additionally run the Kai no-write PKM drill b
 The canonical blocker for that broader surface is:
 
 1. [scripts/ci/pkm-upgrade-gate.sh](../../../scripts/ci/pkm-upgrade-gate.sh)
-2. `integration-check.sh` now runs this gate on every blocking CI pass
-3. when `PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL` is set, the same gate also runs the live Playwright investor / RIA / PKM audits against that runtime
+2. [scripts/ci/resolve-uat-verification-plan.py](../../../scripts/ci/resolve-uat-verification-plan.py) is the single changed-SHA selector used by PR, queue, post-merge, and UAT lanes
+3. `integration-check.sh` runs the PKM gate only when that selector finds a PKM upgrade, stored-shape, migration, or fixture change; selector-policy changes are covered by always-on classifier contract tests. Ordinary UI, consent, MCP, RIA, and provider changes keep their own focused checks without repeating the PKM cycle
+4. a missing or unproven comparison base fails closed to the full PKM/reviewer plan
+5. when `PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL` is set for a selected PKM release, the same gate also runs the live Playwright investor / RIA / PKM audits against that runtime
+
+Every selected plan is written as a `*-verification-plan` workflow artifact and
+includes the changed files, each lane's `required`/`skipped` state, and its
+reason. This is evidence only: authority checks, migrations, deployment
+provenance, runtime health, and directly affected frontend/backend checks remain
+mandatory regardless of the expensive-lane selection.
 
 ## When CI Runs
 

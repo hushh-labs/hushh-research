@@ -23,6 +23,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
@@ -43,6 +45,17 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           protocol-dir: ./consent-protocol
 
+      - name: Resolve change-aware verification plan
+        id: verification-plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/resolve-uat-verification-plan.py \
+            --target-sha "${{ github.sha }}" \
+            --base-sha "${{ github.event.before }}" \
+            --github-output "$GITHUB_OUTPUT" \
+            --json-output "$RUNNER_TEMP/main-smoke-verification-plan.json"
+
       - name: Run compact post-merge smoke bundle
         run: bash scripts/ci/orchestrate.sh smoke
         env:
@@ -59,3 +72,14 @@ jobs:
           NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: "dummy-project.appspot.com"
           NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "123456789"
           NEXT_PUBLIC_FIREBASE_APP_ID: "1:123456789:web:abcdef123456"
+          CI_RUN_PKM_UPGRADE_GATE: ${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}
+          CI_VERIFICATION_PLAN_REASON: ${{ steps.verification-plan.outputs.reason }}
+          CI_VERIFICATION_PLAN_FILE: ${{ runner.temp }}/main-smoke-verification-plan.json
+
+      - name: Upload verification-plan artifact
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: main-smoke-verification-plan
+          path: ${{ runner.temp }}/main-smoke-verification-plan.json
+          if-no-files-found: error

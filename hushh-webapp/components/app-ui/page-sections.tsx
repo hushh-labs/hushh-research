@@ -183,7 +183,7 @@ export function PageHeader({
             leading={leading}
             iconSize="lg"
             iconClassName={cn(
-              "flex w-10 shrink-0 items-center justify-center rounded-[var(--app-card-radius-feature)] px-2 py-3 sm:w-12 sm:px-3",
+              "flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--app-radius-lg)] px-2 sm:h-11 sm:w-11 sm:px-3",
               styles.icon
             )}
           />
@@ -208,7 +208,7 @@ export function PageHeader({
                   {eyebrow}
                 </p>
               ) : null}
-              <h1 className="text-[28px] font-medium tracking-normal leading-[1.08] text-foreground sm:text-[34px]">
+              <h1 className="text-[24px] font-semibold tracking-tight leading-[1.12] text-foreground sm:text-[28px]">
                 {title}
               </h1>
               {description && !descriptionFullWidth ? (

@@ -179,3 +179,9 @@ Reference:
 Use that companion doc when building any Apple-like settings surface so spacing, grouping, responsive behavior, and action-row semantics stay consistent.
 
 Body section headings are not page headers. `SectionHeader` and `SettingsGroup` must use compact accessible headings above row text, below page-title scale, and independent from global `h1`/`h2` element rules. `SettingsGroup` must keep eyebrow text inline with the section title and avoid a separate eyebrow/title/description three-line stack inside page content.
+
+## Lean Route Headers And Responsive Lists
+
+Signed-in routes use `AppPageHeaderRegion` with the shared `PageHeader`: a compact title, an optional single-line description, and no route-local hero, logo, or duplicate agent selector. RIA uses the same shell and resolves its accent through the Foundation `--app-accent-*` family.
+
+`SettingsGroup` and `SettingsRow` are the standard responsive list system for Profile, agents, and Connected Systems. Groups use the compact utility radius, inset separators, text truncation, and mobile-stacked trailing controls. Do not make a desktop `DataTable` the only way to operate a narrow route.

@@ -61,6 +61,7 @@ Non-owned surfaces:
 6. Before Cloud Run `describe`, run the evidence helper to discover the actual project/region tuple.
 7. Capture touched-service revision, image, labels, timeout, traffic, env contracts, request IDs, and logs.
 8. Report run URL, scope, skipped lanes, timings, revisions, and remaining risk; never call queued work done.
+9. Read the `uat-verification-plan` artifact from the exact changed-SHA selector. PKM upgrade rehearsal and candidate evaluator are required only for PKM upgrade/storage/migration contracts; reviewer BYOK is independently selected for vault/reviewer contracts. A missing deployed SHA fails closed. Never replace this selector with a workflow-local path list.
 
 ## Handoff Rules
 

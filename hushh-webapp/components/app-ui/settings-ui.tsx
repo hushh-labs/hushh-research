@@ -133,9 +133,9 @@ export function SettingsGroup({
     <div
       data-slot="settings-group-shell"
       className={cn(
-        "relative isolate [--settings-group-radius:30px] overflow-hidden rounded-[calc(var(--app-card-radius-feature)+6px)]",
+        "relative isolate [--settings-group-radius:var(--app-radius-lg)] overflow-hidden rounded-[var(--app-radius-lg)]",
         "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)]",
-        !embedded && "sm:rounded-[var(--app-card-radius-feature)]",
+        !embedded && "sm:rounded-[var(--app-radius-lg)]",
       )}
     >
       <div

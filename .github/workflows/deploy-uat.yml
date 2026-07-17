@@ -195,7 +195,16 @@ jobs:
             --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
             --deploy-backend "${{ steps.scope.outputs.deploy_backend }}" \
             --deploy-frontend "${{ steps.scope.outputs.deploy_frontend }}" \
-            --github-output "$GITHUB_OUTPUT"
+            --github-output "$GITHUB_OUTPUT" \
+            --json-output /tmp/uat-verification-plan.json
+
+      - name: Upload verification-plan artifact
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: uat-verification-plan
+          path: /tmp/uat-verification-plan.json
+          if-no-files-found: error
 
       - name: Set up Node runtime for protected PKM verification
         if: steps.verification-plan.outputs.requires_web_dependencies == 'true'
@@ -923,6 +932,8 @@ jobs:
       - name: Write UAT release status artifact
         if: always()
         shell: bash
+        env:
+          VERIFICATION_PLAN_LANES: ${{ steps.verification-plan.outputs.lanes }}
         run: |
           set -euo pipefail
           BACKEND_ROLLBACK_REQUIRED=false
@@ -986,6 +997,7 @@ jobs:
               },
               "verification": {
                   "plan_reason": "${{ steps.verification-plan.outputs.reason }}",
+                  "lanes": json.loads(os.environ.get("VERIFICATION_PLAN_LANES") or "{}"),
                   "pkm_evaluator_runs": "${{ steps.verification-plan.outputs.pkm_evaluator_runs }}",
                   "pkm_upgrade_gate_required": "${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}",
                   "reviewer_byok_required": "${{ steps.verification-plan.outputs.run_reviewer_byok }}",
@@ -1061,6 +1073,7 @@ jobs:
             echo "- Scope: \`${{ steps.scope.outputs.scope }}\`"
             echo "- Scope reason: \`${{ steps.scope.outputs.reason }}\`"
             echo "- Verification plan: \`${{ steps.verification-plan.outputs.reason }}\`"
+            echo "- Verification lanes: \`${{ steps.verification-plan.outputs.lanes }}\`"
             echo "- PKM evaluator runs: \`${{ steps.verification-plan.outputs.pkm_evaluator_runs }}\`"
             echo "- PKM upgrade gate required: \`${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}\`"
             echo "- Reviewer BYOK required: \`${{ steps.verification-plan.outputs.run_reviewer_byok }}\`"

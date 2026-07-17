@@ -3,7 +3,6 @@
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
 import {
   Building2,
   Database,
@@ -28,7 +27,6 @@ import {
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { DataTable } from "@/components/app-ui/data-table";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Button } from "@/lib/morphy-ux/morphy";
@@ -324,53 +322,6 @@ function ConnectedSystemLogo({
     </span>
   );
 }
-
-// Compact CRM overview table: one row per connected system with just the
-// facts that matter at a glance (name, CRM type, status). Row click opens the
-// system workspace; everything else lives on the detail page.
-const crmSystemColumns: ColumnDef<ConnectedSystemSummary>[] = [
-  {
-    accessorKey: "displayName",
-    header: "Name",
-    cell: ({ row }) => (
-      <div className="flex min-w-0 items-center gap-3">
-        <ConnectedSystemLogo system={row.original} />
-        <span className="truncate font-medium text-foreground">
-          {row.original.displayName ||
-            row.original.customerDisplayName ||
-            "CRM system"}
-        </span>
-      </div>
-    ),
-  },
-  {
-    accessorKey: "systemType",
-    header: "Type",
-    cell: ({ row }) => (
-      <span className="text-muted-foreground">
-        {crmTypeDisplayLabel(row.original) || "CRM"}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "status",
-    header: "Status",
-    cell: ({ row }) => (
-      <Badge variant="secondary">{statusBadge(row.original.status)}</Badge>
-    ),
-  },
-  {
-    id: "profileSetup",
-    header: "Profile setup",
-    cell: ({ row }) => (
-      <span className="text-muted-foreground">
-        {row.original.supportedActions?.create === true
-          ? "Can create a profile"
-          : "Existing profiles only"}
-      </span>
-    ),
-  },
-];
 
 function randomItem<T>(items: readonly T[]): T {
   return items[Math.floor(Math.random() * items.length)] || items[0]!;
@@ -1661,27 +1612,34 @@ export function ConnectedSystemsPanel({
           </SettingsGroup>
         ) : null}
         {systems.length > 0 ? (
-          <DataTable
-            columns={crmSystemColumns}
-            data={systems}
-            globalSearchKeys={[
-              "displayName",
-              "customerDisplayName",
-              "systemType",
-              "systemName",
-              "status",
-              "target",
-            ]}
-            searchPlaceholder="Search CRM systems"
-            onRowClick={(system) =>
-              router.push(
-                setupRouteBase
-                  ? `${setupRouteBase}?system=${encodeURIComponent(system.systemId)}`
-                  : buildConnectedSystemRoute(system.systemId),
-              )
-            }
-            initialPageSize={8}
-          />
+          <SettingsGroup title="Available systems" separatorInset>
+            {systems.map((system) => {
+              const title =
+                system.displayName || system.customerDisplayName || "CRM system";
+              return (
+                <SettingsRow
+                  key={system.systemId}
+                  leading={<ConnectedSystemLogo system={system} />}
+                  title={title}
+                  description={crmTypeDisplayLabel(system) || "CRM"}
+                  trailing={
+                    <span className="max-w-[7.5rem] truncate text-xs text-muted-foreground sm:max-w-[10rem]">
+                      {statusBadge(system.status)}
+                    </span>
+                  }
+                  chevron
+                  stackTrailingOnMobile
+                  onClick={() =>
+                    router.push(
+                      setupRouteBase
+                        ? `${setupRouteBase}?system=${encodeURIComponent(system.systemId)}`
+                        : buildConnectedSystemRoute(system.systemId),
+                    )
+                  }
+                />
+              );
+            })}
+          </SettingsGroup>
         ) : null}
 
         {error ? (

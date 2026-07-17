@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-06-17",
-  "total_routes": 92,
+  "total_routes": 93,
   "native_required_routes": 86,
-  "excluded_routes": 6,
+  "excluded_routes": 7,
   "routes": [
     {
       "route": "/",
@@ -1115,6 +1115,10 @@
     },
     {
       "route": "/developers",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/oauth/authorize",
       "classification": "excluded-web-only"
     },
     {

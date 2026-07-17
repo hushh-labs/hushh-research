@@ -76,6 +76,15 @@ export type DeveloperPortalProfileUpdate = {
   policy_url?: string;
 };
 
+export type DeveloperOAuthClient = {
+  client_id: string;
+  client_secret_prefix: string;
+  redirect_uris: string[];
+  created_at: number;
+  secret_rotated_at: number;
+  raw_client_secret?: string | null;
+};
+
 export class DeveloperPortalRequestError extends Error {
   status: number;
   code?: string;
@@ -89,7 +98,7 @@ export class DeveloperPortalRequestError extends Error {
 }
 
 type PortalRequestOptions = {
-  method?: "GET" | "POST" | "PATCH";
+  method?: "GET" | "POST" | "PATCH" | "PUT";
   body?: unknown;
   idToken?: string | null;
 };
@@ -252,4 +261,25 @@ export function rotateDeveloperAccessToken(
     method: "POST",
     idToken,
   }).then((payload) => cacheDeveloperAccess(options?.userId, payload));
+}
+
+export function getDeveloperOAuthClient(idToken: string) {
+  return requestPortal<DeveloperOAuthClient | null>("/api/developer/access/oauth-client", {
+    idToken,
+  });
+}
+
+export function createOrRotateDeveloperOAuthClient(idToken: string) {
+  return requestPortal<DeveloperOAuthClient>("/api/developer/access/oauth-client", {
+    method: "POST",
+    idToken,
+  });
+}
+
+export function updateDeveloperOAuthRedirectUris(idToken: string, redirectUris: string[]) {
+  return requestPortal<DeveloperOAuthClient>("/api/developer/access/oauth-client/redirect-uris", {
+    method: "PUT",
+    body: { redirect_uris: redirectUris },
+    idToken,
+  });
 }

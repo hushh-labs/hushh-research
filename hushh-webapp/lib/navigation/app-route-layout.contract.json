@@ -200,6 +200,33 @@
     }
   },
   {
+    "route": "/oauth/authorize",
+    "mode": "hidden",
+    "exemptionReason": "OAuth authorization is a short-lived connector handoff and intentionally bypasses signed-in app chrome.",
+    "voicePlaybook": {
+      "playbookId": "route.oauth.authorize",
+      "purpose": "Help the person approve or cancel a verified MCP connector authorization request.",
+      "screen": "app",
+      "entryCue": "Review the connector request, then authorize it or cancel.",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Authorization completes only after the verified registered redirect receives the backend-issued OAuth code.",
+      "nextRoute": null,
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/getting-started",
     "mode": "hidden",
     "exemptionReason": "Anonymous pre-auth intro route intentionally bypasses the signed-in app shell, matching the root and login entry routes.",

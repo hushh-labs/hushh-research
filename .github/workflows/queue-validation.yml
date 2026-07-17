@@ -220,6 +220,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
@@ -232,11 +234,35 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           protocol-dir: ./consent-protocol
 
+      - name: Resolve change-aware verification plan
+        id: verification-plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_sha="${{ github.event.merge_group.base_sha }}"
+          target_sha="${{ github.event.merge_group.head_sha || github.sha }}"
+          python3 scripts/ci/resolve-uat-verification-plan.py \
+            --target-sha "$target_sha" \
+            --base-sha "$base_sha" \
+            --github-output "$GITHUB_OUTPUT" \
+            --json-output "$RUNNER_TEMP/queue-verification-plan.json"
+
       - name: Run cross-surface integration gate
         run: bash scripts/ci/orchestrate.sh integration
         env:
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
           CI_DOCS_PARITY_REQUIRED: ${{ env.CI_DOCS_PARITY_REQUIRED }}
+          CI_RUN_PKM_UPGRADE_GATE: ${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}
+          CI_VERIFICATION_PLAN_REASON: ${{ steps.verification-plan.outputs.reason }}
+          CI_VERIFICATION_PLAN_FILE: ${{ runner.temp }}/queue-verification-plan.json
+
+      - name: Upload verification-plan artifact
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: queue-verification-plan
+          path: ${{ runner.temp }}/queue-verification-plan.json
+          if-no-files-found: error
 
   subtree-sync-check:
     name: "Upstream Sync"
