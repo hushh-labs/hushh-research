@@ -119,5 +119,5 @@ class HushhAgent(LlmAgent):
                 response = super().run(input=prompt)
                 return response
             except Exception as e:
-                logger.error(f"💥 Agent Failure: {str(e)}")
+                logger.error("💥 Agent Failure: %s", str(e))
                 raise e

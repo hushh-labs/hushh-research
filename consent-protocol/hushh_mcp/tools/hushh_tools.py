@@ -62,7 +62,7 @@ def hushh_tool(scope: str, name: Optional[str] = None):
             try:
                 return func(*args, **kwargs)
             except Exception as e:
-                logger.error(f"⚠️ Tool '{tool_name}' failed: {str(e)}")
+                logger.error("⚠️ Tool '%s' failed: %s", tool_name, str(e))
                 raise e
 
         # Attach metadata for ADK compatibility

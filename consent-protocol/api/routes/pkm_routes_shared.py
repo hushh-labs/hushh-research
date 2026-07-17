@@ -278,7 +278,7 @@ async def get_risk_profile_from_index(user_id: str) -> tuple[str, list[dict], di
 
             return risk_profile, cached_holdings, portfolio_allocation
     except Exception as e:
-        logger.warning(f"[PKM Context] Failed to get context from index: {e}")
+        logger.warning("[PKM Context] Failed to get context from index: %s", e)
 
     # Fallback defaults if no cache exists
     return "balanced", [], {"equities_pct": 70, "bonds_pct": 20, "cash_pct": 10}
@@ -325,7 +325,7 @@ async def fetch_decisions(user_id: str, limit: int = 50) -> list[DecisionRecord]
         records.sort(key=lambda x: x.created_at if x.created_at else "", reverse=True)
         return records[:limit]
     except Exception as e:
-        logger.warning(f"[PKM Context] Failed to fetch decisions: {e}")
+        logger.warning("[PKM Context] Failed to fetch decisions: %s", e)
         return []
 
 
@@ -1293,7 +1293,7 @@ async def get_metadata(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting metadata for user {user_id}: {e}")
+        logger.error("Error getting metadata for user %s: %s", user_id, e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve PKM metadata",
