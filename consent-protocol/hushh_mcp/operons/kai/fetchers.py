@@ -19,7 +19,7 @@ import threading
 import time
 import urllib.parse
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 import httpx
@@ -266,7 +266,7 @@ async def _fetch_yahoo_quote_fast(ticker: str) -> Dict[str, Any]:
             "sector": q.get("sector") or "Unknown",
             "industry": q.get("industry") or "Unknown",
             "source": "Yahoo Quote (Fast)",
-            "fetched_at": datetime.utcnow().isoformat(),
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
             "ttl_seconds": 60,
             "is_stale": False,
         }
@@ -300,7 +300,7 @@ def _parse_google_news_rss(xml_text: str, ticker: str) -> List[Dict[str, Any]]:
                 "title": title,
                 "description": f"Realtime market coverage for {ticker}",
                 "url": link,
-                "publishedAt": published_at or datetime.utcnow().isoformat(),
+                "publishedAt": published_at or datetime.now(timezone.utc).isoformat(),
                 "source": {"name": source_name},
                 "provider": "google_news_rss",
             }
@@ -326,7 +326,7 @@ async def _fetch_newsapi_articles(ticker: str, days_back: int) -> List[Dict[str,
     if not api_key:
         return []
 
-    since = (datetime.utcnow() - timedelta(days=max(1, days_back))).date().isoformat()
+    since = (datetime.now(timezone.utc) - timedelta(days=max(1, days_back))).date().isoformat()
     params = {
         "q": f"{ticker} stock",
         "sortBy": "publishedAt",
@@ -352,7 +352,7 @@ async def _fetch_newsapi_articles(ticker: str, days_back: int) -> List[Dict[str,
                     "title": title,
                     "description": str(row.get("description") or "").strip(),
                     "url": url,
-                    "publishedAt": str(row.get("publishedAt") or datetime.utcnow().isoformat()),
+                    "publishedAt": str(row.get("publishedAt") or datetime.now(timezone.utc).isoformat()),
                     "source": {"name": str((row.get("source") or {}).get("name") or "NewsAPI")},
                     "provider": "newsapi",
                 }
@@ -441,7 +441,7 @@ async def _fetch_finnhub_quote(ticker: str) -> Dict[str, Any]:
             "sector": str(profile.get("finnhubIndustry") or "Unknown"),
             "industry": str(profile.get("finnhubIndustry") or "Unknown"),
             "source": "Finnhub",
-            "fetched_at": datetime.utcnow().isoformat(),
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
             "ttl_seconds": 60,
             "is_stale": False,
         }
@@ -496,7 +496,7 @@ async def _fetch_pmp_quote(ticker: str) -> Dict[str, Any]:
             "sector": str(details.get("sector") or "Unknown"),
             "industry": str(details.get("industry") or "Unknown"),
             "source": "PMP/FMP",
-            "fetched_at": datetime.utcnow().isoformat(),
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
             "ttl_seconds": 60,
             "is_stale": False,
         }
@@ -507,8 +507,8 @@ async def _fetch_finnhub_company_news(ticker: str, days_back: int) -> List[Dict[
     if not api_key:
         return []
 
-    end_date = datetime.utcnow().date().isoformat()
-    start_date = (datetime.utcnow() - timedelta(days=max(1, days_back))).date().isoformat()
+    end_date = datetime.now(timezone.utc).date().isoformat()
+    start_date = (datetime.now(timezone.utc) - timedelta(days=max(1, days_back))).date().isoformat()
     timeout = httpx.Timeout(connect=4.0, read=8.0, write=8.0, pool=4.0)
     headers = {"User-Agent": "Hushh-Research/1.0 (eng@hush1one.com)"}
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
@@ -533,7 +533,7 @@ async def _fetch_finnhub_company_news(ticker: str, days_back: int) -> List[Dict[
             published_at = (
                 datetime.utcfromtimestamp(ts).isoformat() + "Z"
                 if ts > 0
-                else datetime.utcnow().isoformat()
+                else datetime.now(timezone.utc).isoformat()
             )
             articles.append(
                 {
@@ -582,7 +582,7 @@ async def _fetch_pmp_news(ticker: str) -> List[Dict[str, Any]]:
                     "description": str((row or {}).get("description") or "").strip(),
                     "url": url,
                     "publishedAt": str(
-                        (row or {}).get("publishedDate") or datetime.utcnow().isoformat()
+                        (row or {}).get("publishedDate") or datetime.now(timezone.utc).isoformat()
                     ),
                     "source": {"name": "PMP/FMP"},
                     "provider": "pmp_fmp",
@@ -647,7 +647,7 @@ async def _fetch_yfinance_quote(ticker: str) -> Dict[str, Any]:
         "sector": info.get("sector", "Unknown"),
         "industry": info.get("industry", "Unknown"),
         "source": "yfinance (Real-time)",
-        "fetched_at": datetime.utcnow().isoformat(),
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
         "ttl_seconds": 60,
         "is_stale": False,
     }
@@ -726,7 +726,7 @@ async def _fetch_yahoo_quotes(symbols: List[str]) -> List[Dict[str, Any]]:
                     "sector": row.get("sector") or "Unknown",
                     "industry": row.get("industry") or "Unknown",
                     "source": "Yahoo Quote (Peers)",
-                    "fetched_at": datetime.utcnow().isoformat(),
+                    "fetched_at": datetime.now(timezone.utc).isoformat(),
                     "ttl_seconds": 60,
                     "is_stale": False,
                 }
@@ -1126,7 +1126,7 @@ async def fetch_sec_filings(
             },
             "filing_date": filing_dates[latest_10k_idx],
             "source": "SEC EDGAR (Institutional Trend Extract)",
-            "fetched_at": datetime.utcnow().isoformat(),
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
         }
 
 
