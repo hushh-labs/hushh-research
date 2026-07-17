@@ -161,8 +161,7 @@ export function VaultFlow({
       unlockVault(decryptedKey, token, expiresAt);
       onSuccess({ mode: vaultMode });
       return true;
-    } catch (tokenError) {
-      console.error("Failed to issue VAULT_OWNER token:", tokenError);
+    } catch {
       toast.error("Vault opened, but we could not complete access setup. Please try again.");
       return false;
     }
@@ -319,7 +318,6 @@ export function VaultFlow({
       setRecoveryKey(vaultData.recoveryKey);
       setStep("recovery"); // Show recovery key dialog
     } catch (err: any) {
-      console.error("Create vault error:", err);
       toast.error(err.message || "We could not create your Vault. Please try again.");
     } finally {
       setIsUnlocking(false);
@@ -363,7 +361,6 @@ export function VaultFlow({
         toast.error(message);
       }
     } catch (err: any) {
-      console.error("Unlock error:", err);
       const message = toInvestorVaultUnlockError(err);
       setError(message);
       toast.error(message);
@@ -482,7 +479,6 @@ export function VaultFlow({
       await VaultService.assertVaultKeyMatchesState(vaultData, decryptedKey);
       await finalizeUnlock(decryptedKey);
     } catch (err: any) {
-      console.error("Generated vault unlock failed:", err);
       const message = toInvestorVaultUnlockError(err);
       setError(message);
       toast.error(message);
@@ -512,7 +508,6 @@ export function VaultFlow({
         toast.error(message);
       }
     } catch (err: unknown) {
-      console.error("Recovery key unlock failed:", err);
       const message = toInvestorVaultUnlockError(err);
       setError(message);
       toast.error(message);
@@ -575,8 +570,7 @@ export function VaultFlow({
 
       const finalized = await finalizeUnlock(decryptedKey);
       if (!finalized) return;
-    } catch (err) {
-      console.error("Auto-unlock after creation failed", err);
+    } catch {
       // If auto-unlock fails, send user to unlock screen to try manually.
       toast.error(
         vaultMode === "passphrase"
@@ -1094,7 +1088,6 @@ export function VaultFlow({
                           : "Biometric unlock enabled."
                       );
                     } catch (err: any) {
-                      console.error("Quick unlock enable failed:", err);
                       toast.error(
                         err?.message || "Couldn't enable quick unlock right now."
                       );
