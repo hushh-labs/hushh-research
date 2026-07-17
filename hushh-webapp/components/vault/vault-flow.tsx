@@ -319,7 +319,9 @@ export function VaultFlow({
       setRecoveryKey(vaultData.recoveryKey);
       setStep("recovery"); // Show recovery key dialog
     } catch (err: any) {
-      console.error("Create vault error:", err);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("Create vault error:", err);
+      }
       toast.error(err.message || "We could not create your Vault. Please try again.");
     } finally {
       setIsUnlocking(false);
@@ -363,7 +365,9 @@ export function VaultFlow({
         toast.error(message);
       }
     } catch (err: any) {
-      console.error("Unlock error:", err);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("Unlock error:", err);
+      }
       const message = toInvestorVaultUnlockError(err);
       setError(message);
       toast.error(message);
@@ -482,7 +486,9 @@ export function VaultFlow({
       await VaultService.assertVaultKeyMatchesState(vaultData, decryptedKey);
       await finalizeUnlock(decryptedKey);
     } catch (err: any) {
-      console.error("Generated vault unlock failed:", err);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("Generated vault unlock failed:", err);
+      }
       const message = toInvestorVaultUnlockError(err);
       setError(message);
       toast.error(message);
@@ -512,7 +518,9 @@ export function VaultFlow({
         toast.error(message);
       }
     } catch (err: unknown) {
-      console.error("Recovery key unlock failed:", err);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("Recovery key unlock failed:", err);
+      }
       const message = toInvestorVaultUnlockError(err);
       setError(message);
       toast.error(message);
@@ -576,7 +584,9 @@ export function VaultFlow({
       const finalized = await finalizeUnlock(decryptedKey);
       if (!finalized) return;
     } catch (err) {
-      console.error("Auto-unlock after creation failed", err);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("Auto-unlock after creation failed", err);
+      }
       // If auto-unlock fails, send user to unlock screen to try manually.
       toast.error(
         vaultMode === "passphrase"
