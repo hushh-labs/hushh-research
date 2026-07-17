@@ -7,6 +7,7 @@ import {
   resolveBottomNavigationScope,
   resolveBottomNavHref,
   resolveBottomNavOptionKeys,
+  resolveBottomNavSpecialistOptionKeys,
   resolveInvestorActiveNav,
   resolveInvestorNavSlot,
   resolveOneActiveNav,
@@ -106,7 +107,7 @@ describe("app bottom navigation", () => {
     expect(resolveRiaActiveNav(ROUTES.RIA_HOME)).toBe("ria-home");
   });
 
-  it("keeps the shared workspace navigation available across route families", () => {
+  it("keeps the primary navigation stable across route families", () => {
     for (const [pathname, scope] of [
       [ROUTES.CONNECTED_SYSTEMS, "one"],
       [ROUTES.KAI_ANALYSIS, "investor"],
@@ -114,13 +115,24 @@ describe("app bottom navigation", () => {
     ] as const) {
       expect(resolveBottomNavOptionKeys(pathname, scope)).toEqual([
         "dashboard",
-        "finance",
-        "portfolio",
-        "analysis",
         "connect",
         "search",
       ]);
     }
+  });
+
+  it("exposes specialist workspace groups separately from primary navigation", () => {
+    expect(resolveBottomNavSpecialistOptionKeys("one")).toEqual([]);
+    expect(resolveBottomNavSpecialistOptionKeys("investor")).toEqual([
+      "finance",
+      "portfolio",
+      "analysis",
+    ]);
+    expect(resolveBottomNavSpecialistOptionKeys("ria")).toEqual([
+      "ria-home",
+      "clients",
+      "picks",
+    ]);
   });
 
   it("maps One context nav actions to the intended routes", () => {

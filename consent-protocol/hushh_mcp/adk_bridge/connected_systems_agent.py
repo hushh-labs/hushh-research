@@ -7,9 +7,6 @@ frontend action plan that the central chat planner already supports.
 
 from __future__ import annotations
 
-import json
-import re
-from dataclasses import replace
 from typing import Any, cast
 from uuid import uuid4
 
@@ -28,15 +25,6 @@ from hushh_mcp.services.agent_chat_service import (
 DELEGATED_MODEL = "one+connected-systems"
 CONNECTED_SYSTEMS_A2A_AGENT_ID = "agent_connected_systems"
 ALL_CONNECTED_CRM_SYSTEMS_SCOPE = "all_connected_crm_systems"
-_FIELD_UPDATE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"\bmailing\s+city\s+(?:to|=|as)\s+(?P<value>[^,.]+)", re.I), "MailingCity"),
-    (re.compile(r"\bcity\s+(?:to|=|as)\s+(?P<value>[^,.]+)", re.I), "MailingCity"),
-    (re.compile(r"\btitle\s+(?:to|=|as)\s+(?P<value>[^,.]+)", re.I), "Title"),
-    (re.compile(r"\bphone\s+(?:to|=|as)\s+(?P<value>[^,.]+)", re.I), "Phone"),
-    (re.compile(r"\bemail\s+(?:to|=|as)\s+(?P<value>[^,\s]+)", re.I), "Email"),
-    (re.compile(r"\bfirst\s+name\s+(?:to|=|as)\s+(?P<value>[^,.]+)", re.I), "FirstName"),
-    (re.compile(r"\blast\s+name\s+(?:to|=|as)\s+(?P<value>[^,.]+)", re.I), "LastName"),
-)
 
 
 class ConnectedSystemsAgentA2A:
@@ -110,76 +98,16 @@ def _result(
 
 
 def _enrich_crm_plan(plan: AgentChatActionPlan, message: str) -> AgentChatActionPlan:
-    slots = dict(plan.slots)
-    email = _email_from_message(message)
-    phone = _phone_from_message(message)
-    if email and not slots.get("email"):
-        slots["email"] = email
-    if phone and not slots.get("phone"):
-        slots["phone"] = phone
-
-    if plan.action_id != "connected_system.crm.update.propose":
-        return replace(plan, slots=slots) if slots != plan.slots else plan
-
-    record_id = _record_id_from_message(message)
-    if record_id and not slots.get("id"):
-        slots["id"] = record_id
-
-    fields = _field_updates_from_message(message)
-    if fields and not slots.get("additionalFieldsJson"):
-        slots["additionalFieldsJson"] = json.dumps(fields, sort_keys=True)
-
-    if slots == plan.slots:
-        return plan
-    return replace(plan, slots=slots)
+    _ = message
+    # CRM IDs and verified lookup values are server-resolved, never harvested
+    # from chat. Schema-specific field edits are staged through the dynamic UI
+    # after the private agent's public-schema mapping has been validated.
+    return plan
 
 
 def _clarification_prompt(plan: AgentChatActionPlan, message: str) -> A2ADirective | None:
-    if plan.action_id != "connected_system.crm.update.propose":
-        return None
-    slots = dict(plan.slots)
-    if slots.get("additionalFieldsJson"):
-        return None
-    text = message.lower()
-    if "city" not in text:
-        scope_label = "across your connected CRM brands" if _is_all_crm_scope(slots) else ""
-        return A2ADirective(
-            kind="prompt",
-            payload={
-                "id": plan.call_id or f"crm_{uuid4().hex[:10]}",
-                "kind": "free_text",
-                "purpose": "crm_update_missing_change",
-                "type": plan.action_id,
-                "question": (
-                    f"What CRM field and value should I update {scope_label}?"
-                    if scope_label
-                    else "What CRM field and value should I update?"
-                ),
-                "placeholder": "Example: city to New York",
-                "confirmLabel": "Continue",
-                "cancelLabel": "Cancel",
-                "slots": slots,
-            },
-        )
-    return A2ADirective(
-        kind="prompt",
-        payload={
-            "id": plan.call_id or f"crm_{uuid4().hex[:10]}",
-            "kind": "free_text",
-            "purpose": "crm_update_missing_city",
-            "type": plan.action_id,
-            "question": (
-                "Yes. What city should I set across your connected CRM brands?"
-                if _is_all_crm_scope(slots)
-                else "Yes. What city should I set for your Macy's CRM record?"
-            ),
-            "placeholder": "New York",
-            "confirmLabel": "Use this city",
-            "cancelLabel": "Cancel",
-            "fieldName": "MailingCity",
-            "slots": slots,
-        },
-    )
+    _ = (plan, message)
+    return None
 
 
 def _directive_payload(plan: AgentChatActionPlan) -> dict[str, Any]:
@@ -236,45 +164,12 @@ def _delegate_result(task: A2ATask) -> SpecialistTurnResult:
 
 
 def _answered_prompt_result(task: A2ATask, result: dict[str, Any]) -> SpecialistTurnResult | None:
-    selected = result.get("selected")
-    selected_ref = selected[0] if isinstance(selected, list) and selected else {}
-    if not isinstance(selected_ref, dict):
-        selected_ref = {}
-    slots = selected_ref.get("slots") if isinstance(selected_ref.get("slots"), dict) else {}
-    slots = dict(slots or {})
-    free_text = str(result.get("freeText") or "").strip()
-    field_name = str(selected_ref.get("fieldName") or "").strip()
-    if field_name and free_text:
-        slots["additionalFieldsJson"] = json.dumps({field_name: free_text}, sort_keys=True)
-    elif free_text:
-        fields = _field_updates_from_message(free_text)
-        if fields:
-            slots["additionalFieldsJson"] = json.dumps(fields, sort_keys=True)
-    if not slots.get("additionalFieldsJson"):
-        return _result(
-            task,
-            text="I still need the CRM field value before I can prepare the update.",
-            directive=None,
-            is_complete=True,
-        )
-    action_type = str(result.get("type") or "connected_system.crm.update.propose")
-    plan = AgentChatActionPlan(
-        call_id=str(result.get("id") or f"crm_{uuid4().hex[:10]}"),
-        action_id=action_type,
-        label="Propose CRM Update",
-        execution="frontend",
-        slots=slots,
-        message=(
-            "Got it. Review and confirm the CRM update across your connected brands."
-            if _is_all_crm_scope(slots)
-            else "Got it. Review and confirm the CRM update before I apply it."
-        ),
-    )
+    _ = result
     return _result(
         task,
-        text=plan.message,
-        directive=A2ADirective(kind="action", payload=_directive_payload(plan)),
-        is_complete=False,
+        text="Open the CRM field table, stage the field change, then review it before approval.",
+        directive=None,
+        is_complete=True,
     )
 
 
@@ -303,61 +198,8 @@ def _plan_from_task(task: A2ATask) -> AgentChatActionPlan | None:
     )
 
 
-def _email_from_message(message: str) -> str | None:
-    match = re.search(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", message, flags=re.I)
-    return match.group(0).strip() if match else None
-
-
 def _is_all_crm_scope(slots: dict[str, Any]) -> bool:
     return str(slots.get("scope") or "") == ALL_CONNECTED_CRM_SYSTEMS_SCOPE
-
-
-def _phone_from_message(message: str) -> str | None:
-    match = re.search(
-        r"(?:\+?\d[\d\s().-]{7,}\d)",
-        message,
-    )
-    if not match:
-        return None
-    phone = match.group(0).strip()
-    digits = re.sub(r"\D", "", phone)
-    return phone if len(digits) >= 8 else None
-
-
-def _record_id_from_message(message: str) -> str | None:
-    match = re.search(
-        r"\b(?:record\s+id|record|id)\s*(?:is|to|=|:)?\s*(?P<id>[A-Za-z0-9_-]{8,32})",
-        message,
-        flags=re.I,
-    )
-    if not match:
-        return None
-    candidate = match.group("id").strip()
-    if candidate.lower() in {"city", "title", "phone", "email", "first", "last"}:
-        return None
-    return candidate
-
-
-def _field_updates_from_message(message: str) -> dict[str, Any]:
-    fields: dict[str, Any] = {}
-    for pattern, field_name in _FIELD_UPDATE_PATTERNS:
-        match = pattern.search(message)
-        if not match:
-            continue
-        value = _clean_field_value(match.group("value"))
-        if value:
-            fields[field_name] = value
-    return fields
-
-
-def _clean_field_value(value: str) -> str:
-    cleaned = re.split(
-        r"\b(?:for|on|in|across|at|and then|then|please)\b",
-        str(value or "").strip(),
-        maxsplit=1,
-        flags=re.I,
-    )[0]
-    return cleaned.strip(" .,'\"")
 
 
 _singleton: ConnectedSystemsAgentA2A | None = None

@@ -499,6 +499,21 @@
       "expected_row_growth": "low_reference"
     },
     {
+      "id": "crm_schema_mapping_cache",
+      "owner": "backend-agents-operons",
+      "data_class": "provider_cache",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "crm_schema_mapping_cache"
+      ],
+      "primary_access_path": "Connected Systems schema-mapper cache for a CRM object schema fingerprint and the tool-less field-role proposal used by verified-identity lookup and create-field selection.",
+      "retention_policy": "Retain only a ready mapping for its 24-hour TTL; invalidate it immediately when the CRM schema changes or a schema-validation retry fails. The cache is rebuilt from the active registry schema and is never durable user memory.",
+      "deletion_behavior": "Not user-delete scoped. Rows cascade-delete with the provisioned CRM registry row and can be invalidated without affecting CRM records or user bindings.",
+      "trust_boundary": "Public CRM schema metadata and normalized field-role keys only. Never store CRM records, verified profile values, record IDs, credentials, consent/vault material, prompts, telemetry plaintext, or unvalidated model output.",
+      "plaintext_posture": "public_schema_metadata_and_normalized_field_keys_only",
+      "expected_row_growth": "low_ttl_cache"
+    },
+    {
       "id": "developer_access",
       "owner": "mcp-developer-surface",
       "data_class": "audit_regulated",

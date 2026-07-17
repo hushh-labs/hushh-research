@@ -288,10 +288,48 @@ const scopedExport = await fetch("/api/v1/scoped-export", {
 const ciphertext = base64ToBytes(scopedExport.encrypted_data);
 ```
 
-Then unwrap and decrypt locally:
+For the hosted MCP equivalent, the envelope is nested in the MCP tool result.
+Prefer `structuredContent`; `content[0].text` is its JSON-string mirror for
+MCP clients that do not expose structured content. Hosted MCP uses
+`ciphertext`, where the raw HTTP API uses `encrypted_data`:
 
 ```js
-async function decryptScopedExport(scopedExport, ciphertext, connectorPrivateKey) {
+const scopedExport = toolResult.structuredContent ?? JSON.parse(
+  toolResult.content.find((item) => item.type === "text")?.text ?? "{}"
+);
+const ciphertext = base64ToBytes(scopedExport.ciphertext);
+```
+
+Then unwrap and decrypt locally. Consent export envelope v2 authenticates both
+AES-GCM operations. Do not omit `additionalData`, stringify the envelope
+exactly as shown, or substitute a new key pair after requesting consent.
+
+```js
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, stableValue(item)])
+    );
+  }
+  return value;
+}
+
+const canonicalJson = (value) => JSON.stringify(stableValue(value));
+
+async function decryptScopedExport(
+  scopedExport,
+  ciphertext,
+  connectorPrivateKey,
+  connectorKeyId
+) {
+  const envelope = scopedExport.export_envelope;
+  if (envelope?.version !== 2) throw new Error("Expected consent export envelope v2.");
+  if (scopedExport.wrapped_key_bundle.connector_key_id !== connectorKeyId) {
+    throw new Error("This export was wrapped for a different connector key.");
+  }
   const senderPublicKey = await crypto.subtle.importKey(
     "raw",
     base64ToBytes(scopedExport.wrapped_key_bundle.sender_public_key),
@@ -323,6 +361,7 @@ async function decryptScopedExport(scopedExport, ciphertext, connectorPrivateKey
     {
       name: "AES-GCM",
       iv: base64ToBytes(scopedExport.wrapped_key_bundle.wrapped_key_iv),
+      additionalData: new TextEncoder().encode(canonicalJson(envelope)),
     },
     wrappingKey,
     wrappedKeyCiphertext
@@ -340,13 +379,23 @@ async function decryptScopedExport(scopedExport, ciphertext, connectorPrivateKey
     base64ToBytes(scopedExport.tag)
   );
   const plaintext = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: base64ToBytes(scopedExport.iv) },
+    {
+      name: "AES-GCM",
+      iv: base64ToBytes(scopedExport.iv),
+      additionalData: new TextEncoder().encode(canonicalJson(envelope.aad)),
+    },
     exportKey,
     encryptedPayload
   );
   return JSON.parse(new TextDecoder().decode(plaintext));
 }
 ```
+
+The connector private key must correspond to the exact public key and
+`connector_key_id` supplied in the approved consent request. If that private
+key is unavailable, create and securely retain a new connector key pair, then
+request fresh consent and fetch a new export. Never send a connector private
+key in a request, chat, log, or support ticket.
 
 If `granted_scope` is broader than `expected_scope`, narrow the decrypted JSON locally to the requested subtree before using it.
 

@@ -39,15 +39,30 @@ downstream CRM path is public.
 The `object-schema` tool must return an operation-contract-mapped primary
 object metadata node and field collection according to the checked-in
 `docs/reference/operations/mulesoft-crm-schema-contract-v1.json`. For the current rollout the collection is
-`details[0]` and `details[0].fields`. Every field must declare `readable`, `identityField`,
-`immutable`, `createable`, and `updateable`; it should also provide portable
-constraints such as picklist values and maximum length. Hussh derives
-`writable` from the create/update flags and never infers an omitted permission.
+`details[0]` and `details[0].fields`. Each descriptor supplies `name`,
+`label`, `type`, and `required`; portable constraints such as picklist values
+and maximum length are recommended. `readable`, `identityField`, `immutable`,
+`createable`, and `updateable` are optional refinements, not prerequisites for
+onboarding. When a partner supplies an explicit `false` value, Hussh enforces
+it; it does not invent a conflicting field permission.
 
-Until all descriptors validate, Hussh treats the result as a display-only
-catalogue. Read, create, update, and delete are unavailable before their MCP
-tool is called. Read and mutation result mappings are likewise registry-owned;
-they are not guessed from raw MuleSoft envelopes.
+Executable CRM operations are authorised by the registered tool and its
+response contract, then limited by the authenticated user's active
+user–CRM-record binding. A person can look up only their server-verified email
+and phone, and all later read/update/delete calls resolve the bound CRM record
+ID server-side. Read and mutation result mappings remain registry-owned; they
+are not guessed from raw MuleSoft envelopes. The two current demo rows map
+reads from `records[]` / `Id`, create from `success` / `id`, and their empty
+update/delete success result through an explicit `isError: false` transport
+policy plus a post-mutation readback.
+
+Hussh maps the public field catalogue with the manifest-owned
+`crm_schema_mapper` child using Hussh-managed Vertex `gemini-3.5-flash`. It
+receives only object and field metadata, not CRM records, verified profile
+values, identifiers, credentials, consent material, or vault material. Its
+validated result is cached by schema fingerprint for 24 hours. A mapping failure
+keeps the CRM catalogue-only and cannot bypass the registered operation,
+owner-binding, intent, confirmation, or readback controls.
 
 ## UAT verification boundary
 

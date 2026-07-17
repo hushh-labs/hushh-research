@@ -145,11 +145,11 @@ function crmFieldFromSchemaDescriptor(
     inputType: inputTypeFromSchema(descriptor.dataType),
     required: descriptor.required === true,
     identityField: descriptor.identityField === true,
-    readable: descriptor.readable === true,
-    createable: descriptor.createable === true,
-    updateable: descriptor.updateable === true,
-    writable: descriptor.updateable === true && descriptor.immutable !== true && descriptor.identityField !== true,
-    immutable: descriptor.immutable === true,
+    readable: descriptor.readable,
+    createable: descriptor.createable,
+    updateable: descriptor.updateable,
+    writable: descriptor.writable ?? descriptor.updateable,
+    immutable: descriptor.immutable,
     rawName: String(descriptor.name || key).trim() || key,
     source: String(descriptor.source || "mcp_schema").trim() || "mcp_schema",
     dataType: String(descriptor.dataType || "string"),
@@ -283,10 +283,6 @@ function agentInstructionFields(
       // ignored and the backend remains the schema-validation authority.
     }
   }
-  const email = agentInstructionSlot(instruction, "email");
-  const phone = agentInstructionSlot(instruction, "phone");
-  if (email) out.email = email;
-  if (phone) out.phone = phone;
   return out;
 }
 
@@ -360,7 +356,7 @@ function changedFieldsFromValues(
 ): Record<string, string> {
   const additionalFields: Record<string, string> = {};
   for (const field of fields) {
-    if (field.identityField || field.writable !== true || field.immutable) continue;
+    if (field.identityField || field.updateable === false || field.immutable === true) continue;
     const nextValue = (values[field.key] || "").trim();
     const previousValue = (baseline[field.key] || "").trim();
     if (nextValue !== previousValue) additionalFields[field.key] = nextValue;
@@ -374,7 +370,7 @@ export function ConnectedSystemsPanel({
   mode = "detail",
   systemId,
   agentInstruction,
-  profile,
+  profile: _profile,
   onSetupReadinessChange,
   setupRouteBase,
 }: ConnectedSystemsPanelProps) {
@@ -406,6 +402,7 @@ export function ConnectedSystemsPanel({
   >(DEFAULT_CRM_PROFILE_VALUES);
   const [updateId, setUpdateId] = useState("");
   const [deleteId, setDeleteId] = useState("");
+  const [fieldView, setFieldView] = useState<"basic" | "all">("basic");
   const [bindingResolvedKey, setBindingResolvedKey] = useState<string | null>(
     null,
   );
@@ -458,6 +455,18 @@ export function ConnectedSystemsPanel({
     if (schemaDrivenProfileFields.length > 0) return schemaDrivenProfileFields;
     return [];
   }, [schemaDrivenProfileFields]);
+  const displayedProfileFields = useMemo(() => {
+    if (fieldView === "all") return visibleProfileFields;
+    const mappedFields = new Set(
+      Object.values(schema?.profileFieldMappings || {})
+        .map((value) => String(value || "").trim())
+        .filter(Boolean),
+    );
+    const basicFields = visibleProfileFields.filter(
+      (field) => mappedFields.has(field.rawName || field.key) || field.required,
+    );
+    return basicFields.length > 0 ? basicFields : visibleProfileFields;
+  }, [fieldView, schema?.profileFieldMappings, visibleProfileFields]);
   const changedProfileFields = useMemo(
     () =>
       changedFieldsFromValues(
@@ -473,19 +482,6 @@ export function ConnectedSystemsPanel({
     [boundRecordId, updateId],
   );
   const hasBoundRecord = Boolean(currentRecordId);
-  const lookupFields = useMemo(
-    () => visibleProfileFields.filter((field) => field.identityField),
-    [visibleProfileFields],
-  );
-  const schemaLookupValues = useMemo(
-    () => Object.fromEntries(
-      lookupFields
-        .map((field) => [field.rawName || field.key, cleanFieldValue(crmFieldValues[field.key])])
-        .filter(([, value]) => Boolean(value)),
-    ),
-    [crmFieldValues, lookupFields],
-  );
-  const hasLookup = lookupFields.length > 0 && Object.keys(schemaLookupValues).length === lookupFields.length;
   const currentReadRecord = useMemo(
     () => selectRecordForId(readResult, currentRecordId),
     [currentRecordId, readResult],
@@ -508,7 +504,6 @@ export function ConnectedSystemsPanel({
   );
   const boundRecordReadResolved =
     !hasBoundRecord ||
-    !hasLookup ||
     readResultHasCurrentRecord ||
     Boolean(crmRecordReadKey && readResolvedKey === crmRecordReadKey);
   const isBoundRecordHydrating =
@@ -516,7 +511,7 @@ export function ConnectedSystemsPanel({
     canUseBackend &&
     !error &&
     hasBoundRecord &&
-    schemaReady && supportsAction("read") && hasLookup &&
+    schemaReady && supportsAction("read") &&
     !boundRecordReadResolved;
   const isRecordStateLoading =
     mode === "detail" &&
@@ -538,30 +533,6 @@ export function ConnectedSystemsPanel({
       (!schemaReady ||
         (hasBoundRecord ? !canShowBoundRecordActions : !canShowUnboundRecordActions)),
   );
-
-  useEffect(() => {
-    const email = cleanFieldValue(profile?.email);
-    const phone = cleanFieldValue(profile?.phone);
-    if (visibleProfileFields.length === 0 || (!email && !phone)) return;
-    setCrmFieldValues((current) => {
-      const next = { ...current };
-      let changed = false;
-      for (const field of visibleProfileFields) {
-        if (!field.identityField || next[field.key]) continue;
-        const descriptor = `${field.key} ${field.rawName} ${field.label}`.toLowerCase();
-        const value = descriptor.includes("email")
-          ? email
-          : descriptor.includes("phone") || descriptor.includes("telephone") || descriptor.includes("mobile")
-            ? phone
-            : "";
-        if (value) {
-          next[field.key] = value;
-          changed = true;
-        }
-      }
-      return changed ? next : current;
-    });
-  }, [profile?.email, profile?.phone, visibleProfileFields]);
 
   useEffect(() => {
     if (mode !== "detail") return;
@@ -808,7 +779,7 @@ export function ConnectedSystemsPanel({
       "read",
       async () => {
         const returnFields = visibleProfileFields
-          .filter((field) => field.readable)
+          .filter((field) => field.readable !== false)
           .map((field) => field.rawName || field.key);
         const completedReadKey =
           !options.bindSearch && selectedSystem && currentRecordId
@@ -821,7 +792,6 @@ export function ConnectedSystemsPanel({
         const payload = {
           systemId: selectedSystem?.systemId,
           objectType: selectedSystem?.objectTypeDefault,
-          searchFields: schemaLookupValues,
           returnFields,
         };
         const nextResult = options.bindSearch
@@ -922,7 +892,6 @@ export function ConnectedSystemsPanel({
       !currentRecordId ||
       !schemaReady ||
       !supportsAction("read") ||
-      !hasLookup ||
       readResultHasCurrentRecord
     ) {
       return;
@@ -933,7 +902,6 @@ export function ConnectedSystemsPanel({
   }, [
     activeBinding,
     currentRecordId,
-    hasLookup,
     mode,
     readResultHasCurrentRecord,
     vaultOwnerToken,
@@ -941,24 +909,11 @@ export function ConnectedSystemsPanel({
   ]);
 
   const updateCrmFieldValue = (field: CrmProfileField, value: string) => {
-    if (!schemaReady || field.updateable !== true || field.identityField || field.immutable) return;
+    if (!schemaReady || field.updateable === false || field.identityField || field.immutable === true) return;
     setCrmFieldValues((current) => ({ ...current, [field.key]: value }));
   };
 
   const createRecordFromSchema = async () => {
-    const recordFields = Object.fromEntries(
-      visibleProfileFields
-        .filter((field) => field.createable === true && !field.immutable)
-        .map((field) => [field.rawName || field.key, cleanFieldValue(crmFieldValues[field.key])])
-        .filter(([, value]) => Boolean(value)),
-    );
-    const missingRequired = visibleProfileFields.filter(
-      (field) => field.required && !cleanFieldValue(crmFieldValues[field.key]),
-    );
-    if (missingRequired.length > 0) {
-      toast.error(`Complete required fields: ${missingRequired.map((field) => field.label).join(", ")}.`);
-      return;
-    }
     const result = await runMutation(
       "create",
       {
@@ -969,7 +924,6 @@ export function ConnectedSystemsPanel({
       () => ConnectedSystemsService.createRecordIntent(vaultOwnerToken || "", {
         systemId: selectedSystem?.systemId,
         objectType: selectedSystem?.objectTypeDefault,
-        recordFields,
       }),
     );
     if (result) {
@@ -988,12 +942,6 @@ export function ConnectedSystemsPanel({
   const linkThisSystem = async () => {
     const canRead = supportsAction("read");
     const canCreate = supportsAction("create");
-    if (canRead && !hasLookup) {
-      toast.error(
-        "Complete the CRM identity fields before linking this system.",
-      );
-      return;
-    }
     if (canRead) {
       const found = await readRecord({
         silent: true,
@@ -1009,12 +957,6 @@ export function ConnectedSystemsPanel({
       }
     }
     if (!canCreate) return;
-    if (visibleProfileFields.some((field) => field.required && !cleanFieldValue(crmFieldValues[field.key]))) {
-      toast.error(
-        "Complete the required fields before creating this CRM record.",
-      );
-      return;
-    }
     await createRecordFromSchema();
   };
 
@@ -1038,7 +980,6 @@ export function ConnectedSystemsPanel({
           {
             systemId: selectedSystem?.systemId,
             objectType: selectedSystem?.objectTypeDefault,
-            id: recordId,
             additionalFields: {},
             recordFields,
           },
@@ -1061,7 +1002,6 @@ export function ConnectedSystemsPanel({
         ConnectedSystemsService.createDeleteIntent(vaultOwnerToken || "", {
           systemId: selectedSystem?.systemId,
           objectType: selectedSystem?.objectTypeDefault || "Contact",
-          id: deleteId || currentRecordId,
         }),
     );
     if (result) {
@@ -1159,7 +1099,7 @@ export function ConnectedSystemsPanel({
     return <p className="text-xs text-muted-foreground">{parts.join(" / ")}</p>;
   };
 
-  const crmFieldRows: CrmFieldTableRow[] = visibleProfileFields.map((field) => {
+  const crmFieldRows: CrmFieldTableRow[] = displayedProfileFields.map((field) => {
     const access = [
       field.readable ? "read" : null,
       field.createable ? "create" : null,
@@ -1198,9 +1138,10 @@ export function ConnectedSystemsPanel({
       cell: ({ row }) => {
         const field = row.original.field;
         if (
+          !hasBoundRecord ||
           !schemaReady ||
           !supportsAction("update") ||
-          field.updateable !== true ||
+          field.updateable === false ||
           field.identityField ||
           field.immutable
         ) {
@@ -1227,6 +1168,20 @@ export function ConnectedSystemsPanel({
 
   const renderCrmFieldTable = (configurationMessage?: string | null) => (
     <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs text-muted-foreground">
+          {fieldView === "all" ? "All CRM fields" : "Basic profile fields"}
+        </p>
+        <select
+          aria-label="Field view"
+          className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground"
+          value={fieldView}
+          onChange={(event) => setFieldView(event.target.value as "basic" | "all")}
+        >
+          <option value="basic">Basic fields</option>
+          <option value="all">All fields</option>
+        </select>
+      </div>
       <DataTable
         columns={crmFieldColumns}
         data={crmFieldRows}
@@ -1414,7 +1369,7 @@ export function ConnectedSystemsPanel({
                     variant="none"
                     effect="fade"
                     size="sm"
-                    disabled={busy !== null || !hasLookup}
+                    disabled={busy !== null}
                     onClick={() => void readRecord()}
                   >
                     <Icon icon={RefreshCw} size="sm" className="mr-2" />
@@ -1437,8 +1392,9 @@ export function ConnectedSystemsPanel({
             {renderCrmFieldTable(
               !schemaReady
                 ? schema?.configurationMessage ||
-                    "This is a discovered field catalogue. The CRM must publish explicit field access metadata before records can be read or changed."
-                : "This CRM does not currently have a complete registered record-operation contract. Fields are shown for configuration review only.",
+                    "This is a discovered field catalogue. Record actions are unavailable until its verified onboarding mapping refreshes."
+                : schema?.configurationMessage ||
+                    "This CRM is shown as a field catalogue until its verified onboarding mapping is available.",
             )}
           </div>
         </SettingsGroup>
@@ -1473,16 +1429,10 @@ export function ConnectedSystemsPanel({
                 </Button>
               </div>
             </div>
-            {!hasLookup ? (
-              <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-300">
-                Fill each field marked as an identity field before linking this
-                CRM record.
-              </div>
-            ) : null}
             {renderCrmFieldTable()}
             <p className="text-xs leading-relaxed text-muted-foreground">
               {supportsAction("read") && supportsAction("create")
-                ? "We’ll look for your existing record first, and only create a new one if nothing matches."
+                ? "We’ll look up only the verified email and phone on your Hussh account, then create a basic record only when no match exists."
                 : supportsAction("read")
                   ? "We’ll look only for an existing CRM record."
                   : "This CRM allows a new record to be prepared for review."}
@@ -1491,7 +1441,7 @@ export function ConnectedSystemsPanel({
               <Button
                 type="button"
                 size="sm"
-                disabled={busy !== null || (supportsAction("read") && !hasLookup)}
+                disabled={busy !== null}
                 onClick={() => void linkThisSystem()}
               >
                 <Icon
@@ -1550,7 +1500,7 @@ export function ConnectedSystemsPanel({
                   variant="none"
                   effect="fade"
                   size="sm"
-                  disabled={busy !== null || !hasLookup}
+                  disabled={busy !== null}
                   onClick={() => void readRecord()}
                 >
                   <Icon icon={RefreshCw} size="sm" className="mr-2" />
@@ -1611,7 +1561,8 @@ export function ConnectedSystemsPanel({
                       </AlertDialogTitle>
                       <AlertDialogDescription>
                         This deletes the {primaryObjectLabel} in {customerName}. The One
-                        binding will be cleared after the MCP confirms deletion.
+                        binding will be cleared only after the CRM no longer
+                        returns this record through its registered read tool.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

@@ -43,11 +43,13 @@ EXTERNAL_CRM_TOOL_CATALOG = (
         "name": "create-crm-record",
         "operation": "create",
         "description": "Create a Contact record from approved user fields.",
+        "responseContract": {"requestStyle": "basic_identity_fields.v1"},
     },
     {
         "name": "update-crm-record",
         "operation": "update",
         "description": "Update allowlisted Contact fields for the bound record.",
+        "responseContract": {"requestStyle": "id_additional_fields.v1"},
     },
     {
         "name": "delete-crm-record",
@@ -239,6 +241,13 @@ def _operation_response_contract(
     return _response_contract((system.operation(operation) or {}).get("responseContract"))
 
 
+def _operation_request_style(system: "ConnectedSystemDefinition", operation: str) -> str:
+    """Read the registered request-shape selector without making it executable."""
+    return _clean_text(
+        _operation_response_contract(system, operation).get("requestStyle"), max_length=80
+    )
+
+
 def _has_contract_path(contract: dict[str, Any], key: str) -> bool:
     return _contract_path(contract, key) is not None
 
@@ -256,7 +265,6 @@ def _valid_operation_response_contract(operation: str, contract: dict[str, Any])
             version == "crm-primary-object-schema.v1"
             and _has_contract_path(contract, "fieldsPath")
             and _has_contract_path(contract, "objectPath")
-            and isinstance(contract.get("requireFieldAccess"), bool)
         )
     if operation == "read":
         return (
@@ -265,11 +273,20 @@ def _valid_operation_response_contract(operation: str, contract: dict[str, Any])
             and _has_contract_path(contract, "recordIdPath")
         )
     if operation in {"create", "update", "delete"}:
+        success_policy = _clean_text(contract.get("successPolicy"), max_length=80)
         return (
             version == "crm-mutation-result.v1"
-            and _has_contract_path(contract, "successPath")
-            and _has_contract_path(contract, "recordIdPath")
-            and isinstance(contract.get("successValue"), bool)
+            and (
+                success_policy == "mcp_is_error_false"
+                or (
+                    _has_contract_path(contract, "successPath")
+                    and isinstance(contract.get("successValue"), (bool, str, int, float))
+                )
+            )
+            # A create must return the newly-created identifier. Updates and
+            # deletes operate on a previously owner-bound identifier, so their
+            # response need only confirm success.
+            and (operation != "create" or _has_contract_path(contract, "recordIdPath"))
         )
     return False
 
@@ -291,6 +308,11 @@ def _mutation_succeeded(
     if result.get("isError"):
         return False
     contract = _response_contract(response_contract)
+    if _clean_text(contract.get("successPolicy"), max_length=80) == "mcp_is_error_false":
+        # The registered MCP tool has an intentionally empty success payload.
+        # This is explicit registry policy; update/delete still require an
+        # independently verified state readback before becoming terminal.
+        return True
     path = _contract_path(contract, "successPath")
     if path:
         return _value_at_contract_path(result, path) is contract.get("successValue")
@@ -563,7 +585,6 @@ def _schema_fields_from_schema_result(
     result: dict[str, Any], *, response_contract: dict[str, Any] | None = None
 ) -> list[dict[str, Any]]:
     contract = _response_contract(response_contract)
-    strict_access = bool(contract.get("requireFieldAccess"))
     required_fields = {
         canonical
         for candidate in _collect_schema_required_candidates(result, response_contract=contract)
@@ -590,30 +611,26 @@ def _schema_fields_from_schema_result(
         createable = _descriptor_bool(descriptor, "createable", "isCreateable")
         updateable = _descriptor_bool(descriptor, "updateable", "isUpdateable")
         descriptor_required = _descriptor_bool(descriptor, "required", "isRequired")
+        # CRM schemas often expose a catalogue before they expose field-level
+        # access metadata. Keep that metadata optional: an omitted access bit
+        # means "not declared", not an inferred deny or allow. Operation tool
+        # mappings and the owner-bound record id remain the execution boundary.
+        # We can safely recognize a record id descriptor without asking a
+        # partner to add our redundant `identityField` extension.
+        type_value = (_schema_type_from_descriptor(descriptor) or "").lower()
+        raw_name_value = str(raw_name or canonical).strip().lower()
+        if identity is None and (
+            type_value == "id" or raw_name_value in {"id", "recordid", "record_id"}
+        ):
+            identity = True
         permissions_declared = all(
             value is not None for value in (identity, immutable, readable, createable, updateable)
         )
-        if strict_access:
-            # Missing field permissions are unknown, never an allow. In
-            # particular, writable is *derived* from the two operation-specific
-            # declarations; an upstream `writable` convenience bit cannot
-            # expand create or update authority.
-            identity = bool(identity)
-            immutable = bool(immutable)
-            readable = bool(readable)
-            createable = bool(createable)
-            updateable = bool(updateable)
-            writable = bool(createable or updateable)
-        else:
-            # Deterministic in-code fixtures predate the database registry.
-            # They remain wire-compatible only; all registry rows set
-            # requireFieldAccess and take the fail-closed branch above.
-            immutable = bool(immutable)
-            identity = bool(identity)
-            readable = True if readable is None else readable
-            createable = (not immutable) if createable is None else createable
-            updateable = (not immutable) if updateable is None else updateable
-            writable = bool(createable or updateable)
+        writable = (
+            bool(createable is True or updateable is True)
+            if createable is not None or updateable is not None
+            else None
+        )
         fields.append(
             {
                 "key": canonical,
@@ -621,12 +638,12 @@ def _schema_fields_from_schema_result(
                 "label": _schema_label_from_descriptor(descriptor) or canonical,
                 "dataType": _schema_type_from_descriptor(descriptor) or "string",
                 "required": bool(descriptor_required) or canonical in required_fields,
-                "identityField": bool(identity),
-                "readable": bool(readable),
-                "createable": bool(createable),
-                "updateable": bool(updateable),
-                "writable": bool(writable),
-                "immutable": bool(immutable),
+                "identityField": identity,
+                "readable": readable,
+                "createable": createable,
+                "updateable": updateable,
+                "writable": writable,
+                "immutable": immutable,
                 "permissionsDeclared": permissions_declared,
                 "constraints": _schema_constraints_from_descriptor(descriptor),
                 "source": source,
@@ -941,14 +958,16 @@ class ConnectedSystemDefinition:
         # configured with an absolute per-operation URL.
         if configured.startswith(("https://", "http://", "registry://")):
             return configured
-        return (
-            str(
-                (self.delete_transport_endpoint if operation == "delete" else None)
-                or self.transport_endpoint
-                or ""
-            ).strip()
-            or None
-        )
+        delete_override = str(self.delete_transport_endpoint or "").strip()
+        # `crm_delete_endpoint` was historically populated with a path on some
+        # rows. A path cannot be a Streamable HTTP MCP target by itself; use it
+        # only when it is an actual absolute endpoint and otherwise keep the
+        # registered base MCP transport.
+        if operation == "delete" and delete_override.startswith(
+            ("https://", "http://", "registry://")
+        ):
+            return delete_override
+        return str(self.transport_endpoint or "").strip() or None
 
     def supports(self, operation: str) -> bool:
         # A schema is mandatory for executable record actions so an untyped
@@ -1314,7 +1333,7 @@ class ConnectedSystemIntentStore:
         user_id: str,
         system_id: str,
         object_type: str,
-        record_id: str,
+        record_id: str | None,
         last_intent_id: str | None = None,
     ) -> dict[str, Any] | None:
         raise NotImplementedError
@@ -1775,12 +1794,14 @@ class ConnectedSystemsService:
         store: ConnectedSystemIntentStore | None = None,
         delete_enabled: bool | None = None,
         registry: tuple[ConnectedSystemDefinition, ...] | None = None,
+        identity_service: Any | None = None,
     ):
         self._registry_explicit = registry is not None
         self.registry = registry or self._load_registry()
         self.adapter = adapter
         self.store = store or DatabaseConnectedSystemIntentStore()
         self.delete_enabled = True if delete_enabled is None else delete_enabled
+        self.identity_service = identity_service
 
     def _load_registry(self) -> tuple[ConnectedSystemDefinition, ...]:
         from hushh_mcp.services import crm_registry_repo
@@ -1913,6 +1934,135 @@ class ConnectedSystemsService:
         except DatabaseExecutionError as error:
             raise _connected_systems_storage_error(error) from error
 
+    @staticmethod
+    def _profile_field_mappings(fields: list[dict[str, Any]]) -> dict[str, str]:
+        """Derive a mapping for explicit in-code test registries only.
+
+        Enterprise CRM rows must use the manifest-owned schema mapper/cache.
+        This narrow fixture helper preserves legacy deterministic test adapters
+        without silently making alias decisions for a partner schema.
+        """
+        aliases = {
+            "email": ("email", "emailaddress", "email_address"),
+            "phone": ("phone", "telephone", "phone_number", "mobilephone", "mobile_phone"),
+            "firstName": ("firstname", "first_name", "givenname", "given_name"),
+            "lastName": ("lastname", "last_name", "surname", "familyname", "family_name"),
+            "fullName": ("name", "fullname", "full_name", "displayname", "display_name"),
+            "address": ("mailingstreet", "street", "address", "addressline1", "address_line_1"),
+        }
+
+        normalized: list[tuple[dict[str, Any], str]] = []
+        for field in fields:
+            name = re.sub(
+                r"[^a-z0-9]", "", str(field.get("name") or field.get("key") or "").lower()
+            )
+            label = re.sub(r"[^a-z0-9]", "", str(field.get("label") or "").lower())
+            if name:
+                normalized.append((field, name))
+            elif label:
+                normalized.append((field, label))
+
+        mapping: dict[str, str] = {}
+        for semantic, candidates in aliases.items():
+            exact = next(
+                (
+                    field
+                    for field, token in normalized
+                    if token in candidates and field.get("identityField") is not True
+                ),
+                None,
+            )
+            # `Name` is a tempting substring of FirstName/LastName. A full
+            # name fallback must only bind to an exact full-name descriptor,
+            # otherwise it can overwrite a valid split last-name mapping.
+            partial = exact or (
+                None
+                if semantic == "fullName"
+                else next(
+                    (
+                        field
+                        for field, token in normalized
+                        if any(candidate in token for candidate in candidates)
+                        and field.get("identityField") is not True
+                    ),
+                    None,
+                )
+            )
+            if partial:
+                mapping[semantic] = str(partial["name"])
+        return mapping
+
+    async def _verified_user_crm_profile(self, *, user_id: str) -> dict[str, str]:
+        """Load the actor's server-side verified identity for CRM onboarding.
+
+        Browser-request fields are deliberately not accepted here: the lookup
+        and the initial CRM record use only the authenticated actor's verified
+        email and verified phone claim.
+        """
+        provider = self.identity_service
+        if provider is None:
+            from hushh_mcp.services.actor_identity_service import ActorIdentityService
+
+            provider = ActorIdentityService()
+        try:
+            identities = await provider.get_many([user_id])
+        except Exception as error:  # never surface identity-provider details
+            logger.warning("connected_systems.identity_lookup_failed user=%s", user_id)
+            raise ConnectedSystemConfigurationError(
+                "Verified account information is temporarily unavailable.",
+                code="CONNECTED_SYSTEM_VERIFIED_IDENTITY_UNAVAILABLE",
+            ) from error
+        identity = _ensure_dict((identities or {}).get(user_id))
+        email = _clean_text(identity.get("email"), max_length=320).lower()
+        phone = _normalize_crm_phone_for_mcp(identity.get("phone_number"))
+        if not identity.get("email_verified") or not email:
+            raise ConnectedSystemBlockedError(
+                "Verify your email before linking this CRM.",
+                code="CONNECTED_SYSTEM_EMAIL_VERIFICATION_REQUIRED",
+            )
+        if not identity.get("phone_verified") or not phone:
+            raise ConnectedSystemBlockedError(
+                "Verify your phone before linking this CRM.",
+                code="CONNECTED_SYSTEM_PHONE_VERIFICATION_REQUIRED",
+            )
+        display_name = _clean_text(identity.get("display_name"), max_length=160)
+        parts = display_name.split()
+        return {
+            "email": email,
+            "phone": phone,
+            "displayName": display_name,
+            "firstName": parts[0] if parts else "",
+            "lastName": " ".join(parts[1:]) if len(parts) > 1 else (parts[0] if parts else ""),
+        }
+
+    def _require_bound_record_id(
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        object_type: str,
+        supplied_record_id: str | None = None,
+    ) -> str:
+        binding = self._store_call(
+            self.store.get_binding,
+            user_id=user_id,
+            system_id=system_id,
+            object_type=object_type,
+        )
+        bound_record_id = _clean_text((binding or {}).get("record_id"), max_length=128)
+        if not binding or not bound_record_id or binding.get("status") != "active":
+            raise ConnectedSystemBlockedError(
+                "Link your CRM record before reading or changing it.",
+                code="CONNECTED_SYSTEM_RECORD_BINDING_REQUIRED",
+            )
+        requested = _clean_text(supplied_record_id, max_length=128)
+        if requested and requested != bound_record_id:
+            raise ConnectedSystemBlockedError(
+                "This CRM record is not linked to your account.",
+                code="CONNECTED_SYSTEM_RECORD_BINDING_MISMATCH",
+            )
+        return bound_record_id
+
     async def get_schema(self, *, system_id: str, object_type: str | None = None) -> dict[str, Any]:
         system = self.get_system(system_id)
         self._require_operation(system, "schema")
@@ -1944,33 +2094,16 @@ class ConnectedSystemsService:
             response_contract=response_contract,
             default_object_type=payload["objectType"],
         )
-        permissions_complete = (
-            all(field.get("permissionsDeclared") for field in schema_fields)
-            if response_contract.get("requireFieldAccess") is True
-            else True
-        )
-        has_readable_identity = (
-            any(field.get("readable") and field.get("identityField") for field in schema_fields)
-            or response_contract.get("requireFieldAccess") is not True
-        )
+        permissions_complete = all(field.get("permissionsDeclared") for field in schema_fields)
         effective_actions = {
             "schema": True,
-            "read": bool(
-                permissions_complete and has_readable_identity and system.supports("read")
-            ),
-            "create": bool(
-                permissions_complete
-                and any(field.get("createable") for field in schema_fields)
-                and system.supports("create")
-            ),
-            "update": bool(
-                permissions_complete
-                and any(field.get("updateable") for field in schema_fields)
-                and system.supports("update")
-            ),
-            "delete": bool(
-                permissions_complete and system.supports("delete") and self.delete_enabled
-            ),
+            # The registered operation mapping, not invented per-field flags,
+            # controls whether the tool may run. Individual explicit `false`
+            # flags are still honoured during field validation below.
+            "read": bool(system.supports("read")),
+            "create": bool(system.supports("create")),
+            "update": bool(system.supports("update")),
+            "delete": bool(system.supports("delete") and self.delete_enabled),
         }
         return {
             "systemId": system.system_id,
@@ -1979,12 +2112,19 @@ class ConnectedSystemsService:
             "objectMetadata": object_metadata,
             "supportedFields": [field["key"] for field in schema_fields],
             "fields": schema_fields,
-            "schemaStatus": "ready" if permissions_complete else "capability_metadata_missing",
+            "profileFieldMappings": (
+                self._profile_field_mappings(schema_fields)
+                if system.registry_source != "enterprise_crm_registry"
+                else {}
+            ),
+            "schemaMappingStatus": "pending",
+            "schemaStatus": "ready",
+            "accessMetadata": "declared" if permissions_complete else "partial",
             "effectiveActions": effective_actions,
             "configurationMessage": (
                 None
                 if permissions_complete
-                else "This connected system needs an update before its fields can be used."
+                else "Some field-level access metadata is not declared. Registered CRM operations remain available and explicit field restrictions are still enforced."
             ),
         }
 
@@ -2016,16 +2156,16 @@ class ConnectedSystemsService:
                     code="CONNECTED_SYSTEM_SCHEMA_FIELD_UNAVAILABLE",
                 )
             if action == "update" and (
-                field.get("immutable")
-                or field.get("identityField")
-                or field.get("updateable") is not True
+                field.get("immutable") is True
+                or field.get("identityField") is True
+                or field.get("updateable") is False
             ):
                 raise ConnectedSystemValidationError(
                     f"Field cannot be updated: {key}",
                     code="CONNECTED_SYSTEM_SCHEMA_FIELD_READ_ONLY",
                 )
             if action == "create" and (
-                field.get("immutable") or field.get("createable") is not True
+                field.get("immutable") is True or field.get("createable") is False
             ):
                 raise ConnectedSystemValidationError(
                     f"Field cannot be written: {key}",
@@ -2037,7 +2177,11 @@ class ConnectedSystemsService:
             missing = [
                 field["label"]
                 for field in fields.values()
-                if field.get("required") and str(field["name"]).lower() not in supplied
+                if (
+                    field.get("required")
+                    and field.get("identityField") is not True
+                    and str(field["name"]).lower() not in supplied
+                )
             ]
             if missing:
                 raise ConnectedSystemValidationError(
@@ -2054,6 +2198,7 @@ class ConnectedSystemsService:
         object_type: str | None,
         record_fields: dict[str, Any],
         readback_locator: dict[str, Any] | None = None,
+        profile_field_mappings: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
         self._require_operation(system, "create")
@@ -2069,17 +2214,29 @@ class ConnectedSystemsService:
             "objectType": object_type_value,
             "recordFields": normalized,
         }
-        # The currently deployed Macy's tool predates recordFields. This is an
-        # explicit wire-compatibility adapter, not a generic CRM assumption.
-        if system.system_id == CONNECTED_SYSTEM_SALESFORCE_ID:
+        # A registered request style keeps the current Salesforce-family MCP
+        # wire shape out of the generic CRM validation path. Future systems
+        # remain on the typed `recordFields` default unless their own operation
+        # contract declares a different request style.
+        if _operation_request_style(system, "create") == "basic_identity_fields.v1":
+            mappings = dict(profile_field_mappings or {})
+            if not mappings and system.registry_source != "enterprise_crm_registry":
+                mappings = self._profile_field_mappings(list(fields.values()))
+            if not mappings:
+                raise ConnectedSystemConfigurationError(
+                    "This CRM needs a verified profile-field mapping before a record can be created.",
+                    code="CONNECTED_SYSTEM_PROFILE_FIELD_MAPPING_UNAVAILABLE",
+                )
             legacy = {str(key): value for key, value in normalized.items()}
             payload = {
                 "target": system.target,
                 "objectType": object_type_value,
-                "email": legacy.pop("Email", ""),
-                "phone": _normalize_crm_phone_for_mcp(legacy.pop("Phone", "")),
-                "lastName": legacy.pop("LastName", ""),
-                "firstName": legacy.pop("FirstName", "") or None,
+                "email": legacy.pop(str(mappings.get("email") or ""), ""),
+                "phone": _normalize_crm_phone_for_mcp(
+                    legacy.pop(str(mappings.get("phone") or ""), "")
+                ),
+                "lastName": legacy.pop(str(mappings.get("lastName") or ""), ""),
+                "firstName": legacy.pop(str(mappings.get("firstName") or ""), "") or None,
                 "additionalFields": legacy,
             }
         return self._create_intent(
@@ -2101,21 +2258,77 @@ class ConnectedSystemsService:
             record_id=None,
         )
 
+    async def create_record_intent_for_verified_user(
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        object_type: str | None,
+        profile_field_mappings: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Prepare a basic CRM create using server-side verified account data.
+
+        This intentionally has no browser-supplied field values. The initial
+        record is limited to the current user's verified email/phone and their
+        signed-in display name mapped against the active CRM schema.
+        """
+        profile = await self._verified_user_crm_profile(user_id=user_id)
+        schema = await self.get_schema(system_id=system_id, object_type=object_type)
+        system = self.get_system(system_id)
+        mappings = dict(profile_field_mappings or {})
+        if not mappings and system.registry_source != "enterprise_crm_registry":
+            mappings = _ensure_dict(schema.get("profileFieldMappings"))
+        fields: dict[str, Any] = {}
+        for semantic, profile_key in (
+            ("email", "email"),
+            ("phone", "phone"),
+            ("firstName", "firstName"),
+            ("lastName", "lastName"),
+        ):
+            field_name = _clean_text(mappings.get(semantic), max_length=80)
+            value = _clean_text(profile.get(profile_key), max_length=320)
+            if field_name and value:
+                fields[field_name] = value
+        # Salesforce-style `Name` fields are frequently derived and cannot be
+        # written alongside FirstName/LastName. Use a full-name field only for
+        # schemas that do not expose the split name pair.
+        if not (mappings.get("firstName") and mappings.get("lastName")):
+            full_name_field = _clean_text(mappings.get("fullName"), max_length=80)
+            full_name = _clean_text(profile.get("displayName"), max_length=160)
+            if full_name_field and full_name:
+                fields[full_name_field] = full_name
+        if "email" not in mappings or "phone" not in mappings:
+            raise ConnectedSystemConfigurationError(
+                "This CRM schema does not expose fields for verified email and phone.",
+                code="CONNECTED_SYSTEM_PROFILE_FIELD_MAPPING_UNAVAILABLE",
+            )
+        return await self.create_record_intent_from_fields(
+            user_id=user_id,
+            system_id=system_id,
+            object_type=object_type,
+            record_fields=fields,
+            profile_field_mappings=mappings,
+        )
+
     async def update_record_intent_from_fields(
         self,
         *,
         user_id: str,
         system_id: str,
         object_type: str | None,
-        record_id: str,
+        record_id: str | None,
         record_fields: dict[str, Any],
         readback_locator: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
         self._require_operation(system, "update")
-        record_id_value = _clean_text(record_id, max_length=128)
-        if not record_id_value:
-            raise ConnectedSystemValidationError("id is required for update.")
+        object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
+        record_id_value = self._require_bound_record_id(
+            user_id=user_id,
+            system_id=system_id,
+            object_type=object_type_value,
+            supplied_record_id=record_id,
+        )
         schema = await self.get_schema(system_id=system_id, object_type=object_type)
         self._require_schema_action(schema, "update")
         fields = {str(field["key"]): field for field in schema["fields"]}
@@ -2127,7 +2340,7 @@ class ConnectedSystemsService:
             "id": record_id_value,
             "recordFields": normalized,
         }
-        if system.system_id == CONNECTED_SYSTEM_SALESFORCE_ID:
+        if _operation_request_style(system, "update") == "id_additional_fields.v1":
             payload["additionalFields"] = normalized
             payload.pop("recordFields")
         return self._create_intent(
@@ -2169,12 +2382,20 @@ class ConnectedSystemsService:
         }
         if not search_fields:
             return {}
-        if system.system_id == CONNECTED_SYSTEM_SALESFORCE_ID:
+        # A registered request style, rather than a CRM name, preserves the
+        # email/phone lookup wire shape where a connector requires it. New
+        # CRM rows otherwise receive the generic typed search shape.
+        if (
+            _operation_request_style(system, "read") == "id_or_verified_identity.v1"
+            and locator
+            and locator.get("email")
+            and locator.get("phone")
+        ):
             return self._build_read_payload(
                 system_id=system.system_id,
                 object_type=object_type,
-                email=str(search_fields.get("Email") or ""),
-                phone=str(search_fields.get("Phone") or ""),
+                email=str(locator["email"]),
+                phone=str(locator["phone"]),
                 search_fields=None,
                 return_fields=list(record_fields),
             )
@@ -2195,6 +2416,7 @@ class ConnectedSystemsService:
         phone: str | None,
         search_fields: dict[str, Any] | None = None,
         return_fields: list[str] | None = None,
+        record_id: str | None = None,
     ) -> dict[str, Any]:
         payload = await self._build_schema_read_payload(
             system_id=system_id,
@@ -2203,6 +2425,7 @@ class ConnectedSystemsService:
             phone=phone,
             search_fields=search_fields,
             return_fields=return_fields,
+            record_id=record_id,
         )
         system = self.get_system(system_id)
         read_contract = _operation_response_contract(system, "read")
@@ -2254,30 +2477,58 @@ class ConnectedSystemsService:
         phone: str | None,
         search_fields: dict[str, Any] | None,
         return_fields: list[str] | None,
+        record_id: str | None = None,
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
         schema = await self.get_schema(system_id=system_id, object_type=object_type)
         self._require_schema_action(schema, "read")
         fields = {
-            str(field["key"]): field for field in schema["fields"] if field.get("readable") is True
+            str(field["key"]): field
+            for field in schema["fields"]
+            if field.get("readable") is not False
         }
         by_name = {str(field["name"]): field for field in fields.values()}
-        # Macy's aliases remain a compatibility input only. They cannot make a
-        # future CRM look up arbitrary fields without a schema descriptor.
-        if email is not None or phone is not None:
-            if system.system_id != CONNECTED_SYSTEM_SALESFORCE_ID:
+        normalized_return: list[str] = []
+        for raw_name in return_fields or []:
+            field = fields.get(str(raw_name)) or by_name.get(str(raw_name))
+            if not field:
+                if system.registry_source != "enterprise_crm_registry":
+                    # Compatibility-only in-code fixtures predate typed
+                    # schema projection. Runtime registry connectors never
+                    # take this branch.
+                    normalized_return.append(str(raw_name))
+                    continue
                 raise ConnectedSystemValidationError(
-                    "Use searchFields for this CRM.",
-                    code="CONNECTED_SYSTEM_GENERIC_LOOKUP_REQUIRED",
+                    f"Return field is not available in this CRM schema: {raw_name}",
+                    code="CONNECTED_SYSTEM_SCHEMA_FIELD_UNAVAILABLE",
                 )
-            return self._build_read_payload(
-                system_id=system_id,
-                object_type=object_type,
-                email=email or "",
-                phone=phone or "",
-                search_fields=search_fields,
-                return_fields=return_fields,
-            )
+            normalized_return.append(str(field["name"]))
+        record_id_value = _clean_text(record_id, max_length=128)
+        if record_id_value:
+            return {
+                "target": system.target,
+                "objectType": str(schema["objectType"]),
+                "id": record_id_value,
+                "returnFields": list(dict.fromkeys(normalized_return)),
+            }
+        # Identity lookup is used only by the server-side verified-account
+        # onboarding flow. It is deliberately not a public arbitrary-field
+        # search path.
+        if email is not None or phone is not None:
+            email_value = _clean_text(email, max_length=320).lower()
+            phone_value = _normalize_crm_phone_for_mcp(phone)
+            if not email_value or not phone_value:
+                raise ConnectedSystemValidationError(
+                    "Verified email and phone are required for CRM lookup.",
+                    code="CONNECTED_SYSTEM_VERIFIED_LOOKUP_REQUIRED",
+                )
+            return {
+                "target": system.target,
+                "objectType": str(schema["objectType"]),
+                "email": email_value,
+                "phone": phone_value,
+                "returnFields": list(dict.fromkeys(normalized_return)),
+            }
         if not isinstance(search_fields, dict) or not search_fields:
             raise ConnectedSystemValidationError("searchFields is required for this CRM.")
         normalized_search: dict[str, Any] = {}
@@ -2289,21 +2540,59 @@ class ConnectedSystemsService:
                     code="CONNECTED_SYSTEM_SCHEMA_FIELD_UNAVAILABLE",
                 )
             normalized_search[str(field["name"])] = value
-        normalized_return: list[str] = []
-        for raw_name in return_fields or []:
-            field = fields.get(str(raw_name)) or by_name.get(str(raw_name))
-            if not field:
-                raise ConnectedSystemValidationError(
-                    f"Return field is not available in this CRM schema: {raw_name}",
-                    code="CONNECTED_SYSTEM_SCHEMA_FIELD_UNAVAILABLE",
-                )
-            normalized_return.append(str(field["name"]))
         return {
             "target": system.target,
             "objectType": str(schema["objectType"]),
             "searchFields": normalized_search,
             "returnFields": list(dict.fromkeys(normalized_return)),
         }
+
+    async def read_bound_record(
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        object_type: str | None,
+        return_fields: list[str] | None = None,
+    ) -> dict[str, Any]:
+        system = self.get_system(system_id)
+        object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
+        record_id = self._require_bound_record_id(
+            user_id=user_id,
+            system_id=system_id,
+            object_type=object_type_value,
+        )
+        return await self.read_record(
+            user_id=user_id,
+            system_id=system_id,
+            object_type=object_type_value,
+            email=None,
+            phone=None,
+            return_fields=return_fields,
+            record_id=record_id,
+        )
+
+    async def search_verified_record(
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        object_type: str | None,
+        return_fields: list[str] | None = None,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        """Find a record using only the authenticated owner's verified identity."""
+        profile = await self._verified_user_crm_profile(user_id=user_id)
+        return await self.search_record(
+            user_id=user_id,
+            system_id=system_id,
+            object_type=object_type,
+            email=profile["email"],
+            phone=profile["phone"],
+            search_fields=None,
+            return_fields=return_fields,
+            force_refresh=force_refresh,
+        )
 
     def get_record_binding(
         self,
@@ -2548,15 +2837,12 @@ class ConnectedSystemsService:
         system = self.get_system(system_id)
         self._require_operation(system, "delete")
         object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
-        binding = self._store_call(
-            self.store.get_binding,
+        record_id_value = self._require_bound_record_id(
             user_id=user_id,
             system_id=system_id,
             object_type=object_type_value,
+            supplied_record_id=record_id,
         )
-        record_id_value = _clean_text(record_id or (binding or {}).get("record_id"), max_length=128)
-        if not record_id_value:
-            raise ConnectedSystemValidationError("id is required for delete.")
         return self._create_intent(
             user_id=user_id,
             system=system,
@@ -2567,7 +2853,15 @@ class ConnectedSystemsService:
                 "objectType": object_type_value,
                 "id": record_id_value,
             },
-            readback_payload={},
+            # An empty successful MCP result is insufficient proof for delete.
+            # The registered read tool must confirm the owner-bound ID is gone
+            # before the binding transitions to deleted.
+            readback_payload={
+                "target": system.target,
+                "objectType": object_type_value,
+                "id": record_id_value,
+                "returnFields": [],
+            },
             field_names=[],
             record_id=record_id_value,
         )
@@ -2599,6 +2893,15 @@ class ConnectedSystemsService:
         if intent.get("approval_id") != approval:
             return self._public_intent(intent)
         try:
+            if intent["action"] in {"update", "delete"}:
+                # Re-check at execution time: a stale UI request cannot mutate
+                # a record after its binding was removed or replaced.
+                self._require_bound_record_id(
+                    user_id=user_id,
+                    system_id=system_id,
+                    object_type=str(intent["object_type"]),
+                    supplied_record_id=str(intent.get("record_id") or ""),
+                )
             if system.registry_source == "enterprise_crm_registry":
                 schema = await self.get_schema(
                     system_id=system_id, object_type=intent.get("object_type")
@@ -2625,11 +2928,7 @@ class ConnectedSystemsService:
             record_id = intent.get("record_id") or _record_id_from_result(
                 result, response_contract=response_contract
             )
-            readback = (
-                {"resultClass": "succeeded", "reason": "delete_confirmed"}
-                if intent["action"] == "delete" and mutation_succeeded
-                else await self._readback(intent, system=system)
-            )
+            readback = await self._readback(intent, system=system, record_id=record_id)
             if not record_id:
                 record_id = _clean_text(readback.get("recordId"), max_length=128)
             readback_class = self._classify_readback(intent, readback)
@@ -2834,9 +3133,26 @@ class ConnectedSystemsService:
         return intent
 
     async def _readback(
-        self, intent: dict[str, Any], *, system: ConnectedSystemDefinition
+        self,
+        intent: dict[str, Any],
+        *,
+        system: ConnectedSystemDefinition,
+        record_id: str | None,
     ) -> dict[str, Any]:
-        readback_payload = intent.get("readback_payload") or {}
+        readback_payload = _ensure_dict(intent.get("readback_payload"))
+        record_id_value = _clean_text(record_id, max_length=128)
+        if record_id_value:
+            # A CRM mutation response or owner binding is the only authority
+            # for this ID. Verify all mutations by that ID, never through a
+            # broader identity lookup.
+            readback_payload = {
+                "target": system.target,
+                "objectType": str(intent.get("object_type") or system.object_type_default),
+                "id": record_id_value,
+                "returnFields": []
+                if intent.get("action") == "delete"
+                else [str(field) for field in intent.get("field_names") or []],
+            }
         if not readback_payload:
             return {
                 "resultClass": "partial",
@@ -2870,6 +3186,8 @@ class ConnectedSystemsService:
         if readback.get("resultClass") != "succeeded":
             return "partial"
         records = _records_from_readback(readback)
+        if intent.get("action") == "delete":
+            return "succeeded" if not records else "partial"
         expected = _expected_readback_fields(intent)
         if not expected:
             return "succeeded" if records else "partial"

@@ -4,6 +4,12 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import {
+  createPdfDocumentFormatter,
+  PDF_FORMATTER_PROFILES,
+  PDF_FORMATTER_THEMES,
+  renderPdfHusshWordmark,
+} from "../../lib/morphy-ux/pdf-document-formatter.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../../..");
@@ -16,6 +22,7 @@ function parseArgs(argv) {
     title: "Hussh Report",
     subtitle: "",
     theme: "light",
+    profile: "technical",
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -32,6 +39,8 @@ function parseArgs(argv) {
       args.subtitle = argv[++index];
     } else if (value === "--theme") {
       args.theme = argv[++index];
+    } else if (value === "--profile") {
+      args.profile = argv[++index];
     } else if (value === "--help" || value === "-h") {
       printHelp();
       process.exit(0);
@@ -45,8 +54,14 @@ function parseArgs(argv) {
     process.exit(1);
   }
 
-  if (!["light", "dark", "molten-gold"].includes(args.theme)) {
-    throw new Error(`Unsupported theme: ${args.theme}. Use light, dark, or molten-gold.`);
+  if (!PDF_FORMATTER_THEMES.includes(args.theme)) {
+    throw new Error(`Unsupported theme: ${args.theme}. Use ${PDF_FORMATTER_THEMES.join(", ")}.`);
+  }
+
+  if (!Object.hasOwn(PDF_FORMATTER_PROFILES, args.profile)) {
+    throw new Error(
+      `Unsupported profile: ${args.profile}. Use ${Object.keys(PDF_FORMATTER_PROFILES).join(", ")}.`,
+    );
   }
 
   return args;
@@ -77,7 +92,8 @@ Options:
   --html <path>       Optional HTML output path.
   --title <text>      Browser title and PDF header label.
   --subtitle <text>   Small header subtitle.
-  --theme <name>      Color theme: light (default), dark, or molten-gold.
+  --theme <name>      Foundation theme: light (default), dark, or molten-gold.
+  --profile <name>    Formatter profile: technical (default), partner, or founder.
 `);
 }
 
@@ -211,7 +227,16 @@ function renderMarkdown(markdown) {
   let tableRows = [];
   let codeFence = null;
   let codeLines = [];
+  let paragraphLines = [];
   let omitFromPdf = false;
+
+  const flushParagraph = () => {
+    if (!paragraphLines.length) {
+      return;
+    }
+    html.push(`<p>${renderInline(paragraphLines.join(" "))}</p>`);
+    paragraphLines = [];
+  };
 
   const closeLists = () => {
     if (unorderedOpen) {
@@ -259,6 +284,7 @@ function renderMarkdown(markdown) {
 
     const fence = /^```([A-Za-z0-9_-]+)?\s*$/.exec(line);
     if (fence) {
+      flushParagraph();
       if (codeFence) {
         flushCode();
       } else {
@@ -276,6 +302,7 @@ function renderMarkdown(markdown) {
     }
 
     if (line.trim().startsWith("|")) {
+      flushParagraph();
       closeLists();
       tableRows.push(line);
       continue;
@@ -284,12 +311,14 @@ function renderMarkdown(markdown) {
     flushTable();
 
     if (!line.trim()) {
+      flushParagraph();
       closeLists();
       continue;
     }
 
     const heading = /^(#{1,4})\s+(.+)$/.exec(line);
     if (heading) {
+      flushParagraph();
       closeLists();
       const level = heading[1].length;
       html.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
@@ -297,12 +326,28 @@ function renderMarkdown(markdown) {
     }
 
     if (line.startsWith("> ")) {
+      flushParagraph();
       closeLists();
       html.push(`<blockquote>${renderInline(line.slice(2))}</blockquote>`);
       continue;
     }
 
+    const listContinuation = /^\s{2,}(.+)$/.exec(line);
+    if (
+      listContinuation &&
+      (unorderedOpen || orderedOpen) &&
+      html.at(-1)?.startsWith("<li>")
+    ) {
+      const previousItem = html.at(-1);
+      html[html.length - 1] = previousItem.replace(
+        /<\/li>$/,
+        ` ${renderInline(listContinuation[1].trim())}</li>`,
+      );
+      continue;
+    }
+
     if (/^\s*-\s+/.test(line)) {
+      flushParagraph();
       if (!unorderedOpen) {
         closeLists();
         html.push("<ul>");
@@ -313,6 +358,7 @@ function renderMarkdown(markdown) {
     }
 
     if (/^\s*\d+\.\s+/.test(line)) {
+      flushParagraph();
       if (!orderedOpen) {
         closeLists();
         html.push("<ol>");
@@ -323,9 +369,10 @@ function renderMarkdown(markdown) {
     }
 
     closeLists();
-    html.push(`<p>${renderInline(line)}</p>`);
+    paragraphLines.push(line.trim());
   }
 
+  flushParagraph();
   flushTable();
   flushCode();
   closeLists();
@@ -359,120 +406,32 @@ function readCssCustomProperties(block) {
   );
 }
 
-function requireCssTokens(tokens, names, source) {
-  const missing = names.filter((name) => !tokens[name]);
-  if (missing.length) {
-    throw new Error(`Missing ${source} token(s): ${missing.join(", ")}`);
-  }
-}
-
 function visibleTitle(title) {
   const withoutBrand = title.replace(/^hussh\s+/i, "").trim();
   return withoutBrand || title;
 }
 
-async function moltenGoldPalette() {
+async function resolveFormatter(theme, profile) {
   const globals = await readFile(path.join(repoRoot, "hushh-webapp/app/globals.css"), "utf8");
-  const foundationStart = globals.lastIndexOf("\n.dark {");
-  const foundation = readCssCustomProperties(extractCssBlock(globals, ".dark", foundationStart));
-  const accent = readCssCustomProperties(
-    extractCssBlock(globals, 'html[data-accent="gold"].dark'),
-  );
+  const useDarkFoundation = theme !== "light";
+  const foundation = useDarkFoundation
+    ? {
+        ...readCssCustomProperties(
+          extractCssBlock(globals, ".dark", globals.indexOf("\n.dark {")),
+        ),
+        ...readCssCustomProperties(
+          extractCssBlock(globals, ".dark", globals.lastIndexOf("\n.dark {")),
+        ),
+      }
+    : readCssCustomProperties(extractCssBlock(globals, ":root"));
+  const accent = theme === "molten-gold"
+    ? readCssCustomProperties(extractCssBlock(globals, 'html[data-accent="gold"].dark'))
+    : foundation;
 
-  requireCssTokens(
-    foundation,
-    ["--foundation-off", "--foundation-surface", "--foundation-ink", "--foundation-hairline"],
-    "Morphy dark Foundation",
-  );
-  requireCssTokens(
-    accent,
-    [
-      "--app-accent-deep",
-      "--app-accent-bright",
-      "--app-accent-surface",
-      "--app-accent-border",
-      "--app-accent-hero-from",
-      "--app-accent-hero-mid",
-      "--app-accent-hero-to",
-    ],
-    "Morphy Molten Gold",
-  );
-
-  return {
-    chromeColor: `color-mix(in srgb, ${foundation["--foundation-ink"]} 62%, transparent)`,
-    css: `
-        color-scheme: dark;
-        --bg: ${foundation["--foundation-off"]};
-        --bg-secondary: ${foundation["--foundation-surface"]};
-        --bg-tertiary: ${foundation["--foundation-hairline"]};
-        --fg: ${foundation["--foundation-ink"]};
-        --fg-secondary: color-mix(in srgb, ${foundation["--foundation-ink"]} 78%, ${foundation["--foundation-off"]});
-        --fg-tertiary: color-mix(in srgb, ${foundation["--foundation-ink"]} 54%, ${foundation["--foundation-off"]});
-        --separator: ${foundation["--foundation-hairline"]};
-        --separator-strong: ${accent["--app-accent-border"]};
-        --accent: ${accent["--app-accent-deep"]};
-        --accent-soft: ${accent["--app-accent-surface"]};
-        --accent-surface: ${accent["--app-accent-surface"]};
-        --blue: ${accent["--app-accent-bright"]};
-        --diagram-bg: ${foundation["--foundation-surface"]};
-        --brand-ink: ${foundation["--foundation-ink"]};
-        --brand-hero-from: ${accent["--app-accent-hero-from"]};
-        --brand-hero-mid: ${accent["--app-accent-hero-mid"]};
-        --brand-hero-to: ${accent["--app-accent-hero-to"]};`,
-  };
+  return createPdfDocumentFormatter({ theme, profile, foundation, accent });
 }
 
-async function resolvePalette(theme) {
-  if (theme === "molten-gold") {
-    return moltenGoldPalette();
-  }
-
-  const darkTheme = theme === "dark";
-  return {
-    chromeColor: darkTheme ? "rgba(235,235,245,.62)" : "rgba(60,60,67,.62)",
-    css: darkTheme
-    ? `
-        color-scheme: dark;
-        --bg: #101114;
-        --bg-secondary: #1c1d21;
-        --bg-tertiary: #282a30;
-        --fg: #f2f2f7;
-        --fg-secondary: rgba(235, 235, 245, 0.78);
-        --fg-tertiary: rgba(235, 235, 245, 0.52);
-        --separator: rgba(235, 235, 245, 0.20);
-        --separator-strong: rgba(235, 235, 245, 0.38);
-        --accent: #e5c11c;
-        --accent-soft: #403612;
-        --accent-surface: #1c1d21;
-        --blue: #72adff;
-        --diagram-bg: #16171a;
-        --brand-ink: var(--fg);
-        --brand-hero-from: var(--accent);
-        --brand-hero-mid: var(--accent);
-        --brand-hero-to: var(--accent);`
-    : `
-        color-scheme: light;
-        --bg: #ffffff;
-        --bg-secondary: #f5f5f7;
-        --bg-tertiary: #ebebf0;
-        --fg: #1c1c1e;
-        --fg-secondary: rgba(60, 60, 67, 0.78);
-        --fg-tertiary: rgba(60, 60, 67, 0.52);
-        --separator: rgba(60, 60, 67, 0.18);
-        --separator-strong: rgba(60, 60, 67, 0.36);
-        --accent: #dbb90f;
-        --accent-soft: #fff3bf;
-        --accent-surface: #f5f5f7;
-        --blue: #007aff;
-        --diagram-bg: #ffffff;
-        --brand-ink: var(--fg);
-        --brand-hero-from: var(--accent);
-        --brand-hero-mid: var(--accent);
-        --brand-hero-to: var(--accent);`,
-  };
-}
-
-function buildHtml(markdown, { documentTitle, displayTitle, subtitle, palette }) {
+function buildHtml(markdown, { documentTitle, displayTitle, subtitle, formatter }) {
   const body = renderMarkdown(markdown);
   return `<!doctype html>
 <html lang="en">
@@ -482,13 +441,7 @@ function buildHtml(markdown, { documentTitle, displayTitle, subtitle, palette })
     <title>${escapeHtml(documentTitle)}</title>
     <style>
       :root {
-        ${palette.css}
-        --code-bg: #272822;
-        --code-border: #49483e;
-        --code-fg: #f8f8f2;
-        --code-key: #f92672;
-        --code-string: #e6db74;
-        --code-literal: #ae81ff;
+        ${formatter.css}
       }
 
       @page {
@@ -504,7 +457,7 @@ function buildHtml(markdown, { documentTitle, displayTitle, subtitle, palette })
       body {
         background: var(--bg);
         color: var(--fg);
-        font: 12px/1.52 -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Helvetica Neue", system-ui, sans-serif;
+        font: var(--pdf-body-size)/var(--pdf-line-height) -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Helvetica Neue", system-ui, sans-serif;
         margin: 0;
       }
 
@@ -541,7 +494,7 @@ function buildHtml(markdown, { documentTitle, displayTitle, subtitle, palette })
       h1 {
         break-after: avoid;
         font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro", "Helvetica Neue", system-ui, sans-serif;
-        font-size: 30px;
+        font-size: var(--pdf-title-size);
         letter-spacing: 0;
         line-height: 1.12;
         margin: 0 0 12px;
@@ -550,10 +503,10 @@ function buildHtml(markdown, { documentTitle, displayTitle, subtitle, palette })
       h2 {
         break-after: avoid;
         border-top: 1px solid var(--separator);
-        font-size: 18px;
+        font-size: var(--pdf-section-size);
         letter-spacing: 0;
         line-height: 1.2;
-        margin: 26px 0 8px;
+        margin: var(--pdf-section-gap) 0 8px;
         padding-top: 12px;
       }
 
@@ -617,7 +570,7 @@ function buildHtml(markdown, { documentTitle, displayTitle, subtitle, palette })
         border-radius: 14px;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
         color: var(--code-fg);
-        font: 10px/1.45 "SF Mono", "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+        font: var(--pdf-code-size)/1.45 "SF Mono", "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
         margin: 10px 0 14px;
         overflow: hidden;
         padding: 12px;
@@ -724,22 +677,10 @@ function buildHtml(markdown, { documentTitle, displayTitle, subtitle, palette })
     </style>
   </head>
   <body>
-    <main class="shell">
+    <main class="shell formatter-${formatter.id}">
       <header>
         <div class="brand">
-          <svg viewBox="73 8 460 146" role="img" aria-label="Hussh" preserveAspectRatio="xMinYMid meet">
-            <title>Hussh</title>
-            <defs>
-              <linearGradient id="hussh-pdf-wordmark-ssh" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stop-color="var(--brand-hero-from)" />
-                <stop offset="50%" stop-color="var(--brand-hero-mid)" />
-                <stop offset="100%" stop-color="var(--brand-hero-to)" />
-              </linearGradient>
-            </defs>
-            <text x="300" y="135" text-anchor="middle" font-family='"SF Pro Display", "SF Pro", "Helvetica Neue", Inter, system-ui, sans-serif' font-weight="700" font-size="160" letter-spacing="-5.6">
-              <tspan fill="var(--brand-ink)">hu</tspan><tspan fill="url(#hussh-pdf-wordmark-ssh)">ssh</tspan>
-            </text>
-          </svg>
+          ${renderPdfHusshWordmark()}
         </div>
         <h1>${escapeHtml(displayTitle)}</h1>
         ${subtitle ? `<div class="subtitle">${escapeHtml(subtitle)}</div>` : ""}
@@ -750,11 +691,11 @@ function buildHtml(markdown, { documentTitle, displayTitle, subtitle, palette })
 </html>`;
 }
 
-async function renderPdf({ input, output, html: htmlOutput, title, subtitle, theme }) {
+async function renderPdf({ input, output, html: htmlOutput, title, subtitle, theme, profile }) {
   const markdown = rewriteShareableLinks(await readFile(input, "utf8"), input);
-  const palette = await resolvePalette(theme);
+  const formatter = await resolveFormatter(theme, profile);
   const displayTitle = visibleTitle(title);
-  const html = buildHtml(markdown, { documentTitle: title, displayTitle, subtitle, palette });
+  const html = buildHtml(markdown, { documentTitle: title, displayTitle, subtitle, formatter });
   if (htmlOutput) {
     await mkdir(path.dirname(htmlOutput), { recursive: true });
     await writeFile(htmlOutput, html, "utf8");
@@ -771,8 +712,8 @@ async function renderPdf({ input, output, html: htmlOutput, title, subtitle, the
       format: "A4",
       printBackground: true,
       displayHeaderFooter: true,
-      headerTemplate: `<div style="font: 8px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; color: ${palette.chromeColor}; width: 100%; padding: 0 14mm;">${escapeHtml(displayTitle)}</div>`,
-      footerTemplate: `<div style="font: 8px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; color: ${palette.chromeColor}; width: 100%; padding: 0 14mm; text-align: right;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>`,
+      headerTemplate: `<div style="font: 8px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; color: ${formatter.chromeColor}; width: 100%; padding: 0 14mm;">${escapeHtml(displayTitle)}</div>`,
+      footerTemplate: `<div style="font: 8px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; color: ${formatter.chromeColor}; width: 100%; padding: 0 14mm; text-align: right;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>`,
       margin: { top: "18mm", right: "14mm", bottom: "18mm", left: "14mm" },
     });
   } finally {

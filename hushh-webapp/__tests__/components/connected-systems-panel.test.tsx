@@ -139,13 +139,15 @@ describe("ConnectedSystemsPanel", () => {
     vi.mocked(ConnectedSystemsService.getSchema).mockResolvedValueOnce({
       ...readySchema,
       effectiveActions: { schema: true, read: false, create: false, update: false, delete: false },
+      configurationMessage: undefined,
     });
     render(<ConnectedSystemsPanel vaultOwnerToken="HCT:test" systemId={system.systemId} />);
 
     expect(await screen.findByText("Customer CRM field catalogue")).toBeTruthy();
     expect(
-      screen.getByText(/does not currently have a complete registered record-operation contract/i),
+      screen.getByText(/shown as a field catalogue until its verified onboarding mapping is available/i),
     ).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Field view"), { target: { value: "all" } });
     expect(screen.getByText("Preferred language")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Link this system/i })).toBeNull();
@@ -192,6 +194,7 @@ describe("ConnectedSystemsPanel", () => {
     );
 
     expect(await screen.findByText("Update my Customer CRM information")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Field view"), { target: { value: "all" } });
     expect(await screen.findByText("English")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     const editor = await screen.findByRole("combobox");
@@ -203,7 +206,6 @@ describe("ConnectedSystemsPanel", () => {
       expect(ConnectedSystemsService.updateRecordIntent).toHaveBeenCalledWith(
         "HCT:test",
         expect.objectContaining({
-          id: "person-42",
           recordFields: { PreferredLanguage: "French" },
         }),
       );

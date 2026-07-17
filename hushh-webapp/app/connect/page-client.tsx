@@ -3,15 +3,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowLeft, Users, Search as SearchIcon } from "lucide-react";
+import { Users, Search as SearchIcon } from "lucide-react";
 
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
+import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import { ROUTES } from "@/lib/navigation/routes";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
@@ -164,42 +164,13 @@ export default function ConnectPageClient() {
       }}
     >
       <AppPageHeaderRegion>
-        <div className="relative w-full hidden sm:block h-6" /> {/* spacer below top bar */}
-        <div className="w-full flex justify-between items-center px-0.5 sm:px-1 mb-6">
-          <Button
-            type="button"
-            variant="none"
-            effect="fade"
-            size="sm"
-            onClick={() => router.push(ROUTES.ONE_HOME)}
-            className="h-10 w-10 p-0 rounded-full border border-border/60 bg-white/40 dark:bg-black/10 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/80 dark:hover:bg-white/10"
-            aria-label="Back to dashboard"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div className="w-10 h-10" /> {/* Symmetry spacer */}
-        </div>
-
-        <header
-          className="flex w-full min-w-0 flex-col items-center gap-3 px-4 text-center sm:px-6"
-          data-slot="page-header"
-          data-page-primary="true"
-        >
-          {/* Centered Squinircle Glow Icon */}
-          <div className="relative inline-flex items-center justify-center h-16 w-16 rounded-[22px] bg-white/80 dark:bg-[rgba(30,30,45,0.7)] shadow-[0_12px_24px_rgba(0,0,0,0.12)] dark:shadow-[0_16px_32px_rgba(0,0,0,0.4)] ring-1 ring-white/60 dark:ring-white/10 animate-fade-in duration-300">
-            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-[90%] w-[90%] blur-[14px] rounded-full opacity-35 dark:opacity-20 scale-90 bg-sky-400" aria-hidden />
-            <Users className="h-7 w-7 text-sky-500 relative z-10" />
-          </div>
-
-          <div className="min-w-0 max-w-full space-y-1.5">
-            <h1 className="text-[28px] font-medium leading-[1.08] tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[34px]">
-              Connect
-            </h1>
-            <p className="text-sm text-muted-foreground max-w-[280px] sm:max-w-md mx-auto leading-relaxed">
-              Find people on Hushh and send a connection request.
-            </p>
-          </div>
-        </header>
+        <PageHeader
+          eyebrow="One"
+          title="Connect"
+          description="Find people on Hussh and send a connection request."
+          icon={Users}
+          accent="neutral"
+        />
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
