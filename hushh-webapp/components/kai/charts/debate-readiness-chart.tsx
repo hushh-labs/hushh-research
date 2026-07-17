@@ -42,9 +42,15 @@ function clampCoverage(value: number): number {
 export function DebateReadinessChart({ data, className }: DebateReadinessChartProps) {
   if (data.length === 0) return null;
 
+  const readinessLabel = data
+    .map((entry) => `${entry.label}: ${clampCoverage(entry.value).toFixed(0)}%`)
+    .join(", ");
+
   return (
     <ChartContainer
+      aria-label={readinessLabel}
       config={CHART_CONFIG}
+      role="img"
       className={className ?? "h-[236px] w-full rounded-xl border border-border/60 bg-background/70 p-2"}
     >
       <BarChart
