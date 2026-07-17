@@ -1004,10 +1004,12 @@ export default function ProfileReceiptsPage() {
     try {
       await loadReceipts(page + 1);
     } catch (error) {
-      console.error(
-        "[ProfileReceiptsPage] Failed to load older receipts:",
-        error,
-      );
+      if (process.env.NODE_ENV !== "production") {
+        console.error(
+          "[ProfileReceiptsPage] Failed to load older receipts:",
+          error,
+        );
+      }
       toast.error(
         "We couldn't load older receipts right now. Please try again.",
       );
