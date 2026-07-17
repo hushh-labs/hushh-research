@@ -102,7 +102,7 @@ describe("/api/account/[...path] proxy", () => {
       "http://backend.test/api/account/email-aliases?view=all"
     );
   });
-    it("preserves forwarded account proxy query parameter ordering", async () => {
+  it("preserves forwarded account proxy query parameter ordering", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       Response.json({ success: true, aliases: [] })
     );
