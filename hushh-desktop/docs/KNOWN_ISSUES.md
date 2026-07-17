@@ -631,6 +631,70 @@ pressure (see the RAM-sensitivity section above).
   either time, since by the time it's checked the whole app is often
   already down.
 
+### 🔴 Fixed: a second, competing bridge-spawn mechanism broke the whole app, not just local chat
+A later session, unaware the in-process bridge above already existed, added
+a *second*, fully independent mechanism for running the same bridge:
+`registry.js` gained its own `_spawnLocalBridge()` that spawned
+`local_bridge/server.py` as a separate Electron-supervised process (plus a
+PyInstaller packaging script, `build-local-bridge.py`), with its own
+spawn/kill/crash-recovery -- all pointed at the same fixed port 18182 the
+in-process bridge above already owns.
+
+- **Impact, live-reproduced:** whichever side lost the race to bind 18182
+  crashed. When that was the *backend's own in-process attempt*
+  (`startup_local_model_bridge`), the exception wasn't isolated -- it took
+  down the **entire backend process**, not just the bridge. Confirmed via
+  `backend.log`: a repeated EADDRINUSE-on-18182 crash loop that burned
+  through the backend's own `MAX_RESTARTS` (3, in `supervisor.js`) and left
+  no backend running at all -- **"Failed to fetch" on every request**, not
+  a local-chat-specific failure. A same-session earlier "fix" to the
+  separate mechanism (`_ensurePortFree()`, force-killing whatever holds
+  18182 before spawning) made this *more* dangerous, not less: if the
+  in-process bridge's parent (the main backend) was the current holder of
+  the port, that fix would kill the entire backend outright, mistaking it
+  for a stale bridge process.
+- **Root cause:** the later session never checked whether bridge lifecycle
+  management already existed before building its own -- a real gap in
+  this file's own practice of being the source of truth for exactly this
+  kind of thing.
+- **Fixed:** the separate-process mechanism (`_spawnLocalBridge`,
+  `_ensurePortFree`, `_attemptBridgeRecovery`, `_killLocalBridge`,
+  `_getLocalBridgeCommand`, `this.bridgeProcess` tracking, the
+  `bridgeRunning` status field) was removed from `registry.js` entirely,
+  along with `build-local-bridge.py` and its `package.json` wiring
+  (`build:local-bridge` script, the `local-bridge` `extraResources`
+  entry) -- not patched further, since the in-process version was already
+  built, documented, and validated first. The one piece worth keeping (a
+  background warm-up request to eat local GenieX's ~20s first-inference
+  cost, see `_warmUpLocalModel`) was retargeted to fire once GenieX itself
+  is confirmed healthy, since the bridge no longer needs its own readiness
+  signal -- it's already running by the time GenieX is.
+- **Verified live:** packaged build rebuilt end-to-end; backend starts
+  clean and stays up; the in-process bridge starts with no port conflict;
+  once GenieX is spawned, the bridge correctly proxies to it (confirmed
+  via a real `/v1/chat/completions` call returning a correct reply).
+- **Lesson for next time:** before adding process supervision for
+  something, grep for whether it's already supervised. This file
+  documents the in-process bridge's exact port and startup mechanism --
+  it should have been the first thing checked.
+
+### GenieX native crash reconfirmed on a real compound-interest prompt
+While verifying the fix above, hit the native crash documented earlier in
+this section again, on a fresh reproduction: the exact math-guardrail test
+prompt used elsewhere this session ("If I invest $10,000 at 7% annual
+compound interest for 20 years, exactly how much will I have?") sent
+directly to the bridge crashed GenieX outright -- the process was
+confirmed gone entirely afterward (`Get-Process` found nothing), and the
+bridge's own call surfaced `aiohttp.client_exceptions.ClientOSError:
+[WinError 64] The specified network name is no longer available` (a
+Windows socket reset, consistent with the remote end -- GenieX --
+disappearing mid-response). Not re-root-caused this session; still the
+same open issue as above (long/complex prompts -> GenieX instability).
+**Practical mitigation, not a fix:** avoid long/multi-step prompts
+(especially financial-math ones) in local-chat mode until this is
+properly root-caused -- short/simple prompts have been reliably tested
+working all session.
+
 ### First-run model download is required and large
 The ~3.2 GB Qwen3-4B weights are **not** bundled — they download via
 `geniex pull` the first time on-device AI is enabled. Needs network + disk +

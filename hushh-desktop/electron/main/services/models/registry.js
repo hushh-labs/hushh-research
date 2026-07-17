@@ -68,21 +68,21 @@ const GENIEX_PORT = 18181;
 // a spec-compliant, tool-calling-capable OpenAI backend (see that module's
 // docstring) -- Kai's local mode (agent_chat_service.py's
 // local_runtime_provider routing) talks to this port, never GenieX
-// directly. It is our own code, not a vendored tool like GenieX, so it's
-// spawned/packaged differently -- see _getLocalBridgeCommand.
+// directly. IMPORTANT: the bridge is started IN-PROCESS by the main
+// backend itself (server.py's startup_local_model_bridge, see
+// docs/KNOWN_ISSUES.md's "Local model bridge" section) -- it is NOT
+// spawned/supervised here. An earlier version of this file duplicated
+// that with its own separate-process spawn/kill/crash-recovery, which
+// created a genuine port conflict: whichever side lost the race to bind
+// 18182 crashed, and if that was the backend's own in-process attempt,
+// the *entire backend process* died, not just the bridge (confirmed live
+// via backend.log: repeated EADDRINUSE-on-18182 crash loop that exhausted
+// the backend's own crash-recovery budget and took the whole app down --
+// "Failed to fetch" on every request, not just local chat). Removed
+// entirely rather than patched, since the in-process version was already
+// built, documented, and validated first. This constant now exists only
+// so _warmUpLocalModel() knows where to send its warm-up request.
 const LOCAL_BRIDGE_PORT = 18182;
-
-// Redefined here rather than imported from launcher/index.js (which doesn't
-// export these) -- both files are the same depth under electron/main/services/,
-// so this resolves to the identical BACKEND_DIR.
-const DESKTOP_DIR = path.resolve(__dirname, "..", "..", "..", "..");
-const BACKEND_DIR = path.resolve(DESKTOP_DIR, "backend");
-const BACKEND_PYTHON_EXE = path.resolve(
-    BACKEND_DIR,
-    ".venv",
-    process.platform === "win32" ? "Scripts" : "bin",
-    process.platform === "win32" ? "python.exe" : "python"
-);
 
 // Crash-recovery tuning -- bounded retries so a genuinely broken install
 // doesn't loop forever. Originally sized around the QAIRT native crash
@@ -163,10 +163,6 @@ class ModelRegistry {
     // Reason the last spawn attempt failed, if any (e.g. "insufficient_ram"),
     // surfaced to the renderer via getStatus() for a specific toast message.
     this._lastSpawnFailureReason = null;
-    // The local bridge process (see LOCAL_BRIDGE_PORT) -- spawned/killed
-    // alongside GenieX (this.aiProcess), not independently tracked in the
-    // renderer-facing status beyond a simple running flag.
-    this.bridgeProcess = null;
   }
 
   _getModelsDir() {
@@ -267,152 +263,7 @@ class ModelRegistry {
   }
 
   /**
-   * Resolves how to launch the local bridge. Unlike GenieX (an external
-   * vendored tool bundled as-is via extraResources), the bridge is our own
-   * code, packaged the same way the main backend itself is: a
-   * PyInstaller-compiled exe in a packaged build (build:local-bridge --
-   * see package.json), the backend's own venv python running uvicorn
-   * directly in dev.
-   */
-  _getLocalBridgeCommand() {
-    if (app.isPackaged) {
-      return {
-        command: path.join(process.resourcesPath, "local-bridge", "hushh-local-bridge.exe"),
-        args: [],
-        cwd: path.join(process.resourcesPath, "local-bridge"),
-      };
-    }
-    return {
-      command: BACKEND_PYTHON_EXE,
-      args: ["-m", "uvicorn", "local_bridge.server:app", "--port", String(LOCAL_BRIDGE_PORT)],
-      cwd: BACKEND_DIR,
-    };
-  }
-
-  /**
-   * Kills whatever is LISTENING on `port`, if anything, and waits for the
-   * OS to actually release it. Fixes a real, live-reproduced EADDRINUSE on
-   * LOCAL_BRIDGE_PORT (4 occurrences in one session before it happened to
-   * stabilize): `_killLocalBridge()`'s taskkill is fire-and-forget (the
-   * `exec` callback isn't awaited) and sets `this.bridgeProcess = null`
-   * immediately, so a recovery/respawn can race a not-yet-released socket
-   * from the process we just told Windows to kill. Separately, an orphaned
-   * bridge from a prior dev session (e.g. a terminal-wrapped `uvicorn` that
-   * outlived its wrapper -- TaskStop on a bash-wrapped command doesn't
-   * kill the real child) can be sitting on the port with nothing in this
-   * registry instance tracking it at all, so the `this.bridgeProcess`
-   * guard above can't catch it either way. `netstat` + `taskkill` here
-   * covers both cases regardless of which process (ours or orphaned) holds
-   * the port. Scoped to LOCAL_BRIDGE_PORT specifically, which is assumed
-   * exclusively ours (see the port's own definition above) -- same
-   * assumption every other fixed-port service in this file already makes.
-   */
-  async _ensurePortFree(port) {
-    const { exec } = require("child_process");
-    const stdout = await new Promise((resolve) => {
-      exec(`netstat -ano -p TCP`, (err, out) => resolve(err ? "" : out));
-    });
-
-    const pids = new Set();
-    for (const line of stdout.split("\n")) {
-      const match = line.match(/^\s*TCP\s+\S*:(\d+)\s+\S+\s+LISTENING\s+(\d+)\s*$/);
-      if (match && Number(match[1]) === port) {
-        pids.add(match[2]);
-      }
-    }
-    if (pids.size === 0) return;
-
-    console.warn(`[ModelRegistry] ⚠️ Port ${port} already held by PID(s) ${[...pids].join(", ")} -- clearing before spawn.`);
-    await Promise.all(
-      [...pids].map(
-        (pid) =>
-          new Promise((resolve) => {
-            exec(`taskkill /PID ${pid} /F`, () => resolve());
-          })
-      )
-    );
-    // taskkill returning doesn't guarantee the OS has released the socket
-    // yet -- give it a beat before the caller tries to bind.
-    await new Promise((resolve) => setTimeout(resolve, 300));
-  }
-
-  /**
-   * Spawns the local bridge. Only ever called after GenieX itself is
-   * confirmed online (see spawnLocalInferenceEngine) -- the bridge proxies
-   * every request to GenieX, so starting it first would just mean every
-   * request fails until GenieX catches up. Non-fatal if it can't start:
-   * GenieX itself still comes up either way, this just means Kai local
-   * chat (and any external MCP-style client pointed at the bridge) won't
-   * work until it's addressed -- logged clearly, not silently swallowed.
-   */
-  async _spawnLocalBridge() {
-    if (this.bridgeProcess) {
-      console.log(`[ModelRegistry] Local bridge already running.`);
-      return this.bridgeProcess;
-    }
-
-    const { spawn } = require("child_process");
-    const waitOn = require("wait-on");
-    const { command, args, cwd } = this._getLocalBridgeCommand();
-
-    if (!fs.existsSync(command)) {
-      console.warn(
-        `[ModelRegistry] ⚠️ Local bridge executable not found at ${command} -- skipping. ` +
-        "Kai local chat will not work without it. Build it with `npm run build:local-bridge` " +
-        "for a packaged build, or ensure the backend venv exists for dev."
-      );
-      return null;
-    }
-
-    await this._ensurePortFree(LOCAL_BRIDGE_PORT);
-
-    console.log(`[ModelRegistry] 🚀 Spawning local bridge from ${command} on port ${LOCAL_BRIDGE_PORT}...`);
-
-    this.bridgeProcess = spawn(command, args, {
-      cwd,
-      env: { ...process.env },
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    });
-
-    this.bridgeProcess.stdout.on("data", (data) => {
-      console.log(`[LocalBridge] ${data.toString().trim()}`);
-    });
-    this.bridgeProcess.stderr.on("data", (data) => {
-      console.error(`[LocalBridge] ⚠️ ${data.toString().trim()}`);
-    });
-
-    this.bridgeProcess.on("exit", (code, signal) => {
-      console.log(`[ModelRegistry] Local bridge exited with code ${code} and signal ${signal}`);
-      this.bridgeProcess = null;
-      // Torn down together with GenieX (see killLocalInferenceEngine): if
-      // this is part of an intentional shutdown, or GenieX itself is
-      // already gone (its own exit handler kills the bridge before
-      // attempting GenieX's own recovery -- see below), don't treat this
-      // as an independent bridge crash needing its own recovery.
-      if (this._intentionalShutdown || !this.aiProcess) return;
-      console.warn(`[ModelRegistry] ⚠️ Local bridge exited unexpectedly while GenieX is still running. Attempting automatic recovery.`);
-      this._attemptBridgeRecovery();
-    });
-
-    try {
-      await waitOn({
-        resources: [`http-get://127.0.0.1:${LOCAL_BRIDGE_PORT}/v1/models`],
-        interval: 500,
-        timeout: 60000,
-      });
-      console.log(`[ModelRegistry] ✅ Local bridge is online and ready!`);
-      this._warmUpLocalModel();
-      return this.bridgeProcess;
-    } catch (err) {
-      console.error(`[ModelRegistry] ❌ Local bridge failed to come online:`, err);
-      this._killLocalBridge();
-      return null;
-    }
-  }
-
-  /**
-   * Fires a throwaway completion request the moment the bridge is healthy,
+   * Fires a throwaway completion request the moment GenieX is healthy,
    * deliberately not awaited by the caller. Live-measured: the FIRST
    * inference call after GenieX starts costs ~20s beyond normal generation
    * time (a 2-token reply took 23s; the very next request, 14 tokens, took
@@ -422,7 +273,9 @@ class ModelRegistry {
    * cost lands on whatever real message the user happens to type first.
    * Paying it here instead means it happens in the background while
    * local AI is still "starting up" from the user's perspective, not
-   * during their first real chat turn.
+   * during their first real chat turn. Sent through the bridge (18182,
+   * always running in-process in the backend) rather than GenieX (18181)
+   * directly, since that's the real path Kai's chat actually uses.
    */
   _warmUpLocalModel() {
     fetch(`http://127.0.0.1:${LOCAL_BRIDGE_PORT}/v1/chat/completions`, {
@@ -436,79 +289,6 @@ class ModelRegistry {
     })
       .then(() => console.log(`[ModelRegistry] 🔥 Local model warm-up complete.`))
       .catch((err) => console.warn(`[ModelRegistry] Local model warm-up request failed (non-fatal):`, err.message));
-  }
-
-  /**
-   * Bridge-specific crash recovery, separate from GenieX's own
-   * _crashRestartState/_recoveryTimer -- a bridge-only fault (e.g. a Python
-   * exception unrelated to GenieX) shouldn't consume or be conflated with
-   * GenieX's own crash budget, even though both reuse the same bounded
-   * MAX_RESTART_ATTEMPTS/RESTART_WINDOW_MS/RESTART_DELAY_MS tuning.
-   */
-  _attemptBridgeRecovery() {
-    const now = Date.now();
-    if (!this._bridgeCrashRestartState || now - this._bridgeCrashRestartState.windowStart > RESTART_WINDOW_MS) {
-      this._bridgeCrashRestartState = { count: 0, windowStart: now };
-    }
-    this._bridgeCrashRestartState.count += 1;
-
-    if (this._bridgeCrashRestartState.count > MAX_RESTART_ATTEMPTS) {
-      console.error(
-        `[ModelRegistry] ❌ Local bridge crashed ${this._bridgeCrashRestartState.count} times within ` +
-        `${Math.round(RESTART_WINDOW_MS / 60000)} minutes. Giving up automatic recovery -- ` +
-        `manual restart required.`
-      );
-      return;
-    }
-
-    console.log(
-      `[ModelRegistry] 🔄 Attempting local bridge recovery ` +
-      `(attempt ${this._bridgeCrashRestartState.count}/${MAX_RESTART_ATTEMPTS})...`
-    );
-
-    this._bridgeRecoveryTimer = setTimeout(() => {
-      this._bridgeRecoveryTimer = null;
-      this._spawnLocalBridge()
-        .then((proc) => {
-          if (proc) {
-            console.log(`[ModelRegistry] ✅ Recovered from local bridge crash.`);
-          } else {
-            console.error(`[ModelRegistry] ❌ Recovery attempt failed to bring the local bridge back online.`);
-          }
-        })
-        .catch((err) => {
-          console.error(`[ModelRegistry] ❌ Local bridge recovery attempt threw:`, err);
-        });
-    }, RESTART_DELAY_MS);
-  }
-
-  /**
-   * Kills the local bridge. Mirrors killLocalInferenceEngine's shape
-   * (taskkill on the tree, kill() as a fallback) but kept separate since
-   * it's called both standalone (GenieX's own exit handler kills the
-   * bridge before attempting GenieX recovery) and as part of the combined
-   * teardown in killLocalInferenceEngine.
-   */
-  _killLocalBridge() {
-    if (this._bridgeRecoveryTimer) {
-      clearTimeout(this._bridgeRecoveryTimer);
-      this._bridgeRecoveryTimer = null;
-    }
-    if (!this.bridgeProcess) return;
-
-    console.log(`[ModelRegistry] 🛑 Stopping local bridge...`);
-    const pid = this.bridgeProcess.pid;
-    if (pid && pid !== 99999) {
-      const { exec } = require("child_process");
-      exec(`taskkill /PID ${pid} /T /F`, (err) => {
-        if (err) {
-          console.error("Failed to kill local bridge process tree:", err);
-        }
-      });
-    } else if (this.bridgeProcess.kill) {
-      this.bridgeProcess.kill();
-    }
-    this.bridgeProcess = null;
   }
 
   /**
@@ -718,11 +498,10 @@ class ModelRegistry {
         }
 
         console.warn(`[ModelRegistry] ⚠️ GenieX server exited unexpectedly (code=${code}, signal=${signal}). Attempting automatic recovery.`);
-        // The bridge is now pointing at a dead GenieX -- kill it too rather
-        // than leave it running and erroring on every request. GenieX's own
-        // recovery below will bring the bridge back once GenieX is
-        // confirmed online again (see the success path just below).
-        this._killLocalBridge();
+        // The bridge itself doesn't need any action here -- it runs
+        // in-process inside the main backend (see LOCAL_BRIDGE_PORT's
+        // comment) and stays up independently of GenieX; it will just
+        // error on any request until GenieX is confirmed online again.
         this._attemptCrashRecovery(modelId, port);
     });
 
@@ -734,10 +513,10 @@ class ModelRegistry {
         timeout: 60000,
       });
         console.log(`[ModelRegistry] ✅ GenieX server is online and ready!`);
-        // Bridge depends on GenieX being up first -- only ever spawned here,
-        // after that's confirmed. Non-fatal if it fails (see
-        // _spawnLocalBridge): GenieX itself still comes up either way.
-        await this._spawnLocalBridge();
+        // The bridge (port 18182) is already running in-process inside the
+        // main backend by this point -- see LOCAL_BRIDGE_PORT's comment.
+        // Only the warm-up is our responsibility here.
+        this._warmUpLocalModel();
         this.broadcastStatusChange(modelId);
         return this.aiProcess;
     } catch (err) {
@@ -799,10 +578,11 @@ class ModelRegistry {
   }
 
   /**
-   * Kills the running GenieX server, and the local bridge with it (torn
-   * down together -- see _spawnLocalBridge). Closing stdin (dead man's
-   * switch) is GenieX's primary shutdown signal; taskkill is a forceful
-   * fallback in case it doesn't exit on its own.
+   * Kills the running GenieX server. Closing stdin (dead man's switch) is
+   * GenieX's primary shutdown signal; taskkill is a forceful fallback in
+   * case it doesn't exit on its own. The bridge is NOT touched here -- it
+   * runs in-process inside the main backend (see LOCAL_BRIDGE_PORT's
+   * comment) and its lifecycle is the backend's own, not GenieX's.
    */
   async killLocalInferenceEngine(modelId = "Llama-3.2-3B-Instruct") {
       // Cancel any pending auto-restart -- an explicit stop/remove should win.
@@ -814,11 +594,7 @@ class ModelRegistry {
 
       if (this.aiProcess) {
           console.log(`[ModelRegistry] 🛑 Stopping GenieX server...`);
-          // Set before killing the bridge too, so its own exit handler
-          // (see _spawnLocalBridge) recognizes this as intentional and
-          // doesn't try to recover it.
           this._intentionalShutdown = true;
-          this._killLocalBridge();
 
           if (this.aiProcess.pid && this.aiProcess.pid !== 99999) {
               const { exec } = require('child_process');
@@ -872,12 +648,6 @@ class ModelRegistry {
           running: !!this.aiProcess,
           restarting: !!this._restarting,
           lastError: this._lastSpawnFailureReason,
-          // Additive field: whether Kai's actual local-mode backend (the
-          // bridge, not GenieX directly) is up. `running` alone can be true
-          // while local chat still doesn't work if the bridge failed to
-          // start (see _spawnLocalBridge) -- surfaced separately so the UI
-          // isn't stuck inferring that from `running` alone.
-          bridgeRunning: !!this.bridgeProcess,
       };
   }
 }
