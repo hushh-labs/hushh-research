@@ -165,7 +165,7 @@ async def validate_store_domain(
 
 @router.get("/data/{user_id}", response_model=dict)
 async def get_encrypted_data(
-    user_id: str = Path(..., max_length=128),
+    user_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _get_encrypted_data(user_id, token_data)
@@ -173,7 +173,7 @@ async def get_encrypted_data(
 
 @router.get("/domain-data/{user_id}/{domain}", response_model=DomainDataResponse)
 async def get_domain_data(
-    user_id: str = Path(..., max_length=128),
+    user_id: str = Path(..., min_length=1, max_length=128),
     domain: str = Path(..., max_length=64),
     segment_ids: list[str] | None = Depends(_validated_segment_ids),
     token_data: dict = Depends(require_vault_owner_token),
@@ -183,7 +183,7 @@ async def get_domain_data(
 
 @router.get("/manifest/{user_id}/{domain}", response_model=DomainManifestResponse)
 async def get_domain_manifest(
-    user_id: str = Path(..., max_length=128),
+    user_id: str = Path(..., min_length=1, max_length=128),
     domain: str = Path(..., max_length=64),
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -192,7 +192,7 @@ async def get_domain_manifest(
 
 @router.delete("/domain-data/{user_id}/{domain}", response_model=DeleteDomainResponse)
 async def delete_domain_data(
-    user_id: str = Path(..., max_length=128),
+    user_id: str = Path(..., min_length=1, max_length=128),
     domain: str = Path(..., max_length=64),
     token_data: dict = Depends(require_vault_owner_token),
 ):
