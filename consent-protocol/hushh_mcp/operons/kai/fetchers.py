@@ -6,6 +6,17 @@ Kai Fetcher Operons
 External data retrieval with per-source consent validation.
 Each fetcher requires specific TrustLink for the data source.
 
+Canonical attach point:
+  hushh_mcp.operons.kai.fetchers -> hushh_mcp.agents.kai.orchestrator.KaiOrchestrator.analyze
+  -> POST /api/kai/analyze
+
+Locking design:
+  _MARKET_DATA_CACHE_LOCK (threading.RLock) guards the _MARKET_DATA_CACHE and
+  _MARKET_DATA_LOCKS dicts only during dict read/write operations -- it is
+  released before entering any asyncio context.  Per-symbol asyncio.Lock objects
+  live in _MARKET_DATA_LOCKS and are acquired with "async with" outside the
+  threading lock, preventing threading/asyncio lock nesting.
+
 Runtime provider priority (for realtime market/news flows):
 1) Finnhub
 2) PMP (Financial Modeling Prep)
@@ -132,32 +143,42 @@ def _market_data_cache_key(symbol: str, *, finnhub_enabled: bool, pmp_enabled: b
 
 
 def _get_market_data_lock(cache_key: str) -> asyncio.Lock:
+    """Return the per-symbol asyncio.Lock for fetch deduplication.
+
+    The threading.RLock (_MARKET_DATA_CACHE_LOCK) is held only while reading
+    and writing the _MARKET_DATA_LOCKS and _MARKET_DATA_CACHE dicts.  No
+    asyncio methods are called while the threading lock is held -- the new
+    asyncio.Lock is constructed before insertion under the lock.
+    """
     with _MARKET_DATA_CACHE_LOCK:
         lock = _MARKET_DATA_LOCKS.get(cache_key)
-        if lock is None:
-            now = time.time()
-            stale_keys = []
-            for key, existing_lock in _MARKET_DATA_LOCKS.items():
-                cached = _MARKET_DATA_CACHE.get(key)
-                expired = cached is not None and cached[0] <= now
-                if not existing_lock.locked() and (cached is None or expired):
-                    stale_keys.append(key)
-            for key in stale_keys:
-                _MARKET_DATA_LOCKS.pop(key, None)
-                cached = _MARKET_DATA_CACHE.get(key)
-                if cached is not None and cached[0] <= now:
-                    _MARKET_DATA_CACHE.pop(key, None)
-            while len(_MARKET_DATA_LOCKS) >= _MARKET_DATA_LOCKS_MAX:
-                evicted = False
-                for key, existing_lock in list(_MARKET_DATA_LOCKS.items()):
-                    if not existing_lock.locked():
-                        _MARKET_DATA_LOCKS.pop(key, None)
-                        evicted = True
-                        break
-                if not evicted:
-                    break
-            lock = asyncio.Lock()
-            _MARKET_DATA_LOCKS[cache_key] = lock
+        if lock is not None:
+            return lock
+
+        # Evict stale keys whose cache entry has expired.
+        # We do NOT call asyncio lock methods here to avoid nesting async
+        # primitives inside a threading lock.
+        now = time.time()
+        stale_keys = [
+            key
+            for key, (expires_at, _) in list(_MARKET_DATA_CACHE.items())
+            if expires_at <= now and key in _MARKET_DATA_LOCKS
+        ]
+        for key in stale_keys:
+            _MARKET_DATA_LOCKS.pop(key, None)
+            _MARKET_DATA_CACHE.pop(key, None)
+
+        # Evict by insertion order when at capacity (no asyncio.locked() check needed).
+        while len(_MARKET_DATA_LOCKS) >= _MARKET_DATA_LOCKS_MAX:
+            oldest_key = next(iter(_MARKET_DATA_LOCKS), None)
+            if oldest_key is None:
+                break
+            _MARKET_DATA_LOCKS.pop(oldest_key, None)
+
+        # Create and register the asyncio.Lock while still holding the
+        # threading lock so no two threads race to create the same key.
+        lock = asyncio.Lock()
+        _MARKET_DATA_LOCKS[cache_key] = lock
         return lock
 
 
