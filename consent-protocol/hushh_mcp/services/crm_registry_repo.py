@@ -12,6 +12,7 @@ request path.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 from urllib.parse import urljoin
@@ -150,7 +151,7 @@ def _public_system_id(row: dict[str, Any]) -> str:
 def _tool_catalog(row_crm_id: str, database: Any) -> tuple[dict[str, Any], ...]:
     operation_rows = database.execute_raw(
         """
-        SELECT operation, tool_name, http_method, path, description, mcp_endpoint
+        SELECT operation, tool_name, http_method, path, description, mcp_endpoint, response_contract
         FROM crm_operation_endpoints
         WHERE crm_id = :crm_id
         """,
@@ -332,9 +333,25 @@ def _tool_catalog_from_rows(rows: list[dict[str, Any]]) -> tuple[dict[str, Any],
                 "operation": operation,
                 "description": str(row.get("description") or "").strip(),
                 "mcpEndpoint": str(row.get("mcp_endpoint") or "").strip() or None,
+                # This is non-secret registry metadata. It controls how the
+                # backend decodes a tool response and is never supplied by a
+                # browser request.
+                "responseContract": _response_contract(row.get("response_contract")),
             }
         )
     return tuple(catalog)
+
+
+def _response_contract(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
 
 
 def load_active_definition(

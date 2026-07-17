@@ -94,7 +94,7 @@ Only authorization-code and refresh-token grants are supported. Client credentia
 | `GET` | `/api/v1/user-scopes/{user_id}` | Bearer header | Per-user discovered domains and scopes |
 | `GET` | `/api/v1/consent-status` | Bearer header | App-scoped consent status by scope or request id |
 | `POST` | `/api/v1/request-consent` | Bearer header | Create or reuse consent for one discovered scope |
-| `POST` | `/api/v1/scoped-export` | Bearer header | Return envelope metadata plus an authenticated ciphertext resource link |
+| `POST` | `/api/v1/scoped-export` | Bearer header | Return an encrypted-inline envelope and ciphertext in the response |
 
 ---
 
@@ -173,7 +173,7 @@ Authorization: Bearer <developer-token>
 }
 ```
 
-The response contains envelope metadata and an authenticated ciphertext resource link:
+The response contains envelope metadata and ciphertext directly in the authenticated response:
 
 ```json
 {

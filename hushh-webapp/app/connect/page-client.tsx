@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowLeft, Users } from "lucide-react";
+import { ArrowLeft, Users, Search as SearchIcon } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -11,7 +11,6 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import { PageHeader } from "@/components/app-ui/page-sections";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -165,26 +164,42 @@ export default function ConnectPageClient() {
       }}
     >
       <AppPageHeaderRegion>
-        <PageHeader
-          eyebrow="One"
-          title="Connect"
-          description="Find people on Hushh and send a connection request."
-          icon={Users}
-          accent="neutral"
-          leading={
-            <Button
-              type="button"
-              variant="none"
-              effect="fade"
-              size="sm"
-              onClick={() => router.push(ROUTES.ONE_HOME)}
-              className="mr-2 h-10 w-10 p-0 rounded-full border border-border/60 bg-white/40 dark:bg-black/10 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/80 dark:hover:bg-white/10"
-              aria-label="Back to dashboard"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-          }
-        />
+        <div className="relative w-full hidden sm:block h-6" /> {/* spacer below top bar */}
+        <div className="w-full flex justify-between items-center px-0.5 sm:px-1 mb-6">
+          <Button
+            type="button"
+            variant="none"
+            effect="fade"
+            size="sm"
+            onClick={() => router.push(ROUTES.ONE_HOME)}
+            className="h-10 w-10 p-0 rounded-full border border-border/60 bg-white/40 dark:bg-black/10 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/80 dark:hover:bg-white/10"
+            aria-label="Back to dashboard"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div className="w-10 h-10" /> {/* Symmetry spacer */}
+        </div>
+
+        <header
+          className="flex w-full min-w-0 flex-col items-center gap-3 px-4 text-center sm:px-6"
+          data-slot="page-header"
+          data-page-primary="true"
+        >
+          {/* Centered Squinircle Glow Icon */}
+          <div className="relative inline-flex items-center justify-center h-16 w-16 rounded-[22px] bg-white/80 dark:bg-[rgba(30,30,45,0.7)] shadow-[0_12px_24px_rgba(0,0,0,0.12)] dark:shadow-[0_16px_32px_rgba(0,0,0,0.4)] ring-1 ring-white/60 dark:ring-white/10 animate-fade-in duration-300">
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-[90%] w-[90%] blur-[14px] rounded-full opacity-35 dark:opacity-20 scale-90 bg-sky-400" aria-hidden />
+            <Users className="h-7 w-7 text-sky-500 relative z-10" />
+          </div>
+
+          <div className="min-w-0 max-w-full space-y-1.5">
+            <h1 className="text-[28px] font-medium leading-[1.08] tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[34px]">
+              Connect
+            </h1>
+            <p className="text-sm text-muted-foreground max-w-[280px] sm:max-w-md mx-auto leading-relaxed">
+              Find people on Hushh and send a connection request.
+            </p>
+          </div>
+        </header>
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
@@ -249,15 +264,20 @@ export default function ConnectPageClient() {
             )}
           </SettingsGroup>
 
-          <div className="space-y-3">
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search people by name or email"
-              aria-label="Search people"
-              className="min-h-11 w-full rounded-[var(--app-control-radius)] border border-border bg-background px-4 text-sm text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus:border-accent focus:ring-2 focus:ring-accent/20"
-            />
+          <div className="space-y-4">
+            <div className="relative w-full">
+              <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
+                <SearchIcon className="h-4.5 w-4.5" />
+              </span>
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search people by name or email"
+                aria-label="Search people"
+                className="min-h-12 w-full rounded-2xl border border-border/85 bg-white/70 dark:bg-black/20 pl-11 pr-4 text-sm text-foreground outline-none backdrop-blur-md transition-all placeholder:text-muted-foreground/60 focus:border-accent focus:ring-4 focus:ring-accent/10 shadow-sm"
+              />
+            </div>
             <SettingsGroup
               title="People"
               description="Find people on Hushh and send a connection request."

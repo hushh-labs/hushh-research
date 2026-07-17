@@ -274,47 +274,43 @@ RIA relationship bundle note:
 
 #### Connected Systems
 
-Connected Systems are vault-owner authenticated. The One user operates their
-own external CRM record through a schema-driven lifecycle: search for an
-existing Contact, create if missing, update allowed fields, and delete the
-bound external record when requested.
-The first shipped entry is Customer 0 Salesforce CRM over an external CRM MCP
-streamable HTTP transport. Customer 0 loads the Macy's CloudHub MCP endpoint
-from the backend connected-system registry row with a declared MCP tool catalog,
-not from `.env` endpoint config. The deterministic `registry://` simulator is
-kept for tests only. Production can swap that registry row to a MuleSoft
-VPC/private proxy without changing Profile or Agent flows.
+Connected Systems are vault-owner authenticated and registry-driven. Every
+active CRM declares one primary object, enabled operation names, direct
+Streamable HTTP MCP tool/endpoint mappings, timeout/retry policy, and a
+validated non-secret response contract per operation. Cloud Run reaches
+MuleSoft Managed Omni Gateway, which owns the CloudHub Private Space network
+boundary; no Hussh GCP VPC connector or ResourceLink transport belongs to this
+integration.
 
-The canonical registry entry is:
+The schema response is normalized from its registered object and field paths
+into `objectMetadata` and `fields[]` descriptors with `name`, `label`,
+`dataType`, `required`, `readable`, `identityField`, `immutable`,
+`createable`, `updateable`, derived `writable`, and portable constraints such
+as `allowedValues` and `maxLength`. A missing response mapping or permission
+descriptor fails closed. The current MuleSoft `details[0].fields` response is
+therefore a display-only catalogue until schema v1 publishes all access flags.
+List responses expose only the exact active row's capabilities; schema
+responses expose `schemaStatus` and `effectiveActions`. The UI cannot expose a
+record action that those effective capabilities do not authorize.
 
-- `systemId`: `salesforce-fsc-customer0`
-- `displayName`: `Macy's`
-- `target`: `Macys`
-- `objectTypeDefault`: `Contact`
-- `transport`: `external_crm_streamable_mcp`
-
-Supported Contact fields for create/update v1 are `FirstName`, `LastName`,
-`Email`, `Phone`, `MobilePhone`, `Title`, `Department`, `MailingCity`,
-`MailingStreet`, and `LeadSource`. The schema route calls the live MCP
-`object-schema` tool and returns normalized `fields` descriptors derived from
-that response, filtered through the Hussh allowlist above. Unsupported fields
-are rejected before an MCP call. Create/update stay intent-backed internally
-for audit, but the One UI exposes a single user action. Successful search/create
-binds the current One user to the external CRM record id. Delete removes the
-Salesforce Contact through the MCP tool and marks the local binding deleted;
-binding rows store no raw email, phone, or CRM field values.
+Read and search requests use generic `searchFields` and `returnFields` and
+return only normalized, requested, explicitly readable fields. Create and
+update use `recordFields`; email, phone, name, and `additionalFields` remain
+Macy's compatibility aliases only and are routed through the same schema
+validation. Create, update, and delete are auditable, idempotently approved
+intents. Only intent approval issues the registered direct MCP mutation.
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | GET | `/api/connected-systems` | List connected systems visible to the vault owner |
-| GET | `/api/connected-systems/{system_id}/schema?objectType=Contact` | Fetch current Salesforce Contact schema through the configured MCP transport and return normalized `fields` descriptors for dynamic UI rendering |
+| GET | `/api/connected-systems/{system_id}/schema?objectType={primary_object}` | Fetch the registered primary-object schema and return normalized fields, `schemaStatus`, and exact `effectiveActions` |
 | GET | `/api/connected-systems/{system_id}/record-binding?objectType=Contact` | Return the current One user binding for this external CRM record, or `unbound` |
-| POST | `/api/connected-systems/{system_id}/records/read` | Read a CRM Contact with `{ objectType, email, phone, searchFields?, returnFields? }` |
-| POST | `/api/connected-systems/{system_id}/records/search` | Search by email and phone; bind the One user when a Contact record id is returned |
-| POST | `/api/connected-systems/{system_id}/records/create-intents` | Create a pending CRM create intent; requires `{ objectType, email, phone, lastName }` plus optional `firstName` and `additionalFields` |
-| POST | `/api/connected-systems/{system_id}/records/update-intents` | Create a pending CRM update intent; requires `{ objectType, id, additionalFields }` plus optional readback locator |
-| POST | `/api/connected-systems/{system_id}/records/delete` | Delete the bound CRM Contact by `{ objectType, id? }`; id may be omitted when an active binding exists |
-| POST | `/api/connected-systems/{system_id}/intents/{intent_id}/approve` | Approve and execute a pending create/update intent, then attempt readback |
+| POST | `/api/connected-systems/{system_id}/records/read` | Read using generic `{ objectType, searchFields, returnFields }`; returns a sanitized normalized projection only |
+| POST | `/api/connected-systems/{system_id}/records/search` | Search and bind the One user when the registered record id mapping resolves a record |
+| POST | `/api/connected-systems/{system_id}/records/create-intents` | Create a pending schema-validated `{ objectType, recordFields }` intent |
+| POST | `/api/connected-systems/{system_id}/records/update-intents` | Create a pending schema-validated `{ objectType, id, recordFields }` intent |
+| POST | `/api/connected-systems/{system_id}/records/delete` | Compatibility path that creates a reviewable delete intent; it never deletes immediately |
+| POST | `/api/connected-systems/{system_id}/intents/{intent_id}/approve` | Idempotently approve and execute a pending mutation through its registered MCP tool |
 | POST | `/api/connected-systems/{system_id}/intents/{intent_id}/reject` | Reject a pending intent without calling MCP |
 
 #### Kai Chat

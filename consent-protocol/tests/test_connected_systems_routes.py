@@ -35,7 +35,7 @@ class FakeConnectedSystemsService:
             }
         ]
 
-    def create_record_intent(self, **kwargs):
+    async def create_record_intent_from_fields(self, **kwargs):
         self.created_payload = kwargs
         return {
             "intentId": "csi_test",
@@ -84,7 +84,7 @@ class FakeConnectedSystemsService:
             "mcp": {"isError": False, "payload": {"Contact": [{"Id": "003gK00000demoQAA"}]}},
         }
 
-    def update_record_intent(self, **kwargs):
+    async def update_record_intent_from_fields(self, **kwargs):
         self.updated_payload = kwargs
         return {
             "intentId": "csi_update_test",
@@ -199,11 +199,13 @@ def test_create_intent_route_accepts_live_mcp_camel_case_shape(monkeypatch):
         "user_id": "user_123",
         "system_id": "salesforce-fsc-customer0",
         "object_type": "Contact",
-        "email": "doe.john@abc.com",
-        "phone": "1234567899",
-        "first_name": "John",
-        "last_name": "Doe",
-        "additional_fields": {"Title": "VP Sales"},
+        "record_fields": {
+            "Email": "doe.john@abc.com",
+            "Phone": "1234567899",
+            "FirstName": "John",
+            "LastName": "Doe",
+            "Title": "VP Sales",
+        },
     }
 
 
@@ -308,7 +310,7 @@ def test_update_intent_route_accepts_updated_mcp_id_and_additional_fields(monkey
         "system_id": "salesforce-fsc-customer0",
         "object_type": "Contact",
         "record_id": "003gK00000m36zhQAA",
-        "additional_fields": {"MailingCity": "New York"},
+        "record_fields": {"MailingCity": "New York"},
         "readback_locator": None,
     }
 

@@ -34,12 +34,40 @@ are not part of this catalog. Discovery is performed through
 3. If the request is still awaiting approval, retain the returned `request_ref` and call `check_consent_status` at the supplied interval.
 4. After approval, Hussh returns a `grant_ref`. Call `get_encrypted_scoped_export` with that reference and the expected scope.
 
+| Reference | Meaning | Retain until |
+| --- | --- | --- |
+| `request_ref` | The pending approval lifecycle request. | It reaches a terminal status. |
+| `grant_ref` | The approved, scoped authority used for one encrypted export. | It expires, is revoked, or the export is no longer needed. |
+
+## Connector setup
+
+Use one transport mode per connector. The hosted connector is a Streamable HTTP
+MCP client; it does not download a second resource after a tool call.
+
+| Mode | Connector responsibility | Hussh responsibility |
+| --- | --- | --- |
+| Local stdio | Keep its private key locally and decrypt bounded approved information locally. | Return only the approved result to the local connector process. |
+| Hosted Streamable HTTP | Send the developer Bearer header and its X25519 public-key bundle; decrypt ciphertext in its connector process. | Authenticate the tool call and return the encrypted inline envelope. |
+
+```json
+{
+  "mcpServers": {
+    "hushh-consent": {
+      "url": "https://api.uat.hushh.ai/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${HUSHH_DEVELOPER_TOKEN}"
+      }
+    }
+  }
+}
+```
+
 ## Export transport
 
 The approved export stays entirely on MCP transport. Hosted connectors receive
-`delivery: encrypted_inline`, ciphertext, and its X25519-AES256-GCM envelope in
-the tool result; decryption happens in the connector process with its private
-key. Local stdio connectors receive `delivery: decrypted_local` with bounded
+`delivery: encrypted_inline`, `resource: null`, ciphertext, and its
+X25519-AES256-GCM envelope in the tool result; decryption happens in the
+connector process with its private key. Local stdio connectors receive `delivery: decrypted_local` with bounded
 approved information after local decryption.
 
 No `ResourceLink`, plaintext fallback, query-token authentication, or
@@ -60,3 +88,27 @@ avoid duplicate records.
 CRM records hold only narrow CRM-native workflow fields. Hussh PKM, vault keys,
 KYC documents, email bodies, and broad personal memory are not CRM replication
 payloads.
+
+### CRM schema contract v1
+
+CRM integration is a separate backend-to-MuleSoft plane. Each active operation
+has a registry-owned response contract; a missing or invalid mapping is
+unavailable before Hussh opens an MCP call. The current schema tool response
+maps its primary object metadata from `details[0]` and field catalogue from
+`details[0].fields`. That shape is display-only until every
+field carries explicit `readable`, `identityField`, `immutable`, `createable`,
+and `updateable` booleans, plus normalized constraints where applicable such
+as `allowedValues` and `maxLength`.
+
+Hussh derives `writable` only from `createable` or `updateable`. It never
+interprets an omitted permission as allowed. Until MuleSoft publishes this
+schema v1 contract, the Connected Systems interface shows a searchable field
+catalogue and exposes no CRM read, create, update, or delete action.
+
+## Partner checklist
+
+- Use the UAT endpoint with its trailing slash and a Bearer header.
+- Discover a narrow scope before requesting consent; do not guess scope names.
+- Store `request_ref` while polling and use `grant_ref` only after approval.
+- Expect encrypted-inline delivery with `resource: null`; do not implement a ResourceLink download step.
+- Treat CRM MCP operations as a private Hussh backend integration, not as additions to the public Consent MCP tool catalog.

@@ -79,7 +79,8 @@
     "098_pkm_v7_recovery_foundation.sql",
     "099_developer_oauth_pkce.sql",
     "100_connected_system_capability_contract.sql",
-    "101_backfill_crm_operation_endpoints.sql"
+    "101_backfill_crm_operation_endpoints.sql",
+    "102_crm_operation_response_contract.sql"
   ],
   "groups": {
     "iam": [
@@ -123,7 +124,8 @@
       "094_one_onboarding_callback_attempt_v1.sql",
       "095_one_kyc_needs_confirm_status.sql",
       "100_connected_system_capability_contract.sql",
-      "101_backfill_crm_operation_endpoints.sql"
+      "101_backfill_crm_operation_endpoints.sql",
+      "102_crm_operation_response_contract.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

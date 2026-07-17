@@ -115,6 +115,7 @@ Use `github-contribution-governance` when contribution graph visibility, verifie
 - [env-and-secrets.md](./env-and-secrets.md): environment and secret contract.
 - [env-secrets-key-matrix.md](./env-secrets-key-matrix.md): key-by-key environment matrix.
 - [migration-governance.md](./migration-governance.md): canonical migration authority, frozen-vs-integrated DB contracts, and allowed SQL surfaces.
+- [mulesoft-managed-omni-gateway-private-space.md](./mulesoft-managed-omni-gateway-private-space.md): current CRM transport, credential boundary, and UAT handshake proof.
 - [brand-and-compatibility-contract.md](./brand-and-compatibility-contract.md): Hussh public naming rule and compatibility boundaries.
 - [naming-policy.md](./naming-policy.md): compatibility pointer to the canonical brand contract.
 - [developer-access-matrix.md](./developer-access-matrix.md): org-level developer IAM baseline, runtime identities, and DB access path.

@@ -195,6 +195,8 @@ BACKEND_ONE_EMAIL_WATCH_RENEW_TOKEN="$(read_env_value "$BACKEND_SOURCE" "ONE_EMA
 BACKEND_ONE_EMAIL_KYC_DEFAULT_SCOPE="$(read_env_value "$BACKEND_SOURCE" "ONE_EMAIL_KYC_DEFAULT_SCOPE")"
 BACKEND_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED="$(read_env_value "$BACKEND_SOURCE" "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED")"
 BACKEND_OPENAI_API_KEY="$(read_env_value "$BACKEND_SOURCE" "OPENAI_API_KEY")"
+BACKEND_OMNIGATEWAY_CLIENT_ID="$(read_env_value "$BACKEND_SOURCE" "OMNIGATEWAY_CLIENT_ID")"
+BACKEND_OMNIGATEWAY_CLIENT_SECRET="$(read_env_value "$BACKEND_SOURCE" "OMNIGATEWAY_CLIENT_SECRET")"
 BACKEND_VOICE_REALTIME_ENABLED="$(read_json_env_field "$BACKEND_SOURCE" "VOICE_RUNTIME_CONFIG_JSON" "realtime_enabled")"
 BACKEND_VOICE_V1_ENABLED="$(read_json_env_field "$BACKEND_SOURCE" "VOICE_RUNTIME_CONFIG_JSON" "hosted_voice_enabled")"
 BACKEND_FORCE_REALTIME_VOICE="$(read_json_env_field "$BACKEND_SOURCE" "VOICE_RUNTIME_CONFIG_JSON" "force_realtime")"
@@ -342,6 +344,15 @@ case "$PROFILE" in
       add_check "voice_runtime_readiness" "pass" "Voice backend runtime keys are present"
     else
       add_check "voice_runtime_readiness" "warn" "Missing voice backend keys: ${missing_voice_keys[*]}. Run: bash scripts/env/bootstrap_profiles.sh"
+    fi
+
+    missing_connected_systems_keys=()
+    if is_placeholder "$BACKEND_OMNIGATEWAY_CLIENT_ID"; then missing_connected_systems_keys+=("OMNIGATEWAY_CLIENT_ID"); fi
+    if is_placeholder "$BACKEND_OMNIGATEWAY_CLIENT_SECRET"; then missing_connected_systems_keys+=("OMNIGATEWAY_CLIENT_SECRET"); fi
+    if [ "${#missing_connected_systems_keys[@]}" -eq 0 ]; then
+      add_check "connected_systems_runtime_readiness" "pass" "Managed Omni Gateway credentials are present for Connected Systems"
+    else
+      add_check "connected_systems_runtime_readiness" "warn" "Missing Connected Systems gateway credentials: ${missing_connected_systems_keys[*]}. Run: ./bin/hushh env bootstrap"
     fi
     ;;
   uat)

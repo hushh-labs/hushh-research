@@ -1,4 +1,4 @@
-"""Connected Systems registry and Salesforce CRM MCP adapter."""
+"""Capability-safe Connected Systems registry and CRM MCP adapter."""
 
 from __future__ import annotations
 
@@ -197,6 +197,158 @@ def _ensure_list(value: Any) -> list[Any]:
     return []
 
 
+def _response_contract(value: Any) -> dict[str, Any]:
+    """Return a defensive copy of non-secret registry response metadata."""
+    return _ensure_dict(value)
+
+
+def _contract_path(contract: dict[str, Any], key: str) -> tuple[str | int, ...] | None:
+    raw = contract.get(key)
+    if not isinstance(raw, (list, tuple)) or not raw:
+        return None
+    path: list[str | int] = []
+    for segment in raw:
+        if isinstance(segment, int) and segment >= 0:
+            path.append(segment)
+        elif isinstance(segment, str) and segment.strip() and len(segment.strip()) <= 80:
+            path.append(segment.strip())
+        else:
+            return None
+    return tuple(path)
+
+
+def _value_at_contract_path(value: Any, path: tuple[str | int, ...] | None) -> Any:
+    if not path:
+        return None
+    current = value
+    for segment in path:
+        if isinstance(segment, int):
+            if not isinstance(current, list) or segment >= len(current):
+                return None
+            current = current[segment]
+        else:
+            if not isinstance(current, dict):
+                return None
+            current = current.get(segment)
+    return current
+
+
+def _operation_response_contract(
+    system: "ConnectedSystemDefinition", operation: str
+) -> dict[str, Any]:
+    return _response_contract((system.operation(operation) or {}).get("responseContract"))
+
+
+def _has_contract_path(contract: dict[str, Any], key: str) -> bool:
+    return _contract_path(contract, key) is not None
+
+
+def _valid_operation_response_contract(operation: str, contract: dict[str, Any]) -> bool:
+    """Validate the small, non-executable response-mapping language.
+
+    The registry deliberately stores fixed path segments rather than JSONPath
+    expressions. A malformed mapping is configuration unavailable, never an
+    invitation to heuristically inspect an upstream CRM response.
+    """
+    version = str(contract.get("version") or "")
+    if operation == "schema":
+        return (
+            version == "crm-primary-object-schema.v1"
+            and _has_contract_path(contract, "fieldsPath")
+            and _has_contract_path(contract, "objectPath")
+            and isinstance(contract.get("requireFieldAccess"), bool)
+        )
+    if operation == "read":
+        return (
+            version == "crm-record-collection.v1"
+            and _has_contract_path(contract, "recordsPath")
+            and _has_contract_path(contract, "recordIdPath")
+        )
+    if operation in {"create", "update", "delete"}:
+        return (
+            version == "crm-mutation-result.v1"
+            and _has_contract_path(contract, "successPath")
+            and _has_contract_path(contract, "recordIdPath")
+            and isinstance(contract.get("successValue"), bool)
+        )
+    return False
+
+
+def _record_id_from_result(
+    result: dict[str, Any], *, response_contract: dict[str, Any] | None = None
+) -> str | None:
+    path = _contract_path(_response_contract(response_contract), "recordIdPath")
+    if path:
+        return _clean_text(_value_at_contract_path(result, path), max_length=128)
+    # The in-code test/demo connector predates registry response contracts.
+    # Production registry calls always provide a contract before reaching here.
+    return _extract_record_id(result)
+
+
+def _mutation_succeeded(
+    result: dict[str, Any], *, response_contract: dict[str, Any] | None = None
+) -> bool:
+    if result.get("isError"):
+        return False
+    contract = _response_contract(response_contract)
+    path = _contract_path(contract, "successPath")
+    if path:
+        return _value_at_contract_path(result, path) is contract.get("successValue")
+    # Compatibility for the deterministic in-code test adapter only.
+    return not result.get("isError")
+
+
+def _safe_record_value(value: Any) -> str | int | float | bool | None:
+    """Keep a normalized record projection scalar-only.
+
+    Related-record blobs and arbitrary nested tool content are not safe to
+    surface merely because the outer field name happened to be requested.
+    """
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return None
+
+
+def _sanitize_read_records(
+    result: dict[str, Any],
+    *,
+    response_contract: dict[str, Any] | None,
+    allowed_fields: list[str],
+) -> list[dict[str, Any]]:
+    """Project a registered read collection onto explicitly requested fields."""
+    contract = _response_contract(response_contract)
+    records_path = _contract_path(contract, "recordsPath")
+    raw_records = _value_at_contract_path(result, records_path) if records_path else None
+    if not isinstance(raw_records, list):
+        # Compatibility-only fallback for the in-code adapter. Registry-backed
+        # connectors cannot reach this branch because their contract is checked
+        # before the outbound call.
+        raw_records = (
+            _records_from_payload(_ensure_dict(result.get("payload"))) if not contract else []
+        )
+    allowed = [str(field) for field in dict.fromkeys(allowed_fields) if str(field).strip()]
+    sanitized: list[dict[str, Any]] = []
+    for record in raw_records:
+        if not isinstance(record, dict):
+            continue
+        record_allowed = allowed if contract else [str(key) for key in record]
+        by_lower = {str(key).lower(): value for key, value in record.items()}
+        fields: dict[str, str | int | float | bool | None] = {}
+        for field_name in record_allowed:
+            value = record.get(field_name, by_lower.get(field_name.lower()))
+            safe_value = _safe_record_value(value)
+            if value is None or safe_value is not None:
+                fields[field_name] = safe_value
+        record_id = _clean_text(
+            _value_at_contract_path(record, _contract_path(contract, "recordIdPath")),
+            max_length=128,
+        )
+        if not record_id and not contract:
+            record_id = _extract_record_id({"payload": record})
+        sanitized.append({"recordId": record_id, "fields": fields})
+    return sanitized
+
+
 def _normalize_object_type(object_type: str | None, *, default: str) -> str:
     value = _clean_text(object_type or default, max_length=80)
     if not value:
@@ -214,7 +366,7 @@ def _normalize_field_name(field_name: str) -> str:
     canonical = canonical or raw
     if canonical not in SUPPORTED_CRM_FIELDS:
         raise ConnectedSystemValidationError(
-            f"Unsupported Salesforce CRM field: {raw}",
+            f"Unsupported CRM field: {raw}",
             code="UNSUPPORTED_CRM_FIELD",
         )
     return canonical
@@ -227,7 +379,7 @@ def _canonical_schema_field_name(field_name: Any) -> str | None:
     canonical = _CRM_FIELD_ALIASES.get(raw.replace(" ", "").lower()) or _CRM_FIELD_ALIASES.get(
         raw.lower()
     )
-    # Schema field names are owned by the active CRM. The Salesforce aliases
+    # Schema field names are owned by the active CRM. The legacy aliases
     # remain only for the compatibility adapter below; never discard a field
     # simply because another CRM uses a different vocabulary.
     return canonical or raw
@@ -265,7 +417,82 @@ def _schema_type_from_descriptor(descriptor: Any) -> str | None:
     return None
 
 
-def _collect_schema_field_descriptors(node: Any) -> list[Any]:
+def _schema_constraints_from_descriptor(descriptor: Any) -> dict[str, Any]:
+    """Normalize the portable subset of schema constraints for the UI/API."""
+    source = _ensure_dict(descriptor)
+    constraints = _ensure_dict(source.get("constraints"))
+    max_length = source.get("maxLength", source.get("length"))
+    if isinstance(max_length, int) and max_length > 0:
+        constraints["maxLength"] = max_length
+    allowed_values = source.get("allowedValues", source.get("picklistValues"))
+    if isinstance(allowed_values, list):
+        normalized_values: list[str] = []
+        for value in allowed_values:
+            if isinstance(value, str) and value.strip():
+                normalized_values.append(value.strip())
+            elif isinstance(value, dict):
+                candidate = _clean_text(value.get("value", value.get("label")), max_length=240)
+                if candidate:
+                    normalized_values.append(candidate)
+        if normalized_values:
+            constraints["allowedValues"] = list(dict.fromkeys(normalized_values))
+    return constraints
+
+
+def _schema_object_metadata(
+    result: dict[str, Any],
+    *,
+    response_contract: dict[str, Any] | None,
+    default_object_type: str,
+) -> dict[str, str]:
+    """Expose only registered primary-object metadata, never its raw envelope."""
+    contract = _response_contract(response_contract)
+    object_node = _value_at_contract_path(result, _contract_path(contract, "objectPath"))
+    source = _ensure_dict(object_node)
+    name = (
+        _clean_text(
+            source.get(
+                "objectType", source.get("apiName", source.get("name", default_object_type))
+            ),
+            max_length=80,
+        )
+        or default_object_type
+    )
+    label = (
+        _clean_text(
+            source.get("objectLabel", source.get("displayName", source.get("label", name))),
+            max_length=120,
+        )
+        or name
+    )
+    return {"name": name, "label": label}
+
+
+def _collect_schema_field_descriptors(
+    node: Any, *, response_contract: dict[str, Any] | None = None
+) -> list[Any]:
+    """Collect descriptors only from the registered schema response shape.
+
+    The legacy recursive extractor is retained for deterministic in-code test
+    fixtures. Registry-backed integrations must declare ``fieldsPath`` so a
+    new CRM cannot become writable because its response happened to contain a
+    similarly named nested key.
+    """
+    contract = _response_contract(response_contract)
+    fields_path = _contract_path(contract, "fieldsPath")
+    if fields_path:
+        value = _value_at_contract_path(node, fields_path)
+        if isinstance(value, (list, tuple)):
+            return list(value)
+        if isinstance(value, dict):
+            return [
+                {"name": str(field_name), **descriptor}
+                if isinstance(descriptor, dict)
+                else str(field_name)
+                for field_name, descriptor in value.items()
+            ]
+        return []
+
     descriptors: list[Any] = []
     if not isinstance(node, dict):
         return descriptors
@@ -297,7 +524,9 @@ def _collect_schema_field_descriptors(node: Any) -> list[Any]:
     return descriptors
 
 
-def _collect_schema_required_candidates(node: Any) -> list[str]:
+def _collect_schema_required_candidates(
+    node: Any, *, response_contract: dict[str, Any] | None = None
+) -> list[str]:
     candidates: list[str] = []
     if not isinstance(node, dict):
         return candidates
@@ -330,10 +559,14 @@ def _descriptor_bool(descriptor: Any, *names: str) -> bool | None:
     return None
 
 
-def _schema_fields_from_schema_result(result: dict[str, Any]) -> list[dict[str, Any]]:
+def _schema_fields_from_schema_result(
+    result: dict[str, Any], *, response_contract: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    contract = _response_contract(response_contract)
+    strict_access = bool(contract.get("requireFieldAccess"))
     required_fields = {
         canonical
-        for candidate in _collect_schema_required_candidates(result)
+        for candidate in _collect_schema_required_candidates(result, response_contract=contract)
         if (canonical := _canonical_schema_field_name(candidate))
     }
     fields: list[dict[str, Any]] = []
@@ -354,10 +587,33 @@ def _schema_fields_from_schema_result(result: dict[str, Any]) -> list[dict[str, 
         )
         immutable = _descriptor_bool(descriptor, "immutable", "readOnly")
         readable = _descriptor_bool(descriptor, "readable", "isReadable")
-        writable = _descriptor_bool(
-            descriptor, "writable", "isWritable", "updateable", "createable"
-        )
+        createable = _descriptor_bool(descriptor, "createable", "isCreateable")
+        updateable = _descriptor_bool(descriptor, "updateable", "isUpdateable")
         descriptor_required = _descriptor_bool(descriptor, "required", "isRequired")
+        permissions_declared = all(
+            value is not None for value in (identity, immutable, readable, createable, updateable)
+        )
+        if strict_access:
+            # Missing field permissions are unknown, never an allow. In
+            # particular, writable is *derived* from the two operation-specific
+            # declarations; an upstream `writable` convenience bit cannot
+            # expand create or update authority.
+            identity = bool(identity)
+            immutable = bool(immutable)
+            readable = bool(readable)
+            createable = bool(createable)
+            updateable = bool(updateable)
+            writable = bool(createable or updateable)
+        else:
+            # Deterministic in-code fixtures predate the database registry.
+            # They remain wire-compatible only; all registry rows set
+            # requireFieldAccess and take the fail-closed branch above.
+            immutable = bool(immutable)
+            identity = bool(identity)
+            readable = True if readable is None else readable
+            createable = (not immutable) if createable is None else createable
+            updateable = (not immutable) if updateable is None else updateable
+            writable = bool(createable or updateable)
         fields.append(
             {
                 "key": canonical,
@@ -366,15 +622,18 @@ def _schema_fields_from_schema_result(result: dict[str, Any]) -> list[dict[str, 
                 "dataType": _schema_type_from_descriptor(descriptor) or "string",
                 "required": bool(descriptor_required) or canonical in required_fields,
                 "identityField": bool(identity),
-                "readable": True if readable is None else readable,
-                "writable": (not bool(immutable)) if writable is None else writable,
+                "readable": bool(readable),
+                "createable": bool(createable),
+                "updateable": bool(updateable),
+                "writable": bool(writable),
                 "immutable": bool(immutable),
-                "constraints": _ensure_dict(descriptor).get("constraints") or {},
+                "permissionsDeclared": permissions_declared,
+                "constraints": _schema_constraints_from_descriptor(descriptor),
                 "source": source,
             }
         )
 
-    for descriptor in _collect_schema_field_descriptors(result):
+    for descriptor in _collect_schema_field_descriptors(result, response_contract=contract):
         raw_name = _schema_field_name_from_descriptor(descriptor)
         canonical = _canonical_schema_field_name(raw_name)
         if canonical:
@@ -417,7 +676,7 @@ def _normalize_search_field_name(field_name: str) -> str:
     canonical = canonical or raw
     if canonical not in SUPPORTED_CRM_SEARCH_FIELDS:
         raise ConnectedSystemValidationError(
-            f"Unsupported Salesforce CRM search field: {raw}",
+            f"Unsupported CRM search field: {raw}",
             code="UNSUPPORTED_CRM_FIELD",
         )
     return canonical
@@ -458,6 +717,30 @@ def _binding_id() -> str:
 def _safe_error_message(error: Exception) -> str:
     message = _redact_error_text(_clean_text(str(error), max_length=240))
     return message or "Connected Systems request failed."
+
+
+def _http_status_from_error(error: BaseException, *, _seen: set[int] | None = None) -> int | None:
+    """Find a nested HTTP status without serialising a provider exception."""
+    seen = _seen if _seen is not None else set()
+    if id(error) in seen:
+        return None
+    seen.add(id(error))
+    response = getattr(error, "response", None)
+    status_code = getattr(response, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code
+    nested = getattr(error, "exceptions", None)
+    if isinstance(nested, (tuple, list)):
+        for child in nested:
+            status = _http_status_from_error(child, _seen=seen)
+            if status is not None:
+                return status
+    for nested_error in (getattr(error, "__cause__", None), getattr(error, "__context__", None)):
+        if isinstance(nested_error, BaseException):
+            status = _http_status_from_error(nested_error, _seen=seen)
+            if status is not None:
+                return status
+    return None
 
 
 def _connected_systems_storage_error(error: DatabaseExecutionError) -> ConnectedSystemsError:
@@ -676,6 +959,13 @@ class ConnectedSystemDefinition:
             return False
         if operation != "schema" and not self.operation("schema"):
             return False
+        if (
+            self.registry_source == "enterprise_crm_registry"
+            and not _valid_operation_response_contract(
+                operation, _operation_response_contract(self, operation)
+            )
+        ):
+            return False
         return bool(self.operation_endpoint("schema"))
 
     def to_summary(self, *, endpoint_configured: bool, delete_enabled: bool) -> dict[str, Any]:
@@ -696,7 +986,14 @@ class ConnectedSystemDefinition:
             "transportLabel": "External CRM MCP",
             "endpointConfigured": endpoint_configured,
             "registrySource": self.registry_source,
-            "toolCatalog": [_deepcopy_json(tool) for tool in self.tool_catalog],
+            "toolCatalog": [
+                {
+                    key: _deepcopy_json(value)
+                    for key, value in tool.items()
+                    if key != "responseContract"
+                }
+                for tool in self.tool_catalog
+            ],
             "supportedActions": supported_actions,
             "capabilities": {
                 "operations": [
@@ -725,7 +1022,7 @@ SALESFORCE_CRM_SYSTEM = ConnectedSystemDefinition(
 
 
 class ExternalCrmStreamableMcpAdapter:
-    """Calls the Salesforce external CRM through MCP streamable HTTP."""
+    """Calls a registered external CRM through MCP Streamable HTTP."""
 
     def __init__(
         self,
@@ -825,7 +1122,12 @@ class ExternalCrmStreamableMcpAdapter:
         resolved_endpoint = endpoint or self.endpoint
         if not resolved_endpoint:
             raise ConnectedSystemConfigurationError(
-                "Connected Systems registry does not include a Salesforce CRM MCP endpoint."
+                "Connected Systems registry does not include a CRM MCP endpoint."
+            )
+        if resolved_endpoint == REGISTRY_MCP_ENDPOINT and not self.headers:
+            raise ConnectedSystemConfigurationError(
+                "This connected system is not configured in this environment.",
+                code="CONNECTED_SYSTEM_GATEWAY_AUTH_UNCONFIGURED",
             )
         if resolved_endpoint.startswith("registry://"):
             return self._call_registry_tool(name, arguments)
@@ -859,21 +1161,39 @@ class ExternalCrmStreamableMcpAdapter:
             raise
         except TimeoutError as error:
             raise ConnectedSystemsError(
-                "Salesforce CRM MCP request timed out.",
+                "Connected system request timed out.",
                 code="CONNECTED_SYSTEM_MCP_TIMEOUT",
                 status_code=504,
             ) from error
         except Exception as error:
+            gateway_status = _http_status_from_error(error)
             logger.exception(
                 "connected_systems.crm_mcp_request_failed tool=%s endpoint_configured=%s "
-                "headers_present=%s tool_argument_keys=%s",
+                "headers_present=%s gateway_status=%s tool_argument_keys=%s",
                 name,
                 bool(self.endpoint),
                 bool(self.headers),
+                gateway_status,
                 _stable_keys(tool_arguments),
             )
+            if gateway_status in {401, 403}:
+                code = (
+                    "CONNECTED_SYSTEM_MCP_AUTH_FAILED"
+                    if gateway_status == 401
+                    else "CONNECTED_SYSTEM_MCP_ACCESS_DENIED"
+                )
+                message = (
+                    "The connected system gateway rejected this environment's authentication."
+                    if gateway_status == 401
+                    else "The connected system gateway denied this environment access."
+                )
+                raise ConnectedSystemConfigurationError(
+                    message,
+                    code=code,
+                    status_code=502,
+                ) from error
             raise ConnectedSystemsError(
-                "Salesforce CRM MCP request failed.",
+                "Connected system request failed.",
                 code="CONNECTED_SYSTEM_MCP_FAILED",
                 status_code=502,
             ) from error
@@ -1515,7 +1835,7 @@ class ConnectedSystemsService:
             # never use this override for a real HTTP endpoint.
             if str(getattr(adapter, "endpoint", "")).startswith("registry://"):
                 endpoint = str(adapter.endpoint)
-            return await adapter.call_operation(
+            result = await adapter.call_operation(
                 operation=operation,
                 tool_name=str(config.get("name") or ""),
                 endpoint=endpoint,
@@ -1523,14 +1843,22 @@ class ConnectedSystemsService:
                 retry_count=system.retry_count,
                 arguments=payload,
             )
-        legacy_method = {
-            "schema": "object_schema",
-            "read": "read_record",
-            "create": "create_record",
-            "update": "update_record",
-            "delete": "delete_record",
-        }[operation]
-        return await getattr(adapter, legacy_method)(payload)
+        else:
+            legacy_method = {
+                "schema": "object_schema",
+                "read": "read_record",
+                "create": "create_record",
+                "update": "update_record",
+                "delete": "delete_record",
+            }[operation]
+            result = await getattr(adapter, legacy_method)(payload)
+        if result.get("isError"):
+            raise ConnectedSystemsError(
+                _mcp_error_message(result),
+                code="CONNECTED_SYSTEM_MCP_TOOL_ERROR",
+                status_code=502,
+            )
+        return result
 
     def list_systems(self) -> list[dict[str, Any]]:
         # Registry entries are operational configuration. Unlike an explicit
@@ -1588,25 +1916,85 @@ class ConnectedSystemsService:
     async def get_schema(self, *, system_id: str, object_type: str | None = None) -> dict[str, Any]:
         system = self.get_system(system_id)
         self._require_operation(system, "schema")
+        response_contract = _operation_response_contract(system, "schema")
+        if system.registry_source == "enterprise_crm_registry" and (
+            response_contract.get("version") != "crm-primary-object-schema.v1"
+            or not _contract_path(response_contract, "fieldsPath")
+            or not _contract_path(response_contract, "objectPath")
+        ):
+            raise ConnectedSystemConfigurationError(
+                "This connected system needs an updated field contract before it can be used.",
+                code="CONNECTED_SYSTEM_SCHEMA_CONTRACT_UNCONFIGURED",
+            )
         payload = {
             "target": system.target,
             "objectType": _normalize_object_type(object_type, default=system.object_type_default),
         }
         result = await self._call_operation(system=system, operation="schema", payload=payload)
-        schema_fields = _schema_fields_from_schema_result(result)
+        schema_fields = _schema_fields_from_schema_result(
+            result, response_contract=response_contract
+        )
         if not schema_fields:
             raise ConnectedSystemConfigurationError(
                 "The connected system did not return a usable primary-object schema.",
                 code="CONNECTED_SYSTEM_SCHEMA_UNAVAILABLE",
             )
+        object_metadata = _schema_object_metadata(
+            result,
+            response_contract=response_contract,
+            default_object_type=payload["objectType"],
+        )
+        permissions_complete = (
+            all(field.get("permissionsDeclared") for field in schema_fields)
+            if response_contract.get("requireFieldAccess") is True
+            else True
+        )
+        has_readable_identity = (
+            any(field.get("readable") and field.get("identityField") for field in schema_fields)
+            or response_contract.get("requireFieldAccess") is not True
+        )
+        effective_actions = {
+            "schema": True,
+            "read": bool(
+                permissions_complete and has_readable_identity and system.supports("read")
+            ),
+            "create": bool(
+                permissions_complete
+                and any(field.get("createable") for field in schema_fields)
+                and system.supports("create")
+            ),
+            "update": bool(
+                permissions_complete
+                and any(field.get("updateable") for field in schema_fields)
+                and system.supports("update")
+            ),
+            "delete": bool(
+                permissions_complete and system.supports("delete") and self.delete_enabled
+            ),
+        }
         return {
             "systemId": system.system_id,
             "target": system.target,
             "objectType": payload["objectType"],
+            "objectMetadata": object_metadata,
             "supportedFields": [field["key"] for field in schema_fields],
             "fields": schema_fields,
-            "mcp": result,
+            "schemaStatus": "ready" if permissions_complete else "capability_metadata_missing",
+            "effectiveActions": effective_actions,
+            "configurationMessage": (
+                None
+                if permissions_complete
+                else "This connected system needs an update before its fields can be used."
+            ),
         }
+
+    @staticmethod
+    def _require_schema_action(schema: dict[str, Any], action: str) -> None:
+        if not _ensure_dict(schema.get("effectiveActions")).get(action):
+            raise ConnectedSystemBlockedError(
+                "This connected system does not currently authorize that record action.",
+                code="CONNECTED_SYSTEM_SCHEMA_CAPABILITY_UNAVAILABLE",
+            )
 
     @staticmethod
     def _validated_schema_fields(
@@ -1628,13 +2016,17 @@ class ConnectedSystemsService:
                     code="CONNECTED_SYSTEM_SCHEMA_FIELD_UNAVAILABLE",
                 )
             if action == "update" and (
-                field.get("immutable") or field.get("identityField") or not field.get("writable")
+                field.get("immutable")
+                or field.get("identityField")
+                or field.get("updateable") is not True
             ):
                 raise ConnectedSystemValidationError(
                     f"Field cannot be updated: {key}",
                     code="CONNECTED_SYSTEM_SCHEMA_FIELD_READ_ONLY",
                 )
-            if action == "create" and (field.get("immutable") or not field.get("writable")):
+            if action == "create" and (
+                field.get("immutable") or field.get("createable") is not True
+            ):
                 raise ConnectedSystemValidationError(
                     f"Field cannot be written: {key}",
                     code="CONNECTED_SYSTEM_SCHEMA_FIELD_READ_ONLY",
@@ -1666,6 +2058,7 @@ class ConnectedSystemsService:
         system = self.get_system(system_id)
         self._require_operation(system, "create")
         schema = await self.get_schema(system_id=system_id, object_type=object_type)
+        self._require_schema_action(schema, "create")
         fields = {str(field["key"]): field for field in schema["fields"]}
         normalized = self._validated_schema_fields(
             fields, record_fields, action="create", require_required_fields=True
@@ -1724,6 +2117,7 @@ class ConnectedSystemsService:
         if not record_id_value:
             raise ConnectedSystemValidationError("id is required for update.")
         schema = await self.get_schema(system_id=system_id, object_type=object_type)
+        self._require_schema_action(schema, "update")
         fields = {str(field["key"]): field for field in schema["fields"]}
         normalized = self._validated_schema_fields(fields, record_fields, action="update")
         object_type_value = str(schema["objectType"])
@@ -1811,7 +2205,21 @@ class ConnectedSystemsService:
             return_fields=return_fields,
         )
         system = self.get_system(system_id)
+        read_contract = _operation_response_contract(system, "read")
+        if system.registry_source == "enterprise_crm_registry" and (
+            read_contract.get("version") != "crm-record-collection.v1"
+            or not _contract_path(read_contract, "recordsPath")
+        ):
+            raise ConnectedSystemConfigurationError(
+                "This connected system needs an updated record contract before it can be used.",
+                code="CONNECTED_SYSTEM_READ_CONTRACT_UNCONFIGURED",
+            )
         result = await self._call_operation(system=system, operation="read", payload=payload)
+        records = _sanitize_read_records(
+            result,
+            response_contract=read_contract,
+            allowed_fields=list(payload.get("returnFields") or []),
+        )
         self._audit(
             user_id=user_id or "",
             system_id=system_id,
@@ -1830,8 +2238,11 @@ class ConnectedSystemsService:
             "target": payload["target"],
             "objectType": payload["objectType"],
             "resultClass": "succeeded" if not result.get("isError") else "failed",
-            "recordId": _extract_record_id(result),
-            "mcp": result,
+            "recordId": next(
+                (record["recordId"] for record in records if record.get("recordId")),
+                _record_id_from_result(result, response_contract=read_contract),
+            ),
+            "records": records,
         }
 
     async def _build_schema_read_payload(
@@ -1846,8 +2257,9 @@ class ConnectedSystemsService:
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
         schema = await self.get_schema(system_id=system_id, object_type=object_type)
+        self._require_schema_action(schema, "read")
         fields = {
-            str(field["key"]): field for field in schema["fields"] if field.get("readable", True)
+            str(field["key"]): field for field in schema["fields"] if field.get("readable") is True
         }
         by_name = {str(field["name"]): field for field in fields.values()}
         # Macy's aliases remain a compatibility input only. They cannot make a
@@ -2018,6 +2430,11 @@ class ConnectedSystemsService:
         record_fields: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
+        if system.registry_source == "enterprise_crm_registry":
+            raise ConnectedSystemBlockedError(
+                "Use the schema-driven recordFields contract for this connected system.",
+                code="CONNECTED_SYSTEM_SCHEMA_FIELDS_REQUIRED",
+            )
         object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
         email_value = _clean_text(email, max_length=320)
         phone_value = _normalize_crm_phone_for_mcp(phone)
@@ -2079,6 +2496,11 @@ class ConnectedSystemsService:
         readback_locator: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
+        if system.registry_source == "enterprise_crm_registry":
+            raise ConnectedSystemBlockedError(
+                "Use the schema-driven recordFields contract for this connected system.",
+                code="CONNECTED_SYSTEM_SCHEMA_FIELDS_REQUIRED",
+            )
         object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
         record_id_value = _clean_text(record_id, max_length=128)
         if not record_id_value:
@@ -2177,6 +2599,14 @@ class ConnectedSystemsService:
         if intent.get("approval_id") != approval:
             return self._public_intent(intent)
         try:
+            if system.registry_source == "enterprise_crm_registry":
+                schema = await self.get_schema(
+                    system_id=system_id, object_type=intent.get("object_type")
+                )
+                self._require_schema_action(schema, str(intent.get("action") or ""))
+            response_contract = _operation_response_contract(
+                system, str(intent.get("action") or "")
+            )
             if intent["action"] == "create":
                 result = await self._call_operation(
                     system=system, operation="create", payload=intent["request_payload"]
@@ -2191,20 +2621,27 @@ class ConnectedSystemsService:
                 )
             else:
                 raise ConnectedSystemValidationError("Unsupported approval action.")
-            record_id = intent.get("record_id") or _extract_record_id(result)
+            mutation_succeeded = _mutation_succeeded(result, response_contract=response_contract)
+            record_id = intent.get("record_id") or _record_id_from_result(
+                result, response_contract=response_contract
+            )
             readback = (
                 {"resultClass": "succeeded", "reason": "delete_confirmed"}
-                if intent["action"] == "delete" and not result.get("isError")
+                if intent["action"] == "delete" and mutation_succeeded
                 else await self._readback(intent, system=system)
             )
-            if not record_id and isinstance(readback.get("mcp"), dict):
-                record_id = _extract_record_id(readback.get("mcp") or {})
+            if not record_id:
+                record_id = _clean_text(readback.get("recordId"), max_length=128)
             readback_class = self._classify_readback(intent, readback)
-            result_class = "failed" if result.get("isError") else readback_class
+            result_class = "failed" if not mutation_succeeded else readback_class
             status = "succeeded" if result_class == "succeeded" else result_class
-            if result.get("isError"):
+            if not mutation_succeeded:
                 status = "failed"
-            mcp_error_message = _mcp_error_message(result) if status == "failed" else None
+            mcp_error_message = (
+                "The connected system did not confirm this mutation."
+                if status == "failed"
+                else None
+            )
             terminal_updates = _scrub_terminal_intent_updates(
                 intent,
                 {
@@ -2214,7 +2651,9 @@ class ConnectedSystemsService:
                     "result_class": result_class,
                     "result_payload": result,
                     "readback_result": readback,
-                    "error_code": None if status != "failed" else "MCP_RESULT_ERROR",
+                    "error_code": None
+                    if status != "failed"
+                    else "CONNECTED_SYSTEM_MUTATION_UNCONFIRMED",
                     "error_message": mcp_error_message,
                 },
             )
@@ -2237,7 +2676,7 @@ class ConnectedSystemsService:
                 binding = self._upsert_binding_for_intent(updated, record_id=record_id)
             self._audit_for_intent(
                 updated,
-                mcp_result_class="succeeded" if not result.get("isError") else "failed",
+                mcp_result_class="succeeded" if mutation_succeeded else "failed",
                 readback_result_class=readback_class,
                 status=status,
             )
@@ -2303,59 +2742,11 @@ class ConnectedSystemsService:
         object_type: str | None,
         record_id: str | None = None,
     ) -> dict[str, Any]:
-        system = self.get_system(system_id)
-        self._require_operation(system, "delete")
-        object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
-        binding = None
-        if user_id:
-            binding = self._store_call(
-                self.store.get_binding,
-                user_id=user_id,
-                system_id=system_id,
-                object_type=object_type_value,
-            )
-        bound_record_id = _clean_text((binding or {}).get("record_id"), max_length=128)
-        requested_record_id = _clean_text(record_id, max_length=128)
-        record_id_value = requested_record_id or bound_record_id
-        payload = {
-            "target": system.target,
-            "objectType": object_type_value,
-            "id": record_id_value,
-        }
-        if not payload["id"]:
-            raise ConnectedSystemValidationError("id is required for delete.")
-        result = await self._call_operation(system=system, operation="delete", payload=payload)
-        status = "failed" if result.get("isError") else "succeeded"
-        deleted_binding = None
-        if user_id and status == "succeeded":
-            deleted_binding = self._store_call(
-                self.store.mark_binding_deleted,
-                user_id=user_id,
-                system_id=system_id,
-                object_type=object_type_value,
-                record_id=payload["id"],
-            )
-        self._audit(
-            user_id=user_id or "",
-            system_id=system_id,
-            action="delete",
-            object_type=object_type_value,
-            record_id=payload["id"],
-            field_names=[],
-            mcp_result_class=status,
-            readback_result_class=None,
-            status=status,
-            metadata=_summarize_mcp_result(result),
+        _ = (user_id, system_id, object_type, record_id)
+        raise ConnectedSystemBlockedError(
+            "Delete must be created and approved as a CRM intent.",
+            code="CONNECTED_SYSTEM_DELETE_INTENT_REQUIRED",
         )
-        return {
-            "systemId": system_id,
-            "target": system.target,
-            "objectType": object_type_value,
-            "recordId": payload["id"],
-            "resultClass": status,
-            "mcp": result,
-            "binding": self._public_binding(deleted_binding) if deleted_binding else None,
-        }
 
     def _build_read_payload(
         self,
@@ -2455,9 +2846,19 @@ class ConnectedSystemsService:
             result = await self._call_operation(
                 system=system, operation="read", payload=readback_payload
             )
+            response_contract = _operation_response_contract(system, "read")
+            records = _sanitize_read_records(
+                result,
+                response_contract=response_contract,
+                allowed_fields=list(readback_payload.get("returnFields") or []),
+            )
             return {
-                "resultClass": "succeeded" if not result.get("isError") else "failed",
-                "mcp": result,
+                "resultClass": "succeeded",
+                "recordId": next(
+                    (record["recordId"] for record in records if record.get("recordId")),
+                    _record_id_from_result(result, response_contract=response_contract),
+                ),
+                "records": records,
             }
         except Exception as error:
             return {
@@ -2651,8 +3052,14 @@ def _extract_record_id(result: dict[str, Any]) -> str | None:
 
 
 def _records_from_readback(readback: dict[str, Any]) -> list[dict[str, Any]]:
-    payload = _ensure_dict(_ensure_dict(readback.get("mcp")).get("payload"))
-    return _records_from_payload(payload)
+    records: list[dict[str, Any]] = []
+    for record in _ensure_list(readback.get("records")):
+        if not isinstance(record, dict):
+            continue
+        fields = _ensure_dict(record.get("fields"))
+        if fields:
+            records.append(fields)
+    return records
 
 
 def _records_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2669,6 +3076,8 @@ def _records_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _expected_readback_fields(intent: dict[str, Any]) -> dict[str, Any]:
     payload = intent.get("request_payload") or {}
+    if isinstance(payload.get("recordFields"), dict):
+        return _ensure_dict(payload.get("recordFields"))
     if intent.get("action") == "update":
         return _ensure_dict(payload.get("additionalFields"))
     if intent.get("action") == "create":

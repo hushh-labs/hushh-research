@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 import {
   Building2,
   Database,
@@ -23,7 +24,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
+import { SettingsDetailPanel, SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
+import { DataTable } from "@/components/app-ui/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
@@ -33,7 +35,6 @@ import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { buildConnectedSystemRoute } from "@/lib/navigation/routes";
 import {
   ConnectedSystemsService,
-  SALESFORCE_CRM_SYSTEM_ID,
   type ConnectedSystemMcpResponse,
   type ConnectedSystemIntent,
   type ConnectedSystemRecordBinding,
@@ -74,20 +75,8 @@ export type ConnectedSystemAgentInstruction = {
   createdAt?: string;
 };
 
-type LegacyCrmProfileFieldKey =
-  | "FirstName"
-  | "LastName"
-  | "Email"
-  | "Phone"
-  | "MobilePhone"
-  | "Title"
-  | "Department"
-  | "MailingCity"
-  | "MailingStreet"
-  | "LeadSource";
-
 type CrmProfileFieldKey = string;
-type CrmFieldValues = Record<LegacyCrmProfileFieldKey, string> & Record<string, string>;
+type CrmFieldValues = Record<string, string>;
 
 type CrmProfileField = {
   key: CrmProfileFieldKey;
@@ -97,10 +86,24 @@ type CrmProfileField = {
   required?: boolean;
   identityField?: boolean;
   readable?: boolean;
+  createable?: boolean;
+  updateable?: boolean;
   writable?: boolean;
   immutable?: boolean;
   rawName?: string;
   source?: string;
+  dataType?: string;
+  constraints?: Record<string, unknown>;
+};
+
+type CrmFieldTableRow = {
+  key: string;
+  label: string;
+  dataType: string;
+  access: string;
+  required: string;
+  currentValue: string;
+  field: CrmProfileField;
 };
 
 function statusBadge(status: string | undefined | null): string {
@@ -113,114 +116,7 @@ function statusBadge(status: string | undefined | null): string {
 }
 
 const MACYS_LOGO_SRC = "/brand/macys-logo.svg";
-const CRM_FIELD_PLACEHOLDERS: Record<LegacyCrmProfileFieldKey, string> = {
-  FirstName: "Maria",
-  LastName: "Joe",
-  Email: "name@example.com",
-  Phone: "1234567899",
-  MobilePhone: "(415) 555-1212",
-  Title: "VP Sales",
-  Department: "Retail Partnerships",
-  MailingCity: "Dallas",
-  MailingStreet: "170 O'Farrell St",
-  LeadSource: "Connected Systems",
-};
-
-const CRM_PROFILE_FIELD_KEYS: LegacyCrmProfileFieldKey[] = [
-  "FirstName",
-  "LastName",
-  "Email",
-  "Phone",
-  "MobilePhone",
-  "Title",
-  "Department",
-  "MailingCity",
-  "MailingStreet",
-  "LeadSource",
-];
-
-const CRM_PROFILE_FIELD_METADATA: Record<LegacyCrmProfileFieldKey, CrmProfileField> =
-  {
-    FirstName: {
-      key: "FirstName",
-      label: "First name",
-      placeholder: CRM_FIELD_PLACEHOLDERS.FirstName,
-    },
-    LastName: {
-      key: "LastName",
-      label: "Last name",
-      placeholder: CRM_FIELD_PLACEHOLDERS.LastName,
-    },
-    Email: {
-      key: "Email",
-      label: "Email",
-      placeholder: CRM_FIELD_PLACEHOLDERS.Email,
-      inputType: "email",
-    },
-    Phone: {
-      key: "Phone",
-      label: "Phone",
-      placeholder: CRM_FIELD_PLACEHOLDERS.Phone,
-      inputType: "tel",
-    },
-    MobilePhone: {
-      key: "MobilePhone",
-      label: "Mobile phone",
-      placeholder: CRM_FIELD_PLACEHOLDERS.MobilePhone,
-      inputType: "tel",
-    },
-    Title: {
-      key: "Title",
-      label: "Title",
-      placeholder: CRM_FIELD_PLACEHOLDERS.Title,
-    },
-    Department: {
-      key: "Department",
-      label: "Department",
-      placeholder: CRM_FIELD_PLACEHOLDERS.Department,
-    },
-    MailingCity: {
-      key: "MailingCity",
-      label: "Mailing city",
-      placeholder: CRM_FIELD_PLACEHOLDERS.MailingCity,
-    },
-    MailingStreet: {
-      key: "MailingStreet",
-      label: "Mailing street",
-      placeholder: CRM_FIELD_PLACEHOLDERS.MailingStreet,
-    },
-    LeadSource: {
-      key: "LeadSource",
-      label: "Lead source",
-      placeholder: CRM_FIELD_PLACEHOLDERS.LeadSource,
-    },
-  };
-
-const CRM_PROFILE_FIELDS: CrmProfileField[] = CRM_PROFILE_FIELD_KEYS.map(
-  (key) => CRM_PROFILE_FIELD_METADATA[key],
-);
-
-const READ_ONLY_CRM_IDENTITY_FIELDS = new Set<CrmProfileFieldKey>([
-  "Email",
-  "Phone",
-]);
-
-const DEFAULT_CRM_PROFILE_VALUES: CrmFieldValues = {
-  FirstName: "",
-  LastName: "",
-  Email: "",
-  Phone: "",
-  MobilePhone: "",
-  Title: "",
-  Department: "",
-  MailingCity: "",
-  MailingStreet: "",
-  LeadSource: "",
-};
-
-function isCrmProfileFieldKey(value: unknown): value is LegacyCrmProfileFieldKey {
-  return CRM_PROFILE_FIELD_KEYS.includes(value as LegacyCrmProfileFieldKey);
-}
+const DEFAULT_CRM_PROFILE_VALUES: CrmFieldValues = {};
 
 function inputTypeFromSchema(dataType?: string): string | undefined {
   const normalized = String(dataType || "")
@@ -238,28 +134,26 @@ function crmFieldFromSchemaDescriptor(
 ): CrmProfileField | null {
   const key = String(descriptor.key || descriptor.name || "").trim();
   if (!key) return null;
-  const fallback = isCrmProfileFieldKey(key)
-    ? CRM_PROFILE_FIELD_METADATA[key]
-    : undefined;
-  const label = String(descriptor.label || fallback?.label || key)
+  const label = String(descriptor.label || key)
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .replace(/[_-]+/g, " ")
     .trim();
   return {
     key,
     label: label || key,
-    placeholder: fallback?.placeholder || `Enter ${label || key}`,
-    inputType: inputTypeFromSchema(descriptor.dataType) || fallback?.inputType,
+    placeholder: `Enter ${label || key}`,
+    inputType: inputTypeFromSchema(descriptor.dataType),
     required: descriptor.required === true,
     identityField: descriptor.identityField === true,
-    readable: descriptor.readable !== false,
-    writable:
-      descriptor.writable !== false &&
-      descriptor.immutable !== true &&
-      descriptor.identityField !== true,
+    readable: descriptor.readable === true,
+    createable: descriptor.createable === true,
+    updateable: descriptor.updateable === true,
+    writable: descriptor.updateable === true && descriptor.immutable !== true && descriptor.identityField !== true,
     immutable: descriptor.immutable === true,
     rawName: String(descriptor.name || key).trim() || key,
     source: String(descriptor.source || "mcp_schema").trim() || "mcp_schema",
+    dataType: String(descriptor.dataType || "string"),
+    constraints: descriptor.constraints,
   };
 }
 
@@ -318,73 +212,16 @@ function ConnectedSystemLogo({
 function extractRecords(
   result: ConnectedSystemMcpResponse | null,
 ): Record<string, unknown>[] {
-  const mcp = result?.mcp;
-  const payload =
-    mcp && typeof mcp === "object" && "payload" in mcp
-      ? ((mcp as { payload?: unknown }).payload as
-          Record<string, unknown> | undefined)
-      : undefined;
-  if (!payload || typeof payload !== "object") return [];
-  return collectCrmRecords(payload);
-}
-
-function looksLikeCrmRecord(record: Record<string, unknown>): boolean {
-  return (
-    CRM_PROFILE_FIELD_KEYS.some((key) => key in record) ||
-    [
-      "Id",
-      "id",
-      "recordId",
-      "record_id",
-      "Name",
-      "firstName",
-      "lastName",
-      "mailingCity",
-    ].some((key) => key in record)
-  );
-}
-
-function collectCrmRecords(
-  value: unknown,
-  depth = 0,
-): Record<string, unknown>[] {
-  if (!value || depth > 3) return [];
-  if (Array.isArray(value)) {
-    const directRecords = value.filter(
-      (item): item is Record<string, unknown> =>
-        Boolean(item) &&
-        typeof item === "object" &&
-        !Array.isArray(item) &&
-        looksLikeCrmRecord(item as Record<string, unknown>),
-    );
-    if (directRecords.length > 0) return directRecords;
-    return value.flatMap((item) => collectCrmRecords(item, depth + 1));
-  }
-  if (typeof value !== "object") return [];
-  const record = value as Record<string, unknown>;
-  for (const key of [
-    "records",
-    "Contact",
-    "contacts",
-    "data",
-    "result",
-    "records_",
-  ]) {
-    const nested = collectCrmRecords(record[key], depth + 1);
-    if (nested.length > 0) return nested;
-  }
-  if (looksLikeCrmRecord(record)) return [record];
-  for (const nestedValue of Object.values(record)) {
-    const nested = collectCrmRecords(nestedValue, depth + 1);
-    if (nested.length > 0) return nested;
-  }
-  return [];
+  return (result?.records || []).map((record) => ({
+    ...record.fields,
+    __connectedSystemRecordId: record.recordId || "",
+  }));
 }
 
 function recordIdFromRecord(record?: Record<string, unknown> | null): string {
   if (!record) return "";
   return cleanFieldValue(
-    record.Id || record.id || record.recordId || record.record_id,
+    record.__connectedSystemRecordId || record.Id || record.id || record.recordId || record.record_id,
   );
 }
 
@@ -429,35 +266,28 @@ function agentInstructionSlot(
 
 function agentInstructionFields(
   instruction: ConnectedSystemAgentInstruction | null | undefined,
-): Partial<Record<CrmProfileFieldKey, string>> {
+): Record<string, string> {
+  const out: Record<string, string> = {};
   const raw = agentInstructionSlot(instruction, "additionalFieldsJson");
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-      return {};
-    const out: Partial<Record<CrmProfileFieldKey, string>> = {};
-    for (const field of CRM_PROFILE_FIELDS) {
-      const value = (parsed as Record<string, unknown>)[field.key];
-      const cleaned = cleanFieldValue(value);
-      if (cleaned && !READ_ONLY_CRM_IDENTITY_FIELDS.has(field.key)) {
-        out[field.key] = cleaned;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        for (const [key, value] of Object.entries(parsed)) {
+          const cleaned = cleanFieldValue(value);
+          if (cleaned) out[key] = cleaned;
+        }
       }
+    } catch {
+      // The private agent proposal is optional. Invalid proposal fields are
+      // ignored and the backend remains the schema-validation authority.
     }
-    return out;
-  } catch {
-    return {};
   }
-}
-
-function crmLookupPhoneCandidates(phone: string): string[] {
-  const clean = cleanFieldValue(phone);
-  const digits = clean.replace(/\D/g, "");
-  const withoutCountryCode =
-    digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : "";
-  return Array.from(
-    new Set([clean, digits, withoutCountryCode].filter(Boolean)),
-  );
+  const email = agentInstructionSlot(instruction, "email");
+  const phone = agentInstructionSlot(instruction, "phone");
+  if (email) out.email = email;
+  if (phone) out.phone = phone;
+  return out;
 }
 
 function isWorkflowStorageNotReady(message: string): boolean {
@@ -493,7 +323,7 @@ function mutationResultError(value: unknown): string | null {
   return (
     cleanFieldValue(record.errorMessage) ||
     cleanFieldValue(record.errorCode) ||
-    "Macy's CRM request failed."
+    "CRM request failed."
   );
 }
 
@@ -565,6 +395,8 @@ export function ConnectedSystemsPanel({
   const [pendingIntent, setPendingIntent] = useState<ConnectedSystemIntent | null>(null);
   const [busy, setBusy] = useState<BusyState>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editingField, setEditingField] = useState<CrmProfileField | null>(null);
+  const [editingValue, setEditingValue] = useState("");
 
   const [crmFieldValues, setCrmFieldValues] = useState<
     CrmFieldValues
@@ -577,11 +409,7 @@ export function ConnectedSystemsPanel({
   const [bindingResolvedKey, setBindingResolvedKey] = useState<string | null>(
     null,
   );
-  const [autoLinkResolvedKey, setAutoLinkResolvedKey] = useState<string | null>(
-    null,
-  );
   const [readResolvedKey, setReadResolvedKey] = useState<string | null>(null);
-  const autoLinkAttemptKeyRef = useRef<string | null>(null);
   const consumedAgentInstructionRef = useRef<string | null>(null);
   // Tracks which systems (by systemId) have an active record binding, across
   // ALL available systems, not just the one currently open in detail view.
@@ -594,21 +422,22 @@ export function ConnectedSystemsPanel({
   const selectedSystemKey = selectedSystem
     ? `${selectedSystem.systemId}:${selectedSystem.objectTypeDefault || "Contact"}`
     : "";
-  const supportedFields = useMemo(
-    () => schema?.supportedFields || selectedSystem?.fieldAllowlist || [],
-    [schema?.supportedFields, selectedSystem?.fieldAllowlist],
-  );
   const canUseBackend = Boolean(vaultOwnerToken);
+  const schemaReady = schema?.schemaStatus === "ready";
   const supportsAction = (action: "schema" | "read" | "create" | "update" | "delete") =>
-    selectedSystem?.supportedActions?.[action] === true;
+    action === "schema"
+      ? selectedSystem?.supportedActions?.schema === true
+      : schemaReady && schema?.effectiveActions?.[action] === true;
   const customerName = selectedSystem?.customerDisplayName || "Connected CRM";
   const systemType = selectedSystem?.systemType || "CRM";
   const systemName = selectedSystem?.systemName || "FSC";
   const systemLabel = crmTypeDisplayLabel({ systemType, systemName });
-  const registeredEmail = cleanFieldValue(profile?.email);
-  const registeredPhone = cleanFieldValue(profile?.phone);
-  const isLegacyMacys = selectedSystem?.systemId === SALESFORCE_CRM_SYSTEM_ID;
-  const hasRegisteredLookup = Boolean(registeredEmail && registeredPhone);
+  const primaryObjectLabel =
+    schema?.objectMetadata?.label ||
+    schema?.objectType ||
+    selectedSystem?.capabilities?.primaryObject ||
+    selectedSystem?.objectTypeDefault ||
+    "record";
   const crmRecords = useMemo(() => extractRecords(readResult), [readResult]);
   const hasReadback = Boolean(readResult);
   const activeBinding = binding?.status === "active" ? binding : null;
@@ -619,10 +448,6 @@ export function ConnectedSystemsPanel({
   useEffect(() => {
     onSetupReadinessChange?.(anySystemBound);
   }, [anySystemBound, onSetupReadinessChange]);
-  const schemaFieldSet = useMemo(
-    () => new Set(supportedFields),
-    [supportedFields],
-  );
   const schemaDrivenProfileFields = useMemo(() => {
     const liveFields = Array.isArray(schema?.fields) ? schema.fields : [];
     return liveFields
@@ -631,9 +456,8 @@ export function ConnectedSystemsPanel({
   }, [schema?.fields]);
   const visibleProfileFields = useMemo(() => {
     if (schemaDrivenProfileFields.length > 0) return schemaDrivenProfileFields;
-    if (schemaFieldSet.size === 0) return [];
-    return CRM_PROFILE_FIELDS.filter((field) => schemaFieldSet.has(field.key));
-  }, [schemaDrivenProfileFields, schemaFieldSet]);
+    return [];
+  }, [schemaDrivenProfileFields]);
   const changedProfileFields = useMemo(
     () =>
       changedFieldsFromValues(
@@ -661,9 +485,7 @@ export function ConnectedSystemsPanel({
     ),
     [crmFieldValues, lookupFields],
   );
-  const hasLookup = isLegacyMacys
-    ? hasRegisteredLookup
-    : lookupFields.length > 0 && Object.keys(schemaLookupValues).length === lookupFields.length;
+  const hasLookup = lookupFields.length > 0 && Object.keys(schemaLookupValues).length === lookupFields.length;
   const currentReadRecord = useMemo(
     () => selectRecordForId(readResult, currentRecordId),
     [currentRecordId, readResult],
@@ -677,36 +499,13 @@ export function ConnectedSystemsPanel({
             selectedSystem.systemId,
             selectedSystem.objectTypeDefault || "Contact",
             currentRecordId,
-            registeredEmail,
-            registeredPhone,
           ].join(":")
         : "",
-    [currentRecordId, registeredEmail, registeredPhone, selectedSystem],
+    [currentRecordId, selectedSystem],
   );
   const bindingResolved = Boolean(
     selectedSystemKey && bindingResolvedKey === selectedSystemKey,
   );
-  const autoLinkKey = useMemo(
-    () =>
-      selectedSystem
-        ? [
-            selectedSystem.systemId,
-            selectedSystem.objectTypeDefault || "Contact",
-            registeredEmail,
-            registeredPhone,
-          ].join(":")
-        : "",
-    [registeredEmail, registeredPhone, selectedSystem],
-  );
-  const shouldAutoLink =
-    mode === "detail" &&
-    bindingResolved &&
-    !activeBinding &&
-    !currentRecordId &&
-    isLegacyMacys && hasRegisteredLookup &&
-    Boolean(autoLinkKey);
-  const autoLinkResolved =
-    !shouldAutoLink || autoLinkResolvedKey === autoLinkKey;
   const boundRecordReadResolved =
     !hasBoundRecord ||
     !hasLookup ||
@@ -717,7 +516,7 @@ export function ConnectedSystemsPanel({
     canUseBackend &&
     !error &&
     hasBoundRecord &&
-    hasLookup &&
+    schemaReady && supportsAction("read") && hasLookup &&
     !boundRecordReadResolved;
   const isRecordStateLoading =
     mode === "detail" &&
@@ -725,38 +524,44 @@ export function ConnectedSystemsPanel({
     !error &&
     (!selectedSystem ||
       !bindingResolved ||
-      !autoLinkResolved ||
       isBoundRecordHydrating);
   const canShowUnboundRecordActions =
     !hasBoundRecord &&
     !isRecordStateLoading &&
+    schemaReady &&
     visibleProfileFields.length > 0 &&
     (supportsAction("read") || supportsAction("create"));
   const canShowBoundRecordActions =
-    hasBoundRecord && !isRecordStateLoading && supportsAction("update");
+    hasBoundRecord && !isRecordStateLoading && schemaReady && supportsAction("update");
+  const showCatalogueOnly = Boolean(
+    schema &&
+      (!schemaReady ||
+        (hasBoundRecord ? !canShowBoundRecordActions : !canShowUnboundRecordActions)),
+  );
 
   useEffect(() => {
     const email = cleanFieldValue(profile?.email);
     const phone = cleanFieldValue(profile?.phone);
-    const displayName = cleanFieldValue(profile?.displayName);
-    const [firstName, ...lastNameParts] = displayName
-      .split(/\s+/)
-      .filter(Boolean);
-    setCrmFieldValues((current) => ({
-      ...current,
-      FirstName: current.FirstName || firstName || "",
-      LastName: current.LastName || lastNameParts.join(" "),
-      Email: email,
-      Phone: phone,
-    }));
-    setCrmBaselineValues((current) => ({
-      ...current,
-      FirstName: current.FirstName || firstName || "",
-      LastName: current.LastName || lastNameParts.join(" "),
-      Email: email,
-      Phone: phone,
-    }));
-  }, [profile?.displayName, profile?.email, profile?.phone]);
+    if (visibleProfileFields.length === 0 || (!email && !phone)) return;
+    setCrmFieldValues((current) => {
+      const next = { ...current };
+      let changed = false;
+      for (const field of visibleProfileFields) {
+        if (!field.identityField || next[field.key]) continue;
+        const descriptor = `${field.key} ${field.rawName} ${field.label}`.toLowerCase();
+        const value = descriptor.includes("email")
+          ? email
+          : descriptor.includes("phone") || descriptor.includes("telephone") || descriptor.includes("mobile")
+            ? phone
+            : "";
+        if (value) {
+          next[field.key] = value;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [profile?.email, profile?.phone, visibleProfileFields]);
 
   useEffect(() => {
     if (mode !== "detail") return;
@@ -880,11 +685,7 @@ export function ConnectedSystemsPanel({
   }, [mode, refreshBinding, selectedSystem, vaultOwnerToken]);
 
   const resetWorkingCopy = () => {
-    setCrmFieldValues({
-      ...crmBaselineValues,
-      Email: registeredEmail,
-      Phone: registeredPhone,
-    });
+    setCrmFieldValues({ ...crmBaselineValues });
     setDeleteResult(null);
   };
 
@@ -970,22 +771,6 @@ export function ConnectedSystemsPanel({
     }
   };
 
-  useEffect(() => {
-    if (
-      mode !== "detail" ||
-      !selectedSystem ||
-      !vaultOwnerToken ||
-      !supportsAction("schema") ||
-      schema?.systemId === selectedSystem.systemId
-    ) {
-      return;
-    }
-    void loadSchema({ silent: true });
-    // The effect is intentionally keyed by the selected registry row; a schema
-    // refresh is user initiated through the visible control below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, schema?.systemId, selectedSystem?.systemId, vaultOwnerToken]);
-
   const applyReadResult = (result: ConnectedSystemMcpResponse) => {
     setReadResult(result);
     const nextBinding =
@@ -1003,11 +788,8 @@ export function ConnectedSystemsPanel({
     );
     if (record) {
       const values = crmValuesFromRecord(record, visibleProfileFields);
-      const identityLockedValues = isLegacyMacys
-        ? { ...values, Email: registeredEmail || values.Email, Phone: registeredPhone || values.Phone }
-        : values;
-      setCrmFieldValues(identityLockedValues);
-      setCrmBaselineValues(identityLockedValues);
+      setCrmFieldValues(values);
+      setCrmBaselineValues(values);
     }
     const recordId = result.recordId || extractFirstRecordId(result);
     if (recordId && (nextBinding || currentRecordId)) {
@@ -1020,55 +802,37 @@ export function ConnectedSystemsPanel({
     options: {
       silent?: boolean;
       bindSearch?: boolean;
-      email?: string;
-      phone?: string;
     } = {},
   ) => {
     const result = await runAction(
       "read",
       async () => {
-        const returnFields = visibleProfileFields.map((field) => field.key);
-        const lookupEmail = options.email ?? registeredEmail;
-        const lookupPhone = options.phone ?? registeredPhone;
+        const returnFields = visibleProfileFields
+          .filter((field) => field.readable)
+          .map((field) => field.rawName || field.key);
         const completedReadKey =
           !options.bindSearch && selectedSystem && currentRecordId
             ? [
                 selectedSystem.systemId,
                 selectedSystem.objectTypeDefault || "Contact",
                 currentRecordId,
-                lookupEmail,
-                lookupPhone,
               ].join(":")
             : "";
-        const buildPayload = (phone: string) => ({
+        const payload = {
           systemId: selectedSystem?.systemId,
           objectType: selectedSystem?.objectTypeDefault,
-          email: isLegacyMacys ? lookupEmail : undefined,
-          phone: isLegacyMacys ? phone : undefined,
-          searchFields: isLegacyMacys ? undefined : schemaLookupValues,
+          searchFields: schemaLookupValues,
           returnFields,
-        });
-        const callRead = (phone: string) => {
-          const payload = buildPayload(phone);
-          return options.bindSearch
-            ? ConnectedSystemsService.searchRecord(
-                vaultOwnerToken || "",
-                payload,
-              )
-            : ConnectedSystemsService.readRecord(
-                vaultOwnerToken || "",
-                payload,
-              );
         };
-        const phoneCandidates = isLegacyMacys ? crmLookupPhoneCandidates(lookupPhone) : [""];
-        const firstPhone = phoneCandidates[0] || lookupPhone;
-        let nextResult = await callRead(firstPhone);
-        if (!options.bindSearch && extractRecords(nextResult).length === 0) {
-          for (const phone of phoneCandidates) {
-            nextResult = await callRead(phone);
-            if (extractRecords(nextResult).length > 0) break;
-          }
-        }
+        const nextResult = options.bindSearch
+          ? await ConnectedSystemsService.searchRecord(
+              vaultOwnerToken || "",
+              payload,
+            )
+          : await ConnectedSystemsService.readRecord(
+              vaultOwnerToken || "",
+              payload,
+            );
         if (completedReadKey) setReadResolvedKey(completedReadKey);
         return nextResult;
       },
@@ -1108,54 +872,38 @@ export function ConnectedSystemsPanel({
     }
     if (!bindingResolved) return;
     if (!agentInstruction.actionId.startsWith("connected_system.crm.")) return;
+    if (!schemaReady || visibleProfileFields.length === 0) return;
 
     const instructionKey = JSON.stringify(agentInstruction);
     if (consumedAgentInstructionRef.current === instructionKey) return;
     consumedAgentInstructionRef.current = instructionKey;
 
-    const slots = agentInstruction.slots || {};
-    const lookupEmail = cleanFieldValue(slots.email) || registeredEmail;
-    const lookupPhone = cleanFieldValue(slots.phone) || registeredPhone;
-    const recordId = cleanFieldValue(
-      slots.id || slots.recordId || slots.record_id,
-    );
     const proposedFields = agentInstructionFields(agentInstruction);
-
-    const applyProposedFields = () => {
-      if (Object.keys(proposedFields).length === 0) return;
-      setCrmFieldValues((current) => ({
-        ...current,
-        ...proposedFields,
-        Email: lookupEmail || registeredEmail || current.Email,
-        Phone: lookupPhone || registeredPhone || current.Phone,
-      }));
-    };
-
-    if (recordId) {
-      setUpdateId(recordId);
-      setDeleteId(recordId);
+    const declaredFields = new Map<string, CrmProfileField>();
+    for (const field of visibleProfileFields) {
+      declaredFields.set(field.key.toLowerCase(), field);
+      declaredFields.set((field.rawName || field.key).toLowerCase(), field);
     }
-
-    void (async () => {
-      if (lookupEmail && lookupPhone) {
-        await readRecord({
-          silent: false,
-          bindSearch: true,
-          email: lookupEmail,
-          phone: lookupPhone,
-        });
-      }
-      applyProposedFields();
-    })();
-    // readRecord is intentionally captured for this one-shot agent instruction.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const stagedFields = Object.entries(proposedFields).flatMap(
+      ([candidate, value]) => {
+        const field = declaredFields.get(candidate.toLowerCase());
+        return field ? [[field.key, value] as const] : [];
+      },
+    );
+    if (stagedFields.length === 0) return;
+    setCrmFieldValues((current) => {
+      const next = { ...current };
+      for (const [fieldKey, value] of stagedFields) next[fieldKey] = value;
+      return next;
+    });
+    toast.info("CRM proposal staged. Review it before linking or updating the record.");
   }, [
     agentInstruction,
     bindingResolved,
     mode,
-    registeredEmail,
-    registeredPhone,
+    schemaReady,
     selectedSystem,
+    visibleProfileFields,
     vaultOwnerToken,
   ]);
 
@@ -1172,6 +920,8 @@ export function ConnectedSystemsPanel({
       mode !== "detail" ||
       !activeBinding ||
       !currentRecordId ||
+      !schemaReady ||
+      !supportsAction("read") ||
       !hasLookup ||
       readResultHasCurrentRecord
     ) {
@@ -1187,55 +937,18 @@ export function ConnectedSystemsPanel({
     mode,
     readResultHasCurrentRecord,
     vaultOwnerToken,
-  ]);
-
-  useEffect(() => {
-    if (
-      !vaultOwnerToken ||
-      !selectedSystem ||
-      mode !== "detail" ||
-      !bindingResolved ||
-      activeBinding ||
-      currentRecordId ||
-      !hasRegisteredLookup
-    ) {
-      return;
-    }
-    const attemptKey = autoLinkKey;
-    if (autoLinkAttemptKeyRef.current === attemptKey) return;
-    autoLinkAttemptKeyRef.current = attemptKey;
-    void (async () => {
-      await readRecord({
-        silent: true,
-        bindSearch: true,
-        email: registeredEmail,
-        phone: registeredPhone,
-      });
-      setAutoLinkResolvedKey(attemptKey);
-    })();
-    // readRecord is intentionally keyed by the lookup identity and route state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    activeBinding,
-    autoLinkKey,
-    bindingResolved,
-    currentRecordId,
-    hasRegisteredLookup,
-    mode,
-    registeredEmail,
-    registeredPhone,
-    selectedSystem,
-    vaultOwnerToken,
+    schemaReady,
   ]);
 
   const updateCrmFieldValue = (field: CrmProfileField, value: string) => {
-    if ((hasBoundRecord && field.identityField) || field.writable !== true || field.immutable) return;
+    if (!schemaReady || field.updateable !== true || field.identityField || field.immutable) return;
     setCrmFieldValues((current) => ({ ...current, [field.key]: value }));
   };
 
   const createRecordFromSchema = async () => {
     const recordFields = Object.fromEntries(
       visibleProfileFields
+        .filter((field) => field.createable === true && !field.immutable)
         .map((field) => [field.rawName || field.key, cleanFieldValue(crmFieldValues[field.key])])
         .filter(([, value]) => Boolean(value)),
     );
@@ -1273,23 +986,32 @@ export function ConnectedSystemsPanel({
    * first.
    */
   const linkThisSystem = async () => {
-    if (!hasLookup) {
+    const canRead = supportsAction("read");
+    const canCreate = supportsAction("create");
+    if (canRead && !hasLookup) {
       toast.error(
         "Complete the CRM identity fields before linking this system.",
       );
       return;
     }
-    const found = await readRecord({
-      silent: true,
-      bindSearch: true,
-    });
-    if (found?.binding?.status === "active") {
-      toast.success(`Found your existing ${customerName} record and linked it.`);
-      return;
+    if (canRead) {
+      const found = await readRecord({
+        silent: true,
+        bindSearch: true,
+      });
+      if (found?.binding?.status === "active") {
+        toast.success(`Found your existing ${customerName} record and linked it.`);
+        return;
+      }
+      if (!canCreate) {
+        toast.info(`No matching ${customerName} record was found.`);
+        return;
+      }
     }
+    if (!canCreate) return;
     if (visibleProfileFields.some((field) => field.required && !cleanFieldValue(crmFieldValues[field.key]))) {
       toast.error(
-        "No existing record was found. Complete the required fields, then link again to create one.",
+        "Complete the required fields before creating this CRM record.",
       );
       return;
     }
@@ -1417,7 +1139,10 @@ export function ConnectedSystemsPanel({
   ) => {
     const pendingChanges = Object.keys(changedProfileFields).length;
     const parts = [
-      schema ? "Fields discovered" : "Using Contact defaults",
+      schema ? `${visibleProfileFields.length} fields discovered` : "Waiting for CRM schema",
+      schema?.schemaStatus === "capability_metadata_missing"
+        ? "Configuration update required"
+        : null,
       primaryCrmRecord
         ? `${crmRecords.length} record${crmRecords.length === 1 ? "" : "s"} loaded`
         : hasReadback && currentRecordId
@@ -1434,49 +1159,91 @@ export function ConnectedSystemsPanel({
     return <p className="text-xs text-muted-foreground">{parts.join(" / ")}</p>;
   };
 
-  const renderCrmFieldGrid = () => (
-    <div className="grid gap-3 sm:grid-cols-2">
-      {visibleProfileFields.map((field) => {
-        const identityField = field.identityField === true;
-        const identityValue =
-          isLegacyMacys && field.key === "Email"
-            ? registeredEmail
-            : isLegacyMacys && field.key === "Phone"
-              ? registeredPhone
-              : "";
-        const value = identityField
-          ? identityValue || crmFieldValues[field.key]
-          : crmFieldValues[field.key] || "";
+  const crmFieldRows: CrmFieldTableRow[] = visibleProfileFields.map((field) => {
+    const access = [
+      field.readable ? "read" : null,
+      field.createable ? "create" : null,
+      field.updateable ? "update" : null,
+      field.immutable ? "immutable" : null,
+      field.identityField ? "identity" : null,
+    ].filter(Boolean).join(" · ") || "not declared";
+    return {
+      key: field.key,
+      label: field.label,
+      dataType: field.dataType || "string",
+      access,
+      required: field.required ? "Required" : "Optional",
+      currentValue: displayRecordValue(crmFieldValues[field.key]),
+      field,
+    };
+  });
+
+  const crmFieldColumns: ColumnDef<CrmFieldTableRow>[] = [
+    { accessorKey: "label", header: "Field" },
+    { accessorKey: "dataType", header: "Type" },
+    {
+      accessorKey: "access",
+      header: "Access",
+      cell: ({ row }) => <span className="text-xs text-muted-foreground">{row.original.access}</span>,
+    },
+    { accessorKey: "required", header: "Required" },
+    {
+      accessorKey: "currentValue",
+      header: "Current value",
+      cell: ({ row }) => <span className="block max-w-56 truncate">{row.original.currentValue}</span>,
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: ({ row }) => {
+        const field = row.original.field;
+        if (
+          !schemaReady ||
+          !supportsAction("update") ||
+          field.updateable !== true ||
+          field.identityField ||
+          field.immutable
+        ) {
+          return <span className="text-xs text-muted-foreground">—</span>;
+        }
         return (
-          <label key={field.key} className="space-y-1.5">
-            <span className="flex items-center justify-between gap-2 text-[12px] font-medium text-muted-foreground">
-              <span>{field.label}</span>
-              {identityField && isLegacyMacys ? (
-                <span>From One profile</span>
-              ) : field.required ? (
-                <span>Required</span>
-              ) : field.key in changedProfileFields ? (
-                <span>Changed</span>
-              ) : null}
-            </span>
-            <Input
-              type={field.inputType || "text"}
-              value={value}
-              disabled={(hasBoundRecord && identityField) || field.writable !== true || field.immutable}
-              onChange={(event) =>
-                updateCrmFieldValue(field, event.target.value)
-              }
-              placeholder={field.placeholder}
-              autoComplete="off"
-            />
-            {crmBaselineValues[field.key] && !identityField ? (
-              <span className="block truncate text-[11px] text-muted-foreground">
-                Current: {displayRecordValue(crmBaselineValues[field.key])}
-              </span>
-            ) : null}
-          </label>
+          <Button
+            type="button"
+            variant="none"
+            effect="fade"
+            size="sm"
+            disabled={busy !== null}
+            onClick={() => {
+              setEditingField(field);
+              setEditingValue(cleanFieldValue(crmFieldValues[field.key]));
+            }}
+          >
+            Edit
+          </Button>
         );
-      })}
+      },
+    },
+  ];
+
+  const renderCrmFieldTable = (configurationMessage?: string | null) => (
+    <div className="space-y-2">
+      <DataTable
+        columns={crmFieldColumns}
+        data={crmFieldRows}
+        globalSearchKeys={["label", "dataType", "access", "required", "currentValue"]}
+        searchPlaceholder="Search fields"
+        initialPageSize={16}
+        pageSizeOptions={[16, 32, 64]}
+        density="compact"
+        stickyHeader
+        tableContainerClassName="max-w-full"
+        tableClassName="min-w-[920px]"
+      />
+      {configurationMessage ? (
+        <SurfaceInset className="px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+          {configurationMessage}
+        </SurfaceInset>
+      ) : null}
     </div>
   );
 
@@ -1604,7 +1371,7 @@ export function ConnectedSystemsPanel({
               </h2>
               <p className="text-sm text-muted-foreground">
                 {systemLabel || selectedSystem?.displayName || "CRM"} /{" "}
-                {selectedSystem?.objectTypeDefault || "Contact"}.
+                {primaryObjectLabel}.
               </p>
             </div>
           </div>
@@ -1632,6 +1399,48 @@ export function ConnectedSystemsPanel({
             }
             stackTrailingOnMobile
           />
+        </SettingsGroup>
+      ) : null}
+
+      {showCatalogueOnly ? (
+        <SettingsGroup title={`${customerName} field catalogue`}>
+          <div className="space-y-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              {renderSchemaStatus()}
+              <div className="flex flex-wrap gap-2">
+                {schemaReady && hasBoundRecord && supportsAction("read") ? (
+                  <Button
+                    type="button"
+                    variant="none"
+                    effect="fade"
+                    size="sm"
+                    disabled={busy !== null || !hasLookup}
+                    onClick={() => void readRecord()}
+                  >
+                    <Icon icon={RefreshCw} size="sm" className="mr-2" />
+                    Refresh record
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="none"
+                  effect="fade"
+                  size="sm"
+                  disabled={busy !== null}
+                  onClick={() => void loadSchema()}
+                >
+                  <Icon icon={ListChecks} size="sm" className="mr-2" />
+                  Refresh fields
+                </Button>
+              </div>
+            </div>
+            {renderCrmFieldTable(
+              !schemaReady
+                ? schema?.configurationMessage ||
+                    "This is a discovered field catalogue. The CRM must publish explicit field access metadata before records can be read or changed."
+                : "This CRM does not currently have a complete registered record-operation contract. Fields are shown for configuration review only.",
+            )}
+          </div>
         </SettingsGroup>
       ) : null}
 
@@ -1664,40 +1473,25 @@ export function ConnectedSystemsPanel({
                 </Button>
               </div>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {[
-                ["Registered email", registeredEmail || "Not registered"],
-                ["Registered phone", registeredPhone || "Not registered"],
-              ].map(([label, value]) => (
-                <div
-                  key={label}
-                  className="rounded-lg border border-border/60 bg-background/70 px-3 py-2.5"
-                >
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    {label}
-                  </div>
-                  <div className="mt-1 truncate text-sm font-medium text-foreground">
-                    {value}
-                  </div>
-                </div>
-              ))}
-            </div>
-            {!hasRegisteredLookup ? (
+            {!hasLookup ? (
               <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-300">
-                Add a verified email and phone number to your One profile
-                before linking a Macy's record.
+                Fill each field marked as an identity field before linking this
+                CRM record.
               </div>
             ) : null}
-            {renderCrmFieldGrid()}
+            {renderCrmFieldTable()}
             <p className="text-xs leading-relaxed text-muted-foreground">
-              We&apos;ll look for your existing record first, and only create
-              a new one if nothing matches.
+              {supportsAction("read") && supportsAction("create")
+                ? "We’ll look for your existing record first, and only create a new one if nothing matches."
+                : supportsAction("read")
+                  ? "We’ll look only for an existing CRM record."
+                  : "This CRM allows a new record to be prepared for review."}
             </p>
             <div className="flex justify-end">
               <Button
                 type="button"
                 size="sm"
-                disabled={busy !== null || !hasRegisteredLookup}
+                disabled={busy !== null || (supportsAction("read") && !hasLookup)}
                 onClick={() => void linkThisSystem()}
               >
                 <Icon
@@ -1713,7 +1507,11 @@ export function ConnectedSystemsPanel({
                   ? "Looking for your record..."
                   : busy === "create"
                     ? "Creating your record..."
-                    : "Link this system"}
+                    : supportsAction("read") && supportsAction("create")
+                      ? "Link this system"
+                      : supportsAction("read")
+                        ? "Find record"
+                        : "Create record"}
               </Button>
             </div>
           </div>
@@ -1760,7 +1558,7 @@ export function ConnectedSystemsPanel({
                 </Button>
               </div>
             </div>
-            {renderCrmFieldGrid()}
+            {renderCrmFieldTable()}
             {renderPendingUpdatePreview()}
             <div className="flex flex-wrap items-center justify-between gap-2">
               <Button
@@ -1789,7 +1587,7 @@ export function ConnectedSystemsPanel({
         <SettingsGroup title="Delete record">
           <SettingsRow
             icon={Trash2}
-            title={`Delete ${selectedSystem?.objectTypeDefault || "record"}`}
+            title={`Delete ${primaryObjectLabel}`}
             description={`Remove record ${currentRecordId} from ${customerName}.`}
             trailing={
               <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
@@ -1812,7 +1610,7 @@ export function ConnectedSystemsPanel({
                         Delete this CRM record?
                       </AlertDialogTitle>
                       <AlertDialogDescription>
-                        This deletes the {selectedSystem?.objectTypeDefault || "record"} in {customerName}. The One
+                        This deletes the {primaryObjectLabel} in {customerName}. The One
                         binding will be cleared after the MCP confirms deletion.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
@@ -1842,6 +1640,56 @@ export function ConnectedSystemsPanel({
           {statusBadge(String(deleteResult.resultClass || "completed"))}.
         </SurfaceInset>
       ) : null}
+      <SettingsDetailPanel
+        open={Boolean(editingField)}
+        onOpenChange={(open) => {
+          if (!open) setEditingField(null);
+        }}
+        title={editingField ? `Edit ${editingField.label}` : "Edit CRM field"}
+        description="This change is staged locally and will be reviewed before the CRM is updated."
+        desktopMaxWidthClassName="sm:!max-w-[520px]"
+      >
+        {editingField ? (
+          <div className="space-y-4 p-4 sm:p-5">
+            {Array.isArray(editingField.constraints?.allowedValues) ? (
+              <select
+                value={editingValue}
+                onChange={(event) => setEditingValue(event.target.value)}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="">Not set</option>
+                {editingField.constraints?.allowedValues
+                  ?.filter((value): value is string => typeof value === "string")
+                  .map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+            ) : (
+              <Input
+                type={editingField.inputType || "text"}
+                value={editingValue}
+                maxLength={typeof editingField.constraints?.maxLength === "number" ? editingField.constraints.maxLength : undefined}
+                onChange={(event) => setEditingValue(event.target.value)}
+                placeholder={editingField.placeholder}
+                autoComplete="off"
+              />
+            )}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="none" effect="fade" size="sm" onClick={() => setEditingField(null)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  updateCrmFieldValue(editingField, editingValue);
+                  setEditingField(null);
+                }}
+              >
+                Stage change
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </SettingsDetailPanel>
       <AlertDialog
         open={Boolean(pendingIntent)}
         onOpenChange={(open) => {
@@ -1855,7 +1703,7 @@ export function ConnectedSystemsPanel({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingIntent
-                ? `${customerName} · ${pendingIntent.objectType || selectedSystem?.objectTypeDefault || "record"}${pendingIntent.recordId ? ` · record ${pendingIntent.recordId}` : ""}`
+                ? `${customerName} · ${pendingIntent.objectType || primaryObjectLabel}${pendingIntent.recordId ? ` · record ${pendingIntent.recordId}` : ""}`
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>

@@ -873,6 +873,11 @@ hydrate_backend_cloud_reference() {
   set_mapped_secret_key_or_cached "$file" "$profile" "$project" "GMAIL_OAUTH_TOKEN_KEY" "false" "$cache_file" GMAIL_OAUTH_TOKEN_KEY GMAIL_TOKEN_ENCRYPTION_KEY
   set_secret_key_or_cached "$file" "$profile" "$project" "OPENAI_API_KEY" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "VOICE_RUNTIME_CONFIG_JSON" "false" "$cache_file"
+  # Managed Omni Gateway credentials are only materialized into the ignored,
+  # mode-600 local backend runtime file. They are never emitted by doctor or
+  # copied into frontend profiles.
+  set_secret_key_or_cached "$file" "$profile" "$project" "OMNIGATEWAY_CLIENT_ID" "false" "$cache_file"
+  set_secret_key_or_cached "$file" "$profile" "$project" "OMNIGATEWAY_CLIENT_SECRET" "false" "$cache_file"
   remove_env_keys "$file" FINRA_VERIFY_BASE_URL FINRA_VERIFY_API_KEY FINRA_VERIFY_TIMEOUT_SECONDS
 
   for key in PLAID_ENV PLAID_CLIENT_NAME PLAID_COUNTRY_CODES PLAID_WEBHOOK_URL PLAID_REDIRECT_PATH PLAID_REDIRECT_URI PLAID_TX_HISTORY_DAYS; do

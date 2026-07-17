@@ -275,10 +275,16 @@ export function resolveBottomNavContextKey(
 
 export function resolveBottomNavOptionKeys(
   _pathname: string | null | undefined,
-  _scope: AppBottomNavScope,
+  scope: AppBottomNavScope,
   _context?: AppBottomNavContext,
 ): AppBottomNavKey[] {
-  return ["dashboard", "finance", "portfolio", "analysis", "connect", "search"];
+  if (scope === "investor") {
+    return ["dashboard", "finance", "portfolio", "analysis", "connect", "search"];
+  }
+  if (scope === "ria") {
+    return ["dashboard", "ria-home", "clients", "picks", "connect", "search"];
+  }
+  return ["dashboard", "connect", "search"];
 }
 
 /** Contextual workspace tabs render beside the stable primary navigation. */
