@@ -297,7 +297,7 @@ async def vault_check(
         return VaultCheckResponse(hasVault=has_vault)
 
     except Exception as e:
-        logger.error(f"vault/check error: {e}")
+        logger.error("db_proxy.vault_check.error: %s", e)
         _raise_database_http_exception(e)
 
 
@@ -414,7 +414,7 @@ async def vault_get(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"vault/get error: {e}")
+        logger.error("db_proxy.vault_get.error: %s", e)
         _raise_database_http_exception(e)
 
 
@@ -743,7 +743,9 @@ async def validate_vault_owner_token(consent_token: str, user_id: str) -> None:
 
     if token_obj.scope != ConsentScope.VAULT_OWNER:
         logger.warning(
-            f"Insufficient scope: {token_obj.scope.value} (requires {ConsentScope.VAULT_OWNER.value})"
+            "db_proxy.validate_vault_owner_token.insufficient_scope scope=%s requires=%s",
+            token_obj.scope.value,
+            ConsentScope.VAULT_OWNER.value,
         )
         raise HTTPException(
             status_code=403,
@@ -751,10 +753,14 @@ async def validate_vault_owner_token(consent_token: str, user_id: str) -> None:
         )
 
     if str(token_obj.user_id) != user_id:
-        logger.warning(f"Token userId mismatch: {token_obj.user_id} != {user_id}")
+        logger.warning(
+            "db_proxy.validate_vault_owner_token.user_id_mismatch token_uid=%s req_uid=%s",
+            token_obj.user_id,
+            user_id,
+        )
         raise HTTPException(status_code=403, detail="Token userId does not match requested userId")
 
-    logger.info(f"✅ VAULT_OWNER token validated for {user_id}")
+    logger.info("db_proxy.validate_vault_owner_token.ok user_id=%s", user_id)
 
 
 @router.post("/vault/status")
