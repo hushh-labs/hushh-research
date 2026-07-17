@@ -363,7 +363,9 @@ export function VaultFlow({
         toast.error(message);
       }
     } catch (err: any) {
-      console.error("Unlock error:", err);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("Unlock error:", err);
+      }
       const message = toInvestorVaultUnlockError(err);
       setError(message);
       toast.error(message);
