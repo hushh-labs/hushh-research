@@ -30,6 +30,7 @@ const { findFreePort } = require("./services/ports");
 const { initRuntimeContext } = require("./services/runtime");
 const { ensureBackendVenv } = require("./services/launcher");
 const { spawnProcesses, waitForServices, shutdownServices } = require("./services/supervisor");
+const { ensureDaemonRunning } = require("./services/daemon");
 
 const { registerPlatformHandlers }      = require("./ipc/platform");
 const { registerRuntimeHandlers }       = require("./ipc/runtime");
@@ -103,6 +104,11 @@ app.whenReady().then(async () => {
 
     // 6. Launch browser window
     createWindow(context.frontendURL);
+
+    // 7. Best-effort: ensure the OneWindows MCP daemon is running. Fired
+    //    off without awaiting -- it must never delay or block the window
+    //    that just opened, and unlike steps 3-5 a failure here is not fatal.
+    void ensureDaemonRunning();
   } catch (err) {
     console.error("[main] Startup failed:", err);
     shutdownServices();

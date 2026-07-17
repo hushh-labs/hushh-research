@@ -4,6 +4,7 @@ using OneWindows.Consent;
 using OneWindows.Daemon;
 using OneWindows.Daemon.Tools;
 using OneWindows.Mcp;
+using OneWindows.Npu;
 
 // Loopback-only MCP daemon: mirrors the Mac OneDaemon reference's threat
 // model (background service, MCP server bound to 127.0.0.1 only, gated by
@@ -63,8 +64,41 @@ builder.WebHost.ConfigureKestrel(options =>
 });
 Log($"Startup: Kestrel configured for 127.0.0.1:{McpPort}");
 
+// One process-wide instance, matching Python's module-level `_revoked_tokens`
+// singleton usage. In-process only: nothing currently populates this from
+// the Python backend's own DB-backed revocation (validate_token_with_db's
+// cross-instance check isn't ported), so a token revoked there won't be
+// rejected here until that sync exists. Real today for anything that calls
+// .Add() within this process, including the daemon.revoke_token tool below.
+var revocationCache = new RevocationCache();
+
+// Best-effort, like the Windows Service host itself never being a hard
+// requirement for this daemon to be useful: if the model hasn't been
+// fetched (scripts/fetch-npu-model.ps1), skip registering the tool rather
+// than failing startup. MobileNetClassifier.Load() takes real seconds
+// (Hexagon graph compilation) -- done once here, not per-request.
+var tools = new List<IMcpTool> { new DaemonStatusTool(startedAt), new WhoAmITool(), new RevokeTokenTool(revocationCache) };
+string modelDir = Path.Combine(AppContext.BaseDirectory, "models", "mobilenet_v2");
+if (File.Exists(Path.Combine(modelDir, "mobilenet_v2.onnx")))
+{
+    try
+    {
+        var classifier = MobileNetClassifier.Load(modelDir);
+        Log($"Startup: MobileNetClassifier loaded, NpuMode={classifier.NpuMode}");
+        tools.Add(new ClassifyImageTool(classifier));
+    }
+    catch (Exception ex)
+    {
+        Log($"Startup: MobileNetClassifier failed to load, daemon.classify_image will be unavailable: {ex.Message}");
+    }
+}
+else
+{
+    Log($"Startup: no model at {modelDir}, daemon.classify_image will be unavailable. Run scripts/fetch-npu-model.ps1.");
+}
+
 var mcpServer = new McpServer(
-    tools: new IMcpTool[] { new DaemonStatusTool(startedAt), new WhoAmITool() },
+    tools: tools,
     serverName: "one-windows-daemon",
     serverVersion: typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.1.0");
 
@@ -95,7 +129,7 @@ app.MapPost("/mcp", async (HttpContext http) =>
     }
 
     string tokenStr = authHeader.ToString()["Bearer ".Length..].Trim();
-    TokenValidationResult validation = TokenCodec.Validate(tokenStr, signingKey);
+    TokenValidationResult validation = TokenCodec.Validate(tokenStr, signingKey, revocationCache: revocationCache);
     if (!validation.IsValid)
     {
         http.Response.StatusCode = StatusCodes.Status401Unauthorized;

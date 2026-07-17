@@ -68,17 +68,25 @@ public static class TokenCodec
 
     /// <summary>
     /// Validates a token, mirroring validate_token()'s full signature and
-    /// check ordering: signature, then expiry (checked before scope so an
-    /// expired token never leaks which scope it held), then scope (via
+    /// check ordering: revocation (fastest, checked before any parsing),
+    /// then signature, then expiry (checked before scope so an expired
+    /// token never leaks which scope it held), then scope (via
     /// ScopeMatcher.Matches, only if <paramref name="expectedScope"/> is
-    /// given), then the commercial-flag gate.
+    /// given), then the commercial-flag gate. <paramref name="revocationCache"/>
+    /// is optional -- omit it to skip revocation checking entirely (e.g. in
+    /// tests), matching how most of the 71 existing call sites don't care
+    /// about it.
     /// </summary>
     public static TokenValidationResult Validate(
         string tokenStr,
         string signingKey,
         string? expectedScope = null,
-        bool? requireCommercial = null)
+        bool? requireCommercial = null,
+        RevocationCache? revocationCache = null)
     {
+        if (revocationCache is not null && revocationCache.Contains(tokenStr))
+            return TokenValidationResult.Invalid("Token has been revoked");
+
         var prefixParts = tokenStr.Split(':', 2);
         if (prefixParts.Length != 2)
             return TokenValidationResult.Invalid("Malformed token");

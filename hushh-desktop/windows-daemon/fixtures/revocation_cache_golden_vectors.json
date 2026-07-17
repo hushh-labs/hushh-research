@@ -1,0 +1,43 @@
+{
+  "nowMs": 1700000000000,
+  "expiredTokenGraceMs": 3600000,
+  "malformedTokenTtlMs": 608400000,
+  "defaultConsentTokenExpiryMs": 604800000,
+  "cases": [
+    {
+      "name": "well_formed_token",
+      "tokenStr": "HCT:dTF8YTF8dmF1bHQub3duZXJ8MTc4NDI2OTk4NzAyMHwxNzg0ODc0Nzg3MDIw.2d7c4ac9071279bdcba16e2eee171b5e509fd32198344c4acdf18ef30f1afb1e",
+      "expectedEvictAfterMs": 1784878387020
+    },
+    {
+      "name": "commercial_token",
+      "tokenStr": "HCT:dTJ8YTF8YWdlbnQua2FpLmNoYXR8MTc4NDI2OTk4NzAyMHwxNzg0ODc0Nzg3MDIwfGNvbW1lcmNpYWw=.4ce9a6f5d38541298f66178269b030fc824c0f2f77de18727127ff6f7cd14281",
+      "expectedEvictAfterMs": 1784878387020
+    },
+    {
+      "name": "not_a_token_at_all",
+      "tokenStr": "not-a-token-at-all",
+      "expectedEvictAfterMs": 1700608400000
+    },
+    {
+      "name": "no_colon",
+      "tokenStr": "HCTabcdef.123456",
+      "expectedEvictAfterMs": 1700608400000
+    },
+    {
+      "name": "no_dot",
+      "tokenStr": "HCT:abcdefgh",
+      "expectedEvictAfterMs": 1700608400000
+    },
+    {
+      "name": "bad_base64",
+      "tokenStr": "HCT:not-valid-base64!!!.deadbeef",
+      "expectedEvictAfterMs": 1700608400000
+    },
+    {
+      "name": "wrong_field_count",
+      "tokenStr": "HCT:YXxifGM=.sig",
+      "expectedEvictAfterMs": 1700608400000
+    }
+  ]
+}

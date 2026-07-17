@@ -27,6 +27,7 @@
   <ItemGroup>
     <None Include="..\..\fixtures\hct_golden_vectors.json" Link="fixtures\hct_golden_vectors.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\fixtures\scope_matches_golden_vectors.json" Link="fixtures\scope_matches_golden_vectors.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\fixtures\revocation_cache_golden_vectors.json" Link="fixtures\revocation_cache_golden_vectors.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
