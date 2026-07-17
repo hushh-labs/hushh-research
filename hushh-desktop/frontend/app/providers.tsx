@@ -37,6 +37,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { StatusBarManager } from "@/components/status-bar-manager";
 import { usePathname, useRouter } from "next/navigation";
 import { ensureMorphyGsapReady } from "@/lib/morphy-ux/gsap-init";
+import { primeElectronBackendOrigin } from "@/lib/electron/backend-origin";
 import { usePageEnterAnimation } from "@/lib/morphy-ux/hooks/use-page-enter";
 import { PostAuthOnboardingSyncBridge } from "@/components/onboarding/PostAuthOnboardingSyncBridge";
 import { KaiCommandBarGlobal } from "@/components/kai/kai-command-bar-global";
@@ -189,6 +190,13 @@ function AppShellFrame({ children }: ProvidersProps) {
   // One-time GSAP init (non-blocking).
   useEffect(() => {
     void ensureMorphyGsapReady();
+  }, []);
+
+  // POC: resolve the Electron backend origin as early as possible so
+  // subsequent API calls can route directly to the Python backend
+  // instead of through the Next.js proxy. No-op outside Electron.
+  useEffect(() => {
+    void primeElectronBackendOrigin();
   }, []);
 
   // Add a root platform class for native-iOS specific CSS hooks.

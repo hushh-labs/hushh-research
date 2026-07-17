@@ -46,6 +46,7 @@ import {
   resolveVoiceForceProxyPreference,
 } from "@/lib/runtime/settings";
 import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
+import { getElectronBackendOrigin, isElectronRuntime } from "@/lib/electron/backend-origin";
 
 const AUTH_REFRESH_RETRY_HEADER = "X-Hushh-Auth-Refresh-Retry";
 const AUTH_SESSION_INVALIDATED_EVENT = "auth-session-invalidated";
@@ -190,6 +191,35 @@ const getApiBaseUrl = (): string => {
   // Web: Use relative paths (local Next.js server)
   return "";
 };
+
+// Routes that are Next.js-only (no Python backend counterpart) and must
+// never be sent to the backend origin, e.g. the httpOnly-cookie session
+// route, which talks to Firebase Admin SDK directly and has no backend
+// route at all.
+const NEXT_ONLY_API_PATHS = ["/api/auth/session"];
+
+function isNextOnlyApiPath(path: string): boolean {
+  return NEXT_ONLY_API_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
+}
+
+// POC: route regular API calls straight to the Python backend when running
+// in the Electron shell, mirroring what Capacitor native builds already do,
+// instead of always going through the local Next.js proxy server. Falls
+// back to the existing relative-path (proxy) behavior until the backend
+// origin has been resolved via IPC (see lib/electron/backend-origin.ts) or
+// for the small set of Next.js-only routes above.
+function resolveApiBase(path: string): string {
+  if (isElectronRuntime() && !isNextOnlyApiPath(path)) {
+    const origin = getElectronBackendOrigin();
+    if (origin) {
+      if (process.env.NODE_ENV !== "production") {
+        console.debug(`[ApiService] electron_direct_backend path=${path} base=${origin}`);
+      }
+      return origin;
+    }
+  }
+  return getApiBaseUrl();
+}
 
 // Direct Backend URL for streaming (bypasses Next.js proxy)
 export const getDirectBackendUrl = (): string => {
@@ -339,7 +369,7 @@ async function apiFetch(
   path: string,
   options: RequestInit = {}
 ): Promise<Response> {
-  const apiBase = getApiBaseUrl();
+  const apiBase = resolveApiBase(path);
   const url = `${apiBase}${path}`;
   const requestStartedAt = Date.now();
   const httpMethod = (options.method || "GET").toUpperCase();

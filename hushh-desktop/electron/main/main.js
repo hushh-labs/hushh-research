@@ -17,6 +17,15 @@
 const path = require("path");
 const { app, BrowserWindow } = require("electron");
 
+// Windows groups taskbar icons/jump-lists/notifications by this ID. Without
+// it, Windows falls back to grouping by the executable path, which breaks
+// taskbar pinning and notification identity for Electron apps. Must match
+// electron-builder's `appId` (package.json) and be set before any window is
+// created.
+if (process.platform === "win32") {
+  app.setAppUserModelId("com.hushh.desktop");
+}
+
 const { findFreePort } = require("./services/ports");
 const { initRuntimeContext } = require("./services/runtime");
 const { ensureBackendVenv } = require("./services/launcher");

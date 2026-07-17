@@ -26,6 +26,7 @@ function killTree(proc, label) {
   if (process.platform === "win32") {
     spawn("taskkill", ["/pid", String(proc.pid), "/T", "/F"], {
       stdio: "ignore",
+      windowsHide: true,
     });
     console.log(`[supervisor] Sent taskkill to ${label} (pid ${proc.pid})`);
   } else {

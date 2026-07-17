@@ -265,7 +265,7 @@ class ModelRegistry {
             "pull", modelRef,
             "--model-hub", GENIEX_MODEL_HUB,
             "--model-type", GENIEX_MODEL_TYPE,
-        ], { stdio: ["pipe", "pipe", "pipe"] });
+        ], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
 
         this._pullProcess = pullProcess;
 
@@ -424,7 +424,8 @@ class ModelRegistry {
     // that default -- it drives the readiness wait below, not the bind.
     this.aiProcess = spawn(geniexExe, ["serve"], {
         env: { ...process.env },
-        stdio: ['pipe', 'pipe', 'pipe']
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true
     });
 
     this.aiProcess.stdout.on("data", (data) => {

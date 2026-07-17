@@ -11,6 +11,7 @@
 
 const os   = require("os");
 const { ipcMain, app } = require("electron");
+const { getRuntimeContext } = require("../services/runtime");
 
 function registerPlatformHandlers() {
   ipcMain.handle("hushh:platform:info", () => {
@@ -23,6 +24,12 @@ function registerPlatformHandlers() {
       nodeVersion:      process.versions.node,
       chromeVersion:    process.versions.chrome,
       isDev:            !app.isPackaged,
+
+      // Live backend origin for this launch (dynamically-allocated port —
+      // resolves the "how does the renderer learn the port" problem for
+      // routing API calls directly to the Python backend instead of
+      // through the Next.js proxy layer).
+      backendOrigin:    getRuntimeContext().backendURL,
 
       // OS
       os:               process.platform,   // "win32" | "darwin" | "linux"

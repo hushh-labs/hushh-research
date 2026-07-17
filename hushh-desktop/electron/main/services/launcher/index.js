@@ -49,6 +49,7 @@ async function ensureBackendVenv() {
       cwd: BACKEND_DIR,
       stdio: ["ignore", "pipe", "pipe"],
       shell: true,
+      windowsHide: true,
     });
     pipeOutput(uvProc, "UV", backendLogStream);
     uvProc.on("error", (err) => {
@@ -74,7 +75,17 @@ function startBackend() {
   
   const userDataPath = app.getPath("userData");
   const { backendEnv } = resolveEnvironments(FRONTEND_DIR, BACKEND_DIR, userDataPath);
-  const mergedEnv = { ...process.env, ...backendEnv };
+  const mergedEnv = {
+    ...process.env,
+    ...backendEnv,
+    // The backend's CORS allowlist always includes this origin (see
+    // server.py:_parse_cors_allowed_origins), production or not. Without it,
+    // a packaged build's dynamically-allocated frontend port has no way onto
+    // the allowlist -- only dev mode's hardcoded localhost:3000/3001 fallback
+    // covers that case today, which is why direct-backend calls (see
+    // ApiService.apiFetch's Electron routing) only worked in dev so far.
+    APP_FRONTEND_ORIGIN: context.frontendURL,
+  };
 
   let exeCommand = "";
   let exeArgs = [];
@@ -111,6 +122,7 @@ function startBackend() {
     cwd: BACKEND_DIR,
     stdio: ["pipe", "pipe", "pipe"],
     env: mergedEnv,
+    windowsHide: true,
   });
 
   pipeOutput(backendProc, "BACKEND", backendLogStream);
@@ -162,15 +174,16 @@ function startFrontend() {
   const frontendProc = spawn(NODE_EXE, frontendArgs, {
     cwd: frontendCwd,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { 
+    env: {
       ...process.env,
       ...frontendEnv,
-      PORT: context.frontendPort.toString(), 
+      PORT: context.frontendPort.toString(),
       BACKEND_URL: context.backendURL,
       NEXT_PUBLIC_BACKEND_URL: context.backendURL,
       HOSTNAME: "localhost",
-      ELECTRON_RUN_AS_NODE: "1" 
+      ELECTRON_RUN_AS_NODE: "1"
     },
+    windowsHide: true,
   });
 
   pipeOutput(frontendProc, "FRONTEND", frontendLogStream);

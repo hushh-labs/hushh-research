@@ -1439,7 +1439,14 @@ export class VaultService {
   }
 
   private static getApiUrl(path: string): string {
-    // Always same-origin for web; native branches return early via plugins.
+    // NOTE: unlike most /api/* routes, the vault/* Next.js route handlers do
+    // real path + method translation against the backend (e.g. GET
+    // /api/vault/check -> POST /db/vault/check) plus their own caching and
+    // 404-to-"not found" coercion. A same-path base-URL swap to the backend
+    // origin breaks these (confirmed live: direct /api/vault/check against
+    // the Python backend 404s, since that path doesn't exist there under
+    // /api -- only /db/vault/check does). Route through the Next.js proxy
+    // for all vault calls until that translation logic is ported too.
     return path;
   }
 }
