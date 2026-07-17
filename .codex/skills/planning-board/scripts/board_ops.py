@@ -191,7 +191,11 @@ def get_issue_node_id(repo: str, issue_number: int) -> str:
     return node_id["id"]
 
 
+_issue_json_cache = {}
 def get_issue_json(repo: str, issue_number: int) -> Any:
+    key = (repo, issue_number)
+    if key in _issue_json_cache:
+        return _issue_json_cache[key]
     try:
         payload = run_gh_json(
             [
@@ -221,6 +225,7 @@ def get_issue_json(repo: str, issue_number: int) -> Any:
             raise
     payload["displayTitle"] = f'#{payload["number"]} {payload["title"]}'
     payload["labelNames"] = [label["name"] for label in payload.get("labels", [])]
+    _issue_json_cache[key] = payload
     return payload
 
 
