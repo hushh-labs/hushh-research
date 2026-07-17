@@ -13,7 +13,7 @@ describe("Kai analysis route layering contract", () => {
   it("uses replace for in-route ticker preview transitions", () => {
     const source = read("app/one/kai/analysis/page.tsx");
 
-    expect(source).toContain("router.replace(\n        buildKaiAnalysisPreviewRoute");
-    expect(source).not.toContain("router.push(\n        buildKaiAnalysisPreviewRoute");
+    expect(source).toMatch(/router\.replace\s*\(\s*buildKaiAnalysisPreviewRoute/);
+    expect(source).not.toMatch(/router\.push\s*\(\s*buildKaiAnalysisPreviewRoute/);
   });
 });
