@@ -17,6 +17,10 @@ because external tools like Hermes need one address to configure once, the
 same way they'd point at any local LM Studio/vLLM instance.
 
 Run with: uvicorn local_bridge.server:app --port 18182
+(or directly: python -m local_bridge.server -- see __main__ below, which is
+what the PyInstaller-compiled packaged build actually launches; Electron's
+ModelRegistry spawns the dev-mode venv python with the uvicorn invocation
+above instead, see registry.js's _getLocalBridgeCommand).
 """
 
 from __future__ import annotations
@@ -216,3 +220,15 @@ async def chat_completions(request: Request):
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(_single_chunk_stream(), media_type="text/event-stream")
+
+
+if __name__ == "__main__":
+    # Entrypoint for the PyInstaller-compiled packaged build (see
+    # build-local-bridge.py) -- a packaged install has no Python venv to run
+    # `uvicorn local_bridge.server:app` against, so the compiled exe needs to
+    # be able to start itself directly. Dev mode doesn't use this path (see
+    # module docstring); this is deliberately the ONLY entrypoint difference
+    # between dev and packaged, everything else in this file is identical.
+    import uvicorn
+
+    uvicorn.run(app, host="127.0.0.1", port=BRIDGE_PORT)
