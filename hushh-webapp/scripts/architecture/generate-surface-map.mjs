@@ -162,7 +162,7 @@ const routeOverrides = {
       terminal_payload_storage:
         "field names, record id, result class, and sanitized summaries only",
       external_plaintext_boundary:
-        "Salesforce CRM MCP transport is outside the ZK boundary until private VPC proxy replaces Customer 0 CloudHub endpoint.",
+        "Salesforce CRM MCP transport is outside the ZK boundary. Hussh reaches MuleSoft Managed Omni Gateway over Streamable HTTP; MuleSoft Private Space owns the downstream CRM network boundary.",
     },
   },
   "/gmail": {

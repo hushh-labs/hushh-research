@@ -279,11 +279,13 @@ own external CRM record through a schema-driven lifecycle: search for an
 existing Contact, create if missing, update allowed fields, and delete the
 bound external record when requested.
 The first shipped entry is Customer 0 Salesforce CRM over an external CRM MCP
-streamable HTTP transport. Customer 0 loads the Macy's CloudHub MCP endpoint
-from the backend connected-system registry row with a declared MCP tool catalog,
-not from `.env` endpoint config. The deterministic `registry://` simulator is
-kept for tests only. Production can swap that registry row to a MuleSoft
-VPC/private proxy without changing Profile or Agent flows.
+streamable HTTP transport through MuleSoft Managed Omni Gateway in CloudHub 2.0
+Private Spaces. The backend uses its Secret Manager-injected Omni Gateway
+client-enforcement headers while MuleSoft receives the CRM-specific encrypted
+credential arguments from the active registry row. The deterministic
+`registry://` simulator is kept for tests only. The Cloud Run service itself
+does not require a Hussh GCP VPC connector for this managed-gateway transport;
+MuleSoft owns the private-space network boundary behind its ingress.
 
 The canonical registry entry is:
 
