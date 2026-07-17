@@ -762,7 +762,9 @@ export function AnalysisHistoryDashboard({
       );
       applyHistoryMap(mergedMap);
     } catch (err) {
-      console.error("[AnalysisHistoryDashboard] Failed to load history:", err);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[AnalysisHistoryDashboard] Failed to load history:", err);
+      }
       const mergedMap = mergeRunManagerHistoryEntries(
         {},
         DebateRunManagerService.getHistoryEntriesForUser(userId)
