@@ -395,7 +395,7 @@ async def analyze_portfolio_losers(
 
     client = genai.Client(http_options=HttpOptions(api_version="v1"))
     model_to_use = GEMINI_MODEL
-    logger.info(f"Optimize Portfolio: Using Vertex AI with model {model_to_use}")
+    logger.info("Optimize Portfolio: Using Vertex AI with model %s", model_to_use)
     cash_positions_excluded, cash_value_excluded = _summarize_excluded_cash_positions(
         request.holdings or []
     )
@@ -870,7 +870,7 @@ async def analyze_portfolio_losers_stream(
 
                 client = genai.Client(http_options=HttpOptions(api_version="v1"))
                 model_to_use = GEMINI_MODEL
-                logger.info(f"Optimize Portfolio Stream: Using Vertex AI with model {model_to_use}")
+                logger.info("Optimize Portfolio Stream: Using Vertex AI with model %s", model_to_use)
 
                 # Configure for deterministic JSON reliability.
                 config_kwargs: dict[str, Any] = {
@@ -1029,7 +1029,7 @@ async def analyze_portfolio_losers_stream(
                 except Exception as parse_error:
                     salvage_candidate = _extract_likely_json_object(full_response)
                     if not salvage_candidate or salvage_candidate == full_response:
-                        logger.error(f"Failed to parse LLM response: {parse_error}")
+                        logger.error("Failed to parse LLM response: %s", parse_error)
                         yield stream.event(
                             "error",
                             {
@@ -1054,7 +1054,7 @@ async def analyze_portfolio_losers_stream(
                         )
                         diagnostics["salvage_applied"] = True
                     except Exception as salvage_error:
-                        logger.error(f"Failed to parse LLM response after salvage: {salvage_error}")
+                        logger.error("Failed to parse LLM response after salvage: %s", salvage_error)
                         yield stream.event(
                             "error",
                             {
@@ -1079,7 +1079,7 @@ async def analyze_portfolio_losers_stream(
 
                     yield stream.event("complete", payload, terminal=True)
                 except Exception as payload_error:
-                    logger.error(f"Failed to finalize parsed payload: {payload_error}")
+                    logger.error("Failed to finalize parsed payload: %s", payload_error)
                     yield stream.event(
                         "error",
                         {
@@ -1097,7 +1097,8 @@ async def analyze_portfolio_losers_stream(
 
         except asyncio.TimeoutError:
             logger.warning(
-                f"[Losers Analysis] Hard timeout ({HARD_TIMEOUT_SECONDS}s) reached, stopping LLM"
+                "[Losers Analysis] Hard timeout (%ds) reached, stopping LLM",
+                HARD_TIMEOUT_SECONDS,
             )
             yield stream.event(
                 "error",
