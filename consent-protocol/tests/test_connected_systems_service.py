@@ -218,6 +218,31 @@ def test_default_service_reloads_active_registry_for_each_list(monkeypatch):
     assert service.list_systems() == []
 
 
+def test_relative_operation_endpoint_uses_registered_absolute_transport() -> None:
+    definition = ConnectedSystemDefinition(
+        system_id="legacy-relative-operation-endpoint",
+        display_name="Legacy CRM",
+        customer_display_name="Legacy CRM",
+        system_type="Salesforce",
+        system_name="Salesforce",
+        target="Legacy CRM",
+        object_type_default="Contact",
+        transport="external_crm_streamable_mcp",
+        transport_endpoint="https://gateway.example.test/mcp",
+        registry_source="test",
+        tool_catalog=(
+            {
+                "name": "object-schema",
+                "operation": "schema",
+                "mcpEndpoint": "/crm-connect/v1/mcp",
+            },
+        ),
+        capabilities=frozenset({"schema"}),
+    )
+
+    assert definition.operation_endpoint("schema") == "https://gateway.example.test/mcp"
+
+
 @pytest.mark.asyncio
 async def test_registry_simulator_path_remains_available_for_deterministic_local_tests():
     adapter = ExternalCrmStreamableMcpAdapter(

@@ -54,13 +54,16 @@ describe("Navbar bottom utilities", () => {
     ROUTES.KAI_ANALYSIS,
     ROUTES.RIA_PICKS,
     ROUTES.PROFILE,
-  ])("keeps One, Connect, and Search grouped on %s", (pathname) => {
+  ])("keeps the shared workspace tabs grouped on %s", (pathname) => {
     navigationMock.pathname = pathname;
     const { unmount } = render(<Navbar />);
     const routeNav = screen.getByRole("radiogroup", { name: "Route navigation" });
 
     expect(within(routeNav).getAllByRole("radio").map((radio) => radio.textContent?.trim())).toEqual([
       "One",
+      "Market",
+      "Portfolio",
+      "Analysis",
       "Connect",
       "Search",
     ]);
@@ -77,10 +80,10 @@ describe("Navbar bottom utilities", () => {
     expect(navigationMock.push).toHaveBeenLastCalledWith(ROUTES.ONE_HOME);
   });
 
-  it("uses three equal primary bottom-nav slots", () => {
+  it("uses six equal workspace bottom-nav slots", () => {
     render(<Navbar />);
     expect(screen.getByRole("radiogroup", { name: "Route navigation" }).getAttribute("style")).toContain(
-      "grid-template-columns: repeat(3, minmax(0, 1fr))",
+      "grid-template-columns: repeat(6, minmax(0, 1fr))",
     );
     expect(screen.getByTestId("app-bottom-nav-frame").className).toContain(
       "max-w-[min(calc(100vw-2rem),42rem)]",

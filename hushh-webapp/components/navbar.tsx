@@ -47,8 +47,8 @@ import {
 import { resolveAgentNavigationContextForPath } from "@/lib/navigation/agent-sections";
 import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 
-const BOTTOM_NAV_MAX_SLOT_COUNT = 3;
-const BOTTOM_NAV_SLOT_WIDTH_REM = 5.4;
+const BOTTOM_NAV_MAX_SLOT_COUNT = 6;
+const BOTTOM_NAV_SLOT_WIDTH_REM = 4.1;
 function resolveBottomNavMaxWidth(count: number): string {
   const slotCount = Math.min(Math.max(count, 1), BOTTOM_NAV_MAX_SLOT_COUNT);
   return `${slotCount * BOTTOM_NAV_SLOT_WIDTH_REM}rem`;
@@ -342,14 +342,7 @@ export const Navbar = () => {
     return null;
   }
 
-  const activeNav =
-    normalizedPathname === ROUTES.AGENT
-      ? "search"
-      : normalizedPathname.startsWith(ROUTES.CONNECT)
-        ? "connect"
-        : resolveBottomNavActiveKey(normalizedPathname, "one") === "profile"
-          ? "dashboard"
-          : "dashboard";
+  const activeNav = resolveBottomNavActiveKey(normalizedPathname, bottomNavScope);
   const activeSpecialistNav = resolveBottomNavContextKey(
     normalizedPathname,
     bottomNavScope,
