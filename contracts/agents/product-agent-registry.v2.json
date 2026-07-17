@@ -63,6 +63,64 @@
       },
       "side_effects": [],
       "status": "experimental",
+      "subagents": [
+        {
+          "description": "Maps a CRM's public field catalogue to the verified-profile semantics needed for safe onboarding.",
+          "id": "crm_schema_mapper",
+          "inputs": [
+            {
+              "description": "Normalized public object metadata and field descriptors only.",
+              "name": "crm_schema",
+              "type": "object"
+            }
+          ],
+          "model": {
+            "credential_ref": null,
+            "mode": "hushh_managed_vertex",
+            "name": "gemini-3.5-flash",
+            "provider": "gemini"
+          },
+          "name": "CRM Schema Mapper",
+          "outputs": [
+            {
+              "description": "Typed semantic-to-schema-key mapping with confidence and reason per slot.",
+              "name": "mapping",
+              "type": "object"
+            }
+          ],
+          "performance": {
+            "latency_p95_ms": 10000,
+            "max_output_tokens": 1200
+          },
+          "privacy": {
+            "context_allowlist": [
+              "crm.object.name",
+              "crm.object.label",
+              "crm.schema.fields.key",
+              "crm.schema.fields.label",
+              "crm.schema.fields.type",
+              "crm.schema.fields.required",
+              "crm.schema.fields.constraints"
+            ],
+            "plaintext_telemetry": false
+          },
+          "rollout": {
+            "kill_switch": "CONNECTED_SYSTEMS_SCHEMA_MAPPER_ENABLED",
+            "rollback": "Disable the schema mapper; keep the CRM in catalogue-only mode until its mapping is available.",
+            "strategy": "canary"
+          },
+          "runtime": {
+            "adk_mode": "single_turn",
+            "factory": null,
+            "kind": "adk",
+            "transport": [
+              "in_process"
+            ]
+          },
+          "system_instruction": "You are the CRM Schema Mapper, an internal child of the Connected Systems\nprivate-agent specialist. Map only the supplied public CRM schema metadata\nto these semantic slots: email, phone, firstName, lastName, fullName, and\naddress. Return JSON matching the supplied response schema.\n\nSelect only exact field keys present in the supplied schema. Never invent\na field, a value, an identifier, a CRM tool, a capability, or a permission.\nEmail and phone are required. Select either firstName and lastName together,\nor fullName. Address is optional. Use null when no safe match exists.\n\nYou never receive or request CRM records, verified profile values, record\nidentifiers, credentials, consent material, or vault material. You only\nclassify schema metadata and cannot execute a CRM action.\n",
+          "telemetry_namespace": "agent.connected_systems.crm_schema_mapper"
+        }
+      ],
       "surfaces": {
         "a2a": false,
         "android": false,
@@ -77,7 +135,7 @@
       "telemetry_namespace": "agent.connected_systems",
       "tools": [],
       "ui_type": "chat",
-      "version": "1.0.0"
+      "version": "1.1.0"
     },
     {
       "action_ids": [],
@@ -144,6 +202,7 @@
       },
       "side_effects": [],
       "status": "experimental",
+      "subagents": [],
       "surfaces": {
         "a2a": false,
         "android": false,
@@ -223,6 +282,7 @@
       },
       "side_effects": [],
       "status": "experimental",
+      "subagents": [],
       "surfaces": {
         "a2a": false,
         "android": false,
@@ -317,6 +377,7 @@
       },
       "side_effects": [],
       "status": "experimental",
+      "subagents": [],
       "surfaces": {
         "a2a": false,
         "android": false,
@@ -396,6 +457,7 @@
       },
       "side_effects": [],
       "status": "experimental",
+      "subagents": [],
       "surfaces": {
         "a2a": false,
         "android": false,
@@ -501,6 +563,7 @@
       },
       "side_effects": [],
       "status": "experimental",
+      "subagents": [],
       "surfaces": {
         "a2a": false,
         "android": false,
@@ -613,6 +676,7 @@
       },
       "side_effects": [],
       "status": "experimental",
+      "subagents": [],
       "surfaces": {
         "a2a": false,
         "android": false,
@@ -695,6 +759,7 @@
       },
       "side_effects": [],
       "status": "experimental",
+      "subagents": [],
       "surfaces": {
         "a2a": false,
         "android": false,
@@ -970,6 +1035,7 @@
       },
       "side_effects": [],
       "status": "experimental",
+      "subagents": [],
       "surfaces": {
         "a2a": false,
         "android": false,
@@ -1112,6 +1178,7 @@
       },
       "side_effects": [],
       "status": "experimental",
+      "subagents": [],
       "surfaces": {
         "a2a": false,
         "android": false,
@@ -1214,6 +1281,7 @@
       },
       "side_effects": [],
       "status": "experimental",
+      "subagents": [],
       "surfaces": {
         "a2a": false,
         "android": false,
@@ -1291,6 +1359,7 @@
       },
       "side_effects": [],
       "status": "experimental",
+      "subagents": [],
       "surfaces": {
         "a2a": false,
         "android": false,
@@ -1406,6 +1475,7 @@
       },
       "side_effects": [],
       "status": "active",
+      "subagents": [],
       "surfaces": {
         "a2a": false,
         "android": false,
@@ -1491,6 +1561,7 @@
       },
       "side_effects": [],
       "status": "active",
+      "subagents": [],
       "surfaces": {
         "a2a": false,
         "android": false,
@@ -1570,6 +1641,7 @@
       },
       "side_effects": [],
       "status": "experimental",
+      "subagents": [],
       "surfaces": {
         "a2a": false,
         "android": false,
@@ -1744,6 +1816,7 @@
       },
       "side_effects": [],
       "status": "experimental",
+      "subagents": [],
       "surfaces": {
         "a2a": false,
         "android": false,
@@ -1864,6 +1937,7 @@
       },
       "side_effects": [],
       "status": "experimental",
+      "subagents": [],
       "surfaces": {
         "a2a": false,
         "android": false,
@@ -1981,6 +2055,7 @@
       },
       "side_effects": [],
       "status": "experimental",
+      "subagents": [],
       "surfaces": {
         "a2a": false,
         "android": false,

@@ -62,3 +62,15 @@ def test_kyc_owns_strict_zero_knowledge_formatter_contract() -> None:
     assert formatter["contract_id"] == "agent_kyc.approved_disclosure_formatter.v1"
     assert formatter["strict_client_zk"] is True
     assert formatter["backend_plaintext_allowed"] is False
+
+
+def test_connected_systems_schema_mapper_is_manifest_owned_and_toolless() -> None:
+    manifest = load("connected_systems")
+    mapper = next(child for child in manifest.subagents if child.id == "crm_schema_mapper")
+    assert mapper.model.name == "gemini-3.5-flash"
+    assert mapper.runtime.adk_mode == "single_turn"
+    assert mapper.runtime.transport == ["in_process"]
+    assert mapper.privacy.plaintext_telemetry is False
+    assert mapper.rollout.kill_switch == "CONNECTED_SYSTEMS_SCHEMA_MAPPER_ENABLED"
+    assert "credential" in mapper.system_instruction.lower()
+    assert "record" in mapper.system_instruction.lower()

@@ -67,6 +67,7 @@ class FakeExternalCrmAdapter:
 
     async def delete_record(self, payload: dict) -> dict:
         self.calls.append(("delete-crm-record", payload))
+        self.readback_records = []
         return {"isError": False, "payload": {"deleted": True}}
 
 
@@ -358,24 +359,12 @@ async def test_registry_contracts_keep_two_crms_isolated_and_sanitize_read_recor
     )
 
     greenhouse_schema = await service.get_schema(system_id=greenhouse.system_id)
-    assert greenhouse_schema["schemaStatus"] == "capability_metadata_missing"
-    before = len(adapter.calls)
-    with pytest.raises(ConnectedSystemBlockedError):
-        await service.read_record(
-            user_id="user-1",
-            system_id=greenhouse.system_id,
-            object_type=None,
-            email=None,
-            phone=None,
-            search_fields={"candidateId": "candidate-42"},
-            return_fields=["candidateId"],
-        )
-    assert len(adapter.calls) == before + 1  # schema refresh, never a read MCP call
-    assert adapter.calls[-1][0] == "schema"
+    assert greenhouse_schema["schemaStatus"] == "ready"
+    assert greenhouse_schema["accessMetadata"] == "partial"
 
 
 @pytest.mark.asyncio
-async def test_registry_schema_catalogue_without_access_metadata_blocks_record_tools():
+async def test_registry_schema_catalogue_without_access_metadata_keeps_mapped_tools_available():
     class MetadataOnlyAdapter:
         def __init__(self) -> None:
             self.calls: list[str] = []
@@ -439,9 +428,10 @@ async def test_registry_schema_catalogue_without_access_metadata_blocks_record_t
     )
 
     schema = await service.get_schema(system_id=definition.system_id)
-    assert schema["schemaStatus"] == "capability_metadata_missing"
+    assert schema["schemaStatus"] == "ready"
+    assert schema["accessMetadata"] == "partial"
     assert schema["objectMetadata"] == {"name": "Person", "label": "Person"}
-    assert schema["fields"][0]["readable"] is False
+    assert schema["fields"][0]["readable"] is None
     assert schema["effectiveActions"] == {
         "schema": True,
         "read": False,
@@ -449,18 +439,7 @@ async def test_registry_schema_catalogue_without_access_metadata_blocks_record_t
         "update": False,
         "delete": False,
     }
-
-    with pytest.raises(ConnectedSystemBlockedError):
-        await service.read_record(
-            user_id="user-1",
-            system_id=definition.system_id,
-            object_type=None,
-            email=None,
-            phone=None,
-            search_fields={"Email": "person@example.test"},
-            return_fields=["Email"],
-        )
-    assert adapter.calls == ["schema", "schema"]
+    assert adapter.calls == ["schema"]
 
 
 @pytest.mark.asyncio
@@ -681,6 +660,83 @@ async def test_bound_read_skips_redundant_mcp_search():
 
 
 @pytest.mark.asyncio
+async def test_verified_profile_create_uses_server_identity_and_never_writes_derived_full_name():
+    class VerifiedIdentityService:
+        async def get_many(self, _user_ids):
+            return {
+                "user_123": {
+                    "display_name": "John Doe",
+                    "email": "john@example.test",
+                    "email_verified": True,
+                    "phone_number": "+1 (415) 555-0100",
+                    "phone_verified": True,
+                }
+            }
+
+    service, _adapter = build_service()
+    service.identity_service = VerifiedIdentityService()
+
+    intent = await service.create_record_intent_for_verified_user(
+        user_id="user_123",
+        system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+        object_type=None,
+    )
+
+    stored = service.store.intents[intent["intentId"]]["request_payload"]
+    assert stored["email"] == "john@example.test"
+    assert stored["phone"] == "4155550100"
+    assert stored["lastName"] == "Doe"
+    assert "Name" not in stored
+    assert "firstName" not in stored
+
+
+@pytest.mark.asyncio
+async def test_bound_mutations_reject_other_record_ids_and_recheck_binding_on_approval():
+    service, adapter = build_service()
+    service.store.upsert_binding(
+        {
+            "binding_id": "binding-owner",
+            "user_id": "user_123",
+            "system_id": CONNECTED_SYSTEM_SALESFORCE_ID,
+            "target": "Macys",
+            "object_type": "Contact",
+            "record_id": "003gK00000ownedQAA",
+        }
+    )
+
+    with pytest.raises(ConnectedSystemBlockedError, match="not linked"):
+        await service.update_record_intent_from_fields(
+            user_id="user_123",
+            system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+            object_type=None,
+            record_id="003gK00000otherQAA",
+            record_fields={"MailingCity": "Dallas"},
+        )
+
+    intent = await service.update_record_intent_from_fields(
+        user_id="user_123",
+        system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+        object_type=None,
+        record_id=None,
+        record_fields={"MailingCity": "Dallas"},
+    )
+    service.store.mark_binding_deleted(
+        user_id="user_123",
+        system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+        object_type="Contact",
+        record_id="003gK00000ownedQAA",
+    )
+
+    with pytest.raises(ConnectedSystemBlockedError, match="Link your CRM record"):
+        await service.approve_intent(
+            user_id="user_123",
+            system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+            intent_id=intent["intentId"],
+        )
+    assert not any(name == "update-crm-record" for name, _payload in adapter.calls)
+
+
+@pytest.mark.asyncio
 async def test_force_refresh_bypasses_binding_and_researches():
     """force_refresh=True re-runs the MCP search even when a binding exists."""
     service, adapter = build_service()
@@ -726,9 +782,9 @@ async def test_schema_read_and_create_payloads_match_live_mcp_contract():
         "LastName",
     ]
     fields = {field["key"]: field for field in schema["fields"]}
-    assert fields["Unsupported__c"]["writable"] is True
+    assert fields["Unsupported__c"]["writable"] is None
     assert fields["LastName"]["required"] is True
-    assert fields["Email"]["readable"] is True
+    assert fields["Email"]["readable"] is None
     assert adapter.calls[-1] == (
         "object-schema",
         {"target": "Macys", "objectType": "Contact"},
@@ -750,7 +806,6 @@ async def test_schema_read_and_create_payloads_match_live_mcp_contract():
             "objectType": "Contact",
             "email": "doe.john@abc.com",
             "phone": "1234567899",
-            "searchFields": {"Title": "VP Sales"},
             "returnFields": ["LeadSource", "MailingCity"],
         },
     )
@@ -771,7 +826,6 @@ async def test_schema_read_and_create_payloads_match_live_mcp_contract():
             "objectType": "Contact",
             "email": "doe.john@abc.com",
             "phone": "1234567899",
-            "searchFields": {"Id": "003gK00000demoQAA"},
             "returnFields": ["MailingCity"],
         },
     )
@@ -982,6 +1036,16 @@ async def test_rejected_intent_never_calls_mcp():
 @pytest.mark.asyncio
 async def test_update_uses_additional_fields_and_marks_readback_mismatch_partial():
     service, adapter = build_service()
+    service.store.upsert_binding(
+        {
+            "binding_id": "binding-test",
+            "user_id": "user_123",
+            "system_id": CONNECTED_SYSTEM_SALESFORCE_ID,
+            "target": "Macys",
+            "object_type": "Contact",
+            "record_id": "003gK00000demoQAA",
+        }
+    )
     adapter.readback_records = [
         {
             "Id": "003gK00000demoQAA",
@@ -1015,10 +1079,50 @@ async def test_update_uses_additional_fields_and_marks_readback_mismatch_partial
             "additionalFields": {"MailingCity": "New York"},
         },
     ) in adapter.calls
+    read_calls = [payload for name, payload in adapter.calls if name == "read-crm-record"]
+    assert read_calls[-1]["id"] == "003gK00000demoQAA"
+    assert "email" not in read_calls[-1]
+    assert "phone" not in read_calls[-1]
     assert all("body" not in payload for _name, payload in adapter.calls)
     assert approved["status"] == "partial"
     assert approved["binding"]["status"] == "active"
     assert approved["binding"]["recordId"] == "003gK00000demoQAA"
+
+
+@pytest.mark.asyncio
+async def test_delete_readback_uses_bound_id_and_clears_binding_only_after_absence():
+    service, adapter = build_service(delete_enabled=True)
+    service.store.upsert_binding(
+        {
+            "binding_id": "binding-delete-test",
+            "user_id": "user_123",
+            "system_id": CONNECTED_SYSTEM_SALESFORCE_ID,
+            "target": "Macys",
+            "object_type": "Contact",
+            "record_id": "003gK00000demoQAA",
+        }
+    )
+
+    intent = service.create_delete_intent(
+        user_id="user_123",
+        system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+        object_type="Contact",
+    )
+    approved = await service.approve_intent(
+        user_id="user_123",
+        system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+        intent_id=intent["intentId"],
+    )
+
+    assert approved["status"] == "succeeded"
+    assert approved["binding"]["status"] == "deleted"
+    read_calls = [payload for name, payload in adapter.calls if name == "read-crm-record"]
+    assert read_calls[-1] == {
+        "target": "Macys",
+        "objectType": "Contact",
+        "id": "003gK00000demoQAA",
+        "returnFields": [],
+    }
 
 
 @pytest.mark.asyncio

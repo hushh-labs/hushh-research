@@ -106,6 +106,29 @@ class RolloutContract(StrictManifestModel):
     rollback: str
 
 
+class AgentSubagentConfig(StrictManifestModel):
+    """Manifest-owned internal ADK specialist.
+
+    A child is a bounded implementation detail of its parent, not another
+    top-level routing authority. Keeping its instruction and I/O contract in
+    the parent manifest makes the generated registry auditable and prevents a
+    parallel Python prompt from drifting away from the authored contract.
+    """
+
+    id: str
+    name: str
+    description: str
+    model: AgentModelConfig = Field(default_factory=AgentModelConfig)
+    runtime: RuntimeContract = Field(default_factory=RuntimeContract)
+    system_instruction: str
+    inputs: list[AgentInputConfig] = Field(default_factory=list)
+    outputs: list[AgentOutputConfig] = Field(default_factory=list)
+    privacy: PrivacyContract = Field(default_factory=PrivacyContract)
+    telemetry_namespace: str
+    performance: PerformanceContract = Field(default_factory=PerformanceContract)
+    rollout: RolloutContract
+
+
 class AgentManifestV2(StrictManifestModel):
     manifest_version: Literal[2] = 2
     id: str
@@ -143,6 +166,7 @@ class AgentManifestV2(StrictManifestModel):
             rollback="Disable the agent and restore the prior manifest.",
         )
     )
+    subagents: list[AgentSubagentConfig] = Field(default_factory=list)
     capabilities: dict[str, Any] = Field(default_factory=dict)
     ui_type: str | None = "chat"
     icon: str | None = None
@@ -152,6 +176,16 @@ class AgentManifestV2(StrictManifestModel):
     def reject_duplicates(cls, values: list[str]) -> list[str]:
         if len(values) != len(set(values)):
             raise ValueError("duplicate values are not allowed")
+        return values
+
+    @field_validator("subagents")
+    @classmethod
+    def reject_duplicate_subagent_ids(
+        cls, values: list[AgentSubagentConfig]
+    ) -> list[AgentSubagentConfig]:
+        identifiers = [value.id for value in values]
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError("duplicate subagent ids are not allowed")
         return values
 
     def tool_py_funcs(self) -> list[str]:

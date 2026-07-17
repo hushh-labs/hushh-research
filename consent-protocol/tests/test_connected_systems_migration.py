@@ -59,7 +59,11 @@ def test_response_contract_migration_is_registered_and_fail_closed_by_default():
     )
 
     assert migration.exists()
-    assert manifest["ordered_migrations"][-1] == "102_crm_operation_response_contract.sql"
+    assert manifest["ordered_migrations"][-3:] == [
+        "102_crm_operation_response_contract.sql",
+        "103_demo_crm_response_contracts.sql",
+        "104_crm_schema_mapping_cache.sql",
+    ]
     assert "102_crm_operation_response_contract.sql" in manifest["groups"]["iam"]
     assert "response_contract JSONB NOT NULL DEFAULT '{}'::jsonb" in migration.read_text()
     migration_text = migration.read_text()
@@ -67,4 +71,28 @@ def test_response_contract_migration_is_registered_and_fail_closed_by_default():
     assert "'objectPath'" in migration_text
     assert "'requireFieldAccess', true" in migration_text
     assert "response_contract" in uat_contract["required_tables"]["crm_operation_endpoints"]
-    assert uat_contract["expected_migration_version"] == 102
+    assert uat_contract["expected_migration_version"] == 104
+
+
+def test_demo_crm_response_mappings_and_schema_mapper_cache_are_release_registered():
+    response_migration = ROOT / "db" / "migrations" / "103_demo_crm_response_contracts.sql"
+    cache_migration = ROOT / "db" / "migrations" / "104_crm_schema_mapping_cache.sql"
+    manifest = json.loads((ROOT / "db" / "release_migration_manifest.json").read_text())
+    uat_contract = json.loads(
+        (ROOT / "db" / "contracts" / "uat_integrated_schema.json").read_text()
+    )
+
+    assert response_migration.exists()
+    assert cache_migration.exists()
+    assert "103_demo_crm_response_contracts.sql" in manifest["groups"]["iam"]
+    assert "104_crm_schema_mapping_cache.sql" in manifest["groups"]["iam"]
+    assert "mcp_is_error_false" in response_migration.read_text()
+    assert "CREATE TABLE IF NOT EXISTS crm_schema_mapping_cache" in cache_migration.read_text()
+    assert {
+        "crm_id",
+        "object_type",
+        "schema_fingerprint",
+        "model_name",
+        "mapping_json",
+        "expires_at",
+    } <= set(uat_contract["required_tables"]["crm_schema_mapping_cache"])

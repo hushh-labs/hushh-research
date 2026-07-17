@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 102,
+  "expected_migration_version": 104,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -793,6 +793,17 @@
       "description",
       "mcp_endpoint",
       "response_contract"
+    ],
+    "crm_schema_mapping_cache": [
+      "crm_id",
+      "object_type",
+      "schema_fingerprint",
+      "model_name",
+      "status",
+      "mapping_json",
+      "failure_code",
+      "refreshed_at",
+      "expires_at"
     ],
     "trusted_connections": [
       "id",

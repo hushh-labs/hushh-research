@@ -60,7 +60,18 @@ export type ConnectedSystemSchemaResponse = {
     constraints?: Record<string, unknown>;
     source?: string;
   }>;
+  /** Schema-derived mapping for basic onboarding fields, never user supplied. */
+  profileFieldMappings?: Partial<{
+    email: string;
+    phone: string;
+    firstName: string;
+    lastName: string;
+    fullName: string;
+    address: string;
+  }>;
+  schemaMappingStatus?: "ready" | "unavailable" | "pending" | string;
   schemaStatus?: "ready" | "capability_metadata_missing" | string;
+  accessMetadata?: "declared" | "partial" | string;
   effectiveActions?: {
     schema?: boolean;
     read?: boolean;
@@ -133,44 +144,25 @@ export type ConnectedSystemIntent = {
 export type ConnectedSystemReadInput = {
   systemId?: string;
   objectType?: string;
-  /** Macy's compatibility aliases. Generic callers should use searchFields. */
-  email?: string;
-  phone?: string;
-  searchFields?: Record<string, unknown>;
   returnFields?: string[];
 };
 
 export type ConnectedSystemCreateIntentInput = {
   systemId?: string;
   objectType?: string;
-  /** Macy's compatibility aliases. */
-  email?: string;
-  phone?: string;
-  firstName?: string;
-  lastName?: string;
-  /** Typed fields for schema-driven CRM forms. */
-  recordFields?: Record<string, unknown>;
-  additionalFields?: Record<string, unknown>;
 };
 
 export type ConnectedSystemUpdateIntentInput = {
   systemId?: string;
   objectType?: string;
-  id: string;
   additionalFields: Record<string, unknown>;
   /** Typed field diff for schema-driven CRM forms. */
   recordFields?: Record<string, unknown>;
-  readbackLocator?: {
-    email: string;
-    phone: string;
-    searchFields?: Record<string, unknown>;
-  };
 };
 
 export type ConnectedSystemDeleteInput = {
   systemId?: string;
   objectType?: string;
-  id?: string;
 };
 
 function authHeaders(vaultOwnerToken: string): HeadersInit {
@@ -248,9 +240,6 @@ export class ConnectedSystemsService {
         headers: authHeaders(vaultOwnerToken),
         body: JSON.stringify({
           objectType: input.objectType,
-          email: input.email,
-          phone: input.phone,
-          searchFields: input.searchFields,
           returnFields: input.returnFields,
         }),
       }
@@ -287,9 +276,6 @@ export class ConnectedSystemsService {
         headers: authHeaders(vaultOwnerToken),
         body: JSON.stringify({
           objectType: input.objectType,
-          email: input.email,
-          phone: input.phone,
-          searchFields: input.searchFields,
           returnFields: input.returnFields,
         }),
       }
@@ -308,12 +294,6 @@ export class ConnectedSystemsService {
         headers: authHeaders(vaultOwnerToken),
         body: JSON.stringify({
           objectType: input.objectType,
-          email: input.email,
-          phone: input.phone,
-          firstName: input.firstName,
-          lastName: input.lastName,
-          recordFields: input.recordFields,
-          additionalFields: input.additionalFields,
         }),
       }
     );
@@ -331,10 +311,8 @@ export class ConnectedSystemsService {
         headers: authHeaders(vaultOwnerToken),
         body: JSON.stringify({
           objectType: input.objectType,
-          id: input.id,
           additionalFields: input.additionalFields,
           recordFields: input.recordFields,
-          readbackLocator: input.readbackLocator,
         }),
       }
     );
@@ -387,7 +365,6 @@ export class ConnectedSystemsService {
         headers: authHeaders(vaultOwnerToken),
         body: JSON.stringify({
           objectType: input.objectType,
-          id: input.id,
         }),
       }
     );

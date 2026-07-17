@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "MuleSoft CRM object-schema response v1",
-  "description": "Field access metadata required before Hussh enables CRM record operations.",
+  "description": "Primary-object field catalogue for CRM onboarding. Hussh maps public schema metadata through its manifest-owned private-agent child; access metadata is optional, and explicit false values are enforced.",
   "type": "object",
   "required": ["details"],
   "properties": {
@@ -18,17 +18,7 @@
             "type": "array",
             "items": {
               "type": "object",
-              "required": [
-                "name",
-                "label",
-                "type",
-                "required",
-                "readable",
-                "identityField",
-                "immutable",
-                "createable",
-                "updateable"
-              ],
+              "required": ["name", "label", "type", "required"],
               "properties": {
                 "name": { "type": "string", "minLength": 1 },
                 "label": { "type": "string", "minLength": 1 },
