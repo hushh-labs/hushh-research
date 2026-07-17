@@ -183,7 +183,7 @@ class DeveloperConsentRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=1000)
     expiry_hours: int = 24
     approval_timeout_minutes: int = 24 * 60
-    connector_public_key: str = Field(min_length=16)
+    connector_public_key: str = Field(min_length=16, max_length=8192)
     connector_key_id: str = Field(min_length=1, max_length=128)
     connector_wrapping_alg: str = Field(min_length=1, max_length=128)
     offer: DeveloperConsentOffer | None = None
@@ -1069,11 +1069,12 @@ async def request_consent(
 
     normalized_scope = normalize_scope(payload.scope)
     if not _is_supported_scope(normalized_scope):
+        logger.warning("request_consent.unsupported_scope scope=%s", payload.scope)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "error_code": "INVALID_SCOPE",
-                "message": f"Unsupported scope: {payload.scope}",
+                "message": "Unsupported scope.",
                 "valid_scopes": [descriptor.name for descriptor in _scope_catalog()],
             },
         )
