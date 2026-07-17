@@ -66,20 +66,6 @@ function isKnownBottomNavScope(
   return value === "one" || value === "investor" || value === "ria";
 }
 
-function oneNavKeyForAgentSectionId(
-  sectionId: string | null | undefined,
-): OneNavKey {
-  if (sectionId === "finance") return "finance";
-  if (sectionId === "gmail") return "gmail";
-  if (sectionId === "email") return "email";
-  if (sectionId === "location") return "location";
-  if (sectionId === "consent") return "guardian";
-  if (sectionId === "pkm") return "pkm";
-  if (sectionId === "marketplace") return "marketplace";
-  if (sectionId === "connected-systems") return "connected";
-  return "dashboard";
-}
-
 export function resolveBottomNavigationScope(
   pathname: string | null | undefined,
   _activePersona: string | null | undefined,
@@ -180,7 +166,6 @@ export function resolveInvestorNavSlot(
     normalizedPathname || ROUTES.KAI_HOME,
   );
   if (activeTab === "dashboard") return "portfolio";
-  if (activeTab === "connect") return "connect";
   if (activeTab === "analysis") return "analysis";
   return "finance";
 }
@@ -206,7 +191,6 @@ export function resolveInvestorActiveNav(
   if (activeTab === "market") return "finance";
   if (activeTab === "dashboard") return "portfolio";
   if (activeTab === "analysis") return "analysis";
-  if (activeTab === "connect") return "connect";
   return "finance";
 }
 
@@ -218,7 +202,6 @@ export function resolveRiaNavSlot(
     normalizedPathname || ROUTES.RIA_HOME,
   );
   if (activeTab === "picks") return "picks";
-  if (activeTab === "connect") return "connect";
   return "clients";
 }
 
@@ -243,17 +226,17 @@ export function resolveRiaActiveNav(
   if (activeTab === "home") return "ria-home";
   if (activeTab === "clients") return "clients";
   if (activeTab === "picks") return "picks";
-  if (activeTab === "connect") return "connect";
   return "ria-home";
 }
 
 export function resolveBottomNavActiveKey(
   pathname: string | null | undefined,
-  scope: AppBottomNavScope,
+  _scope: AppBottomNavScope,
 ): AppBottomNavKey {
-  if (scope === "one") return resolveOneActiveNav(pathname);
-  if (scope === "ria") return resolveRiaActiveNav(pathname);
-  return resolveInvestorActiveNav(pathname);
+  const normalizedPathname = normalizeBottomNavPathname(pathname);
+  return isBottomNavRoute(normalizedPathname, ROUTES.PROFILE)
+    ? "profile"
+    : "dashboard";
 }
 
 export function resolveBottomNavContextKey(
@@ -266,23 +249,13 @@ export function resolveBottomNavContextKey(
 }
 
 export function resolveBottomNavOptionKeys(
-  pathname: string | null | undefined,
-  scope: AppBottomNavScope,
-  context?: AppBottomNavContext,
+  _pathname: string | null | undefined,
+  _scope: AppBottomNavScope,
+  _context?: AppBottomNavContext,
 ): AppBottomNavKey[] {
-  if (scope === "one") {
-    const normalizedPathname = normalizeBottomNavPathname(pathname);
-    const slot = isCommonBottomNavRoute(normalizedPathname)
-      ? oneNavKeyForAgentSectionId(context?.lastAgentSectionId)
-      : resolveOneNavSlot(normalizedPathname);
-    return [slot, "connect", "profile"];
-  }
-
-  if (scope === "investor") {
-    return ["finance", "portfolio", "analysis", "connect", "profile"];
-  }
-
-  return ["ria-home", "clients", "picks", "connect", "profile"];
+  // Bottom chrome is global utility navigation, never a contextual workspace
+  // tab bar. Finance/RIA sections live in the signed-in TopAppBar instead.
+  return ["dashboard", "profile"];
 }
 
 export function resolveBottomNavAction(

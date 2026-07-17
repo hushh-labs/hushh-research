@@ -27,7 +27,6 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
-import { useUnseenLocationShareCount } from "@/lib/one-location/use-unseen-location-share-count";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import {
@@ -35,22 +34,15 @@ import {
   SegmentedPill,
   type SegmentedPillOption,
 } from "@/lib/morphy-ux/ui";
-import {
-  snapKaiBottomChromeVisible,
-  useKaiBottomChromeVisibility,
-} from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import { usePersonaState } from "@/lib/persona/persona-context";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   normalizeBottomNavPathname,
   resolveBottomNavActiveKey,
   resolveBottomNavAction,
-  resolveBottomNavigationScope,
   resolveBottomNavOptionKeys,
-  type AppBottomNavScope,
   type AppBottomNavKey,
 } from "@/lib/navigation/app-bottom-nav";
 import { resolveAgentNavigationContextForPath } from "@/lib/navigation/agent-sections";
@@ -59,7 +51,7 @@ import {
   toggleKaiCommandBar,
 } from "@/lib/navigation/kai-command-bar-events";
 
-const BOTTOM_NAV_MAX_SLOT_COUNT = 5;
+const BOTTOM_NAV_MAX_SLOT_COUNT = 2;
 const BOTTOM_NAV_SLOT_WIDTH_REM = 5.4;
 const BOTTOM_NAV_SEARCH_BUBBLE_WIDTH = "70px";
 const BOTTOM_NAV_EMPTY_GROUP_WIDTH = "58px";
@@ -179,19 +171,14 @@ const BOTTOM_NAV_OPTION_META: Record<
 function navOptionForKey(
   key: AppBottomNavKey,
   pendingConsents: number,
-  unseenLocationShares: number,
 ): SegmentedPillOption {
   const option = BOTTOM_NAV_OPTION_META[key];
   // Pending-consent badge home: the dedicated "guardian" tab when it exists
   // (investor / ria scopes), otherwise the One "dashboard" tab, since consent
   // now lives as a subroute of the One Agents dashboard.
-  // Location shares someone gave you badge the Location tab so they surface
-  // wherever you are (like other notifications), clearing once you open them.
   let badge: number | undefined;
   if ((key === "guardian" || key === "dashboard") && pendingConsents > 0) {
     badge = pendingConsents;
-  } else if (key === "location" && unseenLocationShares > 0) {
-    badge = unseenLocationShares;
   }
   return { ...option, badge };
 }
@@ -202,9 +189,7 @@ export const Navbar = () => {
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
   const agentPopover = useOptionalAgentPopover();
-  const { activePersona } = usePersonaState();
   const pendingConsents = useConsentPendingSummaryCount();
-  const unseenLocationShares = useUnseenLocationShareCount();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
   const bottomChromeVarsRef = React.useRef({
     fixedUi: "",
@@ -212,36 +197,12 @@ export const Navbar = () => {
   });
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   const useOnboardingChrome = chromeState.useOnboardingChrome;
-  // The bottom pill + search bubble scroll-hide in reverse of the top app bar:
-  // on scroll-down they translate off the bottom edge (max main-body viewing),
-  // on scroll-up they slide back in. Driven by the same shared visibility store
-  // as the top bar and the bottom fade glass so all chrome stays in lockstep.
-  // Disabled while onboarding chrome is active (that flow owns its own chrome).
-  const allowScrollHide = !useOnboardingChrome;
-  const { hidden: hideBottomChrome, progress: hideBottomChromeProgress } =
-    useKaiBottomChromeVisibility(allowScrollHide);
 
   const busyOperations = useKaiSession((s) => s.busyOperations);
-  const lastAgentNavScope = useKaiSession((s) => s.lastAgentNavScope);
-  const lastAgentSectionId = useKaiSession((s) => s.lastAgentSectionId);
   const setAgentNavigationContext = useKaiSession(
     (s) => s.setAgentNavigationContext,
   );
   const normalizedPathname = normalizeBottomNavPathname(pathname);
-  const navigationScope = useMemo<AppBottomNavScope>(() => {
-    return resolveBottomNavigationScope(normalizedPathname, activePersona, {
-      lastAgentNavScope,
-      lastAgentSectionId,
-    });
-  }, [activePersona, lastAgentNavScope, lastAgentSectionId, normalizedPathname]);
-
-  // RIA sub-agent = Apple-style ALWAYS-PINNED bottom chrome. Pin the value the
-  // pill consumes (progress -> 0) and force the chrome "visible" so the
-  // pointer-events / first-tap-snap guards never disable the visually-pinned
-  // pill on scroll-down. Never edits the shared visibility singleton, so
-  // One/investor scroll-hide is unchanged.
-  const isRiaChrome = navigationScope === "ria";
-  const effectiveHideBottomChrome = isRiaChrome ? false : hideBottomChrome;
 
   useEffect(() => {
     if (!pathname) return;
@@ -278,19 +239,12 @@ export const Navbar = () => {
   const navOptions = useMemo<SegmentedPillOption[]>(() => {
     const keys = resolveBottomNavOptionKeys(
       normalizedPathname,
-      navigationScope,
-      { lastAgentSectionId },
+      "one",
     );
     return keys.map((key) =>
-      navOptionForKey(key, pendingConsents, unseenLocationShares),
+      navOptionForKey(key, pendingConsents),
     );
-  }, [
-    lastAgentSectionId,
-    navigationScope,
-    normalizedPathname,
-    pendingConsents,
-    unseenLocationShares,
-  ]);
+  }, [normalizedPathname, pendingConsents]);
 
   React.useLayoutEffect(() => {
     const root = document.documentElement;
@@ -327,7 +281,7 @@ export const Navbar = () => {
       return;
     }
 
-    const BOTTOM_GAP_PX = 14;
+    const BOTTOM_GAP_PX = 4;
 
     const update = () => {
       const rect = el.getBoundingClientRect();
@@ -390,7 +344,7 @@ export const Navbar = () => {
 
   const activeNav = resolveBottomNavActiveKey(
     normalizedPathname,
-    navigationScope,
+    "one",
   );
 
   const navigateTo = (value: string) => {
@@ -414,7 +368,7 @@ export const Navbar = () => {
 
     const action = resolveBottomNavAction(
       value as AppBottomNavKey,
-      navigationScope,
+      "one",
     );
     if (action.type === "command") {
       openKaiCommandBar();
@@ -433,7 +387,7 @@ export const Navbar = () => {
     <nav
       data-app-bottom-nav
       className={cn(
-        "fixed inset-x-0 flex justify-center px-4 transform-gpu",
+        "fixed inset-x-0 flex justify-center px-4 md:justify-end transform-gpu",
         isVaultUnlocked ? "z-[120]" : "z-[505]",
         "pointer-events-none",
       )}
@@ -441,11 +395,6 @@ export const Navbar = () => {
         {
           bottom:
             "calc(max(var(--app-safe-area-bottom-effective), 0.625rem) + var(--app-bottom-chrome-lift, 0px))",
-          transform:
-            "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height))), 0)",
-          "--bottom-chrome-progress": isRiaChrome
-            ? "0"
-            : String(hideBottomChromeProgress),
         } as CSSProperties
       }
     >
@@ -453,19 +402,9 @@ export const Navbar = () => {
         className={cn(
           "relative flex items-stretch justify-center gap-2",
           "pointer-events-none",
-          effectiveHideBottomChrome && "pointer-events-none",
         )}
         style={{ width: bottomNavGroupWidth }}
         ref={pillRef}
-        // iOS first-tap fix: if the hide/reveal animation is mid-flight when
-        // a finger lands, the buttons translate away before pointerup and the
-        // tap is lost (felt as "need to tap twice"). Snapping the chrome to
-        // its resting position on pointerdown keeps the tap target still.
-        // Skipped in RIA (the pill is already pinned, nothing to snap).
-        onPointerDownCapture={() => {
-          if (!isRiaChrome && hideBottomChromeProgress > 0)
-            snapKaiBottomChromeVisible();
-        }}
       >
         <div
           className="min-w-0 pointer-events-auto"
@@ -481,16 +420,8 @@ export const Navbar = () => {
             ariaLabel="Route navigation"
             className={cn(
               "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
-              // Shared bottom chrome surface: flat translucent track, no
-              // route-local glass or ink override. RIA scope = gold identity
-              // (active #EFE7D6 pill + gold label); everywhere else = iOS system
-              // accent-colored active tab (from main).
-              isRiaChrome
-                ? "[&_[aria-checked=true]]:text-accent-strong [&_[aria-checked=true]]:font-semibold"
-                : "[&_[aria-checked=true]]:text-[color:var(--app-accent)] [&_[aria-checked=true]]:font-semibold",
-              isRiaChrome
-                ? "[&_[data-segment-indicator]]:bg-[color:var(--ria-nav-active)] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none"
-                : "[&_[data-segment-indicator]]:bg-black/[0.06] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-white/[0.1]",
+              "[&_[aria-checked=true]]:text-[color:var(--app-accent)] [&_[aria-checked=true]]:font-semibold",
+              "[&_[data-segment-indicator]]:bg-black/[0.06] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-white/[0.1]",
             )}
           />
         </div>
@@ -507,8 +438,6 @@ export const Navbar = () => {
             // on iOS while web looked fine.
             "pointer-events-auto relative z-20 inline-flex h-[52px] w-[52px] shrink-0 self-center items-center justify-center overflow-hidden rounded-full",
             "kai-bottom-search-action",
-            // RIA: soft greige search circle (#F5F2EC) per the mockup.
-            isRiaChrome && "h-[54px] w-[54px] bg-[color:var(--ria-selected-tint)]",
             "transition-[color,transform,background-color] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)]",
             // Hover styles behind (hover:hover) so iOS taps never latch a
             // sticky hover background on the first touch.

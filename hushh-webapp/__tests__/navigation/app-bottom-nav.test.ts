@@ -106,79 +106,17 @@ describe("app bottom navigation", () => {
     expect(resolveRiaActiveNav(ROUTES.RIA_HOME)).toBe("ria-home");
   });
 
-  it("keeps One bottom navigation three-slot while naming the active agent app", () => {
-    expect(resolveBottomNavOptionKeys(ROUTES.CONNECTED_SYSTEMS, "one")).toEqual(
-      ["connected", "connect", "profile"],
-    );
-    expect(resolveBottomNavOptionKeys(ROUTES.GMAIL, "one")).toEqual([
-      "gmail",
-      "connect",
-      "profile",
-    ]);
-    expect(resolveBottomNavOptionKeys(ROUTES.CONSENTS, "one")).toEqual([
-      "guardian",
-      "connect",
-      "profile",
-    ]);
-    expect(resolveBottomNavOptionKeys(ROUTES.PKM, "one")).toEqual([
-      "pkm",
-      "connect",
-      "profile",
-    ]);
-    expect(resolveBottomNavOptionKeys(ROUTES.ONE_MARKETPLACE, "one")).toEqual([
-      "marketplace",
-      "connect",
-      "profile",
-    ]);
-    expect(resolveBottomNavOptionKeys(ROUTES.ONE_LOCATION, "one")).toEqual([
-      "location",
-      "connect",
-      "profile",
-    ]);
-    expect(resolveBottomNavOptionKeys(ROUTES.ONE_HOME, "one")).toEqual([
-      "dashboard",
-      "connect",
-      "profile",
-    ]);
-    expect(
-      resolveBottomNavOptionKeys(ROUTES.PROFILE, "one", {
-        lastAgentSectionId: "gmail",
-      }),
-    ).toEqual(["gmail", "connect", "profile"]);
-    expect(
-      resolveBottomNavOptionKeys(ROUTES.MARKETPLACE, "one", {
-        lastAgentSectionId: "location",
-      }),
-    ).toEqual(["location", "connect", "profile"]);
-    expect(resolveBottomNavOptionKeys(ROUTES.PROFILE, "one")).toEqual([
-      "dashboard",
-      "connect",
-      "profile",
-    ]);
-    expect(resolveBottomNavOptionKeys(ROUTES.MARKETPLACE, "one")).toEqual([
-      "dashboard",
-      "connect",
-      "profile",
-    ]);
-    expect(resolveBottomNavOptionKeys(ROUTES.KAI_ANALYSIS, "investor")).toEqual(
-      ["finance", "portfolio", "analysis", "connect", "profile"],
-    );
-    expect(resolveBottomNavOptionKeys(ROUTES.RIA_PICKS, "ria")).toEqual([
-      "ria-home",
-      "clients",
-      "picks",
-      "connect",
-      "profile",
-    ]);
-    expect(resolveBottomNavOptionKeys(ROUTES.RIA_HOME, "ria")).not.toContain(
-      "finance",
-    );
-    expect(
-      resolveBottomNavOptionKeys(ROUTES.KAI_HOME, "investor"),
-    ).not.toContain("ria-home");
-    expect(resolveBottomNavOptionKeys(ROUTES.KAI_HOME, "investor")).toContain(
-      "portfolio",
-    );
+  it("keeps bottom utilities constant across One, Finance, and RIA", () => {
+    for (const [pathname, scope] of [
+      [ROUTES.CONNECTED_SYSTEMS, "one"],
+      [ROUTES.KAI_ANALYSIS, "investor"],
+      [ROUTES.RIA_PICKS, "ria"],
+    ] as const) {
+      expect(resolveBottomNavOptionKeys(pathname, scope)).toEqual([
+        "dashboard",
+        "profile",
+      ]);
+    }
   });
 
   it("maps One context nav actions to the intended routes", () => {
@@ -216,14 +154,15 @@ describe("app bottom navigation", () => {
     expect(resolveRiaNavSlot(ROUTES.RIA_PICKS)).toBe("picks");
   });
 
-  it("uses the shared active and context resolvers by scope", () => {
-    expect(resolveBottomNavActiveKey(ROUTES.AGENT, "one")).toBe("search");
+  it("keeps bottom utility selection independent of workspace scope", () => {
+    expect(resolveBottomNavActiveKey(ROUTES.AGENT, "one")).toBe("dashboard");
     expect(resolveBottomNavActiveKey(ROUTES.KAI_ANALYSIS, "investor")).toBe(
-      "analysis",
+      "dashboard",
     );
     expect(resolveBottomNavActiveKey(ROUTES.RIA_CLIENTS, "ria")).toBe(
-      "clients",
+      "dashboard",
     );
+    expect(resolveBottomNavActiveKey(ROUTES.PROFILE, "ria")).toBe("profile");
     expect(resolveBottomNavContextKey(ROUTES.CONNECTED_SYSTEMS, "one")).toBe(
       "connected",
     );

@@ -10,6 +10,20 @@ function read(relativePath: string) {
 }
 
 describe("Navbar bottom chrome contract", () => {
+  it("keeps the persistent Agent Bar joined to the fixed utility bar", () => {
+    const navbar = read("components/navbar.tsx");
+    const agentBar = read("components/agent/agent-bar.tsx");
+
+    expect(navbar).toContain("const BOTTOM_GAP_PX = 4;");
+    expect(navbar).toContain("md:justify-end");
+    expect(agentBar).toContain(
+      '"max(var(--app-bottom-inset), calc(var(--bottom-nav-offset)',
+    );
+    expect(agentBar).not.toContain(
+      'calc(max(var(--app-bottom-inset), calc(var(--bottom-nav-offset) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift))) + 0.5rem)',
+    );
+  });
+
   it("keeps Agent owned by the persistent AgentBar instead of duplicating it in the nav or search chrome", () => {
     const navbar = read("components/navbar.tsx");
     const searchBar = read("components/kai/kai-search-bar.tsx");

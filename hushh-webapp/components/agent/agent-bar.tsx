@@ -1312,7 +1312,7 @@ export function AgentBar() {
           // it does not re-render the voice tree as the page scrolls.
           bottom: physicalNavbarAbsent
             ? "calc(var(--app-safe-area-bottom-effective) + 0.75rem)"
-            : "calc(max(var(--app-bottom-inset), calc(var(--bottom-nav-offset) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift))) + 0.5rem)",
+            : "max(var(--app-bottom-inset), calc(var(--bottom-nav-offset) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift)))",
         } as CSSProperties
       }
       aria-hidden={barHidden}

@@ -99,7 +99,7 @@ Rules:
 4. Preserve query params only when they are part of the route contract or a shareable/recoverable workspace state.
 5. Search overlays must respect the top shell and bottom command chrome instead of using route-local viewport math.
 
-## Pattern: Dynamic Bottom Navigation
+## Pattern: Persistent Bottom Utilities and Workspace Tabs
 
 Use the shared bottom-nav resolver for signed-in app routes.
 
@@ -113,14 +113,12 @@ import {
 
 Rules:
 
-1. Keep the segmented bottom bar scoped to the active route family. Do not add universal `One`, `Search`, or `Profile` tabs to every route.
-2. Keep bottom-nav items at the same size as the five-action bar. Routes with fewer actions should end the pill at the last real action instead of rendering empty slots, stretching shorter bars, or adding disabled placeholders.
-3. `/one` and `/profile` may show the compact root switch `One / Connect / Profile`; One sub-app routes may add one meaningful current-context action.
-4. Keep `Search` in the shared command dock, separate from both segmented route navigation and agent chat, and align the detached Search bubble to the same bottom row as the route pill.
-5. Let the active route family decide the contextual slots instead of showing finance-only tabs everywhere; `/one` uses dashboard tiles for mode entry, and `/one/kai/*` owns Market/Portfolio/Connect/Analysis.
-6. Route files should link to canonical destinations such as `/one/gmail`, `/one/pkm`, and `/one/connected-systems`; legacy Profile panels may redirect, but should not own new mode navigation.
-7. `Search` opens `KaiCommandBarGlobal` command/action discovery through `openKaiCommandBar`; do not route Search to `/agent` or call `agentPopover.openAgent`.
-8. Keep bottom-nav motion stable. Prefer fill, outline, and color changes over bounce, active icon scaling, or spring overshoot.
+1. Keep the signed-in bottom utility bar constant: `One`, `Profile`, and detached `Search`. It is right-aligned on wide screens and centered on phones.
+2. Keep the bar compact and fixed. The agent bar joins it with a 4px visual gutter; do not add route-local navigation or empty slots.
+3. Put workspace navigation in the shared top bar: Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`, `Clients`, and `Picks`. `Connect` is a signed-in top-bar action, not a workspace or bottom tab.
+4. Route files should link to canonical destinations such as `/one/gmail`, `/one/pkm`, and `/one/connected-systems`; legacy Profile panels may redirect, but should not own new mode navigation.
+5. `Search` opens `KaiCommandBarGlobal` command/action discovery through `openKaiCommandBar`; do not route Search to `/agent` or call `agentPopover.openAgent`.
+6. Keep navigation motion stable. Prefer fill, outline, and color changes over bounce, active icon scaling, or spring overshoot.
 
 ## Pattern: Nested Route Back Navigation
 

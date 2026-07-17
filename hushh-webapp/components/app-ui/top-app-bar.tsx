@@ -26,6 +26,7 @@ import {
   Check,
   ChevronDown,
   Code2,
+  Compass,
   Database,
   FileCheck2,
   FolderSearch,
@@ -96,6 +97,7 @@ import {
   SHELL_ICON_BUTTON_CLASSNAME,
   SHELL_PILL_TRIGGER_CLASSNAME,
 } from "@/components/app-ui/shell-action-surface";
+import { WorkspaceTopTabs } from "@/components/app-ui/workspace-top-tabs";
 import { trackEvent } from "@/lib/observability/client";
 import {
   resolveGrowthEntrySurface,
@@ -489,15 +491,16 @@ export function TopAppBar({ className }: TopAppBarProps) {
   // The agent switcher (with its search combobox) renders on the /one home
   // route too: the dashboard grid and the dropdown expose the same roster, so
   // agent search is available everywhere, including the launcher screen.
+  const showWorkspaceTabs = isAuthenticated && topShellMetrics.hasTabs;
   const showAgentSectionDropdown =
     isAuthenticated &&
     !showOnboardingActions &&
-    normalizedPathname !== ROUTES.HOME;
+    normalizedPathname !== ROUTES.HOME &&
+    !showWorkspaceTabs;
   const showOneHomeBrand =
-    normalizedPathname === ROUTES.ONE_HOME &&
-    !topShellBreadcrumb &&
+    (normalizedPathname === ROUTES.ONE_HOME || showWorkspaceTabs) &&
     !showOnboardingActions;
-  const showKaiTabs = topShellMetrics.hasTabs;
+  const showKaiTabs = showWorkspaceTabs;
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(
     null,
   );
@@ -664,7 +667,9 @@ export function TopAppBar({ className }: TopAppBarProps) {
                 className="pointer-events-none flex h-full shrink-0 items-center justify-start"
                 style={{ width: "var(--top-bar-side-w)" }}
               >
-                {topShellBreadcrumb && !topShellBreadcrumb.hideBack ? (
+                {topShellBreadcrumb &&
+                !topShellBreadcrumb.hideBack &&
+                !showWorkspaceTabs ? (
                   <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
                     <ShellActionSurface
                       variant="icon"
@@ -868,6 +873,17 @@ export function TopAppBar({ className }: TopAppBarProps) {
                     <OnboardingRouteActions />
                   ) : (
                     <>
+                      {normalizedPathname !== ROUTES.CONNECT ? (
+                        <ShellActionSurface
+                          variant="pill"
+                          aria-label="Open Connect"
+                          onClick={() => router.push(ROUTES.CONNECT)}
+                          className="gap-1.5 px-3"
+                        >
+                          <Compass className="h-4 w-4" />
+                          <span>Connect</span>
+                        </ShellActionSurface>
+                      ) : null}
                       <ConsentInboxDropdown
                         renderTrigger={({ pendingCount }) => (
                           <ShellActionSurface
@@ -930,6 +946,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
               </div>
             </div>
           </div>
+          {showWorkspaceTabs ? <WorkspaceTopTabs /> : null}
         </div>
       </div>
       <span

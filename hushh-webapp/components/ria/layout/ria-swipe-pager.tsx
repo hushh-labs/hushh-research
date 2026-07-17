@@ -14,9 +14,8 @@
  * ~20 network calls everywhere and start a gesture war. Instead each tab stays a
  * real route; this only detects the gesture and hops.
  *
- * Order / adjacency / active index derive from the canonical bottom-nav
- * (`resolveBottomNavOptionKeys("ria")` = ria-home / clients / picks / connect /
- * profile), so the swipe order always matches the visible tab bar. Mounted in
+ * Order / adjacency / active index derive from the canonical RIA workspace
+ * tabs, so the swipe order always matches the visible top tab bar. Mounted in
  * app/ria/layout.tsx, so it is RIA-scoped by construction and naturally absent
  * on /marketplace (Connect keeps its own swipe).
  */
@@ -25,10 +24,9 @@ import { useEffect, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import {
-  resolveBottomNavActiveKey,
-  resolveBottomNavHref,
-  resolveBottomNavOptionKeys,
-} from "@/lib/navigation/app-bottom-nav";
+  activeRiaRouteTabFromPath,
+  RIA_ROUTE_TABS,
+} from "@/lib/navigation/ria-route-tabs";
 import { isRiaOnboardingRoute } from "@/lib/navigation/routes";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 
@@ -87,9 +85,11 @@ export function RiaSwipePager({ children }: { children: ReactNode }) {
       document.querySelector<HTMLElement>("[data-app-scroll-root='true']") ??
       document;
 
-    const keys = resolveBottomNavOptionKeys(pathname, "ria");
-    const activeKey = resolveBottomNavActiveKey(pathname, "ria");
-    const activeIndex = Math.max(0, keys.indexOf(activeKey));
+    const activeTab = activeRiaRouteTabFromPath(pathname || "/ria");
+    const activeIndex = Math.max(
+      0,
+      RIA_ROUTE_TABS.findIndex((tab) => tab.id === activeTab),
+    );
 
     let startX: number | null = null;
     let startY: number | null = null;
@@ -182,12 +182,10 @@ export function RiaSwipePager({ children }: { children: ReactNode }) {
         );
         return;
       }
-      const targetKey = keys[activeIndex + direction];
-      if (!targetKey) return;
-      const href = resolveBottomNavHref(targetKey, "ria");
-      if (!href) return;
+      const target = RIA_ROUTE_TABS[activeIndex + direction];
+      if (!target) return;
       scrollAppToTop("auto");
-      router.push(href);
+      router.push(target.href);
     };
 
     const startListener: EventListener = (e) => onStart(e as TouchEvent);

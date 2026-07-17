@@ -98,7 +98,7 @@ describe("Top app bar responsive contract", () => {
 
     expect(source).toContain("const showOneHomeBrand");
     expect(source).toContain("normalizedPathname === ROUTES.ONE_HOME");
-    expect(source).toContain("!topShellBreadcrumb");
+    expect(source).toContain("!showWorkspaceTabs");
     expect(source).toContain('data-testid="top-app-bar-one-brand"');
     expect(source).toContain("🤫 One");
     expect(source).toContain(
@@ -106,6 +106,15 @@ describe("Top app bar responsive contract", () => {
     );
     expect(source).toContain("<ConsentInboxDropdown");
     expect(source).toContain("<DebateTaskCenter");
+  });
+
+  it("owns workspace tabs and the signed-in Connect action in the shared top bar", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+
+    expect(source).toContain("const showWorkspaceTabs");
+    expect(source).toContain("<WorkspaceTopTabs />");
+    expect(source).toContain('aria-label="Open Connect"');
+    expect(source).toContain("router.push(ROUTES.CONNECT)");
   });
 
   it("uses primary header visibility for top-bar title handoff", () => {
