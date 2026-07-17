@@ -31,6 +31,7 @@ const { initRuntimeContext } = require("./services/runtime");
 const { ensureBackendVenv } = require("./services/launcher");
 const { spawnProcesses, waitForServices, shutdownServices } = require("./services/supervisor");
 const { ensureDaemonRunning } = require("./services/daemon");
+const { ensureAnalysisEngineRunning } = require("./services/analysisEngine");
 
 const { registerPlatformHandlers }      = require("./ipc/platform");
 const { registerRuntimeHandlers }       = require("./ipc/runtime");
@@ -109,6 +110,12 @@ app.whenReady().then(async () => {
     //    off without awaiting -- it must never delay or block the window
     //    that just opened, and unlike steps 3-5 a failure here is not fatal.
     void ensureDaemonRunning();
+
+    // 8. Best-effort: ensure the local analysis engine (deterministic
+    //    financial math as MCP tools) is running. Same fire-and-forget,
+    //    non-fatal treatment as the daemon -- see analysisEngine/index.js
+    //    for why this is independent of GenieX/local chat state.
+    void ensureAnalysisEngineRunning();
   } catch (err) {
     console.error("[main] Startup failed:", err);
     shutdownServices();

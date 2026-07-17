@@ -26,6 +26,8 @@ hushh_mcp resolves the same way every other backend entrypoint expects).
 from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from hushh_mcp.operons.kai.calculators import (
     calculate_annualized_return,
@@ -43,6 +45,17 @@ mcp = FastMCP(
     port=ANALYSIS_ENGINE_PORT,
     stateless_http=True,
 )
+
+
+@mcp.custom_route("/health", methods=["GET"])
+async def health_check(request: Request) -> JSONResponse:
+    # A bare GET on the real /mcp endpoint returns 406 (streamable-http
+    # requires an SSE Accept header, see MCP SDK's streamable_http.py) and,
+    # even satisfied, would open a long-lived SSE stream -- unsuitable for
+    # Electron's periodic wait-on/health-poll pattern (see daemon/index.js
+    # and local_bridge's own /v1/models probe). This plain route is what
+    # Electron's lifecycle module actually polls.
+    return JSONResponse({"status": "ok"})
 
 
 @mcp.tool()

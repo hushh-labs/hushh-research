@@ -6,6 +6,7 @@
     "start": "electron .",
     "build:backend": "cd backend && uv run build-backend.py",
     "build:local-bridge": "cd backend && uv run build-local-bridge.py",
+    "build:analysis-engine": "cd backend && uv run build-analysis-engine.py",
     "build:daemon": "cd windows-daemon && powershell -ExecutionPolicy Bypass -File scripts/fetch-npu-model.ps1 && dotnet publish src/OneWindows.Daemon -c Release -r win-arm64 --self-contained true -o publish/OneWindows.Daemon",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"
@@ -43,6 +44,10 @@
       {
         "from": "backend/dist/hushh-local-bridge.exe",
         "to": "local-bridge/hushh-local-bridge.exe"
+      },
+      {
+        "from": "backend/dist/hushh-analysis-engine.exe",
+        "to": "analysis-engine/hushh-analysis-engine.exe"
       }
     ],
     "win": {
