@@ -92,7 +92,8 @@ function ProfileSummaryValue({
   return (
     <span
       className={cn(
-        "block max-w-[15rem] text-right text-[14px] leading-snug tracking-normal [overflow-wrap:anywhere] sm:max-w-[20rem]",
+        // Mobile values stack below labels, so wrapped text should align left.
+        "block max-w-full text-left text-[14px] leading-snug tracking-normal [overflow-wrap:anywhere] sm:max-w-[20rem] sm:text-right",
         muted ? "text-muted-foreground" : "text-foreground",
       )}
     >

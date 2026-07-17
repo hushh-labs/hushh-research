@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, Check, type LucideIcon } from "lucide-react";
+import { ArrowLeft, Check } from "lucide-react";
 
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
+import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button } from "@/components/ui/button";
@@ -136,7 +137,8 @@ export function OnboardingCapabilityStep({
     return null;
   }
 
-  const Icon: LucideIcon = capability.icon;
+  const HeaderIcon =
+    capability.icon.kind === "lucide" ? capability.icon.icon : undefined;
 
   function handlePrimary() {
     if (busy || acted) return;
@@ -167,7 +169,7 @@ export function OnboardingCapabilityStep({
           eyebrow="Set up One"
           title={title}
           description={blurb}
-          icon={Icon}
+          icon={HeaderIcon}
           accent="neutral"
           className={styles.stepHeader}
           actions={
@@ -194,9 +196,12 @@ export function OnboardingCapabilityStep({
           >
             <SettingsRow
               leading={
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-accent-border bg-accent-surface text-accent-strong">
-                  <Icon className="h-5 w-5" aria-hidden />
-                </span>
+                <AgentSectionIcon
+                  id={capability.id}
+                  icon={capability.icon}
+                  tone={capability.tone}
+                  size="menu"
+                />
               }
               title={capability.title}
               description={subline}

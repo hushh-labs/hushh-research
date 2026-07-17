@@ -1,11 +1,5 @@
 import {
-  BookOpen,
-  BriefcaseBusiness,
-  ChartNoAxesCombined,
-  Database,
-  Mail,
   MapPin,
-  ShieldCheck,
   Store,
   type LucideIcon,
 } from "lucide-react";
@@ -49,6 +43,18 @@ export type OneCapabilityTone =
 
 export type OneCapabilityGroup = "workflow" | "memory" | "access";
 
+export type OneCapabilityIcon =
+  | { kind: "lucide"; icon: LucideIcon }
+  | { kind: "image"; src: string; alt: string };
+
+export function lucideCapabilityIcon(icon: LucideIcon): OneCapabilityIcon {
+  return { kind: "lucide", icon };
+}
+
+function imageCapabilityIcon(src: string, alt: string): OneCapabilityIcon {
+  return { kind: "image", src, alt };
+}
+
 export interface OneCapability {
   id: string;
   /** Stable generated action identity when this capability is in onboarding. */
@@ -76,7 +82,7 @@ export interface OneCapability {
   /** Hide this capability from the primary One agent roster while its route remains available. */
   isVisibleOnRoster?: boolean;
   href: string;
-  icon: LucideIcon;
+  icon: OneCapabilityIcon;
   tone: OneCapabilityTone;
   group: OneCapabilityGroup;
   /**
@@ -118,7 +124,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Market, portfolio, analysis, and RIA handoff.",
     previewLabel: "Market, portfolio & analysis",
     href: ROUTES.KAI_HOME,
-    icon: ChartNoAxesCombined,
+    icon: imageCapabilityIcon("/one/agents/finance.png", "Finance"),
     tone: "finance",
     group: "workflow",
     requiresVault: true,
@@ -134,7 +140,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Advisor verification, profile, clients, and requests.",
     previewLabel: "Advisor profile & verification",
     href: ROUTES.RIA_ONBOARDING,
-    icon: BriefcaseBusiness,
+    icon: imageCapabilityIcon("/one/agents/ria.png", "RIA"),
     tone: "ria",
     group: "workflow",
     requiresVault: true,
@@ -148,7 +154,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Receipt sync and purchase-memory review.",
     previewLabel: "Receipt & purchase memory",
     href: ROUTES.GMAIL,
-    icon: Mail,
+    icon: imageCapabilityIcon("/one/agents/gmail.png", "Gmail"),
     tone: "gmail",
     group: "memory",
     requiresVault: true,
@@ -161,7 +167,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "KYC",
     description: "Review information requests and approve each response.",
     href: ROUTES.ONE_KYC,
-    icon: ShieldCheck,
+    icon: imageCapabilityIcon("/one/agents/email.png", "KYC"),
     tone: "email",
     group: "workflow",
     requiresVault: true,
@@ -175,7 +181,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Live location & Alerts",
     previewLabel: "Live location & Alerts",
     href: ROUTES.ONE_LOCATION,
-    icon: MapPin,
+    icon: lucideCapabilityIcon(MapPin),
     tone: "location",
     group: "workflow",
     requiresVault: true,
@@ -186,7 +192,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "Memory",
     description: "Saved knowledge and context you can review.",
     href: ROUTES.PKM,
-    icon: BookOpen,
+    icon: imageCapabilityIcon("/one/agents/memory.svg", "Memory"),
     tone: "pkm",
     group: "memory",
     requiresVault: true,
@@ -199,7 +205,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "Consent",
     description: "Access requests, approvals, and revocations.",
     href: buildConsentCenterHref("pending"),
-    icon: ShieldCheck,
+    icon: imageCapabilityIcon("/one/agents/consent.svg", "Consent"),
     tone: "consent",
     group: "access",
     isExploreOnly: true,
@@ -213,7 +219,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
       "Preview priced slices of your personal information you could publish.",
     previewLabel: "Priced information slices",
     href: ROUTES.ONE_MARKETPLACE,
-    icon: Store,
+    icon: lucideCapabilityIcon(Store),
     tone: "pkm",
     group: "access",
     isExploreOnly: true,
@@ -227,7 +233,10 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "Connected Systems",
     description: "Approved CRM reads and writes.",
     href: ROUTES.CONNECTED_SYSTEMS,
-    icon: Database,
+    icon: imageCapabilityIcon(
+      "/one/agents/connected-systems.svg",
+      "Connected Systems",
+    ),
     tone: "connected",
     group: "workflow",
     requiresVault: true,

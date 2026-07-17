@@ -1,0 +1,110 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="168" y1="112" x2="866" y2="922" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#CDD7E7"/>
+      <stop offset="0.48" stop-color="#AEBACE"/>
+      <stop offset="1" stop-color="#8594AF"/>
+    </linearGradient>
+
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse"
+      gradientTransform="translate(290 178) rotate(47) scale(788)">
+      <stop stop-color="#FFFFFF" stop-opacity="0.42"/>
+      <stop offset="0.46" stop-color="#FFFFFF" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="tile" x1="236" y1="318" x2="798" y2="746" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EEF3FA"/>
+    </linearGradient>
+
+    <linearGradient id="strokeEdge" x1="88" y1="58" x2="942" y2="968" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.58"/>
+      <stop offset="0.46" stop-color="#FFFFFF" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#495871" stop-opacity="0.24"/>
+    </linearGradient>
+
+    <linearGradient id="glyph" x1="272" y1="416" x2="770" y2="690" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#73839B"/>
+      <stop offset="1" stop-color="#52627C"/>
+    </linearGradient>
+
+    <linearGradient id="linkBlue" x1="470" y1="420" x2="624" y2="612" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#59ABFF"/>
+      <stop offset="0.52" stop-color="#0A84FF"/>
+      <stop offset="1" stop-color="#0062D9"/>
+    </linearGradient>
+
+    <filter id="shadowLg" x="-25%" y="-30%" width="150%" height="180%">
+      <feDropShadow dx="0" dy="26" stdDeviation="28" flood-color="#45526D" flood-opacity="0.22"/>
+    </filter>
+
+    <filter id="shadowSm" x="-40%" y="-40%" width="180%" height="190%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#44516C" flood-opacity="0.18"/>
+    </filter>
+
+    <filter id="blueShadow" x="-60%" y="-60%" width="220%" height="220%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#0B5DB7" flood-opacity="0.30"/>
+    </filter>
+
+    <clipPath id="clip">
+      <rect width="1024" height="1024" rx="232"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#clip)">
+    <rect width="1024" height="1024" rx="232" fill="url(#bg)"/>
+    <rect width="1024" height="1024" rx="232" fill="url(#glow)"/>
+
+    <path d="M0 0H1024V324C920 176 741 96 514 96C290 96 111 175 0 341V0Z" fill="#FFFFFF" fill-opacity="0.065"/>
+
+    <!-- left system card -->
+    <g filter="url(#shadowLg)">
+      <rect x="170" y="360" width="318" height="318" rx="96" fill="url(#tile)" stroke="#FFFFFF" stroke-opacity="0.95" stroke-width="5"/>
+    </g>
+
+    <!-- right system card -->
+    <g filter="url(#shadowLg)">
+      <rect x="536" y="360" width="318" height="318" rx="96" fill="url(#tile)" stroke="#FFFFFF" stroke-opacity="0.95" stroke-width="5"/>
+    </g>
+
+    <!-- bridge link -->
+    <g filter="url(#blueShadow)">
+      <rect x="444" y="450" width="136" height="136" rx="52" fill="url(#linkBlue)"/>
+    </g>
+    <path d="M486 518H538" stroke="#FFFFFF" stroke-width="20" stroke-linecap="round"/>
+    <circle cx="486" cy="518" r="13" fill="#FFFFFF"/>
+    <circle cx="538" cy="518" r="13" fill="#FFFFFF"/>
+
+    <!-- subtle connectors into cards -->
+    <path d="M406 518H444" stroke="#E7EEF8" stroke-width="26" stroke-linecap="round"/>
+    <path d="M580 518H618" stroke="#E7EEF8" stroke-width="26" stroke-linecap="round"/>
+
+    <!-- left app grid glyph -->
+    <g fill="url(#glyph)">
+      <rect x="260" y="452" width="68" height="68" rx="20"/>
+      <rect x="338" y="452" width="68" height="68" rx="20"/>
+      <rect x="260" y="530" width="68" height="68" rx="20"/>
+      <rect x="338" y="530" width="68" height="68" rx="20"/>
+    </g>
+
+    <!-- right record/database glyph -->
+    <g fill="url(#glyph)">
+      <ellipse cx="694" cy="470" rx="68" ry="27"/>
+      <path d="M626 470V536C626 551 656 563 694 563C732 563 762 551 762 536V470C762 485 732 497 694 497C656 497 626 485 626 470Z"/>
+      <path d="M626 536V602C626 617 656 629 694 629C732 629 762 617 762 602V536C762 551 732 563 694 563C656 563 626 551 626 536Z" opacity="0.92"/>
+    </g>
+
+    <!-- small sync pulse to add 'connection' feel -->
+    <g filter="url(#shadowSm)" opacity="0.95">
+      <circle cx="762" cy="610" r="28" fill="#FFFFFF" fill-opacity="0.78"/>
+      <circle cx="762" cy="610" r="8" fill="#0A84FF"/>
+    </g>
+
+    <!-- soft highlights -->
+    <path d="M226 414C278 375 386 375 437 414" stroke="#FFFFFF" stroke-opacity="0.52" stroke-width="8" stroke-linecap="round"/>
+    <path d="M592 414C644 375 752 375 803 414" stroke="#FFFFFF" stroke-opacity="0.52" stroke-width="8" stroke-linecap="round"/>
+
+    <rect x="10" y="10" width="1004" height="1004" rx="222" stroke="url(#strokeEdge)" stroke-width="20"/>
+  </g>
+</svg>
