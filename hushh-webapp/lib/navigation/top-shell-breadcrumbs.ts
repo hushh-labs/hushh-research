@@ -612,6 +612,7 @@ export function resolveTopShellBreadcrumb(
       backHref: ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
+      hideBack: true,
       items: [
         { label: "One", href: ROUTES.ONE_HOME },
         { label: "Connect" },

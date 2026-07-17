@@ -30,6 +30,7 @@ import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { SegmentedPill, type SegmentedPillOption } from "@/lib/morphy-ux/ui";
+import { useKaiBottomChromeElementTranslation } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -230,25 +231,32 @@ export const Navbar = () => {
     pathname === ROUTES.BLOG ||
     Boolean(pathname?.startsWith(`${ROUTES.BLOG}/`));
 
-  const navOptions = useMemo<SegmentedPillOption[]>(() => {
-    const keys = resolveBottomNavOptionKeys(
-      normalizedPathname,
-      "one",
-    );
-    return keys.map((key) =>
-      navOptionForKey(key, pendingConsents),
-    );
-  }, [normalizedPathname, pendingConsents]);
   const bottomNavScope = useMemo(
     () => resolveBottomNavigationScope(normalizedPathname, null),
     [normalizedPathname],
   );
+
+  const navOptions = useMemo<SegmentedPillOption[]>(() => {
+    const keys = resolveBottomNavOptionKeys(
+      normalizedPathname,
+      bottomNavScope,
+    );
+    return keys.map((key) =>
+      navOptionForKey(key, pendingConsents),
+    );
+  }, [normalizedPathname, bottomNavScope, pendingConsents]);
+
   const specialistOptions = useMemo<SegmentedPillOption[]>(
     () =>
       resolveBottomNavSpecialistOptionKeys(bottomNavScope).map((key) =>
         navOptionForKey(key, pendingConsents),
       ),
     [bottomNavScope, pendingConsents],
+  );
+
+  useKaiBottomChromeElementTranslation(
+    pillRef,
+    !useOnboardingChrome && isAuthenticated,
   );
 
   React.useLayoutEffect(() => {
@@ -321,7 +329,7 @@ export const Navbar = () => {
     navOptions.length > 0 ? resolveBottomNavMaxWidth(navOptions.length) : "0px";
   const bottomNavWidth =
     navOptions.length > 0
-      ? `min(calc(100vw - 6rem), ${bottomNavMaxWidth})`
+      ? `min(calc(100vw - 1.5rem), ${bottomNavMaxWidth})`
       : "0px";
   if (hideNavbar) {
     return null;
