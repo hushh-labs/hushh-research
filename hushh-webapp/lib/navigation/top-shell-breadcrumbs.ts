@@ -474,7 +474,7 @@ export function resolveTopShellBreadcrumb(
         fromProfile
           ? { label: "Profile", href: ROUTES.PROFILE }
           : { label: "One", href: ROUTES.ONE_HOME },
-        { label: "Email" },
+        { label: "KYC" },
       ],
     };
   }

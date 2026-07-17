@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentSectionDropdown } from "@/components/app-ui/agent-section-dropdown";
+import { getAgentSections } from "@/lib/navigation/agent-sections";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 
@@ -44,7 +45,7 @@ describe("AgentSectionDropdown", () => {
     expect(screen.getByTestId("top_agent_section_connected-systems")).toBeTruthy();
     expect(
       document.querySelectorAll('[data-testid^="top_agent_section_"]').length,
-    ).toBe(8);
+    ).toBe(getAgentSections().length);
     // cmdk must not replace a branded agent glyph with its shared explicit
     // theme contrast: dark in light mode and light in dark mode.
     expect(

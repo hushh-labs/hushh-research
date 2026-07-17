@@ -46,7 +46,7 @@ describe("VaultUnlockDialog", () => {
       />
     );
 
-    const overlay = document.querySelector('[data-slot="drawer-overlay"]');
+    const overlay = document.querySelector('[data-slot="dialog-overlay"]');
     const content = document.querySelector(
       '[data-vault-unlock-surface="hard_gate"]',
     );
@@ -60,6 +60,24 @@ describe("VaultUnlockDialog", () => {
     expect(overlay?.getAttribute("style")).toContain("animation: none");
     expect(overlay?.getAttribute("style")).toContain("transition: none");
     expect(content).toBeTruthy();
+  });
+
+  it("uses a flat top-centered vault layout instead of a keyboard-shifting sheet", () => {
+    render(
+      <VaultUnlockDialog
+        user={user}
+        open
+        onSuccess={vi.fn()}
+        title="Unlock required"
+        description="Unlock your vault before continuing."
+      />,
+    );
+
+    const content = document.querySelector('[data-vault-unlock-surface="standard"]');
+    expect(content).toHaveAttribute("data-vault-layout", "top-centered-flat");
+    expect(content).toHaveStyle({ transform: "translateX(-50%)" });
+    expect(content).toHaveStyle({ background: "transparent", boxShadow: "none" });
+    expect(content?.className).not.toContain("bottom-[var(--kb-height,0px)]");
   });
 
   it("suppresses persistent shell chrome until the last vault surface closes", () => {

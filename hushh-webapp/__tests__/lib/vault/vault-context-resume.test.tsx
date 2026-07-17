@@ -9,8 +9,6 @@ const mocks = vi.hoisted(() => ({
   pausePkmUpgrade: vi.fn().mockResolvedValue(undefined),
   pauseConsentExport: vi.fn(),
   invalidateVaultState: vi.fn(),
-  markSessionUnlocked: vi.fn(),
-  resetSessionUnlocked: vi.fn(),
   authUser: {
     uid: "vault-owner",
     displayName: "Vault Owner",
@@ -88,11 +86,6 @@ vi.mock("@/lib/services/unlock-warm-orchestrator", () => ({
 
 vi.mock("@/lib/services/vault-service", () => ({
   VaultService: { invalidateVaultStateCache: mocks.invalidateVaultState },
-}));
-
-vi.mock("@/lib/vault/vault-session-latch", () => ({
-  markSessionUnlocked: mocks.markSessionUnlocked,
-  resetSessionUnlocked: mocks.resetSessionUnlocked,
 }));
 
 vi.mock("@/lib/kai/kai-financial-resource", () => ({
@@ -194,7 +187,6 @@ describe("VaultProvider app-resume expiry recovery", () => {
     });
     expect(screen.getByTestId("vault-token").textContent).toBe("none");
     expect(screen.getByTestId("vault-key").textContent).toBe("none");
-    expect(mocks.resetSessionUnlocked).toHaveBeenCalled();
     expect(mocks.invalidateVaultState).toHaveBeenCalled();
   });
 
@@ -207,7 +199,6 @@ describe("VaultProvider app-resume expiry recovery", () => {
 
     expect(screen.getByTestId("vault-status").textContent).toBe("unlocked");
     expect(screen.getByTestId("vault-token").textContent).toBe("vault-token");
-    expect(mocks.resetSessionUnlocked).not.toHaveBeenCalled();
   });
 
   it("relocks and clears credentials when API validation requests a vault lock", async () => {
@@ -227,7 +218,7 @@ describe("VaultProvider app-resume expiry recovery", () => {
     });
     expect(screen.getByTestId("vault-token").textContent).toBe("none");
     expect(screen.getByTestId("vault-key").textContent).toBe("none");
-    expect(mocks.resetSessionUnlocked).toHaveBeenCalled();
+    expect(mocks.invalidateVaultState).toHaveBeenCalled();
   });
 
   it("relocks only when the native app becomes active and removes its listener", async () => {
@@ -253,7 +244,6 @@ describe("VaultProvider app-resume expiry recovery", () => {
     const view = renderVault();
     fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
     expect(screen.getByTestId("vault-status").textContent).toBe("unlocked");
-    expect(mocks.markSessionUnlocked).toHaveBeenCalledWith("vault-owner");
 
     mocks.authUser = {
       uid: "different-user",
@@ -270,6 +260,6 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(screen.getByTestId("vault-status").textContent).toBe("locked");
     expect(screen.getByTestId("vault-token").textContent).toBe("none");
     expect(screen.getByTestId("vault-key").textContent).toBe("none");
-    await waitFor(() => expect(mocks.resetSessionUnlocked).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.invalidateVaultState).toHaveBeenCalled());
   });
 });

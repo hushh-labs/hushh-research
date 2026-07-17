@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -10,11 +9,11 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { PageHeader, SectionHeader } from "@/components/app-ui/page-sections";
-import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import { Button } from "@/lib/morphy-ux/button";
 import {
   ConnectionsService,
   type ConnectionSummaryEntry,
@@ -163,78 +162,76 @@ export default function ConnectPageClient() {
       }}
     >
       <AppPageHeaderRegion>
-        <PageHeader
-          eyebrow="One / Connect"
-          title="Connect"
-          description="Find people on Hushh and send a connection request."
-          icon={UserPlus}
-          accent="neutral"
-        />
+        <header className="px-0.5 sm:px-1" data-slot="connect-page-header">
+          <h1 className="text-[28px] font-medium leading-tight tracking-normal text-foreground sm:text-[32px]">
+            Connect
+          </h1>
+        </header>
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
-        <SurfaceStack compact>
-          <section className="space-y-3" aria-labelledby="my-connections-heading">
-            <SectionHeader
-              id="my-connections-heading"
-              title={`My connections (${connections.length})`}
-              accent="neutral"
-            />
+        <div className="space-y-[var(--app-section-gap)]">
+          <SettingsGroup
+            title={`My connections (${connections.length})`}
+            separatorInset
+          >
             {connections.length === 0 ? (
-              <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
-                You have no connections yet.
-              </SurfaceInset>
+              <SettingsRow
+                title="No connections yet"
+                description="People you connect with will appear here."
+                density="compact"
+                disabled
+              />
             ) : (
-              <SurfaceInset className="p-0">
-                <ul className="divide-y divide-border/70">
-                  {connections.map((connection) => (
-                    <li
-                      key={connection.connectionId}
-                      className="flex min-h-14 items-center justify-between gap-3 px-4 py-3"
-                    >
-                      <span className="min-w-0 truncate text-sm font-medium text-foreground">
-                        {connection.displayName || connection.userId}
-                      </span>
-                      {pendingRemoveId === connection.connectionId ? (
-                        <span className="flex shrink-0 items-center gap-2">
-                          <button
-                            type="button"
-                            disabled={busyId === connection.connectionId}
-                            onClick={() => void handleRemove(connection)}
-                            className="inline-flex min-h-9 items-center justify-center rounded-full bg-destructive px-4 text-xs font-medium text-destructive-foreground disabled:opacity-50"
-                          >
-                            {busyId === connection.connectionId
-                              ? "Removing…"
-                              : "Confirm"}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busyId === connection.connectionId}
-                            onClick={() => setPendingRemoveId(null)}
-                            className="inline-flex min-h-9 items-center justify-center rounded-full px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
-                          >
-                            Cancel
-                          </button>
-                        </span>
-                      ) : (
-                        <button
+              connections.map((connection) => (
+                <SettingsRow
+                  key={connection.connectionId}
+                  title={connection.displayName || connection.userId}
+                  density="compact"
+                  trailing={
+                    pendingRemoveId === connection.connectionId ? (
+                      <span className="flex shrink-0 items-center gap-1">
+                        <Button
                           type="button"
-                          onClick={() => setPendingRemoveId(connection.connectionId)}
-                          aria-label={`Remove connection with ${connection.displayName || connection.userId}`}
-                          className="inline-flex min-h-9 shrink-0 items-center justify-center rounded-full px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                          variant="destructive"
+                          effect="fill"
+                          size="sm"
+                          disabled={busyId === connection.connectionId}
+                          onClick={() => void handleRemove(connection)}
                         >
-                          Remove
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </SurfaceInset>
+                          {busyId === connection.connectionId ? "Removing…" : "Confirm"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="none"
+                          effect="fade"
+                          size="sm"
+                          disabled={busyId === connection.connectionId}
+                          onClick={() => setPendingRemoveId(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </span>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="none"
+                        effect="fade"
+                        size="sm"
+                        onClick={() => setPendingRemoveId(connection.connectionId)}
+                        aria-label={`Remove connection with ${connection.displayName || connection.userId}`}
+                        className="text-muted-foreground hover:text-destructive"
+                      >
+                        Remove
+                      </Button>
+                    )
+                  }
+                />
+              ))
             )}
-          </section>
+          </SettingsGroup>
 
-          <section className="space-y-3" aria-labelledby="people-heading">
-            <SectionHeader id="people-heading" title="People" accent="neutral" />
+          <div className="space-y-3">
             <input
               type="search"
               value={query}
@@ -243,44 +240,52 @@ export default function ConnectPageClient() {
               aria-label="Search people"
               className="min-h-11 w-full rounded-[var(--app-control-radius)] border border-border bg-background px-4 text-sm text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus:border-accent focus:ring-2 focus:ring-accent/20"
             />
-            {loading ? (
-              <p className="text-sm text-muted-foreground">Finding people…</p>
-            ) : null}
-            {error ? <p className="text-sm text-destructive">{error}</p> : null}
-            {!loading && !error && people.length === 0 ? (
-              <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
-                No people found.
-              </SurfaceInset>
-            ) : null}
-            {people.length > 0 ? (
-              <SurfaceInset className="p-0">
-                <ul className="divide-y divide-border/70">
-                  {people.map((person) => {
-                    const cta = relationshipCta(person.relationship);
-                    return (
-                      <li
-                        key={person.userId}
-                        className="flex min-h-14 items-center justify-between gap-3 px-4 py-3"
-                      >
-                        <span className="min-w-0 truncate text-sm font-medium text-foreground">
-                          {person.displayName || person.email || person.userId}
-                        </span>
-                        <button
+            <SettingsGroup
+              title="People"
+              description="Find people on Hushh and send a connection request."
+              separatorInset
+            >
+              {loading ? (
+                <SettingsRow title="Finding people…" density="compact" disabled />
+              ) : error ? (
+                <SettingsRow
+                  title="People are unavailable"
+                  description={error}
+                  density="compact"
+                  tone="destructive"
+                />
+              ) : people.length === 0 ? (
+                <SettingsRow title="No people found" density="compact" disabled />
+              ) : (
+                people.map((person) => {
+                  const cta = relationshipCta(person.relationship);
+                  const title = person.displayName || person.email || person.userId;
+                  const description = person.displayName && person.email ? person.email : undefined;
+                  return (
+                    <SettingsRow
+                      key={person.userId}
+                      title={title}
+                      description={description}
+                      density="compact"
+                      trailing={
+                        <Button
                           type="button"
+                          variant="none"
+                          effect="fill"
+                          size="sm"
                           disabled={cta.disabled || busyId === person.userId}
                           onClick={() => void handleConnect(person)}
-                          className="inline-flex min-h-9 shrink-0 items-center justify-center rounded-full bg-foreground px-4 text-xs font-medium text-background transition-opacity disabled:opacity-50"
                         >
                           {busyId === person.userId ? "Sending…" : cta.label}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </SurfaceInset>
-            ) : null}
-          </section>
-        </SurfaceStack>
+                        </Button>
+                      }
+                    />
+                  );
+                })
+              )}
+            </SettingsGroup>
+          </div>
+        </div>
       </AppPageContentRegion>
     </AppPageShell>
   );

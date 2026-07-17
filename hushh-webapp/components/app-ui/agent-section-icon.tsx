@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 // invisible against that highlight, so the selected state forces the same
 // solid chip used everywhere else instead of blending into the highlight.
 const AGENT_ICON_SURFACE_FALLBACK_CLASSNAME =
-  "bg-[#f1f1f3] text-[#1d1d1f] dark:bg-white/[0.14] dark:text-white group-data-[selected=true]:bg-white group-data-[selected=true]:text-[#1d1d1f] dark:group-data-[selected=true]:bg-[#2c2c2e] dark:group-data-[selected=true]:text-white";
+  "bg-[color:var(--app-card-surface-compact)] text-foreground ring-1 ring-border/60 group-data-[selected=true]:bg-accent-surface group-data-[selected=true]:text-accent-strong";
 
 const ICON_SIZE_CLASS = {
   card: {

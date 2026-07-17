@@ -112,6 +112,7 @@ function SharedBottomChromeGlass() {
     <>
       <div
         aria-hidden
+        data-app-bottom-chrome-glass
         className="pointer-events-none fixed inset-x-0 bottom-0 z-[108] md:hidden"
       >
         <div
@@ -126,6 +127,7 @@ function SharedBottomChromeGlass() {
       </div>
       <div
         aria-hidden
+        data-app-bottom-chrome-glass
         className="pointer-events-none fixed inset-x-0 bottom-0 z-[108] hidden md:block"
       >
         <div
@@ -141,6 +143,7 @@ function SharedBottomChromeGlass() {
       </div>
       <div
         aria-hidden
+        data-app-bottom-chrome-glass
         className="pointer-events-none fixed inset-x-0 z-[108] hidden md:block"
         style={{
           bottom:

@@ -92,10 +92,11 @@ const SETUP_COPY_BY_ID: Record<
     ],
   },
   email: {
-    setupTitle: "Email",
-    setupBlurb: "Turn on drafting so One can prepare replies from one@hushh.ai.",
-    actionLabel: "Set up email",
-    resumeActionLabel: "Finish email",
+    setupTitle: "KYC",
+    setupBlurb:
+      "Set your review preference so One can prepare responses for your approval.",
+    actionLabel: "Set up KYC",
+    resumeActionLabel: "Finish KYC",
     setupBullets: [
       "Turn drafting on or off any time.",
       "Every draft stays yours to review before it sends.",

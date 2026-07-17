@@ -260,11 +260,26 @@ function dedupeOneMarketRows(rows: OneMarketDisplayRow[]): OneMarketDisplayRow[]
   });
 }
 
-function toMoverGroups(
+function isDirectionalMover(row: OneMarketDisplayRow, direction: "gain" | "lose"): boolean {
+  if (typeof row.changePct !== "number" || !Number.isFinite(row.changePct)) return false;
+  return direction === "gain" ? row.changePct > 0 : row.changePct < 0;
+}
+
+export function toMoverGroups(
   payload: KaiHomeInsightsV2 | null
 ): Record<OneMarketMoverTab, OneMarketDisplayRow[]> {
-  const gainers = dedupeOneMarketRows(toOneMarketRows(payload?.movers?.gainers)).slice(0, 4);
-  const losers = dedupeOneMarketRows(toOneMarketRows(payload?.movers?.losers)).slice(0, 4);
+  // Provider buckets are advisory. The displayed direction must always agree
+  // with the quote itself so a negative move can never appear in Gainers.
+  const gainers = dedupeOneMarketRows(
+    toOneMarketRows(payload?.movers?.gainers).filter((row) => isDirectionalMover(row, "gain"))
+  )
+    .sort((left, right) => Number(right.changePct) - Number(left.changePct))
+    .slice(0, 4);
+  const losers = dedupeOneMarketRows(
+    toOneMarketRows(payload?.movers?.losers).filter((row) => isDirectionalMover(row, "lose"))
+  )
+    .sort((left, right) => Number(left.changePct) - Number(right.changePct))
+    .slice(0, 4);
   const active = dedupeOneMarketRows(toOneMarketRows(payload?.movers?.active))
     .sort((left, right) => Number(right.volume || 0) - Number(left.volume || 0))
     .slice(0, 4);
@@ -369,9 +384,28 @@ function oneMarketNewsContext(row: KaiHomeNewsItem): string {
   return "Market context - use it to confirm the current rotation before acting.";
 }
 
-function OneMarketNewsGlyph({ row }: { row: KaiHomeNewsItem }) {
+const NEWS_SYMBOL_ALIASES: Record<string, readonly string[]> = {
+  AAPL: ["apple"],
+  AMZN: ["amazon"],
+  BA: ["boeing"],
+  GOOGL: ["google", "alphabet"],
+  META: ["meta", "facebook", "instagram"],
+  MSFT: ["microsoft"],
+  NFLX: ["netflix"],
+  NVDA: ["nvidia"],
+  TSLA: ["tesla"],
+};
+
+export function shouldShowNewsCompanyLogo(row: KaiHomeNewsItem): boolean {
   const symbol = normalizeMarketSymbol(row.symbol);
-  return <>{symbol.slice(0, 1) || "N"}</>;
+  const title = String(row.title || "").toLowerCase();
+  if (!symbol || !title) return false;
+
+  const aliases = [symbol.toLowerCase(), ...(NEWS_SYMBOL_ALIASES[symbol] || [])];
+  return aliases.some((alias) => {
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`, "i").test(title);
+  });
 }
 
 function BrandLogo({
@@ -628,7 +662,7 @@ function OneMarketMoverRow({
 
 function OneMarketNewsCover({ row, index }: { row: KaiHomeNewsItem; index: number }) {
   const symbol = normalizeMarketSymbol(row.symbol);
-  const logoUrl = getCompanyLogoUrl({ symbol });
+  const logoUrl = shouldShowNewsCompanyLogo(row) ? getCompanyLogoUrl({ symbol }) : null;
   const [logoFailed, setLogoFailed] = useState(false);
 
   useEffect(() => {
@@ -658,8 +692,8 @@ function OneMarketNewsCover({ row, index }: { row: KaiHomeNewsItem; index: numbe
         />
       ) : (
         <>
-          <span className="relative text-[36px] font-semibold leading-none tracking-normal text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.25)]">
-            <OneMarketNewsGlyph row={row} />
+          <span className="relative grid h-11 w-11 place-items-center rounded-2xl bg-white/18 text-white shadow-[0_2px_4px_rgba(0,0,0,0.16)]">
+            <Newspaper className="h-6 w-6" aria-hidden="true" />
           </span>
           <svg
             className="absolute inset-x-0 bottom-0 h-10 w-full opacity-25"
@@ -753,39 +787,44 @@ function OneMarketNewsCards({ rows }: { rows: KaiHomeNewsItem[] }) {
       ];
   return (
     <div className="-mx-[var(--one-gutter)] flex gap-3 overflow-x-auto px-[var(--one-gutter)] pb-1 pt-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      {fallbackRows.slice(0, 4).map((row, index) => (
-        <button
-          key={`${row.symbol}-${index}-${row.url}`}
-          type="button"
-          onClick={() => openOneMarketHref(row.url)}
-          className="group/news flex w-[274px] shrink-0 flex-col overflow-hidden rounded-[18px] bg-[color:var(--one-card)] text-left shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.22)] transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-[0_1px_2px_rgba(0,0,0,0.04),0_20px_34px_-18px_rgba(0,0,0,0.26)] active:scale-[0.985] sm:w-[300px]"
-        >
-          <OneMarketNewsCover row={row} index={index} />
-          <div className="flex flex-1 flex-col px-[13px] pb-[13px] pt-[11px]">
-            <div className="mb-1.5 flex items-center justify-between gap-1.5 text-[11.5px] font-medium text-[color:var(--one-fg3)]">
-              <span className="flex min-w-0 items-center gap-1.5">
-                <span className="min-w-0 truncate">{row.source_name || "Market news"}</span>
-                <span className="h-0.5 w-0.5 shrink-0 rounded-full bg-[color:var(--one-fg3)]" />
-                <span className="shrink-0">{formatHeadlinePublished(row.published_at)}</span>
-              </span>
-              <span className="shrink-0 rounded-full bg-[color:var(--one-surface)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--one-fg2)]">
-                {normalizeMarketSymbol(row.symbol) || "NEWS"}
-              </span>
+      {fallbackRows.slice(0, 4).map((row, index) => {
+        const verifiedSymbol = shouldShowNewsCompanyLogo(row)
+          ? normalizeMarketSymbol(row.symbol)
+          : "NEWS";
+        return (
+          <button
+            key={`${row.symbol}-${index}-${row.url}`}
+            type="button"
+            onClick={() => openOneMarketHref(row.url)}
+            className="group/news flex w-[274px] shrink-0 flex-col overflow-hidden rounded-[18px] bg-[color:var(--one-card)] text-left shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.22)] transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-[0_1px_2px_rgba(0,0,0,0.04),0_20px_34px_-18px_rgba(0,0,0,0.26)] active:scale-[0.985] sm:w-[300px]"
+          >
+            <OneMarketNewsCover row={row} index={index} />
+            <div className="flex flex-1 flex-col px-[13px] pb-[13px] pt-[11px]">
+              <div className="mb-1.5 flex items-center justify-between gap-1.5 text-[11.5px] font-medium text-[color:var(--one-fg3)]">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="min-w-0 truncate">{row.source_name || "Market news"}</span>
+                  <span className="h-0.5 w-0.5 shrink-0 rounded-full bg-[color:var(--one-fg3)]" />
+                  <span className="shrink-0">{formatHeadlinePublished(row.published_at)}</span>
+                </span>
+                <span className="shrink-0 rounded-full bg-[color:var(--one-surface)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--one-fg2)]">
+                  {verifiedSymbol}
+                </span>
+              </div>
+              <div className="line-clamp-2 text-[13.5px] font-semibold leading-[1.35] text-[color:var(--one-fg)]">
+                {row.title}
+              </div>
+              <p className="mt-2 line-clamp-2 text-[12px] leading-[1.38] text-[color:var(--one-fg2)]">
+                {oneMarketNewsContext(row)}
+              </p>
+              <div className="mt-3 flex items-center justify-end">
+                <span className="shrink-0 text-[11px] font-semibold text-[color:var(--one-link)]">
+                  Read
+                </span>
+              </div>
             </div>
-            <div className="line-clamp-2 text-[13.5px] font-semibold leading-[1.35] text-[color:var(--one-fg)]">
-              {row.title}
-            </div>
-            <p className="mt-2 line-clamp-2 text-[12px] leading-[1.38] text-[color:var(--one-fg2)]">
-              {oneMarketNewsContext(row)}
-            </p>
-            <div className="mt-3 flex items-center justify-end">
-              <span className="shrink-0 text-[11px] font-semibold text-[color:var(--one-link)]">
-                Read
-              </span>
-            </div>
-          </div>
-        </button>
-      ))}
+          </button>
+        );
+      })}
     </div>
   );
 }

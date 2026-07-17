@@ -40,6 +40,7 @@ describe("IntroStep voice contract", () => {
       "data-voice-control-id",
       "onboarding_claim_one",
     );
+    expect(button.querySelector(":scope > .morphy-ripple-host")).not.toBeNull();
     fireEvent.click(button);
     expect(onLogin).toHaveBeenCalledTimes(1);
 

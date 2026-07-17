@@ -203,6 +203,7 @@ export class VaultService {
       this.vaultCheckInflight.delete(userId);
       this.vaultStateInflight.delete(userId);
       removeSessionItem(this.vaultCheckSessionKey(userId));
+      CacheSyncService.onVaultStateChanged(userId);
       return;
     }
     this.vaultStateCache.clear();
@@ -922,6 +923,20 @@ export class VaultService {
 
     this.vaultCheckInflight.set(userId, request);
     return request;
+  }
+
+  /**
+   * Revalidate a negative vault-presence hint before a protected route uses it.
+   * A cached `false` can be stale after setup, a transient bootstrap failure,
+   * or a dev/provider remount; it is never sufficient unlock authority.
+   */
+  static async refreshVaultPresence(userId: string): Promise<boolean> {
+    const cache = CacheService.getInstance();
+    CacheSyncService.onVaultStateChanged(userId);
+    cache.invalidate(CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId));
+    removeSessionItem(this.vaultCheckSessionKey(userId));
+    this.vaultCheckInflight.delete(userId);
+    return this.checkVault(userId);
   }
 
   /**

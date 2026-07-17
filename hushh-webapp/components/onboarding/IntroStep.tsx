@@ -153,16 +153,11 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
             data-voice-control-id="onboarding_claim_one"
             className={styles.cta}
           >
-            <span className="inline-flex items-center gap-2">
+            <span className="relative z-0 inline-flex items-center gap-2">
               Claim your One
               <span aria-hidden>&rarr;</span>
             </span>
-            <span
-              aria-hidden
-              className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
-            >
-              <MaterialRipple variant="gradient" effect="fill" />
-            </span>
+            <MaterialRipple variant="gradient" effect="fill" className="z-10" />
           </button>
 
           {/* Public destinations share the CTA width and use equal hit areas.

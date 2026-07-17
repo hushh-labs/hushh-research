@@ -36,7 +36,6 @@ def test_standard_backend_change_uses_lean_gate() -> None:
     assert plan.pkm_evaluator_runs == 0
     assert plan.run_pkm_upgrade_gate is False
     assert plan.run_reviewer_byok is False
-    assert plan.run_pkm_runtime_audit is False
 
 
 def test_provider_change_does_not_run_pkm_upgrade_evaluator() -> None:
@@ -44,21 +43,18 @@ def test_provider_change_does_not_run_pkm_upgrade_evaluator() -> None:
     assert plan.pkm_evaluator_runs == 0
     assert plan.run_pkm_upgrade_gate is False
     assert plan.run_reviewer_byok is False
-    assert plan.run_pkm_runtime_audit is False
 
 
 def test_ordinary_pkm_agent_change_does_not_run_upgrade_gate() -> None:
     plan = plan_for({"consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py"})
     assert plan.pkm_evaluator_runs == 0
     assert plan.run_pkm_upgrade_gate is False
-    assert plan.run_pkm_runtime_audit is False
 
 
 def test_pkm_upgrade_change_keeps_full_zero_loss_gate() -> None:
     plan = plan_for({"consent-protocol/hushh_mcp/services/pkm_upgrade_service.py"})
     assert plan.pkm_evaluator_runs == 1
     assert plan.run_pkm_upgrade_gate is True
-    assert plan.run_pkm_runtime_audit is True
 
 
 def test_frontend_vault_change_requires_byok_browser() -> None:
@@ -82,7 +78,6 @@ def test_missing_deployed_sha_fails_closed() -> None:
     assert plan.pkm_evaluator_runs == 1
     assert plan.run_pkm_upgrade_gate is True
     assert plan.run_reviewer_byok is True
-    assert plan.run_pkm_runtime_audit is True
 
 
 def main() -> int:

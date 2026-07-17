@@ -34,8 +34,8 @@ describe("Navbar bottom chrome contract", () => {
     expect(agentBar).toContain('aria-label="Start conversation"');
     expect(agentBar).toContain("loading: authLoading");
     expect(agentBar).toContain("!agentPopover ||\n    authLoading ||");
-    expect(agentBar).toContain('const isRiaChrome = isRiaRoute(pathname ?? "")');
-    expect(agentBar).not.toContain('const isRiaChrome = activePersona === "ria"');
+    expect(agentBar).not.toContain("isRiaChrome");
+    expect(agentBar).toContain("agentBarShellRef,\n    !physicalNavbarAbsent,");
     expect(agentBar).toContain("useKaiBottomChromeElementTranslation");
     expect(agentBar).toContain(
       "max(var(--app-bottom-inset), calc(var(--bottom-nav-offset)",

@@ -16,7 +16,6 @@ import {
   FolderSearch,
   LayoutDashboard,
   Mail,
-  MailCheck,
   MapPin,
   Search as SearchIcon,
   ShieldCheck,
@@ -130,8 +129,8 @@ const BOTTOM_NAV_OPTION_META: Record<
   },
   email: {
     value: "email",
-    label: "Email",
-    icon: MailCheck,
+    label: "KYC",
+    icon: ShieldCheck,
     dataTourId: "nav-one-email",
   },
   location: {

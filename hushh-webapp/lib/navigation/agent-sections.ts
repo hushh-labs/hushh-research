@@ -89,7 +89,7 @@ const AGENT_SECTION_OVERRIDES: Record<
 
 const AGENTS_ROOT_SECTION: AgentSection = {
   id: "agents",
-  label: "Agents",
+  label: "One",
   href: ROUTES.ONE_HOME,
   icon: lucideCapabilityIcon(LayoutDashboard),
   routeFamily: "one",
@@ -115,6 +115,18 @@ const RIA_WORKSPACE_SECTION: AgentSection = {
   controlId: "top_agent_section_ria",
   tone: "ria",
   voiceRouteActionId: "route.ria_home",
+};
+
+// Finance onboarding is still a Finance surface even though its route lives
+// under `/one/setup`. Without these aliases the shared dropdown falls back to
+// the root One selection while a person is completing Finance preferences or
+// choosing a portfolio source.
+const AGENT_SECTION_ROUTE_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  finance: [
+    ROUTES.ONE_SETUP_FINANCE,
+    ROUTES.ONE_SETUP_FINANCE_IMPORT,
+    ROUTES.KAI_PLAID_OAUTH_RETURN,
+  ],
 };
 
 function normalizePathname(value: string | null | undefined): string {
@@ -172,7 +184,10 @@ export function getAgentSections(): readonly AgentSection[] {
   } else {
     sections.push(RIA_WORKSPACE_SECTION);
   }
-  return sections;
+  // One is the relationship-level app and the first destination in the
+  // selector. Specialist apps follow it; the durable internal id stays
+  // `agents` for generated voice/action compatibility.
+  return [AGENTS_ROOT_SECTION, ...sections];
 }
 
 export function getAgentSection(
@@ -192,9 +207,21 @@ export function resolveAgentSectionForPath(
 ): AgentSection | null {
   const normalizedPathname = normalizePathname(pathname);
 
+  if (normalizedPathname === ROUTES.ONE_HOME) {
+    return AGENTS_ROOT_SECTION;
+  }
+
   for (const section of getAgentSections()) {
-    const sectionPathname = normalizeHrefPathname(section.href);
-    if (isRoute(normalizedPathname, sectionPathname)) {
+    if (section.id === AGENTS_ROOT_SECTION.id) continue;
+    const sectionPaths = [
+      section.href,
+      ...(AGENT_SECTION_ROUTE_ALIASES[section.id] || []),
+    ];
+    if (
+      sectionPaths.some((path) =>
+        isRoute(normalizedPathname, normalizeHrefPathname(path)),
+      )
+    ) {
       return section;
     }
   }

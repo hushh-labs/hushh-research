@@ -1,0 +1,56 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  shouldShowNewsCompanyLogo,
+  toMoverGroups,
+} from "@/components/kai/views/kai-market-preview-view";
+import type { KaiHomeInsightsV2, KaiHomeNewsItem } from "@/lib/services/api-service";
+
+describe("toMoverGroups", () => {
+  it("rejects a directionally invalid provider bucket and orders valid movers by magnitude", () => {
+    const payload = {
+      movers: {
+        gainers: [
+          { symbol: "BAD", price: 10, change_pct: -4, volume: 1 },
+          { symbol: "GOOD", price: 20, change_pct: 1.5, volume: 2 },
+          { symbol: "BEST", price: 30, change_pct: 4.5, volume: 3 },
+          { symbol: "FLAT", price: 40, change_pct: 0, volume: 4 },
+        ],
+        losers: [
+          { symbol: "WORST", price: 10, change_pct: -5, volume: 1 },
+          { symbol: "WRONG", price: 20, change_pct: 2, volume: 2 },
+          { symbol: "LOWER", price: 30, change_pct: -1, volume: 3 },
+        ],
+        active: [],
+      },
+    } as unknown as KaiHomeInsightsV2;
+
+    const groups = toMoverGroups(payload);
+
+    expect(groups.gain.map((row) => [row.symbol, row.changePct])).toEqual([
+      ["BEST", 4.5],
+      ["GOOD", 1.5],
+    ]);
+    expect(groups.lose.map((row) => [row.symbol, row.changePct])).toEqual([
+      ["WORST", -5],
+      ["LOWER", -1],
+    ]);
+  });
+});
+
+describe("shouldShowNewsCompanyLogo", () => {
+  const news = (title: string): KaiHomeNewsItem => ({
+    symbol: "NVDA",
+    title,
+    url: "https://example.test/article",
+    published_at: "2026-07-16T00:00:00Z",
+    source_name: "Example",
+    provider: "test",
+    degraded: false,
+  });
+
+  it("uses a neutral news cover when the claimed symbol is unrelated to the article", () => {
+    expect(shouldShowNewsCompanyLogo(news("Boeing delivered 64 jets in June."))).toBe(false);
+    expect(shouldShowNewsCompanyLogo(news("Nvidia expands its AI infrastructure."))).toBe(true);
+  });
+});

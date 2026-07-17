@@ -17,7 +17,8 @@
  * - On page refresh, React state resets, so the vault key is lost.
  * - We ONLY trust `isVaultUnlocked` from VaultContext (which checks memory state).
  * - We render children immediately if vault is unlocked (no intermediate states).
- * - Module-level flag tracks unlock across route changes within same session.
+ * - Route continuity comes from the mounted VaultProvider's in-memory state.
+ * - Cached vault presence selects the gate UI; it never authorizes access.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -32,7 +33,7 @@ import {
 import { VaultUnlockDialog } from "./vault-unlock-dialog";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
-import { isSessionUnlockedOnce } from "@/lib/vault/vault-session-latch";
+import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 import {
   hasIncompleteNativeUiFlowSession,
   isNativeTestVaultBootstrapManaged,
@@ -66,6 +67,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     preferPassphraseUnlockForAutomation(nativeTestConfig);
 
   const { user, loading: authLoading, signOut } = useAuth();
+  useSessionChromeSuppression(authLoading);
   const userId = user?.uid ?? null;
   const { beginTask, completeTaskStep, endTask } = useStepProgress();
   const [hasVault, setHasVault] = useState<boolean | null>(null);
@@ -105,7 +107,9 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     // Hydrate first paint from the shared VaultService cache (memory ->
     // session -> bootstrap) so re-mounts do not flash a loader.
     const cached = VaultService.peekVaultPresence(userId);
-    setHasVault(cached);
+    // Positive presence may safely select the unlock UI. A negative cache is
+    // not authority to reveal a protected route; revalidate it below.
+    setHasVault(cached === true ? true : null);
     setNativeVaultCheckAttempt(0);
   }, [isVaultUnlocked, userId]);
 
@@ -176,13 +180,19 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
     async function checkVaultPresence() {
       if (authLoading || !userId || isVaultUnlocked) return;
-      // Already resolved from the shared cache during the hydrate effect.
-      if (VaultService.peekVaultPresence(userId) !== null) return;
+      const cachedPresence = VaultService.peekVaultPresence(userId);
+      // Positive presence is sufficient to show the unlock challenge. A
+      // negative value must be revalidated before treating the account as a
+      // genuine no-vault onboarding case.
+      if (cachedPresence === true) return;
 
       vaultStepDoneRef.current = false;
       setHasVault(null);
       try {
-        const exists = await VaultService.checkVault(userId);
+        const exists =
+          cachedPresence === false
+            ? await VaultService.refreshVaultPresence(userId)
+            : await VaultService.checkVault(userId);
         if (!cancelled) {
           setHasVault(exists);
         }
@@ -233,9 +243,9 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   }, [authLoading, completeTaskStep, endTask, hasVault, isVaultUnlocked, userId]);
 
   // ============================================================================
-  // FAST PATH: If vault is unlocked (in memory) OR was unlocked earlier in this
-  // session, render children immediately. The latch prevents the dialog from
-  // flashing during route transitions where React state briefly resets.
+  // FAST PATH: only the current VaultProvider's in-memory key + owner token
+  // state may authorize protected children. A historical "unlocked once"
+  // signal cannot prove the key survived a provider remount or Fast Refresh.
   // ============================================================================
   const bootstrapState =
     typeof window !== "undefined"
@@ -252,7 +262,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     );
   }
 
-  if (isVaultUnlocked || isSessionUnlockedOnce(userId)) {
+  if (isVaultUnlocked) {
     return <>{children}</>;
   }
 

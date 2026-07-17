@@ -323,7 +323,7 @@ describe("top shell breadcrumbs", () => {
     // and the /one dashboard tiles. Direct/cold One capability entry now falls
     // back to the Agents dashboard, while explicit safe origins still retrace.
     const surfaces: Array<{ path: string; label: string }> = [
-      { path: "/one/kyc", label: "Email" },
+      { path: "/one/kyc", label: "KYC" },
       { path: "/one/location", label: "Location" },
       { path: "/one/marketplace", label: "Marketplace" },
     ];

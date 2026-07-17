@@ -57,6 +57,8 @@ type UseSetupCapabilityCoordinatorParams = {
   enabled?: boolean;
   /** A capability may have more than one physical setup workspace. */
   screenId?: string;
+  /** Allow a resolved root setup to re-enter this capability's own workspace. */
+  allowResolvedRootReentry?: boolean;
   /** Feature-owned terminals may use a stable authored control id. */
   terminalControlId?: (ready: boolean) => string;
 };
@@ -92,6 +94,7 @@ export function useSetupCapabilityCoordinator({
   resumeReadinessFromCallback = false,
   enabled = true,
   screenId,
+  allowResolvedRootReentry = false,
   terminalControlId,
 }: UseSetupCapabilityCoordinatorParams): SetupCapabilityCoordinator {
   const router = useRouter();
@@ -136,15 +139,26 @@ export function useSetupCapabilityCoordinator({
           (await PreVaultUserStateService.bootstrapState(user.uid));
         if (cancelled) return;
 
-        if (PreVaultUserStateService.isSetupResolved(journey)) {
-          router.replace(resolveCapabilityHandoffTarget(capabilityId));
-          return;
-        }
-
         const canResumeCallbackReadiness =
           resumeReadinessFromCallback &&
           journey.onboardingActiveCapability === capabilityId &&
           journey.onboardingCallbackState === "succeeded";
+
+        if (PreVaultUserStateService.isSetupResolved(journey)) {
+          if (!allowResolvedRootReentry) {
+            router.replace(resolveCapabilityHandoffTarget(capabilityId));
+            return;
+          }
+          // A root-level skip never resolves an active capability. Preserve a
+          // completed external source on a refresh so its terminal Finish is
+          // still available instead of silently sending the person to Kai.
+          if (canResumeCallbackReadiness && !cancelled) {
+            setCallbackReadiness(true);
+          }
+          if (!cancelled) setIsReady(true);
+          return;
+        }
+
         if (canResumeCallbackReadiness) {
           if (!cancelled) {
             setCallbackReadiness(true);
@@ -188,6 +202,7 @@ export function useSetupCapabilityCoordinator({
     canonicalRoute,
     capabilityId,
     enabled,
+    allowResolvedRootReentry,
     resumeReadinessFromCallback,
     router,
     user?.uid,

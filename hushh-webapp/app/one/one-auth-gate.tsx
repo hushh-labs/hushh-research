@@ -9,6 +9,7 @@ import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { useAuth } from "@/hooks/use-auth";
 import { isPublicRoute, ROUTES } from "@/lib/navigation/routes";
+import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 
 /**
  * OneAuthGate - conditionally applies the vault + phone + onboarding guards to
@@ -60,6 +61,7 @@ function isSoftVaultRoute(pathname: string): boolean {
 function SignedInGate({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
+  useSessionChromeSuppression(loading);
 
   useEffect(() => {
     if (loading || user) return;

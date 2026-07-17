@@ -37,6 +37,11 @@ or upgrade fixtures change. Ordinary PKM reads/writes, prompts, model-provider
 changes, and unrelated releases use the standard release checks. Vault or
 reviewer-auth changes independently enable the BYOK navigation rehearsal. If a
 deployed SHA cannot be proven, selection fails closed to the complete suite.
+For a PKM upgrade release, the hosted structure evaluator uses the
+coverage-balanced `release_chain_24` phase and stops immediately on
+zero-tolerance infrastructure, schema, or domain failures. The 60- and
+120-prompt matrices remain available for offline research and deep rehearsal;
+they are not repeated in the UAT release critical path.
 
 ### Backend Deployment
 

@@ -242,7 +242,7 @@
       "playbookId": "route.one.kyc",
       "purpose": "Help the person understand and use the kyc screen through its generated controls.",
       "screen": "one_kyc",
-      "entryCue": "You can say “Open Email” to use the primary control on this screen.",
+      "entryCue": "You can say “Open KYC” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_kyc",
       "happyPathActionIds": ["route.one_kyc"],
@@ -1267,9 +1267,9 @@
     "mode": "standard",
     "shellVerification": { "file": "app/one/setup/email/page.tsx", "includes": ["OneKycPage", "SetupCapabilityTerminalFooter"] },
     "voicePlaybook": {
-      "playbookId": "route.one.setup.email", "purpose": "Set up the verified email identity and connector One uses to draft with you.", "screen": "one_setup_email", "entryCue": "Set up your verified email identity, or say skip KYC setup.", "proactivity": "on_entry", "primaryActionId": "setup.skip_email", "happyPathActionIds": ["setup.skip_email", "setup.finish_email"], "requiredInputs": [],
+      "playbookId": "route.one.setup.email", "purpose": "Set up KYC review and the connector One uses to draft with you.", "screen": "one_setup_email", "entryCue": "Set up KYC review, or say skip KYC setup.", "proactivity": "on_entry", "primaryActionId": "setup.skip_email", "happyPathActionIds": ["setup.skip_email", "setup.finish_email"], "requiredInputs": [],
       "recoveries": { "blocked": "Explain the current guard and retain the goal.", "cancelled": "Keep KYC setup open and preserve the active goal.", "failed": "Explain what remains to set up without claiming completion.", "timeout": "Retain the goal and offer a safe retry.", "callbackError": "Use the verified current route and its generated actions only.", "routeMismatch": "Use the verified current route and its generated actions only." },
-      "completionBoundary": "KYC setup finishes only after a verified email identity and client connector are ready.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      "completionBoundary": "KYC setup finishes only after KYC readiness and the client connector are ready.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {

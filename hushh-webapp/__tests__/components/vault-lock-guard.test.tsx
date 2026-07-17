@@ -9,9 +9,9 @@ const mocks = vi.hoisted(() => ({
   isNativePlatform: vi.fn(() => false),
   isNativeTestVaultBootstrapManaged: vi.fn(() => false),
   peekVaultPresence: vi.fn(),
+  refreshVaultPresence: vi.fn(),
   replace: vi.fn(),
   signOut: vi.fn(),
-  sessionUnlockedOnce: false,
   vaultUnlocked: false,
   authState: {
     user: { uid: "user_1" } as { uid: string } | null,
@@ -50,6 +50,7 @@ vi.mock("@/lib/services/vault-service", () => ({
   VaultService: {
     checkVault: mocks.checkVault,
     peekVaultPresence: mocks.peekVaultPresence,
+    refreshVaultPresence: mocks.refreshVaultPresence,
   },
 }));
 
@@ -59,11 +60,6 @@ vi.mock("@/lib/progress/step-progress-context", () => ({
     completeTaskStep: vi.fn(),
     endTask: vi.fn(),
   }),
-}));
-
-vi.mock("@/lib/vault/vault-session-latch", () => ({
-  isSessionUnlockedOnce: () => mocks.sessionUnlockedOnce,
-  markSessionUnlocked: vi.fn(),
 }));
 
 vi.mock("@/lib/testing/native-test", () => ({
@@ -101,7 +97,6 @@ describe("VaultLockGuard", () => {
     mocks.hasIncompleteNativeUiFlowSession.mockReturnValue(false);
     mocks.isNativePlatform.mockReturnValue(false);
     mocks.isNativeTestVaultBootstrapManaged.mockReturnValue(false);
-    mocks.sessionUnlockedOnce = false;
     mocks.vaultUnlocked = false;
     delete window.__HUSHH_NATIVE_TEST__;
   });
@@ -123,6 +118,24 @@ describe("VaultLockGuard", () => {
     const dialog = screen.getByTestId("vault-unlock-dialog");
     expect(dialog.getAttribute("data-surface")).toBe("hard_gate");
     expect(dialog.getAttribute("data-dismissible")).toBe("false");
+    expect(screen.queryByText("Protected route")).toBeNull();
+  });
+
+  it("revalidates cached negative presence before revealing protected content", async () => {
+    mocks.peekVaultPresence.mockReturnValue(false);
+    mocks.refreshVaultPresence.mockResolvedValue(true);
+
+    render(
+      <VaultLockGuard>
+        <div>Protected route</div>
+      </VaultLockGuard>,
+    );
+
+    expect(screen.getByText("Checking vault...")).toBeTruthy();
+    await waitFor(() => {
+      expect(mocks.refreshVaultPresence).toHaveBeenCalledWith("user_1");
+      expect(screen.getByTestId("vault-unlock-dialog")).toBeTruthy();
+    });
     expect(screen.queryByText("Protected route")).toBeNull();
   });
 
@@ -195,7 +208,6 @@ describe("VaultLockGuard", () => {
 
   it("hard-gates a reviewer UID mismatch before any unlocked fast path", () => {
     mocks.isNativeTestVaultBootstrapManaged.mockReturnValue(true);
-    mocks.sessionUnlockedOnce = true;
     mocks.vaultUnlocked = true;
     window.__HUSHH_NATIVE_TEST__ = {
       enabled: true,

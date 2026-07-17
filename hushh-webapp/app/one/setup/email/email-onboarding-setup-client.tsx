@@ -52,15 +52,15 @@ export function EmailOnboardingSetupClient() {
     coordinator.isReady
       ? {
           screenId: "one_setup_email_toggle",
-          title: "Email setup",
-          purpose: "Turn One's email drafting on or off.",
+          title: "KYC setup",
+          purpose: "Choose whether One can prepare responses for your approval.",
           controls: [
             {
               id: "one-setup-email-drafting-toggle",
               label: "Let One draft replies",
               type: "toggle",
               actionId: "setup.toggle_email_drafting",
-              purpose: "Enable or disable One drafting replies from one@hushh.ai.",
+              purpose: "Enable or disable One's response drafting.",
             },
           ],
           availableActions: ["Let One draft replies"],
@@ -68,7 +68,7 @@ export function EmailOnboardingSetupClient() {
       : null,
   );
 
-  if (!coordinator.isReady) return <SetupCapabilityLoading label="Preparing email setup…" />;
+  if (!coordinator.isReady) return <SetupCapabilityLoading label="Preparing KYC setup…" />;
 
   const handleToggle = (checked: boolean) => {
     if (isPrivateRelay) return;
@@ -79,11 +79,11 @@ export function EmailOnboardingSetupClient() {
   return (
     <div className="space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]">
       <SettingsGroup
-        eyebrow="Email"
-        title="Draft replies from one@hushh.ai"
+        eyebrow="KYC"
+        title="Prepare replies with One"
         description={
           isPrivateRelay
-            ? "We can't verify replies for a private relay address yet. We're working on support for this."
+            ? "We can't verify replies for a private relay address yet. We're working on support for private relay addresses."
             : "One prepares replies you approve before anything sends. You stay in control."
         }
       >
@@ -106,7 +106,7 @@ export function EmailOnboardingSetupClient() {
         href={ROUTES.ONE_KYC}
         className="type-footnote block text-center text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70"
       >
-        Manage email replies
+        Open KYC
       </Link>
 
       <SetupCapabilityTerminalFooter
