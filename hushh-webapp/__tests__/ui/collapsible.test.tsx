@@ -18,6 +18,15 @@ describe("Collapsible", () => {
     expect(container.querySelector('[data-slot="collapsible"]')).toBeTruthy();
   });
 
+  it("propagates custom class names on root", () => {
+    const { container } = render(
+      <Collapsible className="custom-collapsible">
+        <CollapsibleTrigger>Toggle</CollapsibleTrigger>
+      </Collapsible>,
+    );
+    expect(container.querySelector('[data-slot="collapsible"]')?.className).toContain("custom-collapsible");
+  });
+
   it("renders trigger with data-slot='collapsible-trigger'", () => {
     const { container } = render(
       <Collapsible>
