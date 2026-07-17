@@ -231,18 +231,35 @@ export function resolveRiaActiveNav(
 
 export function resolveBottomNavActiveKey(
   pathname: string | null | undefined,
-  scope: AppBottomNavScope,
+  _scope: AppBottomNavScope,
 ): AppBottomNavKey {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
-  if (scope === "investor") {
-    return resolveInvestorActiveNav(pathname);
+  if (
+    normalizedPathname === ROUTES.HOME ||
+    normalizedPathname === ROUTES.ONE_HOME
+  ) {
+    return "dashboard";
   }
-  if (scope === "ria") {
-    return resolveRiaActiveNav(pathname);
+  if (normalizedPathname === ROUTES.AGENT) return "search";
+  if (isBottomNavRoute(normalizedPathname, ROUTES.CONNECT)) {
+    return "connect";
   }
-  return isBottomNavRoute(normalizedPathname, ROUTES.PROFILE)
-    ? "profile"
-    : "dashboard";
+  if (isBottomNavRoute(normalizedPathname, ROUTES.PROFILE)) {
+    return "profile";
+  }
+
+  if (
+    normalizedPathname.startsWith(ROUTES.KAI_HOME) ||
+    normalizedPathname.startsWith(ROUTES.LEGACY_KAI_HOME)
+  ) {
+    const activeTab = activeKaiRouteTabFromPath(normalizedPathname);
+    if (activeTab === "market") return "finance";
+    if (activeTab === "dashboard") return "portfolio";
+    if (activeTab === "analysis") return "analysis";
+    return "finance";
+  }
+
+  return "dashboard";
 }
 
 export function resolveBottomNavContextKey(
@@ -259,15 +276,13 @@ export function resolveBottomNavOptionKeys(
   _scope: AppBottomNavScope,
   _context?: AppBottomNavContext,
 ): AppBottomNavKey[] {
-  return ["dashboard", "connect", "search"];
+  return ["dashboard", "finance", "portfolio", "analysis", "connect", "search"];
 }
 
 /** Contextual workspace tabs render beside the stable primary navigation. */
 export function resolveBottomNavSpecialistOptionKeys(
-  scope: AppBottomNavScope,
+  _scope: AppBottomNavScope,
 ): AppBottomNavKey[] {
-  if (scope === "investor") return ["finance", "portfolio", "analysis"];
-  if (scope === "ria") return ["ria-home", "clients", "picks"];
   return [];
 }
 
