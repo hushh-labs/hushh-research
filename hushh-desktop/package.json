@@ -5,6 +5,7 @@
   "scripts": {
     "start": "electron .",
     "build:backend": "cd backend && uv run build-backend.py",
+    "build:daemon": "cd windows-daemon && powershell -ExecutionPolicy Bypass -File scripts/fetch-npu-model.ps1 && dotnet publish src/OneWindows.Daemon -c Release -r win-arm64 --self-contained true -o publish/OneWindows.Daemon",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"
   },
@@ -33,6 +34,10 @@
       {
         "from": "ai-library/geniex",
         "to": "geniex"
+      },
+      {
+        "from": "windows-daemon/publish/OneWindows.Daemon",
+        "to": "windows-daemon"
       }
     ],
     "win": {

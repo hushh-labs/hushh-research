@@ -3,6 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const { app } = require("electron");
 
 // Must match OneWindows.Daemon/Program.cs's `McpPort` constant. Fixed (not
 // dynamically allocated like frontend/backend) so external MCP clients
@@ -12,10 +13,22 @@ const DAEMON_PORT = 31070;
 const DAEMON_HEALTH_URL = `http://127.0.0.1:${DAEMON_PORT}/health`;
 
 const DESKTOP_DIR = path.resolve(__dirname, "..", "..", "..", "..");
-const DAEMON_EXE = path.resolve(
-  DESKTOP_DIR,
-  "windows-daemon", "publish", "OneWindows.Daemon", "OneWindows.Daemon.exe"
-);
+
+/**
+ * Resolves the OneWindows.Daemon executable. Packaged builds ship a
+ * `dotnet publish` output under resources/windows-daemon (see
+ * package.json's extraResources -- built via `npm run build:daemon`
+ * before packaging), mirroring exactly how GenieX's own exe is bundled
+ * (see ModelRegistry._getGenieXExePath). Dev runs use the same publish
+ * output in place, at windows-daemon/publish/OneWindows.Daemon.
+ * @returns {string}
+ */
+function getDaemonExePath() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, "windows-daemon", "OneWindows.Daemon.exe");
+  }
+  return path.resolve(DESKTOP_DIR, "windows-daemon", "publish", "OneWindows.Daemon", "OneWindows.Daemon.exe");
+}
 
 /**
  * @returns {Promise<boolean>}
@@ -39,9 +52,6 @@ async function isDaemonHealthy() {
  * reference daemon's "runs in the background regardless of the GUI app"
  * design -- so shutdownServices() intentionally does not touch it.
  *
- * Production packaging for windows-daemon isn't decided yet -- this looks
- * for the same dev-built publish output in both modes and just logs a
- * warning if it's missing, rather than treating that as a startup error.
  * @returns {Promise<void>}
  */
 async function ensureDaemonRunning() {
@@ -52,17 +62,17 @@ async function ensureDaemonRunning() {
     return;
   }
 
-  if (!fs.existsSync(DAEMON_EXE)) {
+  const daemonExe = getDaemonExePath();
+  if (!fs.existsSync(daemonExe)) {
     console.warn(
-      `[daemon] OneWindows.Daemon.exe not found at ${DAEMON_EXE} -- skipping. ` +
-      "Build it with `dotnet publish windows-daemon/src/OneWindows.Daemon -c Release " +
-      "-o windows-daemon/publish/OneWindows.Daemon` if you want it available."
+      `[daemon] OneWindows.Daemon.exe not found at ${daemonExe} -- skipping. ` +
+      "Build it with `npm run build:daemon` if you want it available."
     );
     return;
   }
 
   console.log("[daemon] Starting OneWindows daemon...");
-  const daemonProc = spawn(DAEMON_EXE, [], {
+  const daemonProc = spawn(daemonExe, [], {
     detached: true,
     stdio: "ignore",
     windowsHide: true,
