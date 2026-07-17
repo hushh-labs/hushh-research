@@ -11,10 +11,10 @@ def test_recovery_migration_is_registered_and_additive():
     uat = json.loads((ROOT / "db/contracts/uat_integrated_schema.json").read_text())
     dev = json.loads((ROOT / "db/contracts/dev_minimum_schema.json").read_text())
 
-    assert release["ordered_migrations"][-1] == MIGRATION.name
+    assert MIGRATION.name in release["ordered_migrations"]
     assert MIGRATION.name in release["groups"]["pkm"]
-    assert uat["expected_migration_version"] == 98
-    assert dev["expected_migration_version"] == 98
+    assert uat["expected_migration_version"] == 99
+    assert dev["expected_migration_version"] == 99
     assert "DROP FUNCTION commit_pkm_domain_mutation_v2" not in sql
     assert "DROP FUNCTION commit_pkm_domain_mutation_v3" not in sql
     assert "ALTER TABLE pkm_manifests" in sql

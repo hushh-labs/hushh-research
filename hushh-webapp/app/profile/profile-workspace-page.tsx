@@ -3163,12 +3163,7 @@ function ProfilePageContent() {
             <Select
               value={appAccent}
               onValueChange={(value) => {
-                const next = writeAccent(value as AppAccent);
-                toast.success(
-                  next === "gold"
-                    ? "Accent set to Molten Gold."
-                    : "Accent set to iOS Blue.",
-                );
+                writeAccent(value as AppAccent);
               }}
             >
               <SelectTrigger

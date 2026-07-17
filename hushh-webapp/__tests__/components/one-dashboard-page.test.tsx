@@ -61,11 +61,7 @@ describe("OneDashboardPage", () => {
       "data-agent-roster-layout",
       "3-to-9",
     );
-    const bodyText = container.textContent ?? "";
-    expect(bodyText.indexOf("Finish setup")).toBeGreaterThanOrEqual(0);
-    expect(bodyText.indexOf("Agents")).toBeGreaterThan(
-      bodyText.indexOf("Finish setup"),
-    );
+    expect(container.textContent).not.toContain("Finish setup");
     expect(
       screen.getByRole("heading", { name: "Agents (8)" }),
     ).toBeTruthy();
@@ -148,9 +144,7 @@ describe("OneDashboardPage", () => {
     expect(
       screen.queryByRole("link", { name: "Open Information Marketplace" }),
     ).toBeNull();
-    expect(screen.getByTestId("one-finish-setup")).toHaveTextContent(
-      "2 of 6 setup steps ready",
-    );
+    expect(screen.queryByTestId("one-finish-setup")).toBeNull();
     expect(screen.queryByText(/9 agents.*setup steps ready/i)).toBeNull();
     expect(screen.queryByRole("link", { name: "Open One Agent" })).toBeNull();
   });

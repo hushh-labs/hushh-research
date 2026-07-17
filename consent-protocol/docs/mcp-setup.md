@@ -124,14 +124,15 @@ The transport is already compatible:
 - no SSE downgrade
 - no query-string credential
 
-Authentication is the remaining host-compatibility boundary. Hussh UAT
-currently requires a developer token in `Authorization: Bearer <token>`.
-MuleSoft and generic remote hosts can inject that header, but Claude custom
-connectors support OAuth or unauthenticated remote servers rather than a
-caller-configured static bearer header. Do not work around this with stdio,
-`?token=`, or an unauthenticated endpoint. Claude onboarding requires an OAuth
-adapter on the hosted Hussh MCP boundary while preserving developer-token
-authentication for existing partner clients.
+Authentication is the remaining host-compatibility boundary. Hussh supports
+both the existing developer token in `Authorization: Bearer <token>` and
+OAuth authorization code with S256 PKCE. Claude custom connectors should use
+the OAuth discovery document at `/.well-known/oauth-authorization-server`;
+create the confidential client and register its exact callback URI in
+`/developers` first. MuleSoft and generic remote hosts may continue injecting
+the bearer header. Do not work around either path with stdio, `?token=`, or an
+unauthenticated endpoint. OAuth authenticates the connector only; each read
+still follows the scoped consent lifecycle and encryption rules above.
 
 ## Partner / CRM Connectors (Salesforce Agentforce, MuleSoft-Fronted Systems)
 

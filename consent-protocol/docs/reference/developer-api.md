@@ -49,6 +49,7 @@ Developer access is self-serve from `/developers` in the app:
 - Sign in with the same Google or Apple auth flow used by the first-party app.
 - Enable developer access once per user account.
 - Receive one active developer token, revealed only when first issued or rotated.
+- Create an OAuth client and register its exact redirect URIs when the host requires OAuth.
 - Update the app identity users see during consent review.
 
 Portal endpoints:
@@ -59,6 +60,9 @@ Portal endpoints:
 | `POST` | `/api/developer/access/enable` | Firebase bearer token | Create the self-serve app and first active token |
 | `PATCH` | `/api/developer/access/profile` | Firebase bearer token | Update display name, website, support, and policy links |
 | `POST` | `/api/developer/access/rotate-key` | Firebase bearer token | Revoke the current token and issue a replacement |
+| `GET` | `/api/developer/access/oauth-client` | Firebase bearer token | Read OAuth client metadata (never its secret) |
+| `POST` | `/api/developer/access/oauth-client` | Firebase bearer token | Create or rotate an OAuth client secret; reveal it once |
+| `PUT` | `/api/developer/access/oauth-client/redirect-uris` | Firebase bearer token | Register exact HTTPS callback URIs |
 
 The developer token is then sent only in an Authorization header:
 
@@ -66,6 +70,17 @@ The developer token is then sent only in an Authorization header:
 GET /api/v1/user-scopes/{user_id}
 Authorization: Bearer <developer-token>
 ```
+
+### OAuth / PKCE for remote connector hosts
+
+OAuth is an additional transport-authentication option for hosts such as Claude that cannot attach a static bearer header. It does **not** replace the consent lifecycle or grant any personal information access.
+
+- Discovery: `GET /.well-known/oauth-authorization-server`
+- Authorization: `GET /oauth/authorize` with `response_type=code`, a registered `redirect_uri`, and `code_challenge_method=S256`
+- Token and refresh: `POST /oauth/token` with confidential-client authentication and PKCE `code_verifier`
+- Revocation: `POST /oauth/revoke`
+
+Only authorization-code and refresh-token grants are supported. Client credentials are intentionally unsupported. Register an exact HTTPS redirect URI in the developer portal first; loopback HTTP is permitted solely for local development. Client secrets, authorization codes, access tokens, refresh tokens, Firebase identifiers, and consent tokens are never returned by ordinary portal reads or MCP tools.
 
 ---
 

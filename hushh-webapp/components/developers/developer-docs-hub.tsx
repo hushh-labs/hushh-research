@@ -42,11 +42,15 @@ import { resolveDeveloperRuntime, type DeveloperRuntime } from "@/lib/developers
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   DeveloperPortalRequestError,
+  createOrRotateDeveloperOAuthClient,
   enableDeveloperAccess,
   getDeveloperAccess,
+  getDeveloperOAuthClient,
   getLiveDeveloperDocs,
   rotateDeveloperAccessToken,
+  updateDeveloperOAuthRedirectUris,
   updateDeveloperAccessProfile,
+  type DeveloperOAuthClient,
   type DeveloperPortalAccess,
   type LiveDocsResponse,
 } from "@/lib/services/developer-portal-service";
@@ -402,10 +406,17 @@ function AccessWorkspace({
   profileDraft,
   profileSaving,
   revealedToken,
+  oauthClient,
+  revealedClientSecret,
+  oauthRedirectUris,
+  oauthSaving,
   isMobile,
   onEnable,
   onProfileDraftChange,
   onRotateKey,
+  onCreateOrRotateOAuthClient,
+  onOAuthRedirectUrisChange,
+  onSaveOAuthRedirectUris,
   onSaveProfile,
   onSignOut,
 }: {
@@ -419,10 +430,17 @@ function AccessWorkspace({
   profileDraft: ProfileDraft;
   profileSaving: boolean;
   revealedToken: string | null;
+  oauthClient: DeveloperOAuthClient | null;
+  revealedClientSecret: string | null;
+  oauthRedirectUris: string;
+  oauthSaving: boolean;
   isMobile: boolean;
   onEnable: () => Promise<void>;
   onProfileDraftChange: (field: keyof ProfileDraft, value: string) => void;
   onRotateKey: () => Promise<void>;
+  onCreateOrRotateOAuthClient: () => Promise<void>;
+  onOAuthRedirectUrisChange: (value: string) => void;
+  onSaveOAuthRedirectUris: () => Promise<void>;
   onSaveProfile: () => Promise<void>;
   onSignOut: () => Promise<void>;
 }) {
@@ -625,6 +643,40 @@ function AccessWorkspace({
                   </div>
                 ) : null}
               </div>
+              <SurfaceInset className="space-y-3">
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-foreground">OAuth for remote connectors</p>
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    Use authorization code with S256 PKCE. OAuth signs a connector in; each information request still needs its own consent.
+                  </p>
+                </div>
+                {oauthClient ? (
+                  <>
+                    <RuntimeValueRow label="Client ID" value={oauthClient.client_id} copyLabel="OAuth client ID" isMobile={isMobile} />
+                    <p className="text-xs text-muted-foreground">Secret prefix: {oauthClient.client_secret_prefix}</p>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Create a client before registering its callback URI.</p>
+                )}
+                {revealedClientSecret ? (
+                  <div className="rounded-[18px] border border-amber-500/20 bg-amber-500/5 p-3 text-sm">
+                    <p className="font-medium">Client secret — shown once</p>
+                    <code className="mt-2 block overflow-x-auto rounded-lg bg-background/80 p-2 text-xs">{revealedClientSecret}</code>
+                    <MorphyButton variant="none" effect="glass" size="sm" className="mt-2" onClick={() => copyText(revealedClientSecret, "OAuth client secret")}>
+                      <ClipboardCopy className="size-4" /> Copy secret
+                    </MorphyButton>
+                  </div>
+                ) : null}
+                <MorphyButton variant="none" effect="glass" size="sm" onClick={onCreateOrRotateOAuthClient} disabled={oauthSaving}>
+                  <KeyRound className="size-4" /> {oauthClient ? "Rotate OAuth secret" : "Create OAuth client"}
+                </MorphyButton>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium" htmlFor="oauth-redirect-uris">Registered redirect URIs</label>
+                  <textarea id="oauth-redirect-uris" value={oauthRedirectUris} onChange={(event) => onOAuthRedirectUrisChange(event.target.value)} placeholder="https://connector.example.com/oauth/callback" rows={3} className="w-full rounded-[14px] border border-border bg-background px-3 py-2 text-sm" />
+                  <p className="text-xs leading-5 text-muted-foreground">One exact HTTPS URI per line. Loopback HTTP is allowed only for local development.</p>
+                  <MorphyButton variant="none" effect="glass" size="sm" onClick={onSaveOAuthRedirectUris} disabled={!oauthClient || oauthSaving}>Save redirect URIs</MorphyButton>
+                </div>
+              </SurfaceInset>
             </div>
           ) : null}
 
@@ -786,6 +838,10 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
   const [profileDraft, setProfileDraft] = useState<ProfileDraft>(EMPTY_PROFILE_DRAFT);
   const [profileSaving, setProfileSaving] = useState(false);
   const [revealedToken, setRevealedToken] = useState<string | null>(null);
+  const [oauthClient, setOAuthClient] = useState<DeveloperOAuthClient | null>(null);
+  const [revealedClientSecret, setRevealedClientSecret] = useState<string | null>(null);
+  const [oauthRedirectUris, setOAuthRedirectUris] = useState("");
+  const [oauthSaving, setOAuthSaving] = useState(false);
   const initialHashHandledRef = useRef(false);
   const lastAccessRefreshUidRef = useRef<string | null | undefined>(undefined);
   const workspaceSnippets = useMemo(
@@ -871,6 +927,9 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
       setAccess(null);
       setAccessError(null);
       setRevealedToken(null);
+      setOAuthClient(null);
+      setRevealedClientSecret(null);
+      setOAuthRedirectUris("");
       return;
     }
 
@@ -879,6 +938,11 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
       const idToken = await currentUser.getIdToken();
       const payload = await getDeveloperAccess(idToken, { userId: currentUser.uid });
       setAccess(payload);
+      const client = payload.access_enabled
+        ? await getDeveloperOAuthClient(idToken).catch(() => null)
+        : null;
+      setOAuthClient(client);
+      setOAuthRedirectUris(client?.redirect_uris.join("\n") || "");
       setAccessError(null);
     } catch (error) {
       setAccess(null);
@@ -963,6 +1027,50 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
     }
   }
 
+  async function handleCreateOrRotateOAuthClient() {
+    if (!user) {
+      toast.error("Sign in before creating an OAuth client");
+      return;
+    }
+    setOAuthSaving(true);
+    try {
+      const payload = await createOrRotateDeveloperOAuthClient(await user.getIdToken());
+      setOAuthClient(payload);
+      setOAuthRedirectUris(payload.redirect_uris.join("\n"));
+      setRevealedClientSecret(payload.raw_client_secret || null);
+      setAccessError(null);
+      toast.success("OAuth client secret generated");
+    } catch (error) {
+      const message = formatDeveloperAccessError(error, runtime, "Could not create the OAuth client.");
+      setAccessError(message);
+      toast.error(message);
+    } finally {
+      setOAuthSaving(false);
+    }
+  }
+
+  async function handleSaveOAuthRedirectUris() {
+    if (!user) {
+      toast.error("Sign in before saving redirect URIs");
+      return;
+    }
+    setOAuthSaving(true);
+    try {
+      const redirectUris = oauthRedirectUris.split("\n").map((value) => value.trim()).filter(Boolean);
+      const payload = await updateDeveloperOAuthRedirectUris(await user.getIdToken(), redirectUris);
+      setOAuthClient(payload);
+      setOAuthRedirectUris(payload.redirect_uris.join("\n"));
+      setAccessError(null);
+      toast.success("OAuth redirect URIs saved");
+    } catch (error) {
+      const message = formatDeveloperAccessError(error, runtime, "Could not save redirect URIs.");
+      setAccessError(message);
+      toast.error(message);
+    } finally {
+      setOAuthSaving(false);
+    }
+  }
+
   async function handleSaveProfile() {
     if (!user) {
       toast.error("Sign in before updating your app profile");
@@ -996,6 +1104,8 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
       await signOut({ redirectTo: ROUTES.DEVELOPERS });
       setAccess(null);
       setRevealedToken(null);
+      setOAuthClient(null);
+      setRevealedClientSecret(null);
     } catch (error) {
       console.error("[developers] sign out failed", error);
       toast.error("Could not sign out");
@@ -1242,10 +1352,17 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                   profileDraft={profileDraft}
                   profileSaving={profileSaving}
                   revealedToken={revealedToken}
+                  oauthClient={oauthClient}
+                  revealedClientSecret={revealedClientSecret}
+                  oauthRedirectUris={oauthRedirectUris}
+                  oauthSaving={oauthSaving}
                   isMobile={isMobile}
                   onEnable={handleEnableAccess}
                   onProfileDraftChange={updateProfileDraft}
                   onRotateKey={handleRotateKey}
+                  onCreateOrRotateOAuthClient={handleCreateOrRotateOAuthClient}
+                  onOAuthRedirectUrisChange={setOAuthRedirectUris}
+                  onSaveOAuthRedirectUris={handleSaveOAuthRedirectUris}
                   onSaveProfile={handleSaveProfile}
                   onSignOut={handleSignOut}
                 />

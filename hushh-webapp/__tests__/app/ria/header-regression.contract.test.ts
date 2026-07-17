@@ -29,6 +29,16 @@ describe("RIA shared header regression contract", () => {
     expect(consentCenterView).toContain("AppPageHeaderRegion");
   });
 
+  it("keeps the RIA shell on the shared Foundation header and accent tokens", () => {
+    const riaShell = read("components/ria/ria-page-shell.tsx");
+    const globals = read("app/globals.css");
+
+    expect(riaShell).toContain("<PageHeader");
+    expect(riaShell).toContain('accent="ria"');
+    expect(globals).toContain("--ria-gold: var(--app-accent)");
+    expect(globals).toContain("--ria-selected-tint: var(--app-accent-surface)");
+  });
+
   it("keeps ria picks on shared surfaces with responsive table sizing", () => {
     const riaPicks = read("app/ria/picks/page.tsx");
 

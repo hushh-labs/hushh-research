@@ -40,6 +40,7 @@ export const ROUTE_ID_VALUES = [
   "profile_pkm_agent_lab",
   "profile_receipts",
   "profile_gmail_oauth_return",
+  "oauth_authorize",
   "consents",
   "agent",
   "connect",
@@ -132,6 +133,7 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.PROFILE_GMAIL_OAUTH_RETURN) {
     return "profile_gmail_oauth_return";
   }
+  if (pathname === ROUTES.OAUTH_AUTHORIZE) return "oauth_authorize";
   if (pathname === ROUTES.CONSENTS) return "consents";
   if (pathname === ROUTES.AGENT) return "agent";
   if (pathname === ROUTES.CONNECT) return "connect";

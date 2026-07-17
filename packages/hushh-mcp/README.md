@@ -135,7 +135,7 @@ Keep local: Keep HUSHH_DEVELOPER_TOKEN local. This should match the same endpoin
 
 Use when: Claude should use the same hosted Streamable HTTP endpoint used by MuleSoft and other remote hosts.
 
-Keep local: Add the public HTTPS URL through Claude Customize > Connectors, not claude_desktop_config.json. Claude remote connectors require OAuth or no authentication; the bearer-token-only Hussh endpoint must gain its OAuth adapter before Claude onboarding.
+Keep local: Add the public HTTPS URL through Claude Customize > Connectors, not claude_desktop_config.json. Claude remote connectors use authorization code with S256 PKCE; create a developer OAuth client and register Claude's exact callback URI first. OAuth does not replace scoped consent.
 
 ```json
 https://api.uat.hushh.ai/mcp/

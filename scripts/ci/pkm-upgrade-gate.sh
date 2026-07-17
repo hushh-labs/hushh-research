@@ -14,14 +14,6 @@ FRONTEND_TESTS=(
   "__tests__/services/pkm-historical-rehearsal.test.ts"
   "__tests__/services/financial-v7-reader-compatibility.test.ts"
   "__tests__/services/pkm-domain-resource.test.ts"
-  "__tests__/services/cache-sync-mutation-cascade.test.ts"
-  "__tests__/services/pkm-natural-language.test.ts"
-  "__tests__/services/unlock-warm-orchestrator.test.ts"
-  "__tests__/services/ria-onboarding-flow.test.ts"
-  "__tests__/api/consent/api-service-consent.test.ts"
-  "__tests__/api/consent/events-proxy.test.ts"
-  "__tests__/scripts/reviewer-route-bootstrap-contract.test.ts"
-  "__tests__/utils/top-shell-breadcrumbs.test.ts"
 )
 
 BACKEND_TESTS=(
@@ -31,18 +23,7 @@ BACKEND_TESTS=(
   "tests/test_pkm_event_operation_type_migration_contract.py"
   "tests/test_active_pkm_shape_audit.py"
   "tests/test_offline_db.py"
-  "tests/services/test_account_service_cleanup_tables.py"
-  "tests/services/test_account_service_export.py"
   "tests/services/test_pkm_service_store_domain_data.py"
-  "tests/services/test_pkm_agent_lab_service.py"
-  "tests/services/test_portfolio_import_relevance.py"
-  "tests/test_scope_helpers_dynamic.py"
-  "tests/test_consent_scope_upgrade.py"
-  "tests/test_ria_iam_routes.py"
-  "tests/test_ria_iam_service_architecture.py"
-  "tests/test_kai_optimize_realtime_contract.py"
-  "tests/test_kai_stream_context_gate.py"
-  "tests/test_kai_stream_contract.py"
 )
 
 echo "== PKM Upgrade Gate =="

@@ -14,7 +14,6 @@ import {
   Sparkles,
   TrendingDown,
   TrendingUp,
-  X,
   type LucideIcon,
   Zap,
 } from "lucide-react";
@@ -826,71 +825,6 @@ function OneMarketNewsCards({ rows }: { rows: KaiHomeNewsItem[] }) {
         );
       })}
     </div>
-  );
-}
-
-function OneMarketNotificationsSheet({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
-  return (
-    <section
-      className={cn(
-        "fixed inset-x-0 bottom-0 z-50 mx-auto flex h-[min(62vh,620px)] max-w-[720px] flex-col rounded-t-[28px] bg-white/95 shadow-[0_-18px_50px_-20px_rgba(0,0,0,0.40)] backdrop-blur-[20px] transition-transform duration-300",
-        open ? "translate-y-0" : "translate-y-[105%]"
-      )}
-      aria-label="Notifications"
-      aria-hidden={!open}
-    >
-      <div className="mx-auto mt-2.5 h-[5px] w-9 rounded-full bg-[color:var(--one-fg3)] opacity-35" />
-      <header className="flex items-center gap-3 border-b border-[color:var(--one-line)] px-[18px] pb-3 pt-3">
-        <span className="min-w-0 flex-1">
-          <b className="block text-[17px] font-semibold text-[color:var(--one-fg)]">Notifications</b>
-          <span className="block text-[12px] text-[color:var(--one-fg3)]">Signals and receipts</span>
-        </span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[color:var(--one-surface)] text-[color:var(--one-fg2)]"
-          aria-label="Close notifications"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </header>
-      <div className="min-h-0 flex-1 overflow-y-auto py-1">
-        {[
-          { title: "Receipt signed", body: "Banking agent · credit score · 30 min · revocable", time: "2m", icon: Activity, tone: "up" },
-          { title: "Kai signal · Buy TSLA", body: "High conviction · 12+ month horizon", time: "1h", icon: Sparkles, tone: "blue" },
-          { title: "Markets closed soft", body: "S&P 500 -1.58% · defensives led", time: "3h", icon: TrendingDown, tone: "down" },
-        ].map((item) => {
-          const Icon = item.icon;
-          return (
-            <div key={item.title} className="flex items-start gap-3 border-t border-[color:var(--one-line)] px-[18px] py-[13px] first:border-t-0">
-              <span
-                className={cn(
-                  "grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[10px]",
-                  item.tone === "up" && "bg-[color:var(--one-up-t)] text-[color:var(--one-up)]",
-                  item.tone === "down" && "bg-[color:var(--one-down-t)] text-[color:var(--one-down)]",
-                  item.tone === "blue" && "bg-[color:var(--app-accent-tint)] text-[color:var(--one-link)]"
-                )}
-              >
-                <Icon className="h-[17px] w-[17px]" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <b className="block text-[14px] font-semibold text-[color:var(--one-fg)]">{item.title}</b>
-                <span className="mt-0.5 block text-[12.5px] leading-snug text-[color:var(--one-fg2)]">
-                  {item.body}
-                </span>
-              </span>
-              <time className="shrink-0 text-[11.5px] text-[color:var(--one-fg3)]">{item.time}</time>
-            </div>
-          );
-        })}
-      </div>
-    </section>
   );
 }
 
@@ -1795,7 +1729,6 @@ export function KaiMarketPreviewView() {
   const displayError = usingLocalPreviewFallback ? null : error;
   const [selectedOverviewMetricId, setSelectedOverviewMetricId] = useState<string | null>(null);
   const [moverTab, setMoverTab] = useState<OneMarketMoverTab>("gain");
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   const {
     activeControlId: activeVoiceControlId,
@@ -2055,11 +1988,6 @@ export function KaiMarketPreviewView() {
     () => (Array.isArray(effectivePayload?.sector_rotation) ? effectivePayload.sector_rotation : []),
     [effectivePayload]
   );
-  const shellOverlayOpen = notificationsOpen;
-  const closeShellOverlays = useCallback(() => {
-    setNotificationsOpen(false);
-  }, []);
-
   return (
     <AppPageShell
       as="div"
@@ -2271,20 +2199,6 @@ export function KaiMarketPreviewView() {
           </>
         ) : null}
       </div>
-
-      {shellOverlayOpen ? (
-        <button
-          type="button"
-          aria-label="Close overlay"
-          className="fixed inset-0 z-40 bg-black/35 backdrop-blur-[6px]"
-          onClick={closeShellOverlays}
-        />
-      ) : null}
-
-      <OneMarketNotificationsSheet
-        open={notificationsOpen}
-        onClose={() => setNotificationsOpen(false)}
-      />
 
       <KaiControlSurface
         open={Boolean(selectedOverviewMetric?.detailPanel)}

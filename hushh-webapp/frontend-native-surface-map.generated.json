@@ -185,6 +185,10 @@
       "file": "app/api/notifications/unregister/route.ts"
     },
     {
+      "template": "/api/oauth/{path*}",
+      "file": "app/api/oauth/[...path]/route.ts"
+    },
+    {
       "template": "/api/one/{path*}",
       "file": "app/api/one/[...path]/route.ts"
     },
@@ -2131,6 +2135,58 @@
         "route.marketplace_browse_from_ria_profile",
         "route.marketplace_ria_profile"
       ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/oauth/authorize",
+      "page_file": "app/oauth/authorize/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "OAuth authorization is a short-lived connector handoff and intentionally bypasses signed-in app chrome.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.oauth.authorize",
+          "purpose": "Help the person approve or cancel a verified MCP connector authorization request.",
+          "screen": "app",
+          "entry_cue": "Review the connector request, then authorize it or cancel.",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Authorization completes only after the verified registered redirect receives the backend-issued OAuth code.",
+          "next_route": null,
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/oauth/authorize",
+        "classification": "excluded-web-only"
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null

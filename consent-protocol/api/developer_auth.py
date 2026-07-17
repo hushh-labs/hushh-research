@@ -5,6 +5,7 @@ import os
 
 from fastapi import HTTPException, Request, status
 
+from hushh_mcp.services.developer_oauth_service import DeveloperOAuthService
 from hushh_mcp.services.developer_registry_service import (
     DeveloperPrincipal,
     DeveloperRegistryService,
@@ -152,7 +153,11 @@ def authenticate_developer_principal(
 
     client_ip = request.client.host if request and request.client else None
     user_agent = request.headers.get("user-agent") if request else None
-    principal = DeveloperRegistryService().authenticate_token(
+    principal = DeveloperOAuthService().authenticate_access_token(
+        raw_token,
+        ip_address=client_ip,
+        user_agent=user_agent,
+    ) or DeveloperRegistryService().authenticate_token(
         raw_token,
         ip_address=client_ip,
         user_agent=user_agent,
@@ -191,7 +196,11 @@ def try_authenticate_developer_principal(
 
     client_ip = request.client.host if request and request.client else None
     user_agent = request.headers.get("user-agent") if request else None
-    return DeveloperRegistryService().authenticate_token(
+    return DeveloperOAuthService().authenticate_access_token(
+        raw_token,
+        ip_address=client_ip,
+        user_agent=user_agent,
+    ) or DeveloperRegistryService().authenticate_token(
         raw_token,
         ip_address=client_ip,
         user_agent=user_agent,

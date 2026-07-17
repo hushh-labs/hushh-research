@@ -114,19 +114,14 @@ describe("ConnectedSystemsPanel", () => {
     vi.clearAllMocks();
   });
 
-  it("renders the CRM overview as a compact table with name, type, and status", async () => {
+  it("renders the CRM overview as responsive inset rows with name, type, and status", async () => {
     render(<ConnectedSystemsPanel vaultOwnerToken="HCT:test" mode="list" />);
 
     await waitFor(() => {
       expect(screen.getByText("Macy's")).toBeTruthy();
     });
 
-    // Table contract: Name / Type / Status columns, one row per system.
-    // (Sortable headers render role="button", so match by text.)
-    expect(screen.getByText("Name")).toBeTruthy();
-    expect(screen.getByText("Type")).toBeTruthy();
-    expect(screen.getByText("Status")).toBeTruthy();
-    expect(screen.getByRole("table")).toBeTruthy();
+    expect(screen.getByText("Available systems")).toBeTruthy();
     expect(screen.getByText("Salesforce FSC")).toBeTruthy();
     expect(screen.getByText("Connected")).toBeTruthy();
     expect(screen.getByAltText("Macy's logo")).toBeTruthy();

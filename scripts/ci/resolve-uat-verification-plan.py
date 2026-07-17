@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Select UAT release gates from the service revisions actually being deployed."""
+"""Select release verification lanes from a proven changed-SHA range.
+
+This is the only selector for expensive PKM and reviewer-browser release lanes.
+UAT compares the target with the deployed service SHAs; PR, queue, and post-merge
+checks pass one verified base SHA for both services.
+"""
 
 from __future__ import annotations
 
@@ -37,7 +42,6 @@ def _is_pkm_upgrade(path: str) -> bool:
             "consent-protocol/hushh_mcp/services/personal_knowledge_model_service.py",
             "consent-protocol/scripts/eval_pkm_structure_agent.py",
             "consent-protocol/db/verify/pkm_v7_zero_loss_rehearsal.sql",
-            "scripts/ci/pkm-upgrade-gate.sh",
             "scripts/ci/run-candidate-pkm-structure-agent-eval.sh",
         }
         or path.startswith(
@@ -47,7 +51,6 @@ def _is_pkm_upgrade(path: str) -> bool:
                 "hushh-webapp/__tests__/services/pkm-historical-rehearsal",
                 "hushh-webapp/__tests__/services/financial-v7-reader-compatibility",
                 "consent-protocol/tests/test_pkm_upgrade_",
-                "consent-protocol/tests/test_pkm_v7_recovery_",
                 ".codex/skills/pkm-upgrade-rehearsal/",
                 ".codex/workflows/pkm-upgrade-rehearsal/",
             )
@@ -86,13 +89,33 @@ class VerificationPlan:
 
     def as_dict(self) -> dict[str, object]:
         requires_web_dependencies = self.run_pkm_upgrade_gate or self.run_reviewer_byok
+        lanes = {
+            "pkm_upgrade": {
+                "required": self.run_pkm_upgrade_gate,
+                "reason": "pkm_upgrade_contract_changed"
+                if self.run_pkm_upgrade_gate
+                else "no_pkm_upgrade_contract_changed",
+            },
+            "reviewer_byok": {
+                "required": self.run_reviewer_byok,
+                "reason": "vault_or_reviewer_contract_changed"
+                if self.run_reviewer_byok
+                else "no_vault_or_reviewer_contract_changed",
+            },
+        }
+        if self.reason.startswith("conservative:"):
+            for lane in lanes.values():
+                lane["required"] = True
+                lane["reason"] = "comparison_base_unproven_fail_closed"
         return {
+            "schema_version": 1,
             "changed_files": list(self.changed_files),
             "pkm_evaluator_runs": self.pkm_evaluator_runs,
             "run_pkm_upgrade_gate": self.run_pkm_upgrade_gate,
             "run_reviewer_byok": self.run_reviewer_byok,
             "requires_web_dependencies": requires_web_dependencies,
             "reason": self.reason,
+            "lanes": lanes,
         }
 
 
@@ -108,13 +131,16 @@ def resolve_plan(
         deploy_frontend and not frontend_base_sha
     )
     if missing_base:
-        return VerificationPlan((), 1, True, True, "conservative:missing_deployed_sha")
+        return VerificationPlan((), 1, True, True, "conservative:comparison_base_unproven")
 
     changed: set[str] = set()
-    if deploy_backend:
-        changed.update(_git_diff(backend_base_sha, target_sha))
-    if deploy_frontend:
-        changed.update(_git_diff(frontend_base_sha, target_sha))
+    try:
+        if deploy_backend:
+            changed.update(_git_diff(backend_base_sha, target_sha))
+        if deploy_frontend:
+            changed.update(_git_diff(frontend_base_sha, target_sha))
+    except subprocess.CalledProcessError:
+        return VerificationPlan((), 1, True, True, "conservative:comparison_base_unproven")
 
     pkm_upgrade = any(_is_pkm_upgrade(path) for path in changed)
     evaluator_runs = 1 if pkm_upgrade else 0
@@ -143,8 +169,8 @@ def _bool(raw: str) -> bool:
 def _write_outputs(path: str, payload: dict[str, object]) -> None:
     with open(path, "a", encoding="utf-8") as handle:
         for key, value in payload.items():
-            if isinstance(value, list):
-                rendered = ",".join(value)
+            if isinstance(value, (list, dict)):
+                rendered = json.dumps(value, sort_keys=True, separators=(",", ":"))
             elif isinstance(value, bool):
                 rendered = str(value).lower()
             else:
@@ -155,22 +181,29 @@ def _write_outputs(path: str, payload: dict[str, object]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target-sha", required=True)
+    parser.add_argument("--base-sha", default="", help="Verified shared comparison base for CI/queue/smoke.")
     parser.add_argument("--backend-base-sha", default="")
     parser.add_argument("--frontend-base-sha", default="")
-    parser.add_argument("--deploy-backend", required=True)
-    parser.add_argument("--deploy-frontend", required=True)
+    parser.add_argument("--deploy-backend", default="true")
+    parser.add_argument("--deploy-frontend", default="true")
     parser.add_argument("--github-output", default="")
+    parser.add_argument("--json-output", default="")
     args = parser.parse_args()
+    shared_base = args.base_sha.strip()
     plan = resolve_plan(
         target_sha=args.target_sha.strip(),
-        backend_base_sha=args.backend_base_sha.strip(),
-        frontend_base_sha=args.frontend_base_sha.strip(),
+        backend_base_sha=shared_base or args.backend_base_sha.strip(),
+        frontend_base_sha=shared_base or args.frontend_base_sha.strip(),
         deploy_backend=_bool(args.deploy_backend),
         deploy_frontend=_bool(args.deploy_frontend),
     )
     payload = plan.as_dict()
     if args.github_output:
         _write_outputs(args.github_output, payload)
+    if args.json_output:
+        with open(args.json_output, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
 

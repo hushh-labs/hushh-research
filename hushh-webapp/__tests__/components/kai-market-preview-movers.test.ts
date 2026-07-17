@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -52,5 +54,17 @@ describe("shouldShowNewsCompanyLogo", () => {
   it("uses a neutral news cover when the claimed symbol is unrelated to the article", () => {
     expect(shouldShowNewsCompanyLogo(news("Boeing delivered 64 jets in June."))).toBe(false);
     expect(shouldShowNewsCompanyLogo(news("Nvidia expands its AI infrastructure."))).toBe(true);
+  });
+});
+
+describe("market route overlays", () => {
+  it("does not mount a hidden notification sheet on route load", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/kai/views/kai-market-preview-view.tsx"),
+      "utf8",
+    );
+
+    expect(source).not.toContain("OneMarketNotificationsSheet");
+    expect(source).not.toContain("notificationsOpen");
   });
 });
