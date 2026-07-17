@@ -290,6 +290,53 @@ class ModelRegistry {
   }
 
   /**
+   * Kills whatever is LISTENING on `port`, if anything, and waits for the
+   * OS to actually release it. Fixes a real, live-reproduced EADDRINUSE on
+   * LOCAL_BRIDGE_PORT (4 occurrences in one session before it happened to
+   * stabilize): `_killLocalBridge()`'s taskkill is fire-and-forget (the
+   * `exec` callback isn't awaited) and sets `this.bridgeProcess = null`
+   * immediately, so a recovery/respawn can race a not-yet-released socket
+   * from the process we just told Windows to kill. Separately, an orphaned
+   * bridge from a prior dev session (e.g. a terminal-wrapped `uvicorn` that
+   * outlived its wrapper -- TaskStop on a bash-wrapped command doesn't
+   * kill the real child) can be sitting on the port with nothing in this
+   * registry instance tracking it at all, so the `this.bridgeProcess`
+   * guard above can't catch it either way. `netstat` + `taskkill` here
+   * covers both cases regardless of which process (ours or orphaned) holds
+   * the port. Scoped to LOCAL_BRIDGE_PORT specifically, which is assumed
+   * exclusively ours (see the port's own definition above) -- same
+   * assumption every other fixed-port service in this file already makes.
+   */
+  async _ensurePortFree(port) {
+    const { exec } = require("child_process");
+    const stdout = await new Promise((resolve) => {
+      exec(`netstat -ano -p TCP`, (err, out) => resolve(err ? "" : out));
+    });
+
+    const pids = new Set();
+    for (const line of stdout.split("\n")) {
+      const match = line.match(/^\s*TCP\s+\S*:(\d+)\s+\S+\s+LISTENING\s+(\d+)\s*$/);
+      if (match && Number(match[1]) === port) {
+        pids.add(match[2]);
+      }
+    }
+    if (pids.size === 0) return;
+
+    console.warn(`[ModelRegistry] ⚠️ Port ${port} already held by PID(s) ${[...pids].join(", ")} -- clearing before spawn.`);
+    await Promise.all(
+      [...pids].map(
+        (pid) =>
+          new Promise((resolve) => {
+            exec(`taskkill /PID ${pid} /F`, () => resolve());
+          })
+      )
+    );
+    // taskkill returning doesn't guarantee the OS has released the socket
+    // yet -- give it a beat before the caller tries to bind.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+
+  /**
    * Spawns the local bridge. Only ever called after GenieX itself is
    * confirmed online (see spawnLocalInferenceEngine) -- the bridge proxies
    * every request to GenieX, so starting it first would just mean every
@@ -316,6 +363,8 @@ class ModelRegistry {
       );
       return null;
     }
+
+    await this._ensurePortFree(LOCAL_BRIDGE_PORT);
 
     console.log(`[ModelRegistry] 🚀 Spawning local bridge from ${command} on port ${LOCAL_BRIDGE_PORT}...`);
 

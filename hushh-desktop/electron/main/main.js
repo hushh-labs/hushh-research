@@ -26,6 +26,35 @@ if (process.platform === "win32") {
   app.setAppUserModelId("com.hushh.desktop");
 }
 
+// Without this, launching the exe twice (a double-click, a stuck taskbar
+// icon, a Start Menu misfire) runs two full, independent startup
+// sequences -- each spawning its own backend/frontend/daemon/analysis-
+// engine. The fixed-port services (daemon, analysis engine, bridge) each
+// only check "is something already healthy on my port" before spawning,
+// which doesn't protect against two instances racing that same check at
+// once (confirmed live: one such race left a dangling second backend.exe
+// that lost its own port bind and a dangling second analysis-engine.exe).
+// The single-instance lock stops this at the source -- the second launch
+// hands off to the first and exits immediately instead of starting
+// anything.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  // app.quit() only REQUESTS a quit -- it doesn't halt execution of this
+  // script. Without this early return, the rest of the module (including
+  // the app.whenReady() handler below that spawns backend/frontend/daemon/
+  // analysis-engine) would still run to completion for the very instance
+  // that's supposed to be bowing out -- confirmed live: this exact gap
+  // produced a second full set of backend/analysis-engine processes.
+  app.quit();
+  return;
+}
+app.on("second-instance", () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
 const { findFreePort } = require("./services/ports");
 const { initRuntimeContext } = require("./services/runtime");
 const { ensureBackendVenv } = require("./services/launcher");
