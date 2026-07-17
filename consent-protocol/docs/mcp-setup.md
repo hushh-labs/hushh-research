@@ -46,6 +46,12 @@ Use the trailing-slash endpoint shape:
 - authenticate with `Authorization: Bearer <developer-token>`
 - query-string tokens are rejected
 
+The hosted Streamable HTTP transport returns the complete public catalog from
+`tools/list`; no ResourceLink download or extra catalog endpoint is involved.
+Each advertised input and output schema has a root `type: object` for strict
+MCP clients. Configure the bearer header, call `initialize`, then call
+`tools/list`.
+
 ## Public Tool Surface
 
 The hosted public developer lane exposes four core consent tools:

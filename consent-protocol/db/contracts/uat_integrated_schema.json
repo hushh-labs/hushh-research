@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 100,
+  "expected_migration_version": 101,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -790,7 +790,8 @@
       "tool_name",
       "http_method",
       "path",
-      "description"
+      "description",
+      "mcp_endpoint"
     ],
     "trusted_connections": [
       "id",

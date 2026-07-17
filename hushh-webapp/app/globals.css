@@ -373,6 +373,10 @@ a, button, input, select, textarea {
   --app-bottom-inset: calc(
     var(--app-bottom-fixed-ui) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift)
   );
+  /* The Agent Bar is a separate fixed control above the nav, never a layer
+   * within it. Keep a visible gap so text/input hit targets cannot underlap
+   * the centered navigation at any measured nav height. */
+  --agent-bar-with-nav-bottom: calc(var(--app-bottom-inset) + 0.75rem);
   /*
    * Onboarding has no bottom navigation, but does retain the persistent Agent
    * Bar. Keep its geometry in one token family so setup terminal controls,

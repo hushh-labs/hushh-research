@@ -5,7 +5,10 @@ from fastapi.testclient import TestClient
 
 from api.middleware import require_vault_owner_token
 from api.routes import connected_systems
-from hushh_mcp.services.connected_systems_service import ConnectedSystemBlockedError
+from hushh_mcp.services.connected_systems_service import (
+    ConnectedSystemBlockedError,
+    ConnectedSystemConfigurationError,
+)
 
 
 class FakeConnectedSystemsService:
@@ -148,6 +151,28 @@ def test_list_connected_systems_route_returns_salesforce_registry_entry(monkeypa
     assert payload["systems"][0]["customerDisplayName"] == "Macy's"
     assert payload["systems"][0]["systemType"] == "Salesforce"
     assert payload["systems"][0]["systemName"] == "FSC"
+
+
+def test_list_connected_systems_returns_typed_registry_unavailable_error(monkeypatch):
+    monkeypatch.setattr(
+        connected_systems,
+        "get_connected_systems_service",
+        lambda: (_ for _ in ()).throw(
+            ConnectedSystemConfigurationError(
+                "Connected Systems configuration is temporarily unavailable.",
+                code="CONNECTED_SYSTEM_REGISTRY_UNAVAILABLE",
+            )
+        ),
+    )
+    client = TestClient(_build_app())
+
+    response = client.get("/api/connected-systems", headers={"Authorization": "Bearer HCT:test"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == {
+        "code": "CONNECTED_SYSTEM_REGISTRY_UNAVAILABLE",
+        "message": "Connected Systems configuration is temporarily unavailable.",
+    }
 
 
 def test_create_intent_route_accepts_live_mcp_camel_case_shape(monkeypatch):

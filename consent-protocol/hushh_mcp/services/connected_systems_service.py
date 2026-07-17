@@ -1459,7 +1459,16 @@ class ConnectedSystemsService:
     def _load_registry(self) -> tuple[ConnectedSystemDefinition, ...]:
         from hushh_mcp.services import crm_registry_repo
 
-        return crm_registry_repo.load_active_definitions()
+        try:
+            return crm_registry_repo.load_active_definitions()
+        except ConnectedSystemsError:
+            raise
+        except DatabaseExecutionError as error:
+            logger.exception("crm_registry.load_failed")
+            raise ConnectedSystemConfigurationError(
+                "Connected Systems configuration is temporarily unavailable.",
+                code="CONNECTED_SYSTEM_REGISTRY_UNAVAILABLE",
+            ) from error
 
     def _adapter_for_system(
         self, system: ConnectedSystemDefinition
@@ -1524,7 +1533,9 @@ class ConnectedSystemsService:
         registry = self.registry if self._registry_explicit else self._load_registry()
         return [
             system.to_summary(
-                endpoint_configured=bool(system.transport_endpoint),
+                endpoint_configured=all(
+                    system.supports(operation) for operation in system.capabilities
+                ),
                 delete_enabled=self.delete_enabled,
             )
             for system in registry

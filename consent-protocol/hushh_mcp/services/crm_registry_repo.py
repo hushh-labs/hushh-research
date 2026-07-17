@@ -25,7 +25,6 @@ from hushh_mcp.runtime_settings import (
     get_omnigateway_transport_headers,
 )
 from hushh_mcp.services.connected_systems_service import (
-    EXTERNAL_CRM_TOOL_CATALOG,
     REGISTRY_MCP_ENDPOINT,
     ConnectedSystemConfigurationError,
     ConnectedSystemDefinition,
@@ -157,7 +156,10 @@ def _tool_catalog(row_crm_id: str, database: Any) -> tuple[dict[str, Any], ...]:
         """,
         {"crm_id": row_crm_id},
     ).data
-    return _tool_catalog_from_rows(operation_rows) or EXTERNAL_CRM_TOOL_CATALOG
+    # The database registry is the executable source of truth. A legacy
+    # in-code catalog here would advertise CRUD operations which the active
+    # CRM row has not explicitly mapped, defeating capability-safe rollout.
+    return _tool_catalog_from_rows(operation_rows)
 
 
 def _definition_from_row(

@@ -148,7 +148,7 @@ function SharedBottomChromeGlass({ hideCommandBar }: { hideCommandBar?: boolean 
           className="pointer-events-none fixed inset-x-0 z-[108] hidden md:block"
           style={{
             bottom:
-              "calc(max(var(--app-bottom-inset), calc(var(--bottom-nav-offset) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift))) + 0.5rem)",
+              "var(--agent-bar-with-nav-bottom)",
           }}
         >
           <div
