@@ -521,7 +521,7 @@ async def create_ria_request_bundle(
 
 @router.get("/universe")
 async def renaissance_universe(
-    tier: str | None = Query(None),
+    tier: str | None = Query(None, max_length=64),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     """Return the Renaissance investable universe (default Kai stock list)."""
