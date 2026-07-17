@@ -12,6 +12,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from hushh_mcp.agents.summary_reducer import SummaryReducerAgent
 from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.services.domain_contracts import CANONICAL_DOMAIN_REGISTRY
@@ -4409,6 +4410,16 @@ class PKMAgentLabService:
         domain_registry_override: list[dict[str, Any]] | None = None,
         update_intent: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        # SECURITY: redact high-risk keys before simulated_state reaches any LLM
+        # prompt.  sanitize_input applies the same pre-processing layer as reduce()
+        # but preserves the original schema (domains/memories keys) so that the
+        # deterministic fallback scorer can still walk the memory graph without an
+        # LLM response.  Replacing the entire dict with a SummaryProjection would
+        # strip those structural keys and cause all fallback merge decisions to
+        # default to create_entity / no_op.
+        if simulated_state is not None:
+            simulated_state = SummaryReducerAgent().sanitize_input(simulated_state)
+
         total_started_at = time.perf_counter()
         normalized_domains = [
             self._normalize_segment(domain) for domain in (current_domains or []) if domain
