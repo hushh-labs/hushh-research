@@ -1,13 +1,20 @@
-"""Agent text chat routes backed by Gemini streaming."""
+"""Agent text chat routes backed by Gemini streaming.
+
+Canonical attach points for the CWE-400 path-param bound fix:
+  list_agent_chat_conversations    -> GET  /api/kai/agent/chat/conversations/{user_id}
+  rename_agent_chat_conversation   -> PATCH /api/kai/agent/chat/conversations/{conversation_id}
+  delete_agent_chat_conversation   -> DELETE /api/kai/agent/chat/conversations/{conversation_id}
+  get_agent_chat_history           -> GET  /api/kai/agent/chat/history/{conversation_id}
+"""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -25,6 +32,12 @@ from hushh_mcp.services.agent_chat_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Agent Chat"])
+
+# Annotated path-parameter types with HTTP-layer size guards (CWE-400).
+# Unbounded path strings propagate into DB lookups and service calls before
+# any auth short-circuit, so a 128-char cap is enforced at the route level.
+_UserId = Annotated[str, Path(min_length=1, max_length=128)]
+_ConversationId = Annotated[str, Path(min_length=1, max_length=128)]
 
 
 class AgentChatStreamRequest(BaseModel):
@@ -380,7 +393,7 @@ async def stream_agent_chat(
 
 @router.get("/agent/chat/conversations/{user_id}", response_model=AgentChatConversationsResponse)
 async def list_agent_chat_conversations(
-    user_id: str,
+    user_id: _UserId,
     token_data: dict = Depends(require_vault_owner_token),
     limit: int = Query(default=5, ge=1, le=20),
 ):
@@ -396,7 +409,7 @@ async def list_agent_chat_conversations(
     "/agent/chat/conversations/{conversation_id}", response_model=AgentChatConversationModel
 )
 async def rename_agent_chat_conversation(
-    conversation_id: str,
+    conversation_id: _ConversationId,
     body: AgentChatRenameRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -416,7 +429,7 @@ async def rename_agent_chat_conversation(
     response_model=AgentChatDeleteResponse,
 )
 async def delete_agent_chat_conversation(
-    conversation_id: str,
+    conversation_id: _ConversationId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     user_id = str(token_data.get("user_id") or "")
@@ -431,7 +444,7 @@ async def delete_agent_chat_conversation(
 
 @router.get("/agent/chat/history/{conversation_id}", response_model=AgentChatHistoryResponse)
 async def get_agent_chat_history(
-    conversation_id: str,
+    conversation_id: _ConversationId,
     token_data: dict = Depends(require_vault_owner_token),
     limit: int = Query(default=50, ge=1, le=100),
 ):
