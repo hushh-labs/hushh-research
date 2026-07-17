@@ -2,9 +2,7 @@
 name: frontend-design-system
 description: Use when changing Hussh UI architecture, shared components, shell chrome, or styling rules inside the frontend owner family.
 ---
-
 # Hussh Frontend Design System Skill
-
 ## Purpose and Trigger
 
 - Primary scope: `frontend-design-system`
@@ -43,11 +41,12 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/quality/design-system.md`
-2. `docs/reference/quality/frontend-ui-architecture-map.md`
-3. `docs/reference/quality/app-surface-design-system.md`
-4. `docs/reference/quality/frontend-pattern-catalog.md`
-5. `.codex/skills/frontend-design-system/references/design-review-kernel.md`
+1. `docs/reference/quality/design.md`
+2. `docs/reference/quality/design-system.md`
+3. `docs/reference/quality/frontend-ui-architecture-map.md`
+4. `docs/reference/quality/app-surface-design-system.md`
+5. `docs/reference/quality/frontend-pattern-catalog.md`
+6. `.codex/skills/frontend-design-system/references/design-review-kernel.md`
 
 ## Workflow
 
@@ -66,9 +65,10 @@ Non-owned surfaces:
 13. Review composition, hierarchy, responsive layout, interaction, form geometry, copy, and contrast through `design-review-kernel.md`; challenge incomplete, vague, asymmetric, or noisy UI before shipping the obvious weaker version.
 14. Match all standalone buttons, pill triggers, and icon controls to the gold-standard flat-control recipe owned by the agent bar, bottom nav, and top-app-bar buttons. Reuse `ShellActionSurface` (`SHELL_ICON_BUTTON_CLASSNAME` / `SHELL_PILL_TRIGGER_CLASSNAME`) rather than re-deriving `rounded-full` + `bg-black/[0.05] dark:bg-white/[0.07]` + flat hover/press per surface. Sibling controls in one group must share one `morphy-ux` effect (do not mix `glass` and `fade`). See the Control Surface Contract in `app-surface-design-system.md`.
 15. Enforce pixel-grid symmetry for repeated visual systems. Section headings, app-icon launchers, tabs, progress strips, and first visual cells must share stable start lines. Use fixed cell widths/tracks and `justify-start` for launcher grids; route headers use the lean shared `PageHeader`, and `SettingsGroup`/`SettingsRow` own responsive inset rows; do not stretch a small set of icons across a wide card or duplicate route chrome. See the Pixel Grid And Symmetry Contract in `app-surface-design-system.md`.
-16. Give every modal floating surface the shared backdrop thump. Dialogs/sheets/drawers/command palette/vault dialog inherit it from `DialogOverlay`; modal popovers opt in with `PopoverContent withBackdrop` (renders `data-slot="popover-scrim"` animated by the shared `overlay-scrim-*` keyframes). Do not hand-roll per-surface scrim opacity, blur, or duration. Bottom navigation is a FIXED per-scope set: subroutes collapse onto their parent top-level tab (finance is the reference) through `lib/navigation/app-bottom-nav.ts`; never inject a per-subroute tab into the bar. There is exactly ONE app-wide route transition (uniform exit->enter crossfade): `useRouteTransition` (mounted once in `app/providers.tsx`) intercepts `<a>` clicks AND patches the History API once, so every `router.push`/`router.replace` inherits the crossfade with zero per-site code — never add a parallel navigation animation (framer-motion `template.tsx`, View Transitions, per-route motion); a hard-cut screen bypassed `router`/`<a>`, so route it through `router`, and keep `EXIT_MS`/`ENTER_MS` in `lib/morphy-ux/hooks/use-route-transition.ts` synced with `--motion-route-exit/enter-duration`. See the Overlay Backdrop Contract and Bottom Navigation Contract in `app-surface-design-system.md` and the Route transitions section in `lib/morphy-ux/README.md`.
+16. Give every modal floating surface the shared backdrop thump. Dialogs/sheets/drawers/command palette/vault dialog inherit it from `DialogOverlay`; modal popovers opt in with `PopoverContent withBackdrop` (renders `data-slot="popover-scrim"` animated by the shared `overlay-scrim-*` keyframes). Do not hand-roll per-surface scrim opacity, blur, or duration. Bottom navigation centers the primary `One`, `Connect`, and `Search` group, with Search as a segment; a Finance/RIA contextual group may render immediately left on wide layouts, but never route-local tabs. Profile is the rightmost signed-in top-bar control with the shared image/generic fallback. There is exactly ONE app-wide route transition (uniform exit->enter crossfade): `useRouteTransition` (mounted once in `app/providers.tsx`) intercepts `<a>` clicks AND patches the History API once, so every `router.push`/`router.replace` inherits the crossfade with zero per-site code — never add a parallel navigation animation (framer-motion `template.tsx`, View Transitions, per-route motion); a hard-cut screen bypassed `router`/`<a>`, so route it through `router`, and keep `EXIT_MS`/`ENTER_MS` in `lib/morphy-ux/hooks/use-route-transition.ts` synced with `--motion-route-exit/enter-duration`. See the Overlay Backdrop Contract and Bottom Navigation Contract in `app-surface-design-system.md` and the Route transitions section in `lib/morphy-ux/README.md`.
 17. Agent Chat and portfolio import streaming surfaces use `components/app-ui/stream-progress-panel.tsx` as the shared primitive. Active assistant stream panels must be full-width, progress/thinking/response sections must stay distinct, marketplace opportunity accordions must be preloaded by the workspace when possible, and mobile chat history drawers must use shared glass chrome rather than flat white desktop panes. See the Agent Chat Stream Surface Contract in `app-surface-design-system.md`.
 18. In-page step/tab enters use the shared `.motion-step-enter` utility (`app/globals.css`, motion tokens, reduced-motion safe) - never ad-hoc `animate-in fade-in slide-in-* duration-N`. Dark chrome tints (bar glass, chrome-glass-surface, morphy-app-bg, route palettes like `--one-bg`/`--one-card`) derive from `color-mix(in oklab, var(--background) N%, transparent)`, never hardcoded `rgb(28,28,30)`/`#1c1c1e` (lighter than true `--background` = milky band / "double card" partition). Visualizations are honest: sparklines only from real series scaled to their own min/max, degraded rows get a `Delayed` chip + flat dashed baseline, never invented always-green paths. Drawer flows (vault unlock) keep ONE surface: no opaque card inside `DrawerContent` (morphy `Card effect="fill"` needs `!bg-transparent`).
+19. Initial source/import decisions are short task selectors, not dashboards: use `PageHeader` plus one `SettingsGroup`/`SettingsRow` list at the reading measure. The first mobile viewport must contain the choices and deferral action; do not add badge clusters, drag-and-drop panels, duplicate CTA buttons, or a setup-terminal action until the user completes or defers a source choice.
 ## Handoff Rules
 1. Broad or ambiguous frontend work routes back to `frontend`.
 2. Route contracts or verification ownership route to `frontend-architecture`.

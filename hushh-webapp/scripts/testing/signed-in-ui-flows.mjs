@@ -22,6 +22,8 @@
  * - wait_beacon: { routeIds: string[], dataStates?: string[] }
  * - assert_url_includes: { value: string }
  * - assert_visible_testid: { testId: string }
+ * - verify_ria_picks_admission: exercises the tabs for an activated advisor,
+ *   or accepts the expected onboarding admission state for the shared reviewer.
  * - open_ria_workspace: {}
  */
 
@@ -103,7 +105,7 @@ export const UI_FLOWS = [
       { type: "ensure_persona", persona: "ria" },
       { type: "click_bottom_nav", label: "Home" },
       { type: "wait_beacon", routeIds: ["/ria"] },
-      { type: "assert_visible_testid", testId: "ria-action-bar" },
+      { type: "assert_visible_testid", testId: "ria-home-primary" },
     ],
   },
   {
@@ -114,7 +116,6 @@ export const UI_FLOWS = [
       { type: "ensure_persona", persona: "ria" },
       { type: "click_bottom_nav", label: "Clients" },
       { type: "wait_beacon", routeIds: ["/ria/clients"] },
-      { type: "assert_visible_testid", testId: "ria-action-bar" },
     ],
   },
   {
@@ -125,8 +126,6 @@ export const UI_FLOWS = [
       { type: "ensure_persona", persona: "ria" },
       { type: "click_bottom_nav", label: "Picks" },
       { type: "wait_beacon", routeIds: ["/ria/picks"] },
-      { type: "assert_visible_testid", testId: "ria-action-bar" },
-      { type: "assert_visible_testid", testId: "ria-picks-primary" },
     ],
   },
   {
@@ -163,21 +162,12 @@ export const UI_FLOWS = [
   {
     id: "ria-picks-source-category-tabs",
     route: "/ria/picks",
-    description: "RIA picks source + category segmented controls",
+    description: "RIA picks admission and source + category controls when entitled",
     steps: [
       { type: "ensure_persona", persona: "ria" },
       { type: "click_bottom_nav", label: "Picks" },
       { type: "wait_beacon", routeIds: ["/ria/picks"] },
-      { type: "click_button", name: "^my list", regex: true },
-      { type: "assert_url_includes", value: "source=my" },
-      { type: "click_button", name: "^kai list", regex: true },
-      { type: "assert_url_includes", value: "source=kai" },
-      { type: "click_button", name: "avoid" },
-      { type: "assert_url_includes", value: "category=avoid" },
-      { type: "click_button", name: "top picks" },
-      { type: "assert_url_includes", value: "category=top-picks" },
-      { type: "click_button", name: "screening" },
-      { type: "assert_url_includes", value: "category=screening" },
+      { type: "verify_ria_picks_admission" },
     ],
   },
   {

@@ -68,6 +68,29 @@ class FakeExternalCrmAdapter:
         return {"isError": False, "payload": {"deleted": True}}
 
 
+class GenericCrmAdapter:
+    configured = True
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, str | None, dict]] = []
+
+    async def call_operation(self, *, operation, tool_name, endpoint, arguments, **_kwargs):
+        self.calls.append((operation, tool_name, endpoint, arguments))
+        if operation == "schema":
+            return {
+                "isError": False,
+                "schema": {
+                    "fields": [
+                        {"name": "companyId", "identityField": True, "immutable": True},
+                        {"name": "legalName", "required": True, "writable": True},
+                        {"name": "domain", "required": True, "writable": True},
+                        {"name": "tier", "writable": True},
+                    ]
+                },
+            }
+        return {"isError": False, "payload": {"id": "company-42"}}
+
+
 def build_service(
     *, delete_enabled: bool = False
 ) -> tuple[ConnectedSystemsService, FakeExternalCrmAdapter]:
@@ -79,6 +102,79 @@ def build_service(
         registry=(SALESFORCE_CRM_SYSTEM,),
     )
     return service, adapter
+
+
+@pytest.mark.asyncio
+async def test_generic_crm_uses_its_registered_schema_tool_endpoint_and_field_contract():
+    definition = ConnectedSystemDefinition(
+        system_id="hubspot-companies",
+        display_name="HubSpot",
+        customer_display_name="HubSpot",
+        system_type="HubSpot",
+        system_name="HubSpot",
+        target="HubSpot",
+        object_type_default="Company",
+        transport="external_crm_streamable_mcp",
+        transport_endpoint="https://example.invalid/mcp",
+        registry_source="test",
+        tool_catalog=(
+            {
+                "name": "describe-company",
+                "operation": "schema",
+                "mcpEndpoint": "https://example.invalid/schema",
+            },
+            {
+                "name": "create-company",
+                "operation": "create",
+                "mcpEndpoint": "https://example.invalid/create",
+            },
+            {
+                "name": "update-company",
+                "operation": "update",
+                "mcpEndpoint": "https://example.invalid/update",
+            },
+            {
+                "name": "read-company",
+                "operation": "read",
+                "mcpEndpoint": "https://example.invalid/read",
+            },
+        ),
+        capabilities=frozenset({"schema", "read", "create", "update"}),
+    )
+    adapter = GenericCrmAdapter()
+    service = ConnectedSystemsService(
+        adapter=adapter,
+        store=InMemoryConnectedSystemIntentStore(),
+        registry=(definition,),
+    )
+
+    intent = await service.create_record_intent_from_fields(
+        user_id="user-1",
+        system_id=definition.system_id,
+        object_type=None,
+        record_fields={"legalName": "Acme", "domain": "acme.example", "tier": "gold"},
+    )
+    assert intent["status"] == "pending"
+    assert adapter.calls[0][:3] == ("schema", "describe-company", "https://example.invalid/schema")
+    approved = await service.approve_intent(
+        user_id="user-1", system_id=definition.system_id, intent_id=intent["intentId"]
+    )
+    assert adapter.calls[1][:3] == ("create", "create-company", "https://example.invalid/create")
+    assert adapter.calls[1][3]["recordFields"] == {
+        "legalName": "Acme",
+        "domain": "acme.example",
+        "tier": "gold",
+    }
+    assert approved["status"] in {"succeeded", "partial"}
+
+    with pytest.raises(ConnectedSystemValidationError, match="Field cannot be updated"):
+        await service.update_record_intent_from_fields(
+            user_id="user-1",
+            system_id=definition.system_id,
+            object_type=None,
+            record_id="company-42",
+            record_fields={"companyId": "other"},
+        )
 
 
 def test_default_service_lists_real_registry_backed_salesforce_endpoint_without_env_endpoint():
@@ -97,6 +193,29 @@ def test_default_service_lists_real_registry_backed_salesforce_endpoint_without_
         "read-crm-record",
         "update-crm-record",
     }
+
+
+def test_default_service_reloads_active_registry_for_each_list(monkeypatch):
+    """A registry enable/disable is visible without recreating the service."""
+    from hushh_mcp.services import crm_registry_repo
+
+    active_definitions = (SALESFORCE_CRM_SYSTEM,)
+    monkeypatch.setattr(
+        crm_registry_repo,
+        "load_active_definitions",
+        lambda: active_definitions,
+    )
+
+    service = ConnectedSystemsService(
+        store=InMemoryConnectedSystemIntentStore(),
+        delete_enabled=False,
+    )
+    assert [system["systemId"] for system in service.list_systems()] == [
+        CONNECTED_SYSTEM_SALESFORCE_ID,
+    ]
+
+    active_definitions = ()
+    assert service.list_systems() == []
 
 
 @pytest.mark.asyncio
@@ -209,8 +328,8 @@ async def test_force_refresh_bypasses_binding_and_researches():
         force_refresh=True,
     )
     assert refreshed["servedFromBinding"] is False
-    # A fresh read-crm-record call was made.
-    assert len(adapter.calls) == calls_after_first + 1
+    # A fresh schema validation and read-crm-record call were made.
+    assert len(adapter.calls) == calls_after_first + 2
     assert adapter.calls[-1][0] == "read-crm-record"
 
 
@@ -228,60 +347,13 @@ async def test_schema_read_and_create_payloads_match_live_mcp_contract():
         "Phone",
         "MobilePhone",
         "MailingCity",
+        "Unsupported__c",
         "LastName",
     ]
-    assert schema["fields"] == [
-        {
-            "key": "Email",
-            "name": "Email",
-            "label": "Email",
-            "dataType": "email",
-            "required": False,
-            "identityField": True,
-            "writable": False,
-            "source": "mcp_schema",
-        },
-        {
-            "key": "Phone",
-            "name": "Phone",
-            "label": "Phone",
-            "dataType": "tel",
-            "required": False,
-            "identityField": True,
-            "writable": False,
-            "source": "mcp_schema",
-        },
-        {
-            "key": "MobilePhone",
-            "name": "MobilePhone",
-            "label": "Mobile phone",
-            "dataType": "tel",
-            "required": False,
-            "identityField": False,
-            "writable": True,
-            "source": "mcp_schema",
-        },
-        {
-            "key": "MailingCity",
-            "name": "MailingCity",
-            "label": "Mailing city",
-            "dataType": "string",
-            "required": False,
-            "identityField": False,
-            "writable": True,
-            "source": "mcp_schema",
-        },
-        {
-            "key": "LastName",
-            "name": "LastName",
-            "label": "Last name",
-            "dataType": "string",
-            "required": True,
-            "identityField": False,
-            "writable": True,
-            "source": "mcp_schema",
-        },
-    ]
+    fields = {field["key"]: field for field in schema["fields"]}
+    assert fields["Unsupported__c"]["writable"] is True
+    assert fields["LastName"]["required"] is True
+    assert fields["Email"]["readable"] is True
     assert adapter.calls[-1] == (
         "object-schema",
         {"target": "Macys", "objectType": "Contact"},

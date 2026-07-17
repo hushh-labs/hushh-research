@@ -52,10 +52,11 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("router.push(nextRoute);");
   });
 
-  it("uses the same agent selector and chrome motion contract for RIA and Finance", () => {
+  it("keeps Finance and RIA workspace controls out of the top bar", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
-    expect(source).toContain("<AgentSectionDropdown pathname={normalizedPathname} />");
+    expect(source).not.toContain("AgentSectionDropdown");
+    expect(source).not.toContain("WorkspaceTopTabs");
     expect(source).not.toContain('data-testid="top-app-bar-ria-cluster"');
     expect(source).not.toContain("const isRiaOnboardingScope");
     expect(source).not.toContain("const isRiaScope");
@@ -71,41 +72,35 @@ describe("Top app bar responsive contract", () => {
     expect(source).not.toContain("router.back();");
   });
 
-  it("centers the plain Agents dropdown while preserving the reserved back slot", () => {
+  it("preserves the reserved back slot without duplicating agent navigation", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
-    const dropdown = read("components/app-ui/agent-section-dropdown.tsx");
 
-    expect(source).toContain("AgentSectionDropdown");
-    expect(source.indexOf('data-testid="top-app-bar-nav-slot"')).toBeLessThan(
-      source.indexOf("<AgentSectionDropdown"),
-    );
+    expect(source).toContain('data-testid="top-app-bar-nav-slot"');
     expect(source).toContain("resolveCommonRouteBreadcrumb");
-    expect(source).toContain("const showAgentSectionDropdown");
-    // The switcher renders on /one too (roster parity with the dashboard
-    // grid + agent search available on the launcher screen); only the
-    // marketing HOME route stays excluded.
-    expect(source).toContain("normalizedPathname !== ROUTES.HOME");
-    expect(source).not.toContain("normalizedPathname !== ROUTES.ONE_HOME");
-    expect(source).toContain(
-      "<AgentSectionDropdown pathname={normalizedPathname} />",
-    );
-    expect(dropdown).toContain("<button");
-    expect(dropdown).not.toContain("ShellActionSurface");
+    expect(source).not.toContain("AgentSectionDropdown");
   });
 
-  it("renders the One home brand in the left slot without replacing Agents actions", () => {
+  it("renders the One home brand in the left slot without duplicating navigation", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
     expect(source).toContain("const showOneHomeBrand");
     expect(source).toContain("normalizedPathname === ROUTES.ONE_HOME");
-    expect(source).toContain("!topShellBreadcrumb");
     expect(source).toContain('data-testid="top-app-bar-one-brand"');
     expect(source).toContain("🤫 One");
-    expect(source).toContain(
-      "<AgentSectionDropdown pathname={normalizedPathname} />",
-    );
+    expect(source).not.toContain("AgentSectionDropdown");
     expect(source).toContain("<ConsentInboxDropdown");
     expect(source).toContain("<DebateTaskCenter");
+  });
+
+  it("keeps the rightmost signed-in Profile action in the shared top bar", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+
+    expect(source).not.toContain("WorkspaceTopTabs");
+    expect(source).toContain('aria-label="Open Profile"');
+    expect(source).toContain("router.push(ROUTES.PROFILE)");
+    expect(source).toContain("<AvatarImage");
+    expect(source).toContain("<AvatarFallback");
+    expect(source).not.toContain('aria-label="Open Connect"');
   });
 
   it("uses primary header visibility for top-bar title handoff", () => {

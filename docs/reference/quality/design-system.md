@@ -5,6 +5,10 @@
 
 Canonical visual owner: [Quality and Design System Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
+The cross-layer visual, shell, material, and AX rules are maintained in
+[One UX and AX Design Contract](./design.md). This document owns implementation
+layering and primitive placement beneath that contract.
+
 ## Purpose
 This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the standalone design-system root, and makes app-ui the semantic composition layer above it.
 

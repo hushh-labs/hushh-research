@@ -48,6 +48,7 @@ import {
   APP_SHELL_FRAME_STYLE,
 } from "@/components/app-ui/app-page-shell";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -78,7 +79,6 @@ import { VaultService } from "@/lib/services/vault-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ROUTES } from "@/lib/navigation/routes";
 import { DebateTaskCenter } from "@/components/app-ui/debate-task-center";
-import { AgentSectionDropdown } from "@/components/app-ui/agent-section-dropdown";
 import { getAgentSection } from "@/lib/navigation/agent-sections";
 import { ConsentInboxDropdown } from "@/components/consent/consent-inbox-dropdown";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
@@ -486,18 +486,8 @@ export function TopAppBar({ className }: TopAppBarProps) {
   );
   const showVaultUnlockAction =
     isAuthenticated && hasVault === true && !isVaultUnlocked;
-  // The agent switcher (with its search combobox) renders on the /one home
-  // route too: the dashboard grid and the dropdown expose the same roster, so
-  // agent search is available everywhere, including the launcher screen.
-  const showAgentSectionDropdown =
-    isAuthenticated &&
-    !showOnboardingActions &&
-    normalizedPathname !== ROUTES.HOME;
   const showOneHomeBrand =
-    normalizedPathname === ROUTES.ONE_HOME &&
-    !topShellBreadcrumb &&
-    !showOnboardingActions;
-  const showKaiTabs = topShellMetrics.hasTabs;
+    normalizedPathname === ROUTES.ONE_HOME && !showOnboardingActions;
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(
     null,
   );
@@ -585,13 +575,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
     useKaiBottomChromeVisibility(!hideChrome);
   const topChromeHideProgress = rawTopChromeHideProgress;
 
-  const topGlassHeight = useMemo(
-    () =>
-      showKaiTabs
-        ? `calc(var(--top-inset) + var(--top-systembar-row-gap, 0px) + var(--top-bar-h) + ((1 - ${topChromeHideProgress}) * var(--top-tabs-h)) + var(--top-fade-active))`
-        : "var(--top-shell-visual-height)",
-    [showKaiTabs, topChromeHideProgress],
-  );
+  const topGlassHeight = "var(--top-shell-visual-height)";
   const topChromeTransform = useMemo(
     () =>
       `translate3d(0, calc(-1 * ${topChromeHideProgress} * var(--top-shell-reserved-height)), 0)`,
@@ -664,7 +648,8 @@ export function TopAppBar({ className }: TopAppBarProps) {
                 className="pointer-events-none flex h-full shrink-0 items-center justify-start"
                 style={{ width: "var(--top-bar-side-w)" }}
               >
-                {topShellBreadcrumb && !topShellBreadcrumb.hideBack ? (
+                {topShellBreadcrumb &&
+                !topShellBreadcrumb.hideBack ? (
                   <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
                     <ShellActionSurface
                       variant="icon"
@@ -726,9 +711,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                     >
                       🤫
                     </span>
-                    <span className="font-[family-name:var(--font-app-display)] text-[19px] font-bold leading-none tracking-[-0.3px]">
-                      One
-                    </span>
+
                   </div>
                 ) : (
                   <div className="h-10 w-10" aria-hidden />
@@ -744,11 +727,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                   showOnboardingActions ? "justify-start" : "justify-center",
                 )}
               >
-                {showAgentSectionDropdown ? (
-                  <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
-                    <AgentSectionDropdown pathname={normalizedPathname} />
-                  </div>
-                ) : centerTitle ? (
+                {centerTitle ? (
                   centerTitle.interactive && canShowPersonaSwitcher ? (
                     <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
                       <DropdownMenu>
@@ -924,6 +903,30 @@ export function TopAppBar({ className }: TopAppBarProps) {
                           </ShellActionSurface>
                         )}
                       />
+                      <ShellActionSurface
+                        variant="icon"
+                        aria-label="Open Profile"
+                        onClick={() => router.push(ROUTES.PROFILE)}
+                        className="p-0"
+                      >
+                        <Avatar className="h-9 w-9">
+                          {user?.photoURL ? (
+                            <AvatarImage src={user.photoURL} alt="" />
+                          ) : null}
+                          <AvatarFallback className="bg-transparent text-muted-foreground">
+                            {user?.displayName ? (
+                              user.displayName
+                                .split(" ")
+                                .map((part) => part[0])
+                                .join("")
+                                .slice(0, 2)
+                                .toUpperCase()
+                            ) : (
+                              <UserRound className="h-5 w-5" />
+                            )}
+                          </AvatarFallback>
+                        </Avatar>
+                      </ShellActionSurface>
                     </>
                   )}
                 </div>

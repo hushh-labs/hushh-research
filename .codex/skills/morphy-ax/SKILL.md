@@ -41,10 +41,11 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/quality/morphy-agent-experience.md`
-2. `docs/reference/one/one-voice-runtime-architecture.md`
-3. `docs/reference/quality/frontend-ui-architecture-map.md`
-4. `docs/reference/kai/kai-action-gateway-vnext.md`
+1. `docs/reference/quality/design.md`
+2. `docs/reference/quality/morphy-agent-experience.md`
+3. `docs/reference/one/one-voice-runtime-architecture.md`
+4. `docs/reference/quality/frontend-ui-architecture-map.md`
+5. `docs/reference/kai/kai-action-gateway-vnext.md`
 
 ## Workflow
 

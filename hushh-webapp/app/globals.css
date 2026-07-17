@@ -369,7 +369,7 @@ a, button, input, select, textarea {
   --app-bottom-fixed-ui: var(--bottom-nav-offset);
   --app-bottom-route-group-width: 58px;
   --app-bottom-chrome-lift: 0px;
-  --bottom-chrome-fade-overscan: 18px;
+  --bottom-chrome-fade-overscan: 8px;
   --app-bottom-inset: calc(
     var(--app-bottom-fixed-ui) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift)
   );
@@ -694,7 +694,7 @@ a, button, input, select, textarea {
     --top-content-safe-gap: 16px;
     --page-top-body-gap: 22px;
     --app-top-body-start-gap: 32px;
-    --bottom-chrome-fade-overscan: 22px;
+    --bottom-chrome-fade-overscan: 8px;
     --top-subnav-gap: 14px;
     --page-inline-gutter-standard: 20px;
     --page-surface-overscan: 8px;

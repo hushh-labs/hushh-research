@@ -108,13 +108,14 @@ def test_export_output_schema_discriminates_hosted_and_local_delivery() -> None:
         "crypto": None,
         "information": {"summary": "approved"},
     }
-    jsonschema.validate({**base, "delivery": "decrypted_local"}, schema)
+    jsonschema.validate({**base, "delivery": "decrypted_local", "ciphertext": None}, schema)
 
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(
             {
                 **base,
-                "delivery": "resource_link",
+                "delivery": "encrypted_inline",
+                "ciphertext": "ZmFrZQ==",
                 "information": {"must": "not accompany a resource link"},
             },
             schema,

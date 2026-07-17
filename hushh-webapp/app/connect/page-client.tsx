@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { ArrowLeft, Users } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -10,6 +11,8 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { PageHeader } from "@/components/app-ui/page-sections";
+import { ROUTES } from "@/lib/navigation/routes";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
@@ -162,11 +165,26 @@ export default function ConnectPageClient() {
       }}
     >
       <AppPageHeaderRegion>
-        <header className="px-0.5 sm:px-1" data-slot="connect-page-header">
-          <h1 className="text-[28px] font-medium leading-tight tracking-normal text-foreground sm:text-[32px]">
-            Connect
-          </h1>
-        </header>
+        <PageHeader
+          eyebrow="One"
+          title="Connect"
+          description="Find people on Hushh and send a connection request."
+          icon={Users}
+          accent="neutral"
+          leading={
+            <Button
+              type="button"
+              variant="none"
+              effect="fade"
+              size="sm"
+              onClick={() => router.push(ROUTES.ONE_HOME)}
+              className="mr-2 h-10 w-10 p-0 rounded-full border border-border/60 bg-white/40 dark:bg-black/10 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/80 dark:hover:bg-white/10"
+              aria-label="Back to dashboard"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+          }
+        />
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>

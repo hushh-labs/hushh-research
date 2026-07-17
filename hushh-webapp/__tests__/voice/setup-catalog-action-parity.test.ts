@@ -27,12 +27,11 @@ describe("setup catalog voice parity", () => {
       "ria",
       "connected-systems",
     ]);
-    expect(ONE_SETUP_CAPABILITIES).toHaveLength(6);
+    expect(ONE_SETUP_CAPABILITIES).toHaveLength(5);
     expect(ROUTE_SETUP_CAPABILITY_IDS).toBe(ONE_SETUP_CAPABILITY_IDS);
     expect(
       CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle),
     ).toEqual([
-      "Connect Gmail",
       "Set up location",
       "KYC",
       "Set up your finances",
@@ -69,17 +68,23 @@ describe("setup catalog voice parity", () => {
     const setupRoute = routeLayoutContract.find(
       (entry) => entry.route === "/one/setup",
     );
-    expect(setupRoute?.voicePlaybook?.primaryActionId).toBe("setup.open_gmail");
+    expect(setupRoute?.voicePlaybook?.primaryActionId).toBe("setup.open_location");
     expect(setupRoute?.voicePlaybook?.happyPathActionIds).toEqual([
       ...orderedActionIds,
       "setup.hub_master_ack",
     ]);
 
+    expect(
+      hubContract.actions.some(
+        (action) => action.action_id === "setup.open_gmail",
+      ),
+    ).toBe(false);
+    // Gmail remains a direct-route contract for existing connected people, but
+    // the paused capability is deliberately absent from the setup-hub actions.
     const connectAction = gmailSetupContract.actions.find(
       (action) => action.action_id === "setup.connect_gmail",
     );
     expect(connectAction?.reachability.routes).toEqual(["/one/setup/gmail"]);
-    expect(connectAction?.control_ids).toContain("open_gmail_connector");
     expect(connectAction?.execution_target).toMatchObject({
       status: "wired",
       path: "local_handler",

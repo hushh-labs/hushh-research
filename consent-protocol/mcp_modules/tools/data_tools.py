@@ -6,14 +6,15 @@ SECURITY: Uses validate_token_with_db for cross-instance revocation consistency.
 This ensures tokens revoked on one Cloud Run instance are rejected on all instances.
 """
 
+import base64
+import binascii
 import json
 import logging
 import os
-from urllib.parse import urlparse
 
 import httpx
 from cryptography.exceptions import InvalidTag
-from mcp.types import ResourceLink, TextContent
+from mcp.types import TextContent
 
 from hushh_mcp.consent.export_projection import (
     decrypt_scoped_export_package,
@@ -21,7 +22,7 @@ from hushh_mcp.consent.export_projection import (
 )
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.services.local_mcp_keypair_service import get_or_create_local_connector_keypair
-from mcp_modules.config import CONSENT_API_PUBLIC_ORIGIN, FASTAPI_URL
+from mcp_modules.config import FASTAPI_URL
 from mcp_modules.developer_context import get_developer_api_headers
 from mcp_modules.transport_context import is_local_stdio_transport
 
@@ -40,13 +41,6 @@ logger = logging.getLogger("hushh-mcp-server")
 # ciphertext fallback (decrypt failure, remote transport, raw=true) is
 DECRYPTED_LOCAL_MAX_JSON_CHARS = int(
     os.environ.get("HUSHH_MCP_LOCAL_DECRYPT_MAX_JSON_CHARS", "") or "120000"
-)
-RESOURCE_MAX_RAW_BYTES = max(
-    1,
-    min(
-        int(os.environ.get("HUSHH_CONSENT_EXPORT_MAX_RAW_BYTES", "") or str(16 * 1024 * 1024)),
-        64 * 1024 * 1024,
-    ),
 )
 
 
@@ -129,110 +123,7 @@ async def _fetch_encrypted_export_package(
         }
 
 
-def _origin_tuple(raw_url: str) -> tuple[str, str, int | None] | None:
-    parsed = urlparse(str(raw_url or "").strip())
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        return None
-    return parsed.scheme, parsed.hostname.lower().rstrip("."), parsed.port
-
-
-def _trusted_resource_uri(resource_uri: str) -> bool:
-    parsed = urlparse(str(resource_uri or "").strip())
-    if (
-        parsed.username is not None
-        or parsed.password is not None
-        or parsed.query
-        or parsed.fragment
-    ):
-        return False
-    target = _origin_tuple(resource_uri)
-    trusted = {
-        origin
-        for origin in (
-            _origin_tuple(CONSENT_API_PUBLIC_ORIGIN),
-            _origin_tuple(FASTAPI_URL),
-        )
-        if origin is not None
-    }
-    return target is not None and target in trusted
-
-
-async def _fetch_resource_bytes(
-    resource_uri: str,
-    *,
-    expected_size: int | None = None,
-) -> tuple[bytes | None, dict | None]:
-    developer_headers = get_developer_api_headers()
-    if not developer_headers:
-        return None, {
-            "status": "error",
-            "error_code": "CONNECTOR_CRYPTO_UNSUPPORTED",
-            "error": "Developer bearer authentication is not configured.",
-        }
-    if not _trusted_resource_uri(resource_uri):
-        return None, {
-            "status": "error",
-            "error_code": "RESOURCE_FETCH_FAILED",
-            "error": "Encrypted export resource origin is not trusted.",
-        }
-    if expected_size is not None and not 0 <= expected_size <= RESOURCE_MAX_RAW_BYTES:
-        return None, {
-            "status": "error",
-            "error_code": "RESULT_REQUIRES_NARROWER_SCOPE",
-            "error": "Encrypted export resource exceeds the connector limit.",
-        }
-    try:
-        async with httpx.AsyncClient(follow_redirects=False) as client:
-            async with client.stream(
-                "GET",
-                resource_uri,
-                headers=developer_headers,
-                timeout=30.0,
-            ) as response:
-                if response.status_code >= 400:
-                    return None, {
-                        "status": "error",
-                        "error_code": "RESOURCE_FETCH_FAILED",
-                        "error": "Encrypted export resource fetch failed.",
-                    }
-                content_length = response.headers.get("content-length")
-                if content_length:
-                    declared_length = int(content_length)
-                    if declared_length > RESOURCE_MAX_RAW_BYTES:
-                        return None, {
-                            "status": "error",
-                            "error_code": "RESULT_REQUIRES_NARROWER_SCOPE",
-                            "error": "Encrypted export resource exceeds the connector limit.",
-                        }
-                chunks: list[bytes] = []
-                total = 0
-                async for chunk in response.aiter_bytes():
-                    total += len(chunk)
-                    if total > RESOURCE_MAX_RAW_BYTES:
-                        return None, {
-                            "status": "error",
-                            "error_code": "RESULT_REQUIRES_NARROWER_SCOPE",
-                            "error": "Encrypted export resource exceeds the connector limit.",
-                        }
-                    chunks.append(chunk)
-        body = b"".join(chunks)
-        if expected_size is not None and len(body) != expected_size:
-            return None, {
-                "status": "error",
-                "error_code": "RESOURCE_FETCH_FAILED",
-                "error": "Encrypted export resource size did not match its signed metadata.",
-            }
-        return body, None
-    except Exception as exc:
-        logger.warning("Encrypted export resource fetch failed: %s", type(exc).__name__)
-        return None, {
-            "status": "error",
-            "error_code": "RESOURCE_FETCH_FAILED",
-            "error": "Encrypted export resource fetch failed.",
-        }
-
-
-async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent | ResourceLink]:
+async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent]:
     """
     Get the encrypted wrapped-key export package for any approved consent token.
 
@@ -326,46 +217,35 @@ async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent | R
             return [TextContent(type="text", text=json.dumps(decrypted_response))]
         return [TextContent(type="text", text=json.dumps(local_error or {}))]
 
-    resource = export_payload.get("resource_link")
-    resource_uri = str((resource or {}).get("uri") or "").strip()
-    if not resource_uri:
+    encrypted_data = str(export_payload.get("encrypted_data") or "").strip()
+    if not encrypted_data:
         return [
             TextContent(
                 type="text",
                 text=json.dumps(
                     {
                         "status": "error",
-                        "error_code": "RESOURCE_LINK_MISSING",
-                        "error": "The encrypted export resource link is unavailable.",
+                        "error_code": "ENCRYPTED_EXPORT_MISSING",
+                        "error": "The encrypted export bytes are unavailable.",
                     }
                 ),
             )
         ]
     metadata = {
         **base_fields,
-        "delivery": "resource_link",
-        "resource_link": resource,
+        "delivery": "encrypted_inline",
+        "encrypted_data": encrypted_data,
         "iv": export_payload.get("iv"),
         "tag": export_payload.get("tag"),
         "wrapped_key_bundle": export_payload.get("wrapped_key_bundle"),
         "export_envelope": export_payload.get("export_envelope"),
         "privacy_note": (
-            "Fetch ciphertext with developer bearer authentication and decrypt in the connector "
-            "process. Never place ciphertext in model context."
+            "Decrypt the MCP-delivered ciphertext in the connector process. Never place "
+            "plaintext in model context."
         ),
         "zero_knowledge": True,
     }
-    return [
-        TextContent(type="text", text=json.dumps(metadata)),
-        ResourceLink(
-            type="resource_link",
-            name=str((resource or {}).get("name") or "Hussh encrypted scoped export"),
-            uri=resource_uri,
-            description="Bearer-authenticated ciphertext; decrypt outside model context.",
-            mimeType="application/octet-stream",
-            size=(resource or {}).get("size"),
-        ),
-    ]
+    return [TextContent(type="text", text=json.dumps(metadata))]
 
 
 async def _try_build_local_decrypted_response(
@@ -383,31 +263,24 @@ async def _try_build_local_decrypted_response(
     """
     wrapped_key_bundle = export_payload.get("wrapped_key_bundle")
     export_envelope = export_payload.get("export_envelope")
-    resource_uri = str((export_payload.get("resource_link") or {}).get("uri") or "").strip()
+    inline_ciphertext = str(export_payload.get("encrypted_data") or "").strip()
     iv = export_payload.get("iv")
     tag = export_payload.get("tag")
-    if not (resource_uri and wrapped_key_bundle and export_envelope and iv and tag):
+    if not (inline_ciphertext and wrapped_key_bundle and export_envelope and iv and tag):
         return None, {
             "status": "error",
             "error_code": "CONNECTOR_CRYPTO_UNSUPPORTED",
-            "error": "Envelope v2 resource metadata is incomplete.",
+            "error": "Envelope v2 MCP payload is incomplete.",
         }
 
-    raw_expected_size = (export_payload.get("resource_link") or {}).get("size")
     try:
-        expected_size = int(raw_expected_size) if raw_expected_size is not None else None
-    except (TypeError, ValueError):
+        ciphertext = base64.b64decode(inline_ciphertext, validate=True)
+    except (binascii.Error, ValueError):
         return None, {
             "status": "error",
-            "error_code": "RESOURCE_FETCH_FAILED",
-            "error": "Encrypted export resource metadata is invalid.",
+            "error_code": "INVALID_EXPORT_AAD",
+            "error": "Inline encrypted export bytes are invalid.",
         }
-    ciphertext, fetch_error = await _fetch_resource_bytes(
-        resource_uri,
-        expected_size=expected_size,
-    )
-    if ciphertext is None:
-        return None, fetch_error
 
     try:
         local_keypair = get_or_create_local_connector_keypair()

@@ -10,6 +10,20 @@ function read(relativePath: string) {
 }
 
 describe("Navbar bottom chrome contract", () => {
+  it("keeps the persistent Agent Bar joined to the fixed utility bar", () => {
+    const navbar = read("components/navbar.tsx");
+    const agentBar = read("components/agent/agent-bar.tsx");
+
+    expect(navbar).toContain("const BOTTOM_GAP_PX = 4;");
+    expect(navbar).toContain("flex justify-center");
+    expect(agentBar).toContain(
+      '"calc(var(--app-bottom-inset) - 0.58rem)",',
+    );
+    expect(agentBar).not.toContain(
+      'calc(max(var(--app-bottom-inset), calc(var(--bottom-nav-offset) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift))) + 0.5rem)',
+    );
+  });
+
   it("keeps Agent owned by the persistent AgentBar instead of duplicating it in the nav or search chrome", () => {
     const navbar = read("components/navbar.tsx");
     const searchBar = read("components/kai/kai-search-bar.tsx");
@@ -38,7 +52,7 @@ describe("Navbar bottom chrome contract", () => {
     expect(agentBar).toContain("agentBarShellRef,\n    !physicalNavbarAbsent,");
     expect(agentBar).toContain("useKaiBottomChromeElementTranslation");
     expect(agentBar).toContain(
-      "max(var(--app-bottom-inset), calc(var(--bottom-nav-offset)",
+      "bottom: physicalNavbarAbsent",
     );
     expect(agentBar).not.toContain("useKaiBottomChromeVisibility");
     expect(agentBar).not.toContain(
@@ -69,7 +83,7 @@ describe("Navbar bottom chrome contract", () => {
     // the bottom cluster. Desktop separates the navigation and persistent
     // Agent Bar vertically, so each must own a locally anchored fade rather
     // than inheriting the navigation fade's transparent tail.
-    expect(providers).toContain("function SharedBottomChromeGlass()");
+    expect(providers).toContain("function SharedBottomChromeGlass({ hideCommandBar }");
     expect(providers).toContain("z-[108] md:hidden");
     expect(providers).toContain("z-[108] hidden md:block");
     expect(providers).toContain(

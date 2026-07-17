@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  ChevronRight,
   Grid2X2,
   List,
 } from "lucide-react";
@@ -13,6 +12,7 @@ import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
   getOneSetupCapability,
+  isOneCapabilityEnabled,
   ONE_CAPABILITIES,
   type OneCapabilityIcon,
   type OneCapabilityTone,
@@ -23,9 +23,9 @@ import {
 } from "@/lib/onboarding/capability-status-display";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
 import { buildOneSetupCapabilityRoute } from "@/lib/navigation/routes";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
 import { cn } from "@/lib/utils";
-import styles from "./one-agent-roster.module.css";
 
 type OneAgentMode = {
   id: string;
@@ -47,7 +47,8 @@ function buildModes(
   statusById: Record<string, CapabilityStatus>,
 ): OneAgentMode[] {
   return ONE_CAPABILITIES.filter(
-    (capability) => capability.isVisibleOnRoster !== false,
+    (capability) =>
+      capability.isVisibleOnRoster !== false && isOneCapabilityEnabled(capability),
   ).map((capability) => {
     const setupCapability = getOneSetupCapability(capability.id);
     const status = statusById[capability.id];
@@ -65,14 +66,16 @@ function buildModes(
           : { label: copy.actionLabel, tone: "action" as CapabilityStatusTone }
         : {
             label: capability.isExploreOnly ? "Explore" : "Open",
-            tone: "muted" as CapabilityStatusTone,
+            tone: "action" as CapabilityStatusTone,
           };
+
+    const isActionable = "isActionable" in display ? (display as any).isActionable : true;
 
     return {
       id: capability.id,
       title: capability.title,
       description: capability.description,
-      href: setupCapability
+      href: setupCapability && isActionable && status?.state !== "skipped"
         ? buildOneSetupCapabilityRoute(capability.id)
         : capability.href,
       icon: capability.icon,
@@ -96,7 +99,7 @@ function gridStatusClassName(mode: OneAgentMode): string {
   return "text-muted-foreground";
 }
 
-function AgentTile({ mode }: { mode: OneAgentMode }) {
+function AgentGridItem({ mode }: { mode: OneAgentMode }) {
   return (
     <Link
       href={mode.href}
@@ -104,35 +107,33 @@ function AgentTile({ mode }: { mode: OneAgentMode }) {
       data-testid={`one-agent-tile-${mode.id}`}
       title={mode.description}
       className={cn(
-        "group grid min-h-[5.75rem] grid-cols-[3.5rem_minmax(0,1fr)_1rem] items-center gap-3 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-3 py-3 text-left shadow-[var(--app-card-shadow-standard)]",
-        "transition-[background-color,border-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-        "hover:border-[color:var(--app-card-border-strong)] hover:bg-[color:var(--app-card-surface-compact)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100",
+        "group relative flex min-h-[8.5rem] min-w-0 flex-col items-center justify-start gap-2 overflow-hidden rounded-[12px] px-2 py-3 text-center",
+        "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
+        "hover:bg-[color:var(--app-card-surface-compact)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-inset active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100",
       )}
     >
       <AgentSectionIcon
         id={mode.id}
         icon={mode.icon}
         tone={mode.tone}
-        size="card"
-        className="self-center"
+        isActive={mode.statusTone !== "muted"}
+        size="launcher"
+        className="relative z-10"
       />
-      <span className="min-w-0 self-center">
-        <span className="block text-[15px] font-semibold leading-tight text-foreground">
+      <span className="relative z-10 min-w-0">
+        <span className="block truncate text-[13px] font-semibold leading-tight text-foreground">
           {mode.title}
         </span>
         <span
           className={cn(
-            "mt-1 block text-[12.5px] font-medium leading-tight",
+            "mt-1 block truncate text-[11px] font-medium leading-tight",
             gridStatusClassName(mode),
           )}
         >
           {mode.status}
         </span>
       </span>
-      <ChevronRight
-        className="h-4 w-4 justify-self-end text-muted-foreground transition-transform duration-[var(--motion-duration-sm)] group-hover:translate-x-0.5 motion-reduce:transition-none"
-        aria-hidden
-      />
+      <MaterialRipple variant="blue" effect="fade" className="z-0" />
     </Link>
   );
 }
@@ -148,6 +149,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
           id={mode.id}
           icon={mode.icon}
           tone={mode.tone}
+          isActive={mode.statusTone !== "muted"}
           size="menu"
         />
       }
@@ -258,15 +260,20 @@ export function OneAgentRoster({
         <AgentRosterViewToggle value={view} onChange={selectView} />
       </div>
       {view === "grid" ? (
-        <div
-          data-testid="one-agents-grid"
-          data-agent-roster-layout="2-column-cards"
-          className={styles.oneAgentGrid}
+        <SettingsGroup
+          embedded
+          testId="one-agents-grid"
+          className="[&_[data-slot=settings-group-shell]]:p-1.5 sm:[&_[data-slot=settings-group-shell]]:p-2"
         >
-          {modes.map((mode) => (
-            <AgentTile key={mode.id} mode={mode} />
-          ))}
-        </div>
+          <div
+            data-agent-roster-layout="grouped-icon-grid"
+            className="grid grid-cols-3 gap-1 sm:grid-cols-4 sm:gap-1.5"
+          >
+            {modes.map((mode) => (
+              <AgentGridItem key={mode.id} mode={mode} />
+            ))}
+          </div>
+        </SettingsGroup>
       ) : (
         // Same grouped-card treatment as Profile (SettingsGroup shell): the
         // solid card surface, standard border, and row dividers so list items

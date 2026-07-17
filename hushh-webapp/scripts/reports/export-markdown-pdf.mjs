@@ -89,6 +89,20 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function highlightJson(source) {
+  const escaped = escapeHtml(source);
+  return escaped.replace(
+    /(&quot;.*?&quot;)(\s*:)?|(-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|\b(?:true|false|null)\b)/g,
+    (match, stringValue, propertyDelimiter, literal) => {
+      if (stringValue) {
+        const token = propertyDelimiter ? "token-key" : "token-string";
+        return `<span class="${token}">${stringValue}</span>${propertyDelimiter || ""}`;
+      }
+      return `<span class="token-literal">${literal}</span>`;
+    },
+  );
+}
+
 function toGitHubBlobUrl(href, inputDir) {
   const [target, anchor = ""] = href.split("#");
   const resolved = path.resolve(inputDir, target);
@@ -197,6 +211,7 @@ function renderMarkdown(markdown) {
   let tableRows = [];
   let codeFence = null;
   let codeLines = [];
+  let omitFromPdf = false;
 
   const closeLists = () => {
     if (unorderedOpen) {
@@ -220,17 +235,28 @@ function renderMarkdown(markdown) {
     if (!codeFence) {
       return;
     }
-    const code = escapeHtml(codeLines.join("\n"));
+    const source = codeLines.join("\n");
+    const code = codeFence === "json" ? highlightJson(source) : escapeHtml(source);
     if (codeFence === "mermaid") {
-      html.push(renderMermaidFallback(codeLines.join("\n")));
+      html.push(renderMermaidFallback(source));
     } else {
-      html.push(`<pre><code>${code}</code></pre>`);
+      html.push(`<pre class="code-block code-block-${codeFence}"><code>${code}</code></pre>`);
     }
     codeFence = null;
     codeLines = [];
   };
 
   for (const line of lines) {
+    if (line.trim() === "<!-- pdf:omit-start -->") {
+      omitFromPdf = true;
+      continue;
+    }
+    if (line.trim() === "<!-- pdf:omit-end -->") {
+      omitFromPdf = false;
+      continue;
+    }
+    if (omitFromPdf) continue;
+
     const fence = /^```([A-Za-z0-9_-]+)?\s*$/.exec(line);
     if (fence) {
       if (codeFence) {
@@ -457,6 +483,12 @@ function buildHtml(markdown, { documentTitle, displayTitle, subtitle, palette })
     <style>
       :root {
         ${palette.css}
+        --code-bg: #272822;
+        --code-border: #49483e;
+        --code-fg: #f8f8f2;
+        --code-key: #f92672;
+        --code-string: #e6db74;
+        --code-literal: #ae81ff;
       }
 
       @page {
@@ -580,16 +612,30 @@ function buildHtml(markdown, { documentTitle, displayTitle, subtitle, palette })
       }
 
       pre {
-        background: var(--bg-secondary);
-        border: 1px solid var(--separator);
+        background: var(--code-bg);
+        border: 1px solid var(--code-border);
         border-radius: 14px;
-        color: var(--fg);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        color: var(--code-fg);
         font: 10px/1.45 "SF Mono", "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
         margin: 10px 0 14px;
         overflow: hidden;
         padding: 12px;
         white-space: pre-wrap;
       }
+
+      pre code {
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        color: inherit;
+        font: inherit;
+        padding: 0;
+      }
+
+      .token-key { color: var(--code-key); }
+      .token-string { color: var(--code-string); }
+      .token-literal { color: var(--code-literal); }
 
       .diagram-fallback {
         background: var(--diagram-bg);

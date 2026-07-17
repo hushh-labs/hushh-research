@@ -325,7 +325,6 @@ class DeveloperScopedExportResponse(BaseModel):
     tag: str | None = Field(default=None, max_length=512)
     wrapped_key_bundle: dict | None = None
     export_envelope: dict | None = None
-    resource_link: dict | None = None
     maximum_raw_bytes: int | None = None
     message: str = Field(..., min_length=1, max_length=2000)
 
@@ -2277,13 +2276,15 @@ async def get_scoped_export(
 
     granted_scope = str(export_data.get("scope") or token_obj.scope_str or token_obj.scope.value)
     export_id = str(export_data.get("export_id") or "")
-    export_revision = int(export_data.get("export_revision") or 1)
-    resource_origin = str(os.getenv("CONSENT_API_PUBLIC_ORIGIN") or "").strip().rstrip("/") or str(
-        request.base_url
-    ).rstrip("/")
-    resource_uri = (
-        f"{resource_origin}/api/v1/scoped-export/resources/{export_id}/revisions/{export_revision}"
-    )
+    ciphertext = str(export_data.get("encrypted_data") or "")
+    if not ciphertext:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error_code": "ENCRYPTED_EXPORT_MISSING",
+                "message": "Encrypted export bytes are unavailable.",
+            },
+        )
     return DeveloperScopedExportResponse(
         status="success",
         user_id=payload.user_id,
@@ -2297,7 +2298,7 @@ async def get_scoped_export(
         export_revision=export_data.get("export_revision"),
         export_generated_at=_optional_str(export_data.get("export_generated_at")),
         export_refresh_status=export_data.get("refresh_status"),
-        encrypted_data=None,
+        encrypted_data=ciphertext,
         iv=export_data.get("iv"),
         tag=export_data.get("tag"),
         wrapped_key_bundle=export_data.get("wrapped_key_bundle"),
@@ -2308,13 +2309,6 @@ async def get_scoped_export(
             "aad_sha256": export_data.get("envelope_aad_sha256"),
             "ciphertext_sha256": export_data.get("ciphertext_sha256"),
             "ciphertext_bytes": export_data.get("ciphertext_bytes"),
-        },
-        resource_link={
-            "uri": resource_uri,
-            "name": f"Hussh encrypted export revision {export_revision}",
-            "mime_type": "application/octet-stream",
-            "size": export_data.get("ciphertext_bytes"),
-            "auth": "developer_bearer",
         },
         maximum_raw_bytes=_CONSENT_EXPORT_MAX_RAW_BYTES,
         message=(
@@ -2375,12 +2369,6 @@ async def get_mcp_scoped_export(
     granted_scope = str(export_data.get("scope") or token_obj.scope_str or token_obj.scope.value)
     export_id = str(export_data.get("export_id") or "")
     export_revision = int(export_data.get("export_revision") or 1)
-    resource_origin = str(os.getenv("CONSENT_API_PUBLIC_ORIGIN") or "").strip().rstrip("/")
-    if not resource_origin:
-        resource_origin = str(request.base_url).rstrip("/")
-    resource_uri = (
-        f"{resource_origin}/api/v1/scoped-export/resources/{export_id}/revisions/{export_revision}"
-    )
     return {
         "status": "success",
         "granted_scope": granted_scope,
@@ -2398,12 +2386,9 @@ async def get_mcp_scoped_export(
             "ciphertext_sha256": export_data.get("ciphertext_sha256"),
             "ciphertext_bytes": export_data.get("ciphertext_bytes"),
         },
-        "resource_link": {
-            "uri": resource_uri,
-            "name": f"Hussh encrypted export revision {export_revision}",
-            "mime_type": "application/octet-stream",
-            "size": export_data.get("ciphertext_bytes"),
-        },
+        # MCP transports encrypted bytes in the tool result. Connector private
+        # keys remain connector-local; no ResourceLink follow-up is required.
+        "encrypted_data": export_data.get("encrypted_data"),
     }
 
 

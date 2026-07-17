@@ -1294,3 +1294,9 @@ Package count: 199
 - `yfinance` `1.3.0` — Apache Software License
 - `zipp` `3.23.1` — MIT
 - `zstandard` `0.25.0` — BSD-3-Clause
+
+
+## Solar Icon Set
+Original Artwork by 480 Design (https://github.com/480-Design/Solar-Icon-Set)
+Licensed under Figma Community Guidelines & GPL 3.0.
+Used and styled organically as native React UI Graphic vectors.

@@ -29,6 +29,11 @@ export type ConnectedSystemSummary = {
     update?: boolean;
     delete?: boolean;
   };
+  capabilities?: {
+    operations?: Array<"schema" | "read" | "create" | "update" | "delete">;
+    primaryObject?: string;
+    version?: string;
+  };
   fieldAllowlist?: string[];
 };
 
@@ -44,7 +49,10 @@ export type ConnectedSystemSchemaResponse = {
     dataType?: string;
     required?: boolean;
     identityField?: boolean;
+    readable?: boolean;
     writable?: boolean;
+    immutable?: boolean;
+    constraints?: Record<string, unknown>;
     source?: string;
   }>;
   mcp: Record<string, unknown>;
@@ -88,7 +96,7 @@ export type ConnectedSystemIntent = {
   systemId: string;
   target?: string;
   objectType?: string;
-  action: "create" | "update" | string;
+  action: "create" | "update" | "delete" | string;
   status: "pending" | "approved" | "rejected" | "succeeded" | "partial" | "failed" | string;
   recordId?: string | null;
   approvalId?: string | null;
@@ -107,8 +115,9 @@ export type ConnectedSystemIntent = {
 export type ConnectedSystemReadInput = {
   systemId?: string;
   objectType?: string;
-  email: string;
-  phone: string;
+  /** Macy's compatibility aliases. Generic callers should use searchFields. */
+  email?: string;
+  phone?: string;
   searchFields?: Record<string, unknown>;
   returnFields?: string[];
 };
@@ -116,10 +125,13 @@ export type ConnectedSystemReadInput = {
 export type ConnectedSystemCreateIntentInput = {
   systemId?: string;
   objectType?: string;
-  email: string;
-  phone: string;
+  /** Macy's compatibility aliases. */
+  email?: string;
+  phone?: string;
   firstName?: string;
-  lastName: string;
+  lastName?: string;
+  /** Typed fields for schema-driven CRM forms. */
+  recordFields?: Record<string, unknown>;
   additionalFields?: Record<string, unknown>;
 };
 
@@ -128,6 +140,8 @@ export type ConnectedSystemUpdateIntentInput = {
   objectType?: string;
   id: string;
   additionalFields: Record<string, unknown>;
+  /** Typed field diff for schema-driven CRM forms. */
+  recordFields?: Record<string, unknown>;
   readbackLocator?: {
     email: string;
     phone: string;
@@ -276,6 +290,7 @@ export class ConnectedSystemsService {
           phone: input.phone,
           firstName: input.firstName,
           lastName: input.lastName,
+          recordFields: input.recordFields,
           additionalFields: input.additionalFields,
         }),
       }
@@ -296,6 +311,7 @@ export class ConnectedSystemsService {
           objectType: input.objectType,
           id: input.id,
           additionalFields: input.additionalFields,
+          recordFields: input.recordFields,
           readbackLocator: input.readbackLocator,
         }),
       }
@@ -337,12 +353,13 @@ export class ConnectedSystemsService {
     return readJsonOrThrow<ConnectedSystemIntent>(response);
   }
 
-  static async deleteRecord(
+  /** Create a reviewable delete intent. Approval is a separate explicit call. */
+  static async createDeleteIntent(
     vaultOwnerToken: string,
     input: ConnectedSystemDeleteInput
-  ): Promise<Record<string, unknown>> {
+  ): Promise<ConnectedSystemIntent> {
     const response = await ApiService.apiFetch(
-      `/api/connected-systems/${systemPath(input.systemId)}/records/delete`,
+      `/api/connected-systems/${systemPath(input.systemId)}/records/delete-intents`,
       {
         method: "POST",
         headers: authHeaders(vaultOwnerToken),
@@ -352,6 +369,6 @@ export class ConnectedSystemsService {
         }),
       }
     );
-    return readJsonOrThrow<Record<string, unknown>>(response);
+    return readJsonOrThrow<ConnectedSystemIntent>(response);
   }
 }

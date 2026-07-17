@@ -12,12 +12,11 @@ describe("Connect page layout contract", () => {
       "utf8",
     );
 
-    expect(source).toContain('data-slot="connect-page-header"');
+    expect(source).toContain("<PageHeader");
     expect(source).toContain("<SettingsGroup");
     expect(source).toContain("<SettingsRow");
-    expect(source).not.toContain("<PageHeader");
     expect(source).not.toContain("<SectionHeader");
-    expect(source).not.toContain('eyebrow="One / Connect"');
+    expect(source).toContain('eyebrow="One"');
   });
 
   it("hard-gates Connect and the private agent on live in-memory vault state", () => {

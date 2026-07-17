@@ -9,7 +9,6 @@ import pytest
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from mcp.types import ResourceLink
 
 from hushh_mcp.consent.export_envelope import (
     ConsentExportAadV2,
@@ -48,6 +47,7 @@ def _resource_metadata(**overrides):
         "tag": _b64(b"t" * 16),
         "wrapped_key_bundle": {"connector_key_id": "connector_demo"},
         "export_envelope": {"version": 2},
+        "encrypted_data": _b64(b"c" * 42),
         "resource_link": {
             "uri": "https://api.example.test/api/v1/scoped-export/resources/"
             "123e4567-e89b-12d3-a456-426614174000/revisions/1",
@@ -78,21 +78,19 @@ def _install_common(monkeypatch, *, payload=None, local=False):
 
 
 @pytest.mark.asyncio
-async def test_hosted_tool_returns_real_resource_link_and_no_ciphertext(monkeypatch):
+async def test_hosted_tool_returns_inline_ciphertext_without_resource_link(monkeypatch):
     _install_common(monkeypatch)
 
     content = await data_tools.handle_get_encrypted_scoped_export(
         {"user_id": "user_123", "consent_token": "consent_token_demo"}
     )
 
-    assert len(content) == 2
+    assert len(content) == 1
     metadata = json.loads(content[0].text)
     assert metadata["status"] == "success"
-    assert metadata["delivery"] == "resource_link"
-    assert "encrypted_data" not in metadata
-    assert "download" not in metadata
-    assert isinstance(content[1], ResourceLink)
-    assert str(content[1].uri).startswith("https://api.example.test/")
+    assert metadata["delivery"] == "encrypted_inline"
+    assert metadata["encrypted_data"] == _b64(b"c" * 42)
+    assert "resource_link" not in metadata
 
 
 @pytest.mark.asyncio
@@ -109,8 +107,8 @@ async def test_hosted_tool_ignores_removed_inline_and_raw_escape_hatches(monkeyp
     )
 
     metadata = json.loads(content[0].text)
-    assert metadata["delivery"] == "resource_link"
-    assert "encrypted_data" not in metadata
+    assert metadata["delivery"] == "encrypted_inline"
+    assert metadata["encrypted_data"] == _b64(b"c" * 42)
 
 
 @pytest.mark.asyncio
@@ -182,6 +180,7 @@ def _encrypted_local_fixture(*, key_id: str = "local-key", plaintext_size: int =
         canonical_envelope_submission_bytes(envelope),
     )
     metadata = _resource_metadata(
+        encrypted_data=ciphertext_b64,
         iv=_b64(payload_iv),
         tag=_b64(tag),
         wrapped_key_bundle={
@@ -208,10 +207,6 @@ async def test_local_stdio_fetches_validates_decrypts_and_narrows_outside_model(
     metadata, ciphertext, keypair = _encrypted_local_fixture()
     _install_common(monkeypatch, payload=metadata, local=True)
 
-    async def _fetch_resource(_uri, **_kwargs):
-        return ciphertext, None
-
-    monkeypatch.setattr(data_tools, "_fetch_resource_bytes", _fetch_resource)
     monkeypatch.setattr(data_tools, "get_or_create_local_connector_keypair", lambda: keypair)
 
     content = await data_tools.handle_get_encrypted_scoped_export(
@@ -231,10 +226,6 @@ async def test_local_stdio_key_mismatch_requires_rebind_without_raw_fallback(mon
     _install_common(monkeypatch, payload=metadata, local=True)
     keypair.key_id = "different-key"
 
-    async def _fetch_resource(_uri, **_kwargs):
-        return ciphertext, None
-
-    monkeypatch.setattr(data_tools, "_fetch_resource_bytes", _fetch_resource)
     monkeypatch.setattr(data_tools, "get_or_create_local_connector_keypair", lambda: keypair)
 
     content = await data_tools.handle_get_encrypted_scoped_export(
@@ -250,10 +241,6 @@ async def test_local_oversized_plaintext_requires_narrower_scope(monkeypatch):
     metadata, ciphertext, keypair = _encrypted_local_fixture(plaintext_size=256)
     _install_common(monkeypatch, payload=metadata, local=True)
 
-    async def _fetch_resource(_uri, **_kwargs):
-        return ciphertext, None
-
-    monkeypatch.setattr(data_tools, "_fetch_resource_bytes", _fetch_resource)
     monkeypatch.setattr(data_tools, "get_or_create_local_connector_keypair", lambda: keypair)
     monkeypatch.setattr(data_tools, "DECRYPTED_LOCAL_MAX_JSON_CHARS", 64)
 
@@ -265,38 +252,5 @@ async def test_local_oversized_plaintext_requires_narrower_scope(monkeypatch):
     assert "encrypted_data" not in payload
 
 
-@pytest.mark.asyncio
-async def test_local_resource_fetch_rejects_untrusted_origin_before_sending_bearer(monkeypatch):
-    monkeypatch.setattr(data_tools, "CONSENT_API_PUBLIC_ORIGIN", "https://api.example.test")
-    monkeypatch.setattr(data_tools, "FASTAPI_URL", "https://api.example.test")
-    monkeypatch.setattr(
-        data_tools,
-        "get_developer_api_headers",
-        lambda: {"Authorization": "Bearer must-not-leak"},
-    )
-
-    body, error = await data_tools._fetch_resource_bytes(
-        "https://attacker.example/export",
-        expected_size=128,
-    )
-    assert body is None
-    assert error["error_code"] == "RESOURCE_FETCH_FAILED"
-
-
-@pytest.mark.asyncio
-async def test_local_resource_fetch_rejects_declared_oversize_before_network(monkeypatch):
-    monkeypatch.setattr(data_tools, "CONSENT_API_PUBLIC_ORIGIN", "https://api.example.test")
-    monkeypatch.setattr(data_tools, "FASTAPI_URL", "https://api.example.test")
-    monkeypatch.setattr(data_tools, "RESOURCE_MAX_RAW_BYTES", 64)
-    monkeypatch.setattr(
-        data_tools,
-        "get_developer_api_headers",
-        lambda: {"Authorization": "Bearer configured"},
-    )
-
-    body, error = await data_tools._fetch_resource_bytes(
-        "https://api.example.test/export",
-        expected_size=65,
-    )
-    assert body is None
-    assert error["error_code"] == "RESULT_REQUIRES_NARROWER_SCOPE"
+def test_resource_link_fetch_path_is_not_present():
+    assert not hasattr(data_tools, "_fetch_resource_bytes")

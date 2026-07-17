@@ -15,6 +15,7 @@
   ],
   "task_types": ["morphy-ax-governance"],
   "required_reads": [
+    "docs/reference/quality/design.md",
     "docs/reference/quality/morphy-agent-experience.md",
     "docs/reference/one/one-voice-runtime-architecture.md",
     "docs/reference/quality/frontend-ui-architecture-map.md",

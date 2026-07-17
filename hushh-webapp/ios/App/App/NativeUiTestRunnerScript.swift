@@ -1104,6 +1104,35 @@ enum NativeUiTestRunnerScript {
     await waitForBeacon(["/ria/clients/[userId]"]);
   }
 
+  async function verifyRiaPicksAdmission() {
+    var deadline = Date.now() + 30000;
+    while (Date.now() < deadline) {
+      if (window.location.pathname.indexOf("/ria/onboarding") === 0) {
+        // The shared reviewer intentionally has no advisor entitlement. Its
+        // protected-route proof is the onboarding redirect, not a mutation of
+        // the fixture solely to expose advisor-only controls.
+        return;
+      }
+
+      if (firstVisible('[data-testid="ria-picks-primary"]')) {
+        await clickButton("^my list", true);
+        await waitForUrlIncludes("source=my");
+        await clickButton("^kai list", true);
+        await waitForUrlIncludes("source=kai");
+        await clickButton("avoid", false);
+        await waitForUrlIncludes("category=avoid");
+        await clickButton("top picks", false);
+        await waitForUrlIncludes("category=top-picks");
+        await clickButton("screening", false);
+        await waitForUrlIncludes("category=screening");
+        return;
+      }
+
+      await sleep(250);
+    }
+    throw new Error("RIA picks did not resolve to controls or onboarding admission");
+  }
+
   async function runStep(step) {
     dismissBlockingScreens();
     switch (step.type) {
@@ -1196,6 +1225,9 @@ enum NativeUiTestRunnerScript {
         return;
       case "open_ria_workspace":
         await openRiaWorkspace();
+        return;
+      case "verify_ria_picks_admission":
+        await verifyRiaPicksAdmission();
         return;
       default:
         throw new Error("unknown step type: " + step.type);

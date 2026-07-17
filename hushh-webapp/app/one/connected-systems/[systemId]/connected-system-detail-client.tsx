@@ -10,7 +10,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { PageHeader } from "@/components/app-ui/page-sections";
+import { SectionHeader } from "@/components/app-ui/page-sections";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
@@ -43,7 +43,7 @@ export function ConnectedSystemDetailClient({ systemId }: { systemId: string }) 
   return (
     <AppPageShell
       as="main"
-      width="standard"
+      width="reading"
       className="pb-[calc(var(--app-bottom-inset)+var(--kai-command-fixed-ui,82px)+1.25rem)] sm:pb-10 md:pb-8"
       nativeTest={{
         routeId: "/one/connected-systems/[systemId]",
@@ -59,9 +59,8 @@ export function ConnectedSystemDetailClient({ systemId }: { systemId: string }) 
         dataState="loaded"
       />
       <AppPageHeaderRegion>
-        <PageHeader
-          eyebrow="CRM systems"
-          title="Macy's"
+        <SectionHeader
+          title="Connected system"
           icon={Building2}
           accent="neutral"
         />

@@ -77,7 +77,8 @@
     "096_atomic_pkm_mutation_v3_scope_posture.sql",
     "097_redact_legacy_pkm_message_excerpts.sql",
     "098_pkm_v7_recovery_foundation.sql",
-    "099_developer_oauth_pkce.sql"
+    "099_developer_oauth_pkce.sql",
+    "100_connected_system_capability_contract.sql"
   ],
   "groups": {
     "iam": [
@@ -119,7 +120,8 @@
       "092_one_onboarding_journey_v1.sql",
       "093_consent_audit_request_id_text.sql",
       "094_one_onboarding_callback_attempt_v1.sql",
-      "095_one_kyc_needs_confirm_status.sql"
+      "095_one_kyc_needs_confirm_status.sql",
+      "100_connected_system_capability_contract.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

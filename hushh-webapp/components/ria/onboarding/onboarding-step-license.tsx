@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertCircle, CheckCircle2, Loader2, Plus } from "lucide-react";
+import { Button } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
 
 const SUPPORTED_REGULATORS = ["SEBI", "SEC", "DFSA", "FCA", "MAS"];
@@ -25,12 +26,12 @@ export function OnboardingStepLicense({
 
   return (
     <div className="space-y-5">
-      <div className="overflow-hidden rounded-[18px] border-[1.5px] border-[color:rgba(201,139,46,0.4)] bg-[color:var(--card)] shadow-[0_0_0_4px_rgba(201,139,46,0.06)]">
+      <div className="overflow-hidden rounded-[18px] border-[1.5px] border-border bg-background/80 shadow-md backdrop-blur-md">
         <label
           htmlFor="ria-license-number"
           className="flex min-h-[60px] items-center gap-4 px-5"
         >
-          <span className="shrink-0 text-[17px] text-[color:var(--ria-muted)]">
+          <span className="shrink-0 text-[16px] text-muted-foreground">
             Licence
           </span>
           <input
@@ -40,7 +41,7 @@ export function OnboardingStepLicense({
             onChange={(event) => onLicenseNumberChange(event.target.value)}
             placeholder="INA00123456 or 7413463"
             className={cn(
-              "min-w-0 flex-1 bg-transparent py-3 text-right text-[17px] font-medium tabular-nums text-[color:var(--ria-ink)] placeholder:text-[color:var(--ria-faint)] outline-none",
+              "min-w-0 flex-1 bg-transparent py-3 text-right text-[17px] font-medium tabular-nums text-foreground placeholder:text-muted-foreground/50 outline-none",
               verificationStatus === "not_found" &&
                 "text-amber-600 dark:text-amber-300",
               verificationStatus === "error" && "text-red-600 dark:text-red-300"
@@ -49,38 +50,30 @@ export function OnboardingStepLicense({
         </label>
       </div>
 
-      <button
+      <Button
         type="button"
         disabled={!canVerify}
+        loading={verificationStatus === "verifying"}
         onClick={onVerify}
-        className={cn(
-          "ria-cta w-full text-[17px]",
-          !canVerify && "cursor-not-allowed opacity-40"
-        )}
+        className="w-full text-base font-semibold"
+        variant="blue-gradient"
+        size="lg"
       >
-        {verificationStatus === "verifying" ? (
-          <>
-            <Loader2 className="h-5 w-5 animate-spin" />
-            Verifying...
-          </>
-        ) : (
-          "Verify licence"
-        )}
-      </button>
+        Verify licence
+      </Button>
 
       {verificationBypassEnabled && onBypassVerification ? (
-        <button
+        <Button
           type="button"
           disabled={!licenseNumber.trim() || verificationStatus === "verifying"}
           onClick={onBypassVerification}
-          className={cn(
-            "ria-secondary w-full text-[15px]",
-            (!licenseNumber.trim() || verificationStatus === "verifying") &&
-              "opacity-40 cursor-not-allowed"
-          )}
+          className="w-full text-base"
+          variant="none"
+          effect="fade"
+          size="lg"
         >
           Bypass for dev / UAT
-        </button>
+        </Button>
       ) : null}
 
       {verificationStatus !== "idle" ? (
@@ -147,18 +140,18 @@ export function OnboardingStepLicense({
       ) : null}
 
       <div className="space-y-3">
-        <p className="ria-sublabel">Supported Regulators</p>
+        <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Supported Regulators</p>
         <div className="flex flex-wrap gap-2">
           {SUPPORTED_REGULATORS.map((regulator) => (
             <span
               key={regulator}
-              className="inline-flex h-9 items-center rounded-[14px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)] px-4 text-[14px] font-medium text-[color:var(--ria-ink)]"
+              className="inline-flex h-[34px] items-center rounded-xl border border-border bg-muted/20 px-3.5 text-[13px] font-medium text-foreground"
             >
               {regulator}
             </span>
           ))}
         </div>
-        <p className="text-[13px] leading-[1.45] text-[color:var(--ria-sublabel)]">
+        <p className="text-[13px] leading-[1.45] text-muted-foreground">
           {verificationBypassEnabled
             ? "Development and UAT can bypass live verification for testing only."
             : "Kai verifies your identity against FINRA and SEC records before unlocking the advisory workflow."}

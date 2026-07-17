@@ -299,6 +299,19 @@ export function resolveTopShellBreadcrumb(
     }
   }
 
+  if (pathname === ROUTES.RIA_ONBOARDING) {
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    return {
+      backHref: originHref || ROUTES.ONE_SETUP,
+      width: "content",
+      align: "center",
+      items: [
+        { label: "One", href: originHref || ROUTES.ONE_SETUP },
+        { label: "Setup" },
+      ],
+    };
+  }
+
   if (pathname === ROUTES.ONE_SETUP_KAI) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     return {

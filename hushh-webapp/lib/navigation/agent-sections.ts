@@ -2,6 +2,8 @@ import { LayoutDashboard } from "lucide-react";
 
 import {
   ONE_CAPABILITIES,
+  getOneCapability,
+  isOneCapabilityEnabled,
   type OneCapability,
   type OneCapabilityIcon,
   type OneCapabilityTone,
@@ -108,7 +110,7 @@ const RIA_WORKSPACE_SECTION: AgentSection = {
   id: "ria",
   label: "RIA",
   href: ROUTES.RIA_HOME,
-  icon: { kind: "image", src: "/one/agents/ria.png", alt: "RIA" },
+  icon: getOneCapability("ria")?.icon ?? lucideCapabilityIcon(LayoutDashboard),
   routeFamily: "ria",
   bottomNavScope: "ria",
   screenId: "ria_home",
@@ -172,7 +174,9 @@ function toAgentSection(capability: OneCapability): AgentSection {
 export function getAgentSections(): readonly AgentSection[] {
   const sections = ONE_CAPABILITIES.filter(
     (capability) =>
-      capability.id !== "ria" && capability.isVisibleOnRoster !== false,
+      capability.id !== "ria" &&
+      capability.isVisibleOnRoster !== false &&
+      isOneCapabilityEnabled(capability),
   ).map(toAgentSection);
   // RIA sits directly after Investor so the two finance personas stay
   // adjacent while remaining standalone top-level agents.

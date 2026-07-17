@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   SettingsDetailPanel,
+  SettingsGroup,
   SettingsRow,
   SettingsSegmentedTabs,
 } from "@/components/profile/settings-ui";
@@ -150,6 +151,21 @@ describe("SettingsRow", () => {
         .querySelector('[data-slot="settings-row-icon"]')
         ?.getAttribute("data-icon-tone"),
     ).toBe("red");
+  });
+
+  it("uses square iOS-style icon wells and the shared inset-group radius", () => {
+    const { container } = render(
+      <SettingsGroup>
+        <SettingsRow icon={Phone} title="Phone number" />
+      </SettingsGroup>,
+    );
+
+    const group = container.querySelector('[data-slot="settings-group-shell"]');
+    const icon = container.querySelector('[data-slot="settings-row-icon"]');
+
+    expect(group?.className).toContain("--app-card-radius-compact");
+    expect(icon?.className).toContain("rounded-[10px]");
+    expect(icon?.className).not.toContain("rounded-2xl");
   });
 
   it("supports asChild rows without losing row content", () => {

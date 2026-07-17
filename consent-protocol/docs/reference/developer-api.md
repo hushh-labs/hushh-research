@@ -195,15 +195,11 @@ The response contains envelope metadata and an authenticated ciphertext resource
   "export_revision": 3,
   "export_generated_at": "2026-03-24T18:30:00Z",
   "export_refresh_status": "current",
-  "resource_link": {
-    "uri": "https://api.example.test/api/v1/scoped-export/resources/<export-id>/revisions/3",
-    "mime_type": "application/octet-stream",
-    "auth": "developer_bearer"
-  }
+  "encrypted_data": "<base64-ciphertext>"
 }
 ```
 
-Hussh does not return plaintext user data to developer callers. The external connector fetches the authenticated ciphertext resource outside model context, unwraps the export key locally, decrypts locally, and narrows the export when `granted_scope` is broader than `expected_scope`.
+Hussh does not return plaintext user data to developer callers. The external connector receives ciphertext in the authenticated MCP/API response, unwraps the export key locally, decrypts locally, and narrows the export when `granted_scope` is broader than `expected_scope`. No `ResourceLink` follow-up is required.
 
 For the layer-by-layer PKM storage, consent, MCP, connector, and partner handoff
 map, use [Personal Knowledge Model: PKM to MCP encrypted export flow](./personal-knowledge-model.md#pkm-to-mcp-encrypted-export-flow).
@@ -289,9 +285,7 @@ const scopedExport = await fetch("/api/v1/scoped-export", {
   }),
 }).then((response) => response.json());
 
-const ciphertext = await fetch(scopedExport.resource_link.uri, {
-  headers: { "Authorization": "Bearer <developer-token>" },
-}).then((response) => response.arrayBuffer());
+const ciphertext = base64ToBytes(scopedExport.encrypted_data);
 ```
 
 Then unwrap and decrypt locally:

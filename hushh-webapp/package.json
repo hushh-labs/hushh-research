@@ -4,7 +4,7 @@
   "license": "Apache-2.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --turbopack",
     "dev:webpack": "next dev --webpack",
     "build": "next build",
     "build:turbopack": "npm run build",
@@ -103,6 +103,7 @@
     "react-markdown": "^10.1.0",
     "recharts": "^2.15.4",
     "remark-gfm": "^4.0.1",
+    "solar-icon-set": "^2.0.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "tailwindcss-animate": "^1.0.7",

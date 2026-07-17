@@ -60,7 +60,10 @@ export function resolveTopShellRouteProfile(pathname: string): TopShellRouteProf
       return { id: "redirect", metrics: DEFAULT_VISIBLE_METRICS };
     case "standard":
     default:
-      return { id: "standard", metrics: DEFAULT_VISIBLE_METRICS };
+      return {
+        id: "standard",
+        metrics: DEFAULT_VISIBLE_METRICS,
+      };
   }
 }
 

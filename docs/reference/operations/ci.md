@@ -301,7 +301,7 @@ The secret gate is intentionally stricter than raw regex scanning:
 2. `scripts/ci/subtree-sync-check.sh`
 3. `npm run verify:investor-language`
 4. Native build/smoke checks (`./bin/hushh native ios --mode uat`, `./bin/hushh native android --mode uat`) for native release lanes
-5. `scripts/ops/verify-env-secrets-parity.py` for release preflight and deployment readiness
+5. `scripts/ops/verify-env-secrets-parity.py` for release preflight and deployment readiness; it fails closed when the Firebase Admin credential and public Firebase client configuration name different projects, without rendering either value
 6. Broad full-suite pytest runs and Kai accuracy/compliance suites
 
 Do not add new CI/parity scripts without replacing or consolidating an existing check.

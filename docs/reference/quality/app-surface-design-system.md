@@ -202,19 +202,14 @@ The signed-in bottom navigation is a shared shell surface, not a route-local tab
 
 Rules:
 
-1. Each navigation scope (`one`, `investor`, `ria`) owns a FIXED top-level set. The set does not change as the user moves through subroutes. Do not inject a per-subroute tab into the bar.
-2. The bottom bar uses fixed per-scope sizing. Routes with fewer actions keep the same per-item size and the pill ends at the last real action; do not add fake disabled tabs, empty slots, or stretch narrow bars wider.
-3. Subroutes collapse onto their parent top-level tab (finance is the reference pattern). A subroute keeps its parent tab highlighted and never surfaces its own bottom-nav entry. The One scope collapses `/one/gmail`, `/one/pkm`, `/one/connected-systems`, `/one/location`, and `/consents` onto the `One` (dashboard) tab; profile subroutes keep the `Profile` tab.
-4. The One scope is the fixed set `One / Connect / Profile` on direct One routes. Consent/Personal Data/Gmail/Location/Systems are subroutes of the One Agents dashboard, not their own tabs. Common routes such as Connect and Profile may preserve the prior app-family scope for same-session navigation, so entering them from Finance keeps the Finance tab set and entering them from RIA keeps the RIA tab set.
-5. `Search` belongs to the shared command dock, not the segmented navigation and not the agent chat trigger. The detached Search bubble must align to the same bottom row as the route pill instead of overlapping it.
-6. Investor finance routes own the fixed finance-family set `Market`, `Portfolio`, `Analysis`, `Connect`, and `Profile`. All finance subroutes collapse onto one of these via `activeKaiRouteTabFromPath`.
-7. RIA routes own advisory-family actions such as `RIA`, `Clients`, `Connect`, and `Picks`.
-8. Do not expose finance-specific tabs on generic One routes unless the route is inside the finance workspace.
-9. Use canonical route constants through `lib/navigation/app-bottom-nav.ts`; route files must not build their own bottom-nav arrays.
-10. Treat Search as an action that opens `KaiCommandBarGlobal` command/action discovery. Do not route Search to `/agent`, do not open agent chat from Search, and do not duplicate Search inside the segmented route nav.
-11. Bottom-nav active state should use border, fill, and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
-12. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
-13. The pending-consent count badge homes on exactly one tab per scope: the `Dashboard` tab in the One scope and the `Guardian` tab in the investor/ria scopes. Do not duplicate the consent badge onto the Profile tab or any subroute tab.
+1. The primary bottom utility bar is fixed and constant on all signed-in standard routes: `One`, `Connect`, and `Search`. Search is part of the same segmented control and opens `KaiCommandBarGlobal`; it does not route to `/agent` or open agent chat.
+2. Profile remains the rightmost signed-in top-bar action, using the signed-in image or shared generic fallback.
+3. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`, `Clients`, and `Picks`. On wide layouts those context tabs render as a separate compact group immediately left of the primary bottom control. The composite is centered; neither group becomes route-local chrome.
+5. Use canonical route constants through `lib/navigation/app-bottom-nav.ts` and `lib/navigation/*-route-tabs.ts`; route files must not build their own shell navigation arrays.
+6. The Agent Bar and bottom utility bar share the measured bottom-chrome stack with a 4px resting join. The combined utility groups use the measured shared frame and remain centered on both wide and narrow screens. Do not add component- or route-local offsets.
+7. Bottom active state uses fill and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
+8. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
+9. The pending-consent count belongs on the One utility only; never duplicate it onto Profile or a workspace tab.
 
 ## Row and Card Interaction Contract
 
@@ -553,7 +548,7 @@ Rules:
 ## RIA Information Architecture
 
 1. `RIA` is a lightweight workspace shell, not a second dense operations dashboard.
-2. The RIA bottom navigation is scoped to the RIA route family: `RIA / Clients / Connect / Picks`.
+2. RIA workspace navigation lives in the top shell: `Home / Clients / Picks`. The fixed bottom utilities remain `One / Profile / Search`.
 3. `/consents` is the single consent/request workspace for both investor and RIA personas.
 4. `/ria/requests` remains only as a compatibility alias into `/consents`, not as a second consent system.
 5. The shell should contextualize `/consents` as `Profile > Privacy` for breadcrumb and primary-nav highlighting while preserving `/consents` as the canonical URL.

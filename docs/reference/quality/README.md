@@ -12,6 +12,8 @@ flowchart TD
   root --> n1
   n2["App Surface Design System"]
   root --> n2
+  n11["One UX and AX Design Contract"]
+  root --> n11
   n3["Design System"]
   root --> n3
   n4["Frontend UI Architecture Map"]
@@ -32,6 +34,7 @@ This is the north-star entrypoint for design-system rules plus verification cont
 
 ## Read In This Order
 
+- [design.md](./design.md): the concise cross-layer visual, shell, material, and AX contract.
 - [design-system.md](./design-system.md): component layering and primitive ownership.
 - [frontend-ui-architecture-map.md](./frontend-ui-architecture-map.md): repo map, labs boundary, and layer ownership.
 - [app-surface-design-system.md](./app-surface-design-system.md): page shell, header, card, bell, and interaction contract.

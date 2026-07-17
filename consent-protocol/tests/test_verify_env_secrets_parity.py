@@ -42,3 +42,31 @@ def test_candidate_revision_from_another_service_fails_closed(monkeypatch) -> No
 
     assert revisions == ["frontend-00001-candidate"]
     assert env == {}
+
+
+def test_firebase_project_contract_accepts_matching_admin_and_client_projects(
+    monkeypatch,
+) -> None:
+    values = {
+        "FIREBASE_ADMIN_CREDENTIALS_JSON": '{"project_id":"one-uat"}',
+        "NEXT_PUBLIC_FIREBASE_PROJECT_ID": "one-uat",
+    }
+    monkeypatch.setattr(parity, "_read_secret_value", lambda _project, key: values.get(key))
+
+    assert parity._firebase_project_contract("project") == {
+        "status": "valid",
+        "credentials": "valid",
+    }
+
+
+def test_firebase_project_contract_fails_closed_on_project_mismatch(monkeypatch) -> None:
+    values = {
+        "FIREBASE_ADMIN_CREDENTIALS_JSON": '{"project_id":"wrong-project"}',
+        "NEXT_PUBLIC_FIREBASE_PROJECT_ID": "one-uat",
+    }
+    monkeypatch.setattr(parity, "_read_secret_value", lambda _project, key: values.get(key))
+
+    assert parity._firebase_project_contract("project") == {
+        "status": "mismatch",
+        "credentials": "mismatch",
+    }

@@ -3,7 +3,6 @@
 import { useState } from "react";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
-import { VaultStatusInline } from "@/components/app-ui/vault-status-inline";
 import { KaiFlow } from "@/components/kai/kai-flow";
 import {
   SetupCapabilityLoading,
@@ -22,7 +21,7 @@ export function FinanceImportOnboardingSetupClient() {
   >(null);
   const coordinator = useSetupCapabilityCoordinator({
     capabilityId: "finance",
-    isOperationallyReady: sourceSettled !== null,
+    isOperationallyReady: true, // Always ready, so clicking acts as a finish.
     finishActionId: "setup.finish_finance",
     skipActionId: "setup.skip_finance",
     resumeReadinessFromCallback: true,
@@ -36,8 +35,7 @@ export function FinanceImportOnboardingSetupClient() {
   }
 
   return (
-    <FullscreenFlowShell as="div" width="expanded" className="relative space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]">
-      <VaultStatusInline className="px-1" />
+    <FullscreenFlowShell as="div" width="reading" className="relative px-[var(--page-inline-gutter-standard)] pb-[var(--app-scroll-bottom-pad)] ">
       <KaiFlow
         userId={user.uid}
         mode="import"
@@ -91,10 +89,9 @@ export function FinanceImportOnboardingSetupClient() {
       />
       <SetupCapabilityTerminalFooter
         capabilityId="finance"
-        isOperationallyReady={
-          sourceSettled !== null || coordinator.operationallyReady
-        }
+        isOperationallyReady={true}
         coordinator={coordinator}
+        finishLabel={sourceSettled ? "Finish Finance setup" : "I'll link this later"}
       />
     </FullscreenFlowShell>
   );

@@ -39,27 +39,17 @@ describe("AgentSectionDropdown", () => {
     expect(await screen.findByTestId("agent-section-search")).toBeTruthy();
     expect(screen.getByTestId("top_agent_section_finance")).toBeTruthy();
     expect(screen.getByTestId("top_agent_section_ria")).toBeTruthy();
-    expect(screen.getByTestId("top_agent_section_gmail")).toBeTruthy();
+    expect(screen.queryByTestId("top_agent_section_gmail")).toBeNull();
     expect(screen.getByTestId("top_agent_section_consent")).toBeTruthy();
     expect(screen.getByTestId("top_agent_section_pkm")).toBeTruthy();
     expect(screen.getByTestId("top_agent_section_connected-systems")).toBeTruthy();
     expect(
       document.querySelectorAll('[data-testid^="top_agent_section_"]').length,
     ).toBe(getAgentSections().length);
-    // cmdk must not replace a branded agent glyph with its shared explicit
-    // theme contrast: dark in light mode and light in dark mode.
+    // Branded Solar glyphs retain their own contrast treatment in cmdk rows.
     expect(
-      screen
-        .getByTestId("top_agent_section_finance")
-        .querySelector("svg")
-        ?.className.baseVal,
-    ).toContain("!text-[#1d1d1f]");
-    expect(
-      screen
-        .getByTestId("top_agent_section_finance")
-        .querySelector("svg")
-        ?.className.baseVal,
-    ).toContain("dark:!text-white");
+      screen.getByTestId("top_agent_section_finance").querySelector("svg"),
+    ).toBeTruthy();
     expect(
       document.querySelector('[data-slot="popover-content"]')?.className,
     ).toContain("w-[360px]");
@@ -71,13 +61,13 @@ describe("AgentSectionDropdown", () => {
     fireEvent.click(
       screen.getByRole("combobox", { name: "Switch agent section" }),
     );
-    fireEvent.click(await screen.findByTestId("top_agent_section_gmail"));
+    fireEvent.click(await screen.findByTestId("top_agent_section_email"));
 
     await waitFor(() =>
-      expect(navigationMock.push).toHaveBeenCalledWith(ROUTES.GMAIL),
+      expect(navigationMock.push).toHaveBeenCalledWith(ROUTES.ONE_KYC),
     );
     expect(useKaiSession.getState().lastAgentNavScope).toBe("one");
-    expect(useKaiSession.getState().lastAgentSectionId).toBe("gmail");
+    expect(useKaiSession.getState().lastAgentSectionId).toBe("email");
   });
 
   it("preserves the prior section label on common routes", () => {

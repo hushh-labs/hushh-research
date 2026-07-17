@@ -31,7 +31,7 @@ export function RiaRouteTabs({ embedded = false }: { embedded?: boolean }) {
         preset="compact"
         variant="none"
         effect="glass"
-        className="grid w-full grid-cols-4 gap-2 p-1.5"
+        className="grid w-full grid-cols-3 gap-2 p-1.5"
       >
         {RIA_ROUTE_TABS.map((tab) => {
           const isActive = tab.id === activeTab;

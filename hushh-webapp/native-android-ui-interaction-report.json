@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-07-15T00:10:12.867Z",
-  "device": "R5CWC0MV4YH",
+  "generated_at": "2026-07-17T06:51:00.960Z",
+  "device": "emulator-5554",
   "flow_count": 14,
-  "passed_flows": 0,
+  "passed_flows": 10,
   "failed_flows": 1,
   "ok": false,
   "flows": [
@@ -23,13 +23,13 @@
   ],
   "report": {
     "ok": false,
-    "startedAt": "2026-07-15T00:09:41.623Z",
+    "startedAt": "2026-07-17T06:50:20.725Z",
     "flows": [
       {
         "id": "shell-investor-kai-analysis",
         "route": "/one/kai/analysis",
         "description": "Investor shell: Market -> Analysis",
-        "ok": false,
+        "ok": true,
         "optional": false,
         "results": [
           {
@@ -50,42 +50,336 @@
           {
             "step": 3,
             "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 4,
+            "type": "assert_visible_testid",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "native-investor-kai-debate-preview-start",
+        "route": "/one/kai/analysis",
+        "description": "Investor analysis preview: select list source and start debate without active-run loop",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "navigate_route",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "wait_button",
+            "ok": true
+          },
+          {
+            "step": 4,
+            "type": "click_button",
+            "ok": true
+          },
+          {
+            "step": 5,
+            "type": "assert_visible_testid",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "shell-investor-kai-portfolio",
+        "route": "/one/kai/portfolio",
+        "description": "Investor shell: Portfolio tab",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "shell-investor-kai-import",
+        "route": "/one/kai/import",
+        "description": "Investor shell: Portfolio -> import route",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "navigate_route",
+            "ok": true
+          },
+          {
+            "step": 4,
+            "type": "wait_beacon",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "shell-ria-home",
+        "route": "/ria",
+        "description": "RIA shell: Home tab",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "assert_visible_testid",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "shell-ria-clients",
+        "route": "/ria/clients",
+        "description": "RIA shell: Clients tab",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "shell-ria-picks",
+        "route": "/ria/picks",
+        "description": "RIA shell: Picks tab",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "shell-marketplace",
+        "route": "/marketplace",
+        "description": "RIA shell: Connect / marketplace",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "shell-profile",
+        "route": "/profile",
+        "description": "Profile tab from shell",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "assert_visible_testid",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "shell-consents",
+        "route": "/consents",
+        "description": "One shell: Consent tab",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "navigate_route",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "assert_visible_testid",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "ria-picks-source-category-tabs",
+        "route": "/ria/picks",
+        "description": "RIA picks source + category segmented controls",
+        "ok": false,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "click_button",
             "ok": false,
-            "error": "<redacted>"
+            "errorClass": "other"
           }
         ],
         "failedStep": {
-          "type": "wait_beacon",
-          "routeIds": [
-            "/one/kai/analysis"
-          ]
+          "type": "click_button",
+          "name": "^my list",
+          "regex": true
         }
       }
     ],
-    "error": "<redacted>",
-    "completedAt": "2026-07-15T00:10:12.543Z"
+    "errorClass": "other",
+    "completedAt": "2026-07-17T06:51:00.150Z"
   },
-  "error": null,
+  "errorClass": null,
   "last_status": {
-    "route": "/one/kai/analysis/",
-    "ready": "0",
+    "route": "/ria/onboarding/",
+    "ready": "1",
     "marker": "",
-    "auth": "",
-    "data": "",
+    "auth": "authenticated",
+    "data": "loaded",
     "doc": "complete",
-    "found": "0",
+    "found": "1",
     "routeok": "1",
     "test": "1",
     "auto": "1",
-    "bridge": "0",
+    "bridge": "1",
     "uirunner": "1",
     "runui": "1",
     "uistarted": "1",
     "uifailed": "1",
     "uiboot": "0",
-    "persona": "investor",
-    "primary_persona": "investor",
-    "persona_switch": "",
+    "persona": "ria",
+    "primary_persona": "ria",
+    "persona_switch": "ok:ria",
     "persona_error": "",
     "portfolio_start_state": "",
     "portfolio_start_status": "",
@@ -101,19 +395,19 @@
     "domtest": "true",
     "domauto": "true",
     "reviewer": "0",
-    "bootstrap": "vault_error",
+    "bootstrap": "vault_unlocked",
     "bootstrap_uid_ok": "<redacted>",
-    "bootstrap_error": "<redacted>",
+    "bootstrap_error": "",
     "jserr": "<redacted>",
     "jsrej": "",
     "body": "<redacted>",
     "visible404": "0",
     "ui_complete": "1",
     "ui_ok": "0",
-    "ui_flow": "shell-investor-kai-analysis",
+    "ui_flow": "ria-picks-source-category-tabs",
     "ui_step": "3",
-    "ui_step_type": "wait_beacon",
-    "ui_error": "<redacted>",
+    "ui_step_type": "click_button",
+    "ui_error": "",
     "error": ""
   }
 }

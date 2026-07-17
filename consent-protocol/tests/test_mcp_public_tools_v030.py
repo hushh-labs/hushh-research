@@ -243,7 +243,7 @@ async def test_status_projects_only_allowlisted_lifecycle_fields(
 
 
 @pytest.mark.asyncio
-async def test_hosted_export_returns_resource_link_without_backend_payload(monkeypatch) -> None:
+async def test_hosted_export_returns_inline_ciphertext_without_resource_link(monkeypatch) -> None:
     calls: list[dict] = []
     _install_client(
         monkeypatch,
@@ -253,14 +253,7 @@ async def test_hosted_export_returns_resource_link_without_backend_payload(monke
             "expected_scope": "attr.financial.portfolio.*",
             "expires_at": 9999999999999,
             "export_revision": 2,
-            "resource_link": {
-                "uri": "https://api.uat.hushh.ai/api/v1/scoped-export/resources/"
-                + "a" * 32
-                + "/revisions/2",
-                "name": "Encrypted export",
-                "mime_type": "application/octet-stream",
-                "size": 128,
-            },
+            "encrypted_data": "ZmFrZQ==",
             **_hosted_crypto(),
             "consent_token": "must-not-pass-through",
             "user_id": "must-not-pass-through",
@@ -274,8 +267,9 @@ async def test_hosted_export_returns_resource_link_without_backend_payload(monke
             "expected_scope": "attr.financial.portfolio.*",
         }
     )
-    assert result["delivery"] == "resource_link"
-    assert content[1].type == "resource_link"
+    assert result["delivery"] == "encrypted_inline"
+    assert result["ciphertext"] == "ZmFrZQ=="
+    assert len(content) == 1
     assert "consent_token" not in json.dumps(result)
     assert "user_id" not in json.dumps(result)
     output_schema = next(
@@ -305,7 +299,7 @@ async def test_transient_backend_failures_use_stable_allowlisted_errors(
 
 
 @pytest.mark.asyncio
-async def test_hosted_export_rejects_internal_or_query_authenticated_resource(monkeypatch) -> None:
+async def test_hosted_export_rejects_missing_inline_ciphertext(monkeypatch) -> None:
     calls: list[dict] = []
     _install_client(
         monkeypatch,
@@ -314,10 +308,6 @@ async def test_hosted_export_rejects_internal_or_query_authenticated_resource(mo
             "granted_scope": "attr.financial.portfolio.*",
             "expires_at": 9999999999999,
             "export_revision": 2,
-            "resource_link": {
-                "uri": "http://127.0.0.1:8000/export?token=must-not-pass-through",
-                "size": 128,
-            },
             **_hosted_crypto(),
         },
         calls,
@@ -331,9 +321,7 @@ async def test_hosted_export_rejects_internal_or_query_authenticated_resource(mo
             }
         )
     )
-    assert result["error_code"] == "RESOURCE_LINK_MISSING"
-    assert "127.0.0.1" not in json.dumps(result)
-    assert "must-not-pass-through" not in json.dumps(result)
+    assert result["error_code"] == "RESULT_REQUIRES_NARROWER_SCOPE"
 
 
 @pytest.mark.asyncio

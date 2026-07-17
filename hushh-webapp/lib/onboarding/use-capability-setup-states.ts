@@ -21,6 +21,7 @@ import { CapabilityTourService } from "@/lib/services/capability-tour-service";
 import { OneLocationService } from "@/lib/one-location/service";
 import { RiaService } from "@/lib/services/ria-service";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
+import { isOneCapabilityEnabled } from "@/lib/onboarding/one-capabilities";
 
 /**
  * useCapabilitySetupStates — the single hook that feeds the resolver from live
@@ -237,7 +238,7 @@ export function useCapabilitySetupStates(
       const next: Partial<Record<string, boolean>> = {};
       try {
         const idToken = await AuthService.getIdToken();
-        if (idToken) {
+        if (idToken && isOneCapabilityEnabled("gmail")) {
           const gmail = await GmailReceiptsService.getStatus({ idToken, userId }).catch(
             () => null
           );

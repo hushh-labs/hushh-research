@@ -91,6 +91,17 @@ class FakeConnectedSystemsService:
             "fieldNames": ["MailingCity"],
         }
 
+    def create_delete_intent(self, **kwargs):
+        self.deleted_payload = kwargs
+        return {
+            "intentId": "csi_delete_test",
+            "systemId": kwargs["system_id"],
+            "action": "delete",
+            "status": "pending",
+            "recordId": kwargs.get("record_id"),
+            "fieldNames": [],
+        }
+
     async def delete_record(self, **kwargs):
         self.deleted_payload = kwargs
         return {
@@ -105,7 +116,7 @@ class FakeConnectedSystemsService:
 
 
 class FakeBlockedDeleteConnectedSystemsService(FakeConnectedSystemsService):
-    async def delete_record(self, **kwargs):
+    def create_delete_intent(self, **kwargs):
         self.deleted_payload = kwargs
         raise ConnectedSystemBlockedError(
             "Delete is blocked for this connected system.",
@@ -292,7 +303,8 @@ def test_delete_route_accepts_updated_mcp_id_shape(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json()["mcp"]["payload"]["deleted"] is True
+    assert response.json()["status"] == "pending"
+    assert response.json()["action"] == "delete"
     assert service.deleted_payload == {
         "user_id": "user_123",
         "system_id": "salesforce-fsc-customer0",

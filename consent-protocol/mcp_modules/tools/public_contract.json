@@ -238,7 +238,7 @@
     },
     {
       "name": "get_encrypted_scoped_export",
-      "description": "Retrieve an approved scoped export by grant_ref and expected_scope. Hosted MCP returns safe envelope metadata plus a ResourceLink for connector-side fetch and decryption. Local stdio decrypts with its managed X25519 key and returns only bounded approved information. No plaintext fallback is permitted.",
+      "description": "Retrieve an approved scoped export by grant_ref and expected_scope. Hosted MCP returns the encrypted ciphertext envelope directly in the MCP tool result for connector-side decryption. Local stdio decrypts with its managed X25519 key and returns only bounded approved information. No plaintext fallback is permitted.",
       "annotations": {
         "title": "Get encrypted scoped export",
         "readOnlyHint": true,
@@ -262,22 +262,24 @@
             "additionalProperties": false,
             "properties": {
               "status": {"const": "success"},
-              "delivery": {"type": "string", "enum": ["resource_link", "decrypted_local"]},
+              "delivery": {"type": "string", "enum": ["encrypted_inline", "decrypted_local"]},
               "expected_scope": {"type": "string", "maxLength": 200},
               "granted_scope": {"type": "string", "maxLength": 200},
               "expires_at": {"type": ["integer", "null"], "minimum": 0},
               "export_revision": {"type": "integer", "minimum": 1},
               "resource": {"type": ["object", "null"], "additionalProperties": false, "properties": {"name": {"type": "string", "maxLength": 120}, "uri": {"type": "string", "maxLength": 2048}, "mime_type": {"type": "string", "maxLength": 120}, "size": {"type": ["integer", "null"], "minimum": 0}}, "required": ["name", "uri", "mime_type", "size"]},
               "crypto": {"type": ["object", "null"], "additionalProperties": false, "properties": {"iv": {"type": "string", "maxLength": 512}, "tag": {"type": "string", "maxLength": 512}, "wrapped_key_bundle": {"type": "object", "additionalProperties": false, "properties": {"wrapped_export_key": {"type": "string", "maxLength": 2048}, "wrapped_key_iv": {"type": "string", "maxLength": 512}, "wrapped_key_tag": {"type": "string", "maxLength": 512}, "sender_public_key": {"type": "string", "maxLength": 512}, "wrapping_alg": {"const": "X25519-AES256-GCM"}, "connector_key_id": {"type": ["string", "null"], "maxLength": 128}}, "required": ["wrapped_export_key", "wrapped_key_iv", "wrapped_key_tag", "sender_public_key", "wrapping_alg", "connector_key_id"]}, "export_envelope": {"type": "object", "additionalProperties": false, "properties": {"version": {"const": 2}, "export_id": {"type": "string", "minLength": 32, "maxLength": 64}, "aad": {"type": "object", "additionalProperties": false, "properties": {"version": {"const": 2}, "app_id": {"type": "string", "minLength": 1, "maxLength": 128}, "grant_id": {"type": "string", "minLength": 1, "maxLength": 128}, "export_id": {"type": "string", "minLength": 32, "maxLength": 64}, "revision": {"type": "integer", "minimum": 1, "maximum": 10000000}, "machine_scope": {"type": "string", "minLength": 1, "maxLength": 256}, "scope_handle": {"type": "string", "maxLength": 134}, "recipient_key_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "payload_algorithm": {"const": "AES-256-GCM"}, "expires_at_ms": {"type": "integer", "minimum": 1}}, "required": ["version", "app_id", "grant_id", "export_id", "revision", "machine_scope", "scope_handle", "recipient_key_fingerprint", "payload_algorithm", "expires_at_ms"]}, "aad_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "ciphertext_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "ciphertext_bytes": {"type": "integer", "minimum": 1, "maximum": 1000000000}}, "required": ["version", "export_id", "aad", "aad_sha256", "ciphertext_sha256", "ciphertext_bytes"]}}, "required": ["iv", "tag", "wrapped_key_bundle", "export_envelope"]},
+              "ciphertext": {"type": ["string", "null"], "maxLength": 1500000},
               "information": {"type": ["object", "null"], "maxProperties": 100}
             },
-            "required": ["status", "delivery", "expected_scope", "granted_scope", "expires_at", "export_revision", "resource", "crypto", "information"],
+            "required": ["status", "delivery", "expected_scope", "granted_scope", "expires_at", "export_revision", "resource", "crypto", "ciphertext", "information"],
             "oneOf": [
               {
                 "properties": {
-                  "delivery": {"const": "resource_link"},
-                  "resource": {"type": "object"},
+                  "delivery": {"const": "encrypted_inline"},
+                  "resource": {"type": "null"},
                   "crypto": {"type": "object"},
+                  "ciphertext": {"type": "string"},
                   "information": {"type": "null"}
                 }
               },
@@ -286,6 +288,7 @@
                   "delivery": {"const": "decrypted_local"},
                   "resource": {"type": "null"},
                   "crypto": {"type": "null"},
+                  "ciphertext": {"type": "null"},
                   "information": {"type": "object", "maxProperties": 100}
                 }
               }

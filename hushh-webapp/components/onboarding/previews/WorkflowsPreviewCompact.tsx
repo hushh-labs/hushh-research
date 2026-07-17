@@ -6,7 +6,8 @@ import { ChevronRight } from "lucide-react";
 
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import {
-  ONE_CAPABILITIES,
+  getOneCapability,
+  isOneCapabilityEnabled,
   type OneCapability,
 } from "@/lib/onboarding/one-capabilities";
 
@@ -16,8 +17,11 @@ import {
 const PREVIEW_IDS = ["finance", "gmail", "location"] as const;
 
 const PREVIEW_CAPABILITIES: OneCapability[] = PREVIEW_IDS.map(
-  (id) => ONE_CAPABILITIES.find((c) => c.id === id)!,
-).filter(Boolean);
+  getOneCapability,
+).filter(
+  (capability): capability is OneCapability =>
+    Boolean(capability) && isOneCapabilityEnabled(capability),
+);
 
 export function WorkflowsPreviewCompact() {
   return (

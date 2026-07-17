@@ -133,9 +133,12 @@ export function SettingsGroup({
     <div
       data-slot="settings-group-shell"
       className={cn(
-        "relative isolate [--settings-group-radius:var(--app-radius-lg)] overflow-hidden rounded-[var(--app-radius-lg)]",
+        // Inset settings groups use the compact card radius. The smaller
+        // generic `--app-radius-lg` is for controls, and made full groups
+        // read needlessly sharp next to One's app-icon surfaces.
+        "relative isolate [--settings-group-radius:var(--app-card-radius-compact)] overflow-hidden rounded-[var(--app-card-radius-compact)]",
         "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)]",
-        !embedded && "sm:rounded-[var(--app-radius-lg)]",
+        !embedded && "sm:rounded-[var(--app-card-radius-compact)]",
       )}
     >
       <div
@@ -273,8 +276,11 @@ export function SettingsRow({
           data-slot="settings-row-icon"
           data-icon-tone={resolvedIconTone}
           className={cn(
-            "inline-flex h-8 w-8 shrink-0 items-center justify-center self-center rounded-2xl",
-            density !== "compact" && "sm:h-10 sm:w-10",
+            // Keep settings icons as compact iOS-style wells, not circles.
+            // Agent artwork continues to use AgentSectionIcon, which owns the
+            // larger launcher/menu geometry separately.
+            "inline-flex h-8 w-8 shrink-0 items-center justify-center self-center rounded-[10px]",
+            density !== "compact" && "sm:h-10 sm:w-10 sm:rounded-[12px]",
             SETTINGS_ICON_TONE_CLASSNAME[resolvedIconTone],
           )}
         >
