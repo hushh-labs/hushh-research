@@ -363,6 +363,14 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
                             "Examples: United States, USA, UK."
                         ),
                     },
+                    "session_id": {
+                        "type": "string",
+                        "description": (
+                            "Optional session identifier for the current connection. "
+                            "When provided, the TrustLink HMAC is bound to this session, "
+                            "preventing replay across different streams."
+                        ),
+                    },
                 },
                 "required": ["from_agent", "to_agent", "scope", "user_id"],
             },

@@ -111,16 +111,43 @@ async def handle_delegate(args: dict) -> list[TextContent]:
     # Parse scope using centralized resolver
     scope = resolve_scope_to_enum(scope_str)
 
+    session_id = str(args.get("session_id") or "").strip()
+
+    # Fail closed: delegation without a session context cannot provide replay
+    # protection. An empty session_id means any captured TrustLink could be
+    # accepted on any subsequent session, so we reject the request outright.
+    if not session_id:
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": (
+                            "session_id is required for session-bound TrustLink delegation. "
+                            "Provide the current debate or consent session identifier."
+                        ),
+                        "code": "SESSION_ID_REQUIRED",
+                        "status": "rejected",
+                    }
+                ),
+            )
+        ]
+
     # Create TrustLink
     trust_link = create_trust_link(
         from_agent=AgentID(from_agent),
         to_agent=AgentID(to_agent),
         scope=scope,
         signed_by_user=UserID(user_id),
+        session_id=session_id,
     )
 
-    # Verify the TrustLink
-    is_valid = verify_trust_link(trust_link)
+    # Verify against the current server session context. Supplying
+    # expected_session_id means the sanity check enforces session binding in
+    # addition to HMAC integrity. Every session-bound verification site must
+    # supply the server-derived session context here; never omit it and rely
+    # on the None-bypass default.
+    is_valid = verify_trust_link(trust_link, expected_session_id=session_id)
 
     logger.info(f"🔗 TrustLink CREATED: {from_agent} → {to_agent} (scope={scope_str})")
 
