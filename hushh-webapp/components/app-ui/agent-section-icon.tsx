@@ -1,8 +1,9 @@
 import type { CSSProperties } from "react";
-import type { LucideIcon } from "lucide-react";
+import Image from "next/image";
 
 import {
   ONE_CAPABILITY_ICON_CLASS_BY_TONE,
+  type OneCapabilityIcon,
   type OneCapabilityTone,
 } from "@/lib/onboarding/one-capabilities";
 import { cn } from "@/lib/utils";
@@ -18,31 +19,46 @@ const AGENT_ICON_SURFACE_FALLBACK_CLASSNAME =
   "bg-[#f1f1f3] text-[#1d1d1f] dark:bg-white/[0.14] dark:text-white group-data-[selected=true]:bg-white group-data-[selected=true]:text-[#1d1d1f] dark:group-data-[selected=true]:bg-[#2c2c2e] dark:group-data-[selected=true]:text-white";
 
 const ICON_SIZE_CLASS = {
+  card: {
+    surface: "h-14 w-14",
+    lucideSurface:
+      "rounded-[18px] shadow-[0_8px_20px_rgba(0,0,0,0.10)] ring-1 ring-black/[0.04] dark:ring-white/[0.08]",
+    imageSurface: "rounded-[18px]",
+    lucide: "h-6 w-6",
+    image: "h-full w-full object-contain",
+    pixels: 72,
+  },
   launcher: {
-    surface:
+    surface: "h-16 w-16",
+    lucideSurface:
       "h-16 w-16 rounded-[20px] shadow-[0_10px_24px_rgba(0,0,0,0.10)] ring-1 ring-black/[0.04] dark:ring-white/[0.08]",
+    imageSurface: "rounded-[20px]",
     lucide: "h-7 w-7",
-    gmail: "h-8 w-8",
+    image: "h-full w-full object-contain",
+    pixels: 80,
   },
   topbar: {
-    surface:
+    surface: "h-8 w-8",
+    lucideSurface:
       "h-8 w-8 rounded-[10px] shadow-[0_5px_13px_rgba(0,0,0,0.10)] ring-1 ring-black/[0.04] dark:ring-white/[0.08]",
+    imageSurface: "rounded-[10px]",
     lucide: "h-4 w-4",
-    gmail: "h-5 w-5",
+    image: "h-full w-full object-contain",
+    pixels: 40,
   },
   menu: {
-    surface:
+    surface: "h-8 w-8",
+    lucideSurface:
       "h-8 w-8 rounded-[10px] shadow-[0_5px_13px_rgba(0,0,0,0.10)] ring-1 ring-black/[0.04] dark:ring-white/[0.08]",
+    imageSurface: "rounded-[10px]",
     lucide: "h-4 w-4",
-    gmail: "h-5 w-5",
+    image: "h-full w-full object-contain",
+    pixels: 40,
   },
 } as const;
 
 type AgentSectionIconSize = keyof typeof ICON_SIZE_CLASS;
 
-// One color guidelines - soft premium palette. This inline style is what
-// actually paints the dashboard/launcher tiles (it overrides the class), so it
-// is the source of truth for the Agents grid colors.
 const CAPABILITY_ICON_STYLE_BY_TONE: Partial<
   Record<OneCapabilityTone, CSSProperties>
 > = {
@@ -56,47 +72,15 @@ const CAPABILITY_ICON_STYLE_BY_TONE: Partial<
   connected: { backgroundColor: "#94A3B8" }, // Slate Blue-Gray
 };
 
-function GmailBrandIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 256 193"
-      className={className}
-      aria-hidden
-      focusable="false"
-    >
-      <path
-        fill="#4285F4"
-        d="M58.182 192.05V93.14L27.507 65.077 0 49.504v125.091c0 9.658 7.826 17.455 17.455 17.455h40.727z"
-      />
-      <path
-        fill="#34A853"
-        d="M197.818 192.05h40.727c9.659 0 17.455-7.826 17.455-17.455V49.505l-31.156 17.837-27.026 25.798v98.91z"
-      />
-      <path
-        fill="#EA4335"
-        d="m58.182 93.14-4.174-38.647 4.174-36.989L128 69.868l69.818-52.364 4.669 34.992-4.669 40.644L128 145.504 58.182 93.14z"
-      />
-      <path
-        fill="#FBBC04"
-        d="M197.818 17.504V93.14L256 49.505V26.231c0-21.585-24.64-33.89-41.89-20.945l-16.292 12.218z"
-      />
-      <path
-        fill="#C5221F"
-        d="m0 49.505 26.759 20.065 31.423 23.57V17.504L41.89 5.286C24.61-7.66 0 4.646 0 26.231v23.274z"
-      />
-    </svg>
-  );
-}
-
 export function AgentSectionIcon({
   id,
-  icon: Icon,
+  icon,
   tone,
   size = "launcher",
   className,
 }: {
   id: string;
-  icon: LucideIcon;
+  icon: OneCapabilityIcon;
   tone?: OneCapabilityTone | null;
   size?: AgentSectionIconSize;
   className?: string;
@@ -105,22 +89,39 @@ export function AgentSectionIcon({
   const toneClassName = tone
     ? ONE_CAPABILITY_ICON_CLASS_BY_TONE[tone]
     : AGENT_ICON_SURFACE_FALLBACK_CLASSNAME;
-  const toneStyle = tone ? CAPABILITY_ICON_STYLE_BY_TONE[tone] : undefined;
+  const toneStyle =
+    icon.kind === "lucide" && tone
+      ? CAPABILITY_ICON_STYLE_BY_TONE[tone]
+      : undefined;
+  const Icon = icon.kind === "lucide" ? icon.icon : null;
 
   return (
     <span
       className={cn(
         "flex shrink-0 items-center justify-center",
         classes.surface,
-        toneClassName,
+        icon.kind === "image"
+          ? classes.imageSurface
+          : cn(classes.lucideSurface, toneClassName),
         className,
       )}
       style={toneStyle}
+      data-testid={`one-agent-icon-${id}`}
+      data-agent-icon-kind={icon.kind}
+      data-agent-icon-src={icon.kind === "image" ? icon.src : undefined}
       aria-hidden
     >
-      {id === "gmail" ? (
-        <GmailBrandIcon className={classes.gmail} />
-      ) : (
+      {icon.kind === "image" ? (
+        <Image
+          src={icon.src}
+          alt=""
+          width={classes.pixels}
+          height={classes.pixels}
+          unoptimized
+          draggable={false}
+          className={classes.image}
+        />
+      ) : Icon ? (
         <Icon
           // cmdk applies a muted foreground to bare SVGs. Give this icon an
           // explicit, important theme-aware foreground so a command/menu
@@ -133,7 +134,7 @@ export function AgentSectionIcon({
           )}
           aria-hidden
         />
-      )}
+      ) : null}
     </span>
   );
 }

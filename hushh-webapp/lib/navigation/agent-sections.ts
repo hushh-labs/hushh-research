@@ -1,9 +1,11 @@
-import { Briefcase, LayoutDashboard, type LucideIcon } from "lucide-react";
+import { LayoutDashboard } from "lucide-react";
 
 import {
   ONE_CAPABILITIES,
   type OneCapability,
+  type OneCapabilityIcon,
   type OneCapabilityTone,
+  lucideCapabilityIcon,
 } from "@/lib/onboarding/one-capabilities";
 import { ROUTES } from "@/lib/navigation/routes";
 import type { AppBottomNavScope } from "@/lib/navigation/app-bottom-nav";
@@ -14,7 +16,7 @@ export interface AgentSection {
   id: string;
   label: string;
   href: string;
-  icon: LucideIcon;
+  icon: OneCapabilityIcon;
   routeFamily: AgentSectionRouteFamily;
   bottomNavScope: AppBottomNavScope;
   screenId: string;
@@ -89,7 +91,7 @@ const AGENTS_ROOT_SECTION: AgentSection = {
   id: "agents",
   label: "Agents",
   href: ROUTES.ONE_HOME,
-  icon: LayoutDashboard,
+  icon: lucideCapabilityIcon(LayoutDashboard),
   routeFamily: "one",
   bottomNavScope: "one",
   screenId: "one_agents",
@@ -106,11 +108,12 @@ const RIA_WORKSPACE_SECTION: AgentSection = {
   id: "ria",
   label: "RIA",
   href: ROUTES.RIA_HOME,
-  icon: Briefcase,
+  icon: { kind: "image", src: "/one/agents/ria.png", alt: "RIA" },
   routeFamily: "ria",
   bottomNavScope: "ria",
   screenId: "ria_home",
   controlId: "top_agent_section_ria",
+  tone: "ria",
   voiceRouteActionId: "route.ria_home",
 };
 
