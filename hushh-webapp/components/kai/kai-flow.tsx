@@ -3226,7 +3226,6 @@ export function KaiFlow({
           isPreloadingSchema={isPreloadingSchema}
           isConnectingPlaid={isConnectingPlaid}
           plaidConfigured={plaidConfigured}
-          plaidConnectedInstitutionCount={plaidStatus?.aggregate?.item_count || 0}
           plaidLocalDualEnvironmentEnabled={plaidStatus?.local_dual_environment_enabled ?? false}
         />
       )}
@@ -3331,7 +3330,6 @@ export function KaiFlow({
           isPreloadingSchema={isPreloadingSchema}
           isConnectingPlaid={isConnectingPlaid}
           plaidConfigured={plaidConfigured}
-          plaidConnectedInstitutionCount={plaidStatus?.aggregate?.item_count || 0}
           plaidLocalDualEnvironmentEnabled={plaidStatus?.local_dual_environment_enabled ?? false}
         />
       )}

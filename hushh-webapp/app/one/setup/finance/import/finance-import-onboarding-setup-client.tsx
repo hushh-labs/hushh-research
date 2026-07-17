@@ -36,7 +36,7 @@ export function FinanceImportOnboardingSetupClient() {
   }
 
   return (
-    <FullscreenFlowShell as="div" width="expanded" className="relative space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]">
+    <FullscreenFlowShell as="div" width="reading" className="relative space-y-2 pb-[calc(var(--app-bottom-inset)+1rem)]">
       <VaultStatusInline className="px-1" />
       <KaiFlow
         userId={user.uid}
@@ -89,13 +89,13 @@ export function FinanceImportOnboardingSetupClient() {
         }}
         voicePublisherRole="chrome"
       />
-      <SetupCapabilityTerminalFooter
-        capabilityId="finance"
-        isOperationallyReady={
-          sourceSettled !== null || coordinator.operationallyReady
-        }
-        coordinator={coordinator}
-      />
+      {(sourceSettled !== null || coordinator.operationallyReady) ? (
+        <SetupCapabilityTerminalFooter
+          capabilityId="finance"
+          isOperationallyReady
+          coordinator={coordinator}
+        />
+      ) : null}
     </FullscreenFlowShell>
   );
 }

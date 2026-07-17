@@ -134,6 +134,11 @@ safe area
    icons across a wide surface.
 4. A list row has one primary action. Nested controls must be explicit and
    cannot create a competing full-row click target.
+5. First-time source selection (such as portfolio import) uses one lean shared
+   header and one compact inset list. Keep the initial decision state within a
+   phone viewport: no decorative cards, status badges, drag zones, repeated
+   primary buttons, or terminal setup action before the user has chosen a
+   source. Progress and completion controls appear only after that choice.
 
 ## AX Boundary
 
