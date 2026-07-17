@@ -195,6 +195,13 @@ async def create_consent_audit(pool: asyncpg.Pool):
     await pool.execute(
         "CREATE INDEX IF NOT EXISTS idx_consent_audit_user_action ON consent_audit(user_id, action)"
     )
+    # Bootstrap parity for migration 068.
+    # get_audit_log() queries WHERE user_id = $1 ORDER BY issued_at DESC.
+    # This composite index eliminates the sort step on the hot read path.
+    await pool.execute(
+        "CREATE INDEX IF NOT EXISTS idx_consent_audit_user_issued "
+        "ON consent_audit(user_id, issued_at DESC)"
+    )
     await pool.execute(
         "CREATE INDEX IF NOT EXISTS idx_consent_audit_request_id ON consent_audit(request_id) WHERE request_id IS NOT NULL"
     )
