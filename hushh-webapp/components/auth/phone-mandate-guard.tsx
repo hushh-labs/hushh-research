@@ -59,8 +59,7 @@ export function PhoneMandateGuard({
           vaultPresenceCache.set(user.uid, exists);
           setHasVault(exists);
         }
-      } catch (error) {
-        console.warn("[PhoneMandateGuard] Failed to check vault presence:", error);
+      } catch (_error) {
         if (!cancelled) {
           vaultPresenceCache.set(user.uid, true);
           setHasVault(true);
