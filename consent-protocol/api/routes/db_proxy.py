@@ -471,7 +471,7 @@ async def vault_setup(
             raise HTTPException(
                 status_code=409,
                 detail={
-                    "error": message,
+                    "error": "An active vault already exists for this user",
                     "code": "VAULT_ALREADY_EXISTS",
                 },
             )
@@ -479,12 +479,13 @@ async def vault_setup(
             raise HTTPException(
                 status_code=400,
                 detail={
-                    "error": message,
+                    "error": "Primary wrapper configuration is invalid",
                     "code": "VAULT_PRIMARY_WRAPPER_NOT_FOUND",
                 },
             )
         raise HTTPException(
-            status_code=400, detail={"error": message, "code": "VAULT_VALIDATION_ERROR"}
+            status_code=400,
+            detail={"error": "Vault setup configuration is invalid", "code": "VAULT_VALIDATION_ERROR"},
         )
     except Exception as e:
         logger.error(
@@ -539,10 +540,14 @@ async def vault_wrapper_upsert(
         ):
             raise HTTPException(
                 status_code=400,
-                detail={"error": message, "code": "VAULT_PASSKEY_RP_MISMATCH"},
+                detail={
+                    "error": "Passkey relying party configuration is not allowed",
+                    "code": "VAULT_PASSKEY_RP_MISMATCH",
+                },
             )
         raise HTTPException(
-            status_code=400, detail={"error": message, "code": "VAULT_VALIDATION_ERROR"}
+            status_code=400,
+            detail={"error": "Vault wrapper configuration is invalid", "code": "VAULT_VALIDATION_ERROR"},
         )
     except Exception as e:
         logger.error(
@@ -604,7 +609,10 @@ async def vault_wrapper_delete(
             code = "VAULT_PASSPHRASE_REQUIRED"
         elif "Fallback primary method/wrapper" in message:
             code = "VAULT_PRIMARY_WRAPPER_NOT_FOUND"
-        raise HTTPException(status_code=400, detail={"error": message, "code": code})
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "Vault wrapper deletion request is invalid", "code": code},
+        )
     except Exception as e:
         logger.error(
             "vault/wrapper/delete error user=%s method=%s: %s",
@@ -644,10 +652,14 @@ async def vault_primary_set(
         if "Primary method/wrapper must be an enrolled wrapper" in message:
             raise HTTPException(
                 status_code=400,
-                detail={"error": message, "code": "VAULT_PRIMARY_WRAPPER_NOT_FOUND"},
+                detail={
+                    "error": "Primary wrapper configuration is invalid",
+                    "code": "VAULT_PRIMARY_WRAPPER_NOT_FOUND",
+                },
             )
         raise HTTPException(
-            status_code=400, detail={"error": message, "code": "VAULT_VALIDATION_ERROR"}
+            status_code=400,
+            detail={"error": "Primary method configuration is invalid", "code": "VAULT_VALIDATION_ERROR"},
         )
     except Exception as e:
         logger.error(
