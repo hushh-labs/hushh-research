@@ -188,7 +188,7 @@ export const CONSENT_FLOW_STEPS: ConsentFlowStep[] = [
   {
     title: "Read",
     detail:
-      "Use grant_ref with get_encrypted_scoped_export. Hosted MCP returns a ResourceLink for connector-side decryption; local stdio returns only bounded approved information.",
+      "Use grant_ref with get_encrypted_scoped_export. Hosted MCP returns an encrypted-inline envelope and ciphertext for connector-side decryption; local stdio returns only bounded approved information.",
   },
 ];
 

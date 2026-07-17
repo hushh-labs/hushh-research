@@ -716,7 +716,8 @@
       "tool_name",
       "http_method",
       "path",
-      "description"
+      "description",
+      "response_contract"
     ],
     "trusted_connections": [
       "id",

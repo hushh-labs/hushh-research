@@ -7,8 +7,10 @@ import pytest
 from hushh_mcp.services.connected_systems_service import (
     CONNECTED_SYSTEM_SALESFORCE_ID,
     EXTERNAL_CRM_TOOL_CATALOG,
+    REGISTRY_MCP_ENDPOINT,
     SALESFORCE_CRM_SYSTEM,
     ConnectedSystemBlockedError,
+    ConnectedSystemConfigurationError,
     ConnectedSystemDefinition,
     ConnectedSystemNotFoundError,
     ConnectedSystemsService,
@@ -89,6 +91,97 @@ class GenericCrmAdapter:
                 },
             }
         return {"isError": False, "payload": {"id": "company-42"}}
+
+
+class ContractMappedCrmAdapter:
+    configured = True
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, str | None, dict]] = []
+
+    async def call_operation(self, *, operation, tool_name, endpoint, arguments, **_kwargs):
+        self.calls.append((operation, tool_name, endpoint, arguments))
+        if operation == "schema" and arguments["target"] == "Bluebird":
+            return {
+                "isError": False,
+                "payload": {
+                    "details": [
+                        {
+                            "apiName": "Account",
+                            "label": "Account holder",
+                            "fields": [
+                                {
+                                    "name": "externalId",
+                                    "label": "External ID",
+                                    "type": "string",
+                                    "required": True,
+                                    "readable": True,
+                                    "identityField": True,
+                                    "immutable": True,
+                                    "createable": True,
+                                    "updateable": False,
+                                },
+                                {
+                                    "name": "publicName",
+                                    "label": "Public name",
+                                    "type": "string",
+                                    "required": False,
+                                    "readable": True,
+                                    "identityField": False,
+                                    "immutable": False,
+                                    "createable": True,
+                                    "updateable": True,
+                                },
+                            ],
+                        }
+                    ]
+                },
+            }
+        if operation == "schema":
+            return {
+                "isError": False,
+                "payload": {
+                    "details": [
+                        {
+                            "fields": [
+                                {"name": "candidateId", "label": "Candidate ID", "type": "string"}
+                            ]
+                        }
+                    ]
+                },
+            }
+        if operation == "read":
+            return {
+                "isError": False,
+                "payload": {
+                    "rows": [
+                        {
+                            "id": "blue-42",
+                            "externalId": "external-42",
+                            "publicName": "A. Example",
+                            "privateNote": "must not be projected",
+                        }
+                    ]
+                },
+            }
+        return {"isError": False, "payload": {"success": True, "id": "blue-42"}}
+
+
+def enterprise_schema_contract() -> dict:
+    return {
+        "version": "crm-primary-object-schema.v1",
+        "fieldsPath": ["payload", "details", 0, "fields"],
+        "objectPath": ["payload", "details", 0],
+        "requireFieldAccess": True,
+    }
+
+
+def enterprise_read_contract() -> dict:
+    return {
+        "version": "crm-record-collection.v1",
+        "recordsPath": ["payload", "rows"],
+        "recordIdPath": ["id"],
+    }
 
 
 def build_service(
@@ -177,6 +270,261 @@ async def test_generic_crm_uses_its_registered_schema_tool_endpoint_and_field_co
         )
 
 
+@pytest.mark.asyncio
+async def test_registry_contracts_keep_two_crms_isolated_and_sanitize_read_records():
+    bluebird = ConnectedSystemDefinition(
+        system_id="bluebird-accounts",
+        display_name="Bluebird",
+        customer_display_name="Bluebird",
+        system_type="Bluebird CRM",
+        system_name="Accounts",
+        target="Bluebird",
+        object_type_default="Account",
+        transport="external_crm_streamable_mcp",
+        transport_endpoint="https://example.invalid/bluebird",
+        registry_source="enterprise_crm_registry",
+        tool_catalog=(
+            {
+                "name": "bluebird-schema",
+                "operation": "schema",
+                "mcpEndpoint": "https://example.invalid/bluebird/schema",
+                "responseContract": enterprise_schema_contract(),
+            },
+            {
+                "name": "bluebird-read",
+                "operation": "read",
+                "mcpEndpoint": "https://example.invalid/bluebird/read",
+                "responseContract": enterprise_read_contract(),
+            },
+        ),
+        capabilities=frozenset({"schema", "read"}),
+    )
+    greenhouse = ConnectedSystemDefinition(
+        system_id="greenhouse-candidates",
+        display_name="Greenhouse",
+        customer_display_name="Greenhouse",
+        system_type="Greenhouse CRM",
+        system_name="Candidates",
+        target="Greenhouse",
+        object_type_default="Candidate",
+        transport="external_crm_streamable_mcp",
+        transport_endpoint="https://example.invalid/greenhouse",
+        registry_source="enterprise_crm_registry",
+        tool_catalog=(
+            {
+                "name": "greenhouse-schema",
+                "operation": "schema",
+                "mcpEndpoint": "https://example.invalid/greenhouse/schema",
+                "responseContract": enterprise_schema_contract(),
+            },
+        ),
+        capabilities=frozenset({"schema"}),
+    )
+    adapter = ContractMappedCrmAdapter()
+    service = ConnectedSystemsService(
+        adapter=adapter,
+        store=InMemoryConnectedSystemIntentStore(),
+        registry=(bluebird, greenhouse),
+    )
+
+    summaries = {row["systemId"]: row for row in service.list_systems()}
+    assert summaries[bluebird.system_id]["supportedActions"] == {
+        "schema": True,
+        "read": True,
+        "create": False,
+        "update": False,
+        "delete": False,
+    }
+    assert summaries[greenhouse.system_id]["supportedActions"]["read"] is False
+    assert "responseContract" not in str(summaries)
+
+    schema = await service.get_schema(system_id=bluebird.system_id)
+    assert schema["objectMetadata"] == {"name": "Account", "label": "Account holder"}
+    assert schema["schemaStatus"] == "ready"
+    read = await service.read_record(
+        user_id="user-1",
+        system_id=bluebird.system_id,
+        object_type=None,
+        email=None,
+        phone=None,
+        search_fields={"externalId": "external-42"},
+        return_fields=["publicName"],
+    )
+    assert read["records"] == [{"recordId": "blue-42", "fields": {"publicName": "A. Example"}}]
+    assert adapter.calls[-1][:3] == (
+        "read",
+        "bluebird-read",
+        "https://example.invalid/bluebird/read",
+    )
+
+    greenhouse_schema = await service.get_schema(system_id=greenhouse.system_id)
+    assert greenhouse_schema["schemaStatus"] == "capability_metadata_missing"
+    before = len(adapter.calls)
+    with pytest.raises(ConnectedSystemBlockedError):
+        await service.read_record(
+            user_id="user-1",
+            system_id=greenhouse.system_id,
+            object_type=None,
+            email=None,
+            phone=None,
+            search_fields={"candidateId": "candidate-42"},
+            return_fields=["candidateId"],
+        )
+    assert len(adapter.calls) == before + 1  # schema refresh, never a read MCP call
+    assert adapter.calls[-1][0] == "schema"
+
+
+@pytest.mark.asyncio
+async def test_registry_schema_catalogue_without_access_metadata_blocks_record_tools():
+    class MetadataOnlyAdapter:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def call_operation(self, *, operation, **_kwargs):
+            self.calls.append(operation)
+            return {
+                "isError": False,
+                "payload": {
+                    "details": [
+                        {
+                            "fields": [
+                                {
+                                    "name": "Email",
+                                    "label": "Email",
+                                    "type": "email",
+                                    "required": False,
+                                }
+                            ]
+                        }
+                    ]
+                },
+            }
+
+    definition = ConnectedSystemDefinition(
+        system_id="metadata-only-crm",
+        display_name="Metadata CRM",
+        customer_display_name="Metadata CRM",
+        system_type="CRM",
+        system_name="CRM",
+        target="Metadata CRM",
+        object_type_default="Person",
+        transport="external_crm_streamable_mcp",
+        transport_endpoint="https://example.invalid/mcp",
+        registry_source="enterprise_crm_registry",
+        tool_catalog=(
+            {
+                "name": "describe-person",
+                "operation": "schema",
+                "mcpEndpoint": "https://example.invalid/mcp",
+                "responseContract": {
+                    "version": "crm-primary-object-schema.v1",
+                    "fieldsPath": ["payload", "details", 0, "fields"],
+                    "objectPath": ["payload", "details", 0],
+                    "requireFieldAccess": True,
+                },
+            },
+            {
+                "name": "read-person",
+                "operation": "read",
+                "mcpEndpoint": "https://example.invalid/mcp",
+            },
+        ),
+        capabilities=frozenset({"schema", "read"}),
+    )
+    adapter = MetadataOnlyAdapter()
+    service = ConnectedSystemsService(
+        adapter=adapter,
+        store=InMemoryConnectedSystemIntentStore(),
+        registry=(definition,),
+    )
+
+    schema = await service.get_schema(system_id=definition.system_id)
+    assert schema["schemaStatus"] == "capability_metadata_missing"
+    assert schema["objectMetadata"] == {"name": "Person", "label": "Person"}
+    assert schema["fields"][0]["readable"] is False
+    assert schema["effectiveActions"] == {
+        "schema": True,
+        "read": False,
+        "create": False,
+        "update": False,
+        "delete": False,
+    }
+
+    with pytest.raises(ConnectedSystemBlockedError):
+        await service.read_record(
+            user_id="user-1",
+            system_id=definition.system_id,
+            object_type=None,
+            email=None,
+            phone=None,
+            search_fields={"Email": "person@example.test"},
+            return_fields=["Email"],
+        )
+    assert adapter.calls == ["schema", "schema"]
+
+
+@pytest.mark.asyncio
+async def test_missing_omni_gateway_headers_fail_before_streamable_http_call():
+    adapter = ExternalCrmStreamableMcpAdapter(endpoint=REGISTRY_MCP_ENDPOINT)
+
+    with pytest.raises(ConnectedSystemConfigurationError) as error:
+        await adapter.call_operation(
+            operation="schema",
+            tool_name="object-schema",
+            endpoint=REGISTRY_MCP_ENDPOINT,
+            timeout_seconds=1,
+            retry_count=0,
+            arguments={"target": "Example", "objectType": "Person"},
+        )
+
+    assert error.value.code == "CONNECTED_SYSTEM_GATEWAY_AUTH_UNCONFIGURED"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("gateway_status", "expected_code"),
+    [
+        (401, "CONNECTED_SYSTEM_MCP_AUTH_FAILED"),
+        (403, "CONNECTED_SYSTEM_MCP_ACCESS_DENIED"),
+    ],
+)
+async def test_gateway_auth_failures_return_safe_configuration_errors(
+    monkeypatch, gateway_status, expected_code
+):
+    import contextlib
+
+    import mcp.client.streamable_http as streamable_mod
+
+    class GatewayStatusError(Exception):
+        def __init__(self, status_code: int):
+            self.response = type("Response", (), {"status_code": status_code})()
+            super().__init__(f"HTTP {status_code}")
+
+    @contextlib.asynccontextmanager
+    async def rejected_streamable(*_args, **_kwargs):
+        raise GatewayStatusError(gateway_status)
+        yield  # pragma: no cover - required only to make this an async generator
+
+    monkeypatch.setattr(streamable_mod, "streamablehttp_client", rejected_streamable)
+    adapter = ExternalCrmStreamableMcpAdapter(
+        endpoint="https://gateway.invalid/mcp",
+        headers=(("client_id", "test-client"), ("client_secret", "test-secret")),
+    )
+
+    with pytest.raises(ConnectedSystemConfigurationError) as error:
+        await adapter.call_operation(
+            operation="schema",
+            tool_name="object-schema",
+            endpoint="https://gateway.invalid/mcp",
+            timeout_seconds=1,
+            retry_count=0,
+            arguments={"target": "Example", "objectType": "Person"},
+        )
+
+    assert error.value.code == expected_code
+    assert "gateway" in str(error.value).lower()
+
+
 def test_default_service_lists_real_registry_backed_salesforce_endpoint_without_env_endpoint():
     service = ConnectedSystemsService(
         store=InMemoryConnectedSystemIntentStore(),
@@ -261,7 +609,8 @@ async def test_registry_simulator_path_remains_available_for_deterministic_local
         object_type=None,
     )
     assert schema["objectType"] == "Contact"
-    assert schema["mcp"]["payload"]["source"] == "customer0_connected_system_registry"
+    assert "mcp" not in schema
+    assert schema["fields"]
 
     read = await service.read_record(
         user_id="user_123",
@@ -271,7 +620,8 @@ async def test_registry_simulator_path_remains_available_for_deterministic_local
         phone="123456789",
     )
     assert read["resultClass"] == "succeeded"
-    assert read["mcp"]["payload"]["Contact"][0]["Id"] == "003gK00000jlmaLQAQ"
+    assert "mcp" not in read
+    assert read["records"][0]["recordId"] == "003gK00000jlmaLQAQ"
 
 
 @pytest.mark.asyncio
@@ -698,15 +1048,15 @@ async def test_failed_create_intent_returns_sanitized_mcp_error_message():
         additional_fields={"MailingCity": "Dallas"},
     )
 
-    approved = await service.approve_intent(
-        user_id="user_123",
-        system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
-        intent_id=intent["intentId"],
-    )
-
-    assert approved["status"] == "failed"
-    assert approved["errorMessage"] == "Duplicate Contact for [email] and [phone]"
+    with pytest.raises(Exception, match=r"Duplicate Contact for \[email\] and \[phone\]"):
+        await service.approve_intent(
+            user_id="user_123",
+            system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+            intent_id=intent["intentId"],
+        )
     stored = service.store.intents[intent["intentId"]]
+    assert stored["status"] == "failed"
+    assert stored["error_message"] == "Duplicate Contact for [email] and [phone]"
     serialized = json.dumps(stored, sort_keys=True)
     assert "doe.john@abc.com" not in serialized
     assert "+1 (415) 555-1212" not in serialized
@@ -752,7 +1102,7 @@ async def test_terminal_intent_scrubs_raw_payload_values_after_approval():
 
 
 @pytest.mark.asyncio
-async def test_delete_is_blocked_unless_maintainer_flag_enabled():
+async def test_delete_requires_the_intent_lifecycle_even_when_enabled():
     service, adapter = build_service(delete_enabled=False)
 
     with pytest.raises(ConnectedSystemBlockedError):
@@ -764,46 +1114,15 @@ async def test_delete_is_blocked_unless_maintainer_flag_enabled():
     assert adapter.calls == []
 
     enabled_service, enabled_adapter = build_service(delete_enabled=True)
-    enabled_service.store.upsert_binding(
-        {
-            "binding_id": "csb_test",
-            "user_id": "user_123",
-            "system_id": CONNECTED_SYSTEM_SALESFORCE_ID,
-            "target": "Macys",
-            "object_type": "Contact",
-            "record_id": "003gK00000demoQAA",
-            "created_intent_id": None,
-            "last_intent_id": None,
-        }
-    )
-    result = await enabled_service.delete_record(
-        user_id="user_123",
-        system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
-        object_type=None,
-        record_id="003gK00000demoQAA",
-    )
-
-    assert result["mcp"]["payload"]["deleted"] is True
-    assert result["resultClass"] == "succeeded"
-    assert result["binding"]["status"] == "deleted"
-    assert (
-        enabled_service.store.get_binding(
+    with pytest.raises(ConnectedSystemBlockedError) as error:
+        await enabled_service.delete_record(
             user_id="user_123",
             system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
-            object_type="Contact",
+            object_type=None,
+            record_id="003gK00000demoQAA",
         )
-        is None
-    )
-    assert enabled_adapter.calls == [
-        (
-            "delete-crm-record",
-            {
-                "target": "Macys",
-                "objectType": "Contact",
-                "id": "003gK00000demoQAA",
-            },
-        )
-    ]
+    assert error.value.code == "CONNECTED_SYSTEM_DELETE_INTENT_REQUIRED"
+    assert enabled_adapter.calls == []
 
 
 def test_definition_default_transport_headers_empty_and_not_in_summary():

@@ -1,7 +1,5 @@
 import { ApiService } from "@/lib/services/api-service";
 
-export const SALESFORCE_CRM_SYSTEM_ID = "salesforce-fsc-customer0";
-
 export type ConnectedSystemStatus = "connected" | "needs_configuration" | string;
 
 export type ConnectedSystemSummary = {
@@ -41,6 +39,10 @@ export type ConnectedSystemSchemaResponse = {
   systemId: string;
   target: string;
   objectType: string;
+  objectMetadata?: {
+    name: string;
+    label: string;
+  };
   supportedFields: string[];
   fields?: Array<{
     key: string;
@@ -50,12 +52,28 @@ export type ConnectedSystemSchemaResponse = {
     required?: boolean;
     identityField?: boolean;
     readable?: boolean;
+    createable?: boolean;
+    updateable?: boolean;
     writable?: boolean;
     immutable?: boolean;
+    permissionsDeclared?: boolean;
     constraints?: Record<string, unknown>;
     source?: string;
   }>;
-  mcp: Record<string, unknown>;
+  schemaStatus?: "ready" | "capability_metadata_missing" | string;
+  effectiveActions?: {
+    schema?: boolean;
+    read?: boolean;
+    create?: boolean;
+    update?: boolean;
+    delete?: boolean;
+  };
+  configurationMessage?: string | null;
+};
+
+export type ConnectedSystemRecord = {
+  recordId?: string | null;
+  fields: Record<string, string | number | boolean | null>;
 };
 
 export type ConnectedSystemMcpResponse = {
@@ -64,7 +82,7 @@ export type ConnectedSystemMcpResponse = {
   objectType: string;
   recordId?: string | null;
   resultClass: "succeeded" | "failed" | string;
-  mcp: Record<string, unknown>;
+  records?: ConnectedSystemRecord[];
   bindingStatus?: "active" | "unbound" | string;
   binding?: ConnectedSystemRecordBinding | null;
 };
@@ -178,7 +196,11 @@ async function readJsonOrThrow<T>(response: Response): Promise<T> {
 }
 
 function systemPath(systemId?: string): string {
-  return encodeURIComponent(systemId || SALESFORCE_CRM_SYSTEM_ID);
+  const selectedSystemId = String(systemId || "").trim();
+  if (!selectedSystemId) {
+    throw new Error("Select a connected CRM before making a record request.");
+  }
+  return encodeURIComponent(selectedSystemId);
 }
 
 export class ConnectedSystemsService {

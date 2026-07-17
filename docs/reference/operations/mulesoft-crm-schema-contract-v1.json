@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MuleSoft CRM object-schema response v1",
+  "description": "Field access metadata required before Hussh enables CRM record operations.",
+  "type": "object",
+  "required": ["details"],
+  "properties": {
+    "details": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["fields"],
+        "properties": {
+          "name": { "type": "string" },
+          "label": { "type": "string" },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "label",
+                "type",
+                "required",
+                "readable",
+                "identityField",
+                "immutable",
+                "createable",
+                "updateable"
+              ],
+              "properties": {
+                "name": { "type": "string", "minLength": 1 },
+                "label": { "type": "string", "minLength": 1 },
+                "type": { "type": "string", "minLength": 1 },
+                "required": { "type": "boolean" },
+                "readable": { "type": "boolean" },
+                "identityField": { "type": "boolean" },
+                "immutable": { "type": "boolean" },
+                "createable": { "type": "boolean" },
+                "updateable": { "type": "boolean" },
+                "length": { "type": "integer", "minimum": 1 },
+                "picklistValues": { "type": "array" }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

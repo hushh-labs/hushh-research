@@ -387,7 +387,18 @@ function executeConnectedSystemAgentAction(
   }
 
   const slots = input.slots || {};
-  const systemId = readString(slots.systemId) || "salesforce-fsc-customer0";
+  const systemId = readString(slots.systemId);
+  if (!systemId) {
+    return buildResult({
+      status: "blocked",
+      actionId: input.actionId,
+      label: "Select CRM",
+      routeBefore: routeBefore.pathname,
+      screenBefore: routeBefore.screen,
+      resultSummary: "Select a connected CRM before preparing this action.",
+      reason: "connected_system_selection_required",
+    });
+  }
   const instructionId = storeConnectedSystemInstruction(input.actionId, slots);
   const target = instructionId
     ? `${buildConnectedSystemRoute(systemId)}?agentActionId=${encodeURIComponent(instructionId)}`

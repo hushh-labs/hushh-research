@@ -140,6 +140,19 @@ def _user_id(token_data: dict) -> str:
     return str(token_data.get("user_id") or "")
 
 
+def _legacy_create_aliases_to_record_fields(body: CrmCreateIntentRequest) -> dict[str, Any]:
+    """Keep Macy's wire aliases behind the schema-driven mutation boundary."""
+    fields = dict(body.additional_fields or {})
+    aliases = {
+        "Email": body.email,
+        "Phone": body.phone,
+        "FirstName": body.first_name,
+        "LastName": body.last_name,
+    }
+    fields.update({key: value for key, value in aliases.items() if value not in (None, "")})
+    return fields
+
+
 async def _require_signed_in_lister(
     background_tasks: BackgroundTasks,
     authorization: Optional[str] = Header(
@@ -269,24 +282,16 @@ async def create_connected_system_record_intent(
 ):
     service = get_connected_systems_service()
     try:
-        if body.record_fields is not None:
-            return await service.create_record_intent_from_fields(
-                user_id=_user_id(token_data),
-                system_id=system_id,
-                object_type=body.object_type,
-                record_fields=body.record_fields,
-            )
-        payload = {
-            "user_id": _user_id(token_data),
-            "system_id": system_id,
-            "object_type": body.object_type,
-            "email": body.email,
-            "phone": body.phone,
-            "first_name": body.first_name,
-            "last_name": body.last_name,
-            "additional_fields": body.additional_fields,
-        }
-        return service.create_record_intent(**payload)
+        return await service.create_record_intent_from_fields(
+            user_id=_user_id(token_data),
+            system_id=system_id,
+            object_type=body.object_type,
+            record_fields=(
+                body.record_fields
+                if body.record_fields is not None
+                else _legacy_create_aliases_to_record_fields(body)
+            ),
+        )
     except ConnectedSystemsError as error:
         _raise_connected_system_error(error)
 
@@ -299,24 +304,18 @@ async def update_connected_system_record_intent(
 ):
     service = get_connected_systems_service()
     try:
-        if body.record_fields is not None:
-            return await service.update_record_intent_from_fields(
-                user_id=_user_id(token_data),
-                system_id=system_id,
-                object_type=body.object_type,
-                record_id=body.record_id,
-                record_fields=body.record_fields,
-                readback_locator=body.readback_locator,
-            )
-        payload = {
-            "user_id": _user_id(token_data),
-            "system_id": system_id,
-            "object_type": body.object_type,
-            "record_id": body.record_id,
-            "additional_fields": body.additional_fields,
-            "readback_locator": body.readback_locator,
-        }
-        return service.update_record_intent(**payload)
+        return await service.update_record_intent_from_fields(
+            user_id=_user_id(token_data),
+            system_id=system_id,
+            object_type=body.object_type,
+            record_id=body.record_id,
+            record_fields=(
+                body.record_fields
+                if body.record_fields is not None
+                else dict(body.additional_fields or {})
+            ),
+            readback_locator=body.readback_locator,
+        )
     except ConnectedSystemsError as error:
         _raise_connected_system_error(error)
 

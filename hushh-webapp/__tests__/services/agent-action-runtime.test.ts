@@ -52,4 +52,15 @@ describe("executeAgentGatewayAction connected systems", () => {
     expect(result.status).toBe("blocked");
     expect(result.reason).toBe("crm_delete_manual_only");
   });
+
+  it("requires an explicitly selected CRM instead of defaulting to Salesforce", async () => {
+    const input = baseInput("connected_system.crm.read");
+    input.slots = {};
+
+    const result = await executeAgentGatewayAction(input);
+
+    expect(input.router.push).not.toHaveBeenCalled();
+    expect(result.status).toBe("blocked");
+    expect(result.reason).toBe("connected_system_selection_required");
+  });
 });
