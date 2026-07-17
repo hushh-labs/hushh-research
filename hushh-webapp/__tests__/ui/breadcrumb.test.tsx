@@ -10,6 +10,16 @@ import {
 } from "@/components/ui/breadcrumb";
 
 describe("Breadcrumb", () => {
+  it("propagates custom class names on root", () => {
+    const { container } = render(
+      <Breadcrumb className="custom-breadcrumb">
+        <BreadcrumbList>
+          <BreadcrumbItem>Home</BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>,
+    );
+    expect(container.querySelector('[data-slot="breadcrumb"]')?.className).toContain("custom-breadcrumb");
+  });
   it("renders a separator between breadcrumb items", () => {
     const { container } = render(
       <Breadcrumb>
