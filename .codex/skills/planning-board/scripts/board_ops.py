@@ -191,8 +191,54 @@ def get_issue_node_id(repo: str, issue_number: int) -> str:
     return node_id["id"]
 
 
+import os
+import time
+
+CACHE_FILE = os.path.expanduser("~/.hermes/scripts/.board_issue_cache.json")
 _issue_json_cache = {}
+_cache_loaded = False
+
+
+def _load_cache():
+    global _issue_json_cache, _cache_loaded
+    if _cache_loaded:
+        return
+    _cache_loaded = True
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            now = time.time()
+            for k, v in data.items():
+                cached_at = v.get("cached_at", 0)
+                is_closed = v.get("payload", {}).get("state") == "CLOSED"
+                if is_closed or (now - cached_at < 43200):
+                    parts = k.split("|", 1)
+                    if len(parts) == 2:
+                        _issue_json_cache[(parts[0], int(parts[1]))] = v["payload"]
+        except Exception:
+            pass
+
+
+def _save_cache():
+    try:
+        os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+        data = {}
+        now = time.time()
+        for k, v in _issue_json_cache.items():
+            key_str = f"{k[0]}|{k[1]}"
+            data[key_str] = {
+                "cached_at": now,
+                "payload": v
+            }
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
+
 def get_issue_json(repo: str, issue_number: int) -> Any:
+    _load_cache()
     key = (repo, issue_number)
     if key in _issue_json_cache:
         return _issue_json_cache[key]
@@ -226,6 +272,7 @@ def get_issue_json(repo: str, issue_number: int) -> Any:
     payload["displayTitle"] = f'#{payload["number"]} {payload["title"]}'
     payload["labelNames"] = [label["name"] for label in payload.get("labels", [])]
     _issue_json_cache[key] = payload
+    _save_cache()
     return payload
 
 
