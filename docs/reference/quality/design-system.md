@@ -111,6 +111,13 @@ Forbidden:
 4. Shared shell and surface layout tokens live in `hushh-webapp/app/globals.css`.
 5. Color identity is the **Foundation** system with ONE switchable accent: the `--app-accent-*` family in `hushh-webapp/app/globals.css` (iOS Blue by default, Molten Gold under `html[data-accent="gold"]`, toggled in Profile → Preferences → Accent and persisted at `hushh.app.accent.v1` via `lib/theme/accent.ts`). Accent is emphasis ONLY; ink (`--primary`) carries primary, gray carries support. Legacy names (`--foundation-gold-*`, `--color-accent-*`, `--brand-*`, `--morphy-primary-*`, `--tone-blue*`) alias the accent family, so consumers written against them follow the preference automatically. Never hardcode an accent hex in component source; `npm run verify:accent-tokens` (part of `verify:design-system`) enforces this. RIA compatibility tokens must resolve through that same family; no persona may retint shared app chrome or bypass the active accent. The full Foundation Color Contract lives in [app-surface-design-system.md](./app-surface-design-system.md#foundation-color-contract).
 5a. Promotion path for feature design systems: when a route (e.g. One Location) proves out a surface grammar, promote its tokens to `lib/morphy-ux/tokens/surfaces.ts` and its primitives to `lib/morphy-ux/ui/surface-primitives.tsx`, leave a re-export shim at the feature path, and consume the `--app-accent-*` family for any accent usage so the promoted pieces stay accent-neutral.
+5b. Portable PDF artifacts use the Morphy-owned
+    `lib/morphy-ux/pdf-document-formatter.mjs`. The Markdown/PDF script is a
+    generator only: it reads Foundation tokens from `app/globals.css` and uses
+    a named `technical`, `partner`, or `founder` formatter profile. Light and
+    dark wordmarks use the same `hu` ink and `ssh` foil tokens as the app;
+    Molten Gold is explicit. Protocol code blocks retain the Sublime Monokai
+    surface in every profile.
 6. Use the container tokens below instead of ad hoc `max-w-*` route wrappers:
    - `--app-shell-reading`
    - `--app-shell-standard`

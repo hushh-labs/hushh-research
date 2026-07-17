@@ -370,7 +370,7 @@ export function ConnectedSystemsPanel({
   mode = "detail",
   systemId,
   agentInstruction,
-  profile,
+  profile: _profile,
   onSetupReadinessChange,
   setupRouteBase,
 }: ConnectedSystemsPanelProps) {
