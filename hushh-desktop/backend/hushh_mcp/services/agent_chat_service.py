@@ -21,6 +21,10 @@ from google.genai import types as genai_types
 from db.db_client import get_db
 from hushh_mcp.hushh_adk.manifest import AgentModelConfig, ManifestLoader
 from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.services.local_runtime_provider import (
+    LOCAL_PROVIDER_LABEL,
+    build_local_runtime_client,
+)
 from hushh_mcp.types import EncryptedPayload
 from hushh_mcp.vault.encrypt import decrypt_data, encrypt_data
 from hussh_sdk import (
@@ -961,12 +965,20 @@ class AgentChatService:
         runtime_credential_mode: str | None = None,
     ) -> PreparedAgentRuntime:
         if runtime_credential_mode == "local":
+            # Real provider client now (was client=None) -- routes through
+            # the same runtime_providers facade every other provider uses
+            # (see local_runtime_provider.py), rather than a hardcoded
+            # aiohttp branch keyed off this sentinel model string. The
+            # sentinel stays as the user/frontend-facing label (echoed via
+            # the X-Agent-Model response header) -- it's display text, not
+            # a routing signal anymore; routing now checks the client's
+            # .provider attribute (see stream_response/plan_action_with_gemini).
             return PreparedAgentRuntime(
                 mode="local",
                 provider="local",
                 model="Llama-3.2-3B-Instruct",
                 credential_ref=None,
-                client=None,
+                client=build_local_runtime_client(),
                 evidence={"framework": "local"},
             )
 
@@ -1352,31 +1364,41 @@ class AgentChatService:
         )
         return [self._conversation_from_row(row) for row in result.data or []]
 
-    def _build_local_bridge_messages(
+    def _build_local_bridge_contents(
         self,
         *,
         user_message: str,
         history: list[AgentChatMessage],
         action_plan: AgentChatActionPlan | None,
         pkm_context: str | None,
-    ) -> list[dict[str, str]]:
-        """Message-building for the local bridge's actual reply generation
-        (stream_response below). _plan_action_via_bridge builds its own,
-        separate, more minimal context -- see that method for why.
+    ) -> list[genai_types.Content]:
+        """genai-Content version of the local reply-generation prompt (used
+        by stream_response's local branch, routed through runtime_providers
+        now instead of a hand-rolled OpenAI messages list -- system prompt
+        moves to config.system_instruction, same as the cloud path's
+        _build_contents, but every local-specific tuning below (tight
+        history/char limits, PKM relevance reminder, math guardrail, role
+        scope) is unchanged from the original hand-rolled version.
 
         On-device NPU inference is far more compute-constrained than the
         cloud path, and prompt-processing time scales with total context
         size -- keep history/PKM context small so each turn's prefill stays
         fast instead of growing every turn as the conversation gets longer.
         """
-        messages = [{"role": "system", "content": AGENT_SYSTEM_PROMPT}]
+        contents: list[genai_types.Content] = []
         local_history_limit = 3
         local_message_char_limit = 320
         local_pkm_char_limit = 1000
         for msg in history[-local_history_limit:]:
             if msg.role not in {"user", "assistant"}:
                 continue
-            messages.append({"role": "user" if msg.role == "user" else "assistant", "content": msg.content[:local_message_char_limit]})
+            role = "user" if msg.role == "user" else "model"
+            contents.append(
+                genai_types.Content(
+                    role=role,
+                    parts=[genai_types.Part(text=msg.content[:local_message_char_limit])],
+                )
+            )
         local_pkm_context = (pkm_context or "")[:local_pkm_char_limit]
         turn_context = self._build_turn_context(action_plan=action_plan, pkm_context=local_pkm_context)
         # The smaller on-device model follows the base system prompt's
@@ -1450,15 +1472,21 @@ class AgentChatService:
             "Portfolio/Analysis tools for anything that needs real depth or "
             "precision."
         )
-        messages.append({
-            "role": "user",
-            "content": (
-                f"{turn_context}\n\n{local_relevance_reminder}\n\n"
-                f"{local_math_guardrail}\n\n{local_role_scope}\n\n"
-                f"Latest user message:\n{user_message}"
-            ),
-        })
-        return messages
+        contents.append(
+            genai_types.Content(
+                role="user",
+                parts=[
+                    genai_types.Part(
+                        text=(
+                            f"{turn_context}\n\n{local_relevance_reminder}\n\n"
+                            f"{local_math_guardrail}\n\n{local_role_scope}\n\n"
+                            f"Latest user message:\n{user_message}"
+                        )
+                    )
+                ],
+            )
+        )
+        return contents
 
     async def stream_response(
         self,
@@ -1470,91 +1498,85 @@ class AgentChatService:
         action_plan: AgentChatActionPlan | None = None,
         pkm_context: str | None = None,
     ) -> AsyncGenerator[str, None]:
-        # Route to on-device GenieX only when this is genuinely the local model.
-        # A missing runtime_client in cloud mode is a real config/credential
-        # error and must surface as such, not silently fall through to local.
-        if runtime_model == "Llama-3.2-3B-Instruct":
-            import aiohttp
+        # Route to the local bridge only when the client is genuinely the
+        # local provider (see local_runtime_provider.py) -- checked on the
+        # client now, not a magic runtime_model string. A missing
+        # runtime_client in cloud mode is a real config/credential error and
+        # must surface as such, not silently fall through to local.
+        if getattr(runtime_client, "provider", None) == LOCAL_PROVIDER_LABEL:
             # Through the local bridge (local_bridge/), not GenieX directly --
             # the bridge guarantees a spec-correct finish_reason/[DONE] on the
             # stream, which GenieX itself doesn't reliably provide. No tools
             # needed here: action_plan was already resolved separately (see
-            # _plan_action_via_bridge) and is woven into turn_context below.
-            url = "http://localhost:18182/v1/chat/completions"
-            messages = self._build_local_bridge_messages(
+            # plan_action_with_gemini's local branch) and is woven into
+            # turn_context below. Routed through runtime_providers'
+            # OpenAITransport (see local_runtime_provider.py) instead of a
+            # hand-rolled aiohttp/SSE parser -- same facade every other
+            # provider uses, so _chunk_text below needs no local-specific case
+            # (NormalizedChunk is deliberately genai-shaped, see
+            # runtime_providers/normalized.py).
+            contents = self._build_local_bridge_contents(
                 user_message=user_message,
                 history=history,
                 action_plan=action_plan,
                 pkm_context=pkm_context,
             )
-
-            payload = {
-                # Hybrid split: this reply-generation call uses
-                # Qwen3-4B-Instruct-2507 run through llama.cpp/GGUF (the same
-                # checkpoint previously served via QAIRT/NPU -- see the RAM
-                # curve section below in KNOWN_ISSUES.md), while the separate
-                # action-plan classifier call below (_plan_action_via_bridge)
-                # stays on the 1B. Two prior candidates were tried and
-                # reverted for this role: Qwen3.5-2B broke tool-calling
-                # outright when `tools` were attached, and even scoped to
-                # this tools-free reply role, its always-on <think> reasoning
-                # trace failed to close within budget in ~40-60% of live
-                # trials (confirmed via repeated direct testing), each
-                # failure costing 4-5 minutes before falling back to an
-                # error message -- unacceptably unreliable. Qwen3-4B has no
-                # thinking-mode trace at all (confirmed via the model card
-                # and directly via this endpoint: zero `<think>` tags across
-                # every trial), so it needs none of that complexity: 100%
-                # success across all trials tested, replies in 16-27s (vs.
-                # Qwen3.5-2B's up to several minutes), and a smaller ~3.2-3.5GB
-                # GenieX process footprint than the original QAIRT path (no
-                # NPU driver/context overhead to carry). See registry.js's
-                # GENIEX_MODEL_ID for the full history.
-                "model": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
-                "messages": messages,
-                "stream": True,
-                "temperature": 0.7,
+            config = genai_types.GenerateContentConfig(
+                temperature=0.7,
                 # `max_tokens` (the field the GenieX docs themselves show) is
                 # silently IGNORED by this installed GenieX version's HTTP
                 # API -- confirmed via direct testing against this exact
                 # endpoint: a request capped at 256 came back with 1,258
                 # completion tokens. `max_completion_tokens` is the field
-                # that's actually honored. 1500 comfortably covers this
-                # model's real replies (129-243 completion tokens observed
-                # across plain-chat and math-guardrail trials, with no
-                # reasoning-trace overhead to budget for).
-                "max_completion_tokens": 1500,
-            }
-
-            # aiohttp.ClientSession defaults to a 300s total timeout if none
-            # is given -- disable it so a genuinely slow (but progressing)
-            # on-device generation is never cut off mid-stream.
-            no_timeout = aiohttp.ClientTimeout(total=None)
-            async with aiohttp.ClientSession(timeout=no_timeout) as session:
-                async with session.post(url, json=payload) as response:
-                    if response.status != 200:
-                        yield "Local engine connection failure"
-                        return
-                    async for line in response.content:
-                        line = line.decode("utf-8").strip()
-                        if not line.startswith("data:"):
-                            continue
-                        # GenieX emits "data:{...}" with no space after the colon,
-                        # unlike the space-delimited "data: {...}" SSE convention.
-                        payload_str = line[len("data:"):].strip()
-                        if payload_str == "[DONE]":
-                            continue
-                        try:
-                            data = json.loads(payload_str)
-                            choice = data.get("choices", [{}])[0]
-                            # GenieX normally streams token deltas, but for some
-                            # (slow/heavy) completions it emits a single final
-                            # frame in the non-streaming "message" shape instead.
-                            delta = choice.get("delta", {}).get("content", "") or choice.get("message", {}).get("content", "")
-                            if delta:
-                                yield delta
-                        except Exception as exc:
-                            logger.warning(f"[LocalChat] Failed to parse GenieX SSE line: {exc!r} line={payload_str[:200]!r}")
+                # that's actually honored -- translate.py's to_neutral_request
+                # reads max_output_tokens and OpenAITransport sends it as
+                # max_completion_tokens, so this still lands on the right
+                # field. 1500 comfortably covers this model's real replies
+                # (129-243 completion tokens observed across plain-chat and
+                # math-guardrail trials, with no reasoning-trace overhead to
+                # budget for).
+                max_output_tokens=1500,
+            )
+            # Hybrid split: this reply-generation call uses
+            # Qwen3-4B-Instruct-2507 run through llama.cpp/GGUF (the same
+            # checkpoint previously served via QAIRT/NPU -- see the RAM curve
+            # section below in KNOWN_ISSUES.md), while the separate
+            # action-plan classifier call (plan_action_with_gemini's local
+            # branch) stays on the 1B. Two prior candidates were tried and
+            # reverted for this role: Qwen3.5-2B broke tool-calling outright
+            # when `tools` were attached, and even scoped to this tools-free
+            # reply role, its always-on <think> reasoning trace failed to
+            # close within budget in ~40-60% of live trials (confirmed via
+            # repeated direct testing), each failure costing 4-5 minutes
+            # before falling back to an error message -- unacceptably
+            # unreliable. Qwen3-4B has no thinking-mode trace at all
+            # (confirmed via the model card and directly via this endpoint:
+            # zero `<think>` tags across every trial), so it needs none of
+            # that complexity: 100% success across all trials tested, replies
+            # in 16-27s (vs. Qwen3.5-2B's up to several minutes), and a
+            # smaller ~3.2-3.5GB GenieX process footprint than the original
+            # QAIRT path (no NPU driver/context overhead to carry). See
+            # registry.js's GENIEX_MODEL_ID for the full history.
+            local_reply_model = "unsloth/Qwen3-4B-Instruct-2507-GGUF"
+            try:
+                # Note: the openai SDK's own default client timeout (600s)
+                # applies here, not an explicit "never time out" like the
+                # prior hand-rolled aiohttp session used -- real replies take
+                # 16-27s per the comment above, so this is generous enough in
+                # practice; revisit only if a genuinely long local generation
+                # is ever observed hitting it.
+                stream = await runtime_client.aio.models.generate_content_stream(
+                    model=local_reply_model,
+                    contents=contents,
+                    config=config,
+                )
+                async for chunk in stream:
+                    text = self._chunk_text(chunk)
+                    if text:
+                        yield text
+            except Exception as exc:
+                logger.warning(f"[LocalChat] Local bridge streaming failed: {exc!r}")
+                yield "Local engine connection failure"
             return
 
         contents = self._build_contents(
@@ -1715,14 +1737,24 @@ class AgentChatService:
         runtime_model: str,
         pkm_context: str | None = None,
     ) -> AgentChatActionPlan | None:
-        # Key off the local model only (see stream_response): a missing cloud
-        # runtime_client should not silently route into the local fallback.
-        if runtime_model == "Llama-3.2-3B-Instruct":
-            # Real tool-calling through the local bridge first (same mechanism
-            # cloud mode uses, translated for GenieX -- see local_bridge/).
-            # Falls back to the deterministic regex router if the model's
-            # tool call doesn't resolve to a known action, or the bridge/
-            # GenieX isn't reachable, rather than surfacing a hard failure.
+        # Keyed off the client's provider label now (see stream_response),
+        # not the runtime_model sentinel -- a missing cloud runtime_client
+        # should not silently route into the local fallback.
+        #
+        # NOT routed through the generic runtime_providers facade the way
+        # stream_response's local branch now is: _agent_action_tool()'s raw
+        # genai schema dump uses Gemini's own uppercase type convention
+        # ("OBJECT"/"STRING"), and the vendored translate.py does not
+        # lowercase it -- only _openai_tools_from_agent_action_tool()'s
+        # _lower_types step does, a fix someone already found necessary for
+        # GenieX's prompt-injection-based tool-calling specifically. Routing
+        # this call through the untested-for-that-gap generic path risked
+        # silently reintroducing that bug, so this keeps calling the proven
+        # hand-rolled path below rather than a blind "unify everything."
+        # Falls back to the deterministic regex router if the model's tool
+        # call doesn't resolve to a known action, or the bridge/GenieX isn't
+        # reachable, rather than surfacing a hard failure.
+        if getattr(runtime_client, "provider", None) == LOCAL_PROVIDER_LABEL:
             action_plan = await self._plan_action_via_bridge(
                 user_message=user_message, history=history, pkm_context=pkm_context
             )
