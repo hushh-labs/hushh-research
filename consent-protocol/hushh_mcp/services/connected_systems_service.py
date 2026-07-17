@@ -651,10 +651,16 @@ class ConnectedSystemDefinition:
 
     def operation_endpoint(self, operation: str) -> str | None:
         tool = self.operation(operation) or {}
+        configured = str(tool.get("mcpEndpoint") or "").strip()
+        # A legacy registry could contain a path-only operation endpoint. It is
+        # not a valid Streamable HTTP target on its own; preserve the system's
+        # registered absolute transport endpoint until that row is explicitly
+        # configured with an absolute per-operation URL.
+        if configured.startswith(("https://", "http://", "registry://")):
+            return configured
         return (
             str(
-                tool.get("mcpEndpoint")
-                or (self.delete_transport_endpoint if operation == "delete" else None)
+                (self.delete_transport_endpoint if operation == "delete" else None)
                 or self.transport_endpoint
                 or ""
             ).strip()
