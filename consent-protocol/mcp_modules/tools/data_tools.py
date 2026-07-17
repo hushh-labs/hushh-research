@@ -685,3 +685,184 @@ async def handle_get_professional(args: dict) -> list[TextContent]:
             ),
         )
     ]
+
+
+async def handle_get_shopping_memory(args: dict) -> list[TextContent]:
+    """Get the user's shopping-memory projection WITH mandatory consent validation.
+
+    Compliance:
+    ✅ HushhMCP: Consent BEFORE data access (token validated before any identifier resolution)
+    ✅ HushhMCP: Scoped access — requires attr.shopping.* (or broader)
+    ✅ HushhMCP: User ID bound to validated token, not caller-supplied input
+    ✅ Privacy: Denied without valid consent; no account enumeration possible
+    ✅ Scope isolation: shopping token cannot access financial / professional data
+    """
+    from mcp_modules.config import FASTAPI_URL
+
+    caller_id = args.get("user_id")
+    country_iso2 = str(args.get("country_iso2") or "").strip() or None
+    country = str(args.get("country") or "").strip() or None
+    consent_token = args.get("consent_token")
+    force_refresh = bool(args.get("force_refresh", False))
+
+    # Step 1: Validate consent token before any identifier resolution or backend I/O.
+    # Resolving the caller-supplied identifier first would let unauthenticated callers
+    # probe whether an email or phone is registered (account enumeration via
+    # user_not_found vs access_denied). Consent must be established first.
+    valid, reason, token_obj = await validate_token_with_db(
+        consent_token,
+        expected_scope="attr.shopping.*",
+    )
+
+    if not valid:
+        logger.warning("ACCESS DENIED (shopping_memory): %s", reason)
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "status": "access_denied",
+                        "error": f"Consent validation failed: {reason}",
+                        "required_scope": "attr.shopping.*",
+                        "privacy_notice": (
+                            "Hussh requires explicit consent before accessing "
+                            "any personal shopping data."
+                        ),
+                        "remedy": (
+                            "Call request_consent with scope='attr.shopping.*' first, "
+                            "then use the returned token here."
+                        ),
+                    }
+                ),
+            )
+        ]
+
+    # Step 2: Authoritative user_id comes from the validated token.
+    authoritative_uid = str(token_obj.user_id)
+
+    # Step 3: If the caller supplied an identifier that differs from the token UID
+    # (e.g. an email or phone), resolve it only now that consent is proven.
+    # Return a generic access_denied on any mismatch — do not reveal whether
+    # the identifier maps to any account.
+    if caller_id != authoritative_uid:
+        from mcp_modules.tools.consent_tools import resolve_email_to_uid as _resolve_email
+
+        resolved_uid, _, _ = await _resolve_email(
+            caller_id,
+            country_iso2=country_iso2,
+            country=country,
+        )
+        if resolved_uid != authoritative_uid:
+            logger.warning(
+                "ACCESS DENIED (shopping_memory): identifier mismatch caller=%s token_user=%s",
+                caller_id,
+                authoritative_uid,
+            )
+            return [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "status": "access_denied",
+                            "error": "Token user_id does not match requested user_id",
+                            "privacy_notice": (
+                                "Consent tokens are bound to specific users "
+                                "and cannot be reused across accounts."
+                            ),
+                        }
+                    ),
+                )
+            ]
+
+    user_id = authoritative_uid
+
+    # Call the backend consent-gated shopping-memory endpoint
+    try:
+        import httpx
+
+        token_query = get_developer_request_query()
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(
+                f"{FASTAPI_URL}/api/consent/shopping-memory",
+                params=token_query or None,
+                json={
+                    "user_id": user_id,
+                    "consent_token": consent_token,
+                    "force_refresh": force_refresh,
+                },
+            )
+
+            if response.status_code == 403:
+                payload = response.json()
+                detail = payload.get("detail") or {}
+                return [
+                    TextContent(
+                        type="text",
+                        text=json.dumps(
+                            {
+                                "status": "access_denied",
+                                "error": detail.get("message", "Access denied"),
+                                "code": detail.get("code"),
+                            }
+                        ),
+                    )
+                ]
+
+            if response.status_code == 503:
+                return [
+                    TextContent(
+                        type="text",
+                        text=json.dumps(
+                            {
+                                "status": "temporarily_unavailable",
+                                "message": (
+                                    "Shopping memory is temporarily unavailable. "
+                                    "Please try again in a moment."
+                                ),
+                                "retryable": True,
+                            }
+                        ),
+                    )
+                ]
+
+            response.raise_for_status()
+            data = response.json()
+
+    except Exception as exc:
+        logger.warning("shopping_memory backend call failed: %s", exc)
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "status": "error",
+                        "error": "Failed to fetch shopping memory",
+                        "message": (
+                            "The shopping-memory service is temporarily unreachable. "
+                            "Please try again."
+                        ),
+                    }
+                ),
+            )
+        ]
+
+    logger.info("shopping_memory ACCESSED for user=%s (consent verified)", user_id)
+
+    return [
+        TextContent(
+            type="text",
+            text=json.dumps(
+                {
+                    "status": "success",
+                    "user_id": user_id,
+                    "scope": "attr.shopping.*",
+                    "consent_verified": True,
+                    "data": data,
+                    "privacy_note": (
+                        "Shopping history accessed with valid user consent. "
+                        "All figures are aggregated — no raw transaction details."
+                    ),
+                }
+            ),
+        )
+    ]

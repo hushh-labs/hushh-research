@@ -663,6 +663,61 @@ def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Too
             ),
             inputSchema={"type": "object", "properties": {}, "required": []},
         ),
+        # Tool: Get Shopping Memory Projection
+        Tool(
+            name="get_shopping_memory",
+            description=(
+                "🛍️ Retrieve a privacy-safe shopping-memory projection for a user. "
+                "Returns aggregated merchant affinity (top merchants), detected purchase patterns "
+                "(monthly subscriptions, recurring orders), recent purchase highlights, and "
+                "a top-currency spend summary. "
+                "REQUIRES a consent token issued for scope 'attr.shopping.*'. "
+                "Call request_consent(user_id, scope='attr.shopping.*') first if you don't have one. "
+                "No raw transaction details or account numbers are included — all data is aggregated."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "string",
+                        "description": (
+                            "The user's Firebase UID, registered email, "
+                            "or registered E.164 phone number."
+                        ),
+                    },
+                    "consent_token": {
+                        "type": "string",
+                        "description": (
+                            "Consent token issued for scope 'attr.shopping.*' "
+                            "(or a broader scope that covers it)."
+                        ),
+                    },
+                    "country_iso2": {
+                        "type": "string",
+                        "description": (
+                            "Optional ISO country hint for national phone numbers. "
+                            "Examples: US, GB, IN."
+                        ),
+                    },
+                    "country": {
+                        "type": "string",
+                        "description": (
+                            "Optional country name or shortform for national phone numbers. "
+                            "Examples: United States, USA, UK."
+                        ),
+                    },
+                    "force_refresh": {
+                        "type": "boolean",
+                        "description": (
+                            "When true, bypass the cached projection and rebuild from raw receipts. "
+                            "Use sparingly — the rebuild takes a few seconds."
+                        ),
+                        "default": False,
+                    },
+                },
+                "required": ["user_id", "consent_token"],
+            },
+        ),
     ]
     if allowed_tool_names is None:
         return definitions

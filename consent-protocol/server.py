@@ -325,6 +325,11 @@ from hushh_mcp.services.gmail_receipts_service import (  # noqa: E402
 app.include_router(kai_router)
 app.include_router(one_router)
 
+# Consent-gated shopping-memory endpoint for MCP agents
+from api.routes.kai.shopping_memory import router as shopping_memory_router  # noqa: E402
+
+app.include_router(shopping_memory_router, prefix="/api")
+
 # Phase 2: Investor Profiles (Public Discovery Layer)
 from api.routes import investors  # noqa: E402
 
