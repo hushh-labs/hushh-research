@@ -11,7 +11,6 @@ import {
   Loader2,
   Newspaper,
   Percent,
-  Sparkles,
   TrendingDown,
   TrendingUp,
   type LucideIcon,

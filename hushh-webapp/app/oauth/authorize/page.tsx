@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
+import { ApiService } from "@/lib/services/api-service";
 
 type OAuthApprovalResponse = { redirect_uri?: string; detail?: { error_description?: string } };
 
@@ -24,7 +25,7 @@ export default function OAuthAuthorizePage() {
     setError(null);
     try {
       const idToken = await user.getIdToken();
-      const response = await fetch(`/api/oauth/authorize/${encodeURIComponent(requestRef)}/${decision}`, {
+      const response = await ApiService.apiFetch(`/api/oauth/authorize/${encodeURIComponent(requestRef)}/${decision}`, {
         method: "POST",
         headers: { Authorization: `Bearer ${idToken}` },
         cache: "no-store",
