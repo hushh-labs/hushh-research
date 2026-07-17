@@ -46,7 +46,7 @@ router = APIRouter()
 
 
 class PortfolioLoser(BaseModel):
-    symbol: str = Field(..., description="Ticker symbol", max_length=20)
+    symbol: str = Field(..., min_length=1, max_length=20, description="Ticker symbol")
     name: Optional[str] = Field(default=None, max_length=256)
     gain_loss_pct: Optional[float] = Field(
         None, description="Unrealized P/L percent (negative for losers)"
@@ -58,7 +58,7 @@ class PortfolioLoser(BaseModel):
 class PortfolioHolding(BaseModel):
     """Full-position snapshot for Optimize Portfolio (not only losers)."""
 
-    symbol: str = Field(..., description="Ticker symbol", max_length=20)
+    symbol: str = Field(..., min_length=1, max_length=20, description="Ticker symbol")
     name: Optional[str] = Field(default=None, max_length=256)
     gain_loss_pct: Optional[float] = Field(default=None, description="Unrealized P/L percent")
     gain_loss: Optional[float] = Field(default=None, description="Unrealized P/L amount")
@@ -82,8 +82,8 @@ class AnalyzeLosersRequest(BaseModel):
     )
     holdings: list[PortfolioHolding] = Field(
         default_factory=list,
+        max_length=500,
         description="Optional full holdings snapshot for Optimize Portfolio.",
-        max_length=1000,
     )
     force_optimize: bool = Field(
         False,

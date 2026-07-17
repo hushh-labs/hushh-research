@@ -31,7 +31,7 @@ router = APIRouter()
 class AnalyzeRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
     ticker: str = Field(min_length=1, max_length=20)
-    consent_token: Optional[str] = Field(default=None, max_length=2048)
+    consent_token: Optional[str] = Field(default=None, max_length=1024)
     # Client provides context explicitly (Stateless)
     risk_profile: Literal["conservative", "balanced", "aggressive"] = "balanced"
     processing_mode: Literal["on_device", "hybrid"] = "hybrid"
