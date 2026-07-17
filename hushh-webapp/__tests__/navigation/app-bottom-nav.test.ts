@@ -71,8 +71,8 @@ describe("app bottom navigation", () => {
     expect(resolveOneActiveNav(ROUTES.PKM)).toBe("pkm");
     expect(resolveOneActiveNav(ROUTES.ONE_MARKETPLACE)).toBe("marketplace");
     expect(resolveOneActiveNav(ROUTES.CONNECTED_SYSTEMS)).toBe("connected");
-    // Global destinations keep their own fixed tab; profile subroutes stay on
-    // the Profile tab.
+    // Global destinations keep their own fixed tab; Profile belongs to One
+    // because Profile is not a persistent bottom-bar option.
     expect(resolveOneActiveNav(ROUTES.AGENT)).toBe("search");
     expect(resolveOneActiveNav(ROUTES.PROFILE)).toBe("profile");
     expect(resolveOneActiveNav(ROUTES.PROFILE_RECEIPTS)).toBe("profile");
@@ -106,7 +106,7 @@ describe("app bottom navigation", () => {
     expect(resolveRiaActiveNav(ROUTES.RIA_HOME)).toBe("ria-home");
   });
 
-  it("keeps primary utilities constant across One, Finance, and RIA", () => {
+  it("keeps the shared workspace navigation available across route families", () => {
     for (const [pathname, scope] of [
       [ROUTES.CONNECTED_SYSTEMS, "one"],
       [ROUTES.KAI_ANALYSIS, "investor"],
@@ -114,6 +114,9 @@ describe("app bottom navigation", () => {
     ] as const) {
       expect(resolveBottomNavOptionKeys(pathname, scope)).toEqual([
         "dashboard",
+        "finance",
+        "portfolio",
+        "analysis",
         "connect",
         "search",
       ]);
@@ -155,15 +158,15 @@ describe("app bottom navigation", () => {
     expect(resolveRiaNavSlot(ROUTES.RIA_PICKS)).toBe("picks");
   });
 
-  it("keeps bottom utility selection independent of workspace scope", () => {
-    expect(resolveBottomNavActiveKey(ROUTES.AGENT, "one")).toBe("dashboard");
+  it("selects the active workspace destination", () => {
+    expect(resolveBottomNavActiveKey(ROUTES.AGENT, "one")).toBe("search");
     expect(resolveBottomNavActiveKey(ROUTES.KAI_ANALYSIS, "investor")).toBe(
       "analysis",
     );
     expect(resolveBottomNavActiveKey(ROUTES.RIA_CLIENTS, "ria")).toBe(
-      "clients",
+      "dashboard",
     );
-    expect(resolveBottomNavActiveKey(ROUTES.PROFILE, "ria")).toBe("profile");
+    expect(resolveBottomNavActiveKey(ROUTES.PROFILE, "ria")).toBe("dashboard");
     expect(resolveBottomNavContextKey(ROUTES.CONNECTED_SYSTEMS, "one")).toBe(
       "connected",
     );

@@ -245,7 +245,9 @@ export function resolveBottomNavActiveKey(
     return "connect";
   }
   if (isBottomNavRoute(normalizedPathname, ROUTES.PROFILE)) {
-    return "profile";
+    // Profile is reached from One but is not a persistent bottom-bar option.
+    // Keep the visible control selected rather than pointing at a removed tab.
+    return "dashboard";
   }
 
   if (
