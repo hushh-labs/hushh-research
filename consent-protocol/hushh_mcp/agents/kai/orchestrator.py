@@ -14,7 +14,7 @@ This is the "conductor" that brings everything together:
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from hushh_mcp.agents.base_agent import HushhAgent
@@ -106,7 +106,7 @@ class KaiOrchestrator(HushhAgent):
             ValueError: If consent token is invalid
             TimeoutError: If analysis exceeds timeout
         """
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
         logger.info(f"[Kai] Starting analysis for {ticker}")
 
         # Step 1: Validate consent
@@ -137,7 +137,7 @@ class KaiOrchestrator(HushhAgent):
             )
 
             # Step 5: Log completion
-            duration = (datetime.utcnow() - start_time).total_seconds()
+            duration = (datetime.now(timezone.utc) - start_time).total_seconds()
             logger.info(f"[Kai] Analysis complete for {ticker} in {duration:.1f}s")
 
             return decision_card

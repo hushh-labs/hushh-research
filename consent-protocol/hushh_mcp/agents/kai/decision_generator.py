@@ -14,7 +14,7 @@ Key Responsibilities:
 import json
 import logging
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from .config import DecisionType, RiskProfile
@@ -155,7 +155,7 @@ By using Kai, you acknowledge that you understand these limitations.
         """
         logger.info(f"[DecisionGen] Generating decision card for {ticker}")
 
-        decision_id = f"decision_{datetime.utcnow().timestamp()}"
+        decision_id = f"decision_{datetime.now(timezone.utc).timestamp()}"
 
         # Generate headline
         headline = self._generate_headline(ticker, debate.decision, debate.confidence)
@@ -183,7 +183,7 @@ By using Kai, you acknowledge that you understand these limitations.
             decision_id=decision_id,
             ticker=ticker,
             user_id=user_id,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             decision=debate.decision,
             confidence=debate.confidence,
             headline=headline,
