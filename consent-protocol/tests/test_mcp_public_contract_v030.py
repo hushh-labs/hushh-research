@@ -80,6 +80,7 @@ def test_every_tool_schema_is_strict_bounded_and_structured() -> None:
         jsonschema.Draft202012Validator.check_schema(tool["inputSchema"])
         jsonschema.Draft202012Validator.check_schema(tool["outputSchema"])
         assert tool["inputSchema"]["additionalProperties"] is False
+        assert tool["outputSchema"]["type"] == "object"
         assert tool["annotations"]["idempotentHint"] is True
         assert tool["description"]
 

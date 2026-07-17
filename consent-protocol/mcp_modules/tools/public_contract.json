@@ -58,6 +58,7 @@
         "required": ["user_identifier"]
       },
       "outputSchema": {
+        "type": "object",
         "oneOf": [
           {
             "type": "object",
@@ -123,6 +124,7 @@
         "anyOf": [{"required": ["user_id"]}, {"required": ["user_identifier"]}]
       },
       "outputSchema": {
+        "type": "object",
         "oneOf": [
           {
             "type": "object",
@@ -179,6 +181,7 @@
         "required": ["user_identifier", "scope", "purpose"]
       },
       "outputSchema": {
+        "type": "object",
         "oneOf": [
           {
             "type": "object",
@@ -218,6 +221,7 @@
         "required": ["request_ref"]
       },
       "outputSchema": {
+        "type": "object",
         "oneOf": [
           {
             "type": "object",
@@ -256,6 +260,7 @@
         "required": ["grant_ref", "expected_scope"]
       },
       "outputSchema": {
+        "type": "object",
         "oneOf": [
           {
             "type": "object",

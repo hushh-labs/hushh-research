@@ -17,7 +17,7 @@ describe("Navbar bottom chrome contract", () => {
     expect(navbar).toContain("const BOTTOM_GAP_PX = 4;");
     expect(navbar).toContain("flex justify-center");
     expect(agentBar).toContain(
-      '"calc(var(--app-bottom-inset) - 0.58rem)",',
+      '"var(--agent-bar-with-nav-bottom)",',
     );
     expect(agentBar).not.toContain(
       'calc(max(var(--app-bottom-inset), calc(var(--bottom-nav-offset) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift))) + 0.5rem)',

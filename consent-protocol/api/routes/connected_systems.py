@@ -172,8 +172,11 @@ async def list_connected_systems(
     firebase_uid: str = Depends(_require_signed_in_lister),
 ):
     _ = firebase_uid
-    service = get_connected_systems_service()
-    return ConnectedSystemsResponse(systems=service.list_systems())
+    try:
+        service = get_connected_systems_service()
+        return ConnectedSystemsResponse(systems=service.list_systems())
+    except ConnectedSystemsError as error:
+        _raise_connected_system_error(error)
 
 
 @router.get("/{system_id}/schema")

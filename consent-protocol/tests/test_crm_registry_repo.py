@@ -65,6 +65,7 @@ def _operation_rows() -> list[dict]:
             "http_method": None,
             "path": None,
             "description": "Discover Contact schema.",
+            "mcp_endpoint": MCP_ENDPOINT,
         },
         {
             "crm_id": "salesforce-fsc-customer0",
@@ -73,6 +74,7 @@ def _operation_rows() -> list[dict]:
             "http_method": None,
             "path": None,
             "description": "Read by email/phone.",
+            "mcp_endpoint": MCP_ENDPOINT,
         },
         {
             "crm_id": "salesforce-fsc-customer0",
@@ -81,6 +83,7 @@ def _operation_rows() -> list[dict]:
             "http_method": None,
             "path": None,
             "description": "Create a Contact.",
+            "mcp_endpoint": MCP_ENDPOINT,
         },
         {
             "crm_id": "salesforce-fsc-customer0",
@@ -89,6 +92,7 @@ def _operation_rows() -> list[dict]:
             "http_method": None,
             "path": None,
             "description": "Update by id.",
+            "mcp_endpoint": MCP_ENDPOINT,
         },
         {
             "crm_id": "salesforce-fsc-customer0",
@@ -97,6 +101,7 @@ def _operation_rows() -> list[dict]:
             "http_method": None,
             "path": None,
             "description": "Delete by id.",
+            "mcp_endpoint": MCP_ENDPOINT,
         },
     ]
 
@@ -148,6 +153,18 @@ def test_load_active_definition_missing_row_returns_none(monkeypatch):
     monkeypatch.setattr(crm_registry_repo, "_vault_key_hex", lambda: TEST_VAULT_KEY)
     db = _FakeDb([], [])
     assert crm_registry_repo.load_active_definition("does-not-exist", db=db) is None
+
+
+def test_missing_operation_rows_do_not_fall_back_to_a_global_crud_catalog(monkeypatch):
+    monkeypatch.setattr(crm_registry_repo, "_vault_key_hex", lambda: TEST_VAULT_KEY)
+    definition = crm_registry_repo.load_active_definition(
+        "salesforce-fsc-customer0", db=_FakeDb([_encrypted_row()], [])
+    )
+
+    assert definition is not None
+    assert definition.tool_catalog == ()
+    assert not definition.supports("schema")
+    assert not definition.supports("create")
 
 
 def test_load_active_definition_bad_key_raises_configuration_error(monkeypatch):

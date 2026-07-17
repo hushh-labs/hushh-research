@@ -93,6 +93,9 @@ def test_live_stdio_negotiates_supported_versions_and_lists_exact_tools(
             for tool in listed["result"]["tools"]
         )
         assert all("outputSchema" in tool for tool in listed["result"]["tools"])
+        assert all(
+            tool["outputSchema"].get("type") == "object" for tool in listed["result"]["tools"]
+        )
 
         process.stdin.write(
             json.dumps(
