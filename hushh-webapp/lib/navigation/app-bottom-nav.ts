@@ -231,9 +231,15 @@ export function resolveRiaActiveNav(
 
 export function resolveBottomNavActiveKey(
   pathname: string | null | undefined,
-  _scope: AppBottomNavScope,
+  scope: AppBottomNavScope,
 ): AppBottomNavKey {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
+  if (scope === "investor") {
+    return resolveInvestorActiveNav(pathname);
+  }
+  if (scope === "ria") {
+    return resolveRiaActiveNav(pathname);
+  }
   return isBottomNavRoute(normalizedPathname, ROUTES.PROFILE)
     ? "profile"
     : "dashboard";
@@ -253,9 +259,16 @@ export function resolveBottomNavOptionKeys(
   _scope: AppBottomNavScope,
   _context?: AppBottomNavContext,
 ): AppBottomNavKey[] {
-  // Bottom chrome is global utility navigation, never a contextual workspace
-  // tab bar. Finance/RIA sections live in the signed-in TopAppBar instead.
-  return ["dashboard", "profile"];
+  return ["dashboard", "connect", "search"];
+}
+
+/** Contextual workspace tabs render beside the stable primary navigation. */
+export function resolveBottomNavSpecialistOptionKeys(
+  scope: AppBottomNavScope,
+): AppBottomNavKey[] {
+  if (scope === "investor") return ["finance", "portfolio", "analysis"];
+  if (scope === "ria") return ["ria-home", "clients", "picks"];
+  return [];
 }
 
 export function resolveBottomNavAction(

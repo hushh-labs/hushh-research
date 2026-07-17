@@ -106,7 +106,7 @@ describe("app bottom navigation", () => {
     expect(resolveRiaActiveNav(ROUTES.RIA_HOME)).toBe("ria-home");
   });
 
-  it("keeps bottom utilities constant across One, Finance, and RIA", () => {
+  it("keeps primary utilities constant across One, Finance, and RIA", () => {
     for (const [pathname, scope] of [
       [ROUTES.CONNECTED_SYSTEMS, "one"],
       [ROUTES.KAI_ANALYSIS, "investor"],
@@ -114,7 +114,8 @@ describe("app bottom navigation", () => {
     ] as const) {
       expect(resolveBottomNavOptionKeys(pathname, scope)).toEqual([
         "dashboard",
-        "profile",
+        "connect",
+        "search",
       ]);
     }
   });
@@ -157,10 +158,10 @@ describe("app bottom navigation", () => {
   it("keeps bottom utility selection independent of workspace scope", () => {
     expect(resolveBottomNavActiveKey(ROUTES.AGENT, "one")).toBe("dashboard");
     expect(resolveBottomNavActiveKey(ROUTES.KAI_ANALYSIS, "investor")).toBe(
-      "dashboard",
+      "analysis",
     );
     expect(resolveBottomNavActiveKey(ROUTES.RIA_CLIENTS, "ria")).toBe(
-      "dashboard",
+      "clients",
     );
     expect(resolveBottomNavActiveKey(ROUTES.PROFILE, "ria")).toBe("profile");
     expect(resolveBottomNavContextKey(ROUTES.CONNECTED_SYSTEMS, "one")).toBe(

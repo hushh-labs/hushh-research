@@ -93,8 +93,8 @@ software on their own machine, with loopback network access the LLM host's
 own sandbox typically does not have. On this transport only:
 
 - `get_encrypted_scoped_export` decrypts and narrows the export locally,
-  returning only a bounded `information` object. Ciphertext, wrapped-key metadata,
-  and resource fetches never enter the LLM host's context. Results that exceed
+  returning only a bounded `information` object. Ciphertext and wrapped-key metadata
+  never enter the LLM host's context. Results that exceed
   the model-result limit require a narrower semantic scope.
 - `request_consent` no longer requires `connector_public_key`,
   `connector_key_id`, or `connector_wrapping_alg`: the local server generates
@@ -108,8 +108,8 @@ own sandbox typically does not have. On this transport only:
 
 The remote/hosted MCP endpoint (`/mcp`, see below) has no local trusted
 process to hold a private key. It requires explicit connector arguments and
-returns envelope metadata plus an authenticated ciphertext resource link; the
-connector fetches and decrypts the resource outside model context.
+returns the encrypted envelope directly in the MCP tool result; the connector
+decrypts it outside model context. No plaintext is returned.
 
 ## Claude Remote Connector
 
@@ -174,9 +174,10 @@ the remote `/mcp` endpoint, without spawning any local process.
   mcp_transport` / `mcp_consent`) exercise it. Do not design an integration
   that depends on cross-request session state surviving between separate
   streamable-HTTP connections.
-- The remote endpoint returns authenticated resource links, never plaintext or
-  inline megabyte ciphertext. CRM connectors fetch, decrypt, and narrow
-  client-side with their own registered connector key.
+- The remote endpoint returns ciphertext directly over MCP, never plaintext.
+  Results above the bounded inline ciphertext limit fail closed and require a
+  narrower discovered scope. CRM connectors decrypt and narrow client-side
+  with their own registered connector key.
 
 ## Contributor-Local Fallback
 

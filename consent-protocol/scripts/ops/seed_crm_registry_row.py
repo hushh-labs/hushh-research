@@ -168,17 +168,23 @@ def main() -> int:
     for operation, tool_name, description in _OPERATION_TOOLS:
         db.execute_raw(
             """
-            INSERT INTO crm_operation_endpoints (crm_id, operation, tool_name, description)
-            VALUES (:crm_id, :operation, :tool_name, :description)
+            INSERT INTO crm_operation_endpoints (crm_id, operation, tool_name, description, mcp_endpoint)
+            VALUES (:crm_id, :operation, :tool_name, :description, :mcp_endpoint)
             ON CONFLICT (crm_id, operation) DO UPDATE SET
               tool_name = EXCLUDED.tool_name,
-              description = EXCLUDED.description
+              description = EXCLUDED.description,
+              mcp_endpoint = EXCLUDED.mcp_endpoint
             """,
             {
                 "crm_id": args.crm_id,
                 "operation": operation,
                 "tool_name": tool_name,
                 "description": description,
+                "mcp_endpoint": (
+                    args.delete_endpoint
+                    if operation == "delete" and args.delete_endpoint
+                    else args.mcp_endpoint
+                ),
             },
         )
 

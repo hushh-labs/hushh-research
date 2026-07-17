@@ -202,12 +202,11 @@ The signed-in bottom navigation is a shared shell surface, not a route-local tab
 
 Rules:
 
-1. The bottom utility bar is fixed and constant on all signed-in standard routes: `One`, `Profile`, and the detached `Search` command action. It does not change with agent, persona, or subroute.
-2. Subroutes keep `One` selected; Profile and its children keep `Profile` selected. Search opens `KaiCommandBarGlobal`; it does not route to `/agent` or open agent chat.
-3. Finance and RIA navigation belongs in the signed-in top shell, not in the bottom bar. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`, `Clients`, and `Picks`. Tabs are driven by canonical route-tab definitions and are horizontally scrollable on small screens.
-4. Profile is the rightmost signed-in top-bar action, using the signed-in image or shared generic fallback. `Connect` is not shell chrome, a bottom utility, or a workspace tab.
+1. The primary bottom utility bar is fixed and constant on all signed-in standard routes: `One`, `Connect`, and `Search`. Search is part of the same segmented control and opens `KaiCommandBarGlobal`; it does not route to `/agent` or open agent chat.
+2. Profile remains the rightmost signed-in top-bar action, using the signed-in image or shared generic fallback.
+3. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`, `Clients`, and `Picks`. On wide layouts those context tabs render as a separate compact group immediately left of the primary bottom control. The composite is centered; neither group becomes route-local chrome.
 5. Use canonical route constants through `lib/navigation/app-bottom-nav.ts` and `lib/navigation/*-route-tabs.ts`; route files must not build their own shell navigation arrays.
-6. The Agent Bar and bottom utility bar share the measured bottom-chrome stack with a 4px resting join. The utility frame uses the same width constraint as the Agent Bar: right-align within that frame on wide screens and center on phones. Do not add component- or route-local offsets.
+6. The Agent Bar and bottom utility bar share the measured bottom-chrome stack with a 4px resting join. The combined utility groups use the measured shared frame and remain centered on both wide and narrow screens. Do not add component- or route-local offsets.
 7. Bottom active state uses fill and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
 8. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
 9. The pending-consent count belongs on the One utility only; never duplicate it onto Profile or a workspace tab.

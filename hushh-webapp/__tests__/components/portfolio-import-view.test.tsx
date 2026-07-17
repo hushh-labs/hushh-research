@@ -43,7 +43,7 @@ describe("PortfolioImportView", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /connect a brokerage/i }));
+    fireEvent.click(screen.getByRole("button", { name: /bank account \(via plaid\)/i }));
     expect(onConnectPlaid).toHaveBeenCalledWith("sandbox");
 
     fireEvent.click(screen.getByRole("button", { name: /load sample brokerage/i }));

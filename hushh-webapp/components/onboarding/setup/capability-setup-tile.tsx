@@ -6,7 +6,6 @@ import { CheckCircle2 } from "lucide-react";
 
 import {
   getCapabilityStatusDisplay,
-  type CapabilityStatusTone,
 } from "@/lib/onboarding/capability-status-display";
 import {
   type OneCapabilityIcon,
@@ -32,12 +31,6 @@ import { cn } from "@/lib/utils";
  * silently drop cloned `<Link>` taps; press feedback is SettingsRow's built-in
  * wash.
  */
-const STATUS_TEXT_CLASS_BY_TONE: Record<CapabilityStatusTone, string> = {
-  ready: "text-muted-foreground",
-  action: "font-medium text-foreground",
-  attention: "font-medium text-foreground",
-  muted: "text-muted-foreground",
-};
 
 export interface CapabilitySetupTileProps {
   capabilityId: string;
@@ -100,28 +93,28 @@ export function CapabilitySetupTile({
           id={capabilityId}
           icon={icon}
           tone={tone}
+          isActive={isCapabilitySetupComplete(status)}
           size="menu"
         />
       }
       title={title}
-      description={description}
+      description={
+        <div className="line-clamp-2 md:line-clamp-none">
+          {description}
+        </div>
+      }
       chevron
+      className={cn(
+        isComplete && "bg-emerald-500/10 dark:bg-emerald-400/10",
+        className
+      )}
       trailing={
         isComplete ? (
           <CheckCircle2
             className="h-[18px] w-[18px] shrink-0 text-emerald-600 dark:text-emerald-300"
             aria-hidden
           />
-        ) : (
-          <span
-            className={cn(
-              "type-footnote whitespace-nowrap",
-              STATUS_TEXT_CLASS_BY_TONE[display.tone],
-            )}
-          >
-            {display.label}
-          </span>
-        )
+        ) : null
       }
     >
       <button

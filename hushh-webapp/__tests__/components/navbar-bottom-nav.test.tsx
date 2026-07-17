@@ -54,44 +54,39 @@ describe("Navbar bottom utilities", () => {
     ROUTES.KAI_ANALYSIS,
     ROUTES.RIA_PICKS,
     ROUTES.PROFILE,
-  ])("keeps One, Profile, and Search fixed on %s", (pathname) => {
+  ])("keeps One, Connect, and Search grouped on %s", (pathname) => {
     navigationMock.pathname = pathname;
     const { unmount } = render(<Navbar />);
     const routeNav = screen.getByRole("radiogroup", { name: "Route navigation" });
 
     expect(within(routeNav).getAllByRole("radio").map((radio) => radio.textContent?.trim())).toEqual([
       "One",
-      "Profile",
+      "Connect",
+      "Search",
     ]);
-    expect(screen.getByRole("button", { name: "Search" })).toBeTruthy();
-    expect(screen.queryByRole("radio", { name: "Connect" })).toBeNull();
-    expect(screen.queryByRole("radio", { name: "Market" })).toBeNull();
-    expect(screen.queryByRole("radio", { name: "RIA" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Profile" })).toBeNull();
     unmount();
   });
 
-  it("keeps Profile selected only inside Profile and routes the fixed utilities", () => {
+  it("keeps One selected inside Profile and routes the primary utilities", () => {
     navigationMock.pathname = ROUTES.PROFILE;
     render(<Navbar />);
 
-    expect(screen.getByRole("radio", { name: "Profile" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("radio", { name: "One" }).getAttribute("aria-checked")).toBe("true");
     fireEvent.click(screen.getByRole("radio", { name: "One" }));
     expect(navigationMock.push).toHaveBeenLastCalledWith(ROUTES.ONE_HOME);
   });
 
-  it("uses two equal bottom-nav slots", () => {
+  it("uses three equal primary bottom-nav slots", () => {
     render(<Navbar />);
     expect(screen.getByRole("radiogroup", { name: "Route navigation" }).getAttribute("style")).toContain(
-      "grid-template-columns: repeat(2, minmax(0, 1fr))",
+      "grid-template-columns: repeat(3, minmax(0, 1fr))",
     );
     expect(screen.getByTestId("app-bottom-nav-frame").className).toContain(
-      "max-w-[min(calc(100vw-2rem),34rem)]",
+      "max-w-[min(calc(100vw-2rem),42rem)]",
     );
     expect(screen.getByTestId("app-bottom-nav-frame").className).toContain(
       "justify-center",
-    );
-    expect(screen.getByTestId("app-bottom-nav-frame").className).toContain(
-      "md:justify-end",
     );
   });
 });

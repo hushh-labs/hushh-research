@@ -78,14 +78,66 @@ export function AgentSectionIcon({
   tone,
   size = "launcher",
   className,
+  isActive,
 }: {
   id: string;
   icon: OneCapabilityIcon;
   tone?: OneCapabilityTone | null;
   size?: AgentSectionIconSize;
   className?: string;
+  isActive?: boolean;
 }) {
   const classes = ICON_SIZE_CLASS[size];
+
+  if (icon.kind === "solar") {
+     const SolarIcon = icon.component as React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+     // If explicitly inactive, it stays grey/muted. Otherwise defaults to full Morphy color!
+     const active = isActive !== false;
+     const toneStyle = tone ? CAPABILITY_ICON_STYLE_BY_TONE[tone] : undefined;
+     const brandColor = toneStyle?.backgroundColor ? String(toneStyle.backgroundColor) : "var(--app-accent)";
+
+     const surfaceSizes = {
+       card: "h-14 w-14 rounded-[18px]",
+       launcher: "h-16 w-16 rounded-[20px]",
+       topbar: "h-8 w-8 rounded-[10px]",
+       menu: "h-8 w-8 rounded-[10px]"
+     };
+     const innerSizes = {
+       card: "h-10 w-10",
+       launcher: "h-12 w-12",
+       topbar: "h-7 w-7",
+       menu: "h-6 w-6"
+     };
+
+     return (
+       <div className={cn("relative inline-flex items-center justify-center", surfaceSizes[size], className)} data-testid={`one-agent-icon-${id}`}>
+         {active && (
+           <div
+             className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-full w-full blur-[14px] rounded-full opacity-35 dark:opacity-20 scale-90 transition-all duration-300"
+             style={{ backgroundColor: brandColor }}
+             aria-hidden
+           />
+         )}
+
+         <div className={cn("relative flex items-center justify-center w-full h-full overflow-hidden isolate backdrop-blur-[8px]",
+            surfaceSizes[size],
+            active ? "bg-white/80 dark:bg-[rgba(30,30,45,0.7)] shadow-[0_12px_24px_rgba(0,0,0,0.12)] dark:shadow-[0_16px_32px_rgba(0,0,0,0.4)] ring-1 ring-white/60 dark:ring-white/10"
+                   : "bg-[color:var(--app-card-surface-compact)] ring-1 ring-border/60 shadow-sm"
+         )}>
+           <div className={cn("relative z-10 flex items-center justify-center", innerSizes[size])}>
+               <SolarIcon
+                 className={cn("w-full h-full drop-shadow-[0_2px_4px_rgba(0,0,0,0.15)] dark:drop-shadow-[0_4px_8px_rgba(0,0,0,0.3)] transition-all duration-300",
+                   !active ? "text-muted-foreground/60 dark:text-muted-foreground/50" : ""
+                 )}
+                 style={active ? { color: brandColor } : undefined}
+               />
+           </div>
+         </div>
+       </div>
+     );
+  }
+
+
   const toneClassName = tone
     ? ONE_CAPABILITY_ICON_CLASS_BY_TONE[tone]
     : AGENT_ICON_SURFACE_FALLBACK_CLASSNAME;

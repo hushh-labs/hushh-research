@@ -1642,16 +1642,6 @@ export function OneKycWorkspace({
           accent="neutral"
           actions={
             <div className="flex flex-wrap justify-end gap-2">
-              {!isPrivateRelay && (
-                <button
-                  type="button"
-                  className={cn(BTN_PRIMARY)}
-                  onClick={() => setAliasPanelOpen(true)}
-                >
-                  <MailPlus className="size-4" />
-                  Verified addresses
-                </button>
-              )}
               <button
                 type="button"
                 className={cn(BTN_PRIMARY)}

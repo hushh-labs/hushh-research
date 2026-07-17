@@ -9,7 +9,6 @@ import {
   ListChecks,
   RefreshCw,
   SendHorizontal,
-  Shuffle,
   Trash2,
 } from "lucide-react";
 
@@ -36,6 +35,7 @@ import {
   ConnectedSystemsService,
   SALESFORCE_CRM_SYSTEM_ID,
   type ConnectedSystemMcpResponse,
+  type ConnectedSystemIntent,
   type ConnectedSystemRecordBinding,
   type ConnectedSystemSchemaResponse,
   type ConnectedSystemSummary,
@@ -74,7 +74,7 @@ export type ConnectedSystemAgentInstruction = {
   createdAt?: string;
 };
 
-type CrmProfileFieldKey =
+type LegacyCrmProfileFieldKey =
   | "FirstName"
   | "LastName"
   | "Email"
@@ -86,12 +86,19 @@ type CrmProfileFieldKey =
   | "MailingStreet"
   | "LeadSource";
 
+type CrmProfileFieldKey = string;
+type CrmFieldValues = Record<LegacyCrmProfileFieldKey, string> & Record<string, string>;
+
 type CrmProfileField = {
   key: CrmProfileFieldKey;
   label: string;
   placeholder: string;
   inputType?: string;
   required?: boolean;
+  identityField?: boolean;
+  readable?: boolean;
+  writable?: boolean;
+  immutable?: boolean;
   rawName?: string;
   source?: string;
 };
@@ -105,38 +112,8 @@ function statusBadge(status: string | undefined | null): string {
     .join(" ");
 }
 
-const RANDOM_DEMO_CHANGES = [
-  {
-    Title: "VP Sales",
-    MailingCity: "New York",
-    Department: "Retail Partnerships",
-  },
-  {
-    Title: "Director, Customer Experience",
-    MailingCity: "Chicago",
-    LeadSource: "Connected Systems Demo",
-  },
-  {
-    Title: "SVP Merchandising",
-    MailingCity: "San Francisco",
-    MailingStreet: "170 O'Farrell St",
-  },
-  {
-    Title: "Head of Loyalty",
-    MailingCity: "Atlanta",
-    Department: "Customer Growth",
-  },
-];
-
-const RANDOM_DEMO_NAMES = [
-  { FirstName: "Avery", LastName: "Patel" },
-  { FirstName: "Jordan", LastName: "Lee" },
-  { FirstName: "Maya", LastName: "Chen" },
-  { FirstName: "Kushal", LastName: "Trivedi" },
-];
-
 const MACYS_LOGO_SRC = "/brand/macys-logo.svg";
-const CRM_FIELD_PLACEHOLDERS: Record<CrmProfileFieldKey, string> = {
+const CRM_FIELD_PLACEHOLDERS: Record<LegacyCrmProfileFieldKey, string> = {
   FirstName: "Maria",
   LastName: "Joe",
   Email: "name@example.com",
@@ -149,7 +126,7 @@ const CRM_FIELD_PLACEHOLDERS: Record<CrmProfileFieldKey, string> = {
   LeadSource: "Connected Systems",
 };
 
-const CRM_PROFILE_FIELD_KEYS: CrmProfileFieldKey[] = [
+const CRM_PROFILE_FIELD_KEYS: LegacyCrmProfileFieldKey[] = [
   "FirstName",
   "LastName",
   "Email",
@@ -162,7 +139,7 @@ const CRM_PROFILE_FIELD_KEYS: CrmProfileFieldKey[] = [
   "LeadSource",
 ];
 
-const CRM_PROFILE_FIELD_METADATA: Record<CrmProfileFieldKey, CrmProfileField> =
+const CRM_PROFILE_FIELD_METADATA: Record<LegacyCrmProfileFieldKey, CrmProfileField> =
   {
     FirstName: {
       key: "FirstName",
@@ -228,7 +205,7 @@ const READ_ONLY_CRM_IDENTITY_FIELDS = new Set<CrmProfileFieldKey>([
   "Phone",
 ]);
 
-const DEFAULT_CRM_PROFILE_VALUES: Record<CrmProfileFieldKey, string> = {
+const DEFAULT_CRM_PROFILE_VALUES: CrmFieldValues = {
   FirstName: "",
   LastName: "",
   Email: "",
@@ -241,8 +218,8 @@ const DEFAULT_CRM_PROFILE_VALUES: Record<CrmProfileFieldKey, string> = {
   LeadSource: "",
 };
 
-function isCrmProfileFieldKey(value: unknown): value is CrmProfileFieldKey {
-  return CRM_PROFILE_FIELD_KEYS.includes(value as CrmProfileFieldKey);
+function isCrmProfileFieldKey(value: unknown): value is LegacyCrmProfileFieldKey {
+  return CRM_PROFILE_FIELD_KEYS.includes(value as LegacyCrmProfileFieldKey);
 }
 
 function inputTypeFromSchema(dataType?: string): string | undefined {
@@ -259,14 +236,29 @@ function inputTypeFromSchema(dataType?: string): string | undefined {
 function crmFieldFromSchemaDescriptor(
   descriptor: NonNullable<ConnectedSystemSchemaResponse["fields"]>[number],
 ): CrmProfileField | null {
-  if (!isCrmProfileFieldKey(descriptor.key)) return null;
-  const fallback = CRM_PROFILE_FIELD_METADATA[descriptor.key];
+  const key = String(descriptor.key || descriptor.name || "").trim();
+  if (!key) return null;
+  const fallback = isCrmProfileFieldKey(key)
+    ? CRM_PROFILE_FIELD_METADATA[key]
+    : undefined;
+  const label = String(descriptor.label || fallback?.label || key)
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .trim();
   return {
-    ...fallback,
-    label: String(descriptor.label || fallback.label).trim() || fallback.label,
-    inputType: inputTypeFromSchema(descriptor.dataType) || fallback.inputType,
+    key,
+    label: label || key,
+    placeholder: fallback?.placeholder || `Enter ${label || key}`,
+    inputType: inputTypeFromSchema(descriptor.dataType) || fallback?.inputType,
     required: descriptor.required === true,
-    rawName: String(descriptor.name || descriptor.key).trim() || descriptor.key,
+    identityField: descriptor.identityField === true,
+    readable: descriptor.readable !== false,
+    writable:
+      descriptor.writable !== false &&
+      descriptor.immutable !== true &&
+      descriptor.identityField !== true,
+    immutable: descriptor.immutable === true,
+    rawName: String(descriptor.name || key).trim() || key,
     source: String(descriptor.source || "mcp_schema").trim() || "mcp_schema",
   };
 }
@@ -321,10 +313,6 @@ function ConnectedSystemLogo({
       )}
     </span>
   );
-}
-
-function randomItem<T>(items: readonly T[]): T {
-  return items[Math.floor(Math.random() * items.length)] || items[0]!;
 }
 
 function extractRecords(
@@ -510,68 +498,42 @@ function mutationResultError(value: unknown): string | null {
 }
 
 function crmValuesFromRecord(
-  record?: Record<string, unknown> | null,
-): Record<CrmProfileFieldKey, string> {
-  const values = { ...DEFAULT_CRM_PROFILE_VALUES };
+  record: Record<string, unknown> | null | undefined,
+  fields: CrmProfileField[],
+): CrmFieldValues {
+  const values: CrmFieldValues = { ...DEFAULT_CRM_PROFILE_VALUES };
   if (!record) return values;
-  for (const field of CRM_PROFILE_FIELDS) {
-    values[field.key] = crmRecordFieldValue(record, field.key);
-  }
-  const name = cleanFieldValue(record.Name);
-  if (name && !values.FirstName && !values.LastName) {
-    const [firstName, ...rest] = name.split(/\s+/);
-    values.FirstName = firstName || "";
-    values.LastName = rest.join(" ");
+  for (const field of fields) {
+    values[field.key] = crmRecordFieldValue(record, field);
   }
   return values;
 }
 
 function crmRecordFieldValue(
   record: Record<string, unknown>,
-  key: CrmProfileFieldKey,
+  field: CrmProfileField,
 ): string {
-  const aliases: Record<CrmProfileFieldKey, string[]> = {
-    FirstName: ["FirstName", "firstName", "first_name"],
-    LastName: ["LastName", "lastName", "last_name"],
-    Email: ["Email", "email"],
-    Phone: ["Phone", "phone"],
-    MobilePhone: ["MobilePhone", "mobilePhone", "mobile_phone"],
-    Title: ["Title", "title"],
-    Department: ["Department", "department"],
-    MailingCity: ["MailingCity", "mailingCity", "mailing_city"],
-    MailingStreet: ["MailingStreet", "mailingStreet", "mailing_street"],
-    LeadSource: ["LeadSource", "leadSource", "lead_source"],
-  };
-  for (const alias of aliases[key]) {
-    if (alias in record) return cleanFieldValue(record[alias]);
+  for (const candidate of [field.rawName, field.key]) {
+    if (candidate && candidate in record) return cleanFieldValue(record[candidate]);
+    const matchedKey = Object.keys(record).find(
+      (key) => key.toLowerCase() === candidate?.toLowerCase(),
+    );
+    if (matchedKey) return cleanFieldValue(record[matchedKey]);
   }
   return "";
 }
 
 function changedFieldsFromValues(
-  values: Record<CrmProfileFieldKey, string>,
-  baseline: Record<CrmProfileFieldKey, string>,
+  values: CrmFieldValues,
+  baseline: CrmFieldValues,
   fields: CrmProfileField[],
 ): Record<string, string> {
   const additionalFields: Record<string, string> = {};
   for (const field of fields) {
-    if (READ_ONLY_CRM_IDENTITY_FIELDS.has(field.key)) continue;
-    const nextValue = values[field.key].trim();
-    const previousValue = baseline[field.key].trim();
+    if (field.identityField || field.writable !== true || field.immutable) continue;
+    const nextValue = (values[field.key] || "").trim();
+    const previousValue = (baseline[field.key] || "").trim();
     if (nextValue !== previousValue) additionalFields[field.key] = nextValue;
-  }
-  return additionalFields;
-}
-
-function createAdditionalFieldsFromValues(
-  values: Record<CrmProfileFieldKey, string>,
-): Record<string, string> {
-  const additionalFields: Record<string, string> = {};
-  for (const field of CRM_PROFILE_FIELDS) {
-    if (["FirstName", "LastName", "Email", "Phone"].includes(field.key))
-      continue;
-    const value = values[field.key].trim();
-    if (value) additionalFields[field.key] = value;
   }
   return additionalFields;
 }
@@ -600,18 +562,17 @@ export function ConnectedSystemsPanel({
     string,
     unknown
   > | null>(null);
+  const [pendingIntent, setPendingIntent] = useState<ConnectedSystemIntent | null>(null);
   const [busy, setBusy] = useState<BusyState>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [crmFieldValues, setCrmFieldValues] = useState<
-    Record<CrmProfileFieldKey, string>
+    CrmFieldValues
   >(DEFAULT_CRM_PROFILE_VALUES);
   const [crmBaselineValues, setCrmBaselineValues] = useState<
-    Record<CrmProfileFieldKey, string>
+    CrmFieldValues
   >(DEFAULT_CRM_PROFILE_VALUES);
   const [updateId, setUpdateId] = useState("");
-  const [updateReadbackEmail, setUpdateReadbackEmail] = useState("");
-  const [updateReadbackPhone, setUpdateReadbackPhone] = useState("");
   const [deleteId, setDeleteId] = useState("");
   const [bindingResolvedKey, setBindingResolvedKey] = useState<string | null>(
     null,
@@ -629,9 +590,7 @@ export function ConnectedSystemsPanel({
 
   const selectedSystem =
     systems.find((system) => system.systemId === systemId) ||
-    systems.find((system) => system.systemId === SALESFORCE_CRM_SYSTEM_ID) ||
-    systems[0] ||
-    null;
+    (!systemId ? systems[0] || null : null);
   const selectedSystemKey = selectedSystem
     ? `${selectedSystem.systemId}:${selectedSystem.objectTypeDefault || "Contact"}`
     : "";
@@ -640,12 +599,15 @@ export function ConnectedSystemsPanel({
     [schema?.supportedFields, selectedSystem?.fieldAllowlist],
   );
   const canUseBackend = Boolean(vaultOwnerToken);
-  const customerName = selectedSystem?.customerDisplayName || "Macy's";
+  const supportsAction = (action: "schema" | "read" | "create" | "update" | "delete") =>
+    selectedSystem?.supportedActions?.[action] === true;
+  const customerName = selectedSystem?.customerDisplayName || "Connected CRM";
   const systemType = selectedSystem?.systemType || "CRM";
   const systemName = selectedSystem?.systemName || "FSC";
   const systemLabel = crmTypeDisplayLabel({ systemType, systemName });
   const registeredEmail = cleanFieldValue(profile?.email);
   const registeredPhone = cleanFieldValue(profile?.phone);
+  const isLegacyMacys = selectedSystem?.systemId === SALESFORCE_CRM_SYSTEM_ID;
   const hasRegisteredLookup = Boolean(registeredEmail && registeredPhone);
   const crmRecords = useMemo(() => extractRecords(readResult), [readResult]);
   const hasReadback = Boolean(readResult);
@@ -669,7 +631,7 @@ export function ConnectedSystemsPanel({
   }, [schema?.fields]);
   const visibleProfileFields = useMemo(() => {
     if (schemaDrivenProfileFields.length > 0) return schemaDrivenProfileFields;
-    if (schemaFieldSet.size === 0) return CRM_PROFILE_FIELDS;
+    if (schemaFieldSet.size === 0) return [];
     return CRM_PROFILE_FIELDS.filter((field) => schemaFieldSet.has(field.key));
   }, [schemaDrivenProfileFields, schemaFieldSet]);
   const changedProfileFields = useMemo(
@@ -687,7 +649,21 @@ export function ConnectedSystemsPanel({
     [boundRecordId, updateId],
   );
   const hasBoundRecord = Boolean(currentRecordId);
-  const hasLookup = hasRegisteredLookup;
+  const lookupFields = useMemo(
+    () => visibleProfileFields.filter((field) => field.identityField),
+    [visibleProfileFields],
+  );
+  const schemaLookupValues = useMemo(
+    () => Object.fromEntries(
+      lookupFields
+        .map((field) => [field.rawName || field.key, cleanFieldValue(crmFieldValues[field.key])])
+        .filter(([, value]) => Boolean(value)),
+    ),
+    [crmFieldValues, lookupFields],
+  );
+  const hasLookup = isLegacyMacys
+    ? hasRegisteredLookup
+    : lookupFields.length > 0 && Object.keys(schemaLookupValues).length === lookupFields.length;
   const currentReadRecord = useMemo(
     () => selectRecordForId(readResult, currentRecordId),
     [currentRecordId, readResult],
@@ -727,7 +703,7 @@ export function ConnectedSystemsPanel({
     bindingResolved &&
     !activeBinding &&
     !currentRecordId &&
-    hasRegisteredLookup &&
+    isLegacyMacys && hasRegisteredLookup &&
     Boolean(autoLinkKey);
   const autoLinkResolved =
     !shouldAutoLink || autoLinkResolvedKey === autoLinkKey;
@@ -751,8 +727,13 @@ export function ConnectedSystemsPanel({
       !bindingResolved ||
       !autoLinkResolved ||
       isBoundRecordHydrating);
-  const canShowUnboundRecordActions = !hasBoundRecord && !isRecordStateLoading;
-  const canShowBoundRecordActions = hasBoundRecord && !isRecordStateLoading;
+  const canShowUnboundRecordActions =
+    !hasBoundRecord &&
+    !isRecordStateLoading &&
+    visibleProfileFields.length > 0 &&
+    (supportsAction("read") || supportsAction("create"));
+  const canShowBoundRecordActions =
+    hasBoundRecord && !isRecordStateLoading && supportsAction("update");
 
   useEffect(() => {
     const email = cleanFieldValue(profile?.email);
@@ -775,8 +756,6 @@ export function ConnectedSystemsPanel({
       Email: email,
       Phone: phone,
     }));
-    setUpdateReadbackEmail(email);
-    setUpdateReadbackPhone(phone);
   }, [profile?.displayName, profile?.email, profile?.phone]);
 
   useEffect(() => {
@@ -909,42 +888,6 @@ export function ConnectedSystemsPanel({
     setDeleteResult(null);
   };
 
-  const fillRandomUpdateChange = () => {
-    const change = randomItem(RANDOM_DEMO_CHANGES);
-    setCrmFieldValues((current) => ({
-      ...current,
-      Title: cleanFieldValue(change.Title) || current.Title,
-      Department: cleanFieldValue(change.Department) || current.Department,
-      MailingCity: cleanFieldValue(change.MailingCity) || current.MailingCity,
-      MailingStreet:
-        cleanFieldValue(change.MailingStreet) || current.MailingStreet,
-      LeadSource: cleanFieldValue(change.LeadSource) || current.LeadSource,
-    }));
-    setUpdateId(currentRecordId);
-    setDeleteId((current) => current || currentRecordId);
-    setUpdateReadbackEmail(registeredEmail);
-    setUpdateReadbackPhone(registeredPhone);
-  };
-
-  const fillRandomCreateDetails = () => {
-    const change = randomItem(RANDOM_DEMO_CHANGES);
-    const name = randomItem(RANDOM_DEMO_NAMES);
-    setCrmFieldValues((current) => ({
-      ...current,
-      FirstName: cleanFieldValue(name.FirstName) || current.FirstName,
-      LastName: cleanFieldValue(name.LastName) || current.LastName,
-      Email: registeredEmail || current.Email,
-      Phone: registeredPhone || current.Phone,
-      MobilePhone: current.MobilePhone || CRM_FIELD_PLACEHOLDERS.MobilePhone,
-      Title: cleanFieldValue(change.Title) || current.Title,
-      Department: cleanFieldValue(change.Department) || current.Department,
-      MailingCity: cleanFieldValue(change.MailingCity) || current.MailingCity,
-      MailingStreet:
-        cleanFieldValue(change.MailingStreet) || current.MailingStreet,
-      LeadSource: cleanFieldValue(change.LeadSource) || current.LeadSource,
-    }));
-  };
-
   async function runAction<T>(
     state: BusyState,
     action: () => Promise<T>,
@@ -1027,6 +970,22 @@ export function ConnectedSystemsPanel({
     }
   };
 
+  useEffect(() => {
+    if (
+      mode !== "detail" ||
+      !selectedSystem ||
+      !vaultOwnerToken ||
+      !supportsAction("schema") ||
+      schema?.systemId === selectedSystem.systemId
+    ) {
+      return;
+    }
+    void loadSchema({ silent: true });
+    // The effect is intentionally keyed by the selected registry row; a schema
+    // refresh is user initiated through the visible control below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, schema?.systemId, selectedSystem?.systemId, vaultOwnerToken]);
+
   const applyReadResult = (result: ConnectedSystemMcpResponse) => {
     setReadResult(result);
     const nextBinding =
@@ -1043,12 +1002,10 @@ export function ConnectedSystemsPanel({
       nextBinding?.recordId || currentRecordId || result.recordId,
     );
     if (record) {
-      const values = crmValuesFromRecord(record);
-      const identityLockedValues = {
-        ...values,
-        Email: registeredEmail || values.Email,
-        Phone: registeredPhone || values.Phone,
-      };
+      const values = crmValuesFromRecord(record, visibleProfileFields);
+      const identityLockedValues = isLegacyMacys
+        ? { ...values, Email: registeredEmail || values.Email, Phone: registeredPhone || values.Phone }
+        : values;
       setCrmFieldValues(identityLockedValues);
       setCrmBaselineValues(identityLockedValues);
     }
@@ -1085,9 +1042,10 @@ export function ConnectedSystemsPanel({
             : "";
         const buildPayload = (phone: string) => ({
           systemId: selectedSystem?.systemId,
-          objectType: selectedSystem?.objectTypeDefault || "Contact",
-          email: lookupEmail,
-          phone,
+          objectType: selectedSystem?.objectTypeDefault,
+          email: isLegacyMacys ? lookupEmail : undefined,
+          phone: isLegacyMacys ? phone : undefined,
+          searchFields: isLegacyMacys ? undefined : schemaLookupValues,
           returnFields,
         });
         const callRead = (phone: string) => {
@@ -1102,7 +1060,7 @@ export function ConnectedSystemsPanel({
                 payload,
               );
         };
-        const phoneCandidates = crmLookupPhoneCandidates(lookupPhone);
+        const phoneCandidates = isLegacyMacys ? crmLookupPhoneCandidates(lookupPhone) : [""];
         const firstPhone = phoneCandidates[0] || lookupPhone;
         let nextResult = await callRead(firstPhone);
         if (!options.bindSearch && extractRecords(nextResult).length === 0) {
@@ -1126,13 +1084,13 @@ export function ConnectedSystemsPanel({
       if (!options.silent) {
         const recordLoaded = extractRecords(result).length > 0;
         if (recordLoaded) {
-          toast.success("Macy's CRM record refreshed.");
+          toast.success(`${customerName} record refreshed.`);
         } else if (currentRecordId) {
           toast.info(
-            "Macy's record is linked, but the CRM did not return field values.",
+            `${customerName} record is linked, but the CRM did not return field values.`,
           );
         } else {
-          toast.info("No matching Macy's CRM record found.");
+          toast.info(`No matching ${customerName} record found.`);
         }
       }
     }
@@ -1270,80 +1228,39 @@ export function ConnectedSystemsPanel({
     vaultOwnerToken,
   ]);
 
-  const updateCrmFieldValue = (field: CrmProfileFieldKey, value: string) => {
-    if (READ_ONLY_CRM_IDENTITY_FIELDS.has(field)) return;
-    setCrmFieldValues((current) => ({ ...current, [field]: value }));
+  const updateCrmFieldValue = (field: CrmProfileField, value: string) => {
+    if ((hasBoundRecord && field.identityField) || field.writable !== true || field.immutable) return;
+    setCrmFieldValues((current) => ({ ...current, [field.key]: value }));
   };
 
   const createRecordFromSchema = async () => {
-    const email = registeredEmail;
-    const phone = registeredPhone;
-    const lastName = crmFieldValues.LastName.trim();
-    if (!email || !phone || !lastName) {
-      toast.error(
-        "Registered email, registered phone, and last name are required to create the Macy's record.",
-      );
+    const recordFields = Object.fromEntries(
+      visibleProfileFields
+        .map((field) => [field.rawName || field.key, cleanFieldValue(crmFieldValues[field.key])])
+        .filter(([, value]) => Boolean(value)),
+    );
+    const missingRequired = visibleProfileFields.filter(
+      (field) => field.required && !cleanFieldValue(crmFieldValues[field.key]),
+    );
+    if (missingRequired.length > 0) {
+      toast.error(`Complete required fields: ${missingRequired.map((field) => field.label).join(", ")}.`);
       return;
     }
-    const additionalFields = createAdditionalFieldsFromValues(crmFieldValues);
     const result = await runMutation(
       "create",
       {
-        loading: "Creating Macy's CRM record...",
-        success: "Macy's CRM record created.",
-        error: "Macy's CRM record could not be created.",
+        loading: "Preparing CRM record review...",
+        success: "CRM record is ready for review.",
+        error: "CRM record could not be prepared.",
       },
-      async () => {
-        const pendingIntent = await ConnectedSystemsService.createRecordIntent(
-          vaultOwnerToken || "",
-          {
-            systemId: selectedSystem?.systemId,
-            objectType: selectedSystem?.objectTypeDefault || "Contact",
-            email,
-            phone,
-            firstName: crmFieldValues.FirstName.trim() || undefined,
-            lastName,
-            additionalFields,
-          },
-        );
-        return ConnectedSystemsService.approveIntent({
-          vaultOwnerToken: vaultOwnerToken || "",
-          systemId: pendingIntent.systemId,
-          intentId: pendingIntent.intentId,
-        });
-      },
+      () => ConnectedSystemsService.createRecordIntent(vaultOwnerToken || "", {
+        systemId: selectedSystem?.systemId,
+        objectType: selectedSystem?.objectTypeDefault,
+        recordFields,
+      }),
     );
     if (result) {
-      const responseBinding =
-        result.binding?.status === "active" ? result.binding : null;
-      const recordId = cleanFieldValue(
-        responseBinding?.recordId || result.recordId,
-      );
-      if (recordId) {
-        const nextBinding: ConnectedSystemRecordBinding = responseBinding || {
-          bindingId: null,
-          systemId: result.systemId,
-          target: result.target,
-          objectType: result.objectType,
-          recordId,
-          status: "active",
-          createdIntentId: result.intentId,
-          lastIntentId: result.intentId,
-          createdAt: result.createdAt,
-          updatedAt: result.updatedAt,
-        };
-        setBinding(nextBinding);
-        setUpdateId(recordId);
-        setDeleteId(recordId);
-      } else {
-        await refreshBinding();
-      }
-      setCrmBaselineValues({
-        ...crmFieldValues,
-        Email: registeredEmail,
-        Phone: registeredPhone,
-      });
-      await readRecord({ silent: true, email, phone });
+      setPendingIntent(result);
     }
     return result;
   };
@@ -1356,27 +1273,23 @@ export function ConnectedSystemsPanel({
    * first.
    */
   const linkThisSystem = async () => {
-    const email = registeredEmail;
-    const phone = registeredPhone;
-    if (!email || !phone) {
+    if (!hasLookup) {
       toast.error(
-        "Add a verified email and phone number to your One profile before linking Macy's.",
+        "Complete the CRM identity fields before linking this system.",
       );
       return;
     }
     const found = await readRecord({
       silent: true,
       bindSearch: true,
-      email,
-      phone,
     });
     if (found?.binding?.status === "active") {
-      toast.success("Found your existing Macy's record and linked it.");
+      toast.success(`Found your existing ${customerName} record and linked it.`);
       return;
     }
-    if (!crmFieldValues.LastName.trim()) {
+    if (visibleProfileFields.some((field) => field.required && !cleanFieldValue(crmFieldValues[field.key]))) {
       toast.error(
-        "No existing record was found. Add a last name below, then link again to create one.",
+        "No existing record was found. Complete the required fields, then link again to create one.",
       );
       return;
     }
@@ -1385,58 +1298,32 @@ export function ConnectedSystemsPanel({
 
   const updateRecordFromSchema = async () => {
     const recordId = currentRecordId;
-    const additionalFields = changedProfileFields;
-    const readbackEmail = registeredEmail || updateReadbackEmail;
-    const readbackPhone = registeredPhone || updateReadbackPhone;
-    if (Object.keys(additionalFields).length === 0) {
+    const recordFields = changedProfileFields;
+    if (Object.keys(recordFields).length === 0) {
       toast.error("Change at least one CRM field before updating the record.");
       return;
     }
     setUpdateId(recordId);
-    setUpdateReadbackEmail(registeredEmail);
-    setUpdateReadbackPhone(registeredPhone);
     const result = await runMutation(
       "update",
       {
-        loading: "Updating Macy's CRM record...",
-        success: "Macy's CRM record updated.",
-        error: "Macy's CRM update failed.",
+        loading: "Preparing CRM update review...",
+        success: "CRM update is ready for review.",
+        error: "CRM update could not be prepared.",
       },
-      async () => {
-        const pendingIntent = await ConnectedSystemsService.updateRecordIntent(
+      () => ConnectedSystemsService.updateRecordIntent(
           vaultOwnerToken || "",
           {
             systemId: selectedSystem?.systemId,
-            objectType: selectedSystem?.objectTypeDefault || "Contact",
+            objectType: selectedSystem?.objectTypeDefault,
             id: recordId,
-            additionalFields,
-            readbackLocator:
-              readbackEmail.trim() && readbackPhone.trim()
-                ? {
-                    email: readbackEmail,
-                    phone: readbackPhone,
-                  }
-                : undefined,
+            additionalFields: {},
+            recordFields,
           },
-        );
-        return ConnectedSystemsService.approveIntent({
-          vaultOwnerToken: vaultOwnerToken || "",
-          systemId: pendingIntent.systemId,
-          intentId: pendingIntent.intentId,
-        });
-      },
+        ),
     );
     if (result) {
-      if (result.binding?.status === "active") {
-        setBinding(result.binding);
-        if (result.binding.recordId) {
-          setUpdateId(result.binding.recordId);
-          setDeleteId(result.binding.recordId);
-        }
-      }
-      setCrmBaselineValues((current) => ({ ...current, ...additionalFields }));
-      await refreshBinding();
-      void readRecord({ silent: true });
+      setPendingIntent(result);
     }
   };
 
@@ -1444,34 +1331,85 @@ export function ConnectedSystemsPanel({
     const result = await runMutation(
       "delete",
       {
-        loading: "Deleting Macy's CRM record...",
-        success: "Macy's CRM record deleted.",
-        error: "Macy's CRM record could not be deleted.",
+        loading: "Preparing delete review...",
+        success: "Delete is ready for review.",
+        error: "Delete could not be prepared.",
       },
       () =>
-        ConnectedSystemsService.deleteRecord(vaultOwnerToken || "", {
+        ConnectedSystemsService.createDeleteIntent(vaultOwnerToken || "", {
           systemId: selectedSystem?.systemId,
           objectType: selectedSystem?.objectTypeDefault || "Contact",
           id: deleteId || currentRecordId,
         }),
     );
     if (result) {
+      setPendingIntent(result);
+    }
+  };
+
+  const approvePendingIntent = async () => {
+    if (!pendingIntent) return;
+    const intent = pendingIntent;
+    const result = await runMutation(
+      intent.action === "delete" ? "delete" : intent.action === "create" ? "create" : "update",
+      {
+        loading: `Applying ${intent.action}…`,
+        success: `${customerName} record ${intent.action} completed.`,
+        error: `${customerName} record ${intent.action} failed.`,
+      },
+      () => ConnectedSystemsService.approveIntent({
+        vaultOwnerToken: vaultOwnerToken || "",
+        systemId: intent.systemId,
+        intentId: intent.intentId,
+      }),
+    );
+    if (!result) return;
+    setPendingIntent(null);
+    if (result.action === "delete") {
       setDeleteResult(result);
       setBinding(null);
       setReadResult(null);
       setUpdateId("");
       setDeleteId("");
-      setAutoLinkResolvedKey(autoLinkKey || null);
-      if (autoLinkKey) {
-        autoLinkAttemptKeyRef.current = autoLinkKey;
-      }
-      setCrmBaselineValues(DEFAULT_CRM_PROFILE_VALUES);
-      setCrmFieldValues((current) => ({
-        ...DEFAULT_CRM_PROFILE_VALUES,
-        Email: registeredEmail || current.Email,
-        Phone: registeredPhone || current.Phone,
-      }));
+      return;
     }
+    const recordId = cleanFieldValue(result.binding?.recordId || result.recordId);
+    if (recordId) {
+      const nextBinding: ConnectedSystemRecordBinding =
+        result.binding?.status === "active"
+          ? result.binding
+          : {
+              bindingId: null,
+              systemId: result.systemId,
+              target: result.target,
+              objectType: result.objectType || intent.objectType,
+              recordId,
+              status: "active",
+              createdIntentId: intent.intentId,
+              lastIntentId: intent.intentId,
+              createdAt: result.createdAt,
+              updatedAt: result.updatedAt,
+            };
+      setBinding(nextBinding);
+      setUpdateId(recordId);
+      setDeleteId(recordId);
+    } else {
+      await refreshBinding();
+    }
+    setCrmBaselineValues((current) => ({ ...current, ...crmFieldValues }));
+    void readRecord({ silent: true });
+  };
+
+  const rejectPendingIntent = async () => {
+    if (!pendingIntent) return;
+    await runAction("update", async () => {
+      await ConnectedSystemsService.rejectIntent({
+        vaultOwnerToken: vaultOwnerToken || "",
+        systemId: pendingIntent.systemId,
+        intentId: pendingIntent.intentId,
+      });
+      setPendingIntent(null);
+    });
   };
 
   const renderSchemaStatus = (
@@ -1499,21 +1437,21 @@ export function ConnectedSystemsPanel({
   const renderCrmFieldGrid = () => (
     <div className="grid gap-3 sm:grid-cols-2">
       {visibleProfileFields.map((field) => {
-        const identityField = READ_ONLY_CRM_IDENTITY_FIELDS.has(field.key);
+        const identityField = field.identityField === true;
         const identityValue =
-          field.key === "Email"
+          isLegacyMacys && field.key === "Email"
             ? registeredEmail
-            : field.key === "Phone"
+            : isLegacyMacys && field.key === "Phone"
               ? registeredPhone
               : "";
         const value = identityField
           ? identityValue || crmFieldValues[field.key]
-          : crmFieldValues[field.key];
+          : crmFieldValues[field.key] || "";
         return (
           <label key={field.key} className="space-y-1.5">
             <span className="flex items-center justify-between gap-2 text-[12px] font-medium text-muted-foreground">
               <span>{field.label}</span>
-              {identityField ? (
+              {identityField && isLegacyMacys ? (
                 <span>From One profile</span>
               ) : field.required ? (
                 <span>Required</span>
@@ -1524,9 +1462,9 @@ export function ConnectedSystemsPanel({
             <Input
               type={field.inputType || "text"}
               value={value}
-              disabled={identityField}
+              disabled={(hasBoundRecord && identityField) || field.writable !== true || field.immutable}
               onChange={(event) =>
-                updateCrmFieldValue(field.key, event.target.value)
+                updateCrmFieldValue(field, event.target.value)
               }
               placeholder={field.placeholder}
               autoComplete="off"
@@ -1719,17 +1657,6 @@ export function ConnectedSystemsPanel({
                   effect="fade"
                   size="sm"
                   disabled={busy !== null}
-                  onClick={fillRandomCreateDetails}
-                >
-                  <Icon icon={Shuffle} size="sm" className="mr-2" />
-                  Suggest sample details
-                </Button>
-                <Button
-                  type="button"
-                  variant="none"
-                  effect="fade"
-                  size="sm"
-                  disabled={busy !== null}
                   onClick={() => void loadSchema()}
                 >
                   <Icon icon={ListChecks} size="sm" className="mr-2" />
@@ -1838,17 +1765,6 @@ export function ConnectedSystemsPanel({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <Button
                 type="button"
-                variant="none"
-                effect="fade"
-                size="sm"
-                disabled={busy !== null}
-                onClick={fillRandomUpdateChange}
-              >
-                <Icon icon={Shuffle} size="sm" className="mr-2" />
-                Suggest a sample change
-              </Button>
-              <Button
-                type="button"
                 size="sm"
                 disabled={
                   busy !== null ||
@@ -1869,12 +1785,12 @@ export function ConnectedSystemsPanel({
         </SettingsGroup>
       ) : null}
 
-      {canShowBoundRecordActions ? (
+      {hasBoundRecord && !isRecordStateLoading && supportsAction("delete") ? (
         <SettingsGroup title="Delete record">
           <SettingsRow
             icon={Trash2}
-            title={`Delete ${customerName} Contact`}
-            description={`Remove record ${currentRecordId} from ${customerName} CRM.`}
+            title={`Delete ${selectedSystem?.objectTypeDefault || "record"}`}
+            description={`Remove record ${currentRecordId} from ${customerName}.`}
             trailing={
               <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
                 <AlertDialog>
@@ -1896,7 +1812,7 @@ export function ConnectedSystemsPanel({
                         Delete this CRM record?
                       </AlertDialogTitle>
                       <AlertDialogDescription>
-                        This deletes the CRM Contact in {customerName}. The One
+                        This deletes the {selectedSystem?.objectTypeDefault || "record"} in {customerName}. The One
                         binding will be cleared after the MCP confirms deletion.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
@@ -1926,6 +1842,48 @@ export function ConnectedSystemsPanel({
           {statusBadge(String(deleteResult.resultClass || "completed"))}.
         </SurfaceInset>
       ) : null}
+      <AlertDialog
+        open={Boolean(pendingIntent)}
+        onOpenChange={(open) => {
+          if (!open && busy === null) setPendingIntent(null);
+        }}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Review {pendingIntent?.action || "CRM"} request
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingIntent
+                ? `${customerName} · ${pendingIntent.objectType || selectedSystem?.objectTypeDefault || "record"}${pendingIntent.recordId ? ` · record ${pendingIntent.recordId}` : ""}`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {pendingIntent?.action === "delete" ? (
+            <p className="text-sm text-muted-foreground">
+              This permanently removes the selected record from {customerName} and clears its One binding after confirmation.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {pendingIntent?.fieldNames.map((field) => (
+                <Badge key={field} variant="secondary">{field}</Badge>
+              ))}
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy !== null} onClick={() => void rejectPendingIntent()}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant={pendingIntent?.action === "delete" ? "destructive" : "default"}
+              disabled={busy !== null}
+              onClick={() => void approvePendingIntent()}
+            >
+              Confirm {pendingIntent?.action || "request"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

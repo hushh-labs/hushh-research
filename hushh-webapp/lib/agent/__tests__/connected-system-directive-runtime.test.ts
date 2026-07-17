@@ -191,7 +191,7 @@ describe("runConnectedSystemDirective", () => {
     expect(result.display).toContain("- City: Chicago");
   });
 
-  it("finds a CRM record by email and phone before approving an inline update", async () => {
+  it("returns a reviewable CRM update proposal without looking up or approving a record", async () => {
     vi.mocked(ConnectedSystemsService.getRecordBinding).mockResolvedValueOnce({
       systemId: "salesforce-fsc-customer0",
       target: "Macys",
@@ -247,35 +247,20 @@ describe("runConnectedSystemDirective", () => {
       "HCT:test"
     );
 
-    expect(ConnectedSystemsService.searchRecord).toHaveBeenCalledWith(
-      "HCT:test",
-      expect.objectContaining({
-        email: "kushal@example.com",
-        phone: "415-555-1212",
-      })
-    );
-    expect(ConnectedSystemsService.updateRecordIntent).toHaveBeenCalledWith(
-      "HCT:test",
-      expect.objectContaining({
-        id: "003ABC",
-        additionalFields: { MailingCity: "New York" },
-      })
-    );
-    expect(ConnectedSystemsService.approveIntent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        vaultOwnerToken: "HCT:test",
-        intentId: "intent_123",
-      })
-    );
+    expect(ConnectedSystemsService.searchRecord).not.toHaveBeenCalled();
+    expect(ConnectedSystemsService.updateRecordIntent).not.toHaveBeenCalled();
+    expect(ConnectedSystemsService.approveIntent).not.toHaveBeenCalled();
     expect(result).toEqual(
       expect.objectContaining({
         delegate_agent_id: "agent_connected_systems",
         status: "completed",
       })
     );
+    expect(result.display).toContain("Review the proposed 1 field change");
+    expect(result.detail).toBe("No CRM record was changed by the private agent.");
   });
 
-  it("uses profile lookup email and phone when slots do not include identity", async () => {
+  it("does not use profile identity to execute a proposed update", async () => {
     vi.mocked(ConnectedSystemsService.getRecordBinding).mockResolvedValueOnce({
       systemId: "salesforce-fsc-customer0",
       target: "Macys",
@@ -307,7 +292,7 @@ describe("runConnectedSystemDirective", () => {
       recordId: "003PROFILE",
     });
 
-    await runConnectedSystemDirective(
+    const result = await runConnectedSystemDirective(
       {
         kind: "action",
         payload: {
@@ -324,16 +309,13 @@ describe("runConnectedSystemDirective", () => {
       { email: "profile@example.com", phone: "+14155551212" }
     );
 
-    expect(ConnectedSystemsService.searchRecord).toHaveBeenCalledWith(
-      "HCT:test",
-      expect.objectContaining({
-        email: "profile@example.com",
-        phone: "+14155551212",
-      })
-    );
+    expect(ConnectedSystemsService.getRecordBinding).not.toHaveBeenCalled();
+    expect(ConnectedSystemsService.searchRecord).not.toHaveBeenCalled();
+    expect(ConnectedSystemsService.updateRecordIntent).not.toHaveBeenCalled();
+    expect(result.detail).toBe("No CRM record was changed by the private agent.");
   });
 
-  it("uses the saved CRM binding before falling back to email and phone search", async () => {
+  it("does not inspect a saved CRM binding for a private-agent proposal", async () => {
     vi.mocked(ConnectedSystemsService.getRecordBinding).mockResolvedValueOnce({
       systemId: "salesforce-fsc-customer0",
       target: "Macys",
@@ -379,16 +361,13 @@ describe("runConnectedSystemDirective", () => {
       { email: "profile@example.com", phone: "+14155551212" }
     );
 
+    expect(ConnectedSystemsService.getRecordBinding).not.toHaveBeenCalled();
     expect(ConnectedSystemsService.searchRecord).not.toHaveBeenCalled();
-    expect(ConnectedSystemsService.updateRecordIntent).toHaveBeenCalledWith(
-      "HCT:test",
-      expect.objectContaining({
-        id: "003BOUND",
-      })
-    );
+    expect(ConnectedSystemsService.updateRecordIntent).not.toHaveBeenCalled();
+    expect(ConnectedSystemsService.approveIntent).not.toHaveBeenCalled();
   });
 
-  it("updates every connected CRM brand with per-brand lookup", async () => {
+  it("never fans a private-agent proposal out to every connected CRM", async () => {
     vi.mocked(ConnectedSystemsService.listSystems).mockResolvedValueOnce([
       {
         systemId: "brand-bound",
@@ -489,21 +468,13 @@ describe("runConnectedSystemDirective", () => {
       { email: "profile@example.com", phone: "+14155551212" }
     );
 
-    expect(ConnectedSystemsService.listSystems).toHaveBeenCalledWith("HCT:test");
-    expect(ConnectedSystemsService.updateRecordIntent).toHaveBeenCalledTimes(2);
-    expect(ConnectedSystemsService.updateRecordIntent).toHaveBeenNthCalledWith(
-      1,
-      "HCT:test",
-      expect.objectContaining({ systemId: "brand-bound", id: "003BOUND" })
-    );
-    expect(ConnectedSystemsService.updateRecordIntent).toHaveBeenNthCalledWith(
-      2,
-      "HCT:test",
-      expect.objectContaining({ systemId: "brand-search", id: "003SEARCH" })
-    );
+    expect(ConnectedSystemsService.listSystems).not.toHaveBeenCalled();
+    expect(ConnectedSystemsService.getRecordBinding).not.toHaveBeenCalled();
+    expect(ConnectedSystemsService.searchRecord).not.toHaveBeenCalled();
+    expect(ConnectedSystemsService.updateRecordIntent).not.toHaveBeenCalled();
+    expect(ConnectedSystemsService.approveIntent).not.toHaveBeenCalled();
     expect(result.status).toBe("completed");
-    expect(result.display).toContain("Updated 2 of 2 connected CRM brands.");
-    expect(result.display).toContain("Bound Brand: Updated.");
-    expect(result.display).toContain("Search Brand: Updated.");
+    expect(result.display).toContain("before anything is sent to a CRM");
+    expect(result.detail).toBe("No CRM record was changed by the private agent.");
   });
 });

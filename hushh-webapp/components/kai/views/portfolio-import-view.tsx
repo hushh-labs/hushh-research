@@ -3,9 +3,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Building2, Database, FileUp, Loader2 } from "lucide-react";
+import { Database, FileUp, Loader2 } from "lucide-react";
 
 import { APP_MEASURE_STYLES } from "@/components/app-ui/app-page-shell";
+
+const PlaidIcon = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <path d="M4 10.4V20a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-9.6" />
+    <path d="M14 10.4V20a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-9.6" />
+    <path d="M9 3H5a1 1 0 0 0-1 1v2.6h6V4a1 1 0 0 0-1-1z" />
+    <path d="M19 3h-4a1 1 0 0 0-1 1v2.6h6V4a1 1 0 0 0-1-1z" />
+  </svg>
+);
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
@@ -139,14 +148,14 @@ export function PortfolioImportView({
         testId="portfolio-import-source-options"
       >
         <SettingsRow
-          icon={Building2}
+          icon={PlaidIcon as any}
           iconTone="blue"
           title={
             plaidConfigured
               ? isConnectingPlaid
-                ? "Opening brokerage connection"
-                : "Connect a brokerage"
-              : "Brokerage connection unavailable"
+                ? "Opening Plaid connection"
+                : "Bank account (via Plaid)"
+              : "Bank connection unavailable"
           }
           description={
             plaidConfigured

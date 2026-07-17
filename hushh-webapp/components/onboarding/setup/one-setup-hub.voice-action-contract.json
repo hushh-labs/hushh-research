@@ -15,30 +15,6 @@
   },
   "actions": [
     {
-      "action_id": "setup.open_gmail",
-      "label": "Connect Gmail",
-      "meaning": "Opens Gmail setup so One can understand approved brand affinities and keep a private memory of recent interactions.",
-      "aliases": ["set up gmail", "open gmail setup", "connect gmail"],
-      "search_keywords": ["gmail", "setup", "receipts"],
-      "reachability": {
-        "routes": ["/one/setup"],
-        "screens": ["one_setup_hub", "one_setup"],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
-      },
-      "guard_ids": ["auth_signed_in"],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/setup/gmail"
-      },
-      "control_ids": ["one_setup_tile_gmail"],
-      "state_exposure": [],
-      "docs_references": []
-    },
-    {
       "action_id": "setup.open_location",
       "label": "Set up location",
       "meaning": "Opens Location setup so the person can share location with trusted people they choose.",

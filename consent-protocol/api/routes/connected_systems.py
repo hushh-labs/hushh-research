@@ -28,8 +28,9 @@ class CrmReadRequest(BaseModel):
         validation_alias=AliasChoices("objectType", "object_type"),
         max_length=80,
     )
-    email: str = Field(..., min_length=1, max_length=320)
-    phone: str = Field(..., min_length=1, max_length=80)
+    # Macy's compatibility aliases. Generic clients supply searchFields.
+    email: str | None = Field(default=None, min_length=1, max_length=320)
+    phone: str | None = Field(default=None, min_length=1, max_length=80)
     search_fields: dict[str, Any] | None = Field(
         default=None,
         validation_alias=AliasChoices("searchFields", "search_fields"),
@@ -60,15 +61,15 @@ class CrmCreateIntentRequest(BaseModel):
         validation_alias=AliasChoices("objectType", "object_type"),
         max_length=80,
     )
-    email: str = Field(..., min_length=1, max_length=320)
-    phone: str = Field(..., min_length=1, max_length=80)
+    email: str | None = Field(default=None, min_length=1, max_length=320)
+    phone: str | None = Field(default=None, min_length=1, max_length=80)
     first_name: str | None = Field(
         default=None,
         validation_alias=AliasChoices("firstName", "first_name"),
         max_length=80,
     )
-    last_name: str = Field(
-        ...,
+    last_name: str | None = Field(
+        default=None,
         validation_alias=AliasChoices("lastName", "last_name"),
         min_length=1,
         max_length=80,
@@ -76,6 +77,11 @@ class CrmCreateIntentRequest(BaseModel):
     additional_fields: dict[str, Any] | None = Field(
         default=None,
         validation_alias=AliasChoices("additionalFields", "additional_fields"),
+    )
+    record_fields: dict[str, Any] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("recordFields", "record_fields"),
+        description="Schema-driven create fields. Legacy aliases remain supported during migration.",
     )
 
 
@@ -93,9 +99,14 @@ class CrmUpdateIntentRequest(BaseModel):
         min_length=1,
         max_length=128,
     )
-    additional_fields: dict[str, Any] = Field(
-        ...,
+    additional_fields: dict[str, Any] | None = Field(
+        default=None,
         validation_alias=AliasChoices("additionalFields", "additional_fields"),
+    )
+    record_fields: dict[str, Any] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("recordFields", "record_fields"),
+        description="Schema-driven update field diff. Legacy additionalFields remains supported.",
     )
     readback_locator: dict[str, Any] | None = Field(
         default=None,
@@ -255,16 +266,24 @@ async def create_connected_system_record_intent(
 ):
     service = get_connected_systems_service()
     try:
-        return service.create_record_intent(
-            user_id=_user_id(token_data),
-            system_id=system_id,
-            object_type=body.object_type,
-            email=body.email,
-            phone=body.phone,
-            first_name=body.first_name,
-            last_name=body.last_name,
-            additional_fields=body.additional_fields,
-        )
+        if body.record_fields is not None:
+            return await service.create_record_intent_from_fields(
+                user_id=_user_id(token_data),
+                system_id=system_id,
+                object_type=body.object_type,
+                record_fields=body.record_fields,
+            )
+        payload = {
+            "user_id": _user_id(token_data),
+            "system_id": system_id,
+            "object_type": body.object_type,
+            "email": body.email,
+            "phone": body.phone,
+            "first_name": body.first_name,
+            "last_name": body.last_name,
+            "additional_fields": body.additional_fields,
+        }
+        return service.create_record_intent(**payload)
     except ConnectedSystemsError as error:
         _raise_connected_system_error(error)
 
@@ -277,14 +296,24 @@ async def update_connected_system_record_intent(
 ):
     service = get_connected_systems_service()
     try:
-        return service.update_record_intent(
-            user_id=_user_id(token_data),
-            system_id=system_id,
-            object_type=body.object_type,
-            record_id=body.record_id,
-            additional_fields=body.additional_fields,
-            readback_locator=body.readback_locator,
-        )
+        if body.record_fields is not None:
+            return await service.update_record_intent_from_fields(
+                user_id=_user_id(token_data),
+                system_id=system_id,
+                object_type=body.object_type,
+                record_id=body.record_id,
+                record_fields=body.record_fields,
+                readback_locator=body.readback_locator,
+            )
+        payload = {
+            "user_id": _user_id(token_data),
+            "system_id": system_id,
+            "object_type": body.object_type,
+            "record_id": body.record_id,
+            "additional_fields": body.additional_fields,
+            "readback_locator": body.readback_locator,
+        }
+        return service.update_record_intent(**payload)
     except ConnectedSystemsError as error:
         _raise_connected_system_error(error)
 
@@ -297,7 +326,27 @@ async def delete_connected_system_record(
 ):
     service = get_connected_systems_service()
     try:
-        return await service.delete_record(
+        # Compatibility route: delete is now a pending intent. Keeping this
+        # URL prevents older clients from issuing an immediate destructive call.
+        return service.create_delete_intent(
+            user_id=_user_id(token_data),
+            system_id=system_id,
+            object_type=body.object_type,
+            record_id=body.record_id,
+        )
+    except ConnectedSystemsError as error:
+        _raise_connected_system_error(error)
+
+
+@router.post("/{system_id}/records/delete-intents")
+async def create_connected_system_delete_intent(
+    body: CrmDeleteRequest,
+    system_id: str = Path(..., min_length=1, max_length=128),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    service = get_connected_systems_service()
+    try:
+        return service.create_delete_intent(
             user_id=_user_id(token_data),
             system_id=system_id,
             object_type=body.object_type,

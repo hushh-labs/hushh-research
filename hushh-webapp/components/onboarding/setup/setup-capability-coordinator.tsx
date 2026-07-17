@@ -258,15 +258,30 @@ export function useSetupCapabilityCoordinator({
           });
         }
 
-        router.replace(ROUTES.ONE_SETUP);
+        const hasExplicitIncompleteSetup =
+          !PreVaultUserStateService.isSetupResolved(journey) &&
+          !PreVaultUserStateService.isNavSetupResolved(journey) &&
+          journey.setupCompleted === false &&
+          journey.onboardingJourneyVersion === 1 &&
+          journey.onboardingPhase !== null &&
+          journey.onboardingPhase !== "root_completion";
+
+        // If the user already completed onboarding, always send them to their landing target instead of the setup hub.
+        const targetRoute = PreVaultUserStateService.isSetupResolved(journey)
+          ? resolveCapabilityHandoffTarget(capabilityId)
+          : hasExplicitIncompleteSetup
+            ? ROUTES.ONE_SETUP
+            : resolveCapabilityHandoffTarget(capabilityId);
+
+        router.replace(targetRoute);
         return {
           status: "succeeded",
           summary:
             kind === "finish"
               ? "Setup is complete. Returning to setup."
               : "Skipped for now. Returning to setup.",
-          routeAfter: ROUTES.ONE_SETUP,
-          screenAfter: "one_setup_hub",
+          routeAfter: targetRoute,
+          screenAfter: hasExplicitIncompleteSetup ? "one_setup_hub" : undefined,
         };
       } catch (error) {
         console.warn("[SetupCapabilityCoordinator] Failed to settle setup:", error);
@@ -349,6 +364,8 @@ type SetupCapabilityTerminalFooterProps = {
   capabilityId: OneSetupCapabilityId;
   isOperationallyReady: boolean;
   coordinator: SetupCapabilityCoordinator;
+  skipLabel?: string;
+  finishLabel?: string;
 };
 
 /** Shared explicit Finish/Skip boundary, not a route query or header back button. */
@@ -356,12 +373,14 @@ export function SetupCapabilityTerminalFooter({
   capabilityId,
   isOperationallyReady,
   coordinator,
+  skipLabel,
+  finishLabel,
 }: SetupCapabilityTerminalFooterProps) {
   const operationallyReady =
     isOperationallyReady || coordinator.operationallyReady;
   const label = operationallyReady
-    ? `Finish ${setupCapabilityLabel(capabilityId)} setup`
-    : `Skip ${setupCapabilityLabel(capabilityId)} setup`;
+    ? finishLabel ?? `Finish ${setupCapabilityLabel(capabilityId)} setup`
+    : skipLabel ?? `Skip ${setupCapabilityLabel(capabilityId)} setup`;
   const actionId = setupCapabilityTerminalActionId(
     operationallyReady ? "finish" : "skip",
     capabilityId,

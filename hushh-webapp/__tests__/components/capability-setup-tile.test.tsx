@@ -70,7 +70,7 @@ describe("CapabilitySetupTile", () => {
       />,
     );
 
-    expect(screen.getAllByText("Connect Gmail")).toHaveLength(2);
+    expect(screen.getAllByText("Connect Gmail")).toHaveLength(1);
     expect(screen.queryByText("Set up vault")).toBeNull();
   });
 });

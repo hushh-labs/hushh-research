@@ -102,7 +102,7 @@ const BOTTOM_CHROME_SCROLL_TRANSFORM =
  * fade. Reusing the viewport-anchored mobile mask there made the upper Agent
  * Bar inherit the navigation's weak tail rather than its own tint.
  */
-function SharedBottomChromeGlass() {
+function SharedBottomChromeGlass({ hideCommandBar }: { hideCommandBar?: boolean }) {
   const commonStyle = {
     transform: BOTTOM_CHROME_SCROLL_TRANSFORM,
     ...SHARED_BOTTOM_CHROME_GLASS_VARS,
@@ -141,25 +141,27 @@ function SharedBottomChromeGlass() {
           }
         />
       </div>
-      <div
-        aria-hidden
-        data-app-bottom-chrome-glass
-        className="pointer-events-none fixed inset-x-0 z-[108] hidden md:block"
-        style={{
-          bottom:
-            "calc(max(var(--app-bottom-inset), calc(var(--bottom-nav-offset) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift))) + 0.5rem)",
-        }}
-      >
+      {!hideCommandBar ? (
         <div
-          className="w-full bar-glass bar-glass-bottom"
-          style={
-            {
-              ...commonStyle,
-              height: "calc(3rem + var(--bottom-chrome-fade-overscan))",
-            } as CSSProperties
-          }
-        />
-      </div>
+          aria-hidden
+          data-app-bottom-chrome-glass
+          className="pointer-events-none fixed inset-x-0 z-[108] hidden md:block"
+          style={{
+            bottom:
+              "calc(max(var(--app-bottom-inset), calc(var(--bottom-nav-offset) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift))) + 0.5rem)",
+          }}
+        >
+          <div
+            className="w-full bar-glass bar-glass-bottom"
+            style={
+              {
+                ...commonStyle,
+                height: "calc(3rem + var(--bottom-chrome-fade-overscan))",
+              } as CSSProperties
+            }
+          />
+        </div>
+      ) : null}
     </>
   );
 }
@@ -236,7 +238,7 @@ function AppShellFrame({ children }: ProvidersProps) {
           ? "var(--app-bottom-inset)"
           : "calc(var(--app-bottom-inset) + var(--kai-command-fixed-ui))",
         "--bottom-chrome-full-height": chromeState.hideCommandBar
-          ? "calc(var(--app-bottom-inset) + var(--bottom-chrome-fade-overscan))"
+          ? "calc(var(--onboarding-agent-bar-clearance) + var(--bottom-chrome-fade-overscan) + 1.5rem)"
           : "calc(var(--app-bottom-inset) + var(--kai-command-fixed-ui) + var(--bottom-chrome-fade-overscan))",
         "--bottom-chrome-search-height": chromeState.hideCommandBar
           ? "calc(var(--app-bottom-inset) + var(--bottom-chrome-fade-overscan))"
@@ -247,7 +249,9 @@ function AppShellFrame({ children }: ProvidersProps) {
         // of them still render the fixed onboarding Agent Bar. The scroll root
         // owns the clearance for that fixed chrome so feature routes do not
         // need to guess at device safe areas or bar geometry.
-        "--app-scroll-bottom-pad": hideGlobalChrome || isPublicStandaloneRoute
+        "--app-scroll-bottom-pad": isRiaRoute(pathname)
+          ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
+          : hideGlobalChrome || isPublicStandaloneRoute
           ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
           : "var(--bottom-chrome-stack-height)",
       }) as CSSProperties,
@@ -259,6 +263,7 @@ function AppShellFrame({ children }: ProvidersProps) {
       topShellMetrics.contentOffsetMode,
       topShellMetrics.hasTabs,
       topShellMetrics.shellVisible,
+      pathname,
     ],
   );
   const showSharedBottomChromeGlass =
@@ -472,7 +477,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                       <VaultContext.Consumer>
                         {() =>
                           showSharedBottomChromeGlass ? (
-                            <SharedBottomChromeGlass />
+                            <SharedBottomChromeGlass hideCommandBar={chromeState.hideCommandBar} />
                           ) : null
                         }
                       </VaultContext.Consumer>
@@ -536,7 +541,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                       <VaultContext.Consumer>
                         {() =>
                           showSharedBottomChromeGlass ? (
-                            <SharedBottomChromeGlass />
+                            <SharedBottomChromeGlass hideCommandBar={chromeState.hideCommandBar} />
                           ) : null
                         }
                       </VaultContext.Consumer>

@@ -1,18 +1,40 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
+import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
 import GmailReceiptsPage from "@/components/gmail/gmail-receipts-page";
 import {
   SetupCapabilityLoading,
   useSetupCapabilityCoordinator,
 } from "@/components/onboarding/setup/setup-capability-coordinator";
+import { ROUTES } from "@/lib/navigation/routes";
+import { isOneCapabilityEnabled } from "@/lib/onboarding/one-capabilities";
 
 /**
  * Gmail's setup adapter. The feature body keeps OAuth and receipt behavior;
  * this route owns only the first-run goal and the explicit terminal action.
  */
 export function GmailOnboardingSetupClient() {
+  if (!isOneCapabilityEnabled("gmail")) {
+    return <PausedGmailSetupRedirect />;
+  }
+
+  return <EnabledGmailOnboardingSetup />;
+}
+
+function PausedGmailSetupRedirect() {
+  const router = useRouter();
+
+  useEffect(() => {
+    router.replace(ROUTES.ONE_SETUP);
+  }, [router]);
+
+  return <RouteLoadingState label="Opening setup…" />;
+}
+
+function EnabledGmailOnboardingSetup() {
   const [connected, setConnected] = useState(false);
   const coordinator = useSetupCapabilityCoordinator({
     capabilityId: "gmail",

@@ -118,11 +118,11 @@ function brandLabel(system: ConnectedSystemSummary): string {
 }
 
 function isUpdatableSystem(system: ConnectedSystemSummary): boolean {
-  return system.supportedActions?.update !== false && system.status !== "needs_configuration";
+  return system.supportedActions?.update === true && system.status === "connected";
 }
 
 function isReadableSystem(system: ConnectedSystemSummary): boolean {
-  return system.supportedActions?.read !== false && system.status !== "needs_configuration";
+  return system.supportedActions?.read === true && system.status === "connected";
 }
 
 async function findRecordIdForSystem(input: {
@@ -207,7 +207,7 @@ async function updateOneSystem(input: {
   }
 }
 
-async function runAllConnectedCrmUpdate(input: {
+async function _runAllConnectedCrmUpdate(input: {
   id: string;
   type: string;
   vaultOwnerToken: string;
@@ -479,84 +479,20 @@ export async function runConnectedSystemDirective(
     };
   }
 
-  if (scope === ALL_CONNECTED_CRM_SYSTEMS_SCOPE) {
-    return runAllConnectedCrmUpdate({
-      id,
-      type,
-      vaultOwnerToken,
-      objectType,
-      email,
-      phone,
-      additionalFields,
-    });
-  }
-
-  let recordId =
-    readString(slots.id) || readString(slots.recordId) || readString(slots.record_id);
-
-  if (!recordId) {
-    const bindingResult = await ConnectedSystemsService.getRecordBinding({
-      vaultOwnerToken,
-      systemId,
-      objectType,
-    }).catch(() => null);
-    if (bindingResult?.binding?.status === "active") {
-      recordId = readString(bindingResult.binding.recordId);
-    }
-  }
-
-  if (!recordId && email && phone) {
-    const searchResult = await ConnectedSystemsService.searchRecord(vaultOwnerToken, {
-      systemId,
-      objectType,
-      email,
-      phone,
-      returnFields: DEFAULT_RETURN_FIELDS,
-    });
-    recordId = recordIdFromSearch(searchResult);
-  }
-
-  if (!recordId) {
-    return {
-      delegate_agent_id: "agent_connected_systems",
-      kind: "action",
-      id,
-      type,
-      status: "failed",
-      detail: "I could not find a matching CRM record from the provided email and phone.",
-    };
-  }
-
-  const pendingIntent = await ConnectedSystemsService.updateRecordIntent(vaultOwnerToken, {
-    systemId,
-    objectType,
-    id: recordId,
-    additionalFields,
-    readbackLocator: email && phone ? { email, phone } : undefined,
-  });
-  const approved = await ConnectedSystemsService.approveIntent({
-    vaultOwnerToken,
-    systemId: pendingIntent.systemId,
-    intentId: pendingIntent.intentId,
-  });
-
-  if (approved.status === "failed") {
-    return {
-      delegate_agent_id: "agent_connected_systems",
-      kind: "action",
-      id,
-      type,
-      status: "failed",
-      detail: approved.errorMessage || "The CRM update failed.",
-    };
-  }
-
+  // The private agent may describe a proposal, but the Connected Systems
+  // screen owns intent creation, capability/schema validation, and approval.
+  // It must never fan a mutation out to every connected CRM.
   return {
     delegate_agent_id: "agent_connected_systems",
     kind: "action",
     id,
     type,
     status: "completed",
-    display: "Done. The CRM update was approved and applied.",
+    display: `Review the proposed ${Object.keys(additionalFields).length} field change${
+      Object.keys(additionalFields).length === 1 ? "" : "s"
+    } in Connected Systems before anything is sent to ${
+      scope === ALL_CONNECTED_CRM_SYSTEMS_SCOPE ? "a CRM" : systemId
+    }.`,
+    detail: "No CRM record was changed by the private agent.",
   };
 }

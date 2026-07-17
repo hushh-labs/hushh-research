@@ -8,10 +8,9 @@ import json
 import re
 import secrets
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
-from mcp.types import ResourceLink, TextContent
+from mcp.types import TextContent
 
 from hushh_mcp.consent.export_envelope import ConsentExportEnvelopeSubmissionV2
 from hushh_mcp.consent.scope_helpers import get_scope_display_metadata
@@ -22,7 +21,7 @@ from mcp_modules.transport_context import is_local_stdio_transport
 
 from .data_tools import _try_build_local_decrypted_response
 
-ToolContent = TextContent | ResourceLink
+ToolContent = TextContent
 ToolResult = tuple[list[ToolContent], dict[str, Any]]
 
 _SAFE_BACKEND_CODES = {
@@ -50,6 +49,8 @@ _SAFE_BACKEND_CODES = {
     "SCOPE_RETIRED",
     "USER_NOT_FOUND",
 }
+
+INLINE_CIPHERTEXT_MAX_CHARS = 1_500_000
 
 
 def _correlation_ref() -> str:
@@ -519,44 +520,19 @@ async def handle_get_encrypted_scoped_export(args: dict) -> ToolResult:
             "delivery": "decrypted_local",
             "resource": None,
             "crypto": None,
+            "ciphertext": None,
             "information": dict(decrypted.get("data") or {}),
         }
         return [TextContent(type="text", text=json.dumps(payload))], payload
 
-    resource = data.get("resource_link") if isinstance(data.get("resource_link"), dict) else {}
-    uri = str(resource.get("uri") or "").strip()
-    parsed_uri = urlparse(uri)
-    if (
-        not uri
-        or len(uri) > 2048
-        or parsed_uri.scheme != "https"
-        or not parsed_uri.hostname
-        or not _is_public_resource_hostname(parsed_uri.hostname)
-        or parsed_uri.username is not None
-        or parsed_uri.password is not None
-        or bool(parsed_uri.query)
-        or bool(parsed_uri.fragment)
-    ):
+    ciphertext = str(data.get("encrypted_data") or "").strip()
+    if not ciphertext or len(ciphertext) > INLINE_CIPHERTEXT_MAX_CHARS:
         return _error(
-            "RESOURCE_LINK_MISSING",
-            "The encrypted export resource is unavailable.",
-            recoverable=True,
-            next_action="Retry once; if it repeats, report the correlation reference.",
+            "RESULT_REQUIRES_NARROWER_SCOPE",
+            "The encrypted export is too large for one MCP tool result.",
+            recoverable=False,
+            next_action="Request a narrower discovered scope.",
         )
-    resource_size = int(resource["size"]) if resource.get("size") is not None else None
-    if resource_size is not None and not 0 <= resource_size <= 1_000_000_000:
-        return _error(
-            "INVALID_BACKEND_RESPONSE",
-            "The encrypted export metadata is incomplete or invalid.",
-            recoverable=True,
-            next_action="Retry once; if it repeats, report the correlation reference.",
-        )
-    safe_resource = {
-        "name": "Hussh encrypted scoped export",
-        "uri": uri,
-        "mime_type": "application/octet-stream",
-        "size": resource_size,
-    }
     safe_crypto = _project_hosted_crypto(data)
     if safe_crypto is None:
         return _error(
@@ -567,19 +543,10 @@ async def handle_get_encrypted_scoped_export(args: dict) -> ToolResult:
         )
     payload = {
         **base,
-        "delivery": "resource_link",
-        "resource": safe_resource,
+        "delivery": "encrypted_inline",
+        "resource": None,
         "crypto": safe_crypto,
+        "ciphertext": ciphertext,
         "information": None,
     }
-    return [
-        TextContent(type="text", text=json.dumps(payload)),
-        ResourceLink(
-            type="resource_link",
-            name=safe_resource["name"],
-            uri=safe_resource["uri"],
-            description="Bearer-authenticated ciphertext; validate envelope v2 and decrypt outside model context.",
-            mimeType=safe_resource["mime_type"],
-            size=safe_resource["size"],
-        ),
-    ], payload
+    return [TextContent(type="text", text=json.dumps(payload))], payload

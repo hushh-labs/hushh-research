@@ -197,15 +197,10 @@ def _ensure_list(value: Any) -> list[Any]:
     return []
 
 
-def _normalize_object_type(object_type: str | None) -> str:
-    value = _clean_text(object_type or DEFAULT_OBJECT_TYPE, max_length=80)
+def _normalize_object_type(object_type: str | None, *, default: str) -> str:
+    value = _clean_text(object_type or default, max_length=80)
     if not value:
-        value = DEFAULT_OBJECT_TYPE
-    if value != DEFAULT_OBJECT_TYPE:
-        raise ConnectedSystemValidationError(
-            "Only Contact is supported for Salesforce CRM v1.",
-            code="UNSUPPORTED_OBJECT_TYPE",
-        )
+        raise ConnectedSystemValidationError("A CRM object type is required.")
     return value
 
 
@@ -232,8 +227,10 @@ def _canonical_schema_field_name(field_name: Any) -> str | None:
     canonical = _CRM_FIELD_ALIASES.get(raw.replace(" ", "").lower()) or _CRM_FIELD_ALIASES.get(
         raw.lower()
     )
-    canonical = canonical or raw
-    return canonical if canonical in SUPPORTED_CRM_FIELDS else None
+    # Schema field names are owned by the active CRM. The Salesforce aliases
+    # remain only for the compatibility adapter below; never discard a field
+    # simply because another CRM uses a different vocabulary.
+    return canonical or raw
 
 
 def _schema_field_name_from_descriptor(descriptor: Any) -> str | None:
@@ -323,6 +320,16 @@ def _collect_schema_required_candidates(node: Any) -> list[str]:
     return candidates
 
 
+def _descriptor_bool(descriptor: Any, *names: str) -> bool | None:
+    if not isinstance(descriptor, dict):
+        return None
+    for name in names:
+        value = descriptor.get(name)
+        if isinstance(value, bool):
+            return value
+    return None
+
+
 def _schema_fields_from_schema_result(result: dict[str, Any]) -> list[dict[str, Any]]:
     required_fields = {
         canonical
@@ -342,19 +349,27 @@ def _schema_fields_from_schema_result(result: dict[str, Any]) -> list[dict[str, 
         if canonical in seen:
             return
         seen.add(canonical)
+        identity = _descriptor_bool(
+            descriptor, "identityField", "identity", "primaryKey", "identifier"
+        )
+        immutable = _descriptor_bool(descriptor, "immutable", "readOnly")
+        readable = _descriptor_bool(descriptor, "readable", "isReadable")
+        writable = _descriptor_bool(
+            descriptor, "writable", "isWritable", "updateable", "createable"
+        )
+        descriptor_required = _descriptor_bool(descriptor, "required", "isRequired")
         fields.append(
             {
                 "key": canonical,
                 "name": raw_name or canonical,
-                "label": _schema_label_from_descriptor(descriptor)
-                or _CRM_FIELD_LABELS.get(canonical)
-                or canonical,
-                "dataType": _schema_type_from_descriptor(descriptor)
-                or _CRM_FIELD_INPUT_TYPES.get(canonical)
-                or "string",
-                "required": canonical in required_fields,
-                "identityField": canonical in {"Email", "Phone"},
-                "writable": canonical not in {"Email", "Phone"},
+                "label": _schema_label_from_descriptor(descriptor) or canonical,
+                "dataType": _schema_type_from_descriptor(descriptor) or "string",
+                "required": bool(descriptor_required) or canonical in required_fields,
+                "identityField": bool(identity),
+                "readable": True if readable is None else readable,
+                "writable": (not bool(immutable)) if writable is None else writable,
+                "immutable": bool(immutable),
+                "constraints": _ensure_dict(descriptor).get("constraints") or {},
                 "source": source,
             }
         )
@@ -367,10 +382,6 @@ def _schema_fields_from_schema_result(result: dict[str, Any]) -> list[dict[str, 
 
     for canonical in required_fields:
         _append_field(canonical=canonical, raw_name=canonical)
-
-    if not fields:
-        for canonical in sorted(SUPPORTED_CRM_FIELDS):
-            _append_field(canonical=canonical, raw_name=canonical, source="allowlist_fallback")
 
     return fields
 
@@ -621,8 +632,51 @@ class ConnectedSystemDefinition:
     # the registry can carry a dedicated delete endpoint. None → fall back to
     # transport_endpoint. Only consulted when supports_delete is enabled.
     delete_transport_endpoint: str | None = None
+    # Registry-projected executable capabilities. A tool catalog entry alone is
+    # descriptive; an operation is executable only when it is declared here,
+    # has a registered tool, and has a transport endpoint.
+    capabilities: frozenset[str] = frozenset({"schema", "read", "create", "update", "delete"})
+    timeout_seconds: float = 30.0
+    retry_count: int = 0
+
+    def operation(self, operation: str) -> dict[str, Any] | None:
+        return next(
+            (
+                _deepcopy_json(tool)
+                for tool in self.tool_catalog
+                if str(tool.get("operation") or "").strip() == operation
+            ),
+            None,
+        )
+
+    def operation_endpoint(self, operation: str) -> str | None:
+        tool = self.operation(operation) or {}
+        return (
+            str(
+                tool.get("mcpEndpoint")
+                or (self.delete_transport_endpoint if operation == "delete" else None)
+                or self.transport_endpoint
+                or ""
+            ).strip()
+            or None
+        )
+
+    def supports(self, operation: str) -> bool:
+        # A schema is mandatory for executable record actions so an untyped
+        # connector cannot become write-capable merely by advertising a tool.
+        if operation not in self.capabilities or not self.operation(operation):
+            return False
+        if not self.operation_endpoint(operation):
+            return False
+        if operation != "schema" and not self.operation("schema"):
+            return False
+        return bool(self.operation_endpoint("schema"))
 
     def to_summary(self, *, endpoint_configured: bool, delete_enabled: bool) -> dict[str, Any]:
+        supported_actions = {
+            operation: self.supports(operation) and (operation != "delete" or delete_enabled)
+            for operation in ("schema", "read", "create", "update", "delete")
+        }
         return {
             "systemId": self.system_id,
             "displayName": self.display_name,
@@ -637,14 +691,14 @@ class ConnectedSystemDefinition:
             "endpointConfigured": endpoint_configured,
             "registrySource": self.registry_source,
             "toolCatalog": [_deepcopy_json(tool) for tool in self.tool_catalog],
-            "supportedActions": {
-                "schema": True,
-                "read": True,
-                "create": True,
-                "update": True,
-                "delete": delete_enabled,
+            "supportedActions": supported_actions,
+            "capabilities": {
+                "operations": [
+                    operation for operation, enabled in supported_actions.items() if enabled
+                ],
+                "primaryObject": self.object_type_default,
+                "version": "crm-operation-contract.v1",
             },
-            "fieldAllowlist": sorted(SUPPORTED_CRM_FIELDS),
         }
 
 
@@ -660,6 +714,7 @@ SALESFORCE_CRM_SYSTEM = ConnectedSystemDefinition(
     transport_endpoint=REGISTRY_MCP_ENDPOINT,
     registry_source=REGISTRY_SOURCE,
     tool_catalog=EXTERNAL_CRM_TOOL_CATALOG,
+    capabilities=frozenset({"schema", "read", "create", "update", "delete"}),
 )
 
 
@@ -725,12 +780,48 @@ class ExternalCrmStreamableMcpAdapter:
     async def delete_record(self, payload: dict[str, Any]) -> dict[str, Any]:
         return await self._call_tool("delete-crm-record", payload)
 
-    async def _call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        if not self.endpoint:
+    async def call_operation(
+        self,
+        *,
+        operation: str,
+        tool_name: str,
+        endpoint: str | None,
+        timeout_seconds: float,
+        retry_count: int,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        # Only idempotent discovery/read operations may retry. Retrying a write
+        # without a connector idempotency contract could duplicate a CRM record.
+        attempts = max(1, (int(retry_count) + 1) if operation in {"schema", "read"} else 1)
+        last_error: ConnectedSystemsError | None = None
+        for _ in range(attempts):
+            try:
+                return await self._call_tool(
+                    tool_name,
+                    arguments,
+                    endpoint=endpoint,
+                    timeout_seconds=timeout_seconds,
+                )
+            except ConnectedSystemsError as error:
+                last_error = error
+        if last_error is None:
+            raise ConnectedSystemsError("CRM MCP operation completed without a result.")
+        raise last_error
+
+    async def _call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        *,
+        endpoint: str | None = None,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        resolved_endpoint = endpoint or self.endpoint
+        if not resolved_endpoint:
             raise ConnectedSystemConfigurationError(
                 "Connected Systems registry does not include a Salesforce CRM MCP endpoint."
             )
-        if self.endpoint.startswith("registry://"):
+        if resolved_endpoint.startswith("registry://"):
             return self._call_registry_tool(name, arguments)
 
         tool_arguments = {
@@ -746,7 +837,7 @@ class ExternalCrmStreamableMcpAdapter:
             if self.headers:
                 client_kwargs["headers"] = dict(self.headers)
 
-            async with streamablehttp_client(self.endpoint, **client_kwargs) as (
+            async with streamablehttp_client(resolved_endpoint, **client_kwargs) as (
                 read_stream,
                 write_stream,
                 _,
@@ -757,7 +848,7 @@ class ExternalCrmStreamableMcpAdapter:
             return _normalize_mcp_tool_result(result)
 
         try:
-            return await asyncio.wait_for(_run(), timeout=self.timeout_seconds)
+            return await asyncio.wait_for(_run(), timeout=timeout_seconds or self.timeout_seconds)
         except ConnectedSystemsError:
             raise
         except TimeoutError as error:
@@ -876,6 +967,10 @@ class ConnectedSystemIntentStore:
     def update_intent(self, *, intent_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         raise NotImplementedError
 
+    def claim_pending_intent(self, *, intent_id: str, approval_id: str) -> dict[str, Any]:
+        """Atomically transition one pending intent to approved/executing."""
+        raise NotImplementedError
+
     def record_audit_event(self, event: dict[str, Any]) -> None:
         raise NotImplementedError
 
@@ -917,6 +1012,20 @@ class InMemoryConnectedSystemIntentStore(ConnectedSystemIntentStore):
             return None
         if intent.get("user_id") != user_id or intent.get("system_id") != system_id:
             return None
+        return _deepcopy_json(intent)
+
+    def claim_pending_intent(self, *, intent_id: str, approval_id: str) -> dict[str, Any]:
+        intent = self.intents.get(intent_id)
+        if not intent:
+            raise ConnectedSystemNotFoundError("CRM intent was not found.")
+        if intent.get("status") == "pending":
+            intent = {
+                **intent,
+                "status": "approved",
+                "approval_id": approval_id,
+                "updated_at": _now_iso(),
+            }
+            self.intents[intent_id] = intent
         return _deepcopy_json(intent)
 
     def update_intent(self, *, intent_id: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -1051,6 +1160,26 @@ class DatabaseConnectedSystemIntentStore(ConnectedSystemIntentStore):
             {"intent_id": intent_id, "user_id": user_id, "system_id": system_id},
         ).data
         return _intent_from_db_row(rows[0]) if rows else None
+
+    def claim_pending_intent(self, *, intent_id: str, approval_id: str) -> dict[str, Any]:
+        rows = self.db.execute_raw(
+            """
+            UPDATE connected_system_intents
+            SET status = 'approved', approval_id = :approval_id, updated_at = NOW()
+            WHERE intent_id = :intent_id AND status = 'pending'
+            RETURNING *
+            """,
+            {"intent_id": intent_id, "approval_id": approval_id},
+        ).data
+        if rows:
+            return _intent_from_db_row(rows[0])
+        current = self.db.execute_raw(
+            "SELECT * FROM connected_system_intents WHERE intent_id = :intent_id LIMIT 1",
+            {"intent_id": intent_id},
+        ).data
+        if not current:
+            raise ConnectedSystemNotFoundError("CRM intent was not found.")
+        return _intent_from_db_row(current[0])
 
     def update_intent(self, *, intent_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         current = self.db.execute_raw(
@@ -1337,6 +1466,57 @@ class ConnectedSystemsService:
     ) -> ExternalCrmStreamableMcpAdapter:
         return self.adapter or ExternalCrmStreamableMcpAdapter.from_registry(system)
 
+    def _require_operation(
+        self, system: ConnectedSystemDefinition, operation: str
+    ) -> dict[str, Any]:
+        if operation == "delete" and not self.delete_enabled:
+            raise ConnectedSystemBlockedError(
+                "Delete is blocked for this connected system.", code="CRM_DELETE_BLOCKED"
+            )
+        if not system.supports(operation):
+            raise ConnectedSystemBlockedError(
+                f"The connected system does not support {operation}.",
+                code="CONNECTED_SYSTEM_OPERATION_UNAVAILABLE",
+            )
+        config = system.operation(operation)
+        if not config:
+            raise ConnectedSystemConfigurationError(
+                f"The connected system has no {operation} tool mapping.",
+                code="CONNECTED_SYSTEM_OPERATION_UNCONFIGURED",
+            )
+        return config
+
+    async def _call_operation(
+        self, *, system: ConnectedSystemDefinition, operation: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        config = self._require_operation(system, operation)
+        adapter = self._adapter_for_system(system)
+        # The production adapter is operation-driven. The narrow legacy fallback
+        # keeps injected test adapters compatible while all real registry calls
+        # use the mapped tool name and endpoint.
+        if hasattr(adapter, "call_operation"):
+            endpoint = system.operation_endpoint(operation)
+            # Explicit registry:// adapters are a deterministic test transport;
+            # never use this override for a real HTTP endpoint.
+            if str(getattr(adapter, "endpoint", "")).startswith("registry://"):
+                endpoint = str(adapter.endpoint)
+            return await adapter.call_operation(
+                operation=operation,
+                tool_name=str(config.get("name") or ""),
+                endpoint=endpoint,
+                timeout_seconds=system.timeout_seconds,
+                retry_count=system.retry_count,
+                arguments=payload,
+            )
+        legacy_method = {
+            "schema": "object_schema",
+            "read": "read_record",
+            "create": "create_record",
+            "update": "update_record",
+            "delete": "delete_record",
+        }[operation]
+        return await getattr(adapter, legacy_method)(payload)
+
     def list_systems(self) -> list[dict[str, Any]]:
         # Registry entries are operational configuration. Unlike an explicit
         # injected test registry, reload the active DB-backed set for each
@@ -1390,12 +1570,18 @@ class ConnectedSystemsService:
 
     async def get_schema(self, *, system_id: str, object_type: str | None = None) -> dict[str, Any]:
         system = self.get_system(system_id)
+        self._require_operation(system, "schema")
         payload = {
             "target": system.target,
-            "objectType": _normalize_object_type(object_type),
+            "objectType": _normalize_object_type(object_type, default=system.object_type_default),
         }
-        result = await self._adapter_for_system(system).object_schema(payload)
+        result = await self._call_operation(system=system, operation="schema", payload=payload)
         schema_fields = _schema_fields_from_schema_result(result)
+        if not schema_fields:
+            raise ConnectedSystemConfigurationError(
+                "The connected system did not return a usable primary-object schema.",
+                code="CONNECTED_SYSTEM_SCHEMA_UNAVAILABLE",
+            )
         return {
             "systemId": system.system_id,
             "target": system.target,
@@ -1405,18 +1591,201 @@ class ConnectedSystemsService:
             "mcp": result,
         }
 
+    @staticmethod
+    def _validated_schema_fields(
+        fields: dict[str, dict[str, Any]],
+        values: dict[str, Any] | None,
+        *,
+        action: str,
+        require_required_fields: bool = False,
+    ) -> dict[str, Any]:
+        if not isinstance(values, dict) or not values:
+            raise ConnectedSystemValidationError(f"recordFields is required for {action}.")
+        normalized: dict[str, Any] = {}
+        for raw_name, value in values.items():
+            key = _clean_text(raw_name, max_length=80)
+            field = fields.get(key)
+            if field is None:
+                raise ConnectedSystemValidationError(
+                    f"Field is not available in this CRM schema: {key}",
+                    code="CONNECTED_SYSTEM_SCHEMA_FIELD_UNAVAILABLE",
+                )
+            if action == "update" and (
+                field.get("immutable") or field.get("identityField") or not field.get("writable")
+            ):
+                raise ConnectedSystemValidationError(
+                    f"Field cannot be updated: {key}",
+                    code="CONNECTED_SYSTEM_SCHEMA_FIELD_READ_ONLY",
+                )
+            if action == "create" and (field.get("immutable") or not field.get("writable")):
+                raise ConnectedSystemValidationError(
+                    f"Field cannot be written: {key}",
+                    code="CONNECTED_SYSTEM_SCHEMA_FIELD_READ_ONLY",
+                )
+            normalized[field["name"]] = value
+        if require_required_fields:
+            supplied = {str(key).lower() for key in normalized}
+            missing = [
+                field["label"]
+                for field in fields.values()
+                if field.get("required") and str(field["name"]).lower() not in supplied
+            ]
+            if missing:
+                raise ConnectedSystemValidationError(
+                    f"Required CRM fields are missing: {', '.join(missing)}.",
+                    code="CONNECTED_SYSTEM_SCHEMA_REQUIRED_FIELDS",
+                )
+        return normalized
+
+    async def create_record_intent_from_fields(
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        object_type: str | None,
+        record_fields: dict[str, Any],
+        readback_locator: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        system = self.get_system(system_id)
+        self._require_operation(system, "create")
+        schema = await self.get_schema(system_id=system_id, object_type=object_type)
+        fields = {str(field["key"]): field for field in schema["fields"]}
+        normalized = self._validated_schema_fields(
+            fields, record_fields, action="create", require_required_fields=True
+        )
+        object_type_value = str(schema["objectType"])
+        payload: dict[str, Any] = {
+            "target": system.target,
+            "objectType": object_type_value,
+            "recordFields": normalized,
+        }
+        # The currently deployed Macy's tool predates recordFields. This is an
+        # explicit wire-compatibility adapter, not a generic CRM assumption.
+        if system.system_id == CONNECTED_SYSTEM_SALESFORCE_ID:
+            legacy = {str(key): value for key, value in normalized.items()}
+            payload = {
+                "target": system.target,
+                "objectType": object_type_value,
+                "email": legacy.pop("Email", ""),
+                "phone": _normalize_crm_phone_for_mcp(legacy.pop("Phone", "")),
+                "lastName": legacy.pop("LastName", ""),
+                "firstName": legacy.pop("FirstName", "") or None,
+                "additionalFields": legacy,
+            }
+        return self._create_intent(
+            user_id=user_id,
+            system=system,
+            action="create",
+            object_type=object_type_value,
+            request_payload={
+                key: value for key, value in payload.items() if value not in (None, {})
+            },
+            readback_payload=self._generic_readback_payload(
+                system=system,
+                object_type=object_type_value,
+                fields=fields,
+                record_fields=normalized,
+                locator=readback_locator,
+            ),
+            field_names=list(normalized),
+            record_id=None,
+        )
+
+    async def update_record_intent_from_fields(
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        object_type: str | None,
+        record_id: str,
+        record_fields: dict[str, Any],
+        readback_locator: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        system = self.get_system(system_id)
+        self._require_operation(system, "update")
+        record_id_value = _clean_text(record_id, max_length=128)
+        if not record_id_value:
+            raise ConnectedSystemValidationError("id is required for update.")
+        schema = await self.get_schema(system_id=system_id, object_type=object_type)
+        fields = {str(field["key"]): field for field in schema["fields"]}
+        normalized = self._validated_schema_fields(fields, record_fields, action="update")
+        object_type_value = str(schema["objectType"])
+        payload: dict[str, Any] = {
+            "target": system.target,
+            "objectType": object_type_value,
+            "id": record_id_value,
+            "recordFields": normalized,
+        }
+        if system.system_id == CONNECTED_SYSTEM_SALESFORCE_ID:
+            payload["additionalFields"] = normalized
+            payload.pop("recordFields")
+        return self._create_intent(
+            user_id=user_id,
+            system=system,
+            action="update",
+            object_type=object_type_value,
+            request_payload=payload,
+            readback_payload=self._generic_readback_payload(
+                system=system,
+                object_type=object_type_value,
+                fields=fields,
+                record_fields=normalized,
+                locator=readback_locator,
+            ),
+            field_names=list(normalized),
+            record_id=record_id_value,
+        )
+
+    def _generic_readback_payload(
+        self,
+        *,
+        system: ConnectedSystemDefinition,
+        object_type: str,
+        fields: dict[str, dict[str, Any]],
+        record_fields: dict[str, Any],
+        locator: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        if locator and isinstance(locator.get("searchFields"), dict):
+            search_fields = locator["searchFields"]
+        else:
+            search_fields = {
+                str(field["name"]): record_fields.get(str(field["name"]))
+                for field in fields.values()
+                if field.get("identityField") and str(field["name"]) in record_fields
+            }
+        search_fields = {
+            key: value for key, value in search_fields.items() if value not in (None, "")
+        }
+        if not search_fields:
+            return {}
+        if system.system_id == CONNECTED_SYSTEM_SALESFORCE_ID:
+            return self._build_read_payload(
+                system_id=system.system_id,
+                object_type=object_type,
+                email=str(search_fields.get("Email") or ""),
+                phone=str(search_fields.get("Phone") or ""),
+                search_fields=None,
+                return_fields=list(record_fields),
+            )
+        return {
+            "target": system.target,
+            "objectType": object_type,
+            "searchFields": search_fields,
+            "returnFields": list(record_fields),
+        }
+
     async def read_record(
         self,
         *,
         user_id: str | None = None,
         system_id: str,
         object_type: str | None,
-        email: str,
-        phone: str,
+        email: str | None,
+        phone: str | None,
         search_fields: dict[str, Any] | None = None,
         return_fields: list[str] | None = None,
     ) -> dict[str, Any]:
-        payload = self._build_read_payload(
+        payload = await self._build_schema_read_payload(
             system_id=system_id,
             object_type=object_type,
             email=email,
@@ -1425,7 +1794,7 @@ class ConnectedSystemsService:
             return_fields=return_fields,
         )
         system = self.get_system(system_id)
-        result = await self._adapter_for_system(system).read_record(payload)
+        result = await self._call_operation(system=system, operation="read", payload=payload)
         self._audit(
             user_id=user_id or "",
             system_id=system_id,
@@ -1448,6 +1817,65 @@ class ConnectedSystemsService:
             "mcp": result,
         }
 
+    async def _build_schema_read_payload(
+        self,
+        *,
+        system_id: str,
+        object_type: str | None,
+        email: str | None,
+        phone: str | None,
+        search_fields: dict[str, Any] | None,
+        return_fields: list[str] | None,
+    ) -> dict[str, Any]:
+        system = self.get_system(system_id)
+        schema = await self.get_schema(system_id=system_id, object_type=object_type)
+        fields = {
+            str(field["key"]): field for field in schema["fields"] if field.get("readable", True)
+        }
+        by_name = {str(field["name"]): field for field in fields.values()}
+        # Macy's aliases remain a compatibility input only. They cannot make a
+        # future CRM look up arbitrary fields without a schema descriptor.
+        if email is not None or phone is not None:
+            if system.system_id != CONNECTED_SYSTEM_SALESFORCE_ID:
+                raise ConnectedSystemValidationError(
+                    "Use searchFields for this CRM.",
+                    code="CONNECTED_SYSTEM_GENERIC_LOOKUP_REQUIRED",
+                )
+            return self._build_read_payload(
+                system_id=system_id,
+                object_type=object_type,
+                email=email or "",
+                phone=phone or "",
+                search_fields=search_fields,
+                return_fields=return_fields,
+            )
+        if not isinstance(search_fields, dict) or not search_fields:
+            raise ConnectedSystemValidationError("searchFields is required for this CRM.")
+        normalized_search: dict[str, Any] = {}
+        for raw_name, value in search_fields.items():
+            field = fields.get(str(raw_name)) or by_name.get(str(raw_name))
+            if not field:
+                raise ConnectedSystemValidationError(
+                    f"Search field is not available in this CRM schema: {raw_name}",
+                    code="CONNECTED_SYSTEM_SCHEMA_FIELD_UNAVAILABLE",
+                )
+            normalized_search[str(field["name"])] = value
+        normalized_return: list[str] = []
+        for raw_name in return_fields or []:
+            field = fields.get(str(raw_name)) or by_name.get(str(raw_name))
+            if not field:
+                raise ConnectedSystemValidationError(
+                    f"Return field is not available in this CRM schema: {raw_name}",
+                    code="CONNECTED_SYSTEM_SCHEMA_FIELD_UNAVAILABLE",
+                )
+            normalized_return.append(str(field["name"]))
+        return {
+            "target": system.target,
+            "objectType": str(schema["objectType"]),
+            "searchFields": normalized_search,
+            "returnFields": list(dict.fromkeys(normalized_return)),
+        }
+
     def get_record_binding(
         self,
         *,
@@ -1456,7 +1884,7 @@ class ConnectedSystemsService:
         object_type: str | None,
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
-        object_type_value = _normalize_object_type(object_type)
+        object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
         binding = self._store_call(
             self.store.get_binding,
             user_id=user_id,
@@ -1477,8 +1905,8 @@ class ConnectedSystemsService:
         user_id: str,
         system_id: str,
         object_type: str | None,
-        email: str,
-        phone: str,
+        email: str | None,
+        phone: str | None,
         search_fields: dict[str, Any] | None = None,
         return_fields: list[str] | None = None,
         force_refresh: bool = False,
@@ -1488,7 +1916,8 @@ class ConnectedSystemsService:
         # record id for this (user, system, object_type), serve it directly and
         # skip the redundant CRM search. Pass force_refresh=True to bypass the
         # cache and re-search (e.g. to reconcile a possibly-stale binding).
-        object_type_value = _normalize_object_type(object_type)
+        system = self.get_system(system_id)
+        object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
         if not force_refresh:
             existing = self._store_call(
                 self.store.get_binding,
@@ -1569,9 +1998,10 @@ class ConnectedSystemsService:
         last_name: str,
         first_name: str | None = None,
         additional_fields: dict[str, Any] | None = None,
+        record_fields: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
-        object_type_value = _normalize_object_type(object_type)
+        object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
         email_value = _clean_text(email, max_length=320)
         phone_value = _normalize_crm_phone_for_mcp(phone)
         last_name_value = _clean_text(last_name, max_length=80)
@@ -1582,7 +2012,10 @@ class ConnectedSystemsService:
             raise ConnectedSystemValidationError("phone is required.")
         if not last_name_value:
             raise ConnectedSystemValidationError("lastName is required by the live MCP schema.")
-        normalized_additional = _normalize_additional_fields(additional_fields)
+        # `recordFields` is the schema-driven contract. `additionalFields` is
+        # retained as the Macy's compatibility alias while current registry rows
+        # are migrated to generic field mappings.
+        normalized_additional = _normalize_additional_fields(record_fields or additional_fields)
         payload: dict[str, Any] = {
             "target": system.target,
             "objectType": object_type_value,
@@ -1625,14 +2058,15 @@ class ConnectedSystemsService:
         object_type: str | None,
         record_id: str,
         additional_fields: dict[str, Any],
+        record_fields: dict[str, Any] | None = None,
         readback_locator: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
-        object_type_value = _normalize_object_type(object_type)
+        object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
         record_id_value = _clean_text(record_id, max_length=128)
         if not record_id_value:
             raise ConnectedSystemValidationError("id is required for update.")
-        normalized_additional = _normalize_additional_fields(additional_fields)
+        normalized_additional = _normalize_additional_fields(record_fields or additional_fields)
         if not normalized_additional:
             raise ConnectedSystemValidationError("additionalFields is required for update.")
         payload = {
@@ -1663,30 +2097,89 @@ class ConnectedSystemsService:
             record_id=record_id_value,
         )
 
+    def create_delete_intent(
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        object_type: str | None,
+        record_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a reviewable delete intent; never call the CRM here."""
+        system = self.get_system(system_id)
+        self._require_operation(system, "delete")
+        object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
+        binding = self._store_call(
+            self.store.get_binding,
+            user_id=user_id,
+            system_id=system_id,
+            object_type=object_type_value,
+        )
+        record_id_value = _clean_text(record_id or (binding or {}).get("record_id"), max_length=128)
+        if not record_id_value:
+            raise ConnectedSystemValidationError("id is required for delete.")
+        return self._create_intent(
+            user_id=user_id,
+            system=system,
+            action="delete",
+            object_type=object_type_value,
+            request_payload={
+                "target": system.target,
+                "objectType": object_type_value,
+                "id": record_id_value,
+            },
+            readback_payload={},
+            field_names=[],
+            record_id=record_id_value,
+        )
+
     async def approve_intent(
         self, *, user_id: str, system_id: str, intent_id: str
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
-        intent = self._get_pending_intent(user_id=user_id, system_id=system_id, intent_id=intent_id)
+        existing = self._store_call(
+            self.store.get_intent,
+            user_id=user_id,
+            system_id=system_id,
+            intent_id=intent_id,
+        )
+        if not existing:
+            raise ConnectedSystemNotFoundError("CRM intent was not found.")
+        if existing.get("status") in TERMINAL_INTENT_STATUSES:
+            # Retry-safe: callers receive the stored terminal result and never
+            # cause a second MCP mutation.
+            return self._public_intent(existing)
+        if existing.get("status") != "pending":
+            return self._public_intent(existing)
         approval = _approval_id()
         intent = self._store_call(
-            self.store.update_intent,
+            self.store.claim_pending_intent,
             intent_id=intent_id,
-            updates={"status": "approved", "approval_id": approval},
+            approval_id=approval,
         )
+        if intent.get("approval_id") != approval:
+            return self._public_intent(intent)
         try:
             if intent["action"] == "create":
-                result = await self._adapter_for_system(system).create_record(
-                    intent["request_payload"]
+                result = await self._call_operation(
+                    system=system, operation="create", payload=intent["request_payload"]
                 )
             elif intent["action"] == "update":
-                result = await self._adapter_for_system(system).update_record(
-                    intent["request_payload"]
+                result = await self._call_operation(
+                    system=system, operation="update", payload=intent["request_payload"]
+                )
+            elif intent["action"] == "delete":
+                result = await self._call_operation(
+                    system=system, operation="delete", payload=intent["request_payload"]
                 )
             else:
                 raise ConnectedSystemValidationError("Unsupported approval action.")
             record_id = intent.get("record_id") or _extract_record_id(result)
-            readback = await self._readback(intent, system=system)
+            readback = (
+                {"resultClass": "succeeded", "reason": "delete_confirmed"}
+                if intent["action"] == "delete" and not result.get("isError")
+                else await self._readback(intent, system=system)
+            )
             if not record_id and isinstance(readback.get("mcp"), dict):
                 record_id = _extract_record_id(readback.get("mcp") or {})
             readback_class = self._classify_readback(intent, readback)
@@ -1714,7 +2207,16 @@ class ConnectedSystemsService:
                 updates=terminal_updates,
             )
             binding = None
-            if status != "failed" and record_id:
+            if status != "failed" and record_id and intent["action"] == "delete":
+                binding = self._store_call(
+                    self.store.mark_binding_deleted,
+                    user_id=user_id,
+                    system_id=system_id,
+                    object_type=intent["object_type"],
+                    record_id=record_id,
+                    last_intent_id=intent_id,
+                )
+            elif status != "failed" and record_id:
                 binding = self._upsert_binding_for_intent(updated, record_id=record_id)
             self._audit_for_intent(
                 updated,
@@ -1784,13 +2286,9 @@ class ConnectedSystemsService:
         object_type: str | None,
         record_id: str | None = None,
     ) -> dict[str, Any]:
-        if not self.delete_enabled:
-            raise ConnectedSystemBlockedError(
-                "Delete is blocked for this connected system.",
-                code="CRM_DELETE_BLOCKED",
-            )
         system = self.get_system(system_id)
-        object_type_value = _normalize_object_type(object_type)
+        self._require_operation(system, "delete")
+        object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
         binding = None
         if user_id:
             binding = self._store_call(
@@ -1809,7 +2307,7 @@ class ConnectedSystemsService:
         }
         if not payload["id"]:
             raise ConnectedSystemValidationError("id is required for delete.")
-        result = await self._adapter_for_system(system).delete_record(payload)
+        result = await self._call_operation(system=system, operation="delete", payload=payload)
         status = "failed" if result.get("isError") else "succeeded"
         deleted_binding = None
         if user_id and status == "succeeded":
@@ -1863,7 +2361,7 @@ class ConnectedSystemsService:
         normalized_return = _normalize_return_fields(return_fields)
         payload: dict[str, Any] = {
             "target": system.target,
-            "objectType": _normalize_object_type(object_type),
+            "objectType": _normalize_object_type(object_type, default=system.object_type_default),
             "email": email_value,
             "phone": phone_value,
         }
@@ -1937,7 +2435,9 @@ class ConnectedSystemsService:
                 "reason": "readback_locator_missing",
             }
         try:
-            result = await self._adapter_for_system(system).read_record(readback_payload)
+            result = await self._call_operation(
+                system=system, operation="read", payload=readback_payload
+            )
             return {
                 "resultClass": "succeeded" if not result.get("isError") else "failed",
                 "mcp": result,

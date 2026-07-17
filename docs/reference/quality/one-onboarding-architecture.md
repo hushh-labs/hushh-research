@@ -51,28 +51,34 @@ The setup catalog is a deliberate subset of the broader One capability catalog
 (single source of truth:
 [`lib/onboarding/one-capabilities.ts`](../../../hushh-webapp/lib/onboarding/one-capabilities.ts)):
 
+Each catalog entry also owns a presentation-admission switch. A `paused`
+capability is omitted from the One launcher, agent selector, previews, and
+setup journey, and its legacy One/setup route returns to the appropriate hub.
+This does not unregister its product agent, revoke a connection, or remove its
+Profile recovery controls. Gmail is currently paused while its connector is
+being repaired; re-enable that one catalog value only after its focused flow
+has passed again.
+
 | Order | Setup step            | Kind                           | Destination                          | Vault           |
 | ----- | --------------------- | ------------------------------ | ------------------------------------ | --------------- |
-| 1     | Connect Gmail         | connector                      | `/one/setup/gmail`                   | `requiresVault` |
-| 2     | Set up location       | workflow                       | `/one/setup/location`                | `requiresVault` |
-| 3     | Let One draft for you | workflow                       | `/one/setup/email`                   | `requiresVault` |
-| 4     | Set up your finances  | wizard                         | `/one/setup/finance` → `/finance/import` | `requiresVault` |
-| 5     | Set up RIA            | advisor verification           | `/one/setup/ria`                     | `requiresVault` |
-| 6     | Link your record      | CRM registry and profile setup | `/one/setup/connected-systems`       | `requiresVault` |
+| 1     | Set up location       | workflow                       | `/one/setup/location`                | `requiresVault` |
+| 2     | Let One draft for you | workflow                       | `/one/setup/email`                   | `requiresVault` |
+| 3     | Set up your finances  | wizard                         | `/one/setup/finance` → `/finance/import` | `requiresVault` |
+| 4     | Set up RIA            | advisor verification           | `/one/setup/ria`                     | `requiresVault` |
+| 5     | Link your record      | CRM registry and profile setup | `/one/setup/connected-systems`       | `requiresVault` |
 
 The hub keeps this authored order within two explicit sections: **Remaining**
 first, then **Complete**. The Complete section is absent until at least one
 capability reaches its durable terminal acknowledgement; completed rows move to
 that bottom section without re-ranking either section. Setup rows reuse the same
-capability icon, Gmail mark, and tone colors as the `/one` dashboard. Memory,
+capability icon and tone colors as the `/one` dashboard. Memory,
 Consent, and Information Marketplace remain available in One,
 but are not onboarding requirements and are not published as setup-hub actions.
-Every unfinished row names its actual next action (for example, `Connect Gmail`
+Every unfinished row names its actual next action (for example, `Choose location`
 or `Verify RIA`); a vault prerequisite never collapses the list into repeated
 generic instructions.
 The authored capability copy explains the outcome before the route handoff:
-Gmail covers approved brand affinity and recent-interaction memory, Location
-covers sharing with chosen trusted people, and KYC covers invoking drafting at
+Location covers sharing with chosen trusted people, and KYC covers invoking drafting at
 `one@hushh.ai`; Connected Systems covers linking a record to chosen external
 systems. The visible label, per-step CTA, local voice contract, generated gateway,
 and route-orchestration index must use that same authored meaning.

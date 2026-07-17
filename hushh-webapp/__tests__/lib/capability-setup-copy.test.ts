@@ -2,11 +2,8 @@ import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
 import { describe, expect, it } from "vitest";
 
 describe("onboarding capability copy", () => {
-  it("explains Gmail's affinity and recent-interaction memory purpose", () => {
-    const gmail = getCapabilitySetupCopy("gmail");
-
-    expect(gmail?.setupBlurb).toContain("brands you care about");
-    expect(gmail?.setupBlurb).toContain("recent interactions");
+  it("does not expose setup copy for the paused Gmail capability", () => {
+    expect(getCapabilitySetupCopy("gmail")).toBeUndefined();
   });
 
   it("frames location as a trusted-person sharing choice", () => {

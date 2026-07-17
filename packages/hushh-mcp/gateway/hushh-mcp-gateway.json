@@ -265,7 +265,7 @@
     },
     {
       "name": "get_encrypted_scoped_export",
-      "description": "Retrieve an approved scoped export by grant_ref and expected_scope. Hosted MCP returns safe envelope metadata plus a ResourceLink for connector-side fetch and decryption. Local stdio decrypts with its managed X25519 key and returns only bounded approved information. No plaintext fallback is permitted.",
+      "description": "Retrieve an approved scoped export by grant_ref and expected_scope. Hosted MCP returns the encrypted ciphertext envelope directly in the MCP tool result for connector-side decryption. Local stdio decrypts with its managed X25519 key and returns only bounded approved information. No plaintext fallback is permitted.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,

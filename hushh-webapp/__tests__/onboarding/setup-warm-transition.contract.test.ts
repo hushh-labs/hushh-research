@@ -53,6 +53,20 @@ describe("setup warm-transition contract", () => {
     expect(bootstrap).not.toContain("if (createdVault)");
   });
 
+  it("keeps the native test vault bootstrap continuous while auth context publishes", () => {
+    const bootstrap = read("components/app-ui/native-test-bootstrap.tsx");
+
+    expect(bootstrap).toContain(
+      "await AuthService.signOut().catch(() => undefined)",
+    );
+    expect(bootstrap).toContain("setBootstrapUser(authenticatedUser)");
+    expect(bootstrap).toContain(
+      "nativeTestBootstrapUser ??\n      AuthService.getCurrentUser()",
+    );
+    expect(bootstrap).toContain("AuthService.restoreNativeSession()");
+    expect(bootstrap).toContain("VaultService.checkVault(vaultUser.uid)");
+  });
+
   it("keeps native flow routing in one unlocked App Router document", () => {
     const router = read("components/app-ui/native-test-router.tsx");
 

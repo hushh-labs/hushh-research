@@ -1,5 +1,17 @@
+
+import React from "react";
 import {
-  MapPin,
+  ChartSquareBoldDuotone,
+  UsersGroupTwoRoundedBoldDuotone,
+  LetterBoldDuotone,
+  ShieldCheckBoldDuotone,
+  CPUBoldDuotone,
+  LockKeyholeBoldDuotone,
+  GlobalBoldDuotone,
+  MapPointBoldDuotone
+} from "solar-icon-set";
+
+import {
   Store,
   type LucideIcon,
 } from "lucide-react";
@@ -44,6 +56,7 @@ export type OneCapabilityTone =
 export type OneCapabilityGroup = "workflow" | "memory" | "access";
 
 export type OneCapabilityIcon =
+  | { kind: "solar"; component: React.ComponentType<{ className?: string }> }
   | { kind: "lucide"; icon: LucideIcon }
   | { kind: "image"; src: string; alt: string };
 
@@ -51,6 +64,11 @@ export function lucideCapabilityIcon(icon: LucideIcon): OneCapabilityIcon {
   return { kind: "lucide", icon };
 }
 
+export function solarCapabilityIcon(component: React.ComponentType<{ className?: string }>): OneCapabilityIcon {
+  return { kind: "solar", component };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function imageCapabilityIcon(src: string, alt: string): OneCapabilityIcon {
   return { kind: "image", src, alt };
 }
@@ -85,6 +103,8 @@ export interface OneCapability {
   icon: OneCapabilityIcon;
   tone: OneCapabilityTone;
   group: OneCapabilityGroup;
+  /** A paused surface remains route-addressable but is omitted from One setup and navigation. */
+  availability?: "enabled" | "paused";
   /**
    * True when this capability collects NOTHING from the user — there is no information
    * to enter or connection to authorize, the tab is usable as soon as it opens.
@@ -124,7 +144,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Market, portfolio, analysis, and RIA handoff.",
     previewLabel: "Market, portfolio & analysis",
     href: ROUTES.KAI_HOME,
-    icon: imageCapabilityIcon("/one/agents/finance.png", "Finance"),
+    icon: solarCapabilityIcon(ChartSquareBoldDuotone),
     tone: "finance",
     group: "workflow",
     requiresVault: true,
@@ -140,7 +160,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Advisor verification, profile, clients, and requests.",
     previewLabel: "Advisor profile & verification",
     href: ROUTES.RIA_ONBOARDING,
-    icon: imageCapabilityIcon("/one/agents/ria.png", "RIA"),
+    icon: solarCapabilityIcon(UsersGroupTwoRoundedBoldDuotone),
     tone: "ria",
     group: "workflow",
     requiresVault: true,
@@ -154,9 +174,10 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Receipt sync and purchase-memory review.",
     previewLabel: "Receipt & purchase memory",
     href: ROUTES.GMAIL,
-    icon: imageCapabilityIcon("/one/agents/gmail.png", "Gmail"),
+    icon: solarCapabilityIcon(LetterBoldDuotone),
     tone: "gmail",
     group: "memory",
+    availability: "paused",
     requiresVault: true,
   },
   {
@@ -167,7 +188,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "KYC",
     description: "Review information requests and approve each response.",
     href: ROUTES.ONE_KYC,
-    icon: imageCapabilityIcon("/one/agents/email.png", "KYC"),
+    icon: solarCapabilityIcon(ShieldCheckBoldDuotone),
     tone: "email",
     group: "workflow",
     requiresVault: true,
@@ -181,7 +202,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Live location & Alerts",
     previewLabel: "Live location & Alerts",
     href: ROUTES.ONE_LOCATION,
-    icon: lucideCapabilityIcon(MapPin),
+    icon: solarCapabilityIcon(MapPointBoldDuotone),
     tone: "location",
     group: "workflow",
     requiresVault: true,
@@ -192,7 +213,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "Memory",
     description: "Saved knowledge and context you can review.",
     href: ROUTES.PKM,
-    icon: imageCapabilityIcon("/one/agents/memory.svg", "Memory"),
+    icon: solarCapabilityIcon(CPUBoldDuotone),
     tone: "pkm",
     group: "memory",
     requiresVault: true,
@@ -205,7 +226,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "Consent",
     description: "Access requests, approvals, and revocations.",
     href: buildConsentCenterHref("pending"),
-    icon: imageCapabilityIcon("/one/agents/consent.svg", "Consent"),
+    icon: solarCapabilityIcon(LockKeyholeBoldDuotone),
     tone: "consent",
     group: "access",
     isExploreOnly: true,
@@ -230,13 +251,10 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     setupActionId: "setup.open_connected_systems",
     setupControlId: "one_setup_tile_connected-systems",
     agentId: "agent_connected_systems",
-    title: "Connected Systems",
+    title: "CRM",
     description: "Approved CRM reads and writes.",
     href: ROUTES.CONNECTED_SYSTEMS,
-    icon: imageCapabilityIcon(
-      "/one/agents/connected-systems.svg",
-      "Connected Systems",
-    ),
+    icon: solarCapabilityIcon(GlobalBoldDuotone),
     tone: "connected",
     group: "workflow",
     requiresVault: true,
@@ -267,7 +285,10 @@ function requireOneCapability(id: OneSetupCapabilityId): OneSetupCapability {
 }
 
 export const ONE_SETUP_CAPABILITIES: readonly OneSetupCapability[] =
-  ONE_SETUP_CAPABILITY_IDS.map(requireOneCapability);
+  ONE_SETUP_CAPABILITY_IDS.map(requireOneCapability).filter(
+    (capability): capability is OneSetupCapability =>
+      isOneCapabilityEnabled(capability),
+  );
 
 export function getOneSetupCapability(
   id: string,
@@ -317,3 +338,13 @@ export const ONE_CAPABILITY_ICON_CLASS_BY_TONE: Record<
   // Connected Systems: Slate Blue-Gray.
   connected: "bg-[#94A3B8] text-[#1d1d1f] dark:text-white",
 };
+
+export function isOneCapabilityEnabled(capability: OneCapability | string | undefined | null): boolean {
+  const resolved =
+    typeof capability === "string" ? getOneCapability(capability) : capability;
+  return Boolean(
+    resolved &&
+      resolved.id !== "marketplace" &&
+      resolved.availability !== "paused",
+  );
+}

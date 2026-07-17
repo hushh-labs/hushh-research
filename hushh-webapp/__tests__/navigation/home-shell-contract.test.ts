@@ -18,9 +18,9 @@ describe("home shell contract", () => {
     expect(getKaiChromeState(ROUTES.CONNECT).hideCommandBar).toBe(false);
   });
 
-  it("reserves the shared top-tab row only for workspace routes", () => {
-    expect(resolveTopShellMetrics(ROUTES.KAI_ANALYSIS).hasTabs).toBe(true);
-    expect(resolveTopShellMetrics(ROUTES.RIA_PICKS).hasTabs).toBe(true);
+  it("keeps workspace controls in the bottom shell rather than a top-tab row", () => {
+    expect(resolveTopShellMetrics(ROUTES.KAI_ANALYSIS).hasTabs).toBe(false);
+    expect(resolveTopShellMetrics(ROUTES.RIA_PICKS).hasTabs).toBe(false);
     expect(resolveTopShellMetrics(ROUTES.PROFILE).hasTabs).toBe(false);
     expect(resolveTopShellMetrics(ROUTES.CONNECT).hasTabs).toBe(false);
   });

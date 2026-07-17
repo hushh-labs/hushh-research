@@ -14,6 +14,7 @@
  */
 
 "use client";
+import { usePathname, useSearchParams } from "next/navigation";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
@@ -539,14 +540,14 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
  * Normalize holdings array to ensure unrealized_gain_loss_pct is computed.
  * This helper can be used in multiple places (checkFinancialData, handleSaveComplete).
  */
-function normalizeHoldingsWithPct<T extends { 
-  unrealized_gain_loss_pct?: number; 
-  unrealized_gain_loss?: number; 
-  cost_basis?: number; 
+function normalizeHoldingsWithPct<T extends {
+  unrealized_gain_loss_pct?: number;
+  unrealized_gain_loss?: number;
+  cost_basis?: number;
   market_value?: number;
 }>(holdings: T[] | undefined): T[] | undefined {
   if (!holdings) return holdings;
-  
+
   return holdings.map((h) => {
     // If percentage is already present and valid, keep it
     if (h.unrealized_gain_loss_pct !== undefined && h.unrealized_gain_loss_pct !== 0) {
@@ -628,7 +629,27 @@ export function KaiFlow({
   const effectiveVaultOwnerToken =
     contextVaultOwnerToken || initialVaultOwnerToken || undefined;
   const { getPortfolioData, setPortfolioData, invalidateDomain } = useCache();
-  const [state, setState] = useState<FlowState>("checking");
+  const searchParams = useSearchParams();
+  const [internalState, setInternalState] = useState<FlowState>("checking");
+  const state = (searchParams?.get("stage") as FlowState) || internalState;
+
+  const pathname = usePathname();
+  const setState = useCallback((newState: FlowState) => {
+    setInternalState(newState);
+    if (newState === "import_required" || newState === "reviewing" || newState === "importing") {
+      const params = new URLSearchParams(searchParams?.toString());
+      params.set("stage", newState);
+      router.push(pathname + "?" + params.toString(), { scroll: true });
+    }
+  }, [pathname, router, searchParams]);
+
+  // Listen for back button via search params changing and sync internal state
+  useEffect(() => {
+    const stage = searchParams?.get("stage") as FlowState;
+    if (stage && stage !== internalState) {
+      setInternalState(stage);
+    }
+  }, [internalState, searchParams]);
   const [flowData, setFlowData] = useState<FlowData>({
     hasFinancialData: false,
   });
@@ -693,7 +714,7 @@ export function KaiFlow({
     enabled: Boolean(userId),
     backgroundRefresh: true,
   });
-  
+
   // Streaming state for real-time progress
   const [streaming, setStreaming] = useState<StreamingState>(createInitialStreamingState);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -946,7 +967,7 @@ export function KaiFlow({
       toast.error(snapshot.errorMessage);
       setState("import_required");
     }
-  }, [mode, userId]);
+  }, [mode, setState, userId]);
 
   useEffect(() => {
     if (mode !== "import") return;
@@ -985,7 +1006,7 @@ export function KaiFlow({
     }, 700);
 
     return () => window.clearInterval(interval);
-  }, [mode, userId]);
+  }, [mode, setState, userId]);
 
   useEffect(() => {
     if (mode !== "import") return;
@@ -1314,7 +1335,7 @@ export function KaiFlow({
         setBusyOperation("portfolio_import_stream", false);
       }
     })();
-  }, [effectiveVaultOwnerToken, mode, setBusyOperation, userId]);
+  }, [effectiveVaultOwnerToken, mode, setBusyOperation, setState, userId]);
 
   const runDeferredPostSaveSync = useCallback(() => {
     if (!effectiveVaultOwnerToken || !vaultKey) return;
@@ -1419,7 +1440,7 @@ export function KaiFlow({
       window.removeEventListener("kai:portfolio-saved", handlePortfolioSaved);
       window.removeEventListener("kai:portfolio-save-failed", handlePortfolioSaveFailed);
     };
-  }, [getPortfolioData, isDashboardMode, runDeferredPostSaveSync, setPortfolioData, userId]);
+  }, [getPortfolioData, isDashboardMode, runDeferredPostSaveSync, setPortfolioData, setState, userId]);
 
   const loadPlaidStatusSnapshot = useCallback(async (): Promise<PlaidPortfolioStatusResponse | null> => {
     if (!effectiveVaultOwnerToken) {
@@ -1560,6 +1581,7 @@ export function KaiFlow({
     mode,
     plaidPortfolioData,
     setPortfolioData,
+    setState,
     userId,
     vaultDialogOpen,
   ]);
@@ -2703,6 +2725,7 @@ export function KaiFlow({
       tokenExpiresAt,
       unlockVault,
       setBusyOperation,
+      setState,
     ]
   );
 
@@ -2795,7 +2818,7 @@ export function KaiFlow({
       router.push(ROUTES.KAI_DASHBOARD);
       return;
     }
-  }, [effectiveVaultOwnerToken, flowData.portfolioData, mode, router, setBusyOperation, userId]);
+  }, [effectiveVaultOwnerToken, flowData.portfolioData, mode, router, setBusyOperation, setState, userId]);
 
   // Handle retry import after stream error/stall.
   const handleRetryImport = useCallback(() => {
@@ -2813,7 +2836,7 @@ export function KaiFlow({
       return;
     }
     setState("import_required");
-  }, [handleFileUpload, userId]);
+  }, [handleFileUpload, setState, userId]);
 
   const handleReviewParsedPortfolio = useCallback(() => {
     if (!flowData.parsedPortfolio) {
@@ -2822,7 +2845,7 @@ export function KaiFlow({
       return;
     }
     setState("reviewing");
-  }, [flowData.parsedPortfolio]);
+  }, [flowData.parsedPortfolio, setState]);
 
   const handleBackToDashboardFromImport = useCallback(async () => {
     if (mode === "import") {
@@ -2836,7 +2859,7 @@ export function KaiFlow({
     } else {
       setState("import_required");
     }
-  }, [finishFinanceSetupIfActive, flowData.portfolioData, mode, router]);
+  }, [finishFinanceSetupIfActive, flowData.portfolioData, mode, router, setState]);
 
   // Handle save complete from review screen
   const handleSaveComplete = useCallback(async (savedData: ReviewPortfolioData) => {
@@ -2844,7 +2867,7 @@ export function KaiFlow({
     // Map the review types to dashboard types
     // Normalize holdings to ensure unrealized_gain_loss_pct is computed
     const normalizedHoldings = normalizeHoldingsWithPct(savedData.holdings);
-    
+
     const portfolioData: PortfolioData = {
       account_info: savedData.account_info ? {
         account_number: savedData.account_info.account_number,
@@ -2913,7 +2936,7 @@ export function KaiFlow({
     }
 
     setState("dashboard");
-  }, [finishFinanceSetupIfActive, mode, router, userId, setPortfolioData]);
+  }, [finishFinanceSetupIfActive, mode, router, setPortfolioData, setState, userId]);
 
   // Handle skip import - preserve existing data if available
   const handleSkipImport = useCallback(async () => {
@@ -2930,7 +2953,7 @@ export function KaiFlow({
     if (!flowData.portfolioData) {
       setFlowData({ hasFinancialData: false });
     }
-  }, [finishFinanceSetupIfActive, flowData.portfolioData, mode, router]);
+  }, [finishFinanceSetupIfActive, flowData.portfolioData, mode, router, setState]);
 
   const handleConnectPlaid = useCallback(async (environment?: string | null) => {
     let onboardingAttemptId: string | undefined;
@@ -3100,6 +3123,7 @@ export function KaiFlow({
     onSetupSourceSettled,
     onSetupConnectorAttemptSettled,
     router,
+    setState,
     userId,
     vaultKey,
   ]);
@@ -3145,7 +3169,7 @@ export function KaiFlow({
       return;
     }
     setState("import_required");
-  }, [mode, router, userId]);
+  }, [mode, router, setState, userId]);
 
   const handlePreloadSchema = useCallback(async () => {
     if (isPreloadingSchema) return;
@@ -3173,6 +3197,7 @@ export function KaiFlow({
   }, [
     effectiveVaultOwnerToken,
     isPreloadingSchema,
+    setState,
   ]);
 
   useEffect(() => {
@@ -3199,7 +3224,7 @@ export function KaiFlow({
   // Handle back to dashboard from analysis
   const handleBackToDashboard = useCallback(() => {
     setState("dashboard");
-  }, []);
+  }, [setState]);
 
   // =============================================================================
   // RENDER

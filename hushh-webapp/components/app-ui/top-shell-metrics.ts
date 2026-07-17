@@ -1,5 +1,4 @@
 import { resolveAppRouteLayoutMode } from "@/lib/navigation/app-route-layout";
-import { resolveWorkspaceTopTabs } from "@/lib/navigation/workspace-top-tabs";
 
 export type TopContentOffsetMode = "normal" | "fullscreen-flow";
 export type TopShellRouteProfileId =
@@ -45,8 +44,8 @@ export function isTopShellFullscreenFlowRoute(pathname: string): boolean {
   return resolveTopShellRouteProfile(pathname).id === "fullscreen-flow";
 }
 
-export function shouldShowKaiTabsInTopShell(pathname: string): boolean {
-  return resolveWorkspaceTopTabs(pathname) !== null;
+export function shouldShowKaiTabsInTopShell(_pathname: string): boolean {
+  return false;
 }
 
 export function resolveTopShellRouteProfile(pathname: string): TopShellRouteProfile {
@@ -63,10 +62,7 @@ export function resolveTopShellRouteProfile(pathname: string): TopShellRouteProf
     default:
       return {
         id: "standard",
-        metrics: {
-          ...DEFAULT_VISIBLE_METRICS,
-          hasTabs: shouldShowKaiTabsInTopShell(pathname),
-        },
+        metrics: DEFAULT_VISIBLE_METRICS,
       };
   }
 }

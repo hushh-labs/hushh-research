@@ -105,7 +105,8 @@ vi.mock("@/lib/services/connected-systems-service", () => ({
     createRecordIntent: vi.fn(),
     updateRecordIntent: vi.fn(),
     approveIntent: vi.fn(),
-    deleteRecord: vi.fn(),
+    rejectIntent: vi.fn(),
+    createDeleteIntent: vi.fn(),
   },
 }));
 
@@ -195,7 +196,7 @@ describe("ConnectedSystemsPanel", () => {
     expect(screen.getByText("Link my Macy's record")).toBeTruthy();
     expect(screen.queryByText("Find existing record")).toBeNull();
     expect(screen.queryByText("Create my Macy's record")).toBeNull();
-    expect(screen.getByRole("button", { name: /Suggest sample details/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Suggest sample details/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Suggest a sample change/i })).toBeNull();
     expect(screen.getByRole("button", { name: /Link this system/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Find my record$/i })).toBeNull();
@@ -341,7 +342,7 @@ describe("ConnectedSystemsPanel", () => {
     expect(screen.queryByText("Connected Systems workflow storage is not ready.")).toBeNull();
   });
 
-  it("fills sample create details without changing registered lookup fields", async () => {
+  it("does not invent sample CRM values", async () => {
     render(
       <ConnectedSystemsPanel
         vaultOwnerToken="HCT:test"
@@ -353,16 +354,9 @@ describe("ConnectedSystemsPanel", () => {
       />
     );
 
-    await screen.findByRole("button", { name: /Suggest sample details/i });
-    fireEvent.click(screen.getByRole("button", { name: /Suggest sample details/i }));
-
-    await waitFor(() => {
-      expect((screen.getByDisplayValue("kushal@example.com") as HTMLInputElement).disabled).toBe(true);
-      expect((screen.getByDisplayValue("4155551212") as HTMLInputElement).disabled).toBe(true);
-      expect(screen.getByDisplayValue(/\(415\) 555-1212/)).toBeTruthy();
-      expect(screen.getByDisplayValue(/New York|Chicago|San Francisco|Atlanta/)).toBeTruthy();
-      expect((screen.getByRole("button", { name: /Link this system/i }) as HTMLButtonElement).disabled).toBe(false);
-    });
+    await screen.findByRole("button", { name: /Link this system/i });
+    expect(screen.queryByRole("button", { name: /Suggest sample details/i })).toBeNull();
+    expect(screen.queryByDisplayValue(/New York|Chicago|San Francisco|Atlanta/)).toBeNull();
   });
 
   it("surfaces failed create intent messages without rendering audit field metadata", async () => {
@@ -400,6 +394,7 @@ describe("ConnectedSystemsPanel", () => {
 
     await screen.findByRole("button", { name: /Link this system/i });
     fireEvent.click(screen.getByRole("button", { name: /Link this system/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Confirm create/i }));
 
     expect(await screen.findByText("CRM rejected the create request.")).toBeTruthy();
     expect(screen.queryByText("Last update")).toBeNull();
@@ -451,6 +446,7 @@ describe("ConnectedSystemsPanel", () => {
 
     await screen.findByRole("button", { name: /Link this system/i });
     fireEvent.click(screen.getByRole("button", { name: /Link this system/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Confirm create/i }));
 
     expect(await screen.findByText("Update my Macy's information")).toBeTruthy();
     expect(screen.queryByText("Link my Macy's record")).toBeNull();
@@ -501,6 +497,7 @@ describe("ConnectedSystemsPanel", () => {
 
     await screen.findByRole("button", { name: /Link this system/i });
     fireEvent.click(screen.getByRole("button", { name: /Link this system/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Confirm create/i }));
 
     expect(await screen.findByText("Update my Macy's information")).toBeTruthy();
     await waitFor(() => {

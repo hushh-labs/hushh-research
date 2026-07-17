@@ -83,22 +83,22 @@ safe area
 └──────────────────────────────────────────────────────────────────────────────┘
                                      route content
                               Agent Bar (4px visual join)
-                         One · Profile        Search
+                   Finance/RIA workspace tabs · One · Connect · Search
 safe area
 ```
 
-1. The bottom utility navigation is fixed and constant: **One**, **Profile**,
-   and **Search**. It does not change with agent, persona, or subroute.
+1. The centered primary bottom navigation is fixed and constant: **One**,
+   **Connect**, and **Search**. Search is a segment in that shared control and
+   opens the global command surface. Profile remains a top-bar control.
 2. Search opens the existing global command/search surface. It is not agent
    chat and has no route-local replacement.
 3. The Agent Bar and bottom utility bar are one bottom-chrome stack. Their
    resting visual separation is 4px; their transforms, safe-area clearance,
    and fade are measured by the shared shell. Neither route nor component may
    add another gap.
-4. The signed-in top bar owns workspace navigation. One stays left-aligned;
-   the active workspace owns its finite tabs. Finance uses Market, Portfolio,
-   and Analysis. RIA uses Home, Clients, and Picks. Generic One/Profile routes
-   do not invent workspace tabs.
+4. Finance and RIA workspace tabs may appear as their own compact group to the
+   left of the primary bottom control on wide layouts. The combined groups are
+   centered as one unit; they remain capability- and route-driven.
 5. The rightmost signed-in top-bar control is Profile. It uses the signed-in
    person's image when available and the same generic/initial fallback as the
    Profile route. Connect remains a route but is not shell chrome.

@@ -43,7 +43,7 @@ function CommandDialog({
   showCloseButton?: boolean
 }) {
   return (
-    <Dialog {...props}>
+    <Dialog modal={true} {...props}>
       <DialogHeader className="sr-only">
         <DialogTitle>{title}</DialogTitle>
         <DialogDescription>{description}</DialogDescription>

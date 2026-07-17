@@ -12,6 +12,7 @@ import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
   getOneSetupCapability,
+  isOneCapabilityEnabled,
   ONE_CAPABILITIES,
   type OneCapabilityIcon,
   type OneCapabilityTone,
@@ -46,7 +47,8 @@ function buildModes(
   statusById: Record<string, CapabilityStatus>,
 ): OneAgentMode[] {
   return ONE_CAPABILITIES.filter(
-    (capability) => capability.isVisibleOnRoster !== false,
+    (capability) =>
+      capability.isVisibleOnRoster !== false && isOneCapabilityEnabled(capability),
   ).map((capability) => {
     const setupCapability = getOneSetupCapability(capability.id);
     const status = statusById[capability.id];
@@ -64,14 +66,16 @@ function buildModes(
           : { label: copy.actionLabel, tone: "action" as CapabilityStatusTone }
         : {
             label: capability.isExploreOnly ? "Explore" : "Open",
-            tone: "muted" as CapabilityStatusTone,
+            tone: "action" as CapabilityStatusTone,
           };
+
+    const isActionable = "isActionable" in display ? (display as any).isActionable : true;
 
     return {
       id: capability.id,
       title: capability.title,
       description: capability.description,
-      href: setupCapability
+      href: setupCapability && isActionable && status?.state !== "skipped"
         ? buildOneSetupCapabilityRoute(capability.id)
         : capability.href,
       icon: capability.icon,
@@ -112,6 +116,7 @@ function AgentGridItem({ mode }: { mode: OneAgentMode }) {
         id={mode.id}
         icon={mode.icon}
         tone={mode.tone}
+        isActive={mode.statusTone !== "muted"}
         size="launcher"
         className="relative z-10"
       />
@@ -144,6 +149,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
           id={mode.id}
           icon={mode.icon}
           tone={mode.tone}
+          isActive={mode.statusTone !== "muted"}
           size="menu"
         />
       }

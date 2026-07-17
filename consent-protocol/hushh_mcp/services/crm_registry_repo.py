@@ -151,7 +151,7 @@ def _public_system_id(row: dict[str, Any]) -> str:
 def _tool_catalog(row_crm_id: str, database: Any) -> tuple[dict[str, Any], ...]:
     operation_rows = database.execute_raw(
         """
-        SELECT operation, tool_name, http_method, path, description
+        SELECT operation, tool_name, http_method, path, description, mcp_endpoint
         FROM crm_operation_endpoints
         WHERE crm_id = :crm_id
         """,
@@ -186,6 +186,19 @@ def _definition_from_row(
         delete_transport_endpoint=(
             str(row.get("crm_delete_endpoint")).strip() if row.get("crm_delete_endpoint") else None
         ),
+        capabilities=frozenset(
+            operation
+            for operation, enabled in {
+                "schema": True,
+                "create": bool(row.get("supports_create")),
+                "read": bool(row.get("supports_read")),
+                "update": bool(row.get("supports_update")),
+                "delete": bool(row.get("supports_delete")),
+            }.items()
+            if enabled
+        ),
+        timeout_seconds=max(1, int(row.get("timeout_seconds") or 30)),
+        retry_count=max(0, int(row.get("retry_count") or 0)),
     )
 
 
@@ -316,6 +329,7 @@ def _tool_catalog_from_rows(rows: list[dict[str, Any]]) -> tuple[dict[str, Any],
                 "name": name,
                 "operation": operation,
                 "description": str(row.get("description") or "").strip(),
+                "mcpEndpoint": str(row.get("mcp_endpoint") or "").strip() or None,
             }
         )
     return tuple(catalog)

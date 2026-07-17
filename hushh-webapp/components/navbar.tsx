@@ -29,11 +29,7 @@ import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provid
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import {
-  Icon,
-  SegmentedPill,
-  type SegmentedPillOption,
-} from "@/lib/morphy-ux/ui";
+import { SegmentedPill, type SegmentedPillOption } from "@/lib/morphy-ux/ui";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -42,20 +38,17 @@ import {
   normalizeBottomNavPathname,
   resolveBottomNavActiveKey,
   resolveBottomNavAction,
+  resolveBottomNavigationScope,
+  resolveBottomNavContextKey,
   resolveBottomNavOptionKeys,
+  resolveBottomNavSpecialistOptionKeys,
   type AppBottomNavKey,
 } from "@/lib/navigation/app-bottom-nav";
 import { resolveAgentNavigationContextForPath } from "@/lib/navigation/agent-sections";
-import {
-  openKaiCommandBar,
-  toggleKaiCommandBar,
-} from "@/lib/navigation/kai-command-bar-events";
+import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 
-const BOTTOM_NAV_MAX_SLOT_COUNT = 2;
+const BOTTOM_NAV_MAX_SLOT_COUNT = 3;
 const BOTTOM_NAV_SLOT_WIDTH_REM = 5.4;
-const BOTTOM_NAV_SEARCH_BUBBLE_WIDTH = "70px";
-const BOTTOM_NAV_EMPTY_GROUP_WIDTH = "58px";
-
 function resolveBottomNavMaxWidth(count: number): string {
   const slotCount = Math.min(Math.max(count, 1), BOTTOM_NAV_MAX_SLOT_COUNT);
   return `${slotCount * BOTTOM_NAV_SLOT_WIDTH_REM}rem`;
@@ -158,6 +151,7 @@ const BOTTOM_NAV_OPTION_META: Record<
   search: {
     value: "search",
     label: "Search",
+    icon: SearchIcon,
     dataTourId: "nav-search",
   },
   profile: {
@@ -245,6 +239,17 @@ export const Navbar = () => {
       navOptionForKey(key, pendingConsents),
     );
   }, [normalizedPathname, pendingConsents]);
+  const bottomNavScope = useMemo(
+    () => resolveBottomNavigationScope(normalizedPathname, null),
+    [normalizedPathname],
+  );
+  const specialistOptions = useMemo<SegmentedPillOption[]>(
+    () =>
+      resolveBottomNavSpecialistOptionKeys(bottomNavScope).map((key) =>
+        navOptionForKey(key, pendingConsents),
+      ),
+    [bottomNavScope, pendingConsents],
+  );
 
   React.useLayoutEffect(() => {
     const root = document.documentElement;
@@ -318,11 +323,6 @@ export const Navbar = () => {
     navOptions.length > 0
       ? `min(calc(100vw - 6rem), ${bottomNavMaxWidth})`
       : "0px";
-  const bottomNavGroupWidth =
-    navOptions.length > 0
-      ? `min(calc(100vw - 2rem), calc(${bottomNavMaxWidth} + ${BOTTOM_NAV_SEARCH_BUBBLE_WIDTH}))`
-      : BOTTOM_NAV_EMPTY_GROUP_WIDTH;
-
   if (hideNavbar) {
     return null;
   }
@@ -342,9 +342,17 @@ export const Navbar = () => {
     return null;
   }
 
-  const activeNav = resolveBottomNavActiveKey(
+  const activeNav =
+    normalizedPathname === ROUTES.AGENT
+      ? "search"
+      : normalizedPathname.startsWith(ROUTES.CONNECT)
+        ? "connect"
+        : resolveBottomNavActiveKey(normalizedPathname, "one") === "profile"
+          ? "dashboard"
+          : "dashboard";
+  const activeSpecialistNav = resolveBottomNavContextKey(
     normalizedPathname,
-    "one",
+    bottomNavScope,
   );
 
   const navigateTo = (value: string) => {
@@ -366,9 +374,12 @@ export const Navbar = () => {
       return;
     }
 
+    const key = value as AppBottomNavKey;
     const action = resolveBottomNavAction(
-      value as AppBottomNavKey,
-      "one",
+      key,
+      resolveBottomNavSpecialistOptionKeys(bottomNavScope).includes(key)
+        ? bottomNavScope
+        : "one",
     );
     if (action.type === "command") {
       openKaiCommandBar();
@@ -387,7 +398,7 @@ export const Navbar = () => {
     <nav
       data-app-bottom-nav
       className={cn(
-        "fixed inset-x-0 flex justify-center px-4 md:justify-end transform-gpu",
+      "fixed inset-x-0 flex justify-center px-4 transform-gpu",
         isVaultUnlocked ? "z-[120]" : "z-[505]",
         "pointer-events-none",
       )}
@@ -400,16 +411,37 @@ export const Navbar = () => {
     >
       <div
         data-testid="app-bottom-nav-frame"
-        className="pointer-events-none mx-auto flex w-full max-w-[min(calc(100vw-2rem),34rem)] justify-center md:justify-end"
+        className="pointer-events-none mx-auto flex w-full max-w-[min(calc(100vw-2rem),42rem)] justify-center"
       >
         <div
           className={cn(
             "relative flex items-stretch justify-center gap-2",
             "pointer-events-none",
           )}
-          style={{ width: bottomNavGroupWidth }}
+          style={{ maxWidth: "calc(100vw - 2rem)" }}
           ref={pillRef}
         >
+          {specialistOptions.length > 0 ? (
+            <div
+              className="hidden min-w-0 pointer-events-auto md:block"
+              style={{ width: resolveBottomNavMaxWidth(specialistOptions.length) }}
+            >
+              <SegmentedPill
+                size="compact"
+                layout="stacked"
+                hitArea="segment"
+                value={activeSpecialistNav}
+                options={specialistOptions}
+                onValueChange={navigateTo}
+                ariaLabel="Workspace navigation"
+                className={cn(
+                  "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
+                  "[&_[aria-checked=true]]:text-[color:var(--app-accent)] [&_[aria-checked=true]]:font-semibold",
+                  "[&_[data-segment-indicator]]:bg-black/[0.06] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-white/[0.1]",
+                )}
+              />
+            </div>
+          ) : null}
           <div
             className="min-w-0 pointer-events-auto"
             style={{ width: bottomNavWidth }}
@@ -429,36 +461,6 @@ export const Navbar = () => {
               )}
             />
           </div>
-          <button
-            type="button"
-            aria-label="Search"
-            data-native-voice-control-id="one_voice_open_command_search"
-            data-testid="one-voice-open-command-search"
-            className={cn(
-              // A perfect circle matching the stacked pill's 52px min-height.
-              // Explicit equal h/w instead of aspect-square + self-stretch:
-              // WKWebView resolves aspect-ratio against a stretch-derived flex
-              // cross size as indefinite, which rendered this button as an oval
-              // on iOS while web looked fine.
-              "pointer-events-auto relative z-20 inline-flex h-[52px] w-[52px] shrink-0 self-center items-center justify-center overflow-hidden rounded-full",
-              "kai-bottom-search-action",
-              "transition-[color,transform,background-color] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)]",
-              // Hover styles behind (hover:hover) so iOS taps never latch a
-              // sticky hover background on the first touch.
-              "[@media(hover:hover)]:hover:bg-black/[0.08] [@media(hover:hover)]:hover:text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background [@media(hover:hover)]:dark:hover:bg-white/[0.1] active:scale-90 chrome-bottom-foreground",
-            )}
-            onClick={() => {
-              if (busyOperations["portfolio_save"]) {
-                toast.info(
-                  "Saving to vault. Please wait until encryption completes.",
-                );
-                return;
-              }
-              toggleKaiCommandBar();
-            }}
-          >
-            <Icon icon={SearchIcon} size="md" className="shrink-0" />
-          </button>
         </div>
       </div>
     </nav>

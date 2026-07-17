@@ -328,6 +328,37 @@ def _domain_runtime_contract(project: str) -> dict[str, str]:
     }
 
 
+def _firebase_project_contract(project: str) -> dict[str, str]:
+    """Prove Firebase Admin and public client configuration target one project.
+
+    The Admin credential itself is never rendered. This only compares its
+    in-memory ``project_id`` claim with the public Firebase project setting and
+    reports a stable status. It prevents custom-token issuer/audience drift
+    that otherwise appears only as a native sign-in failure.
+    """
+
+    credentials_raw = _read_secret_value(project, "FIREBASE_ADMIN_CREDENTIALS_JSON")
+    client_project = _read_secret_value(project, "NEXT_PUBLIC_FIREBASE_PROJECT_ID")
+    if not credentials_raw or not client_project:
+        return {"status": "unavailable", "credentials": "unavailable"}
+
+    try:
+        credentials = json.loads(credentials_raw)
+    except json.JSONDecodeError:
+        credentials = None
+    if not isinstance(credentials, dict):
+        return {"status": "invalid_credentials", "credentials": "invalid"}
+
+    admin_project = str(credentials.get("project_id") or "").strip()
+    if not admin_project:
+        return {"status": "invalid_credentials", "credentials": "invalid"}
+
+    return {
+        "status": "valid" if admin_project == client_project.strip() else "mismatch",
+        "credentials": "valid" if admin_project == client_project.strip() else "mismatch",
+    }
+
+
 def _format_names(names: Iterable[str]) -> str:
     return ", ".join(sorted(names))
 
@@ -683,6 +714,7 @@ def main() -> int:
         },
         "gmail_redirect_contract": {"status": "not_checked"},
         "domain_runtime_contract": {"status": "not_checked"},
+        "firebase_project_contract": {"status": "not_checked"},
     }
 
     print(f"Project: {args.project}")
@@ -740,6 +772,12 @@ def main() -> int:
     print(f"Domain runtime contract: {domain_runtime_contract['status']}")
     if domain_runtime_contract["status"] != "valid":
         report["classifications"].append("domain_runtime_contract_failed")
+
+    firebase_project_contract = _firebase_project_contract(args.project)
+    report["firebase_project_contract"] = firebase_project_contract
+    print(f"Firebase project contract: {firebase_project_contract['status']}")
+    if firebase_project_contract["status"] != "valid":
+        report["classifications"].append("firebase_project_contract_failed")
 
     if args.assert_runtime_env_contract:
         frontend_json = _describe_run_service(args.project, args.region, args.frontend_service)

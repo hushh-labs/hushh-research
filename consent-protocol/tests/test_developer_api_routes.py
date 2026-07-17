@@ -2142,7 +2142,7 @@ def test_public_profile_export_returns_safe_projection_and_audits(monkeypatch):
     assert audit_event["metadata"]["projection_hash"] == "sha256:projection"
 
 
-def test_scoped_export_returns_envelope_metadata_and_resource_link(monkeypatch):
+def test_scoped_export_returns_envelope_metadata_and_inline_ciphertext(monkeypatch):
     consent_token = "token_existing_1234"  # noqa: S105 - test fixture token id
 
     class _FakeConsentDBService:
@@ -2218,11 +2218,9 @@ def test_scoped_export_returns_envelope_metadata_and_resource_link(monkeypatch):
     assert payload["expected_scope"] == "attr.financial.profile.*"
     assert payload["coverage_kind"] == "superset"
     assert payload["export_generated_at"] == "2026-03-24 18:30:00+00:00"
-    assert payload["encrypted_data"] is None
+    assert payload["encrypted_data"] == "ciphertext"
     assert payload["wrapped_key_bundle"]["connector_key_id"] == _CONNECTOR_KEY_ID
-    assert payload["resource_link"]["uri"].endswith(
-        "/api/v1/scoped-export/resources/123e4567-e89b-12d3-a456-426614174000/revisions/7"
-    )
+    assert "resource_link" not in payload
     assert payload["export_envelope"]["ciphertext_bytes"] == 10
     assert "data" not in payload
 
