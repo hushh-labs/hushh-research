@@ -10,6 +10,17 @@ import {
 } from "@/components/ui/dialog";
 
 describe("DialogContent", () => {
+  it("propagates custom class names", () => {
+    render(
+      <Dialog open>
+        <DialogContent className="custom-dialog">
+          <DialogTitle>Test dialog</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    );
+    expect(document.querySelector('[data-slot="dialog-content"]')?.className).toContain("custom-dialog");
+  });
+
   it("renders the close button by default", () => {
     render(
       <Dialog open>
