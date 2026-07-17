@@ -402,12 +402,40 @@ class ModelRegistry {
         timeout: 60000,
       });
       console.log(`[ModelRegistry] ✅ Local bridge is online and ready!`);
+      this._warmUpLocalModel();
       return this.bridgeProcess;
     } catch (err) {
       console.error(`[ModelRegistry] ❌ Local bridge failed to come online:`, err);
       this._killLocalBridge();
       return null;
     }
+  }
+
+  /**
+   * Fires a throwaway completion request the moment the bridge is healthy,
+   * deliberately not awaited by the caller. Live-measured: the FIRST
+   * inference call after GenieX starts costs ~20s beyond normal generation
+   * time (a 2-token reply took 23s; the very next request, 14 tokens, took
+   * 1.5s) -- a one-time llama.cpp/GGUF warm-up cost (first-forward-pass
+   * graph build / mmap page-in), not per-request latency and not something
+   * the /v1/models health check surfaces at all. Without this, that ~20s
+   * cost lands on whatever real message the user happens to type first.
+   * Paying it here instead means it happens in the background while
+   * local AI is still "starting up" from the user's perspective, not
+   * during their first real chat turn.
+   */
+  _warmUpLocalModel() {
+    fetch(`http://127.0.0.1:${LOCAL_BRIDGE_PORT}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: GENIEX_MODEL_ID,
+        messages: [{ role: "user", content: "Hi" }],
+        max_tokens: 1,
+      }),
+    })
+      .then(() => console.log(`[ModelRegistry] 🔥 Local model warm-up complete.`))
+      .catch((err) => console.warn(`[ModelRegistry] Local model warm-up request failed (non-fatal):`, err.message));
   }
 
   /**
