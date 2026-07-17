@@ -1,4 +1,8 @@
-"""Minimal Kai Agent Realtime session endpoint."""
+"""Minimal Kai Agent Realtime session endpoint.
+
+Canonical attach point for the CWE-209 fix:
+  create_agent_realtime_session -> POST /api/kai/agent/realtime/session
+"""
 
 from __future__ import annotations
 
@@ -187,8 +191,14 @@ async def create_agent_realtime_session(
 
     result = response.json() if response.content else {}
     if response.status_code >= 400:
-        detail = _extract_openai_error(result) or "Realtime client secret creation failed"
-        raise HTTPException(status_code=502, detail=detail)
+        openai_error = _extract_openai_error(result)
+        if openai_error:
+            logger.warning(
+                "[Kai Agent] realtime session error user_ref=%s: %s",
+                user_ref[:12],
+                openai_error,
+            )
+        raise HTTPException(status_code=502, detail="Realtime client secret creation failed")
 
     client_secret, expires_at = _parse_client_secret(result)
     if not client_secret:
