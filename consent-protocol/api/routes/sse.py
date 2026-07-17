@@ -166,7 +166,7 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
     from api.consent_listener import get_consent_queue
     from hushh_mcp.services.consent_db import ConsentDBService
 
-    logger.info("consent_sse.open user_id=%s", user_id)
+    logger.info("consent_sse.open user_id=[redacted]")
     connection_start_ms = int(datetime.now().timestamp() * 1000)
     backfill_window_ms = 2 * 60 * 1000
     after_timestamp_ms = connection_start_ms - backfill_window_ms
@@ -196,7 +196,7 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
 
         while True:
             if await request.is_disconnected():
-                logger.info("consent_sse.disconnected user_id=%s", user_id)
+                logger.info("consent_sse.disconnected user_id=[redacted]")
                 break
 
             try:
@@ -222,9 +222,9 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
                 "data": json.dumps(_sse_payload_from_event_payload(data)),
             }
     except asyncio.CancelledError:
-        logger.info("consent_sse.cancelled user_id=%s", user_id)
-    except Exception as e:
-        logger.error("consent_sse.error user_id=%s error=%s", user_id, e)
+        logger.info("consent_sse.cancelled user_id=[redacted]")
+    except Exception:
+        logger.error("consent_sse.error user_id=[redacted]", exc_info=True)
         raise
 
 
