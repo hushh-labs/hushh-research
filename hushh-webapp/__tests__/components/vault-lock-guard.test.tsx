@@ -3,7 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 
-const { replaceMock } = vi.hoisted(() => ({
+const { authState, replaceMock } = vi.hoisted(() => ({
+  authState: {
+    user: null as { uid: string } | null,
+    loading: false,
+  },
   replaceMock: vi.fn(),
 }));
 
@@ -14,10 +18,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({
-    user: null,
-    loading: false,
-  }),
+  useAuth: () => authState,
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -58,6 +59,8 @@ vi.mock("@/lib/testing/native-test", () => ({
 
 describe("VaultLockGuard", () => {
   beforeEach(() => {
+    authState.user = null;
+    authState.loading = false;
     replaceMock.mockReset();
     window.history.pushState({}, "", "/one/location");
   });
@@ -74,5 +77,19 @@ describe("VaultLockGuard", () => {
     await waitFor(() => {
       expect(replaceMock).toHaveBeenCalledWith("/login?redirect=%2Fone%2Flocation");
     });
+  });
+
+  it("shows the auth loading fallback before redirect decisions", () => {
+    authState.loading = true;
+
+    render(
+      <VaultLockGuard>
+        <div>Protected location content</div>
+      </VaultLockGuard>,
+    );
+
+    expect(screen.getByText("Checking session...")).toBeTruthy();
+    expect(screen.queryByText("Protected location content")).toBeNull();
+    expect(replaceMock).not.toHaveBeenCalled();
   });
 });
