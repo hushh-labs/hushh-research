@@ -40,6 +40,9 @@ export function HoldingsConcentrationChart({
   className,
 }: HoldingsConcentrationChartProps) {
   const chartData = data.slice(0, 8);
+  const concentrationLabel = chartData
+    .map((entry) => `${entry.symbol}: ${entry.weightPct.toFixed(1)}%`)
+    .join(", ");
   const chartConfig = useMemo<ChartConfig>(
     () => ({
       weightPct: {
@@ -66,7 +69,12 @@ export function HoldingsConcentrationChart({
       contentClassName="space-y-0"
     >
       <SurfaceInset className="min-w-0 overflow-hidden">
-        <ChartContainer config={chartConfig} className="h-[192px] w-full min-w-0 sm:h-[204px]">
+        <ChartContainer
+          aria-label={concentrationLabel}
+          config={chartConfig}
+          role="img"
+          className="h-[192px] w-full min-w-0 sm:h-[204px]"
+        >
           <BarChart
             data={chartData}
             layout="vertical"
