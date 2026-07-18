@@ -39,4 +39,9 @@ describe("agent voice settings", () => {
     vi.stubEnv("NEXT_PUBLIC_AGENT_GEMINI_VOICE_ENABLED", "1");
     expect(isAgentGeminiVoiceEnabled()).toBe(true);
   });
+  it("treats disabled flag values as disabled", () => {
+  vi.stubEnv("NEXT_PUBLIC_AGENT_GEMINI_VOICE_ENABLED", "disabled");
+
+  expect(isAgentGeminiVoiceEnabled()).toBe(false);
+  });
 });
