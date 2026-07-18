@@ -16,4 +16,14 @@ describe("voice-route-eligibility", () => {
     expect(isVoiceEligibleRouteScreen("app", false)).toBe(false);
     expect(isVoiceEligibleRouteScreen("unknown", false)).toBe(false);
   });
+
+  it("normalizes screen names and rejects empty route values", () => {
+   expect(isVoiceEligibleRouteScreen(" Dashboard ", false)).toBe(true);
+   expect(isVoiceEligibleRouteScreen("PROFILE", false)).toBe(true);
+
+   expect(isVoiceEligibleRouteScreen("", false)).toBe(false);
+   expect(isVoiceEligibleRouteScreen("   ", false)).toBe(false);
+   expect(isVoiceEligibleRouteScreen(null, false)).toBe(false);
+   expect(isVoiceEligibleRouteScreen(undefined, false)).toBe(false);
+  });
 });
