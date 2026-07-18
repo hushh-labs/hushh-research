@@ -1535,7 +1535,7 @@ export function DebateStreamView({
     const display = getErrorDisplay(errorType, retryCountdown ?? undefined);
     return (
       <div className="h-full flex flex-col items-center justify-center p-6 space-y-4">
-        <div className="max-w-md w-full">
+        <div className="w-full">
           <MorphyCard showRipple={false}>
             <MorphyCardContent className="p-8 flex flex-col items-center space-y-4">
             <div className="p-4 rounded-full bg-muted/30">{display.icon}</div>
@@ -1682,7 +1682,7 @@ export function DebateStreamView({
       ) : null}
 
       <ScrollArea className={cn("flex-1 px-2 pb-4 sm:px-3", !showHeader && "pt-0")}>
-        <div className="mx-auto w-full max-w-3xl space-y-4 px-0 pb-8">
+        <div className="mx-auto w-full space-y-4 px-0 pb-8">
           {decision ? (
             <MorphyCard>
               <MorphyCardContent className="p-0">
