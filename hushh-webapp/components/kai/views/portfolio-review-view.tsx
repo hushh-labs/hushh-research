@@ -2412,7 +2412,7 @@ export function PortfolioReviewView({
                   className="bg-black text-white hover:bg-black/90 dark:bg-white dark:text-black dark:hover:bg-white/90"
                 >
                   {isBusySaving ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
                     <Icon icon={Save} size="sm" className="mr-2" aria-hidden="true" />
                   )}
@@ -2479,7 +2479,7 @@ export function PortfolioReviewView({
         <div className="fixed inset-0 z-[560] flex items-center justify-center bg-background/75 backdrop-blur-md">
           <div className="mx-4 w-full max-w-sm rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] p-5 shadow-[var(--app-card-shadow-feature)]">
             <div className="flex items-center gap-3">
-              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin text-primary" />
               <p className="text-sm font-semibold">Securing and saving to Vault</p>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
