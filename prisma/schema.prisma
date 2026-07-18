@@ -1,0 +1,159 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Seed Configuration ─────────────────────────────────────────────────────
+
+/// Seed script configuration for Prisma
+/// Run with: npm run prisma:seed
+/// File: prisma/seed.ts
+
+// ─── Enums ──────────────────────────────────────────────────────────────────
+
+enum ServiceStatus {
+  Active
+  Pending
+  Revoked
+}
+
+enum PermissionState {
+  On
+  Off
+}
+
+enum AccessResult {
+  Authorized
+  BLOCKED_BY_CONSENT
+  Denied
+  Rate_Limited
+}
+
+// ─── Models ─────────────────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  trustScore    Int
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // NextAuth Relations
+  accounts      Account[]
+  sessions      Session[]
+
+  // App Relations
+  services      Service[]
+  permissions   Permission[]
+  accessLogs    AccessLog[]
+
+  @@map("users")
+}
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String?
+  access_token       String?
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String?
+  session_state      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model Service {
+  id          String   @id @default(cuid())
+  publicId    String   @unique // For frontend reference (e.g., "svc_001")
+  userId      String
+  name        String
+  icon        String
+  status      ServiceStatus
+  connectedAt DateTime
+  scopes      String[] // Array of scope strings
+  lastSync    DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("services")
+  @@index([userId])
+}
+
+model Permission {
+  id           String   @id @default(cuid())
+  publicId     String   @unique // For frontend reference (e.g., "perm_001")
+  userId       String
+  category     String
+  label        String
+  description  String
+  state        PermissionState
+  lastModified DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("permissions")
+  @@index([userId])
+}
+
+model AccessLog {
+  id        String   @id @default(cuid())
+  publicId  String   @unique // For frontend reference (e.g., "log_001")
+  userId    String
+  timestamp DateTime
+  service   String
+  action    String
+  resource  String
+  result    AccessResult
+  ip        String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("access_logs")
+  @@index([userId])
+  @@index([timestamp])
+}
