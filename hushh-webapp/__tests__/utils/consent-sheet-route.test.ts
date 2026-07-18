@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 
 import {
   buildConsentCenterHref,
@@ -44,6 +44,23 @@ describe("consent sheet route helpers", () => {
         bundleId: "bundle_123",
       }),
     ).toBe("/consents?tab=pending&requestId=req_123&bundleId=bundle_123");
+  });
+
+  it("stringifies numeric request identifiers when building notification fallback consent hrefs", () => {
+    const nativeNotificationOptions = {
+      requestId: 86400,
+      bundleId: 44,
+    } satisfies Record<string, unknown>;
+
+    expect(
+      resolveConsentRequestHref(
+        null,
+        "pending",
+        nativeNotificationOptions as Parameters<typeof resolveConsentRequestHref>[2],
+      ),
+    ).toBe(
+      "/consents?tab=pending&requestId=86400&bundleId=44"
+    );
   });
 
   it("keeps the bare consent manager on the One access view by default", () => {
@@ -103,16 +120,16 @@ describe("consent sheet route helpers", () => {
   });
 });
 
-// ── Path safety — edge cases, empty inputs, and traversal resistance ──────────
+// â”€â”€ Path safety â€” edge cases, empty inputs, and traversal resistance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-describe("path resolver safety — dangerous edge case handling", () => {
-  // ── Null / empty / whitespace inputs ────────────────────────────────────
+describe("path resolver safety â€” dangerous edge case handling", () => {
+  // â”€â”€ Null / empty / whitespace inputs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  it("normalizeInternalAppHref returns null for null — no crash", () => {
+  it("normalizeInternalAppHref returns null for null â€” no crash", () => {
     expect(normalizeInternalAppHref(null)).toBeNull();
   });
 
-  it("normalizeInternalAppHref returns null for undefined — no crash", () => {
+  it("normalizeInternalAppHref returns null for undefined â€” no crash", () => {
     expect(normalizeInternalAppHref(undefined)).toBeNull();
   });
 
@@ -136,18 +153,18 @@ describe("path resolver safety — dangerous edge case handling", () => {
     expect(result.href).toContain("/consents");
   });
 
-  // ── Bare relative traversal — classifies as external, never internal ─────
+  // â”€â”€ Bare relative traversal â€” classifies as external, never internal â”€â”€â”€â”€â”€
 
   it("normalizeInternalAppHref does not crash on bare traversal string ../../..", () => {
     const result = normalizeInternalAppHref("../../..");
-    // Bare traversal has no leading "/" — treated as an opaque string, never as a known app path.
+    // Bare traversal has no leading "/" â€” treated as an opaque string, never as a known app path.
     expect(typeof result === "string" || result === null).toBe(true);
   });
 
   it("resolveConsentNavigationTarget classifies bare ../../.. traversal as external", () => {
     const result = resolveConsentNavigationTarget("../../..");
     // A bare relative traversal cannot be parsed as a valid absolute URL.
-    // isInternalAppHref returns false → correctly classified as external navigation.
+    // isInternalAppHref returns false â†’ correctly classified as external navigation.
     expect(result.kind).toBe("external");
     expect(result.href).toBe("../../..");
   });
@@ -157,13 +174,13 @@ describe("path resolver safety — dangerous edge case handling", () => {
     expect(result.kind).toBe("external");
   });
 
-  it("resolveConsentRequestHref does not crash on traversal path — returns a string", () => {
+  it("resolveConsentRequestHref does not crash on traversal path â€” returns a string", () => {
     const result = resolveConsentRequestHref("../../..", "pending");
     expect(typeof result).toBe("string");
     expect(result.length).toBeGreaterThan(0);
   });
 
-  // ── Deeply nested internal paths — resolved without crashing ─────────────
+  // â”€â”€ Deeply nested internal paths â€” resolved without crashing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   it("normalizeInternalAppHref preserves valid deeply nested internal paths", () => {
     const deep =
@@ -176,7 +193,7 @@ describe("path resolver safety — dangerous edge case handling", () => {
       "/consents/a/b/c/d/e/f?requestId=req_1",
     );
     expect(result.kind).toBe("internal");
-    // Pathname is the full path before "?" — not truncated.
+    // Pathname is the full path before "?" â€” not truncated.
     if (result.kind === "internal") {
       expect(result.pathname).toBe("/consents/a/b/c/d/e/f");
     }
@@ -196,7 +213,7 @@ describe("path resolver safety — dangerous edge case handling", () => {
     expect(result.kind).toBe("internal");
   });
 
-  // ── Protocol-relative and scheme injection — never classified as internal ─
+  // â”€â”€ Protocol-relative and scheme injection â€” never classified as internal â”€
 
   it("resolveConsentNavigationTarget classifies protocol-relative //evil.com as external", () => {
     // isInternalAppHref short-circuits on leading "//" before any URL parsing.
@@ -225,4 +242,4 @@ describe("path resolver safety — dangerous edge case handling", () => {
     expect(result.kind).toBe("external");
   });
 });
-// ── End path safety coverage ──────────────────────────────────────────────────
+// â”€â”€ End path safety coverage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
