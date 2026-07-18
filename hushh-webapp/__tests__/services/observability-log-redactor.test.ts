@@ -25,6 +25,29 @@ describe("observability log redactor", () => {
     expect(redactObservabilityLogValue(value)).toBe(value);
   });
 
+  it("redacts sensitive metadata values while preserving safe diagnostic fields", () => {
+    const metadataLog = JSON.stringify({
+      event: "consent_export_attempt",
+      route: "/consents",
+      actor: "investor",
+      user_email: "privacy@example.com",
+      vault_key: "vault_sensitive_metadata_key_001",
+      session_token: "Bearer abcdefghijklmnopqrstuvwxyz123456",
+    });
+
+    const redacted = redactObservabilityLog(metadataLog);
+
+    expect(redacted).toContain('"event":"consent_export_attempt"');
+    expect(redacted).toContain('"route":"/consents"');
+    expect(redacted).toContain('"actor":"investor"');
+    expect(redacted).toContain("[REDACTED_EMAIL]");
+    expect(redacted).toContain("[REDACTED_VAULT_KEY]");
+    expect(redacted).toContain("Bearer [REDACTED_TOKEN]");
+    expect(redacted).not.toContain("privacy@example.com");
+    expect(redacted).not.toContain("vault_sensitive_metadata_key_001");
+    expect(redacted).not.toContain("abcdefghijklmnopqrstuvwxyz123456");
+  });
+
   it("keeps analytics payload sanitization owned by the schema", () => {
     const result = validateAndSanitizeEvent("auth_failed", {
       env: "uat",
