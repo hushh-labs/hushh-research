@@ -543,6 +543,20 @@ async function decryptVault(
 }
 ```
 
+### Security Scanning
+
+All contributions that touch trust-boundary files must pass the local security scan before opening a PR.
+
+#### Running the scan
+
+```bash
+bash scripts/ops/run-security-scan.sh
+```
+
+This runs **bandit** (Python static vulnerability analysis) and **npm audit** (Node dependency scan).
+The script uses `set -euo pipefail` and exits non-zero if any check fails.
+A passing scan (exit code 0) is required before the CI gate will go green.
+
 ### Commit Messages
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
