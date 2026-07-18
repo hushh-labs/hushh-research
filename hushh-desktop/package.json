@@ -1,6 +1,6 @@
 {
   "name": "hushh-desktop",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "main": "electron/main/main.js",
   "scripts": {
     "start": "electron .",

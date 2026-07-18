@@ -2185,31 +2185,31 @@ body:has([data-one-market-surface="true"]) .bar-glass-top {
 }
 
 /* On-device (local NPU) AI glow — differentiates local chat from cloud.
-   Cycles blue -> violet -> pink to read as "on-device intelligence" rather
+   Cycles teal -> blue -> green to read as "on-device intelligence" rather
    than the flat cloud-primary blue used elsewhere. Uses `outline` (not a
    background/mask trick) so it sits cleanly outside the box without ever
    touching its interior fill, plus a matching box-shadow for a soft halo. */
 @keyframes agent-local-outline-hue {
   0% {
-    outline-color: oklch(0.72 0.19 250);
-    box-shadow: 0 0 14px 1px oklch(0.72 0.19 250 / 0.5);
+    outline-color: oklch(0.78 0.13 195);
+    box-shadow: 0 0 14px 1px oklch(0.78 0.13 195 / 0.5);
   }
   33% {
-    outline-color: oklch(0.72 0.17 285);
-    box-shadow: 0 0 14px 1px oklch(0.72 0.17 285 / 0.5);
+    outline-color: oklch(0.7 0.18 235);
+    box-shadow: 0 0 14px 1px oklch(0.7 0.18 235 / 0.5);
   }
   66% {
-    outline-color: oklch(0.75 0.19 335);
-    box-shadow: 0 0 14px 1px oklch(0.75 0.19 335 / 0.5);
+    outline-color: oklch(0.75 0.16 145);
+    box-shadow: 0 0 14px 1px oklch(0.75 0.16 145 / 0.5);
   }
   100% {
-    outline-color: oklch(0.72 0.19 250);
-    box-shadow: 0 0 14px 1px oklch(0.72 0.19 250 / 0.5);
+    outline-color: oklch(0.78 0.13 195);
+    box-shadow: 0 0 14px 1px oklch(0.78 0.13 195 / 0.5);
   }
 }
 
 .agent-local-glow {
-  outline: 2px solid oklch(0.72 0.19 250);
+  outline: 2px solid oklch(0.78 0.13 195);
   outline-offset: 2px;
   animation: agent-local-outline-hue 6s ease-in-out infinite;
 }
@@ -2217,8 +2217,8 @@ body:has([data-one-market-surface="true"]) .bar-glass-top {
 @media (prefers-reduced-motion: reduce) {
   .agent-local-glow {
     animation: none;
-    outline-color: oklch(0.72 0.19 250);
-    box-shadow: 0 0 10px 1px oklch(0.72 0.19 250 / 0.4);
+    outline-color: oklch(0.78 0.13 195);
+    box-shadow: 0 0 10px 1px oklch(0.78 0.13 195 / 0.4);
   }
 }
 
@@ -2228,16 +2228,16 @@ body:has([data-one-market-surface="true"]) .bar-glass-top {
    bleed around the letters while they're actively generating. */
 @keyframes agent-local-text-hue {
   0% {
-    filter: drop-shadow(0 0 5px oklch(0.72 0.19 250 / 0.45));
+    filter: drop-shadow(0 0 5px oklch(0.78 0.13 195 / 0.45));
   }
   33% {
-    filter: drop-shadow(0 0 5px oklch(0.72 0.17 285 / 0.45));
+    filter: drop-shadow(0 0 5px oklch(0.7 0.18 235 / 0.45));
   }
   66% {
-    filter: drop-shadow(0 0 5px oklch(0.75 0.19 335 / 0.45));
+    filter: drop-shadow(0 0 5px oklch(0.75 0.16 145 / 0.45));
   }
   100% {
-    filter: drop-shadow(0 0 5px oklch(0.72 0.19 250 / 0.45));
+    filter: drop-shadow(0 0 5px oklch(0.78 0.13 195 / 0.45));
   }
 }
 
@@ -2252,7 +2252,41 @@ body:has([data-one-market-surface="true"]) .bar-glass-top {
 @media (prefers-reduced-motion: reduce) {
   .agent-local-text-glow.is-streaming {
     animation: none;
-    filter: drop-shadow(0 0 4px oklch(0.72 0.17 285 / 0.35));
+    filter: drop-shadow(0 0 4px oklch(0.7 0.18 235 / 0.35));
+  }
+}
+
+/* Small status-badge glow, same safe outline/box-shadow technique as
+   .agent-local-glow (no mask-composite -- that fails in the packaged
+   Electron build), scaled down for a pill instead of a full container. */
+@keyframes agent-status-badge-hue {
+  0% {
+    border-color: oklch(0.78 0.13 195 / 0.7);
+    box-shadow: 0 0 8px 1px oklch(0.78 0.13 195 / 0.45);
+  }
+  33% {
+    border-color: oklch(0.7 0.18 235 / 0.7);
+    box-shadow: 0 0 8px 1px oklch(0.7 0.18 235 / 0.45);
+  }
+  66% {
+    border-color: oklch(0.75 0.16 145 / 0.7);
+    box-shadow: 0 0 8px 1px oklch(0.75 0.16 145 / 0.45);
+  }
+  100% {
+    border-color: oklch(0.78 0.13 195 / 0.7);
+    box-shadow: 0 0 8px 1px oklch(0.78 0.13 195 / 0.45);
+  }
+}
+
+.agent-status-glow {
+  animation: agent-status-badge-hue 4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-status-glow {
+    animation: none;
+    border-color: oklch(0.78 0.13 195 / 0.7);
+    box-shadow: 0 0 8px 1px oklch(0.78 0.13 195 / 0.35);
   }
 }
 
@@ -2272,13 +2306,13 @@ body:has([data-one-market-surface="true"]) .bar-glass-top {
 .agent-local-cursor-glow {
   background: linear-gradient(
     120deg,
-    oklch(0.72 0.19 250),
-    oklch(0.72 0.17 290),
-    oklch(0.75 0.19 335)
+    oklch(0.78 0.13 195),
+    oklch(0.7 0.18 235),
+    oklch(0.75 0.16 145)
   );
   background-size: 200% 200%;
   animation: agent-local-cursor-shift 2.4s ease-in-out infinite;
-  box-shadow: 0 0 8px oklch(0.72 0.17 290 / 0.65);
+  box-shadow: 0 0 8px oklch(0.7 0.18 235 / 0.65);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2296,12 +2330,12 @@ body:has([data-one-market-surface="true"]) .bar-glass-top {
   from {
     opacity: 0;
     transform: translateY(3px);
-    filter: drop-shadow(0 0 5px oklch(0.75 0.19 300 / 0.55));
+    filter: drop-shadow(0 0 5px oklch(0.7 0.18 235 / 0.55));
   }
   to {
     opacity: 1;
     transform: translateY(0);
-    filter: drop-shadow(0 0 0 oklch(0.75 0.19 300 / 0));
+    filter: drop-shadow(0 0 0 oklch(0.7 0.18 235 / 0));
   }
 }
 

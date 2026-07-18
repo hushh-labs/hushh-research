@@ -838,11 +838,13 @@ export function AgentChatWorkspace({
     }
   });
   const [telemetry, setTelemetry] = useState<Record<string, string> | null>(null);
+  const [modelWarmupStage, setModelWarmupStage] = useState<string>("idle");
 
   useEffect(() => {
     const applyStatus = (status: any) => {
       const running = !!status?.running;
       setIsLocalActive(running);
+      setModelWarmupStage(typeof status?.warmupStage === "string" ? status.warmupStage : "idle");
       try {
         window.localStorage.setItem("hushh:local-ai-running", running ? "1" : "0");
       } catch {
@@ -1036,7 +1038,9 @@ export function AgentChatWorkspace({
       if (voiceState === "thinking") return "Thinking";
       if (voiceState === "speaking") return "Speaking";
       if (voiceState === "error") return "Voice error";
-      if (isLoadingHistory) return "Loading";
+      if (isLocalActive && modelWarmupStage === "warming_reply") return "Loading Qwen3...";
+      if (isLocalActive && modelWarmupStage === "warming_classifier") return "Loading tool-calling agent...";
+      if (isLoadingHistory) return "Loading chat history";
       if (isVoiceConnecting) return "Voice connecting";
       if (isToolWorking) return "Working";
       if (isPkmMemoryWorking) return "Saving memory";
@@ -1054,6 +1058,8 @@ export function AgentChatWorkspace({
       isStreaming,
       isVoiceConnecting,
       isVaultUnlocked,
+      isLocalActive,
+      modelWarmupStage,
       tokenIsFresh,
       user?.uid,
       vaultOwnerToken,
@@ -1241,14 +1247,31 @@ export function AgentChatWorkspace({
     historyLoadKeyRef.current = loadKey;
     let cancelled = false;
 
+    // A slow/contended backend must never lock the composer indefinitely --
+    // isLoadingHistory (and the composer's disabled state) only clears once
+    // this whole load settles, and neither call below had a bound on its
+    // own. 25s is generous against the worst observed contention tonight
+    // (~60s) while still guaranteeing recovery to a usable, if unrestored,
+    // chat instead of hanging forever.
+    const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> =>
+      Promise.race([
+        promise,
+        new Promise<T>((_, reject) =>
+          setTimeout(() => reject(new Error("Chat history load timed out")), ms)
+        ),
+      ]);
+
     const loadRecentConversation = async () => {
       setIsLoadingHistory(true);
       try {
-        const conversations = await listAgentChatConversations({
-          userId: user.uid,
-          vaultOwnerToken,
-          limit: 20,
-        });
+        const conversations = await withTimeout(
+          listAgentChatConversations({
+            userId: user.uid,
+            vaultOwnerToken,
+            limit: 20,
+          }),
+          25000
+        );
         if (cancelled) return;
         setConversations(conversations);
         const latest = conversations[0];
@@ -1257,11 +1280,14 @@ export function AgentChatWorkspace({
           setMessages([createGreetingMessage()]);
           return;
         }
-        const history = await getAgentChatHistory({
-          conversationId: latest.id,
-          vaultOwnerToken,
-          limit: 50,
-        });
+        const history = await withTimeout(
+          getAgentChatHistory({
+            conversationId: latest.id,
+            vaultOwnerToken,
+            limit: 50,
+          }),
+          25000
+        );
         if (cancelled) return;
         const restored = history
           .map(storedMessageToAgentMessage)
@@ -3047,7 +3073,12 @@ export function AgentChatWorkspace({
             </div>
 
             <div className="relative z-10 flex shrink-0 items-center gap-2">
-              <span className="hidden rounded-md border border-border bg-muted/50 px-2.5 py-1 text-xs font-medium text-muted-foreground sm:inline-flex">
+              <span
+                className={cn(
+                  "hidden rounded-md border border-border bg-muted/50 px-2.5 py-1 text-xs font-medium text-muted-foreground sm:inline-flex",
+                  isLocalActive && "agent-status-glow"
+                )}
+              >
                 {statusText}
               </span>
               {!isPopover ? (

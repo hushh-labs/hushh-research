@@ -163,6 +163,10 @@ class ModelRegistry {
     // Reason the last spawn attempt failed, if any (e.g. "insufficient_ram"),
     // surfaced to the renderer via getStatus() for a specific toast message.
     this._lastSpawnFailureReason = null;
+    // Warm-up stage, surfaced to the renderer so the UI can show a
+    // contextual status ("Loading Qwen3...") instead of a generic spinner.
+    // "idle" | "warming_reply" | "warming_classifier" | "ready"
+    this._warmupStage = "idle";
   }
 
   _getModelsDir() {
@@ -277,18 +281,48 @@ class ModelRegistry {
    * always running in-process in the backend) rather than GenieX (18181)
    * directly, since that's the real path Kai's chat actually uses.
    */
-  _warmUpLocalModel() {
-    fetch(`http://127.0.0.1:${LOCAL_BRIDGE_PORT}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: GENIEX_MODEL_ID,
-        messages: [{ role: "user", content: "Hi" }],
-        max_tokens: 1,
-      }),
-    })
-      .then(() => console.log(`[ModelRegistry] 🔥 Local model warm-up complete.`))
-      .catch((err) => console.warn(`[ModelRegistry] Local model warm-up request failed (non-fatal):`, err.message));
+  async _warmUpLocalModel() {
+    // Warms BOTH hybrid-role models (see GENIEX_MODEL_ID's comment) --
+    // GenieX can hold both resident at once, but only warming the reply
+    // model left the classifier (tool-calling) model to eat its own cold
+    // disk-load cost silently on the user's first tool-call of a session.
+    //
+    // Sequenced, not concurrent: loading both models' weights (~3.2GB
+    // combined) at the exact same moment as the rest of the app's own
+    // startup burst (chat history load, vault decrypt, DB pool warmup) was
+    // observed pushing total system memory to ~96% on a 16GB machine,
+    // causing OS-level paging/thrashing -- multi-minute stalls across
+    // completely unrelated backend requests, with CPU usage staying low
+    // the whole time (confirmed via Task Manager: the bottleneck was RAM
+    // pressure, not CPU). The reply model warms immediately (on the
+    // critical path for the first chat turn); the classifier model's warm-up
+    // is delayed so its own memory load lands after that initial burst has
+    // settled instead of stacking on top of it.
+    const warmOne = (modelId) =>
+      fetch(`http://127.0.0.1:${LOCAL_BRIDGE_PORT}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: modelId,
+          messages: [{ role: "user", content: "Hi" }],
+          max_tokens: 1,
+        }),
+      })
+        .then(() => console.log(`[ModelRegistry] 🔥 Local model warm-up complete (${modelId}).`))
+        .catch((err) => console.warn(`[ModelRegistry] Local model warm-up request failed for ${modelId} (non-fatal):`, err.message));
+
+    this._warmupStage = "warming_reply";
+    this.broadcastStatusChange(GENIEX_MODEL_ID);
+    await warmOne(GENIEX_MODEL_ID);
+
+    await new Promise((resolve) => setTimeout(resolve, 15000));
+
+    this._warmupStage = "warming_classifier";
+    this.broadcastStatusChange(GENIEX_MODEL_ID);
+    await warmOne(GENIEX_CLASSIFIER_MODEL_ID);
+
+    this._warmupStage = "ready";
+    this.broadcastStatusChange(GENIEX_MODEL_ID);
   }
 
   /**
@@ -472,11 +506,23 @@ class ModelRegistry {
     // NOTE: `geniex serve` binds its own configured default port (GENIEX_PORT,
     // 18181); it does not take a port argument here. `port` therefore must match
     // that default -- it drives the readiness wait below, not the bind.
-    this.aiProcess = spawn(geniexExe, ["serve"], {
+    this.aiProcess = spawn(geniexExe, ["serve", "--skip-update"], {
         env: { ...process.env },
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true
     });
+
+    // Model load + warm-up is CPU-heavy and was observed starving the
+    // Electron main process / Python backend event loop during spawn
+    // (chat composer locking up for 20-60s while GenieX cold-loads
+    // weights). Lower scheduling priority so the rest of the app stays
+    // responsive during that window, at the cost of GenieX itself taking
+    // a bit longer to finish loading.
+    try {
+        os.setPriority(this.aiProcess.pid, os.constants.priority.PRIORITY_BELOW_NORMAL);
+    } catch (err) {
+        console.warn(`[ModelRegistry] Failed to lower GenieX process priority:`, err.message);
+    }
 
     this.aiProcess.stdout.on("data", (data) => {
         console.log(`[GenieX] ${data.toString().trim()}`);
@@ -607,6 +653,7 @@ class ModelRegistry {
               this.aiProcess.kill();
           }
           this.aiProcess = null;
+          this._warmupStage = "idle";
           this.broadcastStatusChange(modelId);
       }
       return true;
@@ -648,6 +695,7 @@ class ModelRegistry {
           running: !!this.aiProcess,
           restarting: !!this._restarting,
           lastError: this._lastSpawnFailureReason,
+          warmupStage: this._warmupStage,
       };
   }
 }
