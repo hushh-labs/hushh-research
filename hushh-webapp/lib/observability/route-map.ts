@@ -1,4 +1,4 @@
-import { ROUTES } from "@/lib/navigation/routes";
+import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 
 export const ROUTE_ID_VALUES = [
   "one_dashboard",
@@ -134,7 +134,12 @@ export function resolveRouteId(pathname: string): RouteId {
     return "profile_gmail_oauth_return";
   }
   if (pathname === ROUTES.OAUTH_AUTHORIZE) return "oauth_authorize";
-  if (pathname === ROUTES.CONSENTS) return "consents";
+  if (
+    pathname === ROUTES.CONSENTS ||
+    pathname === ROUTES.LEGACY_CONSENTS
+  ) {
+    return "consents";
+  }
   if (pathname === ROUTES.AGENT) return "agent";
   if (pathname === ROUTES.CONNECT) return "connect";
   if (pathname === ROUTES.MARKETPLACE) return "marketplace";
@@ -167,7 +172,14 @@ export function resolveRouteId(pathname: string): RouteId {
   ) {
     return "ria_workspace";
   }
-  if (pathname === ROUTES.KAI_HOME || pathname === ROUTES.LEGACY_KAI_HOME) return "kai_home";
+  // Finance is the query-backed One workspace. Retain the legacy `/kai` route
+  // only long enough for redirect telemetry to preserve its route ID.
+  if (
+    pathname === KAI_MARKET_PATH ||
+    pathname === ROUTES.LEGACY_KAI_HOME
+  ) {
+    return "kai_home";
+  }
   if (
     pathname === ROUTES.ONE_SETUP ||
     pathname.startsWith(`${ROUTES.ONE_SETUP}/`) ||
@@ -191,7 +203,11 @@ export function resolveRouteId(pathname: string): RouteId {
   ) {
     return "kai_alpaca_oauth_return";
   }
-  if (pathname === ROUTES.KAI_DASHBOARD || pathname === ROUTES.LEGACY_KAI_PORTFOLIO) {
+  if (
+    pathname === ROUTES.KAI_DASHBOARD ||
+    pathname === ROUTES.LEGACY_KAI_PORTFOLIO ||
+    pathname === "/one/kai/portfolio"
+  ) {
     return "kai_dashboard";
   }
   if (pathname === ROUTES.KAI_INVESTMENTS || pathname === ROUTES.LEGACY_KAI_INVESTMENTS) {
@@ -203,7 +219,11 @@ export function resolveRouteId(pathname: string): RouteId {
   ) {
     return "kai_funding_trade";
   }
-  if (pathname === ROUTES.KAI_ANALYSIS || pathname === ROUTES.LEGACY_KAI_ANALYSIS) {
+  if (
+    pathname === ROUTES.KAI_ANALYSIS ||
+    pathname === ROUTES.LEGACY_KAI_ANALYSIS ||
+    pathname === "/one/kai/analysis"
+  ) {
     return "kai_analysis";
   }
   if (pathname === ROUTES.KAI_OPTIMIZE || pathname === ROUTES.LEGACY_KAI_OPTIMIZE) {

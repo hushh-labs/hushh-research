@@ -197,8 +197,8 @@ Pending response shape:
     "status": "pending",
     "requiredScope": "agent.one.orchestrate",
     "requestId": "req_...",
-    "requestUrl": "https://<hussh-app-host>/consents?tab=pending&requestId=req_...",
-    "approvalSurface": "/consents?tab=pending",
+    "requestUrl": "https://<hussh-app-host>/one/consent?tab=pending&requestId=req_...",
+    "approvalSurface": "/one/consent?tab=pending",
     "tokenRequired": true
   },
   "isComplete": false

@@ -6,6 +6,7 @@
  * Single fixed component that owns the entire top chrome:
  *   1. Capacitor safe-area inset (notch / Dynamic Island)
  *   2. Header row  –  actor title · actions
+ *   3. Optional route-owned contextual tab row
  *
  * One continuous frosted-glass backdrop + mask-image fade covers the
  * signed-in shell so page content scrolls seamlessly underneath.
@@ -20,7 +21,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
-  Bell,
   BriefcaseBusiness,
   ChartNoAxesCombined,
   Check,
@@ -77,13 +77,13 @@ import {
 } from "@/lib/flows/delete-account";
 import { VaultService } from "@/lib/services/vault-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { ROUTES } from "@/lib/navigation/routes";
-import { DebateTaskCenter } from "@/components/app-ui/debate-task-center";
+import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { getAgentSection } from "@/lib/navigation/agent-sections";
-import { ConsentInboxDropdown } from "@/components/consent/consent-inbox-dropdown";
+import { ActivityInbox } from "@/components/app-ui/activity-inbox";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { resolveTopShellMetrics } from "@/components/app-ui/top-shell-metrics";
-import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import type { TopShellRouteModel } from "@/components/app-ui/top-shell-metrics";
+import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
+import { AmbientChromeMask } from "@/components/app-ui/ambient-chrome-mask";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import type { Persona } from "@/lib/services/ria-service";
@@ -97,6 +97,7 @@ import {
   SHELL_PILL_TRIGGER_CLASSNAME,
 } from "@/components/app-ui/shell-action-surface";
 import { trackEvent } from "@/lib/observability/client";
+import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import {
   resolveGrowthEntrySurface,
   trackGrowthFunnelStepCompleted,
@@ -164,7 +165,7 @@ function getTopBarTitle(
 
   if (primaryHeaderOutOfView) {
     if (
-      pathname === ROUTES.KAI_HOME ||
+      pathname === KAI_MARKET_PATH ||
       pathname === ROUTES.LEGACY_KAI_HOME ||
       pathname === ROUTES.MARKETPLACE
     ) {
@@ -173,10 +174,12 @@ function getTopBarTitle(
   }
 
   const isPersonaShellRoute =
-    pathname.startsWith(ROUTES.KAI_HOME) ||
+    pathname === KAI_MARKET_PATH ||
+    pathname.startsWith(`${KAI_MARKET_PATH}/`) ||
     pathname.startsWith(ROUTES.LEGACY_KAI_HOME) ||
     pathname.startsWith(ROUTES.MARKETPLACE) ||
-    pathname.startsWith(ROUTES.CONSENTS);
+    pathname.startsWith(ROUTES.CONSENTS) ||
+    pathname.startsWith(ROUTES.LEGACY_CONSENTS);
 
   if (isPersonaShellRoute) {
     return null;
@@ -194,8 +197,8 @@ function isProfileTopBarRoute(pathname: string): boolean {
 function isPersonaSwitchTopBarRoute(pathname: string): boolean {
   const normalized = normalizeTopBarPathname(pathname);
   return (
-    normalized === ROUTES.KAI_HOME ||
-    normalized.startsWith(`${ROUTES.KAI_HOME}/`)
+    normalized === KAI_MARKET_PATH ||
+    normalized.startsWith(`${KAI_MARKET_PATH}/`)
   );
 }
 
@@ -282,7 +285,10 @@ function getScrolledRouteTitle(pathname: string): {
       interactive: false as const,
     };
   }
-  if (pathname === ROUTES.CONSENTS) {
+  if (
+    pathname === ROUTES.CONSENTS ||
+    pathname === ROUTES.LEGACY_CONSENTS
+  ) {
     return {
       label: "Access & sharing",
       icon: Shield,
@@ -330,12 +336,13 @@ function isPrimaryHeaderOutOfView(header: HTMLElement | null): boolean {
   return header.getBoundingClientRect().bottom <= readTopShellReservedHeight();
 }
 
-/* ── TopAppBar ─────────────────────────────────────────────────────── */
-interface TopAppBarProps {
+/* ── AppTopShell ───────────────────────────────────────────────────── */
+export interface AppTopShellProps {
   className?: string;
+  model: TopShellRouteModel;
 }
 
-export function TopAppBar({ className }: TopAppBarProps) {
+export function AppTopShell({ className, model }: AppTopShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, user } = useAuth();
@@ -344,16 +351,15 @@ export function TopAppBar({ className }: TopAppBarProps) {
     usePersonaState();
   const pathname = usePathname();
   const normalizedPathname = useMemo(
-    () => normalizeTopBarPathname(pathname),
-    [pathname],
+    () =>
+      model.mode === "hidden"
+        ? normalizeTopBarPathname(pathname)
+        : model.navigation.pathname,
+    [model, pathname],
   );
   const lastAgentSectionId = useKaiSession((s) => s.lastAgentSectionId);
   const lastKaiPath = useKaiSession((s) => s.lastKaiPath);
   const lastRiaPath = useKaiSession((s) => s.lastRiaPath);
-  const topShellMetrics = useMemo(
-    () => resolveTopShellMetrics(normalizedPathname),
-    [normalizedPathname],
-  );
   const topShellBreadcrumb = useMemo(
     () =>
       resolveTopShellBreadcrumb(normalizedPathname, searchParams) ??
@@ -365,7 +371,9 @@ export function TopAppBar({ className }: TopAppBarProps) {
     [normalizedPathname],
   );
   const showOnboardingActions = chromeState.useOnboardingChrome;
-  const hideChrome = !topShellMetrics.shellVisible;
+  const hideChrome = model.mode === "hidden";
+  const { progress: topShellScrollProgress } =
+    useKaiBottomChromeVisibility(!hideChrome);
   const [hasVault, setHasVault] = useState<boolean | null>(null);
   const [vaultUnlockOpen, setVaultUnlockOpen] = useState(false);
 
@@ -487,7 +495,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
   const showVaultUnlockAction =
     isAuthenticated && hasVault === true && !isVaultUnlocked;
   const showOneHomeBrand =
-    normalizedPathname === ROUTES.ONE_HOME && !showOnboardingActions;
+    model.mode !== "hidden" && model.brand === "one" && !showOnboardingActions;
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(
     null,
   );
@@ -569,39 +577,31 @@ export function TopAppBar({ className }: TopAppBarProps) {
     ],
   );
 
-  // Subscribe to the shared scroll-direction store so top chrome hides opposite
-  // the bottom nav while keeping the page layout spacer stable.
-  const { progress: rawTopChromeHideProgress } =
-    useKaiBottomChromeVisibility(!hideChrome);
-  const topChromeHideProgress = rawTopChromeHideProgress;
-
-  const topGlassHeight = "var(--top-shell-visual-height)";
-  const topChromeTransform = useMemo(
-    () =>
-      `translate3d(0, calc(-1 * ${topChromeHideProgress} * var(--top-shell-reserved-height)), 0)`,
-    [topChromeHideProgress],
-  );
+  const topShellHeaderHeight =
+    "calc(var(--top-inset) + var(--top-systembar-row-gap) + var(--top-bar-h))";
+  const topShellHeaderTransform = `translate3d(0, calc(-1 * ${topShellScrollProgress} * ${topShellHeaderHeight}), 0)`;
+  const topShellFullTransform = `translate3d(0, calc(-1 * ${topShellScrollProgress} * var(--top-shell-reserved-height)), 0)`;
+  const topShellGlassTransform =
+    model.mode === "bar-with-tabs"
+      ? topShellHeaderTransform
+      : topShellFullTransform;
 
   const topGlassStyle = useMemo<React.CSSProperties>(
     () =>
       ({
-        "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.76)",
-        // Theme-accurate dark tint: derive from the live --background so the
-        // frosted band never reads lighter (milky) than the page behind it.
-        "--app-bar-glass-bg-dark":
-          "color-mix(in oklab, var(--background) 76%, transparent)",
-        "--app-bar-shadow": "0 10px 26px rgba(120, 120, 128, 0.12)",
-        "--app-bar-mask-overscan": "14px",
+        transform: topShellGlassTransform,
       }) as React.CSSProperties,
-    [],
+    [topShellGlassTransform],
   );
+
   if (hideChrome) return null;
 
   return (
     <div
       data-app-top-bar
+      data-ambient-chrome-ignore
       className={cn(
-        "fixed inset-x-0 top-0 pointer-events-none",
+        "ambient-chrome-top-foreground fixed inset-x-0 top-0 pointer-events-none",
         // While the vault unlock gate is showing, ride ABOVE the dialog overlay
         // scrim (z-[499]) so the top navbar stays sharp instead of being blurred
         // by the vault backdrop. Otherwise keep the normal top-chrome layer.
@@ -610,20 +610,22 @@ export function TopAppBar({ className }: TopAppBarProps) {
       )}
     >
       <div
+        data-testid="app-top-shell-layout"
         className="pointer-events-none relative w-full overflow-visible"
-        style={{
-          height: "var(--top-shell-reserved-height)",
-          transform: topChromeTransform,
-          willChange: "transform",
-        }}
+        style={{ minHeight: "var(--top-shell-reserved-height)" }}
       >
         <div
           aria-hidden
           className="pointer-events-none absolute inset-x-0 top-0 overflow-visible"
-          style={{ height: topGlassHeight }}
+          style={{ height: "var(--top-shell-visual-height)" }}
         >
-          <div
-            className="h-full w-full bar-glass bar-glass-top"
+          <AmbientChromeMask
+            edge="top"
+            className={cn(
+              "h-full w-full",
+              model.mode === "bar-with-tabs" &&
+                "ambient-chrome-mask--top-with-tabs",
+            )}
             style={topGlassStyle}
           />
         </div>
@@ -631,308 +633,304 @@ export function TopAppBar({ className }: TopAppBarProps) {
         <div
           className={cn(
             APP_SHELL_FRAME_CLASSNAME,
-            "pointer-events-none relative flex h-full w-full flex-col justify-end",
+            "pointer-events-none relative flex w-full flex-col",
           )}
-          style={APP_SHELL_FRAME_STYLE}
+          style={{ ...APP_SHELL_FRAME_STYLE, maxWidth: "80rem" }}
         >
           <div
-            data-testid="top-app-bar-row"
-            className="pointer-events-none relative h-[var(--top-bar-h)] w-full shrink-0"
+            data-testid="top-app-bar-header"
+            className="pointer-events-none relative w-full shrink-0 transform-gpu will-change-transform"
+            style={{
+              paddingTop:
+                "calc(var(--top-inset) + var(--top-systembar-row-gap))",
+              transform:
+                model.mode === "bar-with-tabs"
+                  ? topShellHeaderTransform
+                  : topShellFullTransform,
+            }}
           >
             <div
-              data-testid="top-app-bar-breadcrumb-row"
-              className="pointer-events-none flex h-full w-full items-center gap-3 sm:gap-4"
+              data-testid="top-app-bar-row"
+              className="pointer-events-none relative h-[var(--top-bar-h)] w-full shrink-0"
             >
               <div
-                data-testid="top-app-bar-nav-slot"
-                className="pointer-events-none flex h-full shrink-0 items-center justify-start"
-                style={{ width: "var(--top-bar-side-w)" }}
-              >
-                {topShellBreadcrumb &&
-                !topShellBreadcrumb.hideBack ? (
-                  <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
-                    <ShellActionSurface
-                      variant="icon"
-                      aria-label="Go back"
-                      onClick={() => {
-                        // Profile query-panels (`/profile?panel=…&detail=…`) are
-                        // a same-pathname, query-only nav. The profile page closes
-                        // its panels only via router.replace(.., { scroll: false })
-                        // (popProfileStack / updateProfileView "replace"), so a
-                        // plain push here is a no-op on device ("Access & Sharing
-                        // back doesn't work"). Mirror the page's own close path.
-                        if (
-                          normalizedPathname === ROUTES.PROFILE &&
-                          (searchParams?.get("panel") ||
-                            searchParams?.get("detail"))
-                        ) {
-                          router.replace(topShellBreadcrumb.backHref, {
-                            scroll: false,
-                          });
-                          return;
-                        }
-                        // Location quick-action flows (Check-In, Drive To, Pick
-                        // Me Up, Safe Arrival, SOS, Share, Ask, Invite, Privacy,
-                        // Temp link) are tracked via `/one/location?action=…`.
-                        // This is the SINGLE back button for those screens: strip
-                        // the action param via replace so it returns to the
-                        // Location hub without leaving a re-openable history entry
-                        // (a plain push would let OS-back reopen the flow).
-                        if (
-                          normalizedPathname === ROUTES.ONE_LOCATION &&
-                          (searchParams?.get("action") || "").trim()
-                        ) {
-                          router.replace(topShellBreadcrumb.backHref, {
-                            scroll: false,
-                          });
-                          return;
-                        }
-                        router.push(topShellBreadcrumb.backHref, {
-                          scroll: false,
-                        });
-                      }}
-                    >
-                      <ArrowLeft className="h-5 w-5" />
-                    </ShellActionSurface>
-                  </div>
-                ) : showOneHomeBrand ? (
-                  <div
-                    data-testid="top-app-bar-one-brand"
-                    aria-label="🤫 One"
-                    className="pointer-events-none flex h-11 min-w-[76px] items-center justify-start gap-2 overflow-visible text-foreground"
-                  >
-                    <span
-                      aria-hidden
-                      className="flex h-7 w-7 shrink-0 items-center justify-center overflow-visible text-[23px] leading-none"
-                      style={{
-                        fontFamily:
-                          '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", emoji',
-                      }}
-                    >
-                      🤫
-                    </span>
-
-                  </div>
-                ) : (
-                  <div className="h-10 w-10" aria-hidden />
-                )}
-              </div>
-
-              {/* Title sits in the normal flex flow. The right cluster remains
-                  intentionally compact; `flex-1 min-w-0` lets the title truncate
-                  before it can collide with the account action. */}
-              <div
-                className={cn(
-                  "pointer-events-none flex min-w-0 flex-1 items-center",
-                  showOnboardingActions ? "justify-start" : "justify-center",
-                )}
-              >
-                {centerTitle ? (
-                  centerTitle.interactive && canShowPersonaSwitcher ? (
-                    <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <ShellActionSurface
-                            variant="pill"
-                            data-tour-id="nav-role-switch"
-                            data-testid="top-app-bar-title"
-                            aria-label="Switch role"
-                          >
-                            <Icon
-                              icon={
-                                switchingPersona
-                                  ? Loader2
-                                  : roleSwitcherIcon(activePersona)
-                              }
-                              size="sm"
-                              className={cn(
-                                "shrink-0 text-current",
-                                switchingPersona ? "animate-spin" : "",
-                              )}
-                            />
-                            <span className="truncate">
-                              {switchingPersona
-                                ? `Switching to ${switchingPersona === "ria" ? "RIA" : "Investor"}`
-                                : roleSwitcherLabel(activePersona)}
-                            </span>
-                            {!switchingPersona && (
-                              <span
-                                className={cn(
-                                  "h-1.5 w-1.5 shrink-0 rounded-full",
-                                  activePersona === "ria"
-                                    ? "bg-amber-500"
-                                    : "bg-emerald-500",
-                                )}
-                                aria-label={`Active role: ${activePersona === "ria" ? "RIA" : "Investor"}`}
-                              />
-                            )}
-                            <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" />
-                          </ShellActionSurface>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          align="center"
-                          className="min-w-[200px]"
-                        >
-                          <DropdownMenuItem
-                            onClick={() => void handlePersonaSelect("investor")}
-                            disabled={switchingPersona !== null}
-                            className="group"
-                          >
-                            <div className="relative z-10 flex min-w-0 items-center gap-2 text-current">
-                              <UserRound className="h-4 w-4 text-current" />
-                              <span>Investor</span>
-                            </div>
-                            {activePersona === "investor" ? (
-                              <Check className="ml-auto h-4 w-4 text-current" />
-                            ) : null}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => void handlePersonaSelect("ria")}
-                            disabled={switchingPersona !== null}
-                            className="group"
-                          >
-                            <div className="relative z-10 flex min-w-0 items-center gap-2 text-current">
-                              <BriefcaseBusiness className="h-4 w-4 text-current" />
-                              <span>
-                                {riaCapability === "switch"
-                                  ? "RIA"
-                                  : "Set up RIA"}
-                              </span>
-                            </div>
-                            {switchingPersona === "ria" ? (
-                              <Loader2
-                                className="ml-auto h-4 w-4 animate-spin text-current"
-                                aria-hidden="true"
-                              />
-                            ) : activePersona === "ria" ? (
-                              <Check className="ml-auto h-4 w-4 text-current" />
-                            ) : null}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  ) : (
-                    <div
-                      data-testid="top-app-bar-title"
-                      className={cn(
-                        TOP_SHELL_TITLE_PILL_CLASSNAME,
-                        "pointer-events-auto",
-                      )}
-                    >
-                      {centerTitle.icon ? (
-                        <Icon
-                          icon={centerTitle.icon}
-                          size="sm"
-                          className="shrink-0 text-current"
-                        />
-                      ) : null}
-                      <span className="truncate">{centerTitle.label}</span>
-                    </div>
-                  )
-                ) : null}
-              </div>
-
-              <div
-                className="pointer-events-none flex h-full shrink-0 items-center justify-end"
-                style={{ minWidth: "var(--top-bar-side-w)" }}
+                data-testid="top-app-bar-breadcrumb-row"
+                className="pointer-events-none flex h-full w-full items-center gap-3 sm:gap-4"
               >
                 <div
-                  data-testid="top-app-bar-actions"
-                  className={cn(
-                    "pointer-events-auto flex flex-nowrap items-center justify-end pr-[env(safe-area-inset-right)]",
-                    "gap-1.5 sm:gap-2",
-                  )}
+                  data-testid="top-app-bar-nav-slot"
+                  className="pointer-events-none flex h-full shrink-0 items-center justify-start"
+                  style={{ width: "var(--top-bar-side-w)" }}
                 >
-                  {!isAuthenticated ? null : showOnboardingActions ? (
-                    <OnboardingRouteActions />
-                  ) : (
-                    <>
-                      <ConsentInboxDropdown
-                        renderTrigger={({ pendingCount }) => (
-                          <ShellActionSurface
-                            variant="icon"
-                            aria-label="Open consent inbox"
-                            badge={
-                              pendingCount > 0 ? (
-                                <span
-                                  className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-accent-foreground shadow-[var(--morphy-cta-shadow)] ring-2 ring-background"
-                                >
-                                  {pendingCount}
-                                </span>
-                              ) : null
-                            }
-                          >
-                            <Shield className="h-5 w-5" />
-                          </ShellActionSurface>
-                        )}
-                      />
-
-                      {showVaultUnlockAction ? (
-                        <ShellActionSurface
-                          variant="icon"
-                          aria-label="Unlock vault"
-                          onClick={() => setVaultUnlockOpen(true)}
-                        >
-                          <KeyRound className="h-5 w-5 text-amber-600 dark:text-amber-300" />
-                        </ShellActionSurface>
-                      ) : null}
-
-                      <DebateTaskCenter
-                        renderTrigger={({ activeCount, badgeCount }) => (
-                          <ShellActionSurface
-                            variant="icon"
-                            aria-label="Notifications"
-                            badge={
-                              badgeCount > 0 ? (
-                                <span
-                                  className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-accent-foreground shadow-[var(--morphy-cta-shadow)] ring-2 ring-background"
-                                >
-                                  {badgeCount}
-                                </span>
-                              ) : null
-                            }
-                          >
-                            {activeCount > 0 ? (
-                              <Loader2
-                                className="h-5 w-5 animate-spin text-accent-strong"
-                                aria-hidden="true"
-                              />
-                            ) : (
-                              <Bell className="h-5 w-5" />
-                            )}
-                          </ShellActionSurface>
-                        )}
-                      />
+                  {topShellBreadcrumb && !topShellBreadcrumb.hideBack ? (
+                    <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
                       <ShellActionSurface
                         variant="icon"
-                        aria-label="Open Profile"
-                        onClick={() => router.push(ROUTES.PROFILE)}
-                        className="p-0"
+                        aria-label="Go back"
+                        onClick={() => {
+                          // Profile query-panels (`/profile?panel=…&detail=…`) are
+                          // a same-pathname, query-only nav. The profile page closes
+                          // its panels only via router.replace(.., { scroll: false })
+                          // (popProfileStack / updateProfileView "replace"), so a
+                          // plain push here is a no-op on device ("Access & Sharing
+                          // back doesn't work"). Mirror the page's own close path.
+                          if (
+                            normalizedPathname === ROUTES.PROFILE &&
+                            (searchParams?.get("panel") ||
+                              searchParams?.get("detail"))
+                          ) {
+                            router.replace(topShellBreadcrumb.backHref, {
+                              scroll: false,
+                            });
+                            return;
+                          }
+                          // Location quick-action flows (Check-In, Drive To, Pick
+                          // Me Up, Safe Arrival, SOS, Share, Ask, Invite, Privacy,
+                          // Temp link) are tracked via `/one/location?action=…`.
+                          // This is the SINGLE back button for those screens: strip
+                          // the action param via replace so it returns to the
+                          // Location hub without leaving a re-openable history entry
+                          // (a plain push would let OS-back reopen the flow).
+                          if (
+                            normalizedPathname === ROUTES.ONE_LOCATION &&
+                            (searchParams?.get("action") || "").trim()
+                          ) {
+                            router.replace(topShellBreadcrumb.backHref, {
+                              scroll: false,
+                            });
+                            return;
+                          }
+                          router.push(topShellBreadcrumb.backHref, {
+                            scroll: false,
+                          });
+                        }}
                       >
-                        <Avatar className="h-9 w-9">
-                          {user?.photoURL ? (
-                            <AvatarImage src={user.photoURL} alt="" />
-                          ) : null}
-                          <AvatarFallback className="bg-transparent text-muted-foreground">
-                            {user?.displayName ? (
-                              user.displayName
-                                .split(" ")
-                                .map((part) => part[0])
-                                .join("")
-                                .slice(0, 2)
-                                .toUpperCase()
-                            ) : (
-                              <UserRound className="h-5 w-5" />
-                            )}
-                          </AvatarFallback>
-                        </Avatar>
+                        <ArrowLeft className="h-5 w-5" />
                       </ShellActionSurface>
-                    </>
+                    </div>
+                  ) : showOneHomeBrand ? (
+                    <div
+                      data-testid="top-app-bar-one-brand"
+                      aria-label="One."
+                      className="top-shell-ambient-ink pointer-events-none flex h-11 min-w-[92px] items-center justify-start gap-2 overflow-visible text-foreground"
+                    >
+                      <span
+                        aria-hidden
+                        className="flex h-7 w-7 shrink-0 items-center justify-center overflow-visible text-[23px] leading-none"
+                        style={{
+                          fontFamily:
+                            '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", emoji',
+                        }}
+                      >
+                        🤫
+                      </span>
+                      <span
+                        aria-hidden
+                        className="whitespace-nowrap text-[20px] font-semibold leading-none tracking-[-0.035em] text-foreground"
+                      >
+                        One
+                        <span
+                          className="text-transparent"
+                          style={{
+                            backgroundImage:
+                              "linear-gradient(120deg, var(--app-accent-hero-from), var(--app-accent-hero-mid), var(--app-accent-hero-to))",
+                            backgroundClip: "text",
+                            WebkitBackgroundClip: "text",
+                          }}
+                        >
+                          .
+                        </span>
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="h-10 w-10" aria-hidden />
                   )}
+                </div>
+
+                {/* Title sits in the normal flex flow. The right cluster remains
+                  intentionally compact; `flex-1 min-w-0` lets the title truncate
+                  before it can collide with the account action. */}
+                <div
+                  className={cn(
+                    "pointer-events-none flex min-w-0 flex-1 items-center",
+                    showOnboardingActions ? "justify-start" : "justify-center",
+                  )}
+                >
+                  {centerTitle ? (
+                    centerTitle.interactive && canShowPersonaSwitcher ? (
+                      <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <ShellActionSurface
+                              variant="pill"
+                              data-tour-id="nav-role-switch"
+                              data-testid="top-app-bar-title"
+                              aria-label="Switch role"
+                            >
+                              <Icon
+                                icon={
+                                  switchingPersona
+                                    ? Loader2
+                                    : roleSwitcherIcon(activePersona)
+                                }
+                                size="sm"
+                                className={cn(
+                                  "shrink-0 text-current",
+                                  switchingPersona ? "animate-spin" : "",
+                                )}
+                              />
+                              <span className="truncate">
+                                {switchingPersona
+                                  ? `Switching to ${switchingPersona === "ria" ? "RIA" : "Investor"}`
+                                  : roleSwitcherLabel(activePersona)}
+                              </span>
+                              {!switchingPersona && (
+                                <span
+                                  className={cn(
+                                    "h-1.5 w-1.5 shrink-0 rounded-full",
+                                    activePersona === "ria"
+                                      ? "bg-amber-500"
+                                      : "bg-emerald-500",
+                                  )}
+                                  aria-label={`Active role: ${activePersona === "ria" ? "RIA" : "Investor"}`}
+                                />
+                              )}
+                              <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" />
+                            </ShellActionSurface>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="center"
+                            className="min-w-[200px]"
+                          >
+                            <DropdownMenuItem
+                              onClick={() =>
+                                void handlePersonaSelect("investor")
+                              }
+                              disabled={switchingPersona !== null}
+                              className="group"
+                            >
+                              <div className="relative z-10 flex min-w-0 items-center gap-2 text-current">
+                                <UserRound className="h-4 w-4 text-current" />
+                                <span>Investor</span>
+                              </div>
+                              {activePersona === "investor" ? (
+                                <Check className="ml-auto h-4 w-4 text-current" />
+                              ) : null}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => void handlePersonaSelect("ria")}
+                              disabled={switchingPersona !== null}
+                              className="group"
+                            >
+                              <div className="relative z-10 flex min-w-0 items-center gap-2 text-current">
+                                <BriefcaseBusiness className="h-4 w-4 text-current" />
+                                <span>
+                                  {riaCapability === "switch"
+                                    ? "RIA"
+                                    : "Set up RIA"}
+                                </span>
+                              </div>
+                              {switchingPersona === "ria" ? (
+                                <Loader2
+                                  className="ml-auto h-4 w-4 animate-spin text-current"
+                                  aria-hidden="true"
+                                />
+                              ) : activePersona === "ria" ? (
+                                <Check className="ml-auto h-4 w-4 text-current" />
+                              ) : null}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    ) : (
+                      <div
+                        data-testid="top-app-bar-title"
+                        className={cn(
+                          TOP_SHELL_TITLE_PILL_CLASSNAME,
+                          "top-shell-ambient-ink",
+                          "pointer-events-auto",
+                        )}
+                      >
+                        {centerTitle.icon ? (
+                          <Icon
+                            icon={centerTitle.icon}
+                            size="sm"
+                            className="shrink-0 text-current"
+                          />
+                        ) : null}
+                        <span className="truncate">{centerTitle.label}</span>
+                      </div>
+                    )
+                  ) : null}
+                </div>
+
+                <div
+                  className="pointer-events-none flex h-full shrink-0 items-center justify-end"
+                  style={{ minWidth: "var(--top-bar-side-w)" }}
+                >
+                  <div
+                    data-testid="top-app-bar-actions"
+                    className={cn(
+                      "pointer-events-auto flex flex-nowrap items-center justify-end pr-[env(safe-area-inset-right)]",
+                      "gap-1.5 sm:gap-2",
+                    )}
+                  >
+                    {!isAuthenticated ? null : showOnboardingActions ? (
+                      <OnboardingRouteActions />
+                    ) : (
+                      <>
+                        <ActivityInbox />
+
+                        {showVaultUnlockAction ? (
+                          <ShellActionSurface
+                            variant="icon"
+                            aria-label="Unlock vault"
+                            onClick={() => setVaultUnlockOpen(true)}
+                          >
+                            <KeyRound className="h-5 w-5 text-amber-600 dark:text-amber-300" />
+                          </ShellActionSurface>
+                        ) : null}
+
+                        <ShellActionSurface
+                          variant="icon"
+                          aria-label="Open Profile"
+                          onClick={() => router.push(ROUTES.PROFILE)}
+                          className="p-0"
+                        >
+                          <Avatar className="h-9 w-9">
+                            {user?.photoURL ? (
+                              <AvatarImage src={user.photoURL} alt="" />
+                            ) : null}
+                            <AvatarFallback className="bg-transparent text-muted-foreground">
+                              {user?.displayName ? (
+                                user.displayName
+                                  .split(" ")
+                                  .map((part) => part[0])
+                                  .join("")
+                                  .slice(0, 2)
+                                  .toUpperCase()
+                              ) : (
+                                <UserRound className="h-5 w-5" />
+                              )}
+                            </AvatarFallback>
+                          </Avatar>
+                        </ShellActionSurface>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
+          {model.mode === "bar-with-tabs" ? (
+            <div
+              data-testid="top-app-bar-tabs"
+              className="pointer-events-auto relative h-[var(--top-tabs-h)] w-full shrink-0 transform-gpu will-change-transform"
+              style={{ transform: topShellHeaderTransform }}
+            >
+              <TopShellTabs tabSet={model.tabs} />
+            </div>
+          ) : null}
         </div>
       </div>
       <span

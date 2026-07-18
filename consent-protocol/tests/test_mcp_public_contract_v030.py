@@ -148,7 +148,7 @@ def test_partner_gateway_is_generated_from_canonical_inputs_only() -> None:
     package_root = monorepo_root / "packages" / "hushh-mcp"
     manifest = json.loads((package_root / "gateway" / "hushh-mcp-gateway.json").read_text())
     assert set(manifest) == {"protocolVersion", "transport", "capabilities", "tools"}
-    assert manifest["protocolVersion"] == "2024-11-05"
+    assert manifest["protocolVersion"] == "2025-11-25"
     assert manifest["transport"]["kind"] == "streamableHttp"
     assert manifest["transport"]["path"] == "/mcp/"
     assert all(isinstance(value, bool) for value in manifest["capabilities"].values())

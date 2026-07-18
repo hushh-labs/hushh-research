@@ -11,13 +11,6 @@ import { Menu } from "lucide-react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
-import {
-  SurfaceCard,
-  SurfaceCardContent,
-  SurfaceCardDescription,
-  SurfaceCardHeader,
-  SurfaceCardTitle,
-} from "@/components/app-ui/surfaces";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -51,7 +44,7 @@ function SectionTocRows({
         <SettingsRow
           key={entry.id}
           title={
-            <span className={compact ? "text-[13px] sm:text-sm" : undefined}>
+            <span className={compact ? "block truncate text-[13px] sm:text-sm" : undefined}>
               {entry.label}
             </span>
           }
@@ -63,7 +56,8 @@ function SectionTocRows({
             ) : undefined
           }
           chevron
-          className={compact ? "px-3 py-2 sm:px-3.5 sm:py-2.5" : undefined}
+          density={compact ? "compact" : "comfortable"}
+          className={compact ? "px-3 sm:px-3.5" : undefined}
           onClick={() => onSelectSection(entry.id)}
         />
       ))}
@@ -71,7 +65,7 @@ function SectionTocRows({
   );
 }
 
-/** Desktop-only sticky rail card, hidden below the lg breakpoint. */
+/** Desktop-only sticky rail, hidden below the lg breakpoint. */
 export function SectionTocRail({
   entries,
   onSelectSection,
@@ -84,25 +78,26 @@ export function SectionTocRail({
   description?: string;
 }) {
   return (
-    <aside className="hidden lg:sticky lg:top-0 lg:block lg:self-start">
-      <SurfaceCard className="flex max-h-[calc(100dvh-3rem)] flex-col">
-        <SurfaceCardHeader className="gap-1 pb-2.5">
-          <SurfaceCardTitle>{title}</SurfaceCardTitle>
-          <SurfaceCardDescription>{description}</SurfaceCardDescription>
-        </SurfaceCardHeader>
-        <SurfaceCardContent className="pb-3 pt-0">
-          <ScrollArea className="max-h-[calc(100dvh-10rem)] pr-2">
-            <SettingsGroup embedded className="space-y-0">
-              <SectionTocRows
-                entries={entries}
-                onSelectSection={onSelectSection}
-                compact
-                showSummaries={false}
-              />
-            </SettingsGroup>
-          </ScrollArea>
-        </SurfaceCardContent>
-      </SurfaceCard>
+    <aside className="hidden lg:sticky lg:top-[calc(var(--top-shell-reserved-height)+1rem)] lg:block lg:self-start">
+      <nav
+        aria-label={title}
+        className="overflow-hidden border-y border-border/60 bg-background/45"
+      >
+        <header className="space-y-1 px-3 py-3 sm:px-4">
+          <p className="text-sm font-semibold text-foreground">{title}</p>
+          <p className="text-xs leading-5 text-muted-foreground">{description}</p>
+        </header>
+        <ScrollArea className="max-h-[calc(100dvh-var(--top-shell-reserved-height)-9rem)] border-t border-border/60">
+          <div className="divide-y divide-border/60">
+            <SectionTocRows
+              entries={entries}
+              onSelectSection={onSelectSection}
+              compact
+              showSummaries={false}
+            />
+          </div>
+        </ScrollArea>
+      </nav>
     </aside>
   );
 }

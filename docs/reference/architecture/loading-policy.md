@@ -25,5 +25,5 @@ Do not use spinner rotation or skeleton loaders.
 
 ## Scope
 This policy applies to:
-- `/kai`, `/kai/portfolio`, `/consents`, and vault flows
+- `/kai`, `/kai/portfolio`, `/one/consent`, and vault flows
 - shared components under `hushh-webapp/components/ui/*`

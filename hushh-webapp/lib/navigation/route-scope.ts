@@ -1,6 +1,6 @@
 "use client";
 
-import { ROUTES } from "@/lib/navigation/routes";
+import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import type { Persona } from "@/lib/services/ria-service";
 
 export type RouteScope =
@@ -12,7 +12,9 @@ export type RouteScope =
   | "unknown";
 
 function isRoute(pathname: string, route: string) {
-  return pathname === route || pathname.startsWith(`${route}/`);
+  const normalizedPath = pathname.split("?", 1)[0] || "";
+  const normalizedRoute = route.split("?", 1)[0] || "";
+  return normalizedPath === normalizedRoute || normalizedPath.startsWith(`${normalizedRoute}/`);
 }
 
 export function getRouteScope(pathname: string): RouteScope {
@@ -27,10 +29,6 @@ export function getRouteScope(pathname: string): RouteScope {
     return "onboarding";
   }
 
-  if (isRoute(pathname, ROUTES.LEGACY_KAI_HOME)) {
-    return "investor";
-  }
-
   if (isRoute(pathname, ROUTES.RIA_HOME)) {
     return "ria";
   }
@@ -38,10 +36,13 @@ export function getRouteScope(pathname: string): RouteScope {
   if (
     pathname === ROUTES.HOME ||
     pathname === ROUTES.ONE_HOME ||
-    isRoute(pathname, ROUTES.KAI_HOME) ||
+    isRoute(pathname, ROUTES.LEGACY_KAI_HOME) ||
+    isRoute(pathname, "/one/kai") ||
+    isRoute(pathname, KAI_MARKET_PATH) ||
     isRoute(pathname, ROUTES.ONE_SETUP) ||
     isRoute(pathname, ROUTES.AGENT) ||
     isRoute(pathname, ROUTES.CONSENTS) ||
+    isRoute(pathname, ROUTES.LEGACY_CONSENTS) ||
     isRoute(pathname, ROUTES.GMAIL) ||
     isRoute(pathname, ROUTES.LEGACY_GMAIL) ||
     isRoute(pathname, ROUTES.PKM) ||

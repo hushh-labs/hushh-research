@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Home } from "lucide-react";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { ROUTES } from "@/lib/navigation/routes";
+import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 
 const pathNameMap: Record<string, string> = {
   kai: "Kai",
@@ -35,8 +35,8 @@ export function DashboardBreadcrumb() {
   if (!pathname) return null;
 
   const segments = pathname.split("/").filter(Boolean);
-  const kaiBaseSegments = pathname.startsWith(ROUTES.KAI_HOME)
-    ? ROUTES.KAI_HOME.split("/").filter(Boolean)
+  const kaiBaseSegments = pathname.startsWith(KAI_MARKET_PATH)
+    ? KAI_MARKET_PATH.split("/").filter(Boolean)
     : ROUTES.LEGACY_KAI_HOME.split("/").filter(Boolean);
   const kaiSubSegments = segments.slice(kaiBaseSegments.length);
 
@@ -44,7 +44,7 @@ export function DashboardBreadcrumb() {
   if (segments.length === 0) return null;
 
   // If on root kai, just show Kai
-  if (pathname === ROUTES.KAI_HOME || pathname === ROUTES.LEGACY_KAI_HOME) {
+  if (pathname === KAI_MARKET_PATH || pathname === ROUTES.LEGACY_KAI_HOME) {
     return (
       <Breadcrumb>
         <BreadcrumbList className="flex items-center">
@@ -73,7 +73,7 @@ export function DashboardBreadcrumb() {
 
         {kaiSubSegments.map((segment, index) => {
           const isLast = index === kaiSubSegments.length - 1;
-          const href = `${ROUTES.KAI_HOME}/${kaiSubSegments.slice(0, index + 1).join("/")}`;
+          const href = KAI_MARKET_PATH;
           const label =
             pathNameMap[segment] ||
             segment.charAt(0).toUpperCase() + segment.slice(1);

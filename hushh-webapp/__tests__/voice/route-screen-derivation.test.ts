@@ -24,7 +24,7 @@ describe("deriveVoiceRouteScreen", () => {
   it("maps canonical market and portfolio routes to richer Kai screens", () => {
     expect(deriveVoiceRouteScreen("/one/kai")).toEqual({
       screen: "kai_market",
-      subview: null,
+      subview: "market",
     });
     expect(deriveVoiceRouteScreen("/one/kai/portfolio")).toEqual({
       screen: "kai_portfolio_dashboard",

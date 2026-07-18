@@ -114,32 +114,32 @@ export const DEVELOPER_SECTIONS: DeveloperSection[] = [
   {
     id: "mcp",
     label: "Remote MCP",
-    summary: "Direct streamable HTTP connection.",
+    summary: "Connect through streamable HTTP.",
   },
   {
     id: "access",
     label: "Developer Access",
-    summary: "Tokens and app identity.",
+    summary: "Manage an app token.",
   },
   {
     id: "overview",
     label: "Trust Model",
-    summary: "Authentication and consent stay separate.",
+    summary: "Consent is separate from login.",
   },
   {
     id: "dynamic-scopes",
     label: "Dynamic Scopes",
-    summary: "Discover available scopes per person.",
+    summary: "Discover scopes per person.",
   },
   {
     id: "consent-flow",
     label: "Consent Flow",
-    summary: "Discover, request, approve, read.",
+    summary: "Request and read approved scopes.",
   },
   {
     id: "modes",
     label: "Advanced",
-    summary: "REST and npm fallbacks.",
+    summary: "REST and npm alternatives.",
   },
   {
     id: "api",
@@ -154,6 +154,14 @@ export const DEVELOPER_SECTIONS: DeveloperSection[] = [
 ];
 
 export const PUBLIC_TOOL_NAMES = [...MCP_PUBLIC_DOCS.publicTools] as const;
+export const MCP_PROTOCOL_REVISION = MCP_PUBLIC_DOCS.mcpProtocolRevision;
+export const CORE_CONSENT_LIFECYCLE_TOOLS = [
+  "search_user_scopes",
+  "request_consent",
+  "check_consent_status",
+  "get_encrypted_scoped_export",
+] as const;
+export const STANDARD_CATALOG_COMPATIBILITY_TOOL = "prepare_campaign_context";
 export const PUBLIC_RESOURCE_URIS = [...MCP_PUBLIC_DOCS.publicResources] as const;
 export const PUBLIC_MCP_ENVIRONMENT = {
   label: MCP_PUBLIC_DOCS.promotedEnvironment.label,
@@ -188,7 +196,7 @@ export const CONSENT_FLOW_STEPS: ConsentFlowStep[] = [
   {
     title: "Read",
     detail:
-      "Use grant_ref with get_encrypted_scoped_export. Hosted MCP returns an encrypted-inline envelope and ciphertext for connector-side decryption; local stdio returns only bounded approved information.",
+      "Use grant_ref with get_encrypted_scoped_export. Hosted MCP returns an encrypted-inline envelope and ciphertext for connector-side decryption; structuredContent is canonical and its text mirror keeps older MCP hosts compatible.",
   },
 ];
 

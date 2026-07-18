@@ -4,7 +4,7 @@
  * One Location Consent Actions Hook
  * =================================
  *
- * The shared `/consents` Access Manager renders One Location rows (live
+ * The shared `/one/consent` Access Manager renders One Location rows (live
  * location requests, share grants, public links) via the backend
  * `OneLocationCenterContributor`. Those rows carry `metadata.request_source`
  * starting with `one_location` (see `location-consent.ts`).

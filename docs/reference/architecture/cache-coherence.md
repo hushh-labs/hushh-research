@@ -136,7 +136,13 @@ Do:
 - Use `invalidateUser(userId)` when purging a full user session.
 - Keep domain blob + metadata reconciliation aligned with PKM index semantics.
 - Keep consent-manager summary/list caches memory-only.
-- Keep the first-party consent inbox on the same memory-only `pending page 1` list cache used by `/consents`; do not introduce a second browser cache lane just for the top-shell preview.
+- Use `one:consents` as the canonical cache identity for the default investor
+  consent view. The One dashboard, `/one/consent`, and the top-shell shield inbox
+  must share that summary and pending-page cache; only the RIA persona uses its
+  own `ria:consents` lane.
+- An unresolved consent summary is unknown, not zero. Do not render `0` in
+  consent tabs, badges, or roster metrics until the canonical summary resolves.
+- Keep the first-party consent inbox on the same memory-only `pending page 1` list cache used by `/one/consent`; do not introduce a second browser cache lane just for the top-shell preview.
 - Keep passive background refresh copy human-readable:
   - `Getting your portfolio data ready`
   - `Refreshing your profile details`

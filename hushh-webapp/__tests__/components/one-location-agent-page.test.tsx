@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { Children, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -105,8 +105,40 @@ vi.mock("@/components/vault/vault-lock-guard", () => ({
   VaultLockGuard: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
-vi.mock("@/components/vault/capability-vault-prerequisite", () => ({
-  CapabilityVaultPrerequisite: ({ children }: { children: ReactNode }) => <>{children}</>,
+// Location redesign uses SwipeViews for its route-owned tabs. This suite tests
+// the Location views, so replace the browser viewport primitive with controls
+// that simulate a swipe by reporting the selected tab upward.
+vi.mock("@/components/app-ui/swipe-views", () => ({
+  SwipeViews: ({
+    children,
+    options,
+    activeValue,
+    onChildSwiped,
+  }: {
+    children: ReactNode;
+    options: readonly { label: string; value: string }[];
+    activeValue: string;
+    onChildSwiped?: (value: string) => void;
+  }) => {
+    const activeIndex = options.findIndex(({ value }) => value === activeValue);
+    const activeChild = Children.toArray(children)[activeIndex];
+
+    return (
+      <div>
+        {options.map(({ label, value }) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={value === activeValue}
+            onClick={() => onChildSwiped?.(value)}
+          >
+            {label}
+          </button>
+        ))}
+        {activeChild}
+      </div>
+    );
+  },
 }));
 
 vi.mock("@/components/vault/vault-flow", () => ({
@@ -388,7 +420,9 @@ async function skipLocationEntryFlow(options: { expectMain?: boolean } = {}) {
     await screen.findByRole("heading", { name: "Know when they arrive" }),
   ).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-  expect(await screen.findByRole("heading", { name: "Add people" })).toBeTruthy();
+  expect(
+    await screen.findByRole("heading", { name: "Add people" }),
+  ).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Skip" }));
   expect(
     await screen.findByRole("heading", {
@@ -398,7 +432,9 @@ async function skipLocationEntryFlow(options: { expectMain?: boolean } = {}) {
   ).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   expect(
-    await screen.findByRole("heading", { name: "A few permissions. Nothing more." }),
+    await screen.findByRole("heading", {
+      name: "A few permissions. Nothing more.",
+    }),
   ).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Skip" }));
   if (options.expectMain !== false) {
@@ -419,7 +455,9 @@ async function openLocationPermissionsStep() {
     await screen.findByRole("heading", { name: "Know when they arrive" }),
   ).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-  expect(await screen.findByRole("heading", { name: "Add people" })).toBeTruthy();
+  expect(
+    await screen.findByRole("heading", { name: "Add people" }),
+  ).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Skip" }));
   expect(
     await screen.findByRole("heading", {
@@ -468,7 +506,6 @@ async function openShareDetailsStep() {
     await screen.findByRole("heading", { name: "What are you sharing?" }),
   ).toBeTruthy();
 }
-
 
 async function openShareReviewStep() {
   await openShareDetailsStep();
@@ -677,7 +714,9 @@ describe("OneLocationAgentPage", () => {
       screen.getByRole("button", { name: /Live location on/i }),
     ).toBeTruthy();
     expect(screen.queryByText(/8012|9911/)).toBeNull();
-    expect(screen.getByRole("button", { name: /Share my location/i })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Share my location/i }),
+    ).toBeTruthy();
     expect(mockRegisterKey).toHaveBeenCalledWith({
       vaultOwnerToken: "vault-token",
       keyId: "key_a",
@@ -727,7 +766,9 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    expect(screen.queryByRole("button", { name: /Show onboarding tour/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Show onboarding tour/i }),
+    ).toBeNull();
     expect(
       screen.queryByRole("dialog", { name: /One Location guided tour/i }),
     ).toBeNull();
@@ -750,7 +791,9 @@ describe("OneLocationAgentPage", () => {
       screen.getByRole("button", { name: /Turn on live location/i }),
     );
 
-    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1),
+    );
     const mapPreview = await screen.findByTitle("Live location map preview");
     expect(mapPreview.getAttribute("src")).toContain(
       "https://www.google.com/maps?q=28.613900%2C77.209000",
@@ -807,7 +850,9 @@ describe("OneLocationAgentPage", () => {
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     expect(mockRequestLocationPermission).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("switch", { name: "Location permission" }));
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Location permission" }),
+    );
     await waitFor(() =>
       expect(mockRequestLocationPermission).toHaveBeenCalledTimes(1),
     );
@@ -825,7 +870,6 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("shows the location entry flow even when foreground permission is already granted", async () => {
-
     mockGetState.mockResolvedValueOnce({
       ...locationState(),
       ownerGrants: [],
@@ -837,12 +881,14 @@ describe("OneLocationAgentPage", () => {
     await openLocationPermissionsStep();
     await waitFor(() =>
       expect(
-        screen.getByRole("switch", { name: "Location permission" }).getAttribute(
-          "aria-checked",
-        ),
+        screen
+          .getByRole("switch", { name: "Location permission" })
+          .getAttribute("aria-checked"),
       ).toBe("true"),
     );
-    fireEvent.click(screen.getByRole("switch", { name: "Location permission" }));
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Location permission" }),
+    );
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith("Location access is on."),
     );
@@ -890,7 +936,6 @@ describe("OneLocationAgentPage", () => {
   );
 
   it("renders People recommendation metadata without phone-derived labels", async () => {
-
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
@@ -908,12 +953,13 @@ describe("OneLocationAgentPage", () => {
     });
 
     expect(screen.getAllByText("Advisor C").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Invite first to enable sharing").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("Invite first to enable sharing").length,
+    ).toBeGreaterThan(0);
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
   });
 
   it("shows the entry flow before the main-page loader while state refresh is loading", async () => {
-
     let resolveState: (value: ReturnType<typeof locationState>) => void = () =>
       undefined;
     mockGetState.mockReturnValueOnce(
@@ -930,26 +976,25 @@ describe("OneLocationAgentPage", () => {
         name: "The people you love. Always in reach.",
       }),
     ).toBeTruthy();
-    const onboardingShellClass = screen.getByRole("main").getAttribute("class") || "";
+    const onboardingShellClass =
+      screen.getByRole("main").getAttribute("class") || "";
     expect(onboardingShellClass).toContain("fixed");
     expect(onboardingShellClass).toContain("inset-0");
     expect(onboardingShellClass).toContain("z-[540]");
-    expect(
-      container.querySelectorAll('[data-slot="skeleton"]').length,
-    ).toBe(0);
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBe(0);
 
     await skipLocationEntryFlow({ expectMain: false });
     // The location page now uses the shared HushhLoader (a pulsing "Loading..."
     // status) instead of the bespoke skeleton, matching every other /one/* page.
     expect(await screen.findByText("Loading location...")).toBeTruthy();
-    expect(
-      container.querySelectorAll('[data-slot="skeleton"]').length,
-    ).toBe(0);
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBe(0);
 
     resolveState(locationState());
 
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /Share my location/i })).toBeTruthy(),
+      expect(
+        screen.getByRole("button", { name: /Share my location/i }),
+      ).toBeTruthy(),
     );
   });
 
@@ -962,8 +1007,12 @@ describe("OneLocationAgentPage", () => {
     // Populated People tab shows a search bar; invite buttons only appear in the
     // empty state. Invite button assertions are covered by the empty-state test.
     fireEvent.click(screen.getByRole("button", { name: "People" }));
-    expect(await screen.findByPlaceholderText("Search trusted people")).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "Pending invites" })).toBeNull();
+    expect(
+      await screen.findByPlaceholderText("Search trusted people"),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", { name: "Pending invites" }),
+    ).toBeNull();
     // Links tab: "Active links" list + a single "Create a new link" CTA. The
     // mock has no active links, so the empty state shows.
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
@@ -982,7 +1031,9 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    expect(screen.queryByRole("heading", { name: "Location activity" })).toBeNull();
+    expect(
+      screen.queryByRole("heading", { name: "Location activity" }),
+    ).toBeNull();
     expect(screen.queryByText("Activity history")).toBeNull();
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
   });
@@ -1045,17 +1096,23 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await switchLocationTab("Inbox", "Needs your review");
-    expect(screen.getByRole("heading", { name: "Shared with me" })).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Shared with me" }),
+    ).toBeTruthy();
     await waitFor(() => expect(mockViewEnvelope).toHaveBeenCalled());
     expect(
-      await screen.findByText("Location update may be stale. Ask them to refresh sharing."),
+      await screen.findByText(
+        "Location update may be stale. Ask them to refresh sharing.",
+      ),
     ).toBeTruthy();
 
     const mapPreview = screen.getByTitle("Live location map preview");
     expect(mapPreview.getAttribute("src")).toContain(
       "https://www.google.com/maps?q=28.613900%2C77.209000",
     );
-    expect(screen.queryAllByText(/Paused · last seen/).length).toBeGreaterThan(0);
+    expect(screen.queryAllByText(/Paused · last seen/).length).toBeGreaterThan(
+      0,
+    );
     expect(screen.getByText(/Accuracy \+\/- 18 m/)).toBeTruthy();
     expect(screen.queryByText("Lat")).toBeNull();
     expect(screen.queryByText("Lng")).toBeNull();
@@ -1083,9 +1140,7 @@ describe("OneLocationAgentPage", () => {
 
     expect(screen.queryByTitle("Live location map preview")).toBeNull();
     expect(screen.getByText("Trusted A is sharing with you")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "View location" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "View location" })).toBeTruthy();
     expect(
       window.localStorage.getItem("one_location_unwatched_grants_v1:user_b"),
     ).toBeNull();
@@ -1104,7 +1159,6 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
   });
 
-
   it("tracks public location link creation without analytics identity payloads", async () => {
     const longPublicUrl =
       "https://uat.one.hushh.ai/one/location/request/aQluqHFAdgETh91oLTmG6o7v8A6TAB7PmZjrOJwPcIA";
@@ -1121,9 +1175,13 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openTemporaryLinkFlow();
-    fireEvent.click(screen.getByRole("button", { name: /Review public location link/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Review public location link/i }),
+    );
 
-    await waitFor(() => expect(mockCreatePublicInvite).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(mockCreatePublicInvite).toHaveBeenCalledTimes(1),
+    );
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
     expect(mockCreatePublicInvite).toHaveBeenCalledWith({
       vaultOwnerToken: "vault-token",
@@ -1145,7 +1203,9 @@ describe("OneLocationAgentPage", () => {
     );
     expect(screen.queryByText(longPublicUrl)).toBeNull();
     expect(
-      await screen.findByRole("heading", { name: "Public location link active" }),
+      await screen.findByRole("heading", {
+        name: "Public location link active",
+      }),
     ).toBeTruthy();
     expect(JSON.stringify(mockTrackEvent.mock.calls)).not.toMatch(
       /8012|9911|latitude|longitude|28\.6139|77\.209/u,
@@ -1218,7 +1278,6 @@ describe("OneLocationAgentPage", () => {
       screen.queryByRole("heading", { name: "What are you sharing?" }),
     ).toBeNull();
   });
-
 
   it("retries transient foreground publish failures and tracks backoff metadata", async () => {
     mockGetState.mockResolvedValueOnce({
@@ -1390,9 +1449,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openSharePersonStep();
     expect(screen.getByText("Advisor C")).toBeTruthy();
-    expect(
-      screen.getByText("Invite first to enable sharing"),
-    ).toBeTruthy();
+    expect(screen.getByText("Invite first to enable sharing")).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: /Select Advisor C/i }),
     ).toBeNull();
@@ -1446,9 +1503,7 @@ describe("OneLocationAgentPage", () => {
       }),
     );
     await waitFor(() =>
-      expect(
-        screen.getByRole("heading", { name: "Location" }),
-      ).toBeTruthy(),
+      expect(screen.getByRole("heading", { name: "Location" })).toBeTruthy(),
     );
   });
 
@@ -1536,7 +1591,10 @@ describe("OneLocationAgentPage", () => {
       loading: false,
       isAuthenticated: true,
       userId: "user_a",
-      user: { uid: "user_a", getIdToken: vi.fn().mockResolvedValue("id-token") },
+      user: {
+        uid: "user_a",
+        getIdToken: vi.fn().mockResolvedValue("id-token"),
+      },
     });
     mockSyncOneLocationContactSignals.mockResolvedValueOnce({
       matches: [
@@ -1594,7 +1652,9 @@ describe("OneLocationAgentPage", () => {
       await screen.findByRole("button", { name: /Share to contacts/i }),
     );
 
-    await waitFor(() => expect(mockCreatePublicInvite).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(mockCreatePublicInvite).toHaveBeenCalledTimes(1),
+    );
     expect(mockCreatePublicInvite).toHaveBeenCalledWith({
       vaultOwnerToken: "vault-token",
       durationHours: 1,
@@ -1640,7 +1700,9 @@ describe("OneLocationAgentPage", () => {
       name: /Review share/i,
     }) as HTMLButtonElement;
     expect(shareButton.disabled).toBe(true);
-    await waitFor(() => expect(mockCaptureCurrentPosition).not.toHaveBeenCalled());
+    await waitFor(() =>
+      expect(mockCaptureCurrentPosition).not.toHaveBeenCalled(),
+    );
     expect(mockCreateGrant).not.toHaveBeenCalled();
   });
 
@@ -1666,8 +1728,9 @@ describe("OneLocationAgentPage", () => {
       screen.getByText(/Allow it from your browser's site permissions/i),
     ).toBeTruthy();
 
-
-    fireEvent.click(screen.getByRole("switch", { name: "Location permission" }));
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Location permission" }),
+    );
 
     await waitFor(() => expect(mockOpenLocationSettings).toHaveBeenCalled());
     expect(mockCreateGrant).not.toHaveBeenCalled();
@@ -1688,9 +1751,13 @@ describe("OneLocationAgentPage", () => {
     await switchLocationTab("People", "Trusted Circle");
     // New empty-state: Trusted Circle SectionCard with invite/sync/share buttons
     // + trust note. "Ask someone to share" is populated-state-only.
-    expect(screen.getByRole("button", { name: /Invite trusted person/i })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Invite trusted person/i }),
+    ).toBeTruthy();
     expect(screen.getByRole("button", { name: /Sync contacts/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Share to contacts/i })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Share to contacts/i }),
+    ).toBeTruthy();
     expect(screen.queryByText(/Ask someone to share/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
     expect(
@@ -1698,7 +1765,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
   });
 
-  it("does not leave refresh spinning when the vault owner token is unavailable", async () => {
+  it("defers a missing vault owner token to the canonical route gate", async () => {
     mockUseVault.mockReturnValue({
       isVaultUnlocked: false,
       vaultOwnerToken: null,
@@ -1706,10 +1773,12 @@ describe("OneLocationAgentPage", () => {
 
     render(<OneLocationAgentPage />);
 
-    expect(
-      await screen.findByText("Unlock your vault before loading location sharing."),
-    ).toBeTruthy();
-    expect(mockRegisterKey).not.toHaveBeenCalled();
-    expect(mockGetState).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/unlock your vault before loading location sharing/i),
+      ).toBeNull();
+      expect(mockRegisterKey).not.toHaveBeenCalled();
+      expect(mockGetState).not.toHaveBeenCalled();
+    });
   });
 });

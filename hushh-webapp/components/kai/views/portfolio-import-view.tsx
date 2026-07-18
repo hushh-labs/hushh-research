@@ -5,20 +5,29 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Database, FileUp, Loader2 } from "lucide-react";
 
-import { APP_MEASURE_STYLES } from "@/components/app-ui/app-page-shell";
+import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { Button as MorphyButton } from "@/lib/morphy-ux/button";
+import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
+import { cn } from "@/lib/utils";
 
-const PlaidIcon = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+const PlaidIcon = ({ className, ...props }: React.SVGProps<SVGSVGElement>) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    {...props}
+    className={cn(className, "!h-4 !w-4")}
+  >
     <path d="M4 10.4V20a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-9.6" />
     <path d="M14 10.4V20a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-9.6" />
     <path d="M9 3H5a1 1 0 0 0-1 1v2.6h6V4a1 1 0 0 0-1-1z" />
     <path d="M19 3h-4a1 1 0 0 0-1 1v2.6h6V4a1 1 0 0 0-1-1z" />
   </svg>
 );
-import { PageHeader } from "@/components/app-ui/page-sections";
-import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import { Button as MorphyButton } from "@/lib/morphy-ux/button";
-import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 
 interface PortfolioImportViewProps {
   onFileSelect: (file: File) => void;
@@ -122,14 +131,11 @@ export function PortfolioImportView({
   const isBusy = isUploading || isPreloadingSchema || isConnectingPlaid;
 
   return (
-    <div
-      className="mx-auto w-full space-y-3 pb-2 pt-1"
-      style={APP_MEASURE_STYLES.reading}
-    >
-      <PageHeader
+    <div className="w-full space-y-3 pb-2">
+      <KaiWorkspaceHeader
+        workspace="portfolio"
         title="Portfolio"
         description="Choose how you want to begin."
-        className="pb-0"
       />
 
       <input

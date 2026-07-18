@@ -27,7 +27,7 @@ Canonical visual owner: [Hussh Webapp Docs](README.md). Use that map for the top
   - fullscreen-flow spacer exemption: `/one/kai/onboarding`, `/one/kai/import`
 - Main scroll root inserts a structural spacer with `height: var(--app-top-content-offset)` so page content starts below top chrome even when nested layouts use full-height wrappers.
 - Result:
-  - Shell-visible routes (for example `/one/kai`, `/consents`, `/profile`) start below masked top chrome by default.
+  - Shell-visible routes (for example `/one/kai`, `/one/consent`, `/profile`) start below masked top chrome by default.
   - Page-level top padding hacks should not be added for shell overlap fixes.
   - Onboarding/import keep fullscreen-flow route behavior (spacer suppressed).
 

@@ -169,7 +169,8 @@ class HushhAuthPlugin : Plugin() {
                                         email = firebaseUser.email ?: account.email ?: "",
                                         displayName = firebaseUser.displayName ?: account.displayName ?: "",
                                         photoUrl = firebaseUser.photoUrl?.toString() ?: account.photoUrl?.toString() ?: "",
-                                        emailVerified = firebaseUser.isEmailVerified
+                                        emailVerified = firebaseUser.isEmailVerified,
+                                        phoneNumber = firebaseUser.phoneNumber
                                     )
 
                                     // Store locally
@@ -291,7 +292,8 @@ class HushhAuthPlugin : Plugin() {
                 email = firebaseUser.email ?: "",
                 displayName = firebaseUser.displayName ?: "",
                 photoUrl = firebaseUser.photoUrl?.toString() ?: "",
-                emailVerified = firebaseUser.isEmailVerified
+                emailVerified = firebaseUser.isEmailVerified,
+                phoneNumber = firebaseUser.phoneNumber
             )
             currentUser = user
             call.resolve(JSObject().put("user", user.toJSObject()))
@@ -390,7 +392,8 @@ class HushhAuthPlugin : Plugin() {
                         email = firebaseUser.email ?: "",
                         displayName = firebaseUser.displayName ?: "",
                         photoUrl = firebaseUser.photoUrl?.toString() ?: "",
-                        emailVerified = firebaseUser.isEmailVerified
+                        emailVerified = firebaseUser.isEmailVerified,
+                        phoneNumber = firebaseUser.phoneNumber
                     )
 
                     // Store locally
@@ -450,6 +453,7 @@ class HushhAuthPlugin : Plugin() {
             putString("user_display_name", user.displayName)
             putString("user_photo_url", user.photoUrl)
             putBoolean("user_email_verified", user.emailVerified)
+            putString("user_phone_number", user.phoneNumber)
             apply()
         }
     }
@@ -497,7 +501,8 @@ class HushhAuthPlugin : Plugin() {
             email = prefs.getString("user_email", "") ?: "",
             displayName = prefs.getString("user_display_name", "") ?: "",
             photoUrl = prefs.getString("user_photo_url", "") ?: "",
-            emailVerified = prefs.getBoolean("user_email_verified", false)
+            emailVerified = prefs.getBoolean("user_email_verified", false),
+            phoneNumber = prefs.getString("user_phone_number", null)
         )
     }
 
@@ -513,7 +518,8 @@ data class AuthUser(
     val email: String,
     val displayName: String,
     val photoUrl: String,
-    val emailVerified: Boolean
+    val emailVerified: Boolean,
+    val phoneNumber: String? = null
 ) {
     fun toJSObject(): JSObject = JSObject().apply {
         put("uid", id)
@@ -521,5 +527,6 @@ data class AuthUser(
         put("displayName", displayName)
         put("photoUrl", photoUrl)
         put("emailVerified", emailVerified)
+        put("phoneNumber", phoneNumber)
     }
 }

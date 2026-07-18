@@ -299,7 +299,7 @@
           "purpose": "Welcome a new person and help them claim their private agent.",
           "screen": "one_intro",
           "entry_cue": "Say ‘Claim your One’ whenever you are ready.",
-          "proactivity": "on_entry",
+          "proactivity": "ambient",
           "primary_action_id": "onboarding.claim_one",
           "happy_path_action_ids": [
             "onboarding.claim_one"
@@ -725,28 +725,21 @@
       "page_file": "app/consents/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "components/consent/consent-center-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "SurfaceStack"
-        ],
+        "mode": "redirect",
+        "exemption_reason": "Compatibility route only preserves inbound access-manager links while redirecting to the canonical /one/consent workspace.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
-          "playbook_id": "route.consents",
-          "purpose": "Help the person understand and use the consents screen through its generated controls.",
+          "playbook_id": "route.consents.legacy",
+          "purpose": "Redirect a legacy access-manager link to the canonical One consent workspace.",
           "screen": "consents",
-          "entry_cue": "You can say “Open RIA Requests” to use the primary control on this screen.",
-          "proactivity": "on_entry",
-          "primary_action_id": "route.ria_requests_compat",
-          "happy_path_action_ids": [
-            "route.ria_requests_compat"
-          ],
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -756,24 +749,13 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": "/ria/requests",
-          "return_policy": "stay",
+          "completion_boundary": "Completion is spoken only after the browser settles navigation to the canonical One consent workspace.",
+          "next_route": "/one/consent",
+          "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": {
-        "route": "/consents",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fconsents",
-        "expectedMarker": "native-route-consents",
-        "expectedRoute": "/consents",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
+      "native": null,
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -1006,9 +988,11 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "redirect",
-        "exemption_reason": "Compatibility redirect route only launches the canonical /one/kai market surface.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
+        "exemption_reason": "Compatibility route only redirects to the canonical One-owned Finance Market tab.",
+        "shell_verification_file": "app/kai/page.tsx",
+        "shell_verification_includes": [
+          "ClientRedirect"
+        ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
@@ -1030,7 +1014,7 @@
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
           "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
+          "next_route": "/one/kai?tab=market",
           "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
@@ -1981,7 +1965,7 @@
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fmarketplace%2Fconnections",
         "expectedMarker": "native-route-consents",
-        "expectedRoute": "/consents?tab=pending",
+        "expectedRoute": "/one/consent?tab=pending",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -2389,6 +2373,73 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/consent",
+      "page_file": "app/one/consent/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/one/consent/page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.consents",
+          "purpose": "Help the person understand and use the consents screen through its generated controls.",
+          "screen": "consents",
+          "entry_cue": "You can say “Open RIA Requests” to use the primary control on this screen.",
+          "proactivity": "on_entry",
+          "primary_action_id": "route.ria_requests_compat",
+          "happy_path_action_ids": [
+            "route.ria_requests_compat"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": "/one/consent",
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/consent",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fconsent",
+        "expectedMarker": "native-route-consents",
+        "expectedRoute": "/one/consent",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/gmail",
       "page_file": "app/one/gmail/page.tsx",
       "physical_page_exists": true,
@@ -2470,12 +2521,11 @@
       "route_contract": {
         "mode": "standard",
         "exemption_reason": null,
-        "shell_verification_file": "components/kai/views/kai-market-preview-view.tsx",
+        "shell_verification_file": "components/kai/kai-market-hub-page.tsx",
         "shell_verification_includes": [
           "AppPageShell",
           "AppPageContentRegion",
-          "SurfaceStack",
-          "SectionHeader"
+          "SwipeViews"
         ],
         "interaction_layer_policy": {
           "allowed_families": []
@@ -2484,7 +2534,7 @@
           "playbook_id": "route.one.kai",
           "purpose": "Help the person understand and use the kai screen through its generated controls.",
           "screen": "kai_market",
-          "entry_cue": "You can say “Open Market Home” to use the primary control on this screen.",
+          "entry_cue": "Use Market, Portfolio, or Analysis to choose the active finance view.",
           "proactivity": "on_entry",
           "primary_action_id": "route.kai_home",
           "happy_path_action_ids": [
@@ -2499,8 +2549,8 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
+          "completion_boundary": "Completion is spoken only after the selected Finance view settles in the browser.",
+          "next_route": "/one/kai?tab=market",
           "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
@@ -2599,8 +2649,8 @@
       "page_file": "app/one/kai/analysis/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
+        "mode": "redirect",
+        "exemption_reason": "Compatibility route only redirects to the canonical Finance Analysis tab.",
         "shell_verification_file": "app/one/kai/analysis/page.tsx",
         "shell_verification_includes": [
           "AppPageShell",
@@ -2617,10 +2667,8 @@
           "screen": "kai_analysis",
           "entry_cue": "You can say “Open Analysis Surface” to use the primary control on this screen.",
           "proactivity": "on_entry",
-          "primary_action_id": "route.kai_analysis",
-          "happy_path_action_ids": [
-            "route.kai_analysis"
-          ],
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -2631,7 +2679,7 @@
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
           "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": "/one/kai/analysis",
+          "next_route": "/one/kai?tab=analysis",
           "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
@@ -2650,7 +2698,7 @@
       },
       "shell": {
         "app_page_shell": true,
-        "page_header": true,
+        "page_header": false,
         "settings_ui": false,
         "shared_loader": true,
         "back_button_pattern": "route-local-check-required"
@@ -2867,6 +2915,55 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/kai/market",
+      "page_file": "app/one/kai/market/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Compatibility route only redirects to the canonical /one/kai Finance Market tab.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.kai.market",
+          "purpose": "Help the person move between Market, Portfolio, and Analysis through the shared Finance workspace.",
+          "screen": "kai_market",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": "/one/kai?tab=market",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/kai/onboarding",
       "page_file": "app/one/kai/onboarding/page.tsx",
       "physical_page_exists": true,
@@ -3066,8 +3163,8 @@
       "page_file": "app/one/kai/portfolio/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
+        "mode": "redirect",
+        "exemption_reason": "Compatibility route only redirects to the canonical Finance Portfolio tab.",
         "shell_verification_file": "app/one/kai/portfolio/page.tsx",
         "shell_verification_includes": [
           "AppPageShell",
@@ -3094,7 +3191,7 @@
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
           "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
+          "next_route": "/one/kai?tab=portfolio",
           "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
@@ -3112,7 +3209,7 @@
         ]
       },
       "shell": {
-        "app_page_shell": true,
+        "app_page_shell": false,
         "page_header": false,
         "settings_ui": false,
         "shared_loader": false,
@@ -6781,7 +6878,7 @@
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fria%2Frequests",
         "expectedMarker": "native-route-consents",
-        "expectedRoute": "/consents",
+        "expectedRoute": "/one/consent",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -6925,6 +7022,55 @@
       "voice_action_contract_ids": [
         "route.ria_workspace_compat"
       ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/welcome",
+      "page_file": "app/welcome/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": "Foundation public route owns the unified public knowledge workspace and its route-backed tabs.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.welcome",
+          "purpose": "Help the person navigate the public research, notes, and developer workspace.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null

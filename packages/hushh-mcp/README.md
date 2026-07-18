@@ -22,6 +22,7 @@ The promoted public developer environment is **UAT**.
 - app workspace: https://uat.one.hushh.ai/developers
 - consent API origin: https://api.uat.hushh.ai
 - remote MCP endpoint: `https://api.uat.hushh.ai/mcp/`
+- MCP protocol revision: `2025-11-25`
 - npm package: `@hushh/mcp`
 - canonical token env var: `HUSHH_DEVELOPER_TOKEN`
 

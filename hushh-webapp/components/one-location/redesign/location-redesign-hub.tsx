@@ -13,14 +13,19 @@
  *   NOT call services, encrypt, or mutate consent state. It only renders and
  *   delegates to the existing handlers, so the feature's functionality, consent
  *   gating, analytics, and crypto are unchanged.
- * - The global app footer (components/navbar.tsx) is untouched. Local tabs here
- *   are a self-contained navigator shown only on hub/state screens, never inside
- *   focused task flows.
+ * - The global shell owns the visible tab strip. This route consumes the same
+ *   central registry only to render the active swipe panel; focused task flows
+ *   hide the shell tabs through their `?action=` route state.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-
 
 import {
   Calendar,
@@ -46,10 +51,10 @@ import {
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/app-ui/page-sections";
 import type {
   DriveDestination,
   OneLocationAccessRequest,
-
   OneLocationCircleInvite,
   OneLocationGrant,
   OneLocationPublicInvite,
@@ -59,12 +64,7 @@ import type {
 } from "@/lib/one-location/types";
 
 import {
-  LocationLocalTabs,
-  type LocationHubTab,
-} from "./location-local-tabs";
-import {
   EmptyState,
-  LocationHeader,
   SectionCard,
   TaskFlowHeader,
   TrustNoteCard,
@@ -101,8 +101,26 @@ import { PickupEnRouteCardLive } from "./pickup-enroute-card-live";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { LatLngLiteral } from "@/lib/one-location/marker-interpolation";
 
-
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
+
+import { SwipeViews } from "@/components/app-ui/swipe-views";
+import {
+  resolveRegisteredTopShellTabValue,
+  TOP_SHELL_TAB_REGISTRY,
+} from "@/lib/navigation/top-shell-tabs";
+
+const LOCATION_TAB_DEFINITION = TOP_SHELL_TAB_REGISTRY.location;
+type LocationHubTab =
+  (typeof LOCATION_TAB_DEFINITION.tabs)[number]["value"];
+const LOCATION_HUB_TAB_PARAM = LOCATION_TAB_DEFINITION.queryParam;
+const LOCATION_SWIPE_OPTIONS = LOCATION_TAB_DEFINITION.tabs;
+
+function resolveLocationHubTab(value: string | null): LocationHubTab {
+  return resolveRegisteredTopShellTabValue(
+    LOCATION_TAB_DEFINITION,
+    value,
+  ) as LocationHubTab;
+}
 
 export type LocationHubViewModel = {
   /* identity / gating */
@@ -113,7 +131,6 @@ export type LocationHubViewModel = {
   revokingGrantId: string | null;
   /** Bumped on each successful share so the hub can close the share flow. */
   shareCompletedTick: number;
-
 
   /* device + self location */
   readiness: {
@@ -234,7 +251,6 @@ export type LocationHubViewModel = {
     message?: string,
   ) => void;
 
-
   /* label helpers (reuse existing formatting) */
   recipientLabel: (r: OneLocationRecipient) => string;
   recipientSubtitle: (r: OneLocationRecipient) => string;
@@ -298,7 +314,6 @@ const ACTION_TO_FLOW: Record<string, FlowKind> = Object.fromEntries(
   ]),
 );
 
-
 const BUSY = (vm: LocationHubViewModel, key: string) => vm.busy === key;
 
 // People lists (Ready people / Pending invites) can grow long. Cap their height
@@ -315,11 +330,37 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [tab, setTab] = useState<LocationHubTab>("now");
+  const [tab, setTabState] = useState<LocationHubTab>(() =>
+    resolveLocationHubTab(searchParams.get(LOCATION_HUB_TAB_PARAM)),
+  );
   const [flow, setFlow] = useState<FlowKind>("none");
   const [collapsedGrantIds, setCollapsedGrantIds] = useState<Set<string>>(
     () => new Set(),
   );
+
+  const setTab = useCallback(
+    (next: LocationHubTab) => {
+      setTabState(next);
+      const params = new URLSearchParams(searchParams.toString());
+      if (next === "now") {
+        params.delete(LOCATION_HUB_TAB_PARAM);
+      } else {
+        params.set(LOCATION_HUB_TAB_PARAM, next);
+      }
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, {
+        scroll: false,
+      });
+    },
+    [pathname, router, searchParams],
+  );
+
+  useEffect(() => {
+    const next = resolveLocationHubTab(
+      searchParams.get(LOCATION_HUB_TAB_PARAM),
+    );
+    setTabState((current) => (current === next ? current : next));
+  }, [searchParams]);
   // Deep-link routing: notification "Open" buttons land here with a `section`
   // (or requestId/grantId/submissionId) query param. The page-level tabs are
   // compose/activity, but the ACTIVE UI is this hub (now/people/links/inbox),
@@ -330,10 +371,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   // "Shared with me" surfaces. Runs on every param change (Next.js keeps the
   // component mounted across same-path query navigations).
   useEffect(() => {
-    const section = String(
-      searchParams.get("section") || "",
-    ).trim();
-    const hasRequest = Boolean(String(searchParams.get("requestId") || "").trim());
+    const section = String(searchParams.get("section") || "").trim();
+    const hasRequest = Boolean(
+      String(searchParams.get("requestId") || "").trim(),
+    );
     const hasGrant = Boolean(String(searchParams.get("grantId") || "").trim());
     const hasSubmission = Boolean(
       String(searchParams.get("submissionId") || "").trim(),
@@ -343,11 +384,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     // (approvals) scrolls to "Needs your review"; a share (shared) scrolls to
     // "Shared with me". Anything else just lands on the tab top.
     let inboxAnchor: string | null = null;
-    if (
-      section === "approvals" ||
-      section === "my_requests" ||
-      hasRequest
-    ) {
+    if (section === "approvals" || section === "my_requests" || hasRequest) {
       nextTab = "inbox";
       inboxAnchor = "one-location-inbox-review";
     } else if (section === "shared" || hasGrant) {
@@ -385,15 +422,13 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       };
       window.setTimeout(tryScroll, 120);
     }
-  }, [searchParams]);
-
+  }, [searchParams, setTab]);
 
   const [shareStep, setShareStep] = useState<"person" | "details">("person");
   const [locationType, setLocationType] =
     useState<LocationTypeValue>("precise");
   const [reason, setReason] = useState<ReasonValue | null>("Safety check-in");
 
-  const inboxCount = vm.pendingOwnerRequests.length;
   const hasActiveShare = vm.activeOwnerGrants.length > 0;
 
   // A location action flow (Check-In, Drive To, Pick Me Up, Safe Arrival, SOS,
@@ -415,17 +450,29 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     [pathname, router, searchParams],
   );
 
-  const closeFlow = useCallback(() => {
-    setFlow("none");
-    setShareStep("person");
-    vm.setShareReviewOpen(false);
-    if ((searchParams.get(FLOW_ACTION_PARAM) || "").trim()) {
+  const closeFlow = useCallback(
+    (nextTab?: LocationHubTab) => {
+      setFlow("none");
+      setShareStep("person");
+      vm.setShareReviewOpen(false);
+      if (nextTab) {
+        setTabState(nextTab);
+      }
+
       const params = new URLSearchParams(searchParams.toString());
       params.delete(FLOW_ACTION_PARAM);
-      const qs = params.toString();
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-    }
-  }, [pathname, router, searchParams, vm]);
+      if (nextTab === "now") {
+        params.delete(LOCATION_HUB_TAB_PARAM);
+      } else if (nextTab) {
+        params.set(LOCATION_HUB_TAB_PARAM, nextTab);
+      }
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, {
+        scroll: false,
+      });
+    },
+    [pathname, router, searchParams, vm],
+  );
 
   // Keep the flow view in sync with the URL action param: the chrome/OS back
   // button strips the param, which closes the flow back to the hub. A direct
@@ -466,9 +513,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
       }
     }
-
   }, [vm.shareCompletedTick, pathname, router, searchParams]);
-
 
   /* ----------------------------------------------------------------- */
   /* Task flows (full-screen, no local tabs)                           */
@@ -501,17 +546,11 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         ) : flow === "safe-arrival" ? (
           <SafeArrivalFlow vm={vm} onClose={closeFlow} />
         ) : flow === "sos" ? (
-
           <SosFlow vm={vm} />
         ) : flow === "invite" ? (
           <InviteFlow vm={vm} onClose={closeFlow} />
         ) : flow === "privacy" ? (
-          <PrivacyFlow
-            onManageSharing={() => {
-              closeFlow();
-              setTab("people");
-            }}
-          />
+          <PrivacyFlow onManageSharing={() => closeFlow("people")} />
         ) : (
           <TemporaryLinkFlow
             vm={vm}
@@ -527,90 +566,96 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   /* ----------------------------------------------------------------- */
   /* Hub (Now | People | Links | Inbox)                                */
   /* ----------------------------------------------------------------- */
-  const headerSubtitle =
-    tab === "now"
-      ? ""
-      : tab === "people"
-        ? "Circle, contacts and invites"
-        : tab === "links"
-          ? "Public location and invite links"
-          : "Requests and shared locations";
-
   return (
     <div className="space-y-5">
-      <LocationHeader
+      <PageHeader
         title="Location"
-        subtitle={headerSubtitle}
-        trailing={
-          <button
+        icon={MapPin}
+        accent="neutral"
+        actionsInlineMobile
+        actions={
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={vm.onRefresh}
             disabled={BUSY(vm, "load")}
-            className="inline-flex items-center gap-[7px] rounded-[14px] border border-[color:var(--app-accent-ring)] bg-white px-4 py-[11px] text-[15px] font-semibold text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-surface)] disabled:opacity-60 dark:bg-white/[0.06] dark:hover:bg-white/[0.1]"
+            className="gap-2"
           >
             <RefreshCw
-              className={cn("h-[15px] w-[15px]", BUSY(vm, "load") && "animate-spin")}
+              className={cn(
+                "h-4 w-4",
+                BUSY(vm, "load") && "animate-spin",
+              )}
               aria-hidden="true"
             />
             Refresh
-          </button>
+          </Button>
         }
       />
 
-      <LocationLocalTabs
-        value={tab}
-        onChange={setTab}
-        badges={inboxCount ? { inbox: inboxCount } : undefined}
-      />
+      <div className="-mx-[var(--page-inline-gutter-standard)]">
+        <SwipeViews
+          tabSetId={LOCATION_TAB_DEFINITION.id}
+          activeValue={tab}
+          options={LOCATION_SWIPE_OPTIONS}
+          onChildSwiped={(value) => setTab(value as LocationHubTab)}
+        >
+          <div className="px-[var(--page-inline-gutter-standard)]">
+            <NowHub
+              vm={vm}
+              hasActiveShare={hasActiveShare}
+              onStartShare={() => openFlow("share")}
+              onAsk={() => openFlow("ask")}
+              onCheckIn={() => openFlow("check-in")}
+              onDriveTo={() => openFlow("drive-to")}
+              onPickMeUp={() => openFlow("pick-me-up")}
+              onSafeArrival={() => openFlow("safe-arrival")}
+              onSos={() => openFlow("sos")}
+              onOpenPrivacy={() => openFlow("privacy")}
+            />
+          </div>
 
-      {tab === "now" ? (
-        <NowHub
-          vm={vm}
-          hasActiveShare={hasActiveShare}
-          onStartShare={() => openFlow("share")}
-          onAsk={() => openFlow("ask")}
-          onCheckIn={() => openFlow("check-in")}
-          onDriveTo={() => openFlow("drive-to")}
-          onPickMeUp={() => openFlow("pick-me-up")}
-          onSafeArrival={() => openFlow("safe-arrival")}
-          onSos={() => openFlow("sos")}
-          onOpenPrivacy={() => openFlow("privacy")}
-        />
+          <div className="px-[var(--page-inline-gutter-standard)]">
+            <PeopleHub
+              vm={vm}
+              onInvite={() => openFlow("invite")}
+              onStartShare={() => openFlow("share")}
+              onAsk={() => openFlow("ask")}
+            />
+          </div>
 
-      ) : tab === "people" ? (
-        <PeopleHub
-          vm={vm}
-          onInvite={() => openFlow("invite")}
-          onStartShare={() => openFlow("share")}
-          onAsk={() => openFlow("ask")}
-        />
-      ) : tab === "links" ? (
-        <LinksHub vm={vm} onCreateTempLink={() => openFlow("temp-link")} />
-      ) : (
-        <InboxHub
-          vm={vm}
-          collapsedGrantIds={collapsedGrantIds}
-          onCollapseGrant={(grantId) =>
-            setCollapsedGrantIds((current) => {
-              if (current.has(grantId)) return current;
-              const next = new Set(current);
-              next.add(grantId);
-              return next;
-            })
-          }
-          onExpandGrant={(grant) => {
-            setCollapsedGrantIds((current) => {
-              if (!current.has(grant.id)) return current;
-              const next = new Set(current);
-              next.delete(grant.id);
-              return next;
-            });
-            if (!vm.decryptedPoints[grant.id]) {
-              vm.onViewGrant(grant);
-            }
-          }}
-        />
-      )}
+          <div className="px-[var(--page-inline-gutter-standard)]">
+            <LinksHub vm={vm} onCreateTempLink={() => openFlow("temp-link")} />
+          </div>
+
+          <div className="px-[var(--page-inline-gutter-standard)]">
+            <InboxHub
+              vm={vm}
+              collapsedGrantIds={collapsedGrantIds}
+              onCollapseGrant={(grantId) =>
+                setCollapsedGrantIds((current) => {
+                  if (current.has(grantId)) return current;
+                  const next = new Set(current);
+                  next.add(grantId);
+                  return next;
+                })
+              }
+              onExpandGrant={(grant) => {
+                setCollapsedGrantIds((current) => {
+                  if (!current.has(grant.id)) return current;
+                  const next = new Set(current);
+                  next.delete(grant.id);
+                  return next;
+                });
+                if (!vm.decryptedPoints[grant.id]) {
+                  vm.onViewGrant(grant);
+                }
+              }}
+            />
+          </div>
+        </SwipeViews>
+      </div>
     </div>
   );
 }
@@ -642,7 +687,6 @@ function NowHub({
   onSos: () => void;
   onOpenPrivacy: () => void;
 }) {
-
   // When location permission is blocked (denied / restricted / services off),
   // surface the Device readiness card at the very TOP so the user immediately
   // sees how to fix it, instead of it sitting in the middle of the page.
@@ -695,7 +739,9 @@ function NowHub({
         actionBusy={vm.busy === "locationSettings"}
         onRefresh={vm.onShowMyLocation}
         refreshBusy={vm.busy === "selfLocation"}
-        refreshLabel={vm.myLocationPoint ? "Refresh location" : "Show my location"}
+        refreshLabel={
+          vm.myLocationPoint ? "Refresh location" : "Show my location"
+        }
       />
       {vm.myLocationError ? (
         <p className="mt-2 text-xs font-medium text-red-600 dark:text-red-300">
@@ -715,7 +761,14 @@ function NowHub({
           Each card shows the helper's name, live ETA, map, and a cancel button
           that revokes the requester's outbound pick_me_up grant. */}
       {enRouteHelpers.map(
-        ({ key, helperName, point, pickupPoint, etaSeconds, outboundGrantId }) => (
+        ({
+          key,
+          helperName,
+          point,
+          pickupPoint,
+          etaSeconds,
+          outboundGrantId,
+        }) => (
           <PickupEnRouteCardLive
             key={key}
             helperName={helperName}
@@ -775,7 +828,6 @@ function NowHub({
       ) : null}
 
       <div className="grid grid-cols-[1.25fr_1fr] gap-3">
-
         <Button
           onClick={onStartShare}
           className="h-12 whitespace-nowrap rounded-2xl bg-[color:var(--app-accent)] px-3 text-center text-[13px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 sm:text-base"
@@ -797,7 +849,6 @@ function NowHub({
           (Check-In, Alert, Drive To, Pick Me Up); "Meeting" and "Safe Arrival"
           are coming soon. "Alert" opens the SOS/notify-circle panel. */}
       <QuickActionsSection title="Quick actions">
-
         <QuickActionCard
           tone="green"
           icon={<ShieldCheck className="h-5 w-5" />}
@@ -841,7 +892,6 @@ function NowHub({
           subtitle="Get notified"
           comingSoon
         />
-
       </QuickActionsSection>
 
       {/* Active SOS banner (only while an incident is live) — quick stop
@@ -877,8 +927,7 @@ function NowHub({
             aria-label="Active shares"
             className={cn(
               "space-y-2.5",
-              vm.activeOwnerGrants.length > 3 &&
-                ACTIVE_SHARE_LIST_SCROLL_CLASS,
+              vm.activeOwnerGrants.length > 3 && ACTIVE_SHARE_LIST_SCROLL_CLASS,
             )}
           >
             {vm.activeOwnerGrants.map((grant) => (
@@ -964,11 +1013,7 @@ function LocationToggle({
   );
 }
 
-function PrivacyFlow({
-  onManageSharing,
-}: {
-  onManageSharing: () => void;
-}) {
+function PrivacyFlow({ onManageSharing }: { onManageSharing: () => void }) {
   // Inert local state for now — real auto-share / pause wiring comes later.
   const [autoShare, setAutoShare] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -1438,87 +1483,84 @@ function InboxHub({
           scroll here via #one-location-inbox-review. `scroll-mt` keeps the
           heading clear of the sticky header after scrollIntoView. */}
       <div id="one-location-inbox-review" className="scroll-mt-24">
-      <SectionCard title="Needs your review">
-
-        {vm.pendingOwnerRequests.length ? (
-          <div className="space-y-2.5">
-            {vm.pendingOwnerRequests.map((request) => (
-              <RequestCard
-                key={request.id}
-                name={vm.requesterLabel(request)}
-                promptLine="Asks to see your location · 1 hour"
-                reason={request.message ?? undefined}
-                onApprove={() => vm.onApprove(request)}
-                onDecline={() => vm.onDeny(request.id)}
-                approveBusy={vm.busy === "approve"}
-                declineBusy={vm.busy === "deny"}
-              />
-            ))}
-          </div>
-        ) : (
-          <EmptyState
-            title="Nothing to review"
-            description="Incoming location requests will appear here."
-          />
-        )}
-      </SectionCard>
+        <SectionCard title="Needs your review">
+          {vm.pendingOwnerRequests.length ? (
+            <div className="space-y-2.5">
+              {vm.pendingOwnerRequests.map((request) => (
+                <RequestCard
+                  key={request.id}
+                  name={vm.requesterLabel(request)}
+                  promptLine="Asks to see your location · 1 hour"
+                  reason={request.message ?? undefined}
+                  onApprove={() => vm.onApprove(request)}
+                  onDecline={() => vm.onDeny(request.id)}
+                  approveBusy={vm.busy === "approve"}
+                  declineBusy={vm.busy === "deny"}
+                />
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="Nothing to review"
+              description="Incoming location requests will appear here."
+            />
+          )}
+        </SectionCard>
       </div>
 
       {/* Anchor: notification deep-links for received shares scroll here via
           #one-location-inbox-shared so the recipient lands directly on the
           person's live-location card. */}
       <div id="one-location-inbox-shared" className="scroll-mt-24">
-      <SectionCard title="Shared with me">
-        {received.length ? (
-
-          <div className="space-y-2.5">
-            {received.map((grant) => {
-              const point = vm.decryptedPoints[grant.id];
-              const previewExpanded =
-                Boolean(point) && !collapsedGrantIds.has(grant.id);
-              const enRoute = vm.activeOwnerGrants.some(
-                (g) =>
-                  g.shareKind === "pickup_enroute" &&
-                  g.recipientUserId === grant.ownerUserId,
-              );
-              return (
-                <SharedWithMeCard
-                  key={grant.id}
-                  name={vm.grantOwnerLabel(grant)}
-                  statusLine={vm.expiresLabel(grant.expiresAt)}
-                  metaLine={
-                    point
-                      ? `Updated ${vm.formatDateTime(point.capturedAt)}`
-                      : undefined
-                  }
-                  previewExpanded={previewExpanded}
-                  mapHref={point ? vm.mapLocationHref(point) : undefined}
-                  onView={() => onExpandGrant(grant)}
-                  onDismiss={() => onCollapseGrant(grant.id)}
-                  viewBusy={vm.busy === "view"}
-                  message={grant.shareMessage ?? undefined}
-                  isPickup={grant.shareKind === "pick_me_up"}
-                  onImOnMyWay={() => vm.onImOnMyWay(grant)}
-                  enRoute={enRoute}
-                >
-                  {previewExpanded && point
-                    ? vm.renderMapPreview(point, true)
-                    : null}
-                </SharedWithMeCard>
-              );
-            })}
-          </div>
-        ) : (
-          <EmptyState
-            title="No active items after expiry"
-            description="Locations shared with you appear here while they are live."
-          />
-        )}
-      </SectionCard>
+        <SectionCard title="Shared with me">
+          {received.length ? (
+            <div className="space-y-2.5">
+              {received.map((grant) => {
+                const point = vm.decryptedPoints[grant.id];
+                const previewExpanded =
+                  Boolean(point) && !collapsedGrantIds.has(grant.id);
+                const enRoute = vm.activeOwnerGrants.some(
+                  (g) =>
+                    g.shareKind === "pickup_enroute" &&
+                    g.recipientUserId === grant.ownerUserId,
+                );
+                return (
+                  <SharedWithMeCard
+                    key={grant.id}
+                    name={vm.grantOwnerLabel(grant)}
+                    statusLine={vm.expiresLabel(grant.expiresAt)}
+                    metaLine={
+                      point
+                        ? `Updated ${vm.formatDateTime(point.capturedAt)}`
+                        : undefined
+                    }
+                    previewExpanded={previewExpanded}
+                    mapHref={point ? vm.mapLocationHref(point) : undefined}
+                    onView={() => onExpandGrant(grant)}
+                    onDismiss={() => onCollapseGrant(grant.id)}
+                    viewBusy={vm.busy === "view"}
+                    message={grant.shareMessage ?? undefined}
+                    isPickup={grant.shareKind === "pick_me_up"}
+                    onImOnMyWay={() => vm.onImOnMyWay(grant)}
+                    enRoute={enRoute}
+                  >
+                    {previewExpanded && point
+                      ? vm.renderMapPreview(point, true)
+                      : null}
+                  </SharedWithMeCard>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState
+              title="No active items after expiry"
+              description="Locations shared with you appear here while they are live."
+            />
+          )}
+        </SectionCard>
       </div>
 
       {vm.requestedByMe.length ? (
-
         <SectionCard title="Sent by you">
           <div>
             {vm.requestedByMe.map((request, i) => {
@@ -1530,7 +1572,8 @@ function InboxHub({
                   key={request.id}
                   className={cn(
                     "flex items-center gap-3 py-3.5",
-                    i > 0 && "border-t border-black/[0.06] dark:border-white/10",
+                    i > 0 &&
+                      "border-t border-black/[0.06] dark:border-white/10",
                   )}
                 >
                   <div className="min-w-0 flex-1">
@@ -1651,7 +1694,10 @@ function SosHelpRow({
         {badge ? (
           <span className="text-[13px] font-bold text-[#e0342c]">{badge}</span>
         ) : Icon ? (
-          <Icon className="h-[18px] w-[18px] text-[#e0342c]" strokeWidth={1.5} />
+          <Icon
+            className="h-[18px] w-[18px] text-[#e0342c]"
+            strokeWidth={1.5}
+          />
         ) : null}
       </span>
       <div className="min-w-0 flex-1">
@@ -1674,11 +1720,7 @@ function SosHelpRow({
   );
 }
 
-function SosFlow({
-  vm,
-}: {
-  vm: LocationHubViewModel;
-}) {
+function SosFlow({ vm }: { vm: LocationHubViewModel }) {
   const recipients = vm.sosRecipients;
   const sharedCount = recipients.length;
 
@@ -1791,7 +1833,10 @@ function SosFlow({
         className="flex w-full items-center gap-3 rounded-[16px] bg-white px-4 py-3.5 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] dark:bg-white/[0.05]"
       >
         <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#eef3fb] dark:bg-[color:var(--app-accent)]/15">
-          <Lock className="h-[18px] w-[18px] text-[color:var(--app-accent)] dark:text-[color:var(--app-accent)]" strokeWidth={1.6} />
+          <Lock
+            className="h-[18px] w-[18px] text-[color:var(--app-accent)] dark:text-[color:var(--app-accent)]"
+            strokeWidth={1.6}
+          />
         </span>
         <span className="flex-1 text-[15px] font-medium text-foreground">
           Privacy
@@ -1851,7 +1896,10 @@ function ShareFlow({
                   : "Approximate area"
               }
             />
-            <ReviewRow label="Duration" value={durationLabel(vm.durationHours)} />
+            <ReviewRow
+              label="Duration"
+              value={durationLabel(vm.durationHours)}
+            />
             <ReviewRow label="Control" value="You can stop anytime" />
           </div>
         </SectionCard>
@@ -1888,7 +1936,10 @@ function ShareFlow({
         />
         <SectionCard>
           <div className="space-y-5">
-            <LocationTypeSelector value={locationType} onChange={setLocationType} />
+            <LocationTypeSelector
+              value={locationType}
+              onChange={setLocationType}
+            />
             <DurationSelector
               value={vm.durationHours}
               onChange={vm.setDurationHours}
@@ -1951,7 +2002,9 @@ function ShareFlow({
                     : "Invite first to enable sharing"
                 }
                 tone={ready ? "ready" : "pending"}
-                actionLabel={ready ? (selected ? "Selected" : "Select") : undefined}
+                actionLabel={
+                  ready ? (selected ? "Selected" : "Select") : undefined
+                }
                 actionAriaLabel={
                   ready
                     ? `${selected ? "Deselect" : "Select"} ${vm.recipientLabel(
@@ -1982,7 +2035,6 @@ function ShareFlow({
       >
         Continue
       </Button>
-
     </div>
   );
 }
@@ -2069,7 +2121,6 @@ function AskFlow({
             />
           </div>
         )}
-
       </SectionCard>
 
       <SectionCard title="Duration requested">
@@ -2125,7 +2176,8 @@ function InviteFlow({
   vm: LocationHubViewModel;
   onClose: () => void;
 }) {
-  const created = Boolean(vm.circleInviteUrl) || Boolean(vm.latestActiveCircleInvite);
+  const created =
+    Boolean(vm.circleInviteUrl) || Boolean(vm.latestActiveCircleInvite);
 
   if (created) {
     const invite = vm.latestActiveCircleInvite;
@@ -2248,7 +2300,8 @@ function TemporaryLinkFlow({
   setLocationType: (v: LocationTypeValue) => void;
   onClose: () => void;
 }) {
-  const created = Boolean(vm.publicInviteUrl) || Boolean(vm.latestActivePublicInvite);
+  const created =
+    Boolean(vm.publicInviteUrl) || Boolean(vm.latestActivePublicInvite);
 
   if (created) {
     const invite = vm.latestActivePublicInvite;

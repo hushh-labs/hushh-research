@@ -30,8 +30,7 @@ import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { SegmentedPill, type SegmentedPillOption } from "@/lib/morphy-ux/ui";
-import { useKaiBottomChromeElementTranslation } from "@/lib/navigation/kai-bottom-chrome-visibility";
-import { ROUTES } from "@/lib/navigation/routes";
+import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { useVault } from "@/lib/vault/vault-context";
@@ -40,20 +39,12 @@ import {
   resolveBottomNavActiveKey,
   resolveBottomNavAction,
   resolveBottomNavigationScope,
-  resolveBottomNavContextKey,
   resolveBottomNavOptionKeys,
   resolveBottomNavSpecialistOptionKeys,
   type AppBottomNavKey,
 } from "@/lib/navigation/app-bottom-nav";
 import { resolveAgentNavigationContextForPath } from "@/lib/navigation/agent-sections";
 import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
-
-const BOTTOM_NAV_MAX_SLOT_COUNT = 6;
-const BOTTOM_NAV_SLOT_WIDTH_REM = 4.1;
-function resolveBottomNavMaxWidth(count: number): string {
-  const slotCount = Math.min(Math.max(count, 1), BOTTOM_NAV_MAX_SLOT_COUNT);
-  return `${slotCount * BOTTOM_NAV_SLOT_WIDTH_REM}rem`;
-}
 
 const BOTTOM_NAV_OPTION_META: Record<
   AppBottomNavKey,
@@ -178,7 +169,15 @@ function navOptionForKey(
   return { ...option, badge };
 }
 
-export const Navbar = () => {
+export const Navbar = ({
+  shellNavigationHidden = false,
+  layout = "fixed",
+}: {
+  /** Route-derived shell state; keeps route chrome out of individual pages. */
+  shellNavigationHidden?: boolean;
+  /** AppBottomShell owns positioning and motion for the persistent slot. */
+  layout?: "fixed" | "slot";
+}) => {
   const pathname = usePathname();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
@@ -206,7 +205,7 @@ export const Navbar = () => {
       setAgentNavigationContext(agentContext);
     }
     if (
-      pathname.startsWith(ROUTES.KAI_HOME) ||
+      pathname.startsWith(KAI_MARKET_PATH) ||
       pathname.startsWith(ROUTES.LEGACY_KAI_HOME)
     ) {
       useKaiSession.getState().setLastKaiPath(pathname);
@@ -237,27 +236,9 @@ export const Navbar = () => {
   );
 
   const navOptions = useMemo<SegmentedPillOption[]>(() => {
-    const keys = resolveBottomNavOptionKeys(
-      normalizedPathname,
-      bottomNavScope,
-    );
-    return keys.map((key) =>
-      navOptionForKey(key, pendingConsents),
-    );
+    const keys = resolveBottomNavOptionKeys(normalizedPathname, bottomNavScope);
+    return keys.map((key) => navOptionForKey(key, pendingConsents ?? 0));
   }, [normalizedPathname, bottomNavScope, pendingConsents]);
-
-  const specialistOptions = useMemo<SegmentedPillOption[]>(
-    () =>
-      resolveBottomNavSpecialistOptionKeys(bottomNavScope).map((key) =>
-        navOptionForKey(key, pendingConsents),
-      ),
-    [bottomNavScope, pendingConsents],
-  );
-
-  useKaiBottomChromeElementTranslation(
-    pillRef,
-    !useOnboardingChrome && isAuthenticated,
-  );
 
   React.useLayoutEffect(() => {
     const root = document.documentElement;
@@ -325,13 +306,11 @@ export const Navbar = () => {
     useOnboardingChrome,
   ]);
 
-  const bottomNavMaxWidth =
-    navOptions.length > 0 ? resolveBottomNavMaxWidth(navOptions.length) : "0px";
   const bottomNavWidth =
     navOptions.length > 0
-      ? `min(calc(100vw - 1.5rem), ${bottomNavMaxWidth})`
+      ? "min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))"
       : "0px";
-  if (hideNavbar) {
+  if (shellNavigationHidden || hideNavbar) {
     return null;
   }
 
@@ -350,7 +329,10 @@ export const Navbar = () => {
     return null;
   }
 
-  const activeNav = resolveBottomNavActiveKey(normalizedPathname, bottomNavScope);
+  const activeNav = resolveBottomNavActiveKey(
+    normalizedPathname,
+    bottomNavScope,
+  );
 
   const navigateTo = (value: string) => {
     if (busyOperations["portfolio_save"]) {
@@ -383,7 +365,9 @@ export const Navbar = () => {
       return;
     }
     if (action.type === "route") {
-      const nextAgentContext = resolveAgentNavigationContextForPath(action.href);
+      const nextAgentContext = resolveAgentNavigationContextForPath(
+        action.href,
+      );
       if (nextAgentContext) {
         setAgentNavigationContext(nextAgentContext);
       }
@@ -394,21 +378,27 @@ export const Navbar = () => {
   return (
     <nav
       data-app-bottom-nav
+      data-ambient-chrome-ignore
       className={cn(
-      "fixed inset-x-0 flex justify-center px-4 transform-gpu",
-        isVaultUnlocked ? "z-[120]" : "z-[505]",
+        layout === "slot"
+          ? "flex w-full justify-center"
+          : "fixed inset-x-0 flex justify-center px-4 transform-gpu",
+        layout === "fixed" && (isVaultUnlocked ? "z-[120]" : "z-[505]"),
         "pointer-events-none",
       )}
       style={
-        {
-          bottom:
-            "calc(max(var(--app-safe-area-bottom-effective), 0.625rem) + var(--app-bottom-chrome-lift, 0px))",
-        } as CSSProperties
+        layout === "fixed"
+          ? ({
+              bottom:
+                "calc(max(var(--app-safe-area-bottom-effective), 0.625rem) + var(--app-bottom-chrome-lift, 0px))",
+            } as CSSProperties)
+          : undefined
       }
     >
       <div
         data-testid="app-bottom-nav-frame"
-        className="pointer-events-none mx-auto flex w-full max-w-[min(calc(100vw-2rem),42rem)] justify-center"
+        className="pointer-events-none mx-auto flex w-full justify-center"
+        style={{ maxWidth: "min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))" }}
       >
         <div
           className={cn(
@@ -423,7 +413,7 @@ export const Navbar = () => {
             style={{ width: bottomNavWidth }}
           >
             <SegmentedPill
-              size="compact"
+              size="default"
               layout="stacked"
               hitArea="segment"
               value={activeNav}

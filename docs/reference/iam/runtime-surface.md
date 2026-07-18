@@ -45,13 +45,13 @@ Compatibility fallback (temporary): frontend still accepts `NEXT_PUBLIC_OBSERVAB
 
 ## Route Families
 
-1. Investor routes remain under existing `/kai/*`, `/consents`, `/profile`.
+1. Investor routes remain under existing `/kai/*`, `/one/consent`, `/profile`.
 2. RIA routes:
    1. `/ria/onboarding`
    2. `/ria/clients`
    3. `/ria/workspace?clientId=<investor_user_id>`
 3. Compatibility aliases:
-   1. `/ria/requests` -> `/consents?actor=ria&view=outgoing`
+   1. `/ria/requests` -> `/one/consent?actor=ria&view=outgoing`
    2. `/ria/settings` -> `/profile?section=ria`
 4. Marketplace route: `/marketplace`.
 
@@ -95,12 +95,12 @@ These fields are presentation metadata only. Authorization still evaluates the c
 
 Consent-manager surface rules:
 
-1. `/consents` is the One user access manager for incoming user-owned consent state.
+1. `/one/consent` is the One user access manager for incoming user-owned consent state.
 2. `actor` is compatibility routing metadata, not One page identity. Missing actor, `actor=one`, and legacy `actor=investor` resolve to the same One consent lane.
 3. RIA advisor workflows must opt in explicitly with `actor=ria&view=outgoing`; `/ria/requests` remains the compatibility launcher for that path.
 4. The canonical page flow is `summary + one paginated list surface + detail panel`.
-5. Normal `/consents` tabs use `GET /api/consent/center/summary` and `GET /api/consent/center/list`. `GET /api/consent/center` is reserved for compatibility and the relationships surface until that surface is paginated.
-6. `/consents` keeps the canonical consent-manager URL, but the shared shell treats it as the `Profile > Privacy` workspace for breadcrumbs and bottom-nav context.
+5. Normal `/one/consent` tabs use `GET /api/consent/center/summary` and `GET /api/consent/center/list`. `GET /api/consent/center` is reserved for compatibility and the relationships surface until that surface is paginated.
+6. `/one/consent` keeps the canonical consent-manager URL, but the shared shell treats it as the `Profile > Privacy` workspace for breadcrumbs and bottom-nav context.
 7. The top-shell shield is the consent inbox:
    - badge source: `summary.counts.pending`
    - preview rows: first `5` items from the cached actorless `center/list?surface=pending&page=1&limit=20` payload for the One lane
@@ -148,7 +148,7 @@ Consent-manager surface rules:
 
 ## Relationship Share Integration
 
-1. Investor private data flowing to an RIA stays on the shared `/consents` lane and `consent_audit`.
+1. Investor private data flowing to an RIA stays on the shared `/one/consent` lane and `consent_audit`.
 2. Advisor-authored content flowing back to the investor uses `relationship_share_grants` plus append-only `relationship_share_events`.
 3. The initial implicit share is `ria_active_picks_feed_v1`.
 4. Kai only exposes `ria:*` pick sources when both the relationship is approved and the picks-share grant is active.

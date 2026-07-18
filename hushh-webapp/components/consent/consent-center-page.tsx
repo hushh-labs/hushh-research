@@ -1799,8 +1799,7 @@ export function ConsentCenterPage() {
     user?.uid &&
       selectedId &&
       tab === "requests" &&
-      !selectedEntryFromList &&
-      !listResource.loading,
+      !selectedEntryFromList,
   );
   const selectedPendingLookupResource = useStaleResource({
     cacheKey:
@@ -2178,6 +2177,8 @@ export function ConsentCenterPage() {
     tab === "connections"
       ? "Search connections by name, email, scope, or status"
       : `Search ${tab} by name, email, scope, or reason`;
+  const summaryCountLabel = (label: string, value: number | undefined) =>
+    typeof value === "number" ? `${label} (${value})` : label;
 
   return (
     <AppPageShell as="main" width="expanded" className="pb-24 sm:pb-28">
@@ -2216,15 +2217,15 @@ export function ConsentCenterPage() {
               options={[
                 {
                   value: "requests",
-                  label: `Requests (${summaryData?.counts.pending ?? 0})`,
+                  label: summaryCountLabel("Requests", summaryData?.counts.pending),
                 },
                 {
                   value: "active",
-                  label: `Active Access (${summaryData?.counts.active ?? 0})`,
+                  label: summaryCountLabel("Active Access", summaryData?.counts.active),
                 },
                 {
                   value: "history",
-                  label: `History (${summaryData?.counts.previous ?? 0})`,
+                  label: summaryCountLabel("History", summaryData?.counts.previous),
                 },
                 {
                   value: "connections",
@@ -2461,8 +2462,8 @@ export function ConsentCenterPage() {
                       size="sm"
                       disabled={isRequestBusy(selectedPendingConsent.id)}
                       onClick={() => {
-                        approveEntry(selectedEntry);
                         closeDetailPanel();
+                        approveEntry(selectedEntry);
                       }}
                     >
                       {activeAction?.kind === "approve" &&
@@ -2480,8 +2481,8 @@ export function ConsentCenterPage() {
                         selectedEntry.request_id || selectedEntry.id,
                       )}
                       onClick={() => {
-                        denyEntry(selectedEntry);
                         closeDetailPanel();
+                        denyEntry(selectedEntry);
                       }}
                     >
 
@@ -2555,14 +2556,14 @@ export function ConsentCenterPage() {
             actor={actor}
             entry={selectedEntry}
             onApprove={(entry, durationHours) => {
-              approveEntry(entry, durationHours);
               // Dismiss the panel immediately; the list already optimistically
               // removes the row and any failure surfaces via toast.
               closeDetailPanel();
+              approveEntry(entry, durationHours);
             }}
             onDeny={(entry) => {
-              denyEntry(entry);
               closeDetailPanel();
+              denyEntry(entry);
             }}
             onRevoke={(entry) => {
               revokeEntry(entry);

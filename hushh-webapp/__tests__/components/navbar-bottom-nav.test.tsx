@@ -31,15 +31,21 @@ vi.mock("next/navigation", () => ({
   usePathname: () => navigationMock.pathname,
   useRouter: () => ({ push: navigationMock.push }),
 }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ isAuthenticated: true }) }));
-vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: true }) }));
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({ isAuthenticated: true }),
+}));
+vi.mock("@/lib/vault/vault-context", () => ({
+  useVault: () => ({ isVaultUnlocked: true }),
+}));
 vi.mock("@/components/agent/agent-popover-provider", () => ({
   useOptionalAgentPopover: () => ({ expanded: agentPopoverMock.expanded }),
 }));
 vi.mock("@/lib/consent/use-consent-pending-summary-count", () => ({
   useConsentPendingSummaryCount: () => 0,
 }));
-vi.mock("@/lib/stores/kai-session-store", () => ({ useKaiSession: kaiSessionMock.useKaiSession }));
+vi.mock("@/lib/stores/kai-session-store", () => ({
+  useKaiSession: kaiSessionMock.useKaiSession,
+}));
 
 describe("Navbar bottom utilities", () => {
   beforeEach(() => {
@@ -57,13 +63,15 @@ describe("Navbar bottom utilities", () => {
   ])("keeps the primary bottom group stable on %s", (pathname) => {
     navigationMock.pathname = pathname;
     const { unmount } = render(<Navbar />);
-    const routeNav = screen.getByRole("radiogroup", { name: "Route navigation" });
+    const routeNav = screen.getByRole("radiogroup", {
+      name: "Route navigation",
+    });
 
-    expect(within(routeNav).getAllByRole("radio").map((radio) => radio.textContent?.trim())).toEqual([
-      "One",
-      "Connect",
-      "Search",
-    ]);
+    expect(
+      within(routeNav)
+        .getAllByRole("radio")
+        .map((radio) => radio.textContent?.trim()),
+    ).toEqual(["One", "Connect", "Search"]);
     expect(screen.queryByRole("radio", { name: "Profile" })).toBeNull();
     unmount();
   });
@@ -72,12 +80,14 @@ describe("Navbar bottom utilities", () => {
     navigationMock.pathname = ROUTES.PROFILE;
     render(<Navbar />);
 
-    expect(screen.getByRole("radio", { name: "One" }).getAttribute("aria-checked")).toBe("true");
+    expect(
+      screen.getByRole("radio", { name: "One" }).getAttribute("aria-checked"),
+    ).toBe("true");
     fireEvent.click(screen.getByRole("radio", { name: "One" }));
     expect(navigationMock.push).toHaveBeenLastCalledWith(ROUTES.ONE_HOME);
   });
 
-  it("renders a compact specialist group beside the stable primary group", () => {
+  it("keeps Finance workspace navigation out of the bottom bar", () => {
     navigationMock.pathname = ROUTES.KAI_ANALYSIS;
     render(<Navbar />);
     expect(
@@ -86,15 +96,15 @@ describe("Navbar bottom utilities", () => {
         .map((radio) => radio.textContent?.trim()),
     ).toEqual(["One", "Connect", "Search"]);
     expect(
-      within(screen.getByRole("radiogroup", { name: "Workspace navigation" }))
-        .getAllByRole("radio")
-        .map((radio) => radio.textContent?.trim()),
-    ).toEqual(["Market", "Portfolio", "Analysis"]);
-    expect(screen.getByRole("radiogroup", { name: "Route navigation" }).getAttribute("style")).toContain(
-      "grid-template-columns: repeat(3, minmax(0, 1fr))",
-    );
-    expect(screen.getByTestId("app-bottom-nav-frame").className).toContain(
-      "max-w-[min(calc(100vw-2rem),42rem)]",
+      screen.queryByRole("radiogroup", { name: "Workspace navigation" }),
+    ).toBeNull();
+    expect(
+      screen
+        .getByRole("radiogroup", { name: "Route navigation" })
+        .getAttribute("style"),
+    ).toContain("grid-template-columns: repeat(3, minmax(0, 1fr))");
+    expect(screen.getByTestId("app-bottom-nav-frame").getAttribute("style")).toContain(
+      "var(--app-bottom-shell-max-width)",
     );
     expect(screen.getByTestId("app-bottom-nav-frame").className).toContain(
       "justify-center",

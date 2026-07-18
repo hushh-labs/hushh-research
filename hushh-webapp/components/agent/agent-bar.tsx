@@ -3,10 +3,9 @@
 //
 // A single sleek bar that spans across just above the bottom navbar + search on
 // every authenticated screen. It replaces the old draggable floating "Agent"
-// pill so the agent is always present and context-aware: the hint text adapts to
-// the current screen so the bar can guide the user from onboarding to any part
-// of the app. The text surface opens Agent Chat; the voice icon starts One
-// Voice conversation.
+// pill with the single voice entry point. Typed intent belongs to the bottom
+// navigation Search control, which routes normal language into the same agent
+// window without duplicating a second search affordance here.
 
 "use client";
 
@@ -20,7 +19,7 @@ import React, {
   type MouseEvent,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { AudioLines, MessageCircle, Moon, Sun, X } from "lucide-react";
+import { AudioLines, Monitor, Moon, Sun, X } from "lucide-react";
 import { useTheme } from "next-themes";
 
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
@@ -31,6 +30,7 @@ import {
   executeTrustedActivationGatewayAction,
   type AgentActionRuntimeResult,
 } from "@/lib/agent/agent-action-runtime";
+import { settleAgentGatewayAction } from "@/lib/agent/agent-gateway-action-settlement";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { ApiService } from "@/lib/services/api-service";
@@ -41,8 +41,8 @@ import {
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { validateMorphyAxAssessment } from "@/lib/morphy-ax";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { useKaiBottomChromeElementTranslation } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import {
+  KAI_MARKET_PATH,
   ROUTES,
   isFoundationPublicRoute,
   isOneSetupRoute,
@@ -52,7 +52,6 @@ import { usePersonaState } from "@/lib/persona/persona-context";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
-import { waitForVoiceActionSettlement } from "@/lib/voice/voice-action-settlement";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { useAccent, writeAccent } from "@/lib/theme/accent";
@@ -103,39 +102,11 @@ async function settleAgentBarAction(
     return result;
   }
 
-  const settlement = await waitForVoiceActionSettlement({
-    actionId: result.actionId,
-    mode: "execute_and_wait",
-    actionStatus: result.status,
-    routeBefore: {
-      pathname: result.routeBefore || "",
-      screen: result.screenBefore || "",
-      subview: null,
-    },
-    expectedRoute: result.routeAfter,
-    expectedScreen: result.screenAfter,
+  return settleAgentGatewayAction(result, {
     getCurrentRoute: readBrowserVoiceRoute,
     getCurrentSurfaceMetadata: getVoiceSurfaceMetadata,
     timeoutMs: 1800,
   });
-
-  if (settlement.settled_by === "timeout") {
-    return {
-      ...result,
-      status: "started",
-      reason: "route_settlement_timeout",
-      routeAfter: settlement.route_after || result.routeAfter,
-      screenAfter: settlement.screen_after || result.screenAfter,
-      resultSummary: "The action started, but the next screen is still settling.",
-    };
-  }
-
-  return {
-    ...result,
-    status: "succeeded",
-    routeAfter: settlement.route_after || result.routeAfter,
-    screenAfter: settlement.screen_after || result.screenAfter,
-  };
 }
 
 // Precaution: if a live voice session sits idle (no user speech, no agent
@@ -152,7 +123,7 @@ const AGENT_BAR_VOICE_IDLE_TIMEOUT_MS = 10_000;
 const AGENT_BAR_HINTS: ReadonlyArray<{ prefix: string; hint: string }> = [
   { prefix: ROUTES.KAI_ANALYSIS, hint: "Ask about this analysis" },
   { prefix: ROUTES.KAI_PORTFOLIO, hint: "Ask about your portfolio" },
-  { prefix: ROUTES.KAI_HOME, hint: "Ask about the markets" },
+  { prefix: KAI_MARKET_PATH, hint: "Ask about the markets" },
   { prefix: ROUTES.LEGACY_KAI_ANALYSIS, hint: "Ask about this analysis" },
   { prefix: ROUTES.LEGACY_KAI_PORTFOLIO, hint: "Ask about your portfolio" },
   { prefix: ROUTES.LEGACY_KAI_HOME, hint: "Ask about the markets" },
@@ -160,6 +131,7 @@ const AGENT_BAR_HINTS: ReadonlyArray<{ prefix: string; hint: string }> = [
   { prefix: ROUTES.PKM, hint: "Ask about your memories" },
   { prefix: ROUTES.PROFILE_PKM, hint: "Ask about your memories" },
   { prefix: ROUTES.CONSENTS, hint: "Ask about your consents" },
+  { prefix: ROUTES.LEGACY_CONSENTS, hint: "Ask about your consents" },
   { prefix: ROUTES.PROFILE, hint: "Ask about your account" },
   { prefix: ROUTES.ONE_HOME, hint: "Ask your agent anything" },
 ];
@@ -189,7 +161,7 @@ function resolveAgentBarHint(pathname: string | null): string {
   return AGENT_BAR_DEFAULT_HINT;
 }
 
-export function AgentBar() {
+export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const agentBarShellRef = useRef<HTMLDivElement | null>(null);
   const pathname = usePathname();
   const router = useRouter();
@@ -199,7 +171,7 @@ export function AgentBar() {
   // consistently with the chat workspace, instead of recomputing locally.
   const runtime = useAgentRuntimeStateOptional();
   const { user, loading: authLoading } = useAuth();
-  const { resolvedTheme, setTheme } = useTheme();
+  const { theme, resolvedTheme, setTheme } = useTheme();
   const { vaultOwnerToken } = useVault();
   const { switchPersona } = usePersonaState();
   const busyOperations = useKaiSession((state) => state.busyOperations);
@@ -739,11 +711,6 @@ export function AgentBar() {
     );
   }, [abandonPendingConfirmation, pathname]);
 
-  const openAgentChat = useCallback(() => {
-    if (conversationActive) return;
-    agentPopover?.openAgent();
-  }, [agentPopover, conversationActive]);
-
   const startConversation = useCallback(() => {
     // Toggle off when a session (live OR an error still on screen) exists.
     if (liveClientRef.current || erroredRef.current || conversationActive) {
@@ -950,14 +917,6 @@ export function AgentBar() {
     isLoginRoute ||
     isFoundationPublic;
 
-  // The bar is mounted above the scroll root, so it cannot rely on inherited
-  // route-shell geometry. Bind its transform directly to the shared motion
-  // state without pulling scroll frames through the voice tree.
-  useKaiBottomChromeElementTranslation(
-    agentBarShellRef,
-    !physicalNavbarAbsent,
-  );
-
   const hint = useMemo(() => resolveAgentBarHint(pathname), [pathname]);
 
   // The agent window owns its own open/close animation. Keep the bar visually
@@ -981,11 +940,6 @@ export function AgentBar() {
   // auth transitions where the
   // app shell is not the host.
   const path = pathname ?? "";
-  // The waveform action circle is white only on the 2c dark dashboard (where a
-  // white circle pops); on every other surface (welcome, profile, kai, …) it is
-  // the indigo accent, per design.md §5.5.
-  const onDashboard =
-    path === ROUTES.ONE_HOME || path === `${ROUTES.ONE_HOME}/`;
   // The logged-out welcome ("/") and the sign-in screen ("/login") both host
   // the dogfooding onboarding voice greeter instead of unmounting the bar
   // outright: it doubles as the pre-auth conversation starter and stays
@@ -999,6 +953,21 @@ export function AgentBar() {
     (pathname ?? "").startsWith(ROUTES.PHONE_MANDATE);
   const ambientVoiceOnly =
     (isFoundationPublic && !isHomeRoute) || focusedOnboardingVoiceOnly;
+
+  // Onboarding is intentionally neutral to a returning person's appearance
+  // preference. Normalize the bar once per onboarding mount so its toggle
+  // starts at System, but do not fight a deliberate toggle change afterward.
+  const onboardingThemeNormalizedRef = useRef(false);
+  const onboardingThemeScope = onboardingGreeterMode || focusedOnboardingVoiceOnly;
+  useEffect(() => {
+    if (!onboardingThemeScope) {
+      onboardingThemeNormalizedRef.current = false;
+      return;
+    }
+    if (onboardingThemeNormalizedRef.current) return;
+    onboardingThemeNormalizedRef.current = true;
+    if (theme !== "system") setTheme("system");
+  }, [onboardingThemeScope, setTheme, theme]);
 
   // Signed-out dogfooding: greet the person the moment the onboarding welcome
   // ("/") loads, instead of waiting for a tap. This reuses the exact same
@@ -1086,12 +1055,17 @@ export function AgentBar() {
     <button
       type="button"
       onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-      aria-label="Toggle theme"
-      title="Toggle theme"
+      aria-label={`Theme: ${theme ?? "system"}`}
+      title={`Theme: ${theme ?? "system"}`}
       className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-accent-strong transition-colors duration-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
     >
-      <Sun className="hidden h-[17px] w-[17px] dark:block" />
-      <Moon className="h-[17px] w-[17px] dark:hidden" />
+      {theme === "system" || !theme ? (
+        <Monitor className="h-[17px] w-[17px]" />
+      ) : theme === "dark" ? (
+        <Moon className="h-[17px] w-[17px]" />
+      ) : (
+        <Sun className="h-[17px] w-[17px]" />
+      )}
       <span
         aria-hidden
         className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
@@ -1227,58 +1201,27 @@ export function AgentBar() {
       ) : null}
     </>
   ) : (
-    // Signed-in: same anatomy as the onboarding greeter (voice-first row on
-    // the left, one quiet action chip on the right) so the bar reads as ONE
-    // canonical control across the app. The right slot swaps by lifecycle:
-    // theme toggle during onboarding, agent-chat message icon once onboarded.
+    // Signed-in Agent Bar is voice-only. Search remains the one typed entry
+    // in the bottom navigation and opens the normal-language agent flow.
     <>
       <button
         type="button"
         data-native-voice-control-id="one_voice_agent_bar_start"
         data-testid="one-voice-agent-bar-start-icon"
         onClick={handleVoiceStartClick}
-        aria-label="Start conversation"
-        title="Start conversation"
-        className={cn(
-          "relative flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-full pl-2 text-left",
-          "transition-colors duration-200",
-        )}
+        aria-label={`Start a voice conversation. ${hint}`}
+        title="Talk to One"
+        className="relative flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-full px-1.5 text-left transition-colors duration-200 hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
       >
-        <span
-          className={cn(
-            "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-accent-strong",
-            onDashboard && "text-accent-strong",
-          )}
-        >
-          <AudioLines className="h-[18px] w-[18px]" />
-        </span>
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-[14px] font-medium",
-            "text-muted-foreground",
-          )}
-        >
-          {hint}
-        </span>
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+          className="flex h-8 w-8 shrink-0 items-center justify-center text-accent-strong"
         >
-          <MaterialRipple variant="gradient" effect="fill" />
+          <AudioLines className="h-[19px] w-[19px]" />
         </span>
-      </button>
-      {/* Agent chat: a persistently visible filled/bordered button (not just
-          a hover-state icon) so it reads as tappable at rest, matching the
-          weight of a real button rather than a quiet icon-only affordance. */}
-      <button
-        type="button"
-        data-testid="one-voice-agent-bar-start"
-        onClick={openAgentChat}
-        aria-label={`Open Agent Chat. ${hint}`}
-        title="Open Agent Chat"
-        className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] text-accent-strong transition-colors duration-200 hover:bg-[color:var(--app-accent-surface)]"
-      >
-        <MessageCircle className="h-[17px] w-[17px]" />
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-muted-foreground">
+          Talk to One
+        </span>
         <span
           aria-hidden
           className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
@@ -1301,19 +1244,22 @@ export function AgentBar() {
     <div
       ref={agentBarShellRef}
       data-agent-bar-shell
+      data-ambient-chrome-ignore
       className={cn(
-        "pointer-events-none fixed inset-x-0 flex flex-col items-center gap-3 px-4 transform-gpu",
-        elevatedForInteractionLayer ? "z-[540]" : "z-[118]",
+        "pointer-events-none flex flex-col items-center",
+        layout === "slot"
+          ? "w-full"
+          : "fixed inset-x-0 gap-3 px-4 transform-gpu",
+        layout === "fixed" && (elevatedForInteractionLayer ? "z-[540]" : "z-[118]"),
       )}
       style={
-        {
-          // --app-bottom-inset includes the measured nav, safe area, and lift.
-          // The motion hook above translates this fixed sibling imperatively;
-          // it does not re-render the voice tree as the page scrolls.
-          bottom: physicalNavbarAbsent
-            ? "calc(var(--app-safe-area-bottom-effective) + 0.75rem)"
-            : "calc(var(--app-bottom-inset) + 0.58rem)",
-        } as CSSProperties
+        layout === "fixed"
+          ? ({
+              bottom: physicalNavbarAbsent
+                ? "calc(var(--app-safe-area-bottom-effective) + 0.75rem)"
+                : "var(--agent-bar-with-nav-bottom)",
+            } as CSSProperties)
+          : undefined
       }
       aria-hidden={barHidden}
     >
@@ -1366,21 +1312,23 @@ export function AgentBar() {
           // active Gemini Live glow renders invisible/clipped behind other
           // page content instead of hugging the pill.
           "pointer-events-auto relative z-0 flex w-full items-center gap-2",
-          // Onboarding: sit within the content card width; elsewhere wider.
-          visualOnboardingChrome
-            ? "max-w-[min(calc(100vw-3rem),392px)]"
+          // The root, public, and signed-in variants share one bar chassis.
+          // Route state may add toggles, but cannot fork width or geometry.
+          layout === "slot"
+            ? "max-w-[min(calc(100vw-1.5rem),var(--app-agent-bar-max-width))]"
             : "max-w-[min(calc(100vw-2rem),34rem)]",
-          "h-12 rounded-full pl-3 pr-1.5",
+          layout === "slot"
+            ? "h-10 rounded-[1.25rem] px-2"
+            : "h-11 rounded-full pl-3 pr-1.5",
           // Single, consolidated transition covering surface color plus the
           // open/close fade+lift. Smoothly eases the bar in/out with the agent
           // window lifecycle so it never snaps back into place after closing.
           "transition-[opacity,transform,background-color,box-shadow] duration-300 ease-[cubic-bezier(0.16,0.84,0.28,1)] will-change-[opacity,transform]",
-          // CANONICAL agent surface (from main): the exact material of the
-          // opened agent window (white/95 + blur-xl + shadow-2xl, dark
-          // #1c1c1e/95) so bar and window read as one continuous object.
-          "backdrop-blur-xl",
-          "bg-white/95 text-[#1d1d1f] shadow-2xl",
-          "dark:bg-[#1c1c1e]/95 dark:text-[#f5f5f7]",
+          // Bottom-shell material: read the same live ambient token as the
+          // shared bottom mask so the Agent Bar never becomes a white pill on
+          // a dark/gradient route surface.
+          "backdrop-blur-[12px] backdrop-saturate-[1.3]",
+          "bottom-chrome-surface",
           barHidden
             ? "pointer-events-none translate-y-1 scale-[0.98] opacity-0"
             : "translate-y-0 scale-100 opacity-100",

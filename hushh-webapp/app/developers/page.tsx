@@ -1,5 +1,6 @@
+import { redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { DeveloperDocsHub } from "@/components/developers/developer-docs-hub";
+import { buildPublicKnowledgeRoute } from "@/lib/navigation/top-shell-tabs";
 
 export const metadata: Metadata = {
   title: "Developers · Hussh",
@@ -8,5 +9,5 @@ export const metadata: Metadata = {
 };
 
 export default function DevelopersPage() {
-  return <DeveloperDocsHub />;
+  redirect(buildPublicKnowledgeRoute("developers"));
 }

@@ -143,6 +143,11 @@ reporting a successful navigation settlement. Same-route visible-action or top-l
 changes are included in the relay's bounded route-context revision, so One receives the
 new inventory without a page refresh or Live-session restart.
 
+Search remains available as a separate input surface, but it is not a second voice
+runtime. A selected Search action is passed to `executeAgentGatewayAction` and settles
+through the same correlated browser path as an Agent Bar directive. The browser never
+uses DOM state or a legacy client planner to make an action executable.
+
 One's voice runtime is Google ADK's `Runner.run_live` over Vertex AI. The
 browser is an audio pump and directive executor; every decision (conversation
 vs tool call vs navigation vs specialist delegation) is made inside One's

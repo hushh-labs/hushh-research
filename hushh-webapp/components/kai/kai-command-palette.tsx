@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+} from "react";
 import {
   Activity,
   Compass,
@@ -42,6 +48,7 @@ interface KaiCommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelectAction: (selection: KaiCommandPaletteSelection) => void;
+  onSubmitPrompt: (prompt: string) => void;
   appRuntimeState?: AppRuntimeState;
   onVoiceClick?: (event: MouseEvent<HTMLButtonElement>) => void;
   voiceActive?: boolean;
@@ -153,6 +160,7 @@ export function KaiCommandPalette({
   open,
   onOpenChange,
   onSelectAction,
+  onSubmitPrompt,
   appRuntimeState,
   onVoiceClick,
   voiceActive = false,
@@ -383,6 +391,16 @@ export function KaiCommandPalette({
     [appRuntimeState, query]
   );
 
+  const exactActionMatch = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return null;
+    return actionMatches.find(({ action }) =>
+      [action.action_id, action.label, ...action.aliases].some(
+        (value) => value.trim().toLowerCase() === normalized,
+      ),
+    );
+  }, [actionMatches, query]);
+
   function runAction(actionId: string, slots?: Record<string, unknown>) {
     onOpenChange(false);
     setQuery("");
@@ -390,6 +408,28 @@ export function KaiCommandPalette({
       actionId,
       slots,
     });
+  }
+
+  function submitSearchOrPrompt(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    const value = query.trim();
+    if (!value) return;
+    if (exactActionMatch) {
+      runAction(exactActionMatch.action.action_id);
+      return;
+    }
+    onOpenChange(false);
+    setQuery("");
+    onSubmitPrompt(value);
+  }
+
+  function submitPromptSuggestion() {
+    const value = query.trim();
+    if (!value) return;
+    onOpenChange(false);
+    setQuery("");
+    onSubmitPrompt(value);
   }
 
   const commandItemClass =
@@ -400,46 +440,28 @@ export function KaiCommandPalette({
       open={open}
       onOpenChange={onOpenChange}
       showCloseButton={false}
-      className="top-[calc(var(--top-shell-reserved-height,0px)+0.75rem)] max-h-[min(70dvh,32rem)] w-[calc(100%-1rem)] translate-y-0 sm:top-1/2 sm:w-full sm:max-h-none sm:-translate-y-1/2"
+      title="Search or ask One"
+      className="top-auto bottom-[calc(var(--kb-height,0px)+0.5rem)] max-h-[min(72dvh,34rem)] w-[calc(100%-1rem)] translate-y-0 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-h-none sm:-translate-y-1/2"
     >
-      <div className="relative">
-        <CommandInput
-          value={query}
-          onValueChange={setQuery}
-          placeholder="Run Kai command or search ticker..."
-          className="pr-28"
-        />
-        <div className="absolute right-2.5 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
-          {!voiceHidden ? (
-            <button
-              type="button"
-              aria-label={voiceActive ? "End One Voice" : "Start One Voice"}
-              aria-disabled={voiceDisabled}
-              data-native-voice-control-id="one_voice_command_palette_toggle"
-              data-testid="one-voice-command-palette-toggle"
-              onClick={onVoiceClick}
-              className={cn(
-                "inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/10",
-                voiceActive ? "bg-primary text-primary-foreground hover:bg-primary/90" : "text-muted-foreground"
-              )}
-            >
-              <Mic className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
-            </button>
-          ) : null}
-          <button
-            type="button"
-            aria-label="Close command search"
-            onClick={() => onOpenChange(false)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/10"
-          >
-            <X className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
-          </button>
-        </div>
-      </div>
       <CommandList className="max-h-[min(56dvh,24rem)] sm:max-h-[300px]">
-        <CommandEmpty>{commandEmptyMessage}</CommandEmpty>
+        <CommandEmpty className={isFiltering ? undefined : "hidden"}>{commandEmptyMessage}</CommandEmpty>
 
-        <CommandGroup heading="Kai Actions">
+        <CommandGroup heading="Ask One" hidden={!isFiltering}>
+          <CommandItem
+            className={commandItemClass}
+            value={`Ask One ${query}`}
+            onSelect={submitPromptSuggestion}
+          >
+            <Icon icon={Search} size="sm" className="mr-2 text-accent-strong" />
+            <span className="min-w-0 truncate font-medium">
+              Ask One: {query.trim()}
+            </span>
+          </CommandItem>
+        </CommandGroup>
+
+        <CommandSeparator hidden={!isFiltering} />
+
+        <CommandGroup heading="Commands" hidden={!isFiltering}>
           {actionMatches.length === 0 ? (
             <CommandItem className={commandItemClass} disabled>
               <Icon icon={Compass} size="sm" className="mr-2 text-muted-foreground" />
@@ -452,10 +474,6 @@ export function KaiCommandPalette({
               availability.status === "unwired" ||
               availability.status === "manual_only" ||
               availability.status === "blocked";
-            const helperText =
-              availability.status === "requires_persona_switch"
-                ? `Switch to ${availability.target_persona?.toUpperCase()}`
-                : availability.reason;
             const icon =
               action.action_id === "route.profile"
                 ? UserRound
@@ -481,17 +499,14 @@ export function KaiCommandPalette({
               >
                 <Icon icon={icon} size="sm" className="mr-2 text-muted-foreground" />
                 <span className="font-medium">{action.label}</span>
-                {helperText ? (
-                  <span className="ml-2 truncate text-xs text-muted-foreground">{helperText}</span>
-                ) : null}
               </CommandItem>
             );
           })}
         </CommandGroup>
 
-        <CommandSeparator />
+        <CommandSeparator hidden={!isFiltering} />
 
-        <CommandGroup heading="Analyze Stock">
+        <CommandGroup heading="Market results" hidden={!isFiltering}>
           {universeError ? (
             <CommandItem className={commandItemClass} disabled>
               Ticker universe unavailable.
@@ -534,6 +549,43 @@ export function KaiCommandPalette({
           })}
         </CommandGroup>
       </CommandList>
+      <div className="relative border-t border-border/70">
+        <CommandInput
+          value={query}
+          onValueChange={setQuery}
+          onKeyDown={submitSearchOrPrompt}
+          placeholder="Ask One or search"
+          className="pr-28"
+          enterKeyHint="send"
+          autoFocus
+        />
+        <div className="absolute right-2.5 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
+          {!voiceHidden ? (
+            <button
+              type="button"
+              aria-label={voiceActive ? "End One Voice" : "Start One Voice"}
+              aria-disabled={voiceDisabled}
+              data-native-voice-control-id="one_voice_command_palette_toggle"
+              data-testid="one-voice-command-palette-toggle"
+              onClick={onVoiceClick}
+              className={cn(
+                "inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/10",
+                voiceActive ? "bg-primary text-primary-foreground hover:bg-primary/90" : "text-muted-foreground"
+              )}
+            >
+              <Mic className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            aria-label="Close search"
+            onClick={() => onOpenChange(false)}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/10"
+          >
+            <X className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
+          </button>
+        </div>
+      </div>
     </CommandDialog>
   );
 }

@@ -1439,7 +1439,7 @@
       ],
       "scope": {
         "routes": [
-          "/one/kai/analysis"
+          "/one/kai?tab=analysis"
         ],
         "screens": [
           "kai_analysis"
@@ -1454,7 +1454,7 @@
       "execution_hint": {
         "status": "wired",
         "path": "route",
-        "target": "/one/kai/analysis"
+        "target": "/one/kai?tab=analysis"
       },
       "external_callback": null,
       "goal": {
@@ -1469,7 +1469,7 @@
             "label": "Open Analysis Surface",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/kai/analysis",
+              "route": "/one/kai?tab=analysis",
               "screen": "kai_analysis"
             }
           }
@@ -1510,8 +1510,8 @@
       ],
       "scope": {
         "routes": [
-          "/one/kai/analysis",
-          "/one/kai/analysis?tab=history"
+          "/one/kai?tab=analysis",
+          "/one/kai?tab=analysis&view=history"
         ],
         "screens": [
           "kai_analysis"
@@ -1541,7 +1541,7 @@
             "label": "Open Analysis History",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/kai/analysis",
+              "route": "/one/kai?tab=analysis",
               "screen": "kai_analysis"
             }
           }
@@ -1583,7 +1583,7 @@
       ],
       "scope": {
         "routes": [
-          "/one/kai/analysis"
+          "/one/kai?tab=analysis"
         ],
         "screens": [
           "kai_analysis"
@@ -1643,7 +1643,7 @@
             "failure_behavior": "stop",
             "action_id": "analysis.start",
             "settlement_target": {
-              "route": "/one/kai/analysis",
+              "route": "/one/kai?tab=analysis",
               "screen": "kai_analysis"
             }
           },
@@ -1653,7 +1653,7 @@
             "failure_behavior": "stop",
             "service": "kai_debate.ensure_run",
             "settlement_target": {
-              "route": "/one/kai/analysis",
+              "route": "/one/kai?tab=analysis",
               "screen": "kai_analysis_workspace"
             }
           }
@@ -1698,8 +1698,8 @@
       ],
       "scope": {
         "routes": [
-          "/one/kai/analysis",
-          "/one/kai/analysis?focus=active"
+          "/one/kai?tab=analysis",
+          "/one/kai?tab=analysis&focus=active"
         ],
         "screens": [
           "kai_analysis"
@@ -1734,7 +1734,7 @@
             "label": "Resume Active Analysis Run",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/kai/analysis",
+              "route": "/one/kai?tab=analysis",
               "screen": "kai_analysis"
             }
           }
@@ -1775,7 +1775,7 @@
       ],
       "scope": {
         "routes": [
-          "/one/kai/analysis"
+          "/one/kai?tab=analysis"
         ],
         "screens": [
           "kai_analysis"
@@ -1811,7 +1811,7 @@
             "label": "Cancel Active Analysis Run",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/kai/analysis",
+              "route": "/one/kai?tab=analysis",
               "screen": "kai_analysis"
             }
           }
@@ -1852,7 +1852,7 @@
       ],
       "scope": {
         "routes": [
-          "/one/kai/analysis?tab=transcript"
+          "/one/kai?tab=analysis&view=transcript"
         ],
         "screens": [
           "kai_analysis"
@@ -1883,7 +1883,7 @@
             "label": "Legacy Transcript Tab Route",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/kai/analysis?tab=transcript",
+              "route": "/one/kai?tab=analysis&view=transcript",
               "screen": "kai_analysis"
             }
           }
@@ -7094,7 +7094,7 @@
       "scope": {
         "routes": [
           "/ria/requests",
-          "/consents"
+          "/one/consent"
         ],
         "screens": [
           "ria_requests_compat"
@@ -7560,7 +7560,7 @@
       "scope": {
         "routes": [
           "/marketplace/connections",
-          "/consents",
+          "/one/consent",
           "/one"
         ],
         "screens": [
@@ -7614,7 +7614,7 @@
             "failure_behavior": "stop",
             "service": "specialist_chat.turn",
             "settlement_target": {
-              "route": "/consents?tab=connections",
+              "route": "/one/consent?tab=connections",
               "screen": "consents"
             }
           }
@@ -7765,7 +7765,7 @@
       ],
       "scope": {
         "routes": [
-          "/consents",
+          "/one/consent",
           "/one"
         ],
         "screens": [
@@ -7820,7 +7820,7 @@
             "failure_behavior": "stop",
             "service": "specialist_chat.turn",
             "settlement_target": {
-              "route": "/consents",
+              "route": "/one/consent",
               "screen": "consents"
             }
           }
@@ -8175,7 +8175,7 @@
       ],
       "scope": {
         "routes": [
-          "/consents"
+          "/one/consent"
         ],
         "screens": [
           "consents"
@@ -8205,7 +8205,7 @@
             "label": "Open Consent Center",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/consents",
+              "route": "/one/consent",
               "screen": "consents"
             }
           }
@@ -8246,8 +8246,8 @@
       ],
       "scope": {
         "routes": [
-          "/one/kai",
-          "/one/kai/analysis",
+          "/one/kai?tab=market",
+          "/one/kai?tab=analysis",
           "/profile"
         ],
         "screens": [
@@ -8283,7 +8283,7 @@
             "label": "Go Back",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/kai",
+              "route": "/one/kai?tab=market",
               "screen": "kai_market"
             }
           }
@@ -8325,7 +8325,7 @@
       ],
       "scope": {
         "routes": [
-          "/one/kai/portfolio"
+          "/one/kai?tab=portfolio"
         ],
         "screens": [
           "kai_portfolio_dashboard"
@@ -8339,8 +8339,8 @@
       "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
-        "path": "kai_command",
-        "target": "dashboard"
+        "path": "route",
+        "target": "/one/kai?tab=portfolio"
       },
       "external_callback": null,
       "goal": {
@@ -8355,7 +8355,7 @@
             "label": "Open Portfolio Dashboard",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/kai/portfolio",
+              "route": "/one/kai?tab=portfolio",
               "screen": "kai_portfolio_dashboard"
             }
           }
@@ -8617,8 +8617,7 @@
       ],
       "scope": {
         "routes": [
-          "/one/kai",
-          "/one/kai/home"
+          "/one/kai?tab=market"
         ],
         "screens": [
           "kai_market"
@@ -8632,8 +8631,8 @@
       "activation_policy": "none",
       "execution_hint": {
         "status": "wired",
-        "path": "kai_command",
-        "target": "home"
+        "path": "route",
+        "target": "/one/kai?tab=market"
       },
       "external_callback": null,
       "goal": {
@@ -8648,7 +8647,7 @@
             "label": "Open Market Home",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/kai",
+              "route": "/one/kai?tab=market",
               "screen": "kai_market"
             }
           }
@@ -10016,7 +10015,7 @@
       "execution_hint": {
         "status": "wired",
         "path": "route",
-        "target": "/consents?tab=pending"
+        "target": "/one/consent?tab=pending"
       },
       "external_callback": null,
       "goal": {
@@ -10031,7 +10030,7 @@
             "label": "Open Access Manager",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/consents?tab=pending",
+              "route": "/one/consent?tab=pending",
               "screen": "ria_client_workspace_access"
             }
           }

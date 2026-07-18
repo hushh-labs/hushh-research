@@ -81,7 +81,12 @@ function shouldLoadRiaOnboardingStatus(
   const riaContext = activePersona === "ria" || primaryPersona === "ria";
 
   if (normalized.startsWith("/profile")) return riaContext;
-  if (normalized.startsWith("/consents")) return riaContext;
+  if (
+    normalized.startsWith(ROUTES.CONSENTS) ||
+    normalized.startsWith(ROUTES.LEGACY_CONSENTS)
+  ) {
+    return riaContext;
+  }
   return false;
 }
 

@@ -1170,6 +1170,7 @@ export function AgentChatWorkspace({
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<AgentChatConversation[]>([]);
   const [messages, setMessages] = useState<AgentMessage[]>(() => [createGreetingMessage()]);
+  const [queuedHandoffPrompt, setQueuedHandoffPrompt] = useState<string | null>(null);
   const consumeHandoff = useOneConversationSession((state) => state.consumeHandoff);
   const consumedHandoffIdRef = useRef<string | null>(null);
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -1226,6 +1227,7 @@ export function AgentChatWorkspace({
   const voiceSessionEpochRef = useRef(0);
   const voiceTtsSpeakingRef = useRef(false);
   const agentTurnSubmitLockRef = useRef(false);
+  const handoffPromptSubmitRef = useRef<((prompt: string) => Promise<void>) | null>(null);
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
   const inlineConsentRequestIdsRef = useRef<Set<string>>(new Set());
@@ -1673,6 +1675,11 @@ export function AgentChatWorkspace({
     const transcript = handoff.transcript?.trim();
     const assistantText = handoff.assistantText?.trim();
     const resultSummary = handoff.resultSummary?.trim();
+    if (handoff.reason === "user_requested" && transcript) {
+      setQueuedHandoffPrompt(transcript);
+      consumeHandoff(handoff.id);
+      return;
+    }
     if (transcript) {
       nextMessages.push({
         id: `handoff-${handoff.id}-user`,
@@ -3475,6 +3482,29 @@ export function AgentChatWorkspace({
       releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
     }
   };
+
+  handoffPromptSubmitRef.current = async (prompt: string) => {
+    if (hasChatAccess) {
+      await runAgentTurn(prompt, { source: "typed" });
+      return;
+    }
+    await runIntroTurn(prompt);
+  };
+
+  useEffect(() => {
+    const prompt = queuedHandoffPrompt?.trim();
+    if (!prompt || isChatLoading || isStreaming) return;
+    if (!tryAcquireAgentTurnSubmitLock(agentTurnSubmitLockRef)) return;
+    setQueuedHandoffPrompt(null);
+
+    void (async () => {
+      try {
+        await handoffPromptSubmitRef.current?.(prompt);
+      } finally {
+        releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
+      }
+    })();
+  }, [isChatLoading, isStreaming, queuedHandoffPrompt]);
 
   const setAgentVoiceStatus = useCallback((status: AgentVoiceStatus, message?: string | null) => {
     setVoiceState(status);

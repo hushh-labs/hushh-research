@@ -6,7 +6,6 @@ import {
   TrendingDown,
   Minus,
 
-  BarChart3,
   MessageSquareText,
   Trash2,
   Loader2,
@@ -549,10 +548,7 @@ function removeTickerFromHistoryMap(
 
 function EmptyState() {
   return (
-      <div className="flex max-w-xl flex-col items-start justify-center space-y-4 px-1 py-8">
-      <div className="rounded-full border border-primary/10 bg-primary/5 p-3">
-        <Icon icon={BarChart3} size={24} className="text-primary/70" aria-hidden="true" />
-      </div>
+    <div className="flex max-w-xl flex-col items-start justify-center space-y-2 px-1 py-8">
       <div className="space-y-2 text-left">
           <h3 className="text-[20px] font-medium leading-tight tracking-normal text-foreground">
             No analyses yet

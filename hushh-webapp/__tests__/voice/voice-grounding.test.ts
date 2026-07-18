@@ -1,16 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import { ROUTES } from "@/lib/navigation/routes";
+import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { resolveGroundedVoicePlan, VOICE_MANUAL_ONLY_MESSAGE } from "@/lib/voice/voice-grounding";
 import type { StructuredScreenContext } from "@/lib/voice/screen-context-builder";
 import type { AppRuntimeState, VoiceResponse } from "@/lib/voice/voice-types";
 
 function makeContext(pathname: string): StructuredScreenContext {
+  const [routePathname, routeQuery = ""] = pathname.split("?", 2);
+  const routeInfo = deriveVoiceRouteScreen(routePathname, routeQuery);
   return {
     route: {
       pathname,
-      screen: "profile",
-      subview: null,
+      screen: routeInfo.screen,
+      subview: routeInfo.subview ?? null,
       page_title: null,
       nav_stack: [],
     },
@@ -274,7 +277,7 @@ describe("resolveGroundedVoicePlan", () => {
     expect(plan.execution.steps).toHaveLength(0);
   });
 
-  it("prioritizes planner-grounded action over transcript heuristic when they diverge", () => {
+  it("prioritizes an explicit generated action over transcript heuristics", () => {
     const response: VoiceResponse = {
       kind: "execute",
       message: "Opening dashboard.",
@@ -291,21 +294,22 @@ describe("resolveGroundedVoicePlan", () => {
       transcript: "open gmail receipts",
       response,
       structuredContext: makeContext("/kai"),
+      canonicalActionId: "route.kai_dashboard",
+      allowCompatibilityFallback: false,
     });
 
     expect(plan.status).toBe("resolved");
     expect(plan.actionId).toBe("route.kai_dashboard");
-    expect(plan.execution.mode).toBe("direct_tool");
+    expect(plan.execution.mode).toBe("navigate_only");
     expect(plan.execution.steps).toEqual([
       {
-        type: "tool_call",
-        toolCall: {
-          tool_name: "execute_kai_command",
-          args: {
-            command: "dashboard",
-          },
+        type: "navigate",
+        href: "/one/kai?tab=portfolio",
+        reason: "route_bound_action",
+        settlementTarget: {
+          route: "/one/kai?tab=portfolio",
+          screen: "kai_portfolio_dashboard",
         },
-        reason: "wired_tool_action",
       },
     ]);
   });

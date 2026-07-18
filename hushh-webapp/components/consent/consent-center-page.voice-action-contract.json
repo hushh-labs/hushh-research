@@ -28,7 +28,7 @@
       ],
       "reachability": {
         "routes": [
-          "/consents"
+          "/one/consent"
         ],
         "screens": [
           "consents"

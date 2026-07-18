@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("/register-phone safe-area shell contract", () => {
-  it("sizes the page to exactly one viewport (minus the fixed Agent Bar's reserved clearance) so it never scrolls, and anchors content to the bottom for one-thumb reach", () => {
+  it("sizes the page to exactly one viewport and keeps the compact OTP step above the native keyboard", () => {
     const source = readFileSync(
       join(process.cwd(), "app/register-phone/page.tsx"),
       "utf8",
@@ -32,9 +32,10 @@ describe("/register-phone safe-area shell contract", () => {
     expect(source).toContain(
       "calc(18px + var(--app-safe-area-top-effective, 0px))",
     );
-    expect(source).toContain("justify-end");
-    // The root hero+OTP column anchors to the bottom (justify-end), not
-    // vertically centered as a whole, for one-thumb reach on tall phones.
+    expect(source).toContain("justify-start");
+    expect(source).toContain('verificationStep === "phone" ? "overflow-y-auto" : "overflow-hidden"');
+    // The identity mark is top-anchored like the vault credential flow, while
+    // the short OTP state does not introduce an inner scroll region.
     expect(source).not.toContain(
       "flex flex-1 flex-col items-center justify-center px-6 pb-6 text-center",
     );

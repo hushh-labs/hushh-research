@@ -174,6 +174,12 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
               Research
             </Link>
             <Link
+              href={ROUTES.BLOG}
+              className={styles.link}
+            >
+              Blog
+            </Link>
+            <Link
               href={ROUTES.DEVELOPERS}
               className={styles.link}
             >

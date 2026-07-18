@@ -23,7 +23,7 @@ function routeValuesFromRoutesTs(source) {
   return [
     ...new Set(
       [...source.matchAll(/\b[A-Z0-9_]+:\s*"([^"]+)"/g)].map(
-        (match) => match[1],
+        (match) => match[1] || "/",
       ),
     ),
   ].sort();
@@ -41,6 +41,16 @@ function routeValuesFromAppPages() {
     .sort();
 }
 
+/**
+ * Route constants can deliberately include a query-backed workspace view.
+ * They still resolve to the physical pathname and inherit that route's shell
+ * contract, but must remain distinct in the generated inventory so cache and
+ * native checks cannot silently miss a canonical tab selection.
+ */
+function pathnameForRoute(route) {
+  return String(route || "/").split(/[?#]/, 1)[0] || "/";
+}
+
 function walkFiles(dir, predicate, results = []) {
   if (!fs.existsSync(dir)) return results;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -55,17 +65,19 @@ function walkFiles(dir, predicate, results = []) {
 }
 
 function routeToPageFile(route) {
-  const candidate = route === "/" ? "app/page.tsx" : `app${route}/page.tsx`;
+  const pathname = pathnameForRoute(route);
+  const candidate = pathname === "/" ? "app/page.tsx" : `app${pathname}/page.tsx`;
   const absolute = path.join(appRoot, candidate);
   return fs.existsSync(absolute) ? candidate : null;
 }
 
 function routeToVoiceContractFile(route) {
-  const base = route === "/" ? "app" : `app${route}`;
+  const pathname = pathnameForRoute(route);
+  const base = pathname === "/" ? "app" : `app${pathname}`;
   const candidates = [
     `${base}/page.voice-action-contract.json`,
     `${base}/page-client.voice-action-contract.json`,
-    ...(route === "/one/setup/[capability]"
+    ...(pathname === "/one/setup/[capability]"
       ? [`${base}/one-onboarding-capability-step.voice-action-contract.json`]
       : []),
   ].filter((candidate) => fs.existsSync(path.join(appRoot, candidate)));
@@ -422,7 +434,10 @@ function buildSurfaceMap() {
     routes: routes.map((route) => {
       const pageFile = routeToPageFile(route);
       const voiceContractFile = routeToVoiceContractFile(route);
-      const routeContractEntry = contractByRoute.get(route) || null;
+      const routeContractEntry =
+        contractByRoute.get(route) ||
+        contractByRoute.get(pathnameForRoute(route)) ||
+        null;
       if (!routeContractEntry) {
         throw new Error(
           `Route ${route} is missing from app-route-layout.contract.json`,
@@ -486,15 +501,22 @@ function buildSurfaceMap() {
               },
             }
           : null,
-        native: inventoryByRoute.get(route) || null,
+        native:
+          inventoryByRoute.get(route) ||
+          inventoryByRoute.get(pathnameForRoute(route)) ||
+          null,
         shell: shellForPage(pageFile),
         voice_action_contract_file: voiceContractFile,
         voice_action_contract_ids: readVoiceActionIds(voiceContractFile),
-        api_dependencies: routeOverrides[route]?.api_dependencies || [],
+        api_dependencies:
+          (routeOverrides[route] || routeOverrides[pathnameForRoute(route)])
+            ?.api_dependencies || [],
         native_plugin_dependencies:
-          routeOverrides[route]?.native_plugin_dependencies || [],
+          (routeOverrides[route] || routeOverrides[pathnameForRoute(route)])
+            ?.native_plugin_dependencies || [],
         thread_and_consent_contract:
-          routeOverrides[route]?.thread_and_consent_contract || null,
+          (routeOverrides[route] || routeOverrides[pathnameForRoute(route)])
+            ?.thread_and_consent_contract || null,
       };
     }),
   };

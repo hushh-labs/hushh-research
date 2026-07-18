@@ -5,8 +5,50 @@
 
 export { ONE_SETUP_CAPABILITY_IDS } from "@/lib/onboarding/setup-capability-ids";
 
+/** The Finance workspace is a One-owned query-tabbed route, not a nested market page. */
+export const KAI_MARKET_PATH = "/one/kai";
+
+export type KaiMarketTab = "market" | "portfolio" | "analysis";
+
+function withQuery(
+  pathname: string,
+  entries: Record<string, string | null | undefined>,
+) {
+  const [basePath = pathname, existingQuery = ""] = pathname.split("?", 2);
+  const params = new URLSearchParams(existingQuery);
+
+  for (const [key, value] of Object.entries(entries)) {
+    const normalized = String(value ?? "").trim();
+    if (normalized) {
+      params.set(key, normalized);
+    }
+  }
+
+  const query = params.toString();
+  return query ? `${basePath}?${query}` : basePath;
+}
+
+/** Build every canonical Finance workspace URL from one path and explicit tab. */
+export function buildKaiMarketRoute(
+  tab: KaiMarketTab,
+  entries: Record<string, string | null | undefined> = {},
+) {
+  const { tab: _ignoredTab, ...safeEntries } = entries;
+  return withQuery(KAI_MARKET_PATH, { tab, ...safeEntries });
+}
+
+export function financeRoutePathname(value: string | null | undefined): string {
+  return String(value || "").split("?", 1)[0] || "";
+}
+
+export function isKaiMarketPathname(value: string | null | undefined): boolean {
+  return financeRoutePathname(value) === KAI_MARKET_PATH;
+}
+
 export const ROUTES = {
   HOME: "/",
+  /** Canonical public knowledge workspace; root remains anonymous onboarding. */
+  WELCOME: "/welcome",
   ONE_HOME: "/one",
   DEVELOPERS: "/developers",
   RESEARCH: "/research",
@@ -55,7 +97,10 @@ export const ROUTES = {
   PKM: "/one/pkm",
   ONE_MARKETPLACE: "/one/marketplace",
   CONNECTED_SYSTEMS: "/one/connected-systems",
-  CONSENTS: "/consents",
+  /** Canonical One workspace for consent review and access management. */
+  CONSENTS: "/one/consent",
+  /** Compatibility-only access manager route. Preserve inbound partner links. */
+  LEGACY_CONSENTS: "/consents",
   AGENT: "/agent",
   CONNECT: "/connect",
   MARKETPLACE: "/marketplace",
@@ -66,7 +111,9 @@ export const ROUTES = {
   LEGACY_GMAIL: "/gmail",
   LEGACY_PKM: "/pkm",
   LEGACY_CONNECTED_SYSTEMS: "/connected-systems",
+  /** Compatibility-only Finance root. Canonical navigation stays under One. */
   LEGACY_KAI_HOME: "/kai",
+  LEGACY_ONE_KAI_MARKET: "/one/kai/market",
   LEGACY_KAI_ONBOARDING: "/kai/onboarding",
   LEGACY_ONE_KAI_ONBOARDING: "/one/kai/onboarding",
   LEGACY_KAI_IMPORT: "/kai/import",
@@ -85,35 +132,18 @@ export const ROUTES = {
   RIA_PICKS: "/ria/picks",
   RIA_SETTINGS: "/ria/settings",
   RIA_PROFILE: "/ria/profile",
-  KAI_HOME: "/one/kai",
+  KAI_HOME: buildKaiMarketRoute("market"),
   KAI_SETUP: "/one/setup/finance",
   KAI_IMPORT: "/one/kai/import",
   KAI_PLAID_OAUTH_RETURN: "/one/kai/plaid/oauth/return",
   KAI_ALPACA_OAUTH_RETURN: "/one/kai/alpaca/oauth/return",
-  KAI_PORTFOLIO: "/one/kai/portfolio",
+  KAI_PORTFOLIO: buildKaiMarketRoute("portfolio"),
   KAI_INVESTMENTS: "/one/kai/investments",
   KAI_FUNDING_TRADE: "/one/kai/funding-trade",
-  KAI_DASHBOARD: "/one/kai/portfolio",
-  KAI_ANALYSIS: "/one/kai/analysis",
+  KAI_DASHBOARD: buildKaiMarketRoute("portfolio"),
+  KAI_ANALYSIS: buildKaiMarketRoute("analysis"),
   KAI_OPTIMIZE: "/one/kai/optimize",
 } as const;
-
-function withQuery(
-  pathname: string,
-  entries: Record<string, string | null | undefined>,
-) {
-  const params = new URLSearchParams();
-
-  for (const [key, value] of Object.entries(entries)) {
-    const normalized = String(value ?? "").trim();
-    if (normalized) {
-      params.set(key, normalized);
-    }
-  }
-
-  const query = params.toString();
-  return query ? `${pathname}?${query}` : pathname;
-}
 
 export function buildMarketplaceRiaProfileRoute(riaId?: string | null) {
   return withQuery(ROUTES.MARKETPLACE_RIA_PROFILE, { riaId });
@@ -281,6 +311,7 @@ export function resolveOnboardingCapabilityForRoute(
 export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
   return (
     pathname === ROUTES.HOME ||
+    pathname === ROUTES.WELCOME ||
     pathname === ROUTES.DEVELOPERS ||
     pathname === ROUTES.RESEARCH ||
     pathname.startsWith(`${ROUTES.RESEARCH}/`) ||
@@ -494,6 +525,7 @@ export function isOneSetupSurfaceRoute(pathname: string): boolean {
 export function isPublicRoute(pathname: string): boolean {
   return (
     pathname === ROUTES.HOME ||
+    pathname === ROUTES.WELCOME ||
     pathname === ROUTES.DEVELOPERS ||
     pathname === ROUTES.LOGIN ||
     pathname === ROUTES.GETTING_STARTED ||
@@ -516,6 +548,7 @@ export function isPublicRoute(pathname: string): boolean {
 export function isFoundationPublicRoute(pathname: string): boolean {
   return (
     pathname === ROUTES.HOME ||
+    pathname === ROUTES.WELCOME ||
     pathname === ROUTES.DEVELOPERS ||
     pathname === ROUTES.RESEARCH ||
     pathname.startsWith(`${ROUTES.RESEARCH}/`) ||

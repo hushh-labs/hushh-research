@@ -3,6 +3,7 @@
   "license": "Apache-2.0",
   "noticeSummary": "The published npm package ships package-local LICENSE and NOTICE files for Apache redistribution.",
   "tokenEnvVar": "HUSHH_DEVELOPER_TOKEN",
+  "mcpProtocolRevision": "2025-11-25",
   "promotedEnvironment": {
     "label": "UAT",
     "appUrl": "https://uat.one.hushh.ai",

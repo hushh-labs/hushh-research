@@ -29,8 +29,7 @@
       ],
       "reachability": {
         "routes": [
-          "/one/kai",
-          "/one/kai/home"
+          "/one/kai?tab=market"
         ],
         "screens": [
           "kai_market"
@@ -43,8 +42,8 @@
       "execution_policy": "allow_direct",
       "execution_target": {
         "status": "wired",
-        "path": "kai_command",
-        "target": "home"
+        "path": "route",
+        "target": "/one/kai?tab=market"
       },
       "control_ids": [
         "top_agent_section_finance"

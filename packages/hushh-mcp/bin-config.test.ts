@@ -47,7 +47,7 @@ describe("hushh-mcp CLI config output", () => {
 
     expect(stderr).toBe("");
     const manifest = JSON.parse(stdout);
-    expect(manifest.protocolVersion).toBe("2024-11-05");
+    expect(manifest.protocolVersion).toBe("2025-11-25");
     expect(manifest.transport).toEqual({
       kind: "streamableHttp",
       path: "/mcp/",

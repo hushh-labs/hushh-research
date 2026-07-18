@@ -29,7 +29,6 @@ function HomeContent() {
   const [step, setStep] = useState<HomeStep | null>(null);
 
   const forceOnboardingInDev = resolveAppEnvironment() === "development";
-
   // Debug helper (browser console): resets Steps 1-2 visibility flag.
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
@@ -60,7 +59,7 @@ function HomeContent() {
     // dev-only force-intro flag is consumed so it does not persist.
     void OnboardingLocalService.consumeForceIntroOnce();
     setStep("intro");
-  }, [loading, user, router, forceOnboardingInDev]);
+  }, [forceOnboardingInDev, loading, user, router]);
 
   if (loading || (!user && step === null)) {
     return <HushhLoader variant="fullscreen" label="Preparing welcome…" />;

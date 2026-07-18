@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-
 /*
  * The Location introduction is mounted only after the client has resolved a
  * vault-backed first-run state. Tailwind's incremental scanner cannot infer
@@ -84,7 +83,11 @@ html body[data-scroll-locked] {
 }
 
 /* Eliminate 300ms tap delay globally on mobile */
-a, button, input, select, textarea {
+a,
+button,
+input,
+select,
+textarea {
   touch-action: manipulation;
 }
 
@@ -155,8 +158,12 @@ a, button, input, select, textarea {
   /* Centralized app typography variables.
    * Foundation v1.0 uses SF through the system stack only.
    * Do not add @font-face or bundled SF font files. */
-  --font-app-display: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
-  --font-app-body: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --font-app-display:
+    "SF Pro Display", -apple-system, BlinkMacSystemFont, "Helvetica Neue",
+    sans-serif;
+  --font-app-body:
+    "SF Pro Text", -apple-system, BlinkMacSystemFont, "Helvetica Neue",
+    sans-serif;
   --font-app-heading: var(--font-app-display);
   --font-app-mono: var(--font-app-body);
 
@@ -249,15 +256,15 @@ a, button, input, select, textarea {
   /* Values are the EXACT Apple Blue v2 recipe from the Location redesign
      (the reference implementation): pure system blue #007aff carries both
      text and fills on light — never a derived darker tone. */
-  --app-accent: #007aff;                    /* solid fills / CTAs */
-  --app-accent-deep: #007aff;               /* TEXT / icons on light = same system blue */
-  --app-accent-bright: #4a9eff;             /* dark-mode solid partner */
-  --app-accent-tint: rgba(0, 122, 255, 0.10);
-  --app-accent-surface: #e6f0ff;            /* Location's active-pill fill */
+  --app-accent: #007aff; /* solid fills / CTAs */
+  --app-accent-deep: #007aff; /* TEXT / icons on light = same system blue */
+  --app-accent-bright: #4a9eff; /* dark-mode solid partner */
+  --app-accent-tint: rgba(0, 122, 255, 0.1);
+  --app-accent-surface: #e6f0ff; /* Location's active-pill fill */
   --app-accent-surface-strong: #d4e5ff;
   --app-accent-border: rgba(0, 122, 255, 0.32);
-  --app-accent-fg: #ffffff;                 /* text on solid accent */
-  --app-accent-hover: #0070ea;              /* pressed/hover partner of the solid fill */
+  --app-accent-fg: #ffffff; /* text on solid accent */
+  --app-accent-hover: #0070ea; /* pressed/hover partner of the solid fill */
   --app-accent-ring: rgba(0, 122, 255, 0.25);
   /* Hero gradient stops (intro "One" molten text + wordmark "ssh" + brand
      glyph strokes). Blue-to-dark: deep navy edges into the system blue with
@@ -365,13 +372,22 @@ a, button, input, select, textarea {
   --app-safe-area-bottom-effective: var(--app-safe-area-bottom);
   /* Fixed bottom navbar clearance fallback (before runtime measurement). */
   --bottom-nav-offset: 88px;
+  --app-bottom-shell-max-width: 48rem;
+  /* The desktop Agent Bar and navigation share the same dock chassis. Keeping
+   * these widths aligned prevents a narrow voice input above a wide nav pill. */
+  --app-agent-bar-max-width: var(--app-bottom-shell-max-width);
   /* Runtime-measured bottom fixed UI (Navbar / floating theme pill). Overridden by navbar at runtime. */
   --app-bottom-fixed-ui: var(--bottom-nav-offset);
   --app-bottom-route-group-width: 58px;
   --app-bottom-chrome-lift: 0px;
-  --bottom-chrome-fade-overscan: 8px;
+  /* Visual-only tail for the persistent dock. It deliberately does not affect
+   * scroll clearance: the fade can dissolve content above the Agent Bar without
+   * moving controls or shrinking the usable viewport. */
+  --bottom-chrome-fade-overscan: 10px;
+  --bottom-chrome-fade-tail: 52px;
   --app-bottom-inset: calc(
-    var(--app-bottom-fixed-ui) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift)
+    var(--app-bottom-fixed-ui) + var(--app-safe-area-bottom-effective) +
+      var(--app-bottom-chrome-lift)
   );
   /* The Agent Bar is a separate fixed control above the nav, never a layer
    * within it. Keep a visible gap so text/input hit targets cannot underlap
@@ -384,14 +400,21 @@ a, button, input, select, textarea {
    * Use the raw safe-area value here because it is also the coordinate space
    * used by the fixed Agent Bar on web and native onboarding surfaces.
    */
-  --onboarding-agent-bar-bottom-offset: calc(var(--app-safe-area-bottom) + 0.75rem);
-  --onboarding-agent-bar-clearance: calc(var(--onboarding-agent-bar-bottom-offset) + 3rem);
+  --onboarding-agent-bar-bottom-offset: calc(
+    var(--app-safe-area-bottom) + 0.75rem
+  );
+  --onboarding-agent-bar-clearance: calc(
+    var(--onboarding-agent-bar-bottom-offset) + 3rem
+  );
   --kai-command-fixed-ui: 82px;
   --kai-command-bottom-gap: 12px;
   --app-screen-footer-pad: calc(8px + var(--app-bottom-inset));
   --app-top-safe-offset: 0px;
   --app-safe-area-top-probe: 0px;
-  --app-safe-area-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --app-safe-area-top: var(
+    --safe-area-inset-top,
+    env(safe-area-inset-top, 0px)
+  );
   --app-safe-area-top-effective: max(
     var(--app-safe-area-top),
     env(safe-area-max-inset-top, 0px),
@@ -399,7 +422,7 @@ a, button, input, select, textarea {
   );
   --app-top-bar-height: 72px;
   --kai-route-tabs-height: 32px;
-  --kai-route-tabs-content-gap: 8px;
+  --kai-route-tabs-content-gap: 14px;
   /* Global top-shell geometry contract (consumed by providers + top-app-bar).
    * Keep these tokens defined at root so web and native share deterministic spacing. */
   --top-shell-safe-area: var(--app-safe-area-top-effective);
@@ -417,7 +440,7 @@ a, button, input, select, textarea {
   /* Single visual clearance between the fixed top shell and the first page block.
    * `--page-top-start` is the body-start gap token designers inspect/tune directly.
    * The actual structural spacer adds reserved shell height on top of this value. */
-  --page-top-start: 32px;
+  --page-top-start: 40px;
   --app-top-body-start-gap: var(--page-top-start);
   --page-top-local-offset: 0px;
   --app-shell-reading: 54rem;
@@ -426,9 +449,12 @@ a, button, input, select, textarea {
   --top-systembar-row-gap: 4px;
   --top-shell-row-gap: var(--top-systembar-row-gap);
   --top-shell-reserved-height: calc(
-    var(--top-inset) + var(--top-systembar-row-gap) + var(--top-bar-h) + var(--top-tabs-total)
+    var(--top-inset) + var(--top-systembar-row-gap) + var(--top-bar-h) +
+      var(--top-tabs-total)
   );
-  --top-shell-visual-height: calc(var(--top-shell-reserved-height) + var(--top-fade-active));
+  --top-shell-visual-height: calc(
+    var(--top-shell-reserved-height) + var(--top-fade-active)
+  );
   --top-shell-h: var(--top-shell-reserved-height);
   --top-glass-h: var(--top-shell-visual-height);
   --app-top-mask-tail-clearance: calc(
@@ -441,7 +467,8 @@ a, button, input, select, textarea {
     var(--top-shell-reserved-height) + var(--app-top-mask-tail-clearance)
   );
   --top-content-pad: calc(
-    var(--top-shell-visual-height) + var(--top-subnav-total, 0px) + var(--top-content-safe-gap)
+    var(--top-shell-visual-height) + var(--top-subnav-total, 0px) +
+      var(--top-content-safe-gap)
   );
   --page-inline-gutter-standard: 12px;
   --page-surface-overscan: 0px;
@@ -518,8 +545,9 @@ a, button, input, select, textarea {
   --motion-deck-scale-active: 1.14;
   --motion-deck-scale-adjacent: 0.9;
   --motion-deck-scale-other: 0.84;
-  /* Foundation (bible): light bg off-white #f5f5f7, ink text #1d1d1f, white cards */
-  --background: oklch(0.971 0.003 286.4);
+  /* Foundation (bible): a bright white canvas carries the ambient wash while
+     cards remain legible without reverting the app to an opaque flat page. */
+  --background: #ffffff;
   --foreground: oklch(0.232 0.004 286.1);
   --card: #ffffff;
   --card-foreground: oklch(0.232 0.004 286.1);
@@ -588,10 +616,11 @@ a, button, input, select, textarea {
   --tone-green-glow: rgba(22, 163, 74, 0.26);
   --tone-orange-glow: rgba(249, 115, 22, 0.28);
 
-  /* App Background - Apple iCloud light: uniform off-white */
-  --app-bg-start: #f5f5f7;
-  --app-bg-mid: #f5f5f7;
-  --app-bg-end: #f5f5f7;
+  /* App Background - bright Foundation canvas; the shared ambient layer
+     supplies its accent depth rather than a separate route gradient. */
+  --app-bg-start: #ffffff;
+  --app-bg-mid: #ffffff;
+  --app-bg-end: #ffffff;
 
   --glass1: #ffffff60 !important;
   --glass2: #6464643b !important;
@@ -658,14 +687,16 @@ a, button, input, select, textarea {
   --app-card-border-standard: rgba(60, 60, 67, 0.09);
   --app-card-border-strong: rgba(60, 60, 67, 0.18);
   --app-card-shadow-standard:
-    0 1px 2px rgba(15, 23, 42, 0.04),
-    0 14px 32px -18px rgba(15, 23, 42, 0.18),
+    0 1px 2px rgba(15, 23, 42, 0.04), 0 14px 32px -18px rgba(15, 23, 42, 0.18),
     0 10px 18px -14px rgba(120, 120, 128, 0.16);
   --app-card-shadow-feature:
-    0 2px 4px rgba(15, 23, 42, 0.06),
-    0 22px 48px -24px rgba(15, 23, 42, 0.22),
+    0 2px 4px rgba(15, 23, 42, 0.06), 0 22px 48px -24px rgba(15, 23, 42, 0.22),
     0 14px 24px -18px rgba(120, 120, 128, 0.18);
-  --app-list-row-surface: color-mix(in srgb, var(--app-card-surface-default-solid) 90%, transparent);
+  --app-list-row-surface: color-mix(
+    in srgb,
+    var(--app-card-surface-default-solid) 90%,
+    transparent
+  );
   --app-segmented-active-surface: #ffffff;
   --app-segmented-active-foreground: #000000;
   --app-segmented-active-border: #000000;
@@ -673,8 +704,16 @@ a, button, input, select, textarea {
   --app-shell-surface-bg-hover: rgba(255, 255, 255, 0.98);
   --app-shell-surface-border: rgba(255, 255, 255, 0.68);
   --app-shell-surface-foreground: #111827;
-  --app-shell-surface-fill: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0.88) 100%);
-  --app-shell-surface-shadow: 0 18px 36px -18px rgba(120, 120, 128, 0.28), 0 10px 18px -12px rgba(120, 120, 128, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.98), inset 0 -0.5px 0 rgba(120, 120, 128, 0.09);
+  --app-shell-surface-fill: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.98) 0%,
+    rgba(255, 255, 255, 0.88) 100%
+  );
+  --app-shell-surface-shadow:
+    0 18px 36px -18px rgba(120, 120, 128, 0.28),
+    0 10px 18px -12px rgba(120, 120, 128, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    inset 0 -0.5px 0 rgba(120, 120, 128, 0.09);
   --app-shell-surface-blur: 20px;
 }
 
@@ -698,7 +737,7 @@ a, button, input, select, textarea {
     --top-content-safe-gap: 16px;
     --page-top-body-gap: 22px;
     --app-top-body-start-gap: 32px;
-    --bottom-chrome-fade-overscan: 8px;
+    --bottom-chrome-fade-overscan: 10px;
     --top-subnav-gap: 14px;
     --page-inline-gutter-standard: 20px;
     --page-surface-overscan: 8px;
@@ -904,6 +943,13 @@ html.kb-open [data-slot="dialog-content"] {
   pointer-events: none;
 }
 
+/* Activity is a shell extension, not a separate black canvas. Its mobile sheet
+ * keeps the active route's Foundation background visible through the shared
+ * modal blur in both themes. */
+.activity-inbox-sheet-overlay {
+  background-color: color-mix(in oklab, var(--background) 86%, transparent) !important;
+}
+
 /* Anchor clearance: hash-targeted elements must clear the fixed top shell */
 [id]:target,
 [data-page-primary][id],
@@ -952,6 +998,15 @@ html.kb-open [data-slot="dialog-content"] {
 
 .app-page-shell[data-app-shell-width="expanded"] {
   max-width: var(--app-shell-expanded);
+}
+
+@media (min-width: 1280px) {
+  :root {
+    --top-bar-h: 64px;
+    --top-systembar-row-gap: 0px;
+    --top-fade-active: 12px;
+    --app-bottom-shell-max-width: 40rem;
+  }
 }
 
 .app-page-header-region + .app-page-content-region,
@@ -1044,13 +1099,15 @@ html.native-ios {
     transparent
   );
   filter: blur(0.4px);
-  animation: intro-feature-rail-scan 1500ms var(--motion-ease-emphasized) 160ms both;
+  animation: intro-feature-rail-scan 1500ms var(--motion-ease-emphasized) 160ms
+    both;
 }
 
 .intro-feature-item {
   opacity: 0;
   transform: translateY(8px);
-  animation: intro-feature-enter 620ms var(--motion-ease-emphasized) var(--intro-feature-delay, 0ms) forwards;
+  animation: intro-feature-enter 620ms var(--motion-ease-emphasized)
+    var(--intro-feature-delay, 0ms) forwards;
 }
 
 .intro-feature-icon {
@@ -1277,7 +1334,8 @@ html.native-ios {
 .one-constellation-node {
   opacity: 0;
   transform: scale(0.6);
-  animation: one-node-enter 520ms var(--motion-ease-emphasized) var(--one-node-delay, 0ms) forwards;
+  animation: one-node-enter 520ms var(--motion-ease-emphasized)
+    var(--one-node-delay, 0ms) forwards;
 }
 
 .one-constellation-node--active .one-constellation-node-ring {
@@ -1288,7 +1346,8 @@ html.native-ios {
   transform-origin: left center;
   transform: scaleX(0);
   opacity: 0;
-  animation: one-line-draw 620ms var(--motion-ease-decelerate) var(--one-node-delay, 0ms) forwards;
+  animation: one-line-draw 620ms var(--motion-ease-decelerate)
+    var(--one-node-delay, 0ms) forwards;
 }
 
 @keyframes one-node-enter {
@@ -1349,7 +1408,8 @@ html.native-ios {
   opacity: 0;
   transform: translate3d(0, 40px, 0) rotate(0deg) scale(0.9);
   animation:
-    one-deck-deal 900ms var(--motion-ease-emphasized) var(--deck-delay, 0ms) forwards,
+    one-deck-deal 900ms var(--motion-ease-emphasized) var(--deck-delay, 0ms)
+      forwards,
     one-deck-float 7s ease-in-out var(--deck-float-delay, 1200ms) infinite;
 }
 
@@ -1382,7 +1442,8 @@ html.native-ios {
   display: inline-block;
   opacity: 0;
   transform: translate3d(0, 0.5em, 0);
-  animation: one-word-rise 620ms var(--motion-ease-emphasized) var(--word-delay, 0ms) forwards;
+  animation: one-word-rise 620ms var(--motion-ease-emphasized)
+    var(--word-delay, 0ms) forwards;
 }
 
 @keyframes one-word-rise {
@@ -1397,7 +1458,8 @@ html.native-ios {
   .one-hero-word {
     animation: none;
     opacity: 1;
-    transform: translate3d(var(--deck-x, 0), var(--deck-y, 0), 0) rotate(var(--deck-rot, 0deg));
+    transform: translate3d(var(--deck-x, 0), var(--deck-y, 0), 0)
+      rotate(var(--deck-rot, 0deg));
   }
 }
 
@@ -1425,20 +1487,40 @@ html.native-ios {
 }
 
 @keyframes one-aurora-a {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  50% { transform: translate3d(8%, 10%, 0) scale(1.15); }
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(8%, 10%, 0) scale(1.15);
+  }
 }
 @keyframes one-aurora-b {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1.1); }
-  50% { transform: translate3d(-10%, 6%, 0) scale(0.95); }
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.1);
+  }
+  50% {
+    transform: translate3d(-10%, 6%, 0) scale(0.95);
+  }
 }
 @keyframes one-aurora-c {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  50% { transform: translate3d(6%, -12%, 0) scale(1.2); }
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(6%, -12%, 0) scale(1.2);
+  }
 }
 @keyframes one-aurora-d {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1.05); }
-  50% { transform: translate3d(-8%, -8%, 0) scale(0.9); }
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.05);
+  }
+  50% {
+    transform: translate3d(-8%, -8%, 0) scale(0.9);
+  }
 }
 
 /* Slow-drifting fine grain/particles layer (a whisper of texture + life). */
@@ -1447,13 +1529,24 @@ html.native-ios {
   border-radius: 9999px;
   background: currentColor;
   opacity: 0;
-  animation: one-particle-drift var(--p-dur, 9s) ease-in-out var(--p-delay, 0ms) infinite;
+  animation: one-particle-drift var(--p-dur, 9s) ease-in-out var(--p-delay, 0ms)
+    infinite;
 }
 @keyframes one-particle-drift {
-  0% { opacity: 0; transform: translate3d(0, 8px, 0); }
-  30% { opacity: var(--p-opacity, 0.5); }
-  70% { opacity: var(--p-opacity, 0.5); }
-  100% { opacity: 0; transform: translate3d(0, -18px, 0); }
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+  }
+  30% {
+    opacity: var(--p-opacity, 0.5);
+  }
+  70% {
+    opacity: var(--p-opacity, 0.5);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -18px, 0);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1461,7 +1554,9 @@ html.native-ios {
   .one-particle {
     animation: none;
   }
-  .one-particle { opacity: 0.25; }
+  .one-particle {
+    opacity: 0.25;
+  }
 }
 
 /* Agent bar edge glow: a STILL soft gold gradient rim (no idle spin). It only
@@ -1500,11 +1595,18 @@ html.native-ios {
   animation: none;
 }
 @keyframes one-bar-breathe {
-  0%, 100% { opacity: 0.55; }
-  50% { opacity: 0.9; }
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.9;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .one-bar-aurora--active { animation: none; }
+  .one-bar-aurora--active {
+    animation: none;
+  }
 }
 
 /* ── Cinematic launch sequence (welcome hero) ── */
@@ -1518,7 +1620,8 @@ html.native-ios {
 .one-ignite-bloom {
   opacity: 0;
   transform: scale(0.4);
-  animation: one-ignite-bloom 1600ms var(--motion-ease-decelerate) 120ms forwards;
+  animation: one-ignite-bloom 1600ms var(--motion-ease-decelerate) 120ms
+    forwards;
 }
 .one-ignite-ring {
   opacity: 0;
@@ -1526,28 +1629,59 @@ html.native-ios {
   animation: one-ignite-ring 1800ms var(--motion-ease-decelerate) 560ms forwards;
 }
 @keyframes one-ignite {
-  0% { opacity: 0; transform: scale(0.7); filter: brightness(2.2); }
-  55% { opacity: 1; transform: scale(1.08); filter: brightness(1.4); }
-  100% { opacity: 1; transform: scale(1); filter: brightness(1); }
+  0% {
+    opacity: 0;
+    transform: scale(0.7);
+    filter: brightness(2.2);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(1.08);
+    filter: brightness(1.4);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: brightness(1);
+  }
 }
 @keyframes one-ignite-bloom {
-  0% { opacity: 0; transform: scale(0.4); }
-  40% { opacity: 0.9; transform: scale(1.05); }
-  100% { opacity: 0.5; transform: scale(1); }
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  40% {
+    opacity: 0.9;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
 }
 @keyframes one-ignite-ring {
-  0% { opacity: 0.7; transform: scale(0.6); }
-  100% { opacity: 0; transform: scale(1.9); }
+  0% {
+    opacity: 0.7;
+    transform: scale(0.6);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.9);
+  }
 }
 
 /* Headline + proof rise in AFTER the ignite (staggered). */
 .one-seq-rise {
   opacity: 0;
   transform: translate3d(0, 16px, 0);
-  animation: one-seq-rise 700ms var(--motion-ease-emphasized) var(--seq-delay, 900ms) forwards;
+  animation: one-seq-rise 700ms var(--motion-ease-emphasized)
+    var(--seq-delay, 900ms) forwards;
 }
 @keyframes one-seq-rise {
-  to { opacity: 1; transform: translate3d(0, 0, 0); }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -1601,7 +1735,12 @@ html.native-ios {
   position: absolute;
   border-radius: 50%;
   pointer-events: none;
-  background: radial-gradient(circle, rgba(244, 215, 154, 0.22) 0%, rgba(184, 137, 77, 0.05) 50%, transparent 100%);
+  background: radial-gradient(
+    circle,
+    rgba(244, 215, 154, 0.22) 0%,
+    rgba(184, 137, 77, 0.05) 50%,
+    transparent 100%
+  );
   animation: canvas-ripple-burst 900ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
   z-index: 10;
 }
@@ -1618,14 +1757,32 @@ html.native-ios {
   animation: one-glow-breathe-alt 22s ease-in-out infinite;
 }
 @keyframes one-glow-breathe {
-  0%   { transform: translate(-50%, 0) scale(1);     opacity: 0.82; }
-  50%  { transform: translate(-50%, 2%) scale(1.08); opacity: 1; }
-  100% { transform: translate(-50%, 0) scale(1);     opacity: 0.82; }
+  0% {
+    transform: translate(-50%, 0) scale(1);
+    opacity: 0.82;
+  }
+  50% {
+    transform: translate(-50%, 2%) scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, 0) scale(1);
+    opacity: 0.82;
+  }
 }
 @keyframes one-glow-breathe-alt {
-  0%   { transform: scale(1);    opacity: 0.55; }
-  50%  { transform: scale(1.12); opacity: 0.8; }
-  100% { transform: scale(1);    opacity: 0.55; }
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
 }
 
 /* ── Drifting motes ── barely-there floating specks. */
@@ -1636,26 +1793,45 @@ html.native-ios {
   opacity: var(--m-opacity, 0.25);
   filter: blur(0.3px);
   box-shadow: 0 0 6px currentColor;
-  animation: one-mote-drift var(--m-dur, 12s) ease-in-out var(--m-delay, 0ms) infinite;
+  animation: one-mote-drift var(--m-dur, 12s) ease-in-out var(--m-delay, 0ms)
+    infinite;
 }
 @keyframes one-mote-drift {
-  0%   { transform: translate3d(0, 0, 0);        opacity: 0; }
-  15%  { opacity: var(--m-opacity, 0.25); }
-  50%  { transform: translate3d(6px, -14px, 0); }
-  85%  { opacity: var(--m-opacity, 0.25); }
-  100% { transform: translate3d(-4px, -26px, 0); opacity: 0; }
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0;
+  }
+  15% {
+    opacity: var(--m-opacity, 0.25);
+  }
+  50% {
+    transform: translate3d(6px, -14px, 0);
+  }
+  85% {
+    opacity: var(--m-opacity, 0.25);
+  }
+  100% {
+    transform: translate3d(-4px, -26px, 0);
+    opacity: 0;
+  }
 }
 
 /* ── Film grain ── fine static tooth so the canvas never looks flat CSS. */
 .one-grain {
   pointer-events: none;
   opacity: 0.035;
-  background-image: radial-gradient(rgba(0, 0, 0, 0.9) 0.5px, transparent 0.6px);
+  background-image: radial-gradient(
+    rgba(0, 0, 0, 0.9) 0.5px,
+    transparent 0.6px
+  );
   background-size: 3px 3px;
 }
 .dark .one-grain {
   opacity: 0.08;
-  background-image: radial-gradient(rgba(255, 255, 255, 0.9) 0.5px, transparent 0.6px);
+  background-image: radial-gradient(
+    rgba(255, 255, 255, 0.9) 0.5px,
+    transparent 0.6px
+  );
 }
 
 /* ── Assembled reveal ── each line rises + un-blurs with a soft spring. Uses
@@ -1664,11 +1840,16 @@ html.native-ios {
   opacity: 0;
   transform: translate3d(0, 14px, 0);
   filter: blur(6px);
-  animation: one-reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) var(--seq-delay, 0ms) forwards;
+  animation: one-reveal 780ms cubic-bezier(0.16, 1, 0.3, 1)
+    var(--seq-delay, 0ms) forwards;
   will-change: opacity, transform, filter;
 }
 @keyframes one-reveal {
-  to { opacity: 1; transform: translate3d(0, 0, 0); filter: blur(0); }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    filter: blur(0);
+  }
 }
 
 /* ── Capability line ── a lit dot + label + descriptor; hover draws a gold
@@ -1692,19 +1873,39 @@ html.native-ios {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, var(--app-accent-hero-to), var(--app-accent) 45%, var(--app-accent-hero-from) 100%);
-  box-shadow: 0 0 0 4px var(--app-accent-tint), 0 0 10px 0 var(--app-accent-ring);
+  background: radial-gradient(
+    circle at 35% 30%,
+    var(--app-accent-hero-to),
+    var(--app-accent) 45%,
+    var(--app-accent-hero-from) 100%
+  );
+  box-shadow:
+    0 0 0 4px var(--app-accent-tint),
+    0 0 10px 0 var(--app-accent-ring);
   transition: box-shadow 320ms var(--motion-ease-decelerate);
 }
 .dark .one-cap-dot {
-  background: radial-gradient(circle at 35% 30%, var(--app-accent-hero-to), var(--app-accent-deep) 45%, var(--app-accent-hero-from) 100%);
-  box-shadow: 0 0 0 4px var(--app-accent-tint), 0 0 12px 0 var(--app-accent-ring);
+  background: radial-gradient(
+    circle at 35% 30%,
+    var(--app-accent-hero-to),
+    var(--app-accent-deep) 45%,
+    var(--app-accent-hero-from) 100%
+  );
+  box-shadow:
+    0 0 0 4px var(--app-accent-tint),
+    0 0 12px 0 var(--app-accent-ring);
 }
 .one-cap-row:hover .one-cap-dot {
-  box-shadow: 0 0 0 5px var(--app-accent-tint), 0 0 16px 2px var(--app-accent-ring);
+  box-shadow:
+    0 0 0 5px var(--app-accent-tint),
+    0 0 16px 2px var(--app-accent-ring);
 }
 .one-cap-underline {
-  background-image: linear-gradient(90deg, rgba(184, 137, 77, 0.6), rgba(212, 165, 116, 0));
+  background-image: linear-gradient(
+    90deg,
+    rgba(184, 137, 77, 0.6),
+    rgba(212, 165, 116, 0)
+  );
   background-repeat: no-repeat;
   background-position: 0 100%;
   background-size: 0% 1.5px;
@@ -1715,7 +1916,11 @@ html.native-ios {
   background-size: 100% 1.5px;
 }
 .dark .one-cap-underline {
-  background-image: linear-gradient(90deg, rgba(231, 192, 120, 0.65), rgba(231, 192, 120, 0));
+  background-image: linear-gradient(
+    90deg,
+    rgba(231, 192, 120, 0.65),
+    rgba(231, 192, 120, 0)
+  );
 }
 
 /* ── Hand-drawn capability glyphs ── self-draw on mount + living details. ── */
@@ -1737,11 +1942,18 @@ html.native-ios {
   transform-origin: 50% 55%;
 }
 @keyframes one-glyph-trace {
-  to { stroke-dashoffset: 0; }
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 @keyframes one-glyph-settle {
-  0%, 100% { transform: rotate(-0.6deg) translateY(0); }
-  50%      { transform: rotate(0.8deg) translateY(-0.6px); }
+  0%,
+  100% {
+    transform: rotate(-0.6deg) translateY(0);
+  }
+  50% {
+    transform: rotate(0.8deg) translateY(-0.6px);
+  }
 }
 /* coin glint */
 .one-glyph-glint {
@@ -1750,8 +1962,16 @@ html.native-ios {
   animation-delay: calc(var(--glyph-delay, 0ms) + 900ms);
 }
 @keyframes one-glint {
-  0%, 70%, 100% { opacity: 0.2; transform: scale(0.7); }
-  82%           { opacity: 1;   transform: scale(1.25); }
+  0%,
+  70%,
+  100% {
+    opacity: 0.2;
+    transform: scale(0.7);
+  }
+  82% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
 }
 /* memory pulse */
 .one-glyph-pulse {
@@ -1760,8 +1980,15 @@ html.native-ios {
   animation-delay: calc(var(--glyph-delay, 0ms) + 800ms);
 }
 @keyframes one-glyph-pulse {
-  0%, 100% { opacity: 0.7; transform: scale(0.9); }
-  50%      { opacity: 1;   transform: scale(1.15); }
+  0%,
+  100% {
+    opacity: 0.7;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
 }
 /* place ping */
 .one-glyph-ping {
@@ -1771,9 +1998,18 @@ html.native-ios {
   animation-delay: calc(var(--glyph-delay, 0ms) + 900ms);
 }
 @keyframes one-glyph-ping {
-  0%   { opacity: 0.9; transform: scale(0.4); }
-  70%  { opacity: 0;   transform: scale(1.9); }
-  100% { opacity: 0;   transform: scale(1.9); }
+  0% {
+    opacity: 0.9;
+    transform: scale(0.4);
+  }
+  70% {
+    opacity: 0;
+    transform: scale(1.9);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.9);
+  }
 }
 
 /* ── Gold-glass capability tile ── holds a glyph + label + note. Soft elevated
@@ -1782,8 +2018,11 @@ html.native-ios {
   position: relative;
   overflow: hidden;
   border-radius: var(--app-card-radius-standard, 22px);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 249, 238, 0.45) 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.7) 0%,
+    rgba(255, 249, 238, 0.45) 100%
+  );
   border: 1px solid rgba(184, 137, 77, 0.2);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.6) inset,
@@ -1797,7 +2036,11 @@ html.native-ios {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(120% 90% at 100% 0%, rgba(244, 215, 154, 0.4) 0%, rgba(244, 215, 154, 0) 55%);
+  background: radial-gradient(
+    120% 90% at 100% 0%,
+    rgba(244, 215, 154, 0.4) 0%,
+    rgba(244, 215, 154, 0) 55%
+  );
   pointer-events: none;
 }
 .one-glyph-tile:hover {
@@ -1808,15 +2051,22 @@ html.native-ios {
     0 22px 40px -18px rgba(58, 38, 12, 0.44);
 }
 .dark .one-glyph-tile {
-  background:
-    linear-gradient(180deg, rgba(38, 31, 21, 0.66) 0%, rgba(22, 17, 11, 0.55) 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(38, 31, 21, 0.66) 0%,
+    rgba(22, 17, 11, 0.55) 100%
+  );
   border-color: rgba(231, 192, 120, 0.18);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.05) inset,
     0 16px 32px -18px rgba(0, 0, 0, 0.7);
 }
 .dark .one-glyph-tile::before {
-  background: radial-gradient(120% 90% at 100% 0%, rgba(231, 192, 120, 0.22) 0%, rgba(231, 192, 120, 0) 55%);
+  background: radial-gradient(
+    120% 90% at 100% 0%,
+    rgba(231, 192, 120, 0.22) 0%,
+    rgba(231, 192, 120, 0) 55%
+  );
 }
 .dark .one-glyph-tile:hover {
   border-color: rgba(231, 192, 120, 0.36);
@@ -1832,10 +2082,18 @@ html.native-ios {
   width: 46px;
   height: 46px;
   border-radius: 14px;
-  background: radial-gradient(closest-side, rgba(244, 215, 154, 0.3), rgba(244, 215, 154, 0) 75%);
+  background: radial-gradient(
+    closest-side,
+    rgba(244, 215, 154, 0.3),
+    rgba(244, 215, 154, 0) 75%
+  );
 }
 .dark .one-glyph-well {
-  background: radial-gradient(closest-side, rgba(231, 192, 120, 0.2), rgba(231, 192, 120, 0) 75%);
+  background: radial-gradient(
+    closest-side,
+    rgba(231, 192, 120, 0.2),
+    rgba(231, 192, 120, 0) 75%
+  );
 }
 
 /* ── Magnetic CTA sheen ── a gold light sweeps across the button on hover. */
@@ -1862,10 +2120,24 @@ html.native-ios {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .one-hero-glow, .one-hero-glow--alt, .one-mote { animation: none; }
-  .one-reveal { animation: none; opacity: 1; transform: none; filter: none; }
-  .one-cap-underline, .one-cap-dot { transition: none; }
-  .one-cta::after { display: none; }
+  .one-hero-glow,
+  .one-hero-glow--alt,
+  .one-mote {
+    animation: none;
+  }
+  .one-reveal {
+    animation: none;
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+  .one-cap-underline,
+  .one-cap-dot {
+    transition: none;
+  }
+  .one-cta::after {
+    display: none;
+  }
   .one-glyph-draw path,
   .one-glyph-draw ellipse,
   .one-glyph-draw circle {
@@ -1875,8 +2147,12 @@ html.native-ios {
   .one-glyph-tile svg,
   .one-glyph-glint,
   .one-glyph-pulse,
-  .one-glyph-ping { animation: none; }
-  .one-glyph-tile { transition: none; }
+  .one-glyph-ping {
+    animation: none;
+  }
+  .one-glyph-tile {
+    transition: none;
+  }
 }
 
 /* Proof tile cross-fade (the cycling states). */
@@ -1884,12 +2160,22 @@ html.native-ios {
   animation: one-proof-fade 560ms var(--motion-ease-standard);
 }
 @keyframes one-proof-fade {
-  0% { opacity: 0; transform: translate3d(0, 8px, 0) scale(0.98); }
-  100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .one-ignite-mark, .one-ignite-bloom, .one-ignite-ring, .one-seq-rise, .one-proof-state {
+  .one-ignite-mark,
+  .one-ignite-bloom,
+  .one-ignite-ring,
+  .one-seq-rise,
+  .one-proof-state {
     animation: none;
     opacity: 1;
     transform: none;
@@ -1898,7 +2184,11 @@ html.native-ios {
 
 /* Hussh Brand Text */
 .text-hushh-brand {
-  background: linear-gradient(135deg, var(--app-accent-deep) 0%, var(--app-accent) 100%);
+  background: linear-gradient(
+    135deg,
+    var(--app-accent-deep) 0%,
+    var(--app-accent) 100%
+  );
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -1916,15 +2206,15 @@ html.native-ios {
      wordmark "ssh" read the same everywhere. Only the translucent washes
      (tint/surface) keep alpha form so they sit on dark canvases. */
   --app-accent: #007aff;
-  --app-accent-deep: #007aff;               /* TEXT / icons = same system blue */
+  --app-accent-deep: #007aff; /* TEXT / icons = same system blue */
   --app-accent-bright: #4a9eff;
   --app-accent-tint: rgba(0, 122, 255, 0.15);
   --app-accent-surface: rgba(0, 122, 255, 0.15);
   --app-accent-surface-strong: rgba(0, 122, 255, 0.24);
   --app-accent-border: rgba(0, 122, 255, 0.35);
-  --app-accent-fg: #ffffff;                 /* Apple system blue always pairs with white */
+  --app-accent-fg: #ffffff; /* Apple system blue always pairs with white */
   --app-accent-hover: #0070ea;
-  --app-accent-ring: rgba(0, 122, 255, 0.30);
+  --app-accent-ring: rgba(0, 122, 255, 0.3);
   --app-accent-hero-from: #0a2f5e;
   --app-accent-hero-mid: #007aff;
   --app-accent-hero-to: #4a9eff;
@@ -2042,8 +2332,16 @@ html.native-ios {
   --app-shell-surface-bg-hover: rgba(48, 48, 52, 0.96);
   --app-shell-surface-border: rgba(255, 255, 255, 0.08);
   --app-shell-surface-foreground: #ffffff;
-  --app-shell-surface-fill: linear-gradient(180deg, rgba(72, 72, 74, 0.5) 0%, rgba(38, 38, 41, 0) 100%);
-  --app-shell-surface-shadow: 0 20px 42px -24px rgba(0, 0, 0, 0.96), 0 12px 22px -16px rgba(0, 0, 0, 0.82), inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -0.5px 0 rgba(0, 0, 0, 0.38);
+  --app-shell-surface-fill: linear-gradient(
+    180deg,
+    rgba(72, 72, 74, 0.5) 0%,
+    rgba(38, 38, 41, 0) 100%
+  );
+  --app-shell-surface-shadow:
+    0 20px 42px -24px rgba(0, 0, 0, 0.96),
+    0 12px 22px -16px rgba(0, 0, 0, 0.82),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 -0.5px 0 rgba(0, 0, 0, 0.38);
   --app-shell-surface-blur: 20px;
 }
 
@@ -2066,16 +2364,17 @@ html.native-ios {
  * directly. Wrapping them in hsl() produces an invalid value that the browser
  * silently drops (which previously left .app-critical-action with no fill). */
 .app-critical-card {
-  border: 1px solid color-mix(in oklab, var(--critical-soft-border) 55%, transparent) !important;
-  background:
-    linear-gradient(
-      155deg,
-      color-mix(in oklab, var(--critical-soft-bg) 70%, transparent),
-      color-mix(in oklab, var(--critical-soft-bg) 28%, transparent)
-    ) !important;
+  border: 1px solid
+    color-mix(in oklab, var(--critical-soft-border) 55%, transparent) !important;
+  background: linear-gradient(
+    155deg,
+    color-mix(in oklab, var(--critical-soft-bg) 70%, transparent),
+    color-mix(in oklab, var(--critical-soft-bg) 28%, transparent)
+  ) !important;
   box-shadow:
     0 8px 26px color-mix(in oklab, var(--critical-solid) 16%, transparent),
-    inset 0 1px 0 color-mix(in oklab, var(--critical-foreground) 22%, transparent);
+    inset 0 1px 0
+      color-mix(in oklab, var(--critical-foreground) 22%, transparent);
   backdrop-filter: blur(10px) saturate(140%);
   -webkit-backdrop-filter: blur(10px) saturate(140%);
 }
@@ -2085,13 +2384,21 @@ html.native-ios {
 }
 
 .app-critical-alert {
-  border-color: color-mix(in oklab, var(--critical-soft-border) 62%, transparent);
+  border-color: color-mix(
+    in oklab,
+    var(--critical-soft-border) 62%,
+    transparent
+  );
   background: color-mix(in oklab, var(--critical-soft-bg) 72%, transparent);
   color: var(--critical-soft-text);
 }
 
 .app-critical-badge {
-  border-color: color-mix(in oklab, var(--critical-soft-border) 62%, transparent);
+  border-color: color-mix(
+    in oklab,
+    var(--critical-soft-border) 62%,
+    transparent
+  );
   background: color-mix(in oklab, var(--critical-soft-bg) 68%, transparent);
   color: var(--critical-soft-text);
 }
@@ -2100,7 +2407,8 @@ html.native-ios {
   border-color: color-mix(in oklab, var(--critical-solid) 78%, transparent);
   background: var(--critical-solid);
   color: var(--critical-foreground);
-  box-shadow: 0 10px 24px color-mix(in oklab, var(--critical-solid) 28%, transparent);
+  box-shadow: 0 10px 24px
+    color-mix(in oklab, var(--critical-solid) 28%, transparent);
 }
 
 .app-critical-action:hover {
@@ -2108,7 +2416,11 @@ html.native-ios {
 }
 
 .app-critical-action-outline {
-  border-color: color-mix(in oklab, var(--critical-soft-border) 68%, transparent);
+  border-color: color-mix(
+    in oklab,
+    var(--critical-soft-border) 68%,
+    transparent
+  );
   background: color-mix(in oklab, var(--critical-soft-bg) 64%, transparent);
   color: var(--critical-soft-text);
 }
@@ -2235,7 +2547,8 @@ html.native-ios {
    * default: smaller than the title3 foundation heading, with a touch more
    * breathing room handled by the SectionHeader padding.
    */
-  .app-page-shell [data-slot="section-header-title"][role="heading"][aria-level="2"] {
+  .app-page-shell
+    [data-slot="section-header-title"][role="heading"][aria-level="2"] {
     font-family: var(--font-app-text);
     font-size: 0.8125rem !important;
     line-height: 1.2 !important;
@@ -2244,7 +2557,8 @@ html.native-ios {
   }
 
   @media (min-width: 640px) {
-    .app-page-shell [data-slot="section-header-title"][role="heading"][aria-level="2"] {
+    .app-page-shell
+      [data-slot="section-header-title"][role="heading"][aria-level="2"] {
       font-size: 0.875rem !important;
     }
   }
@@ -2313,7 +2627,10 @@ html.native-ios {
   }
   html.dark body,
   .dark body {
-    background-color: #0a0a0c !important;
+    /* The Foundation canvas and every signed-in route share this token. A
+       hardcoded near-black here made transparent route surfaces and sampled
+       chrome disagree, especially in mobile WebKit. */
+    background-color: var(--background) !important;
   }
   html.native-ios body {
     padding-top: 0;
@@ -2363,21 +2680,164 @@ md-ripple.morphy-md-ripple {
   contain: paint;
 }
 
+/* Ambient chrome is the only persistent top/bottom fade. The engine samples
+ * the painted content beneath each edge and publishes these tokens; fallbacks
+ * keep first paint theme-correct when no sample exists yet. */
+:root {
+  --ambient-chrome-top-bg: #ffffff;
+  --ambient-chrome-top-fg: #1d1d1f;
+  --ambient-chrome-bottom-bg: #ffffff;
+  --ambient-chrome-bottom-fg: #1d1d1f;
+}
+
+.dark {
+  --ambient-chrome-top-bg: var(--background);
+  --ambient-chrome-top-fg: #f5f5f7;
+  --ambient-chrome-bottom-bg: var(--background);
+  --ambient-chrome-bottom-fg: #f5f5f7;
+}
+
+.ambient-chrome-mask {
+  --ambient-chrome-wash: 88%;
+  /* Search Console's shared material rhythm: solid chrome first, then one
+     continuous 62% midpoint into transparent. The tab variant below keeps the
+     same curve, but anchors its solid segment to the measured tab stack. */
+  --ambient-chrome-ramp-hold: 50%;
+  --ambient-chrome-ramp-mid: 78%;
+  --ambient-chrome-ramp-mid-alpha: 0.62;
+  will-change: backdrop-filter, background-color;
+}
+
+html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
+  --tw-backdrop-blur: blur(0px);
+  --tw-backdrop-saturate: saturate(1);
+  --ambient-chrome-wash: 0%;
+}
+
+.ambient-chrome-mask--top {
+  --ambient-chrome-bg: var(--ambient-chrome-top-bg, #f5f5f7);
+  background-color: color-mix(
+    in srgb,
+    var(--ambient-chrome-bg) var(--ambient-chrome-wash),
+    transparent
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    #000 var(--ambient-chrome-ramp-hold),
+    rgba(0, 0, 0, var(--ambient-chrome-ramp-mid-alpha)) var(--ambient-chrome-ramp-mid),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    #000 var(--ambient-chrome-ramp-hold),
+    rgba(0, 0, 0, var(--ambient-chrome-ramp-mid-alpha)) var(--ambient-chrome-ramp-mid),
+    transparent 100%
+  );
+}
+
+/* The visual mask already spans --top-shell-visual-height. Keep its solid
+ * portion through contextual tabs, then dissolve below their underline so the
+ * tab row is never cut by the same fade intended for page content. */
+.ambient-chrome-mask--top-with-tabs {
+  /* Percentages vary with a device's safe-area inset and can begin fading
+     inside the tab row. Pin the opaque tint to the exact shell boundary,
+     then dissolve only in the visual tail below the active underline. */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 0,
+    #000 var(--top-shell-reserved-height),
+    rgba(0, 0, 0, 0.62)
+      calc(
+        var(--top-shell-reserved-height) +
+          var(--top-ambient-tab-tail-midpoint, 32px)
+      ),
+    transparent var(--top-shell-visual-height)
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0,
+    #000 var(--top-shell-reserved-height),
+    rgba(0, 0, 0, 0.62)
+      calc(
+        var(--top-shell-reserved-height) +
+          var(--top-ambient-tab-tail-midpoint, 32px)
+      ),
+    transparent var(--top-shell-visual-height)
+  );
+}
+
+.ambient-chrome-mask--bottom {
+  --ambient-chrome-bg: var(--ambient-chrome-bottom-bg, #f5f5f7);
+  /* Match the Search Console dock: the bottom edge dissolves content into its
+     live sampled tint rather than placing a second frosted slab over cards. */
+  --tw-backdrop-blur: blur(0px);
+  --tw-backdrop-saturate: saturate(1);
+  background-color: transparent;
+  background-image: linear-gradient(
+    to top,
+    var(--ambient-chrome-bg) 0%,
+    color-mix(in srgb, var(--ambient-chrome-bg) 86%, transparent) 22%,
+    color-mix(in srgb, var(--ambient-chrome-bg) 42%, transparent) 52%,
+    transparent 100%
+  );
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+/* Top controls consume the same foreground token as the top mask. This is
+ * intentionally scoped: cards and route content keep their own semantic ink. */
+[data-app-top-bar].ambient-chrome-top-foreground {
+  color: var(--ambient-chrome-top-fg, #1d1d1f);
+}
+
+[data-app-top-bar] .shell-action-surface,
+[data-app-top-bar] .top-shell-ambient-ink {
+  color: var(--ambient-chrome-top-fg, #1d1d1f);
+}
+
+[data-app-top-bar] .shell-action-surface:hover {
+  color: var(--ambient-chrome-top-fg, #1d1d1f);
+}
+
+/* Legacy aliases remain temporarily for non-shell migration callers. New
+ * persistent chrome must use AmbientChromeMask rather than these classes. */
 /* Shared masked glass for top/bottom app chrome. */
 .bar-glass {
   /* Apple iCloud: match bg colors with transparency for glass blend.
      Both tints derive from the live theme background so the frosted band
      never reads lighter (milky) than the page behind it. */
   --app-bar-glass-bg-light: rgba(245, 245, 247, 0.72);
-  --app-bar-glass-bg-dark: color-mix(in oklab, var(--background) 72%, transparent);
+  --app-bar-glass-bg-dark: color-mix(
+    in oklab,
+    var(--background) 72%,
+    transparent
+  );
   --app-bar-glass-blur: var(--app-shared-chrome-mask-blur);
   --app-bar-border-top: 0;
   --app-bar-shadow: none;
   --app-bar-mask-overscan: 14px;
-  --app-bar-fade-top-strong: color-mix(in oklab, var(--background) 17%, transparent);
-  --app-bar-fade-top-medium: color-mix(in oklab, var(--background) 13%, transparent);
-  --app-bar-fade-top-soft: color-mix(in oklab, var(--background) 7%, transparent);
-  --app-bar-fade-top-trace: color-mix(in oklab, var(--background) 2.5%, transparent);
+  --app-bar-fade-top-strong: color-mix(
+    in oklab,
+    var(--background) 17%,
+    transparent
+  );
+  --app-bar-fade-top-medium: color-mix(
+    in oklab,
+    var(--background) 13%,
+    transparent
+  );
+  --app-bar-fade-top-soft: color-mix(
+    in oklab,
+    var(--background) 7%,
+    transparent
+  );
+  --app-bar-fade-top-trace: color-mix(
+    in oklab,
+    var(--background) 2.5%,
+    transparent
+  );
   position: relative;
   transform: translate3d(0, 0, 0);
   will-change: transform;
@@ -2512,10 +2972,26 @@ md-ripple.morphy-md-ripple {
      Theme-accurate via color-mix on the live --background (see top fade). */
   background: linear-gradient(
     to top,
-    var(--app-bar-bottom-fade-strong, color-mix(in oklab, var(--background) 18%, transparent)) 0%,
-    var(--app-bar-bottom-fade-medium, color-mix(in oklab, var(--background) 14%, transparent)) 46%,
-    var(--app-bar-bottom-fade-soft, color-mix(in oklab, var(--background) 8%, transparent)) 72%,
-    var(--app-bar-bottom-fade-trace, color-mix(in oklab, var(--background) 3%, transparent)) 90%,
+    var(
+        --app-bar-bottom-fade-strong,
+        color-mix(in oklab, var(--background) 18%, transparent)
+      )
+      0%,
+    var(
+        --app-bar-bottom-fade-medium,
+        color-mix(in oklab, var(--background) 14%, transparent)
+      )
+      46%,
+    var(
+        --app-bar-bottom-fade-soft,
+        color-mix(in oklab, var(--background) 8%, transparent)
+      )
+      72%,
+    var(
+        --app-bar-bottom-fade-trace,
+        color-mix(in oklab, var(--background) 3%, transparent)
+      )
+      90%,
     transparent 100%
   );
 }
@@ -2541,30 +3017,29 @@ md-ripple.morphy-md-ripple {
    (ShellActionSurface) - soft translucent track, no border/shadow/blur,
    symmetric in light + dark. The segmented active indicator below keeps a
    subtle highlight so the current route stays readable. */
+.bottom-chrome-surface,
 .kai-bottom-nav-pill {
-  color: #1d1d1f;
-  border: 0 !important;
-  background: rgb(0 0 0 / 0.05) !important;
+  color: var(--ambient-chrome-bottom-fg, #1d1d1f);
+  border: 1px solid color-mix(in srgb, var(--ambient-chrome-bottom-fg, #1d1d1f) 10%, transparent) !important;
+  background: color-mix(in srgb, var(--ambient-chrome-bottom-bg, #f5f5f7) 94%, transparent) !important;
   box-shadow: none !important;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+  -webkit-backdrop-filter: blur(12px) saturate(130%);
+  backdrop-filter: blur(12px) saturate(130%);
 }
 
+.dark .bottom-chrome-surface,
 .dark .kai-bottom-nav-pill {
-  color: #f5f5f7;
-  border: 0 !important;
-  background: rgb(255 255 255 / 0.07) !important;
-  box-shadow: none !important;
+  color: var(--ambient-chrome-bottom-fg, #f5f5f7);
 }
 
 .kai-bottom-nav-pill [data-segment-indicator] {
-  background: rgb(0 0 0 / 0.06) !important;
+  background: color-mix(in srgb, var(--ambient-chrome-bottom-fg, #1d1d1f) 8%, transparent) !important;
   border: 0;
   box-shadow: none !important;
 }
 
 .dark .kai-bottom-nav-pill [data-segment-indicator] {
-  background: rgb(255 255 255 / 0.1) !important;
+  background: color-mix(in srgb, var(--ambient-chrome-bottom-fg, #f5f5f7) 10%, transparent) !important;
   box-shadow: none !important;
 }
 
@@ -2612,7 +3087,7 @@ md-ripple.morphy-md-ripple {
 }
 
 .kai-bottom-nav-pill [role="radio"] {
-  color: rgb(60 60 67 / 0.7) !important;
+  color: color-mix(in srgb, var(--ambient-chrome-bottom-fg, #1d1d1f) 70%, transparent) !important;
   min-height: 48px;
   gap: 0.2rem !important;
   padding: 0.4rem 0.2rem 0.42rem !important;
@@ -2620,7 +3095,7 @@ md-ripple.morphy-md-ripple {
 }
 
 .dark .kai-bottom-nav-pill [role="radio"] {
-  color: rgb(255 255 255 / 0.82) !important;
+  color: color-mix(in srgb, var(--ambient-chrome-bottom-fg, #f5f5f7) 82%, transparent) !important;
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
@@ -2645,7 +3120,9 @@ md-ripple.morphy-md-ripple {
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] svg {
   opacity: 1;
   stroke-width: 1.95;
-  filter: drop-shadow(0 3px 8px color-mix(in srgb, var(--app-accent) 28%, transparent));
+  filter: drop-shadow(
+    0 3px 8px color-mix(in srgb, var(--app-accent) 28%, transparent)
+  );
   transform: translateY(-0.5px);
 }
 
@@ -2761,11 +3238,7 @@ md-ripple.morphy-md-ripple {
 .theme-switching [data-theme-control] *::before,
 .theme-switching [data-theme-control] *::after {
   transition-property:
-    color,
-    background-color,
-    border-color,
-    transform,
-    opacity !important;
+    color, background-color, border-color, transform, opacity !important;
   transition-duration: 180ms !important;
   transition-timing-function: var(--motion-ease-standard) !important;
 }
@@ -2782,12 +3255,7 @@ md-ripple.morphy-md-ripple {
 .morphy-theme-content *::before,
 .morphy-theme-content *::after {
   transition-property:
-    color,
-    background-color,
-    border-color,
-    fill,
-    stroke,
-    box-shadow;
+    color, background-color, border-color, fill, stroke, box-shadow;
   transition-duration: var(--motion-duration-md);
   transition-timing-function: var(--motion-ease-standard);
 }
@@ -2871,26 +3339,46 @@ md-ripple.morphy-md-ripple {
   pointer-events: none;
 }
 
-/* Root app background: neutral surfaces only (no blue gradient cast). */
-.morphy-app-bg {
-  background-color: var(--background) !important;
-  background-image: none !important;
+/* The Foundation canvas is the single app-wide background. It deliberately
+   mirrors the quiet root treatment so public, authenticated, and nested
+   routes never drift into separate gradients or opaque chrome bands. */
+.foundation-public-ambient {
+  /* The same four-corner accent wash is present in both themes. Light mode
+     carries slightly more pigment because its high-value canvas otherwise
+     hides the material that remains legible in dark mode. */
+  --foundation-ambient-primary: 22%;
+  --foundation-ambient-secondary: 19%;
+  --foundation-ambient-tertiary: 18%;
+  --foundation-ambient-quaternary: 16%;
+  background-color: var(--background);
+  background-image:
+    radial-gradient(
+      circle at 4% 4%,
+      color-mix(in oklab, var(--app-accent) var(--foundation-ambient-primary), transparent),
+      transparent 31%
+    ),
+    radial-gradient(
+      circle at 100% 0%,
+      color-mix(in oklab, var(--app-accent-bright) var(--foundation-ambient-secondary), transparent),
+      transparent 33%
+    ),
+    radial-gradient(
+      circle at 0% 100%,
+      color-mix(in oklab, var(--app-accent) var(--foundation-ambient-tertiary), transparent),
+      transparent 33%
+    ),
+    radial-gradient(
+      circle at 100% 100%,
+      color-mix(in oklab, var(--app-accent-bright) var(--foundation-ambient-quaternary), transparent),
+      transparent 31%
+    );
 }
 
-.dark .morphy-app-bg {
-  /* Match the theme --background exactly. A hardcoded rgb(28,28,30) here was
-     lighter than --background, so every glass band over it read milky. */
-  background-color: var(--background) !important;
-  background-image: none !important;
-}
-
-/* Keep class defined for compatibility; root overlay is intentionally disabled. */
-.morphy-app-bg-radial {
-  background: transparent;
-}
-
-.dark .morphy-app-bg-radial {
-  background: transparent;
+.dark .foundation-public-ambient {
+  --foundation-ambient-primary: 8%;
+  --foundation-ambient-secondary: 7%;
+  --foundation-ambient-tertiary: 6%;
+  --foundation-ambient-quaternary: 6%;
 }
 
 /* Custom Scrollbar Styles */
@@ -3176,10 +3664,8 @@ md-ripple.morphy-md-ripple {
 }
 
 html.dark,
-html.dark body,
-html.dark .morphy-app-bg {
-  background-color: #1c1c1e !important;
-  background-image: none !important;
+html.dark body {
+  background-color: var(--background) !important;
 }
 
 .dark {
@@ -3189,11 +3675,13 @@ html.dark .morphy-app-bg {
      gold names alias the app accent family (bright variants for dark). */
   --foundation-ink: #f5f5f7;
   --foundation-dim: #86868b;
-  --foundation-off: #0a0a0c;                  /* PDF pitch black */
+  --foundation-off: #0a0a0c; /* PDF pitch black */
   --foundation-surface: #15151c;
   --foundation-hairline: #2a2a36;
-  --foundation-gold-accent: var(--app-accent-deep);  /* fills / markers */
-  --foundation-gold-deep: var(--app-accent-deep);    /* TEXT on dark = bright tone */
+  --foundation-gold-accent: var(--app-accent-deep); /* fills / markers */
+  --foundation-gold-deep: var(
+    --app-accent-deep
+  ); /* TEXT on dark = bright tone */
   --foundation-accent-surface: var(--app-accent-surface);
   --foundation-accent-surface-strong: var(--app-accent-surface-strong);
   --foundation-accent-border: var(--app-accent-border);
@@ -3210,13 +3698,13 @@ html[data-accent="gold"] {
   --app-accent: #d4a574;
   --app-accent-deep: #b8894d;
   --app-accent-bright: #e6b366;
-  --app-accent-tint: rgba(212, 165, 116, 0.10);
+  --app-accent-tint: rgba(212, 165, 116, 0.1);
   --app-accent-surface: #f7f1e8;
   --app-accent-surface-strong: #efe4d2;
   --app-accent-border: #e8d8bf;
   --app-accent-fg: #ffffff;
   --app-accent-hover: #c79a5e;
-  --app-accent-ring: rgba(184, 137, 77, 0.30);
+  --app-accent-ring: rgba(184, 137, 77, 0.3);
   --app-accent-hero-from: #6d431a;
   --app-accent-hero-mid: #b8894d;
   --app-accent-hero-to: #eccb7f;
@@ -3229,7 +3717,7 @@ html[data-accent="gold"].dark {
   --app-accent-bright: #f0c890;
   --app-accent-tint: rgba(212, 165, 116, 0.15);
   --app-accent-surface: rgba(212, 165, 116, 0.12);
-  --app-accent-surface-strong: rgba(212, 165, 116, 0.20);
+  --app-accent-surface-strong: rgba(212, 165, 116, 0.2);
   --app-accent-border: rgba(212, 165, 116, 0.28);
   --app-accent-fg: #1d1d1f;
   --app-accent-hover: #e0b382;

@@ -3,8 +3,40 @@ import { describe, expect, it } from "vitest";
 import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
 
 describe("top shell breadcrumbs", () => {
+  it("returns every welcome workspace tab to One", () => {
+    const research = new URLSearchParams("tab=research");
+    const blog = new URLSearchParams("tab=blog");
+    const developers = new URLSearchParams("tab=developers");
+
+    expect(resolveTopShellBreadcrumb("/welcome", research)).toMatchObject({
+      hideBack: false,
+      backHref: "/one",
+    });
+    expect(resolveTopShellBreadcrumb("/welcome", blog)).toMatchObject({
+      hideBack: false,
+      backHref: "/one",
+    });
+    expect(resolveTopShellBreadcrumb("/welcome", developers)).toMatchObject({
+      hideBack: false,
+      backHref: "/one",
+    });
+  });
+
+  it("keeps a shared back affordance on the Connect root", () => {
+    expect(resolveTopShellBreadcrumb("/connect")).toEqual({
+      backHref: "/one",
+      width: "profile",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "One", href: "/one" },
+        { label: "Connect" },
+      ],
+    });
+  });
+
   it("treats consents as the profile privacy workspace by default", () => {
-    expect(resolveTopShellBreadcrumb("/consents")).toEqual({
+    expect(resolveTopShellBreadcrumb("/one/consent")).toEqual({
       backHref: "/profile/access",
       width: "profile",
       align: "center",
@@ -20,7 +52,7 @@ describe("top shell breadcrumbs", () => {
     const params = new URLSearchParams();
     params.set("from", "/one/kai/analysis?tab=history");
 
-    expect(resolveTopShellBreadcrumb("/consents", params)).toEqual({
+    expect(resolveTopShellBreadcrumb("/one/consent", params)).toEqual({
       backHref: "/one/kai/analysis?tab=history",
       width: "profile",
       align: "center",
@@ -99,14 +131,29 @@ describe("top shell breadcrumbs", () => {
 
     // A Kai subroute opened during onboarding preserves the setup origin on the
     // Kai-home hop so the retrace can still reach the hub.
-    expect(resolveTopShellBreadcrumb("/one/kai/portfolio", fromSetup)?.backHref).toBe(
-      "/one/kai?from=/one/setup",
-    );
+    expect(
+      resolveTopShellBreadcrumb(
+        "/one/kai/investments",
+        fromSetup,
+      )?.backHref,
+    ).toBe("/one/kai?tab=market&from=%2Fone%2Fsetup");
 
     // Unsafe origins are rejected → One home fallback.
     const unsafe = new URLSearchParams();
     unsafe.set("from", "//evil.example/path");
-    expect(resolveTopShellBreadcrumb("/one/kai", unsafe)?.backHref).toBe("/one");
+    expect(
+      resolveTopShellBreadcrumb("/one/kai", unsafe)?.backHref,
+    ).toBe("/one");
+  });
+
+  it("returns every base Finance tab to One", () => {
+    for (const tab of ["market", "portfolio", "analysis"]) {
+      const params = new URLSearchParams();
+      params.set("tab", tab);
+      expect(resolveTopShellBreadcrumb("/one/kai", params)?.backHref).toBe(
+        "/one",
+      );
+    }
   });
 
   it("gives the setup hub an authored onboarding parent and honors return_to", () => {
@@ -358,7 +405,7 @@ describe("top shell breadcrumbs", () => {
     // through so its back returns to /one too.
     const consentFromOne = new URLSearchParams();
     consentFromOne.set("from", "/one");
-    expect(resolveTopShellBreadcrumb("/consents", consentFromOne)?.backHref).toBe(
+    expect(resolveTopShellBreadcrumb("/one/consent", consentFromOne)?.backHref).toBe(
       "/one",
     );
   });
@@ -452,7 +499,7 @@ describe("top shell breadcrumbs", () => {
         "/one/location",
         "/one/marketplace",
         "/one/pkm",
-        "/consents",
+        "/one/consent",
       ]) {
         expect(resolveTopShellBreadcrumb(path, params)?.backHref).toBe(origin);
       }

@@ -113,8 +113,8 @@ safe area
 │ Finance                     Market · Portfolio · Analysis                    │
 └──────────────────────────────────────────────────────────────────────────────┘
                                      route content
-                              Agent Bar (4px visual join)
-                   Finance/RIA workspace tabs · One · Connect · Search
+                              Agent Bar (6px visual join)
+                              One · Connect · Search
 safe area
 ```
 
@@ -124,34 +124,43 @@ safe area
 2. Search opens the existing global command/search surface. It is not agent
    chat and has no route-local replacement.
 3. The Agent Bar and bottom utility bar are one bottom-chrome stack. Their
-   resting visual separation is 4px; their transforms, safe-area clearance,
+   resting visual separation is 6px; their transforms, safe-area clearance,
    and fade are measured by the shared shell. Neither route nor component may
    add another gap.
-4. Finance and RIA workspace tabs may appear as their own compact group to the
-   left of the primary bottom control on wide layouts. The combined groups are
-   centered as one unit; they remain capability- and route-driven.
+4. Finance and RIA workspace tabs render only in the unified top shell. Their
+   labels, destinations, active query state, and visibility come from the
+   central route registry; route bodies and bottom navigation do not duplicate
+   them.
 5. The rightmost signed-in top-bar control is Profile. It uses the signed-in
    person's image when available and the same generic/initial fallback as the
    Profile route. Connect remains a route but is not shell chrome.
 6. Tabs are horizontally scrollable when needed, retain clear selected state,
    and do not push or overlap the top-bar actions on a small viewport.
-7. The bottom utility frame uses the exact Agent Bar width constraint. On wide
-   layouts its compact action group is right-aligned to the Agent Bar’s edge;
-   on phones it stays centered inside that same frame. It must never align to
-   the wider page shell or viewport edge.
+7. The bottom utility frame uses the exact Agent Bar width constraint. Its
+   three segments are equal-width and centered at every breakpoint; it never
+   aligns to the wider page shell or viewport edge.
+8. Finance is one `/one/kai?tab=` workspace. Market, Portfolio, and Analysis
+   use the Profile reading measure and shared outer gutter; their content may
+   vary, but they must not introduce a wider dashboard canvas, a second fixed
+   header, or a route-local tab bar.
 
 ## List and Header Rules
 
 1. Every standard signed-in route uses the lean shared header; no route-local
    logo, hero, or duplicate title bar.
-2. `SettingsGroup` and `SettingsRow` own responsive inset lists: icon well,
+2. Profile is the geometry reference for a primary workspace header: one
+   `AppPageShell` at the reading measure, one `AppPageHeaderRegion`, and one
+   primary `PageHeader` or profile identity header. Finance tab content may
+   render supporting section headings, but it must not create a competing
+   primary header above or beside the shared workspace header.
+3. `SettingsGroup` and `SettingsRow` own responsive inset lists: icon well,
    separator, truncation, 44px+ tap target, trailing alignment, and mobile
    stacking. Connected Systems, Profile, and agent lists use the same model.
-3. Section starts align on a stable grid. Do not distribute a short row of
+4. Section starts align on a stable grid. Do not distribute a short row of
    icons across a wide surface.
-4. A list row has one primary action. Nested controls must be explicit and
+5. A list row has one primary action. Nested controls must be explicit and
    cannot create a competing full-row click target.
-5. First-time source selection (such as portfolio import) uses one lean shared
+6. First-time source selection (such as portfolio import) uses one lean shared
    header and one compact inset list. Keep the initial decision state within a
    phone viewport: no decorative cards, status badges, drag zones, repeated
    primary buttons, or terminal setup action before the user has chosen a

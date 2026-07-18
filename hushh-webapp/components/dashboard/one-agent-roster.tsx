@@ -1,11 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  Grid2X2,
-  List,
-} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Grid2X2, List, Search } from "lucide-react";
 
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
@@ -24,7 +21,12 @@ import {
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
 import { buildOneSetupCapabilityRoute } from "@/lib/navigation/routes";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
+import type { OneLocationState } from "@/lib/one-location/types";
+import type { KaiHomeInsightsV2 } from "@/lib/services/api-service";
+import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
+import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
+import type { RiaHomeResponse } from "@/lib/services/ria-service";
 import { cn } from "@/lib/utils";
 
 type OneAgentMode = {
@@ -33,18 +35,143 @@ type OneAgentMode = {
   description: string;
   href: string;
   icon: OneCapabilityIcon;
-  status: string;
   statusTone: CapabilityStatusTone;
+  primaryMetric: {
+    value: string;
+    label: string;
+  };
   tone: OneCapabilityTone;
   isExploreOnly: boolean;
 };
 
+type AgentMetric = OneAgentMode["primaryMetric"];
 type AgentRosterView = "grid" | "list";
 
 const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
 
+function positiveNumber(value: unknown): number | null {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function formatWinnerPercent(value: unknown): string | null {
+  const percent = Number(value);
+  if (!Number.isFinite(percent)) return null;
+  const digits = Math.abs(percent) >= 10 ? 1 : 2;
+  return `${percent >= 0 ? "+" : ""}${percent.toFixed(digits)}%`;
+}
+
+function countCollection(value: unknown): number | null {
+  if (Array.isArray(value)) return value.length;
+  return positiveNumber(value);
+}
+
+function latestMarketPayload(userId: string): KaiHomeInsightsV2 | null {
+  const cache = CacheService.getInstance();
+  const prefix = `kai_market_home_${userId}_`;
+  let latest: { timestamp: number; payload: KaiHomeInsightsV2 } | null = null;
+
+  for (const key of cache.getStats().keys) {
+    if (!key.startsWith(prefix)) continue;
+    const snapshot = cache.peek<KaiHomeInsightsV2>(key);
+    if (!snapshot || (latest && latest.timestamp >= snapshot.timestamp)) continue;
+    latest = { timestamp: snapshot.timestamp, payload: snapshot.data };
+  }
+
+  return latest?.payload ?? null;
+}
+
+/**
+ * Read-only cache metrics for the One roster. These never trigger a fetch and
+ * only expose existing, non-sensitive workspace summaries.
+ */
+export function resolveCachedAgentMetrics(userId: string | null | undefined): Record<string, AgentMetric> {
+  if (!userId) return {};
+  const cache = CacheService.getInstance();
+  const metrics: Record<string, AgentMetric> = {};
+
+  const market = latestMarketPayload(userId);
+  const topMover = (market?.movers?.gainers ?? [])
+    .filter((row) => Number(row?.change_pct) > 0)
+    .sort((left, right) => Number(right.change_pct) - Number(left.change_pct))[0];
+  const moverSymbol = String(topMover?.symbol ?? "").trim().toUpperCase();
+  if (moverSymbol) {
+    metrics.finance = {
+      value: moverSymbol,
+      label: formatWinnerPercent(topMover?.change_pct) ?? "top mover",
+    };
+  }
+
+  const riaHome = cache.peek<RiaHomeResponse>(CACHE_KEYS.RIA_HOME(userId))?.data;
+  const activeClients = positiveNumber(riaHome?.counts?.active_clients);
+  if (activeClients !== null) {
+    metrics.ria = {
+      value: String(activeClients),
+      label: activeClients === 1 ? "active client" : "active clients",
+    };
+  }
+
+  const pendingConsents = cache.peek<unknown[]>(CACHE_KEYS.PENDING_CONSENTS(userId))?.data;
+  if (Array.isArray(pendingConsents)) {
+    const label = pendingConsents.length === 1 ? "approval waiting" : "approvals waiting";
+    metrics.email = { value: String(pendingConsents.length), label };
+    metrics.consent = { value: String(pendingConsents.length), label: pendingConsents.length === 1 ? "request to review" : "requests to review" };
+  }
+
+  const location = cache.peek<OneLocationState>(CACHE_KEYS.ONE_LOCATION_STATE(userId))?.data;
+  if (location) {
+    const liveShares = [...location.ownerGrants, ...location.receivedGrants].filter(
+      (grant) => /active|approved|shared|granted/i.test(String(grant.status)),
+    ).length;
+    metrics.location = {
+      value: String(liveShares),
+      label: liveShares === 1 ? "live share" : "live shares",
+    };
+  }
+
+  const metadata = cache.peek<PersonalKnowledgeModelMetadata>(CACHE_KEYS.PKM_METADATA(userId))?.data;
+  const attributes = positiveNumber(metadata?.totalAttributes);
+  if (attributes !== null) {
+    metrics.pkm = {
+      value: String(attributes),
+      label: attributes === 1 ? "saved detail" : "saved details",
+    };
+  }
+
+  const access = cache.peek<Record<string, unknown>>(CACHE_KEYS.DEVELOPER_ACCESS(userId))?.data;
+  const connectedSystems = countCollection(access?.connections) ?? countCollection(access?.systems) ?? countCollection(access?.items);
+  if (connectedSystems !== null) {
+    metrics["connected-systems"] = {
+      value: String(connectedSystems),
+      label: connectedSystems === 1 ? "connected system" : "connected systems",
+    };
+  }
+
+  return metrics;
+}
+
+function useCachedAgentMetrics(userId?: string | null): Record<string, AgentMetric> {
+  const [revision, setRevision] = useState(0);
+
+  useEffect(() => {
+    if (!userId) return;
+    return CacheService.getInstance().subscribe((event) => {
+      const keys = event.type === "set" ? [event.key] : event.type === "invalidate" || event.type === "invalidate_user" ? event.keys : [];
+      if (event.type === "clear" || keys.some((key) => key.includes(userId))) {
+        setRevision((current) => current + 1);
+      }
+    });
+  }, [userId]);
+
+  // `revision` is deliberately read so cache events cause a fresh, read-only
+  // projection without introducing a second cache mirror for this list.
+  void revision;
+  return resolveCachedAgentMetrics(userId);
+}
+
 function buildModes(
   statusById: Record<string, CapabilityStatus>,
+  cachedMetrics: Record<string, AgentMetric>,
 ): OneAgentMode[] {
   return ONE_CAPABILITIES.filter(
     (capability) =>
@@ -71,6 +198,11 @@ function buildModes(
 
     const isActionable = "isActionable" in display ? (display as any).isActionable : true;
 
+    const primaryMetric = cachedMetrics[capability.id] ?? resolvePrimaryMetric({
+      capabilityId: capability.id,
+      status,
+    });
+
     return {
       id: capability.id,
       title: capability.title,
@@ -79,12 +211,54 @@ function buildModes(
         ? buildOneSetupCapabilityRoute(capability.id)
         : capability.href,
       icon: capability.icon,
-      status: display.label,
       statusTone: display.tone,
+      primaryMetric,
       tone: capability.tone,
       isExploreOnly: capability.isExploreOnly === true,
     };
   });
+}
+
+/**
+ * The roster's compact KPI is deliberately derived from an already-resolved
+ * capability state. Cache-backed workspace summaries take precedence when
+ * available; this fallback never invents product activity.
+ */
+function resolvePrimaryMetric({
+  capabilityId,
+  status,
+}: {
+  capabilityId: string;
+  status?: CapabilityStatus;
+}): OneAgentMode["primaryMetric"] {
+  if (capabilityId === "consent") {
+    if (!status || status.state === "unknown") {
+      return { value: "—", label: "checking requests" };
+    }
+    const pendingConsentCount = status.pendingCount;
+    return {
+      value: String(pendingConsentCount),
+      label: pendingConsentCount === 1 ? "request to review" : "requests to review",
+    };
+  }
+
+  if (!status || status.state === "unknown") {
+    return { value: "—", label: "status not loaded" };
+  }
+
+  if (status.pendingCount > 0) {
+    return {
+      value: String(status.pendingCount),
+      label: status.pendingCount === 1 ? "item to review" : "items to review",
+    };
+  }
+
+  const actionsDue =
+    status.state === "completed" || status.state === "skipped" ? 0 : 1;
+  return {
+    value: String(actionsDue),
+    label: actionsDue === 1 ? "action due" : "actions due",
+  };
 }
 
 function statusClassName(mode: OneAgentMode): string {
@@ -94,12 +268,64 @@ function statusClassName(mode: OneAgentMode): string {
   return "text-muted-foreground";
 }
 
-function gridStatusClassName(mode: OneAgentMode): string {
-  if (mode.statusTone === "ready") return "text-[#138a3d] dark:text-[#5ee283]";
-  return "text-muted-foreground";
+function metricClassName(mode: OneAgentMode): string {
+  if (
+    (mode.id === "finance" && mode.primaryMetric.label.endsWith("%")) ||
+    mode.id === "connected-systems"
+  ) {
+    return "text-emerald-700 dark:text-emerald-300";
+  }
+  return statusClassName(mode);
 }
 
-function AgentGridItem({ mode }: { mode: OneAgentMode }) {
+function AgentMetricDisplay({
+  mode,
+  compact = false,
+}: {
+  mode: OneAgentMode;
+  compact?: boolean;
+}) {
+  const isTopWinner =
+    mode.id === "finance" && mode.primaryMetric.label.endsWith("%");
+  const isPositiveMetric = isTopWinner || mode.id === "connected-systems";
+
+  return (
+    <span
+      data-testid={isTopWinner ? "one-finance-top-winner-kpi" : undefined}
+      className={cn(
+        "inline-flex min-w-0 items-baseline gap-1 whitespace-nowrap leading-tight",
+        compact ? "justify-center" : "justify-end",
+      )}
+    >
+      <span
+        className={cn(
+          "shrink-0 font-semibold tabular-nums",
+          compact ? "text-[13px]" : "text-[15px]",
+          metricClassName(mode),
+        )}
+      >
+        {mode.primaryMetric.value}
+      </span>
+      <span
+        className={cn(
+          "min-w-0 truncate font-medium text-muted-foreground",
+          compact ? "text-[10px]" : "text-[11px]",
+          isPositiveMetric && "text-emerald-700/80 dark:text-emerald-300/85",
+        )}
+      >
+        {mode.primaryMetric.label}
+      </span>
+    </span>
+  );
+}
+
+function AgentGridItem({
+  mode,
+  className,
+}: {
+  mode: OneAgentMode;
+  className?: string;
+}) {
   return (
     <Link
       href={mode.href}
@@ -107,9 +333,10 @@ function AgentGridItem({ mode }: { mode: OneAgentMode }) {
       data-testid={`one-agent-tile-${mode.id}`}
       title={mode.description}
       className={cn(
-        "group relative flex min-h-[8.5rem] min-w-0 flex-col items-center justify-start gap-2 overflow-hidden rounded-[12px] px-2 py-3 text-center",
+        "group relative flex min-h-[9rem] min-w-0 w-full flex-col items-center justify-start gap-2 overflow-hidden rounded-[12px] px-2 py-3 text-center",
         "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
         "hover:bg-[color:var(--app-card-surface-compact)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-inset active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100",
+        className,
       )}
     >
       <AgentSectionIcon
@@ -118,20 +345,15 @@ function AgentGridItem({ mode }: { mode: OneAgentMode }) {
         tone={mode.tone}
         isActive={mode.statusTone !== "muted"}
         size="launcher"
+        treatment="profile"
+        glyphContrast="default"
         className="relative z-10"
       />
       <span className="relative z-10 min-w-0">
         <span className="block truncate text-[13px] font-semibold leading-tight text-foreground">
           {mode.title}
         </span>
-        <span
-          className={cn(
-            "mt-1 block truncate text-[11px] font-medium leading-tight",
-            gridStatusClassName(mode),
-          )}
-        >
-          {mode.status}
-        </span>
+        <AgentMetricDisplay mode={mode} compact />
       </span>
       <MaterialRipple variant="blue" effect="fade" className="z-0" />
     </Link>
@@ -151,13 +373,11 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
           tone={mode.tone}
           isActive={mode.statusTone !== "muted"}
           size="menu"
+          treatment="profile"
+          glyphContrast="default"
         />
       }
-      trailing={
-        <span className={cn("text-[12px] font-medium", statusClassName(mode))}>
-          {mode.status}
-        </span>
-      }
+      trailing={<AgentMetricDisplay mode={mode} />}
       chevron
       testId={`one-agent-list-row-${mode.id}`}
     >
@@ -217,21 +437,32 @@ function AgentRosterViewToggle({
 
 export function OneAgentRoster({
   capabilityStatusById,
+  userId,
 }: {
   capabilityStatusById: Record<string, CapabilityStatus>;
+  userId?: string | null;
 }) {
-  const modes = buildModes(capabilityStatusById);
+  const cachedMetrics = useCachedAgentMetrics(userId);
+  const modes = buildModes(capabilityStatusById, cachedMetrics);
   const [view, setView] = useState<AgentRosterView>("grid");
+  const [query, setQuery] = useState("");
+  const visibleModes = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return modes;
+    return modes.filter((mode) =>
+      [mode.title, mode.description, mode.primaryMetric.value, mode.primaryMetric.label]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalized),
+    );
+  }, [modes, query]);
 
   useEffect(() => {
     try {
       const persisted = window.localStorage.getItem(AGENT_ROSTER_VIEW_STORAGE_KEY);
-      if (persisted === "grid" || persisted === "list") {
-        setView(persisted);
-      }
+      if (persisted === "grid" || persisted === "list") setView(persisted);
     } catch {
-      // Storage can be disabled by browser privacy settings; the default view
-      // remains fully functional without persistence.
+      // A display preference is optional and does not affect roster access.
     }
   }, []);
 
@@ -240,7 +471,7 @@ export function OneAgentRoster({
     try {
       window.localStorage.setItem(AGENT_ROSTER_VIEW_STORAGE_KEY, next);
     } catch {
-      // A display preference is optional and must not block navigation.
+      // Storage can be disabled without blocking a local display change.
     }
   };
 
@@ -259,31 +490,45 @@ export function OneAgentRoster({
         </h2>
         <AgentRosterViewToggle value={view} onChange={selectView} />
       </div>
-      {view === "grid" ? (
-        <SettingsGroup
-          embedded
-          testId="one-agents-grid"
-          className="[&_[data-slot=settings-group-shell]]:p-1.5 sm:[&_[data-slot=settings-group-shell]]:p-2"
-        >
-          <div
-            data-agent-roster-layout="grouped-icon-grid"
-            className="grid grid-cols-3 gap-1 sm:grid-cols-4 sm:gap-1.5"
+      <label className="relative mb-3 block">
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+          aria-hidden="true"
+        />
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search agents"
+          aria-label="Search agents"
+          data-testid="one-agents-search"
+          className="h-10 w-full rounded-[var(--app-radius-lg)] border border-border/70 bg-[color:var(--app-card-surface-compact)] py-2 pl-9 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
+        />
+      </label>
+      <div key={view} className="motion-step-enter">
+        {view === "grid" ? (
+          <SettingsGroup
+            embedded
+            testId="one-agents-grid"
+            className="[&_[data-slot=settings-group-shell]]:p-1.5 sm:[&_[data-slot=settings-group-shell]]:p-2"
           >
-            {modes.map((mode) => (
-              <AgentGridItem key={mode.id} mode={mode} />
+            <div
+              data-agent-roster-layout="grouped-icon-grid"
+              className="grid w-full grid-cols-3 gap-1.5 sm:grid-cols-4 sm:gap-2"
+            >
+              {visibleModes.map((mode) => (
+                <AgentGridItem key={mode.id} mode={mode} />
+              ))}
+            </div>
+          </SettingsGroup>
+        ) : (
+          <SettingsGroup embedded separatorInset testId="one-agents-list">
+            {visibleModes.map((mode) => (
+              <AgentListRow key={mode.id} mode={mode} />
             ))}
-          </div>
-        </SettingsGroup>
-      ) : (
-        // Same grouped-card treatment as Profile (SettingsGroup shell): the
-        // solid card surface, standard border, and row dividers so list items
-        // read identically on /one and /profile.
-        <SettingsGroup embedded testId="one-agents-list">
-          {modes.map((mode) => (
-            <AgentListRow key={mode.id} mode={mode} />
-          ))}
-        </SettingsGroup>
-      )}
+          </SettingsGroup>
+        )}
+      </div>
     </section>
   );
 }

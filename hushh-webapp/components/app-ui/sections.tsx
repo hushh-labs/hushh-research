@@ -24,7 +24,12 @@ function CtaLink({ cta, primary }: { cta: SectionCta; primary?: boolean }) {
   );
   if (cta.external) {
     return (
-      <a href={cta.href} target="_blank" rel="noopener noreferrer" className={className}>
+      <a
+        href={cta.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={className}
+      >
         {cta.label}
       </a>
     );
@@ -43,6 +48,7 @@ export function Hero({
   lede,
   ctas = [],
   media,
+  compact = false,
   className,
 }: {
   kicker: string;
@@ -50,6 +56,7 @@ export function Hero({
   lede: string;
   ctas?: SectionCta[];
   media?: ReactNode;
+  compact?: boolean;
   className?: string;
 }) {
   const head = (
@@ -60,12 +67,23 @@ export function Hero({
       <h1
         className={cn(
           "mt-3 font-[family-name:var(--font-app-display)] font-semibold leading-[1.08] tracking-tight text-foreground",
-          media ? "text-[28px] sm:text-[36px]" : "text-[32px] sm:text-[44px]",
+          compact
+            ? "text-[26px] sm:text-[32px]"
+            : media
+              ? "text-[28px] sm:text-[36px]"
+              : "text-[32px] sm:text-[44px]",
         )}
       >
         {title}
       </h1>
-      <p className="mt-3 max-w-xl text-[15px] leading-7 text-foreground/80">{lede}</p>
+      <p
+        className={cn(
+          "mt-3 max-w-xl text-[15px] text-foreground/80",
+          compact ? "leading-6" : "leading-7",
+        )}
+      >
+        {lede}
+      </p>
       {ctas.length > 0 ? (
         <div className="mt-6 flex flex-wrap gap-3">
           {ctas.map((c, i) => (
@@ -79,14 +97,18 @@ export function Hero({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-[var(--app-card-radius-feature)] border border-border/60 px-5 py-7 sm:px-8 sm:py-10",
+        compact
+          ? "relative overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/60 px-4 py-4 sm:px-5 sm:py-5"
+          : "relative overflow-hidden rounded-[var(--app-card-radius-feature)] border border-border/60 px-5 py-7 sm:px-8 sm:py-10",
         className,
       )}
     >
       {media ? (
         <div className="grid items-center gap-8 lg:grid-cols-2 lg:gap-12">
           <div>{head}</div>
-          <div className="mx-auto w-full max-w-sm lg:order-last lg:max-w-none">{media}</div>
+          <div className="mx-auto w-full max-w-sm lg:order-last lg:max-w-none">
+            {media}
+          </div>
         </div>
       ) : (
         head
@@ -128,7 +150,9 @@ export function Band({
         </h2>
       ) : null}
       {lede ? (
-        <p className="mt-3 max-w-2xl text-[15px] leading-7 text-muted-foreground">{lede}</p>
+        <p className="mt-3 max-w-2xl text-[15px] leading-7 text-muted-foreground">
+          {lede}
+        </p>
       ) : null}
     </>
   );
@@ -137,8 +161,12 @@ export function Band({
     <section id={id} className={cn("scroll-mt-24", className)}>
       {media ? (
         <div className="grid items-center gap-8 lg:grid-cols-2 lg:gap-12">
-          <div className={mediaSide === "left" ? "lg:order-last" : undefined}>{head}</div>
-          <div className={mediaSide === "left" ? "lg:order-first" : undefined}>{media}</div>
+          <div className={mediaSide === "left" ? "lg:order-last" : undefined}>
+            {head}
+          </div>
+          <div className={mediaSide === "left" ? "lg:order-first" : undefined}>
+            {media}
+          </div>
         </div>
       ) : (
         head
@@ -159,9 +187,15 @@ export function CardGrid({
   className?: string;
 }) {
   const colsClassName =
-    cols === 4 ? "sm:grid-cols-2 lg:grid-cols-4" : cols === 2 ? "sm:grid-cols-2" : "sm:grid-cols-2 lg:grid-cols-3";
+    cols === 4
+      ? "sm:grid-cols-2 lg:grid-cols-4"
+      : cols === 2
+        ? "sm:grid-cols-2"
+        : "sm:grid-cols-2 lg:grid-cols-3";
   return (
-    <div className={cn("mt-6 grid grid-cols-1 gap-4", colsClassName, className)}>
+    <div
+      className={cn("mt-6 grid grid-cols-1 gap-4", colsClassName, className)}
+    >
       {children}
     </div>
   );
@@ -198,7 +232,9 @@ export function Card({
         </div>
       ) : null}
       <h3 className="mt-1 text-lg font-semibold text-foreground">{title}</h3>
-      <p className="mt-1.5 flex-1 text-sm leading-6 text-muted-foreground">{body}</p>
+      <p className="mt-1.5 flex-1 text-sm leading-6 text-muted-foreground">
+        {body}
+      </p>
       {href && cta ? (
         <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-[color:var(--app-accent-deep)]">
           {cta}
@@ -244,7 +280,9 @@ export function CtaBand({
         <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
           {title}
         </h2>
-        <p className="mx-auto mt-4 max-w-xl text-[15px] leading-7 text-muted-foreground">{lede}</p>
+        <p className="mx-auto mt-4 max-w-xl text-[15px] leading-7 text-muted-foreground">
+          {lede}
+        </p>
         <div className="mt-7 flex flex-wrap justify-center gap-3">
           {ctas.map((c, i) => (
             <CtaLink key={c.label} cta={c} primary={i === 0} />
@@ -301,8 +339,16 @@ export function StatGrid({
   className?: string;
 }) {
   const colsClassName =
-    cols === 4 ? "grid-cols-2 lg:grid-cols-4" : cols === 3 ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-2";
-  return <div className={cn("mt-6 grid gap-px", colsClassName, className)}>{children}</div>;
+    cols === 4
+      ? "grid-cols-2 lg:grid-cols-4"
+      : cols === 3
+        ? "grid-cols-1 sm:grid-cols-3"
+        : "grid-cols-2";
+  return (
+    <div className={cn("mt-6 grid gap-px", colsClassName, className)}>
+      {children}
+    </div>
+  );
 }
 
 export function Stat({
@@ -322,7 +368,11 @@ export function Stat({
       <div className="mt-2.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--app-accent-deep)]">
         {label}
       </div>
-      {sub ? <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{sub}</p> : null}
+      {sub ? (
+        <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+          {sub}
+        </p>
+      ) : null}
     </div>
   );
 }

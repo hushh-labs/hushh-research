@@ -13,13 +13,15 @@ import {
 } from "@/lib/services/consent-center-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
+import { OneLocationService } from "@/lib/one-location/service";
+import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { bootstrapCurrentUserMarketplaceRecipientKey } from "@/lib/one-marketplace/key-bootstrap";
 import { runMarketplaceDeliverySweep } from "@/lib/one-marketplace/delivery-sweep";
 
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
-import { ROUTES } from "@/lib/navigation/routes";
+import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 
 export type UnlockWarmResult = {
   onboardingSynced: boolean;
@@ -29,6 +31,7 @@ export type UnlockWarmResult = {
   dashboardPicksWarmed: boolean;
   consentsWarmed: boolean;
   vaultStatusWarmed: boolean;
+  locationStateWarmed: boolean;
 };
 
 type WarmPriority =
@@ -70,8 +73,8 @@ function resolveWarmPriority(routePath?: string | null): WarmPriority {
   const path = String(routePath || "").trim().toLowerCase();
   if (!path) return "default";
   if (
-    path === ROUTES.KAI_HOME ||
-    path.startsWith(`${ROUTES.KAI_HOME}?`) ||
+    path === KAI_MARKET_PATH ||
+    path.startsWith(`${KAI_MARKET_PATH}?`) ||
     path === ROUTES.LEGACY_KAI_HOME ||
     path.startsWith(`${ROUTES.LEGACY_KAI_HOME}?`)
   ) {
@@ -95,7 +98,12 @@ function resolveWarmPriority(routePath?: string | null): WarmPriority {
   ) {
     return "dashboard";
   }
-  if (path.startsWith("/consents")) return "consents";
+  if (
+    path.startsWith(ROUTES.CONSENTS) ||
+    path.startsWith(ROUTES.LEGACY_CONSENTS)
+  ) {
+    return "consents";
+  }
   if (path.startsWith("/profile")) return "profile";
   if (path.startsWith("/ria")) return "ria";
   return "default";
@@ -389,6 +397,7 @@ export class UnlockWarmOrchestrator {
       dashboardPicksWarmed: false,
       consentsWarmed: false,
       vaultStatusWarmed: false,
+      locationStateWarmed: false,
     };
     let symbols: string[] = [];
     let prewarmedFinancialDomain: Record<string, unknown> | null = null;
@@ -452,6 +461,7 @@ export class UnlockWarmOrchestrator {
       pendingResult,
       auditResult,
       financialDomainResult,
+      locationStateResult,
     ] = await Promise.allSettled([
       shouldWarmMetadata
         ? PersonalKnowledgeModelService.getMetadata(params.userId, false, params.vaultOwnerToken)
@@ -475,12 +485,22 @@ export class UnlockWarmOrchestrator {
               userId: params.userId,
               domain: "financial",
               vaultKey: params.vaultKey,
-              vaultOwnerToken: params.vaultOwnerToken,
-            })
+            vaultOwnerToken: params.vaultOwnerToken,
+          })
         : Promise.resolve(null),
+      // Safe only in the active browser process: Location state may include
+      // encrypted envelopes and is intentionally never persisted to device
+      // storage. Warming it here gives the just-unlocked route an immediate
+      // cache-first render while it reconciles in the background.
+      OneLocationService.getState(params.vaultOwnerToken),
     ]);
 
     result.metadataWarmed = shouldWarmMetadata && metadataResult.status === "fulfilled";
+
+    if (locationStateResult.status === "fulfilled") {
+      OneLocationStateResource.write(params.userId, locationStateResult.value);
+      result.locationStateWarmed = true;
+    }
 
     if (
       shouldWarmVaultStatus &&

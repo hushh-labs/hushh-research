@@ -90,6 +90,7 @@ The promoted public developer environment is **${contract.promotedEnvironment.la
 - app workspace: ${contract.promotedEnvironment.appUrl}/developers
 - consent API origin: ${contract.promotedEnvironment.apiOrigin}
 - remote MCP endpoint: \`${contract.promotedEnvironment.remoteUrlTemplate}\`
+- MCP protocol revision: \`${contract.mcpProtocolRevision}\`
 - npm package: \`${contract.packageName}\`
 - canonical token env var: \`${contract.tokenEnvVar}\`
 

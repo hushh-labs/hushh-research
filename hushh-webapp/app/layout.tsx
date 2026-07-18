@@ -102,13 +102,6 @@ export default function RootLayout({
             __html: `try{var a=localStorage.getItem("hushh.app.accent.v1");if(a==="gold"){document.documentElement.setAttribute("data-accent","gold");}}catch(e){}`,
           }}
         />
-        <style>{`
-          html.dark body,
-          html.dark .morphy-app-bg {
-            background-color: rgb(28 28 30) !important;
-            background-image: none !important;
-          }
-        `}</style>
         {loadWebAnalyticsScripts && analyticsMeasurementId ? (
           <>
             <Script
@@ -139,7 +132,7 @@ export default function RootLayout({
         suppressHydrationWarning
         className="font-sans antialiased min-h-[100dvh] flex flex-col overflow-x-hidden"
       >
-        <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <RootLayoutClient fontClasses="">
             <NetworkStatusBanner />
             {children}

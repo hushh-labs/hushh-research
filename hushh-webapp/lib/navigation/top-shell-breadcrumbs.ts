@@ -1,9 +1,12 @@
 import {
   buildOneSetupCapabilityRoute,
+  buildKaiMarketRoute,
+  KAI_MARKET_PATH,
   normalizeInternalRouteHref,
   resolveOnboardingCapabilityForRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
+import { resolvePublicKnowledgeTopShellTabSet } from "@/lib/navigation/top-shell-tabs";
 import {
   buildProfileRoute,
   resolveProfileRouteState,
@@ -117,6 +120,24 @@ export function resolveTopShellBreadcrumb(
 ): TopShellBreadcrumbConfig | null {
   pathname = normalizeBreadcrumbPathname(pathname);
 
+  // Welcome's tabs are peers, just like Finance and Location. The shared back
+  // affordance exits the workspace to One; the tab strip and swipe pager own
+  // movement between Research, Blog, and Developers.
+  if (pathname === ROUTES.WELCOME) {
+    const tabSet = resolvePublicKnowledgeTopShellTabSet(
+      `${pathname}?tab=${searchParams?.get("tab") ?? ""}`,
+    );
+    if (!tabSet) return null;
+
+    return {
+      backHref: ROUTES.ONE_HOME,
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [],
+    };
+  }
+
   if (
     pathname === ROUTES.DEVELOPERS ||
     pathname === ROUTES.RESEARCH ||
@@ -152,7 +173,10 @@ export function resolveTopShellBreadcrumb(
     };
   }
 
-  if (pathname === ROUTES.KAI_ANALYSIS) {
+  if (
+    pathname === KAI_MARKET_PATH &&
+    searchParams?.get("tab") === "analysis"
+  ) {
     const debateId = String(searchParams?.get("debate_id") || "").trim();
     const focus = String(searchParams?.get("focus") || "").trim();
     const runId = String(searchParams?.get("run_id") || "").trim();
@@ -200,18 +224,19 @@ export function resolveTopShellBreadcrumb(
     }
 
     return {
-      backHref: ROUTES.KAI_HOME,
+      // Market, Portfolio, and Analysis are peers in one query-tabbed Kai
+      // workspace. Their base route returns to One, not to a different tab.
+      backHref: ROUTES.ONE_HOME,
       width: "content",
       align: "center",
       items: [
         { label: "One", href: ROUTES.ONE_HOME },
-        { label: "Kai", href: ROUTES.KAI_HOME },
-        { label: "Analysis" },
+        { label: "Kai" },
       ],
     };
   }
 
-  if (pathname === ROUTES.KAI_HOME) {
+  if (pathname === KAI_MARKET_PATH) {
     // Origin-aware: when the user arrives here from account setup (the finance
     // capability forwards to the Kai wizard, which lands here on completion
     // carrying `?from=/one/setup`), back must retrace to the setup hub so they
@@ -239,7 +264,6 @@ export function resolveTopShellBreadcrumb(
   // origin is preserved on the Kai-home hop so the retrace can still reach the
   // setup hub from a subroute opened during onboarding.
   const kaiSubroutes: Array<[string, string]> = [
-    [ROUTES.KAI_PORTFOLIO, "Portfolio"],
     [ROUTES.KAI_INVESTMENTS, "Investments"],
     [ROUTES.KAI_OPTIMIZE, "Optimize"],
     [ROUTES.KAI_FUNDING_TRADE, "Funding"],
@@ -249,7 +273,7 @@ export function resolveTopShellBreadcrumb(
       const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
       const kaiHomeBack =
         originHref === ROUTES.ONE_SETUP
-          ? `${ROUTES.KAI_HOME}?from=${ROUTES.ONE_SETUP}`
+          ? buildKaiMarketRoute("market", { from: ROUTES.ONE_SETUP })
           : ROUTES.KAI_HOME;
       return {
         backHref: kaiHomeBack,
@@ -456,7 +480,10 @@ export function resolveTopShellBreadcrumb(
     }
   }
 
-  if (pathname === ROUTES.CONSENTS) {
+  if (
+    pathname === ROUTES.CONSENTS ||
+    pathname === ROUTES.LEGACY_CONSENTS
+  ) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     const privacyHref = profilePanelHref("access");
     const backHref =
@@ -607,12 +634,14 @@ export function resolveTopShellBreadcrumb(
   }
 
   // Connect root (level 2): back returns to /one (level 1).
-  if (pathname === ROUTES.MARKETPLACE) {
+  if (pathname === ROUTES.CONNECT || pathname === ROUTES.MARKETPLACE) {
     return {
       backHref: ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
-      hideBack: true,
+      // Connect is a level-two workspace. Keep the shared shell back affordance
+      // available so this entry behaves like the other One capability routes.
+      hideBack: false,
       items: [
         { label: "One", href: ROUTES.ONE_HOME },
         { label: "Connect" },

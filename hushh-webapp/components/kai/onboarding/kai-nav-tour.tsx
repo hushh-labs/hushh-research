@@ -22,7 +22,7 @@ import { KaiNavTourLocalService } from "@/lib/services/kai-nav-tour-local-servic
 import { KaiProfileService } from "@/lib/services/kai-profile-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { ROUTES } from "@/lib/navigation/routes";
+import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 
 const TOUR_STEPS = [
   {
@@ -90,7 +90,7 @@ export function KaiNavTour() {
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   const normalizedPath = pathname?.replace(/\/+$/, "") || "";
   const isEligibleRoute =
-    normalizedPath.startsWith(ROUTES.KAI_HOME) ||
+    normalizedPath.startsWith(KAI_MARKET_PATH) ||
     normalizedPath.startsWith(ROUTES.LEGACY_KAI_HOME);
   const activeStep = TOUR_STEPS[stepIndex] ?? TOUR_STEPS[0];
 

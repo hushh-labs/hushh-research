@@ -258,7 +258,7 @@ def select_voice_manifest_actions_for_prompt(
         screen like ``one_setup``. Without a known current screen we cannot
         exclude, so everything stays eligible.
         """
-        if not normalized_screen:
+        if is_navigation_action(action) or not normalized_screen:
             return True
         raw_scope = action.get("scope")
         scope: dict[str, Any] = raw_scope if isinstance(raw_scope, dict) else {}

@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { activeKaiRouteTabFromPath, KAI_ROUTE_TABS } from "@/lib/navigation/kai-route-tabs";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
-import { ROUTES } from "@/lib/navigation/routes";
+import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -27,7 +27,7 @@ export function DashboardRouteTabs({ embedded = false }: DashboardRouteTabsProps
   const busyOperations = useKaiSession((s) => s.busyOperations);
 
   const activeTab = useMemo(
-    () => activeKaiRouteTabFromPath(pathname || ROUTES.KAI_HOME),
+    () => activeKaiRouteTabFromPath(pathname || KAI_MARKET_PATH),
     [pathname]
   );
 

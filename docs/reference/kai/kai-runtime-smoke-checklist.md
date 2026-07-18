@@ -103,8 +103,8 @@ Runtime truth note:
 2. Open the shield inbox and confirm:
    - at most 5 rows are shown,
    - internal scroll appears only when needed,
-   - `Open consent manager` opens `/consents` for the active persona.
-3. Confirm empty pending state does not show pagination chrome in either the inbox or `/consents`.
+   - `Open consent manager` opens `/one/consent` for the active persona.
+3. Confirm empty pending state does not show pagination chrome in either the inbox or `/one/consent`.
 
 ## 4) Debate Output Reliability
 1. Run stock analysis from dashboard/portfolio flow.

@@ -28,9 +28,11 @@ import {
   YAxis,
 } from "recharts";
 
-import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
+import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
+import { SWIPE_VIEWS_HORIZONTAL_SCROLL_ATTR } from "@/components/app-ui/swipe-views";
 import { ConnectPortfolioCta } from "@/components/kai/cards/connect-portfolio-cta";
 import { RiaPicksList } from "@/components/kai/cards/renaissance-market-list";
 import { getCompanyLogoUrl } from "@/components/kai/shared/symbol-avatar";
@@ -40,8 +42,6 @@ import {
   type MarketOverviewMetric,
 } from "@/components/kai/cards/market-overview-grid";
 import {
-  kaiPreviewEyebrowClassName,
-  kaiPreviewPageTitleClassName,
   kaiPreviewSectionTitleClassName,
   marketSurfaceVariablesClassName,
 } from "@/components/kai/shared/market-surface-theme";
@@ -50,7 +50,6 @@ import {
   isLocalMarketPreviewRequest,
 } from "@/components/kai/shared/local-market-preview";
 import type { ThemeFocusItem } from "@/components/kai/cards/theme-focus-list";
-import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
@@ -79,7 +78,7 @@ import {
   requestInternalAppNavigation,
 } from "@/lib/utils/browser-navigation";
 import { cn } from "@/lib/utils";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   usePublishVoiceSurfaceMetadata,
@@ -153,7 +152,7 @@ function formatHeadlinePublished(value: string | null | undefined): string {
 const oneMarketRootClassName = cn(
   marketSurfaceVariablesClassName,
   "relative isolate mx-auto flex min-h-screen w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
-  "bg-[color:var(--one-bg)] font-sans text-[color:var(--one-fg)] antialiased",
+  "bg-transparent font-sans text-[color:var(--one-fg)] antialiased",
   // The page background always matches the app shell (--background) so the
   // route never paints its own lighter panel inside the shell (the "double
   // layout" partition). Cards/surfaces are background-derived elevations.
@@ -175,7 +174,7 @@ const oneMarketRootClassName = cn(
   "[--one-glass-fill:linear-gradient(135deg,rgba(255,255,255,0.45),rgba(255,255,255,0.16))]",
   "dark:[--one-glass-fill:linear-gradient(135deg,rgba(44,44,46,0.86),rgba(28,28,30,0.62))]",
   "[--one-glass-float:0_16px_38px_-20px_rgba(0,0,0,0.28),0_4px_12px_-8px_rgba(0,0,0,0.10)]",
-  "[--one-gutter:clamp(18px,4vw,32px)]"
+  "[--one-gutter:0px]"
 );
 
 type OneMarketDisplayRow = {
@@ -190,34 +189,10 @@ type OneMarketDisplayRow = {
 type OneMarketMoverTab = "gain" | "lose" | "active";
 type OneMarketNewsTone = "positive" | "negative" | "neutral";
 
-function formatOneMarketPrice(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 function formatOneMarketPercent(value: number | null | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "Live";
   const sign = value >= 0 ? "+" : "";
   return `${sign}${value.toFixed(2)}%`;
-}
-
-function formatOneMarketVolume(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "Volume live";
-  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B vol`;
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M vol`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K vol`;
-  return `${value.toFixed(0)} vol`;
-}
-
-function oneMarketTone(value: number | null | undefined): "up" | "down" | "neutral" {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "neutral";
-  if (value > 0) return "up";
-  if (value < 0) return "down";
-  return "neutral";
 }
 
 function toOneMarketRows(
@@ -406,48 +381,6 @@ export function shouldShowNewsCompanyLogo(row: KaiHomeNewsItem): boolean {
   });
 }
 
-function BrandLogo({
-  symbol,
-  className,
-}: {
-  symbol: string;
-  className?: string;
-}) {
-  const normalized = normalizeMarketSymbol(symbol);
-  const logoUrl = getCompanyLogoUrl({ symbol: normalized });
-  const [logoFailed, setLogoFailed] = useState(false);
-
-  useEffect(() => {
-    setLogoFailed(false);
-  }, [logoUrl]);
-
-  const baseClassName =
-    "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[10px] bg-[color:var(--one-surface)] text-[color:var(--one-fg)]";
-
-  if (logoUrl && !logoFailed) {
-    return (
-      <span className={cn(baseClassName, "border border-[color:var(--one-hairline)] bg-white", className)} aria-hidden="true">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={logoUrl}
-          alt=""
-          className="h-[62%] w-[62%] object-contain"
-          loading="lazy"
-          decoding="async"
-          referrerPolicy="no-referrer"
-          onError={() => setLogoFailed(true)}
-        />
-      </span>
-    );
-  }
-
-  return (
-    <span className={cn(baseClassName, "font-bold text-[11px]", className)} aria-hidden="true">
-      {normalized.slice(0, 4)}
-    </span>
-  );
-}
-
 function OneMarketSectionHeader({
   title,
   icon: Icon,
@@ -564,12 +497,16 @@ function OneMarketIndexStrip({
 }) {
   if (!metrics.length) return null;
   return (
-    <div className="mx-auto flex w-full max-w-[1080px] gap-2.5 overflow-x-auto px-[var(--one-gutter)] pb-1 pt-[18px] [-ms-overflow-style:none] [scrollbar-width:none] sm:grid sm:grid-cols-4 sm:gap-3 sm:overflow-visible [&::-webkit-scrollbar]:hidden">
+    <div
+      {...{ [SWIPE_VIEWS_HORIZONTAL_SCROLL_ATTR]: "true" }}
+      className="mx-auto flex w-full max-w-[1080px] gap-2.5 overflow-x-auto px-[var(--one-gutter)] pb-1 pt-[18px] [-ms-overflow-style:none] [scrollbar-width:none] sm:grid sm:grid-cols-4 sm:gap-3 sm:overflow-visible [&::-webkit-scrollbar]:hidden"
+    >
       {metrics.map((metric) => (
         <button
           key={metric.id || metric.label}
           type="button"
           onClick={() => onMetricSelect(metric)}
+          aria-label={`Open ${metric.label} details`}
           className="w-[132px] shrink-0 rounded-2xl bg-[color:var(--one-card)] px-[15px] py-[13px] text-left shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)] transition-transform duration-200 active:scale-[0.985] sm:w-full"
         >
           <div className="flex items-center gap-1.5">
@@ -605,55 +542,38 @@ function OneMarketIndexStrip({
   );
 }
 
-function OneMarketMoverRow({
+function OneMarketMoverMetric({
+  label,
   row,
-  tab,
+  tone,
 }: {
-  row: OneMarketDisplayRow;
-  tab: OneMarketMoverTab;
+  label: string;
+  row: OneMarketDisplayRow | undefined;
+  tone: "up" | "down";
 }) {
-  const tone = oneMarketTone(row.changePct);
+  const directionClass = tone === "up" ? "text-[color:var(--one-up)]" : "text-[color:var(--one-down)]";
+
+  if (!row) {
+    return (
+      <div className="min-w-0 rounded-2xl bg-[color:var(--one-card)] px-4 py-3 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)]">
+        <span className="block text-[11px] font-semibold uppercase tracking-[0.06em] text-[color:var(--one-fg3)]">{label}</span>
+        <span className="mt-1 block text-[14px] font-medium text-[color:var(--one-fg2)]">No cached quote</span>
+      </div>
+    );
+  }
+
   return (
     <button
       type="button"
-      onClick={() => openOneMarketHref(`${ROUTES.KAI_ANALYSIS}?symbol=${encodeURIComponent(row.symbol)}`)}
-      className="flex w-full items-center gap-3 border-b border-[color:var(--one-line)] py-3.5 text-left last:border-b-0 active:bg-[color:var(--one-surface)]"
+      onClick={() => openOneMarketHref(buildKaiMarketRoute("analysis", { symbol: row.symbol }))}
+      className="min-w-0 rounded-2xl bg-[color:var(--one-card)] px-4 py-3 text-left shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)] transition-colors active:bg-[color:var(--one-surface)]"
     >
-      <BrandLogo symbol={row.symbol} className="h-9 w-9" />
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-[14px] font-semibold leading-tight text-[color:var(--one-fg)]">
-          {row.companyName}
-        </span>
-        <span className="truncate text-[12px] text-[color:var(--one-fg3)]">
-          {row.symbol} · NASDAQ
-        </span>
+      <span className="block text-[11px] font-semibold uppercase tracking-[0.06em] text-[color:var(--one-fg3)]">{label}</span>
+      <span className="mt-1 flex items-baseline justify-between gap-2">
+        <span className="min-w-0 truncate text-[16px] font-semibold text-[color:var(--one-fg)]">{row.symbol}</span>
+        <span className={cn("shrink-0 text-[13px] font-semibold tabular-nums", directionClass)}>{formatOneMarketPercent(row.changePct)}</span>
       </span>
-      {row.sparkline && row.sparkline.length >= 2 ? (
-        <span className="hidden w-14 shrink-0 sm:block">
-          <IndexSparkline tone={oneMarketTone(row.changePct) === "up" ? "positive" : oneMarketTone(row.changePct) === "down" ? "negative" : "neutral"} series={row.sparkline} height={22} />
-        </span>
-      ) : null}
-      <span className="flex shrink-0 flex-col items-end gap-0.5 text-right">
-        <span className="text-[14px] font-semibold leading-tight tabular-nums text-[color:var(--one-fg)]">
-          {formatOneMarketPrice(row.price)}
-        </span>
-        {tab === "active" ? (
-          <span className="text-[12px] tabular-nums text-[color:var(--one-fg3)]">
-            {formatOneMarketVolume(row.volume)}
-          </span>
-        ) : (
-          <span
-            className={cn(
-              "text-[12px] font-semibold tabular-nums",
-              tone === "up" && "text-[color:var(--one-up)]",
-              tone === "down" && "text-[color:var(--one-down)]",
-              tone === "neutral" && "text-[color:var(--one-fg3)]"
-            )}
-          >
-            {formatOneMarketPercent(row.changePct)}
-          </span>
-        )}
-      </span>
+      <span className="mt-0.5 block truncate text-[12px] text-[color:var(--one-fg3)]">{row.companyName}</span>
     </button>
   );
 }
@@ -776,7 +696,7 @@ function OneMarketNewsCards({ rows }: { rows: KaiHomeNewsItem[] }) {
         {
           symbol: "KAI",
           title: "Defensives lead as indices slip. What it means for your portfolio",
-          url: ROUTES.KAI_ANALYSIS,
+          url: buildKaiMarketRoute("analysis"),
           published_at: new Date().toISOString(),
           source_name: "Kai Wrap",
           provider: "local",
@@ -784,7 +704,10 @@ function OneMarketNewsCards({ rows }: { rows: KaiHomeNewsItem[] }) {
         },
       ];
   return (
-    <div className="-mx-[var(--one-gutter)] flex gap-3 overflow-x-auto px-[var(--one-gutter)] pb-1 pt-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div
+      {...{ [SWIPE_VIEWS_HORIZONTAL_SCROLL_ATTR]: "true" }}
+      className="-mx-[var(--one-gutter)] flex gap-3 overflow-x-auto px-[var(--one-gutter)] pb-1 pt-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    >
       {fallbackRows.slice(0, 4).map((row, index) => {
         const verifiedSymbol = shouldShowNewsCompanyLogo(row)
           ? normalizeMarketSymbol(row.symbol)
@@ -966,26 +889,26 @@ function buildIndexDetailPanel(
   return {
     eyebrow: "Overview",
     title: label,
-    summary: `${label} is one of the benchmark signals Kai uses to frame the current tape before you move into deeper analysis.`,
+    summary: `${label} helps frame broad market conditions before you move into deeper analysis.`,
     value,
     delta,
     statusLabel: degraded ? "Delayed snapshot" : "Live benchmark read",
     statusTone: degraded ? "warning" : tone,
     sections: [
       {
-        title: "Snapshot context",
+        title: "Market data",
         lines: [
           degraded
-            ? "This tile is using delayed or incomplete benchmark context."
-            : "This benchmark is part of the live market overview feed.",
+            ? "The latest market update is delayed or incomplete."
+            : "This benchmark reflects the latest market update.",
           `Source: ${sourceLabel}`,
-          `As of ${formatOverviewAsOf(row?.as_of)}`,
+          `Updated ${formatOverviewAsOf(row?.as_of)}`,
         ],
       },
       {
         title: "Why it matters",
         lines: [
-          "Use this benchmark to anchor the broad tape before moving into advisor ideas or deeper name-level work.",
+          "Use this benchmark to understand broad market conditions before reviewing advisor ideas or individual investments.",
         ],
       },
     ],
@@ -1165,7 +1088,7 @@ function toSectorLeadershipMetric(payload: KaiHomeInsightsV2 | null): MarketOver
     detailPanel: {
       eyebrow: "Overview",
       title: "Sector leader",
-      summary: "Sector rotation highlights where leadership is concentrating in the current tape.",
+      summary: "Sector rotation shows where market leadership is concentrating today.",
       value: leader?.sector || (degraded ? "Updating" : "Unavailable"),
       delta:
         typeof leader?.change_pct === "number" && Number.isFinite(leader.change_pct)
@@ -1727,7 +1650,6 @@ export function KaiMarketPreviewView() {
   const displayRefreshing = usingLocalPreviewFallback ? false : refreshing;
   const displayError = usingLocalPreviewFallback ? null : error;
   const [selectedOverviewMetricId, setSelectedOverviewMetricId] = useState<string | null>(null);
-  const [moverTab, setMoverTab] = useState<OneMarketMoverTab>("gain");
 
   const {
     activeControlId: activeVoiceControlId,
@@ -1765,14 +1687,18 @@ export function KaiMarketPreviewView() {
     () => toOverviewMetrics(effectivePayload, pickRows),
     [effectivePayload, pickRows]
   );
+  const indexStripItems = useMemo(
+    () => toIndexStripItems(effectivePayload, overviewMetrics),
+    [effectivePayload, overviewMetrics]
+  );
   const selectedOverviewMetric = useMemo(
     () =>
       selectedOverviewMetricId
-        ? overviewMetrics.find(
+        ? indexStripItems.find(
             (metric) => (metric.id || metric.label) === selectedOverviewMetricId
           ) || null
         : null,
-    [overviewMetrics, selectedOverviewMetricId]
+    [indexStripItems, selectedOverviewMetricId]
   );
   const retainedOverviewMetric = useRetainedSurfaceSelection(selectedOverviewMetric);
   const marketStatus = useMemo(() => marketStatusBadge(effectivePayload), [effectivePayload]);
@@ -1809,7 +1735,7 @@ export function KaiMarketPreviewView() {
       {
         id: "market_overview",
         title: "Market overview",
-        purpose: "Summarizes the live market tape, breadth, and sector leadership.",
+        purpose: "Summarizes current market performance, breadth, and sector leadership.",
       },
       {
         id: "ria_picks",
@@ -1902,7 +1828,7 @@ export function KaiMarketPreviewView() {
       screenId: "kai_market",
       title: "Market",
       purpose:
-        "This screen is the market overview workspace for live tape, advisor signals, and discovery.",
+        "This screen brings together current market performance, advisor signals, and discovery.",
       primaryEntity: effectivePayload?.active_pick_source || null,
       sections,
       actions,
@@ -1911,7 +1837,7 @@ export function KaiMarketPreviewView() {
         {
           id: "market",
           label: "Market",
-          explanation: "Market is the live overview workspace for current tape, signals, and discovery.",
+          explanation: "Market brings together current market performance, signals, and discovery.",
           aliases: ["market", "market home", "kai home"],
         },
       ],
@@ -1970,10 +1896,6 @@ export function KaiMarketPreviewView() {
   ]);
   usePublishVoiceSurfaceMetadata(marketVoiceSurfaceMetadata);
 
-  const indexStripItems = useMemo(
-    () => toIndexStripItems(effectivePayload, overviewMetrics),
-    [effectivePayload, overviewMetrics]
-  );
   const moverGroups = useMemo(
     () => toMoverGroups(effectivePayload),
     [effectivePayload]
@@ -1988,9 +1910,7 @@ export function KaiMarketPreviewView() {
     [effectivePayload]
   );
   return (
-    <AppPageShell
-      as="div"
-      width="reading"
+    <div
       className={oneMarketRootClassName}
       data-one-market-surface="true"
       data-one-market-preview={localPreviewPayload ? "true" : undefined}
@@ -2024,53 +1944,39 @@ export function KaiMarketPreviewView() {
           `}
         </style>
       ) : null}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 -z-20 bg-[color:var(--one-bg)]"
-      />
       <div className="flex-1 pb-[calc(148px+env(safe-area-inset-bottom))] pt-0">
-        <header className="mx-auto w-full max-w-[1080px] px-[var(--one-gutter)] pt-4">
-          <div className="flex items-start justify-between">
-            <div className="flex min-w-0 flex-col gap-1.5">
-              <span
-                className={cn(
-                  "inline-flex items-center gap-[7px]",
-                  marketStatus?.degraded
-                    ? "text-[color:var(--one-fg3)]"
-                    : marketStatus?.isOpen
-                      ? "text-[color:var(--one-up)]"
-                      : "text-[color:var(--one-fg2)]",
-                  kaiPreviewEyebrowClassName
-                )}
-              >
+        <KaiWorkspaceHeader
+          workspace="market"
+          title="Market"
+          description="Track the market and your watchlist."
+          actionsInlineMobile
+          actions={
+              marketStatus ? (
                 <span
-                  className={cn(
-                    "h-1.5 w-1.5 rounded-full",
-                    marketStatus?.degraded
-                      ? "bg-[color:var(--one-fg3)]"
-                      : marketStatus?.isOpen
-                        ? "bg-[color:var(--one-up)]"
-                        : "bg-[color:var(--one-fg2)]"
-                  )}
-                />
-                {marketStatus?.label ?? "Live market"}
-              </span>
-              <div className={kaiPreviewPageTitleClassName} role="heading" aria-level={1}>
-                Market
-              </div>
-              <p className="max-w-[34ch] text-[17px] leading-[1.42] text-[color:var(--one-fg2)]">
-                Track the market and your watchlist.
-              </p>
-              {marketStatus?.updatedLabel || marketStatus?.source ? (
-                <p className="text-[12px] leading-[1.3] text-[color:var(--one-fg3)]">
-                  {[marketStatus?.updatedLabel, marketStatus?.source]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-              ) : null}
-            </div>
-          </div>
-        </header>
+                  data-testid="market-header-status"
+                  className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-muted-foreground"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "h-1.5 w-1.5 rounded-full",
+                      marketStatus.degraded
+                        ? "bg-amber-500"
+                        : marketStatus.isOpen
+                          ? "bg-emerald-500"
+                          : "bg-muted-foreground/55",
+                    )}
+                  />
+                  <span className="text-foreground/80">{marketStatus.label}</span>
+                  {marketStatus.updatedLabel ? (
+                    <span className="text-muted-foreground">
+                      · {marketStatus.updatedLabel.replace(/^Updated\s*/i, "")}
+                    </span>
+                  ) : null}
+                </span>
+              ) : null
+          }
+        />
 
         <OneMarketIndexStrip
           metrics={indexStripItems}
@@ -2141,41 +2047,14 @@ export function KaiMarketPreviewView() {
 
             <section className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
               <OneMarketSectionHeader title="Top movers" icon={ChartColumnIncreasing} tone="orange" />
-              <div className="mb-3.5 grid grid-cols-3 rounded-xl bg-[color:var(--one-surface)] p-[3px]">
-                {[
-                  { id: "gain" as const, label: "Gainers" },
-                  { id: "lose" as const, label: "Losers" },
-                  { id: "active" as const, label: "Most active" },
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setMoverTab(tab.id)}
-                    className={cn(
-                      "rounded-[10px] px-1 py-2 text-center text-[13px] font-semibold text-[color:var(--one-fg2)] transition-colors",
-                      moverTab === tab.id &&
-                        "bg-[color:var(--one-card)] text-[color:var(--one-fg)] shadow-[0_1px_4px_rgba(0,0,0,0.14)]"
-                    )}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-              <div>
-                {moverGroups[moverTab].length ? (
-                  moverGroups[moverTab].map((row) => (
-                    <OneMarketMoverRow key={`${moverTab}-${row.symbol}`} row={row} tab={moverTab} />
-                  ))
-                ) : (
-                  <p className="py-3.5 text-[13px] text-[color:var(--one-fg3)]">
-                    No movers to show right now.
-                  </p>
-                )}
+              <div className="grid grid-cols-2 gap-3">
+                <OneMarketMoverMetric label="Top mover" row={moverGroups.gain[0]} tone="up" />
+                <OneMarketMoverMetric label="Top loser" row={moverGroups.lose[0]} tone="down" />
               </div>
             </section>
 
             <section className="mx-auto mt-9 w-full max-w-[1080px] px-[var(--one-gutter)]">
-              <OneMarketSectionHeader title="Market news" icon={Newspaper} tone="teal" actionLabel="More" actionHref={ROUTES.KAI_ANALYSIS} />
+              <OneMarketSectionHeader title="Market news" icon={Newspaper} tone="teal" actionLabel="More" actionHref={buildKaiMarketRoute("analysis")} />
               <OneMarketNewsCards rows={marketNewsRows} />
             </section>
 
@@ -2211,83 +2090,59 @@ export function KaiMarketPreviewView() {
         bodyClassName="px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-4 sm:px-6 sm:pt-5 lg:px-7"
       >
         {retainedOverviewMetric?.detailPanel ? (
-          <div className="space-y-4">
-            <SurfaceInset className="space-y-3 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <p className="text-2xl font-semibold tracking-normal text-foreground">
-                    {retainedOverviewMetric.detailPanel.value || retainedOverviewMetric.value}
-                  </p>
-                  <p
-                    className={cn(
-                      "text-sm font-medium",
-                      retainedOverviewMetric.detailPanel.statusTone === "positive" &&
-                        "text-emerald-600 dark:text-emerald-400",
-                      retainedOverviewMetric.detailPanel.statusTone === "negative" &&
-                        "text-rose-600 dark:text-rose-400",
-                      retainedOverviewMetric.detailPanel.statusTone === "warning" &&
-                        "text-amber-700 dark:text-amber-300",
-                      (!retainedOverviewMetric.detailPanel.statusTone ||
-                        retainedOverviewMetric.detailPanel.statusTone === "neutral") &&
-                        "text-muted-foreground"
-                    )}
-                  >
-                    {retainedOverviewMetric.detailPanel.delta || retainedOverviewMetric.delta}
-                  </p>
-                </div>
-                {retainedOverviewMetric.detailPanel.statusLabel ? (
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      "text-[10px] font-medium uppercase tracking-normal",
-                      retainedOverviewMetric.detailPanel.statusTone === "positive" &&
-                        "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-                      retainedOverviewMetric.detailPanel.statusTone === "negative" &&
-                        "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300",
-                      retainedOverviewMetric.detailPanel.statusTone === "warning" &&
-                        "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-                      (!retainedOverviewMetric.detailPanel.statusTone ||
-                        retainedOverviewMetric.detailPanel.statusTone === "neutral") &&
-                        "border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] text-muted-foreground"
-                    )}
-                  >
-                    {retainedOverviewMetric.detailPanel.statusLabel}
-                  </Badge>
-                ) : null}
+          <div className="space-y-3">
+            <SurfaceInset className="flex items-end justify-between gap-4 p-4">
+              <div className="min-w-0 space-y-1">
+                <p className="text-2xl font-semibold tracking-tight text-foreground">
+                  {retainedOverviewMetric.detailPanel.value || retainedOverviewMetric.value}
+                </p>
+                <p
+                  className={cn(
+                    "text-sm font-semibold",
+                    retainedOverviewMetric.detailPanel.statusTone === "positive" &&
+                      "text-emerald-600 dark:text-emerald-400",
+                    retainedOverviewMetric.detailPanel.statusTone === "negative" &&
+                      "text-rose-600 dark:text-rose-400",
+                    retainedOverviewMetric.detailPanel.statusTone === "warning" &&
+                      "text-amber-700 dark:text-amber-300",
+                    (!retainedOverviewMetric.detailPanel.statusTone ||
+                      retainedOverviewMetric.detailPanel.statusTone === "neutral") &&
+                      "text-muted-foreground"
+                  )}
+                >
+                  {retainedOverviewMetric.detailPanel.delta || retainedOverviewMetric.delta}
+                </p>
               </div>
+              {retainedOverviewMetric.detailPanel.statusLabel ? (
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {retainedOverviewMetric.detailPanel.statusLabel}
+                </span>
+              ) : null}
             </SurfaceInset>
 
             {retainedOverviewMetric.detailPanel.sections?.map((section) => (
-              <SurfaceInset key={section.title} className="space-y-2 p-4">
-                <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">
-                  {section.title}
-                </p>
-                <div className="space-y-2">
-                  {section.lines.map((line) => (
-                    <p key={line} className="text-sm leading-6 text-foreground/90">
-                      {line}
-                    </p>
-                  ))}
-                  {section.items?.length ? (
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      {section.items.map((item) => (
-                        <Badge
-                          key={`${section.title}:${item}`}
-                          variant="outline"
-                          className="max-w-full whitespace-normal rounded-full border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-3 py-1.5 text-xs leading-5 text-foreground/80"
-                        >
-                          {item}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              </SurfaceInset>
+              <SettingsGroup
+                key={section.title}
+                embedded
+                separatorInset
+                title={section.title}
+              >
+                {section.lines.map((line) => (
+                  <SettingsRow key={line} density="compact" title={line} />
+                ))}
+                {section.items?.map((item) => (
+                  <SettingsRow
+                    key={`${section.title}:${item}`}
+                    density="compact"
+                    title={item}
+                  />
+                ))}
+              </SettingsGroup>
             ))}
           </div>
         ) : null}
       </KaiControlSurface>
 
-    </AppPageShell>
+    </div>
   );
 }

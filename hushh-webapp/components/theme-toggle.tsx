@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Moon, Monitor, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 
@@ -15,6 +15,7 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 
 type ThemeOption = "light" | "dark" | "system";
+const THEME_STORAGE_KEY = "theme";
 
 const THEME_OPTIONS: Array<{
   value: ThemeOption;
@@ -26,30 +27,60 @@ const THEME_OPTIONS: Array<{
   { value: "system", label: "System", icon: Monitor },
 ];
 
-function resolveActiveTheme(theme: string | undefined): ThemeOption {
+function resolveThemeOption(theme: string | null | undefined): ThemeOption | null {
   const normalized = (theme ?? "").trim().toLowerCase();
   if (normalized === "light" || normalized === "dark" || normalized === "system") {
     return normalized as ThemeOption;
   }
-  return "system";
+  return null;
+}
+
+function readPersistedThemeOption(): ThemeOption | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return resolveThemeOption(window.localStorage.getItem(THEME_STORAGE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `next-themes` applies its no-FOUC script before React effects, while its
+ * context can briefly expose a default during hydration. Read the persisted
+ * preference before rendering a selected segment so Profile never shows Light
+ * against an already-dark app surface. `resolvedTheme` remains visual-only.
+ */
+function useStableThemeSelection() {
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  const [activeTheme, setActiveTheme] = useState<ThemeOption | null>(null);
+
+  useEffect(() => {
+    setActiveTheme(readPersistedThemeOption() ?? resolveThemeOption(theme));
+  }, [theme]);
+
+  const selectTheme = useCallback(
+    (nextTheme: ThemeOption) => {
+      setActiveTheme(nextTheme);
+      setTheme(nextTheme);
+    },
+    [setTheme],
+  );
+
+  return {
+    activeTheme,
+    isDark: resolvedTheme === "dark",
+    selectTheme,
+  };
 }
 
 /**
  * Main Segmented Control Toggle
  */
 export function ThemeToggle({ className }: { className?: string }) {
-  const { theme, setTheme, resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  const activeTheme = resolveActiveTheme(theme);
-  const isDark = resolvedTheme === "dark";
+  const { activeTheme, isDark, selectTheme } = useStableThemeSelection();
 
   // Efficient: Returns null or a placeholder to prevent hydration mismatch
-  if (!mounted) return <div className={cn("h-12 w-full sm:w-[216px]", className)} />;
+  if (!activeTheme) return <div className={cn("h-12 w-full sm:w-[216px]", className)} />;
 
   return (
     <div
@@ -74,7 +105,7 @@ export function ThemeToggle({ className }: { className?: string }) {
             aria-checked={isActive}
             onClick={() => {
               if (option.value === activeTheme) return;
-              setTheme(option.value);
+              selectTheme(option.value);
             }}
             className={cn(
               "relative flex min-h-10 min-w-0 items-center justify-center gap-1.5 overflow-hidden rounded-full border px-2 py-2 text-center transition-all duration-150",
@@ -142,25 +173,18 @@ export function ThemeToggleLean({
   size?: ThemeToggleLeanSize;
   showLabels?: boolean;
 }) {
-  const { theme, setTheme, resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const { activeTheme, isDark, selectTheme } = useStableThemeSelection();
 
   const sizeIntent = THEME_TOGGLE_LEAN_SIZE[size];
   const resolvedShowLabels = showLabels ?? sizeIntent.showLabels;
 
-  const activeTheme = resolveActiveTheme(theme);
-  const isDark = resolvedTheme === "dark";
   const activeIndex = Math.max(
     0,
     THEME_OPTIONS.findIndex((o) => o.value === activeTheme)
   );
 
-  // Reserve height to avoid layout shift before mount/hydration.
-  if (!mounted) {
+  // Do not render a selected segment until the persisted preference is known.
+  if (!activeTheme) {
     return (
       <div
         className={cn("h-9", sizeIntent.width, className)}
@@ -204,7 +228,7 @@ export function ThemeToggleLean({
             title={option.label}
             onClick={() => {
               if (option.value === activeTheme) return;
-              setTheme(option.value);
+              selectTheme(option.value);
             }}
             className={cn(
               "relative z-10 flex h-full min-w-0 items-center justify-center gap-1 rounded-full px-0.5 transition-colors duration-150",
@@ -234,18 +258,11 @@ export function ThemeToggleLean({
  * Compact icon-only theme switcher for tight surfaces
  */
 export function ThemeToggleCompact({ className }: { className?: string }) {
-  const { theme, setTheme, resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
+  const { activeTheme, isDark, selectTheme } = useStableThemeSelection();
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  if (!activeTheme) return <div className={cn("h-10 w-10", className)} />;
 
-  if (!mounted) return <div className={cn("h-10 w-10", className)} />;
-
-  const activeTheme = resolveActiveTheme(theme);
   const activeOption = THEME_OPTIONS.find((o) => o.value === activeTheme) ?? THEME_OPTIONS[0]!;
-  const isDark = resolvedTheme === "dark";
 
   return (
     <DropdownMenu>
@@ -270,7 +287,7 @@ export function ThemeToggleCompact({ className }: { className?: string }) {
           return (
             <DropdownMenuItem
               key={option.value}
-              onSelect={() => !isActive && setTheme(option.value)}
+              onSelect={() => !isActive && selectTheme(option.value)}
               className={cn("group flex items-center gap-2", isActive && "font-medium")}
             >
               <Icon icon={option.icon} size="sm" aria-hidden="true" className="text-current" />

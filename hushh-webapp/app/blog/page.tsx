@@ -1,5 +1,6 @@
+import { redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { BlogIndex } from "@/components/research/blog-index";
+import { buildPublicKnowledgeRoute } from "@/lib/navigation/top-shell-tabs";
 
 export const metadata: Metadata = {
   title: "Blog · Hushh Research",
@@ -8,5 +9,5 @@ export const metadata: Metadata = {
 };
 
 export default function BlogPage() {
-  return <BlogIndex />;
+  redirect(buildPublicKnowledgeRoute("blog"));
 }

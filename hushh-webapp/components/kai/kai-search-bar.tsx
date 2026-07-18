@@ -66,6 +66,7 @@ const VOICE_V2_FLAGS = getVoiceV2Flags();
 
 interface KaiSearchBarProps {
   onSelectAction: (selection: KaiCommandPaletteSelection) => void;
+  onSubmitPrompt: (prompt: string) => void;
   onVoiceResponse?: (payload: {
     turnId: string;
     responseId: string;
@@ -299,6 +300,7 @@ export function KaiSearchBar({
   onVoiceResponse,
   disabled = false,
   onSelectAction,
+  onSubmitPrompt,
   userId,
   vaultOwnerToken,
   voiceAvailable = true,
@@ -1739,6 +1741,7 @@ export function KaiSearchBar({
         open={open}
         onOpenChange={setOpen}
         onSelectAction={onSelectAction}
+        onSubmitPrompt={onSubmitPrompt}
         appRuntimeState={appRuntimeState}
         onVoiceClick={handleRiaVoiceClick}
         voiceActive={riaVoiceActive}

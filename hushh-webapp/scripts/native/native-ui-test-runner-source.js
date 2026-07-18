@@ -828,10 +828,11 @@
       findVoiceControl("one_voice_agent_bar_end") ||
       findVoiceControl("one_voice_end_session") ||
       findVoiceControl("one_voice_cancel_turn");
-    if (endControl) {
-      clickElement(endControl);
-      await sleep(500);
+    if (!endControl) {
+      throw new Error("voice end control missing while active mode=" + mode);
     }
+    clickElement(endControl);
+    await waitForVoiceMode("idle", timeoutMs || 2000, false);
   }
 
   async function attemptNativePersonaSwitch(persona) {

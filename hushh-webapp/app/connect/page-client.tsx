@@ -12,6 +12,8 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { SurfaceStack } from "@/components/app-ui/surfaces";
+import { Input } from "@/components/ui/input";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
@@ -145,8 +147,8 @@ export default function ConnectPageClient() {
   return (
     <AppPageShell
       as="main"
-      width="narrow"
-      className="pb-[calc(var(--app-bottom-inset)+var(--kai-command-fixed-ui,82px)+1.5rem)] sm:pb-10 md:pb-8"
+      width="reading"
+      className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
       nativeTest={{
         routeId: "/connect",
         marker: "native-route-connect",
@@ -174,7 +176,8 @@ export default function ConnectPageClient() {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
-        <div className="space-y-[var(--app-section-gap)]">
+        <SurfaceStack compact>
+          <div className="space-y-4 sm:space-y-5">
           <SettingsGroup
             title={`My connections (${connections.length})`}
             separatorInset
@@ -240,13 +243,13 @@ export default function ConnectPageClient() {
               <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
                 <SearchIcon className="h-4.5 w-4.5" />
               </span>
-              <input
+              <Input
                 type="search"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search people by name or email"
                 aria-label="Search people"
-                className="min-h-12 w-full rounded-2xl border border-border/85 bg-white/70 dark:bg-black/20 pl-11 pr-4 text-sm text-foreground outline-none backdrop-blur-md transition-all placeholder:text-muted-foreground/60 focus:border-accent focus:ring-4 focus:ring-accent/10 shadow-sm"
+                className="h-10 pl-11"
               />
             </div>
             <SettingsGroup
@@ -294,7 +297,8 @@ export default function ConnectPageClient() {
               )}
             </SettingsGroup>
           </div>
-        </div>
+          </div>
+        </SurfaceStack>
       </AppPageContentRegion>
     </AppPageShell>
   );

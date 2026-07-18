@@ -6,13 +6,10 @@ import {
   AppPageHeaderRegion,
   AppPageContentRegion,
 } from "@/components/app-ui/app-page-shell";
-import { Hero } from "@/components/app-ui/sections";
+import { PageHeader } from "@/components/app-ui/page-sections";
 import { SectionToc, type SectionTocEntry } from "@/components/app-ui/section-toc";
 import { ProseMarkdown } from "@/components/research/prose-markdown";
-import { ResearchSubNav } from "@/components/research/research-sub-nav";
 import { PCHP_SPEC_SECTIONS, PCHP_SPEC_META } from "@/lib/research/pchp-spec";
-import { summerColorByIndex } from "@/lib/research/summer-theme";
-import { cn } from "@/lib/utils";
 
 export function PchpSpecView() {
   const [activeId, setActiveId] = useState(
@@ -24,7 +21,6 @@ export function PchpSpecView() {
     PCHP_SPEC_SECTIONS.findIndex((s) => s.id === activeId)
   );
   const active = PCHP_SPEC_SECTIONS[activeIndex] ?? PCHP_SPEC_SECTIONS[0];
-  const activeColor = summerColorByIndex(activeIndex);
 
   const tocEntries = useMemo<SectionTocEntry[]>(
     () =>
@@ -46,20 +42,19 @@ export function PchpSpecView() {
   if (!active) return null;
 
   return (
-    <AppPageShell width="standard" className="py-6 sm:py-10">
+    <AppPageShell width="standard" className="pb-8 pt-0 sm:pb-10">
       <AppPageHeaderRegion>
-        <div className="mb-5">
-          <ResearchSubNav />
-        </div>
-        <Hero
-          kicker={`Specification · ${PCHP_SPEC_META.version}`}
+        <PageHeader
+          eyebrow={`PCHP · ${PCHP_SPEC_META.version}`}
           title="Personal Consent Handshake Protocol"
-          lede={`${PCHP_SPEC_META.status} · updated ${PCHP_SPEC_META.updated} · CC0 + Apache-2.0`}
+          description={`${PCHP_SPEC_META.status} · updated ${PCHP_SPEC_META.updated} · CC0 + Apache-2.0`}
+          descriptionFullWidth
+          accent="research"
         />
       </AppPageHeaderRegion>
 
-      <AppPageContentRegion className="mt-8">
-        <div className="grid gap-8 lg:grid-cols-[248px_minmax(0,1fr)] xl:grid-cols-[272px_minmax(0,1fr)]">
+      <AppPageContentRegion className="mt-5">
+        <div className="grid gap-6 lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[17rem_minmax(0,1fr)]">
           <SectionToc
             entries={tocEntries}
             onSelectSection={handleSelectSection}
@@ -76,10 +71,7 @@ export function PchpSpecView() {
           <article className="min-w-0">
             <div className="mb-5 border-b border-border/60 pb-4">
               <p
-                className={cn(
-                  "text-xs font-semibold uppercase tracking-[0.16em]",
-                  activeColor.text
-                )}
+              className="text-xs font-semibold uppercase tracking-[0.16em] text-accent-strong"
               >
                 {active.eyebrow}
               </p>

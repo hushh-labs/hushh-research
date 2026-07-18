@@ -460,11 +460,11 @@
       ]
     },
     {
-      "route": "/consents",
+      "route": "/one/consent",
       "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fconsents",
+      "initialRoute": "/login?redirect=%2Fone%2Fconsent",
       "expectedMarker": "native-route-consents",
-      "expectedRoute": "/consents",
+      "expectedRoute": "/one/consent",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -989,7 +989,7 @@
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fria%2Frequests",
       "expectedMarker": "native-route-consents",
-      "expectedRoute": "/consents",
+      "expectedRoute": "/one/consent",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -1041,7 +1041,7 @@
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fmarketplace%2Fconnections",
       "expectedMarker": "native-route-consents",
-      "expectedRoute": "/consents?tab=pending",
+      "expectedRoute": "/one/consent?tab=pending",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

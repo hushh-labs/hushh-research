@@ -16,7 +16,7 @@ import {
 import { Icon, SidebarMenuButton } from "@/lib/morphy-ux/ui";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
-import { ROUTES } from "@/lib/navigation/routes";
+import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 
 const domains = [
   {
@@ -51,7 +51,7 @@ export function AppSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   href={ROUTES.KAI_HOME}
-                  isActive={pathname === ROUTES.KAI_HOME || pathname === ROUTES.LEGACY_KAI_HOME}
+                  isActive={pathname === KAI_MARKET_PATH || pathname === ROUTES.LEGACY_KAI_HOME}
                   size="lg"
                   className="md:h-12 md:text-base font-semibold"
                 >
@@ -102,12 +102,12 @@ export function AppSidebar() {
                   href={buildConsentCenterHref("pending", {
                     from: pathname || undefined,
                   })}
-                  isActive={pathname === "/consents"}
+                  isActive={pathname === ROUTES.CONSENTS}
                 >
                   <Icon icon={Shield} size="sm" />
                   <span>Consents</span>
                 </SidebarMenuButton>
-                {pendingCount > 0 && (
+                {typeof pendingCount === "number" && pendingCount > 0 && (
                   <SidebarMenuBadge className="bg-red-500 text-white">
                     {pendingCount}
                   </SidebarMenuBadge>

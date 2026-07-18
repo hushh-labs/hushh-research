@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { PageHeader } from "@/components/app-ui/page-sections";
+import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
 import {
   ChartSurfaceCard,
   FallbackSurfaceCard,
@@ -2659,12 +2659,10 @@ export function DashboardMasterView({
   if (!displayedPortfolio) {
     return (
       <div className="w-full space-y-6 pb-6">
-        <PageHeader
-          eyebrow="Portfolio"
+        <KaiWorkspaceHeader
+          workspace="portfolio"
           title="Portfolio"
           description="Your holdings, sources, and investing context in one place."
-          icon={Building2}
-          accent="neutral"
         />
         <PortfolioSourceSwitcher
           activeSource={activeSource}
@@ -2729,12 +2727,10 @@ export function DashboardMasterView({
 
   return (
     <div className="w-full space-y-6 pb-6">
-      <PageHeader
-        eyebrow="Portfolio"
+      <KaiWorkspaceHeader
+        workspace="portfolio"
         title="Portfolio"
         description="Your active source, holdings, and investing context in one place."
-        icon={Building2}
-        accent="neutral"
         actions={
           <MorphyButton
             variant="none"

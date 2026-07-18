@@ -25,7 +25,7 @@ describe("app bottom navigation", () => {
     expect(
       resolveBottomNavigationScope("/one/connected-systems", "investor"),
     ).toBe("one");
-    expect(resolveBottomNavigationScope("/consents", "ria")).toBe("one");
+    expect(resolveBottomNavigationScope(ROUTES.CONSENTS, "ria")).toBe("one");
     expect(resolveBottomNavigationScope("/agent", "ria")).toBe("one");
     expect(resolveBottomNavigationScope(ROUTES.MARKETPLACE, "investor")).toBe(
       "one",
@@ -37,11 +37,11 @@ describe("app bottom navigation", () => {
     expect(resolveBottomNavigationScope("/marketplace-old", "ria")).toBe("one");
   });
 
-  it("keeps investor and RIA route families scoped to their own nav", () => {
-    expect(resolveBottomNavigationScope("/one/kai/portfolio", "investor")).toBe(
+  it("keeps investor and RIA route families scoped to their workspace routes", () => {
+    expect(resolveBottomNavigationScope(ROUTES.KAI_HOME, "investor")).toBe(
       "investor",
     );
-    expect(resolveBottomNavigationScope("/ria/clients", "ria")).toBe("ria");
+    expect(resolveBottomNavigationScope(ROUTES.RIA_HOME, "ria")).toBe("ria");
   });
 
   it("preserves the last agent-family scope on common Connect and Profile routes", () => {
@@ -68,7 +68,7 @@ describe("app bottom navigation", () => {
     expect(resolveOneActiveNav(ROUTES.GMAIL)).toBe("gmail");
     expect(resolveOneActiveNav(ROUTES.ONE_KYC)).toBe("email");
     expect(resolveOneActiveNav(ROUTES.ONE_LOCATION)).toBe("location");
-    expect(resolveOneActiveNav("/consents?tab=active")).toBe("guardian");
+    expect(resolveOneActiveNav(`${ROUTES.CONSENTS}?tab=active`)).toBe("guardian");
     expect(resolveOneActiveNav(ROUTES.PKM)).toBe("pkm");
     expect(resolveOneActiveNav(ROUTES.ONE_MARKETPLACE)).toBe("marketplace");
     expect(resolveOneActiveNav(ROUTES.CONNECTED_SYSTEMS)).toBe("connected");
@@ -100,9 +100,9 @@ describe("app bottom navigation", () => {
   it("highlights the Profile tab on unified Profile routes in RIA scope", () => {
     expect(resolveRiaActiveNav(ROUTES.PROFILE)).toBe("profile");
     expect(resolveRiaActiveNav(ROUTES.PROFILE_REGULATORY)).toBe("profile");
-    expect(resolveRiaActiveNav(`${ROUTES.PROFILE_REGULATORY}?tab=services`)).toBe(
-      "profile",
-    );
+    expect(
+      resolveRiaActiveNav(`${ROUTES.PROFILE_REGULATORY}?tab=services`),
+    ).toBe("profile");
     // RIA home stays on its own tab.
     expect(resolveRiaActiveNav(ROUTES.RIA_HOME)).toBe("ria-home");
   });
@@ -121,18 +121,10 @@ describe("app bottom navigation", () => {
     }
   });
 
-  it("exposes specialist workspace groups separately from primary navigation", () => {
+  it("keeps specialist workspace groups out of the bottom navigation", () => {
     expect(resolveBottomNavSpecialistOptionKeys("one")).toEqual([]);
-    expect(resolveBottomNavSpecialistOptionKeys("investor")).toEqual([
-      "finance",
-      "portfolio",
-      "analysis",
-    ]);
-    expect(resolveBottomNavSpecialistOptionKeys("ria")).toEqual([
-      "ria-home",
-      "clients",
-      "picks",
-    ]);
+    expect(resolveBottomNavSpecialistOptionKeys("investor")).toEqual([]);
+    expect(resolveBottomNavSpecialistOptionKeys("ria")).toEqual([]);
   });
 
   it("maps One context nav actions to the intended routes", () => {
@@ -142,10 +134,10 @@ describe("app bottom navigation", () => {
     expect(resolveBottomNavHref("email", "one")).toBe(ROUTES.ONE_KYC);
     expect(resolveBottomNavHref("location", "one")).toBe(ROUTES.ONE_LOCATION);
     expect(resolveBottomNavHref("guardian", "one")).toBe(
-      "/consents?tab=pending",
+      "/one/consent?tab=pending",
     );
     expect(resolveBottomNavHref("guardian", "ria")).toBe(
-      "/consents?tab=pending&actor=ria&view=outgoing",
+      "/one/consent?tab=pending&actor=ria&view=outgoing",
     );
     expect(resolveBottomNavHref("pkm", "one")).toBe(ROUTES.PKM);
     expect(resolveBottomNavHref("marketplace", "one")).toBe(
@@ -156,24 +148,18 @@ describe("app bottom navigation", () => {
     );
   });
 
-  it("resolves Investor and RIA context slots from the active route", () => {
+  it("keeps legacy workspace-slot resolution separate from primary navigation", () => {
     expect(resolveInvestorActiveNav(ROUTES.KAI_HOME)).toBe("finance");
-    expect(resolveInvestorActiveNav(ROUTES.KAI_PORTFOLIO)).toBe("portfolio");
-    expect(resolveInvestorActiveNav(ROUTES.KAI_ANALYSIS)).toBe("analysis");
     expect(resolveInvestorNavSlot(ROUTES.KAI_HOME)).toBe("finance");
-    expect(resolveInvestorNavSlot(ROUTES.KAI_ANALYSIS)).toBe("analysis");
 
     expect(resolveRiaActiveNav(ROUTES.RIA_HOME)).toBe("ria-home");
-    expect(resolveRiaActiveNav(ROUTES.RIA_CLIENTS)).toBe("clients");
-    expect(resolveRiaActiveNav(ROUTES.RIA_PICKS)).toBe("picks");
     expect(resolveRiaNavSlot(ROUTES.RIA_HOME)).toBe("clients");
-    expect(resolveRiaNavSlot(ROUTES.RIA_PICKS)).toBe("picks");
   });
 
   it("selects the active workspace destination", () => {
     expect(resolveBottomNavActiveKey(ROUTES.AGENT, "one")).toBe("search");
     expect(resolveBottomNavActiveKey(ROUTES.KAI_ANALYSIS, "investor")).toBe(
-      "analysis",
+      "dashboard",
     );
     expect(resolveBottomNavActiveKey(ROUTES.RIA_CLIENTS, "ria")).toBe(
       "dashboard",

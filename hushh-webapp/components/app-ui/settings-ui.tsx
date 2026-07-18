@@ -250,12 +250,21 @@ export function SettingsRow({
       : "div";
   const rowRadiusClassName =
     "[--settings-row-top-radius:0px] [--settings-row-bottom-radius:0px] first:[--settings-row-top-radius:calc(var(--settings-group-radius)-1px)] last:[--settings-row-bottom-radius:calc(var(--settings-group-radius)-1px)] [border-top-left-radius:var(--settings-row-top-radius)] [border-top-right-radius:var(--settings-row-top-radius)] [border-bottom-left-radius:var(--settings-row-bottom-radius)] [border-bottom-right-radius:var(--settings-row-bottom-radius)]";
+  const separatorInsetClassName =
+    // An inset separator aligns with an icon well. Rows without a leading visual
+    // need a full-width hairline; otherwise the divider appears arbitrarily cut
+    // off, as it did on Connect's plain-text rows.
+    icon || leading
+      ? "group-data-[inset-separators=true]/settings-list:after:left-[3.75rem] sm:group-data-[inset-separators=true]/settings-list:after:left-[4.25rem]"
+      : "group-data-[inset-separators=true]/settings-list:after:left-0";
   const rowShellClassName = cn(
     "group/settings-row relative isolate overflow-hidden bg-[color:var(--app-list-row-surface)] sm:bg-transparent",
     density === "compact" && "[--settings-row-py:0.5rem]",
-    // iOS inset hairline separator — active only inside a SettingsGroup with
-    // separatorInset; starts after the leading icon and hides on the last row.
-    "group-data-[inset-separators=true]/settings-list:after:pointer-events-none group-data-[inset-separators=true]/settings-list:after:absolute group-data-[inset-separators=true]/settings-list:after:bottom-0 group-data-[inset-separators=true]/settings-list:after:right-0 group-data-[inset-separators=true]/settings-list:after:left-[3.75rem] group-data-[inset-separators=true]/settings-list:after:h-px group-data-[inset-separators=true]/settings-list:after:bg-[color:var(--foundation-hairline)] group-data-[inset-separators=true]/settings-list:after:content-[''] sm:group-data-[inset-separators=true]/settings-list:after:left-[4.25rem] last:after:hidden",
+    // iOS-style separator — active only inside SettingsGroup with
+    // separatorInset and hidden on the final row. Its start is derived from
+    // whether this row actually has a leading visual.
+    "group-data-[inset-separators=true]/settings-list:after:pointer-events-none group-data-[inset-separators=true]/settings-list:after:absolute group-data-[inset-separators=true]/settings-list:after:bottom-0 group-data-[inset-separators=true]/settings-list:after:right-0 group-data-[inset-separators=true]/settings-list:after:h-px group-data-[inset-separators=true]/settings-list:after:bg-[color:var(--foundation-hairline)] group-data-[inset-separators=true]/settings-list:after:content-[''] last:after:hidden",
+    separatorInsetClassName,
     rowRadiusClassName,
     disabled && "cursor-not-allowed opacity-60",
     className,

@@ -43,6 +43,7 @@ export class HushhAuthWeb implements HushhAuthPlugin {
         displayName: result.user.displayName || "",
         photoUrl: result.user.photoURL || "",
         emailVerified: result.user.emailVerified,
+        phoneNumber: result.user.phoneNumber,
       };
       
       this.currentUser = user;
@@ -80,6 +81,7 @@ export class HushhAuthWeb implements HushhAuthPlugin {
         displayName: result.user.displayName || "",
         photoUrl: result.user.photoURL || "",
         emailVerified: result.user.emailVerified,
+        phoneNumber: result.user.phoneNumber,
       };
       
       this.currentUser = user;
@@ -147,6 +149,7 @@ export class HushhAuthWeb implements HushhAuthPlugin {
       displayName: user.displayName || "",
       photoUrl: user.photoURL || "",
       emailVerified: user.emailVerified,
+      phoneNumber: user.phoneNumber,
     };
   }
 }

@@ -1,6 +1,10 @@
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
-import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildKaiAnalysisPreviewRoute,
+  buildKaiMarketRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { showDebateAlreadyRunningToast } from "@/lib/kai/debate-run-notifications";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import type {
@@ -92,7 +96,7 @@ function getHistoryTarget(
   params?: Record<string, unknown> | KaiCommandParams,
 ): string {
   if (!params || typeof params !== "object") {
-    return `${ROUTES.KAI_ANALYSIS}?tab=history`;
+    return buildKaiMarketRoute("analysis", { view: "history" });
   }
 
   const tabRaw = typeof params.tab === "string" ? params.tab : null;
@@ -100,17 +104,16 @@ function getHistoryTarget(
 
   const query = new URLSearchParams();
   if (tabRaw && VALID_HISTORY_TABS.has(tabRaw)) {
-    query.set("tab", tabRaw);
+    query.set("view", tabRaw);
   }
   if (focusRaw === "active") {
     query.set("focus", "active");
   }
-  if (!query.has("tab") && !query.has("focus")) {
-    query.set("tab", "history");
+  if (!query.has("view") && !query.has("focus")) {
+    query.set("view", "history");
   }
 
-  const suffix = query.toString();
-  return suffix ? `${ROUTES.KAI_ANALYSIS}?${suffix}` : ROUTES.KAI_ANALYSIS;
+  return buildKaiMarketRoute("analysis", Object.fromEntries(query.entries()));
 }
 
 function getActiveAnalysisTarget(symbol?: string | null): string {
@@ -122,7 +125,7 @@ function getActiveAnalysisTarget(symbol?: string | null): string {
   if (normalizedSymbol) {
     query.set("ticker", normalizedSymbol);
   }
-  return `${ROUTES.KAI_ANALYSIS}?${query.toString()}`;
+  return buildKaiMarketRoute("analysis", Object.fromEntries(query.entries()));
 }
 
 type BuildCommandResultInput = {

@@ -95,30 +95,51 @@ function managerHref(actor: ConsentCenterActor, from?: string) {
     : buildConsentCenterHref("pending", { from });
 }
 
+export interface ConsentInboxActivityState {
+  pendingCount: number | null;
+  loading: boolean;
+}
+
+type ConsentInboxPresentation = "dropdown" | "section";
+
+interface ConsentInboxDropdownProps {
+  triggerClassName?: string;
+  renderTrigger?: (state: { pendingCount: number | null }) => ReactElement;
+  presentation?: ConsentInboxPresentation;
+  onActivityChange?: (state: ConsentInboxActivityState) => void;
+  onRequestClose?: () => void;
+}
+
 export function ConsentInboxDropdown({
   triggerClassName,
   renderTrigger,
-}: {
-  triggerClassName?: string;
-  renderTrigger?: (state: { pendingCount: number }) => ReactElement;
-}) {
+  presentation = "dropdown",
+  onActivityChange,
+  onRequestClose,
+}: ConsentInboxDropdownProps) {
   const { user } = useAuth();
   const pathname = usePathname();
   const { activePersona } = usePersonaState();
   const actor: ConsentCenterActor =
     activePersona === "ria" ? "ria" : "investor";
+  // The investor default is served by the One consent lane. Sharing its cache
+  // identity with /one and /consents avoids three equivalent summary fetches
+  // on first load. RIA remains a genuinely separate view and cache lane.
+  const apiActor: ConsentCenterActor | undefined =
+    actor === "ria" ? "ria" : undefined;
+  const cacheScope = apiActor === "ria" ? "ria" : "one";
   const mode = "consents";
   const [open, setOpen] = useState(false);
   const [mutationTick, setMutationTick] = useState(0);
   const pendingPreviewLimit = 5;
 
   const summaryCacheKey = user?.uid
-    ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(user.uid, `${actor}:${mode}`)
+    ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(user.uid, `${cacheScope}:${mode}`)
     : "consent_center_summary_guest";
   const pendingListCacheKey = user?.uid
     ? CACHE_KEYS.CONSENT_CENTER_LIST(
         user.uid,
-        `${actor}:${mode}`,
+        `${cacheScope}:${mode}`,
         "pending",
         "",
         1,
@@ -147,7 +168,7 @@ export function ConsentInboxDropdown({
 
   const summaryResource = useStaleResource({
     cacheKey: summaryCacheKey,
-    refreshKey: `${actor}:${mode}:${mutationTick}`,
+    refreshKey: `${cacheScope}:${mode}:${mutationTick}`,
     enabled: Boolean(user?.uid),
     load: async () => {
       const idToken = await user?.getIdToken();
@@ -157,7 +178,7 @@ export function ConsentInboxDropdown({
       return ConsentCenterService.getSummary({
         idToken,
         userId: user.uid,
-        actor,
+        actor: apiActor,
         mode,
         force: mutationTick > 0,
       });
@@ -167,12 +188,15 @@ export function ConsentInboxDropdown({
   const summaryData =
     summaryResource.data ??
     (retainedSummary?.key === summaryCacheKey ? retainedSummary.data : null);
-  const pendingCount = summaryData?.counts.pending ?? 0;
+  const pendingCount = summaryData?.counts.pending ?? null;
 
   const pendingListResource = useStaleResource({
     cacheKey: pendingListCacheKey,
-    refreshKey: `${actor}:${mode}:${mutationTick}:${pendingCount}`,
-    enabled: Boolean(user?.uid) && pendingCount > 0,
+    refreshKey: `${cacheScope}:${mode}:${mutationTick}:${pendingCount ?? "unknown"}`,
+    enabled:
+      Boolean(user?.uid) &&
+      typeof pendingCount === "number" &&
+      pendingCount > 0,
     load: async () => {
       const idToken = await user?.getIdToken();
       if (!user?.uid || !idToken) {
@@ -181,7 +205,7 @@ export function ConsentInboxDropdown({
       return ConsentCenterService.listEntries({
         idToken,
         userId: user.uid,
-        actor,
+        actor: apiActor,
         mode,
         surface: "pending",
         page: 1,
@@ -213,17 +237,100 @@ export function ConsentInboxDropdown({
       : null);
 
   const items =
-    pendingCount > 0
+    typeof pendingCount === "number" && pendingCount > 0
       ? (pendingListData?.items || []).slice(0, pendingPreviewLimit)
       : [];
   const hasAdditionalPending = (pendingListData?.total ?? 0) > items.length;
   const isInitialSummaryLoad = summaryResource.loading && !summaryData;
   const isInitialPendingListLoad =
-    pendingCount > 0 && pendingListResource.loading && items.length === 0;
+    typeof pendingCount === "number" &&
+    pendingCount > 0 &&
+      pendingListResource.loading &&
+      items.length === 0;
+  const loading = isInitialSummaryLoad || isInitialPendingListLoad;
   const primaryHref = useMemo(
     () => managerHref(actor, pathname || undefined),
     [actor, pathname],
   );
+
+  useEffect(() => {
+    onActivityChange?.({ pendingCount, loading });
+  }, [loading, onActivityChange, pendingCount]);
+
+  const closeAfterNavigation = () => {
+    setOpen(false);
+    onRequestClose?.();
+  };
+
+  if (presentation === "section") {
+    if (!loading && items.length === 0) {
+      return null;
+    }
+
+    return (
+      <section aria-label="Consent requests" className="border-b border-border/45 py-1 last:border-b-0">
+        <div className="flex items-center justify-between gap-3 px-1 py-2.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <Shield className="h-4 w-4 shrink-0 text-accent-strong" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">Needs your review</p>
+              <p className="text-[11px] text-muted-foreground">
+                {actor === "ria" ? "Advisor requests" : "Consent requests"}
+              </p>
+            </div>
+          </div>
+          {loading ? (
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />
+          ) : typeof pendingCount === "number" && pendingCount > 0 ? (
+            <span className="text-xs font-semibold text-accent-strong">{pendingCount}</span>
+          ) : null}
+        </div>
+
+        {loading ? (
+          <div className="px-2 py-4 text-sm text-muted-foreground">Loading requests…</div>
+        ) : (
+          <div role="list" aria-label="Pending consents" className="divide-y divide-border/45">
+            {items.map((entry) => (
+              <div key={entry.id} role="listitem">
+                <Link
+                  href={entryHref(actor, entry, pathname || undefined)}
+                  prefetch={false}
+                  onClick={closeAfterNavigation}
+                  className="block rounded-[14px] px-3 py-3 transition-colors hover:bg-muted/36"
+                >
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-[13px] font-semibold tracking-tight text-foreground">
+                        {entryLabel(entry)}
+                      </p>
+                      <p className="mt-1 line-clamp-2 text-[11px] leading-[1.45] text-muted-foreground">
+                        {entrySummary(entry)}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                      {formatRelative(entry.expires_at) ||
+                        entry.counterpart_email ||
+                        entry.counterpart_secondary_label ||
+                        ""}
+                    </span>
+                  </div>
+                </Link>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="px-1 py-2">
+          <Button asChild variant="none" effect="fade" size="sm">
+            <Link href={primaryHref} prefetch={false} onClick={closeAfterNavigation}>
+              {hasAdditionalPending ? "View all requests" : "Open consent manager"}
+              <ExternalLink className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen} modal={false}>
@@ -237,7 +344,7 @@ export function ConsentInboxDropdown({
             aria-label="Open consent inbox"
           >
             <Shield className="h-5 w-5" />
-            {pendingCount > 0 ? (
+            {typeof pendingCount === "number" && pendingCount > 0 ? (
               <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-white">
                 {pendingCount}
               </span>
@@ -266,14 +373,13 @@ export function ConsentInboxDropdown({
         </div>
 
         <div className={TOP_SHELL_DROPDOWN_BODY_CLASSNAME}>
-          {isInitialSummaryLoad || isInitialPendingListLoad ? (
+          {loading ? (
             <div className="px-2 py-6 text-sm text-muted-foreground">
               Loading pending consents…
             </div>
           ) : null}
 
-          {!isInitialSummaryLoad &&
-          !isInitialPendingListLoad &&
+          {!loading &&
           items.length === 0 ? (
             <div className="px-2 py-6 text-sm text-muted-foreground">
               No pending consents right now.
@@ -291,7 +397,7 @@ export function ConsentInboxDropdown({
                   <Link
                     href={entryHref(actor, entry, pathname || undefined)}
                     prefetch={false}
-                    onClick={() => setOpen(false)}
+                    onClick={closeAfterNavigation}
                     className="block rounded-[14px] px-3 py-3 transition-colors hover:bg-muted/36"
                   >
                     <div className="flex min-w-0 items-start justify-between gap-3">
@@ -323,7 +429,7 @@ export function ConsentInboxDropdown({
               <Link
                 href={primaryHref}
                 prefetch={false}
-                onClick={() => setOpen(false)}
+                onClick={closeAfterNavigation}
               >
                 Open consent manager
               </Link>
@@ -333,7 +439,7 @@ export function ConsentInboxDropdown({
                 <Link
                   href={primaryHref}
                   prefetch={false}
-                  onClick={() => setOpen(false)}
+                  onClick={closeAfterNavigation}
                 >
                   View all pending
                   <ExternalLink className="ml-2 h-4 w-4" />
