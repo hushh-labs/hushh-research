@@ -275,12 +275,15 @@ export function resolveBottomNavContextKey(
 
 export function resolveBottomNavOptionKeys(
   _pathname: string | null | undefined,
-  _scope: AppBottomNavScope,
+  scope: AppBottomNavScope,
   _context?: AppBottomNavContext,
 ): AppBottomNavKey[] {
-  // The primary group is stable on every signed-in route. Specialist tabs are
-  // deliberately rendered beside it on wide layouts, never folded into a
-  // six-slot global control.
+  if (scope === "investor") {
+    return ["dashboard", "finance", "portfolio", "analysis", "connect", "search"];
+  }
+  if (scope === "ria") {
+    return ["dashboard", "ria-home", "clients", "picks", "connect", "search"];
+  }
   return ["dashboard", "connect", "search"];
 }
 

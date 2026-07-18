@@ -351,10 +351,6 @@ export const Navbar = () => {
   }
 
   const activeNav = resolveBottomNavActiveKey(normalizedPathname, bottomNavScope);
-  const activeSpecialistNav = resolveBottomNavContextKey(
-    normalizedPathname,
-    bottomNavScope,
-  );
 
   const navigateTo = (value: string) => {
     if (busyOperations["portfolio_save"]) {
@@ -422,27 +418,6 @@ export const Navbar = () => {
           style={{ maxWidth: "calc(100vw - 2rem)" }}
           ref={pillRef}
         >
-          {specialistOptions.length > 0 ? (
-            <div
-              className="hidden min-w-0 pointer-events-auto md:block"
-              style={{ width: resolveBottomNavMaxWidth(specialistOptions.length) }}
-            >
-              <SegmentedPill
-                size="compact"
-                layout="stacked"
-                hitArea="segment"
-                value={activeSpecialistNav}
-                options={specialistOptions}
-                onValueChange={navigateTo}
-                ariaLabel="Workspace navigation"
-                className={cn(
-                  "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
-                  "[&_[aria-checked=true]]:text-[color:var(--app-accent)] [&_[aria-checked=true]]:font-semibold",
-                  "[&_[data-segment-indicator]]:bg-black/[0.06] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-white/[0.1]",
-                )}
-              />
-            </div>
-          ) : null}
           <div
             className="min-w-0 pointer-events-auto"
             style={{ width: bottomNavWidth }}
