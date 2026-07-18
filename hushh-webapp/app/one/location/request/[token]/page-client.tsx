@@ -195,7 +195,7 @@ export default function PublicLocationRequestPageClient() {
           </div>
 
           {loading ? (
-            <div className="space-y-3">
+            <div aria-hidden="true" className="space-y-3">
               <Skeleton className="h-11 rounded-xl" />
               <Skeleton className="h-24 rounded-xl" />
               <Skeleton className="h-10 w-36 rounded-xl" />
