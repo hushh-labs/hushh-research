@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { triggerToggleHaptic } from "@/lib/utils/haptic-utils";
 import { cn } from "@/lib/utils";
 
 type ThemeOption = "light" | "dark" | "system";
@@ -74,6 +75,7 @@ export function ThemeToggle({ className }: { className?: string }) {
             aria-checked={isActive}
             onClick={() => {
               if (option.value === activeTheme) return;
+              triggerToggleHaptic();
               setTheme(option.value);
             }}
             className={cn(
@@ -141,7 +143,11 @@ export function ThemeToggleCompact({ className }: { className?: string }) {
           return (
             <DropdownMenuItem
               key={option.value}
-              onSelect={() => !isActive && setTheme(option.value)}
+              onSelect={() => {
+                if (isActive) return;
+                triggerToggleHaptic();
+                setTheme(option.value);
+              }}
               className={cn("group flex items-center gap-2", isActive && "font-medium")}
             >
               <Icon icon={option.icon} size="sm" aria-hidden="true" className="text-current" />
