@@ -269,7 +269,7 @@ export function ConsentAuditTimeline({
               >
                 <div className="flex items-start gap-3">
                   <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background/80 text-muted-foreground">
-                    <Clock3 className="h-4 w-4" />
+                    <Clock3 aria-hidden="true" className="h-4 w-4" />
                   </div>
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex flex-wrap items-start justify-between gap-2">
