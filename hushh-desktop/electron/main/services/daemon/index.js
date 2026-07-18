@@ -42,15 +42,23 @@ async function isDaemonHealthy() {
   }
 }
 
+/** @type {import("child_process").ChildProcess | null} */
+let daemonProc = null;
+
 /**
  * Best-effort: starts the OneWindows MCP daemon if it isn't already
  * reachable. Deliberately NOT part of the app's required startup path --
  * unlike backend/frontend, this never blocks or fails app launch, and it
  * is spawned detached + unref'd so its lifetime is independent of
- * Electron's. The daemon is meant to keep serving other local MCP clients
- * (Hermes, etc.) even after this app window closes, matching the Mac
+ * Electron's by default. Originally left running after window close to
+ * keep serving other local MCP clients (Hermes, etc.), matching the Mac
  * reference daemon's "runs in the background regardless of the GUI app"
- * design -- so shutdownServices() intentionally does not touch it.
+ * design -- explicitly overridden by killDaemon() below on this app's own
+ * quit, since orphaned daemon/analysis-engine processes from prior runs
+ * were blocking rebuilds (stale file locks) and confusing process lists.
+ * No external MCP client depends on this yet (Hermes Agent isn't released
+ * by the maintainer), so a clean shutdown wins over background persistence
+ * for now -- revisit if that changes.
  *
  * @returns {Promise<void>}
  */
@@ -72,13 +80,16 @@ async function ensureDaemonRunning() {
   }
 
   console.log("[daemon] Starting OneWindows daemon...");
-  const daemonProc = spawn(daemonExe, [], {
+  daemonProc = spawn(daemonExe, [], {
     detached: true,
     stdio: "ignore",
     windowsHide: true,
   });
   daemonProc.on("error", (err) => {
     console.warn("[daemon] Failed to spawn OneWindows.Daemon.exe:", err);
+  });
+  daemonProc.on("exit", () => {
+    daemonProc = null;
   });
   daemonProc.unref();
 
@@ -95,6 +106,33 @@ async function ensureDaemonRunning() {
   console.warn("[daemon] OneWindows daemon spawned but did not respond within 10s.");
 }
 
+/**
+ * Kills the OneWindows daemon on app quit. Falls back to an image-name
+ * taskkill (not just the tracked PID) so this also cleans up a daemon left
+ * over from a previous run of this app that crashed/was force-killed
+ * without going through this shutdown path -- see killDaemon's call site
+ * in main.js.
+ */
+function killDaemon() {
+  if (process.platform !== "win32") return;
+
+  if (daemonProc && daemonProc.pid) {
+    spawn("taskkill", ["/pid", String(daemonProc.pid), "/T", "/F"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    daemonProc = null;
+  }
+
+  // Best-effort catch-all for a daemon this instance never spawned (e.g.
+  // left running from a crashed prior session).
+  spawn("taskkill", ["/IM", "OneWindows.Daemon.exe", "/T", "/F"], {
+    stdio: "ignore",
+    windowsHide: true,
+  });
+}
+
 module.exports = {
+  killDaemon,
   ensureDaemonRunning,
 };

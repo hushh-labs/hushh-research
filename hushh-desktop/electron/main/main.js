@@ -23,7 +23,7 @@ const { app, BrowserWindow } = require("electron");
 // electron-builder's `appId` (package.json) and be set before any window is
 // created.
 if (process.platform === "win32") {
-  app.setAppUserModelId("com.hushh.desktop");
+  app.setAppUserModelId("com.hushh.desktop.beta1");
 }
 
 // Without this, launching the exe twice (a double-click, a stuck taskbar
@@ -59,8 +59,9 @@ const { findFreePort } = require("./services/ports");
 const { initRuntimeContext } = require("./services/runtime");
 const { ensureBackendVenv } = require("./services/launcher");
 const { spawnProcesses, waitForServices, shutdownServices } = require("./services/supervisor");
-const { ensureDaemonRunning } = require("./services/daemon");
-const { ensureAnalysisEngineRunning } = require("./services/analysisEngine");
+const { ensureDaemonRunning, killDaemon } = require("./services/daemon");
+const { ensureAnalysisEngineRunning, killAnalysisEngine } = require("./services/analysisEngine");
+const { registry } = require("./services/models/registry");
 
 const { registerPlatformHandlers }      = require("./ipc/platform");
 const { registerRuntimeHandlers }       = require("./ipc/runtime");
@@ -154,9 +155,18 @@ app.whenReady().then(async () => {
 
 // ─── Shutdown ────────────────────────────────────────────────────────────────
 
-// before-quit fires before window close events; ideal place to kill children
+// before-quit fires before window close events; ideal place to kill children.
+// Kills everything this app can spawn -- backend/frontend (supervisor),
+// GenieX (registry), the OneWindows daemon, and the analysis engine --
+// so nothing outlives the app. The daemon and analysis engine were
+// originally left running after quit to serve other local MCP clients;
+// see killDaemon/killAnalysisEngine's own comments for why that's
+// overridden here.
 app.on("before-quit", () => {
   shutdownServices();
+  registry.killLocalInferenceEngine();
+  killDaemon();
+  killAnalysisEngine();
 });
 
 app.on("window-all-closed", () => {

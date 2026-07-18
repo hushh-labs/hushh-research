@@ -17,7 +17,7 @@
     "wait-on": "^9.0.10"
   },
   "build": {
-    "appId": "com.hushh.desktop",
+    "appId": "com.hushh.desktop.beta1",
     "productName": "Hushh Desktop",
     "asar": false,
     "directories": {
@@ -25,6 +25,7 @@
     },
     "files": [
       "electron/**/*",
+      "assets/**/*",
       "package.json",
       "backend/dist/hushh-backend.exe",
       "frontend/.env*",

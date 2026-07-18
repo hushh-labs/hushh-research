@@ -58,6 +58,9 @@ async function isAnalysisEngineHealthy() {
   }
 }
 
+/** @type {import("child_process").ChildProcess | null} */
+let engineProc = null;
+
 /**
  * Best-effort: starts the local analysis engine if it isn't already
  * reachable. Deliberately NOT gated behind GenieX/local-chat state -- unlike
@@ -65,12 +68,11 @@ async function isAnalysisEngineHealthy() {
  * supervised alongside GenieX in models/registry.js), the analysis engine
  * is pure deterministic math with no model loaded and no dependency on
  * whether local chat is even enabled (see server.py's own module
- * docstring). It plays the same "always-on background compute service for
- * any MCP client" role as OneWindows.Daemon, so it is spawned detached +
- * unref'd here and NOT torn down on app shutdown, mirroring
- * daemon/index.js's ensureDaemonRunning exactly (see that module's comment
- * for the full rationale) rather than models/registry.js's
- * spawn-with-GenieX pattern.
+ * docstring). Originally spawned detached + unref'd and left running after
+ * app shutdown (same "always-on background compute service" role as
+ * OneWindows.Daemon) -- explicitly overridden by killAnalysisEngine() below
+ * on this app's own quit; see daemon/index.js's killDaemon for the full
+ * rationale, same tradeoff applies here.
  *
  * @returns {Promise<void>}
  */
@@ -91,7 +93,7 @@ async function ensureAnalysisEngineRunning() {
   }
 
   console.log(`[analysisEngine] Starting local analysis engine on port ${ANALYSIS_ENGINE_PORT}...`);
-  const engineProc = spawn(command, args, {
+  engineProc = spawn(command, args, {
     cwd,
     env: { ...process.env },
     detached: true,
@@ -100,6 +102,9 @@ async function ensureAnalysisEngineRunning() {
   });
   engineProc.on("error", (err) => {
     console.warn("[analysisEngine] Failed to spawn analysis engine:", err);
+  });
+  engineProc.on("exit", () => {
+    engineProc = null;
   });
   engineProc.unref();
 
@@ -114,6 +119,37 @@ async function ensureAnalysisEngineRunning() {
   console.warn("[analysisEngine] Analysis engine spawned but did not respond within 10s.");
 }
 
+/**
+ * Kills the local analysis engine on app quit. Tree-kills the tracked PID
+ * (covers the PyInstaller onefile bootloader-then-child-copy pattern in
+ * packaged builds -- taskkill /T catches both). Also does a best-effort
+ * image-name kill for the packaged exe specifically, to catch an instance
+ * left over from a previous run that crashed/was force-killed without
+ * going through this shutdown path -- not done for the dev-mode python.exe
+ * invocation, since killing by "python.exe" would be far too broad.
+ */
+function killAnalysisEngine() {
+  if (engineProc && engineProc.pid) {
+    if (process.platform === "win32") {
+      spawn("taskkill", ["/pid", String(engineProc.pid), "/T", "/F"], {
+        stdio: "ignore",
+        windowsHide: true,
+      });
+    } else {
+      engineProc.kill("SIGTERM");
+    }
+    engineProc = null;
+  }
+
+  if (process.platform === "win32") {
+    spawn("taskkill", ["/IM", "hushh-analysis-engine.exe", "/T", "/F"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+  }
+}
+
 module.exports = {
   ensureAnalysisEngineRunning,
+  killAnalysisEngine,
 };
