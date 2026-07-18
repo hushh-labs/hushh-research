@@ -116,9 +116,12 @@ export function IncomeDetailCard({
   const hasDetail = incomeDetail && (
     incomeDetail.dividends_taxable ||
     incomeDetail.dividends_qualified ||
+    incomeDetail.dividends_nontaxable ||
     incomeDetail.interest_taxable ||
+    incomeDetail.interest_tax_exempt ||
     incomeDetail.short_term_cap_gains ||
-    incomeDetail.long_term_cap_gains
+    incomeDetail.long_term_cap_gains ||
+    incomeDetail.return_of_capital
   );
 
   // Check if we have any income data
