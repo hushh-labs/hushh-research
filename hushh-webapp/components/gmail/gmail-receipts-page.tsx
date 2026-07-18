@@ -1301,7 +1301,7 @@ export default function ProfileReceiptsPage() {
                 <Lock className="h-4 w-4" />
                 Unlock your vault to view and summarize synced receipts.
               </div>
-              <Button onClick={requestVaultUnlock}>Unlock vault</Button>
+              <Button type="button" onClick={requestVaultUnlock}>Unlock vault</Button>
             </SurfaceInset>
           ) : null}
 
