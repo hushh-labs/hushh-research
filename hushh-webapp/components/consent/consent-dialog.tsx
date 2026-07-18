@@ -146,7 +146,7 @@ export function ConsentDialog({
           <div
             ref={scopeInfoRef}
             tabIndex={-1}
-            className="flex items-start gap-3 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-800/40 focus:outline-none"
+            className="flex items-start gap-3 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-800/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             style={scopeInfo.colorHex ? {
               backgroundColor: `${scopeInfo.colorHex}08`,
               borderColor: `${scopeInfo.colorHex}20`,
