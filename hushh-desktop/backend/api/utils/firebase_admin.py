@@ -12,7 +12,16 @@ Credential sources (in priority order):
 from __future__ import annotations
 
 import json
+import threading
 from typing import Any, Optional, Tuple
+
+# verify_firebase_bearer runs ensure_firebase_admin() via run_in_threadpool,
+# so on a fresh boot many parallel authenticated requests can all observe
+# "not yet initialized" and race into firebase_admin.initialize_app()
+# together -- only one wins, the rest raise "The default Firebase app
+# already exists" and fail that request's auth. This lock serializes first-
+# time init so the losers wait for the winner instead of racing/failing.
+_init_lock = threading.Lock()
 
 from hushh_mcp.runtime_settings import (
     FIREBASE_ADMIN_CREDENTIALS_JSON_ENV,
@@ -83,26 +92,35 @@ def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
     import firebase_admin
     from firebase_admin import credentials
 
-    # Already initialized
+    # Fast path: already initialized, no lock needed.
     app = _get_existing_app()
     if app is not None:
         proj = app.project_id if hasattr(app, "project_id") else None
         return True, proj
 
-    sa = _load_service_account_from_env(DEFAULT_SERVICE_ACCOUNT_ENV)
-    if sa:
-        cred = credentials.Certificate(sa)
-        app = firebase_admin.initialize_app(cred)
-        return True, _project_id_from_app(app, sa)
+    # Slow path: serialize first-time init so concurrent callers on a cold
+    # boot wait for the winner instead of racing initialize_app() together.
+    with _init_lock:
+        # Re-check: another thread may have finished while we waited.
+        app = _get_existing_app()
+        if app is not None:
+            proj = app.project_id if hasattr(app, "project_id") else None
+            return True, proj
 
-    # Fall back to ADC (Cloud Run / local gcloud)
-    try:
-        cred = credentials.ApplicationDefault()
-        app = firebase_admin.initialize_app(cred)
-        return True, _project_id_from_app(app)
-    except Exception:
-        # Not configured (caller decides whether to 500/401)
-        return False, None
+        sa = _load_service_account_from_env(DEFAULT_SERVICE_ACCOUNT_ENV)
+        if sa:
+            cred = credentials.Certificate(sa)
+            app = firebase_admin.initialize_app(cred)
+            return True, _project_id_from_app(app, sa)
+
+        # Fall back to ADC (Cloud Run / local gcloud)
+        try:
+            cred = credentials.ApplicationDefault()
+            app = firebase_admin.initialize_app(cred)
+            return True, _project_id_from_app(app)
+        except Exception:
+            # Not configured (caller decides whether to 500/401)
+            return False, None
 
 
 def ensure_firebase_auth_admin() -> Tuple[bool, Optional[str]]:

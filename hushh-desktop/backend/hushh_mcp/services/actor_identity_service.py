@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
 import asyncpg
+from fastapi.concurrency import run_in_threadpool
 
 from api.utils.firebase_admin import get_firebase_auth_app
 from db.connection import get_pool
@@ -905,7 +906,14 @@ class ActorIdentityService:
         try:
             from firebase_admin import auth as firebase_auth
 
-            user_record = firebase_auth.get_user(normalized_user_id, app=firebase_app)
+            # firebase_admin's SDK is fully synchronous -- get_user() makes a
+            # real HTTPS call to Google's Identity Platform API. Called
+            # un-threaded, that blocks the asyncio event loop for the whole
+            # round-trip, freezing every other concurrent request on this
+            # backend process (not just this one) until it returns.
+            user_record = await run_in_threadpool(
+                firebase_auth.get_user, normalized_user_id, app=firebase_app
+            )
         except Exception as exc:
             logger.debug(
                 "actor_identity_cache firebase sync skipped for %s: %s",
