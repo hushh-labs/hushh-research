@@ -42,7 +42,9 @@ export function KaiPreferencesSheet(props: {
         });
         if (!cancelled) setProfile(p);
       } catch (error) {
-        console.warn("[KaiPreferencesSheet] Failed to load profile:", error);
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[KaiPreferencesSheet] Failed to load profile:", error);
+        }
         if (!cancelled) setProfile(null);
       } finally {
         if (!cancelled) setLoading(false);
@@ -117,7 +119,9 @@ export function KaiPreferencesSheet(props: {
                       toast.success("Preferences updated");
                       props.onOpenChange(false);
                     } catch (error) {
-                      console.error("[KaiPreferencesSheet] Save failed:", error);
+                      if (process.env.NODE_ENV !== "production") {
+                        console.error("[KaiPreferencesSheet] Save failed:", error);
+                      }
                       toast.error("Couldn't save preferences. Please retry.");
                     } finally {
                       setLoading(false);
