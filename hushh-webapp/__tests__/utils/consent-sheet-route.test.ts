@@ -79,6 +79,20 @@ describe("consent sheet route helpers", () => {
     });
   });
 
+  it("preserves bracket-array query hrefs from consent notification review targets", () => {
+    const notificationReviewHref = "/consents/verify?permissions[]=read&permissions[]=share";
+    const result = resolveConsentNavigationTarget(notificationReviewHref, "pending", {
+      requestId: "req_123",
+      from: "/kai/analysis?tab=history",
+    });
+
+    expect(result).toEqual({
+      kind: "internal",
+      href: notificationReviewHref,
+      pathname: "/consents/verify",
+    });
+  });
+
   it("classifies Email Helper workflow links as SPA routes", () => {
     expect(
       resolveConsentNavigationTarget(
