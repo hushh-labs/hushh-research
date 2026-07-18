@@ -125,7 +125,7 @@ export const SurfaceCardTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <CardTitle
     ref={ref}
-    className={cn("text-sm font-semibold tracking-tight sm:text-[15px]", className)}
+    className={cn("text-sm font-semibold tracking-normal sm:text-[15px]", className)}
     {...props}
   />
 ));
