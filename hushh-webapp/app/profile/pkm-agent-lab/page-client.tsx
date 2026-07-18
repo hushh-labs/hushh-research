@@ -1283,7 +1283,7 @@ export default function PkmAgentLabPageClient() {
                         data-voice-purpose="builds a preview of the current PKM capture without saving it."
                       >
                         {submitting ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" />
                         ) : (
                           <Sparkles className="mr-2 h-4 w-4" />
                         )}
@@ -1299,7 +1299,7 @@ export default function PkmAgentLabPageClient() {
                         data-voice-label="Save PKM capture"
                         data-voice-purpose="persists the current capture into encrypted PKM storage."
                       >
-                        {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        {saving ? <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" /> : null}
                         {reviewRequiredCount > 0 ? "Save reviewed capture" : "Save encrypted capture"}
                       </Button>
                     </div>
