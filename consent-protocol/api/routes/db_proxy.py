@@ -737,24 +737,31 @@ async def validate_vault_owner_token(consent_token: str, user_id: str) -> None:
         logger.error("Consent token validated but payload missing")
         raise HTTPException(
             status_code=401,
-            detail="Invalid consent token: missing token payload",
+            detail="Invalid or expired consent token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
     if token_obj.scope != ConsentScope.VAULT_OWNER:
+        # CWE-209: log scope details server-side only.
         logger.warning(
-            f"Insufficient scope: {token_obj.scope.value} (requires {ConsentScope.VAULT_OWNER.value})"
+            "validate_vault_owner_token: insufficient scope=%s user_id=%s",
+            token_obj.scope.value,
+            user_id,
         )
         raise HTTPException(
             status_code=403,
-            detail=f"Insufficient scope: {token_obj.scope.value}. VAULT_OWNER scope required.",
+            detail="Consent token does not have the required scope",
         )
 
     if str(token_obj.user_id) != user_id:
-        logger.warning(f"Token userId mismatch: {token_obj.user_id} != {user_id}")
+        logger.warning(
+            "validate_vault_owner_token: user_id mismatch token_user=%s requested=%s",
+            token_obj.user_id,
+            user_id,
+        )
         raise HTTPException(status_code=403, detail="Token userId does not match requested userId")
 
-    logger.info(f"✅ VAULT_OWNER token validated for {user_id}")
+    logger.info("validate_vault_owner_token: VAULT_OWNER token accepted user_id=%s", user_id)
 
 
 @router.post("/vault/status")
