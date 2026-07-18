@@ -587,7 +587,14 @@ export function Providers({ children }: ProvidersProps) {
         {/* Step-based progress bar at top of viewport */}
         <StepProgressBar />
         <AuthProvider>
-          <AppShellFrame>{children}</AppShellFrame>
+          {/* AppShellFrame resolves route-backed tab state through
+              useSearchParams(). This boundary must be above that shared shell
+              so static/native builds can pre-render every route, including
+              /one and /agent. Route-local boundaries cannot catch a hook in
+              the provider that owns them. */}
+          <Suspense fallback={null}>
+            <AppShellFrame>{children}</AppShellFrame>
+          </Suspense>
         </AuthProvider>
         <Toaster
           position="top-center"

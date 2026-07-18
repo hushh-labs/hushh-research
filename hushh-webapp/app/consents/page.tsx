@@ -1,26 +1,28 @@
-import { redirect } from "next/navigation";
+"use client";
 
+import { Suspense, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+
+import { RouteSuspenseFallback } from "@/components/system/route-suspense-fallback";
 import { ROUTES } from "@/lib/navigation/routes";
 
-type LegacyConsentSearchParams = Record<string, string | string[] | undefined>;
-
 /** Preserve legacy deep links while keeping the access manager inside One. */
-export default async function LegacyConsentsPage({
-  searchParams,
-}: {
-  searchParams: Promise<LegacyConsentSearchParams>;
-}) {
-  const params = await searchParams;
-  const query = new URLSearchParams();
+function LegacyConsentsRedirect() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  for (const [key, value] of Object.entries(params)) {
-    if (Array.isArray(value)) {
-      for (const item of value) query.append(key, item);
-    } else if (value) {
-      query.set(key, value);
-    }
-  }
+  useEffect(() => {
+    const query = searchParams.toString();
+    router.replace(query ? `${ROUTES.CONSENTS}?${query}` : ROUTES.CONSENTS);
+  }, [router, searchParams]);
 
-  const serialized = query.toString();
-  redirect(serialized ? `${ROUTES.CONSENTS}?${serialized}` : ROUTES.CONSENTS);
+  return <RouteSuspenseFallback label="Opening access manager…" />;
+}
+
+export default function LegacyConsentsPage() {
+  return (
+    <Suspense fallback={<RouteSuspenseFallback label="Opening access manager…" />}>
+      <LegacyConsentsRedirect />
+    </Suspense>
+  );
 }
