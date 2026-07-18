@@ -30,11 +30,13 @@ export const webGtmAdapter: ObservabilityAdapter = {
     if (typeof window === "undefined") return;
 
     window.dataLayer = window.dataLayer || [];
-    const transportPayload = {
+    // Freeze the outbound payload so downstream GTM/dataLayer consumers cannot
+    // mutate it after we hand it off (telemetry immutability at the transport edge).
+    const transportPayload = Object.freeze({
       event: eventName,
       event_source: "observability_v2",
       ...payload,
-    };
+    });
     window.dataLayer.push(transportPayload);
 
     const measurementId = resolveAnalyticsMeasurementId();
@@ -43,11 +45,12 @@ export const webGtmAdapter: ObservabilityAdapter = {
     }
 
     if (typeof window.gtag === "function") {
-      window.gtag("event", eventName, {
+      const gtagPayload = Object.freeze({
         send_to: measurementId,
         event_source: "observability_v2",
         ...payload,
       });
+      window.gtag("event", eventName, gtagPayload);
     }
   },
 };

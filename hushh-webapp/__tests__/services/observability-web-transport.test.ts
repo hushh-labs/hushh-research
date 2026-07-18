@@ -66,6 +66,7 @@ describe("web observability transport", () => {
         app_version: "2.1.0",
       },
     ]);
+    expect(Object.isFrozen(window.dataLayer?.[0])).toBe(true);
     expect(window.gtag).toHaveBeenCalledTimes(1);
     expect(window.gtag).toHaveBeenCalledWith(
       "event",
@@ -81,6 +82,7 @@ describe("web observability transport", () => {
         app_version: "2.1.0",
       }
     );
+    expect(Object.isFrozen(window.gtag.mock.calls[0]?.[2])).toBe(true);
   });
 
   it("pushes to GTM and still sends direct GA4 when a real container is configured", async () => {
@@ -109,6 +111,7 @@ describe("web observability transport", () => {
         app_version: "2.1.0",
       },
     ]);
+    expect(Object.isFrozen(window.dataLayer?.[0])).toBe(true);
     expect(window.gtag).toHaveBeenCalledTimes(1);
     expect(window.gtag).toHaveBeenCalledWith(
       "event",
@@ -124,5 +127,6 @@ describe("web observability transport", () => {
         app_version: "2.1.0",
       }
     );
+    expect(Object.isFrozen(window.gtag.mock.calls[0]?.[2])).toBe(true);
   });
 });
