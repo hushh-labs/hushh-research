@@ -21,4 +21,13 @@ describe("AsyncActionStatus", () => {
 
     expect(container.innerHTML).toBe("");
   });
+
+  it("renders an assertive error status with the default copy", () => {
+    render(<AsyncActionStatus state="error" />);
+
+    const status = screen.getByRole("status");
+
+    expect(status.getAttribute("aria-live")).toBe("assertive");
+    expect(status.textContent).toBe("Action failed");
+  });
 });
