@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -65,6 +65,18 @@ describe("Avatar", () => {
     expect(
       container.querySelector('[data-slot="avatar-fallback"]'),
     ).toBeTruthy();
+  });
+
+  it("renders avatar fallback data-slot contract", () => {
+    render(
+      <Avatar>
+        <AvatarFallback>DR</AvatarFallback>
+      </Avatar>,
+    );
+
+    expect(screen.getByText("DR").getAttribute("data-slot")).toBe(
+      "avatar-fallback",
+    );
   });
 
   it("renders badge with data-slot='avatar-badge'", () => {
