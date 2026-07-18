@@ -256,6 +256,78 @@ describe("buildStructuredScreenContext", () => {
     );
   });
 
+  // Anchored to the real STRUCTURED_CONTEXT_ARRAY_CAP enforcement in
+  // screen-context-builder.ts (uniqueStrings -> enforceArrayDimensionCap), not a
+  // separate "context frame" abstraction. Covers the structured-context array
+  // fields the existing suite does not yet bound: route.nav_stack,
+  // ui.active_filters, ui.selected_objects, and runtime.busy_operations.
+  it("caps structured screen context list fields at STRUCTURED_CONTEXT_ARRAY_CAP", () => {
+    const oversizedPath = `/${Array.from(
+      { length: STRUCTURED_CONTEXT_ARRAY_CAP + 4 },
+      (_, index) => `route-${index}`,
+    ).join("/")}`;
+    const oversizedFilters = Array.from(
+      { length: STRUCTURED_CONTEXT_ARRAY_CAP + 3 },
+      (_, index) => `filter_${index}`,
+    );
+    const oversizedSelectedObjects = Array.from(
+      { length: STRUCTURED_CONTEXT_ARRAY_CAP + 2 },
+      (_, index) => `selected_${index}`,
+    );
+    const oversizedBusyOperations = Array.from(
+      { length: STRUCTURED_CONTEXT_ARRAY_CAP + 5 },
+      (_, index) => `busy_${index}`,
+    );
+
+    publishVoiceSurfaceMetadata("test_surface", {
+      activeFilters: oversizedFilters,
+      selectedObjects: oversizedSelectedObjects,
+      busyOperations: oversizedBusyOperations,
+    });
+
+    const runtimeState = makeRuntimeState(oversizedPath, "kai_home");
+    const context = buildStructuredScreenContext({
+      appRuntimeState: {
+        ...runtimeState,
+        runtime: {
+          ...runtimeState.runtime,
+          busy_operations: oversizedBusyOperations,
+        },
+      },
+      voiceContext: {
+        active_filters: oversizedFilters,
+        selected_objects: oversizedSelectedObjects,
+        busy_operations: oversizedBusyOperations,
+      },
+    });
+
+    expect(context.route.nav_stack).toHaveLength(STRUCTURED_CONTEXT_ARRAY_CAP);
+    expect(context.route.nav_stack.at(-1)).toBe(
+      `/route-${STRUCTURED_CONTEXT_ARRAY_CAP - 1}`,
+    );
+    expect(context.route.nav_stack).not.toContain(`/route-${STRUCTURED_CONTEXT_ARRAY_CAP}`);
+
+    expect(context.ui.active_filters).toHaveLength(STRUCTURED_CONTEXT_ARRAY_CAP);
+    expect(context.ui.active_filters.at(-1)).toBe(`filter_${STRUCTURED_CONTEXT_ARRAY_CAP - 1}`);
+    expect(context.ui.active_filters).not.toContain(`filter_${STRUCTURED_CONTEXT_ARRAY_CAP}`);
+
+    expect(context.ui.selected_objects).toHaveLength(STRUCTURED_CONTEXT_ARRAY_CAP);
+    expect(context.ui.selected_objects.at(-1)).toBe(
+      `selected_${STRUCTURED_CONTEXT_ARRAY_CAP - 1}`,
+    );
+    expect(context.ui.selected_objects).not.toContain(
+      `selected_${STRUCTURED_CONTEXT_ARRAY_CAP}`,
+    );
+
+    expect(context.runtime.busy_operations).toHaveLength(STRUCTURED_CONTEXT_ARRAY_CAP);
+    expect(context.runtime.busy_operations.at(-1)).toBe(
+      `busy_${STRUCTURED_CONTEXT_ARRAY_CAP - 1}`,
+    );
+    expect(context.runtime.busy_operations).not.toContain(
+      `busy_${STRUCTURED_CONTEXT_ARRAY_CAP}`,
+    );
+  });
+
   it("prefers explicit published surface metadata and exposes available actions", () => {
     window.history.pushState({}, "", "/profile/receipts");
     publishVoiceSurfaceMetadata("test_surface", {
