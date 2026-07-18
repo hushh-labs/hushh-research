@@ -426,12 +426,18 @@ def _active_revision_names(service_json: dict[str, Any] | None) -> list[str]:
 def _container_env_map(service_json: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
     if not isinstance(service_json, dict):
         return {}
+    # Cloud Run Service objects contain a revision template, while the
+    # Cloud Run Revision objects fetched for a no-traffic candidate put the
+    # container directly at ``spec.containers``. Candidate validation must
+    # inspect that second shape before traffic is promoted.
     containers = (
         service_json.get("spec", {})
         .get("template", {})
         .get("spec", {})
         .get("containers", [])
     )
+    if not containers:
+        containers = service_json.get("spec", {}).get("containers", [])
     if not containers or not isinstance(containers[0], dict):
         return {}
     env_entries = containers[0].get("env", [])

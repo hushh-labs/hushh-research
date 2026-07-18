@@ -22,8 +22,28 @@ def _revision(service: str) -> dict[str, object]:
     }
 
 
+def _cloud_run_revision(service: str) -> dict[str, object]:
+    return {
+        "metadata": {"labels": {"serving.knative.dev/service": service}},
+        "spec": {"containers": [{"env": [{"name": "DB_POOL_MAX_SIZE", "value": "8"}]}]},
+    }
+
+
 def test_candidate_revision_is_inspected_before_it_serves(monkeypatch) -> None:
     monkeypatch.setattr(parity, "_describe_run_revision", lambda *_args: _revision("backend"))
+
+    env, revisions = parity._selected_container_env_map(
+        "project", "region", "backend", {}, "backend-00001-candidate"
+    )
+
+    assert revisions == ["backend-00001-candidate"]
+    assert env["DB_POOL_MAX_SIZE"]["value"] == "8"
+
+
+def test_cloud_run_candidate_revision_shape_is_inspected_before_it_serves(monkeypatch) -> None:
+    monkeypatch.setattr(
+        parity, "_describe_run_revision", lambda *_args: _cloud_run_revision("backend")
+    )
 
     env, revisions = parity._selected_container_env_map(
         "project", "region", "backend", {}, "backend-00001-candidate"
