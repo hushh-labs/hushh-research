@@ -1335,7 +1335,9 @@ export function PortfolioReviewView({
     const logSavePhase = (phase: string, phaseStartedAt: number) => {
       if (!enableSaveProfiling) return;
       const durationMs = nowMs() - phaseStartedAt;
-      console.log(`[PortfolioReviewView][save] ${phase}: ${durationMs.toFixed(1)}ms`);
+      if (process.env.NODE_ENV !== "production") {
+        console.log(`[PortfolioReviewView][save] ${phase}: ${durationMs.toFixed(1)}ms`);
+      }
     };
 
     // If vault existence isn't resolved yet, resolve it on-demand so copy/flow is correct.
