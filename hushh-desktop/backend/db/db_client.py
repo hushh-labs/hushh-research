@@ -324,8 +324,11 @@ def get_db_engine() -> Engine:
             _engine = create_engine(
                 database_url,
                 poolclass=QueuePool,
-                pool_size=_env_int("DB_SQLALCHEMY_POOL_SIZE", 5, minimum=1),
-                max_overflow=_env_int("DB_SQLALCHEMY_MAX_OVERFLOW", 10, minimum=0),
+                # Shares Supabase's 15-connection session pooler ceiling with
+                # the async pool in db/connection.py (default 8) -- keep the
+                # two maxes summing to <= 15.
+                pool_size=_env_int("DB_SQLALCHEMY_POOL_SIZE", 3, minimum=1),
+                max_overflow=_env_int("DB_SQLALCHEMY_MAX_OVERFLOW", 4, minimum=0),
                 pool_timeout=_env_int("DB_SQLALCHEMY_POOL_TIMEOUT_SECONDS", 30, minimum=1),
                 pool_recycle=_env_int("DB_SQLALCHEMY_POOL_RECYCLE_SECONDS", 1800, minimum=30),
                 pool_pre_ping=True,

@@ -233,8 +233,10 @@ async def get_pool() -> asyncpg.Pool:
         db_name = os.getenv("DB_NAME", "postgres")
         db_port = int(os.getenv("DB_PORT", "5432"))
         
-        # Limit pool to avoid exhausting Supabase session pooler (max 15)
-        pool_max_size = int(os.getenv("DB_POOL_MAX_SIZE", "2"))
+        # Limit pool to avoid exhausting Supabase session pooler (max 15 total,
+        # shared with the sync SQLAlchemy pool in db_client.py -- keep the two
+        # maxes summing to <= 15).
+        pool_max_size = int(os.getenv("DB_POOL_MAX_SIZE", "8"))
         pool_min_size = min(2, pool_max_size)
         
         target = db_unix_socket or db_host

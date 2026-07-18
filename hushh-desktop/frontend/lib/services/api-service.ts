@@ -192,11 +192,30 @@ const getApiBaseUrl = (): string => {
   return "";
 };
 
-// Routes that are Next.js-only (no Python backend counterpart) and must
-// never be sent to the backend origin, e.g. the httpOnly-cookie session
-// route, which talks to Firebase Admin SDK directly and has no backend
-// route at all.
-const NEXT_ONLY_API_PATHS = ["/api/auth/session"];
+// Routes that must never be sent straight to the backend origin in
+// Electron's direct-backend bypass (see resolveApiBase below):
+// - /api/auth/session has no backend counterpart at all (talks to Firebase
+//   Admin SDK directly).
+// - The /api/vault/* routes below do real path + method translation against
+//   the backend (e.g. GET /api/vault/check -> POST /db/vault/check), plus
+//   their own caching/404-coercion -- see vault-service.ts's getApiUrl
+//   comment for the full story (confirmed live: a same-path swap to the
+//   backend origin 404s, since the backend only registers these under
+//   /db/vault/*, not /api/vault/*). Keep this list in sync with
+//   vault-service.ts's own translating routes until that logic is ported
+//   into the direct-backend path too.
+const NEXT_ONLY_API_PATHS = [
+  "/api/auth/session",
+  "/api/vault/bootstrap-state",
+  "/api/vault/check",
+  "/api/vault/get",
+  "/api/vault/pre-vault-state",
+  "/api/vault/primary/set",
+  "/api/vault/setup",
+  "/api/vault/status",
+  "/api/vault/wrapper/delete",
+  "/api/vault/wrapper/upsert",
+];
 
 function isNextOnlyApiPath(path: string): boolean {
   return NEXT_ONLY_API_PATHS.some((p) => path === p || path.startsWith(`${p}/`));

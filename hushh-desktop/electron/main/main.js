@@ -97,6 +97,18 @@ function createWindow(frontendURL) {
 
   mainWindow.loadURL(frontendURL);
 
+  // Renderer console.warn/error don't reach this process's stdout by
+  // default -- forward them here (dev only) so frontend-only bugs (a JS
+  // exception breaking a component before it ever calls the backend) are
+  // visible in the same terminal/log as everything else, not just DevTools.
+  if (!app.isPackaged) {
+    mainWindow.webContents.on("console-message", (event, level, message, line, sourceId) => {
+      if (level >= 2) {
+        console.log(`[renderer] ${message} (${sourceId}:${line})`);
+      }
+    });
+  }
+
   // Show the window smoothly once the page finishes loading
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
