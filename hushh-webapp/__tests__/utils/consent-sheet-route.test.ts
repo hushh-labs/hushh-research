@@ -224,5 +224,24 @@ describe("path resolver safety — dangerous edge case handling", () => {
     );
     expect(result.kind).toBe("external");
   });
+
+  // ── Sequential hash delimiters — characterization of current behavior ─────
+  // normalizeInternalAppHref never splits on "#". An unparseable relative href
+  // containing "##" is returned verbatim from the catch branch, so trailing
+  // content after the delimiters is preserved (never truncated or dropped).
+
+  it("normalizeInternalAppHref preserves trailing content after sequential '##' delimiters", () => {
+    const consecutiveHashInput = "/consent/sheet##security-override";
+    const result = normalizeInternalAppHref(consecutiveHashInput);
+    expect(result).toBe(consecutiveHashInput);
+    expect(result).toContain("security-override");
+  });
+
+  it("normalizeInternalAppHref preserves the '#' fragment on a known internal route", () => {
+    const result = normalizeInternalAppHref(
+      "http://localhost:3000/consents?tab=pending#section-2",
+    );
+    expect(result).toBe("/consents?tab=pending#section-2");
+  });
 });
 // ── End path safety coverage ──────────────────────────────────────────────────
