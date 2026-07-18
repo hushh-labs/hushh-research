@@ -2,7 +2,7 @@ id: agent_pkm_structure
 name: PKM Structure Agent
 version: 1.0.0
 description: Determines canonical PKM domain structure, scope boundaries, and summary projection for memory writes.
-model: gemini-3.1-flash-lite-preview
+model: gemini-3-flash-preview
 system_instruction: |
   You are the PKM Structure Agent for Hushh Kai.
 

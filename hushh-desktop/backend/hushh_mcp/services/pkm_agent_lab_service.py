@@ -393,11 +393,11 @@ _PREVIEW_CACHE_MAX_SIZE = max(
 )
 _AGENT_CONTRACT_TIMEOUT_SECONDS = max(
     1.5,
-    float(os.getenv("PKM_AGENT_LAB_AGENT_TIMEOUT_SECONDS", "4") or "4"),
+    float(os.getenv("PKM_AGENT_LAB_AGENT_TIMEOUT_SECONDS", "10") or "10"),
 )
 _PREVIEW_TOTAL_BUDGET_SECONDS = max(
     4.0,
-    float(os.getenv("PKM_AGENT_LAB_PREVIEW_BUDGET_SECONDS", "12") or "12"),
+    float(os.getenv("PKM_AGENT_LAB_PREVIEW_BUDGET_SECONDS", "40") or "40"),
 )
 _PREVIEW_CACHE: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
 _PREVIEW_INFLIGHT: dict[str, asyncio.Task[dict[str, Any]]] = {}
@@ -1424,6 +1424,10 @@ class PKMAgentLabService:
                 response_mime_type="application/json",
                 automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
                 response_schema=response_schema,
+                thinking_config=genai_types.ThinkingConfig(
+                    include_thoughts=False,
+                    thinking_level=genai_types.ThinkingLevel.LOW,
+                ),
             )
             response = await asyncio.wait_for(
                 self.client.aio.models.generate_content(
