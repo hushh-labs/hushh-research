@@ -58,7 +58,22 @@ export function GainLossDistributionChart({
   );
 
   if (chartData.length === 0) {
-    return null;
+    return (
+      <ChartSurfaceCard
+        title={
+          <span className="flex items-center gap-2">
+            <TrendingUpDown className="h-4 w-4 text-primary" />
+            Gain/Loss Distribution
+          </span>
+        }
+        className={className}
+        contentClassName="space-y-0"
+      >
+        <SurfaceInset className="p-4 text-sm text-muted-foreground">
+          No gain/loss distribution data available.
+        </SurfaceInset>
+      </ChartSurfaceCard>
+    );
   }
 
   return (
