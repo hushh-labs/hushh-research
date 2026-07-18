@@ -62,8 +62,16 @@ export async function POST(request: NextRequest) {
 
     if (!response.ok) {
       console.error("[API] Backend error:", responseText);
+      let parsedError = responseText;
+      try {
+        const parsed = JSON.parse(responseText);
+        if (parsed.error) parsedError = parsed.error;
+        else parsedError = parsed;
+      } catch {
+        // Fallback to raw text
+      }
       return NextResponse.json(
-        { error: responseText || "Failed to revoke consent" },
+        { error: parsedError || "Failed to revoke consent" },
         { status: response.status },
       );
     }
