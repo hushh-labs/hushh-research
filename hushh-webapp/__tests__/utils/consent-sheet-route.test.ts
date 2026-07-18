@@ -15,6 +15,12 @@ describe("consent sheet route helpers", () => {
     );
   });
 
+  it("preserves long repeated consent review route strings unchanged", () => {
+    const longPathStr = `/consents/${"review/".repeat(50)}request_req_123`;
+
+    expect(normalizeInternalAppHref(longPathStr)).toBe(longPathStr);
+  });
+
   it("normalizes absolute localhost consent links to relative app routes", () => {
     expect(
       normalizeInternalAppHref(
