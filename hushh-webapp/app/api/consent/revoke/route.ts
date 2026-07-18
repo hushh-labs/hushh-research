@@ -56,25 +56,18 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({ userId, scope }),
     });
 
-    const responseText = await response.text();
-    console.log(`[API] Backend response status: ${response.status}`);
-    console.log(`[API] Backend response body: ${responseText}`);
-
     if (!response.ok) {
-      console.error("[API] Backend error:", responseText);
-      return NextResponse.json(
-        { error: responseText || "Failed to revoke consent" },
-        { status: response.status },
-      );
+      const errorPayload = await response
+        .json()
+        .catch(async () => ({
+          error: (await response.text().catch(() => "")) || "Failed to revoke consent",
+        }));
+      console.error("[API] Backend error:", response.status, errorPayload);
+      return NextResponse.json(errorPayload, { status: response.status });
     }
 
-    // Parse JSON response
-    try {
-      const data = JSON.parse(responseText);
-      return NextResponse.json(data);
-    } catch {
-      return NextResponse.json({ status: "revoked", raw: responseText });
-    }
+    const data = await response.json().catch(() => ({ status: "revoked" }));
+    return NextResponse.json(data);
   } catch (error) {
     console.error("[API] Revoke consent error:", error);
     return NextResponse.json(
