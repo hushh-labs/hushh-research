@@ -1328,8 +1328,7 @@ export function DebateStreamView({
             },
             financial_profile: profile,
           };
-        } catch (profileError) {
-          console.warn("[DebateStreamView] Failed to load Kai profile context:", profileError);
+        } catch (_profileError) {
         }
       }
 
