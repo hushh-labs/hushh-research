@@ -839,10 +839,12 @@ export default function ProfileReceiptsPage() {
         setReceiptMemoryArtifact(artifact);
         setReceiptMemoryMessage("Your shopping summary is ready to review.");
       } catch (error) {
-        console.error(
-          "[ProfileReceiptsPage] Failed to build receipt summary:",
-          error,
-        );
+        if (process.env.NODE_ENV !== "production") {
+          console.error(
+            "[ProfileReceiptsPage] Failed to build receipt summary:",
+            error,
+          );
+        }
         const message = sanitizeGmailUserMessage(error, {
           fallback:
             "We couldn't create a shopping summary right now. Please try again in a moment.",
