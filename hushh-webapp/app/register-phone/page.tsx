@@ -17,7 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/firebase/auth-context";
-import { ROUTES } from "@/lib/navigation/routes";
+import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import {
   setOnboardingFlowActiveCookie,
@@ -36,8 +36,8 @@ function requiresVaultUnlockForRedirect(path?: string | null): boolean {
   }
 
   return (
-    normalizedPath === ROUTES.KAI_HOME ||
-    normalizedPath.startsWith(`${ROUTES.KAI_HOME}/`) ||
+    normalizedPath === KAI_MARKET_PATH ||
+    normalizedPath.startsWith(`${KAI_MARKET_PATH}/`) ||
     normalizedPath === ROUTES.RIA_HOME ||
     normalizedPath.startsWith(`${ROUTES.RIA_HOME}/`) ||
     normalizedPath === ROUTES.CONSENTS ||
@@ -126,6 +126,9 @@ export function PhoneMandatePageContent() {
 
   const [shouldBypassLocalPhoneMandate, setShouldBypassLocalPhoneMandate] =
     useState(false);
+  const [verificationStep, setVerificationStep] = useState<
+    "phone" | "code" | "linked"
+  >("phone");
   const localBypassNavigationRef = useRef<string | null>(null);
 
   const handleSignOut = useCallback(async () => {
@@ -266,13 +269,13 @@ export function PhoneMandatePageContent() {
           </DropdownMenu>
         </div>
 
-        {/* Hero + OTP controls anchor to the bottom of the screen
-            (justify-end), not vertically centered, so the whole verification
-            surface sits within comfortable one-thumb reach on tall phones. */}
-        <div className="flex flex-1 flex-col items-center justify-end px-6 pb-2 text-center">
+        {/* Keep the identity mark in the same quiet, upper-viewport position
+            as the vault credential flow. The OTP panel stays compact enough
+            to remain above the native keyboard without page scrolling. */}
+        <div className="flex flex-1 flex-col items-center justify-start px-6 pb-2 pt-7 text-center">
           <span
             aria-hidden="true"
-            className="select-none text-[48px] leading-none drop-shadow-[0_6px_14px_rgba(0,0,0,0.25)]"
+            className="select-none text-[40px] leading-none"
           >
             🤫
           </span>
@@ -280,25 +283,21 @@ export function PhoneMandatePageContent() {
             role="heading"
             aria-level={1}
             aria-label="Verify your phone number"
-            className="mt-6 font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#17130C] dark:text-[#FAF6EE]"
+            className="mt-4 font-[family-name:var(--font-app-display)] text-[32px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#17130C] dark:text-[#FAF6EE]"
           >
             Verify your phone number
           </h1>
-          <p className="mt-3 max-w-[20rem] text-[16px] leading-[1.45] text-[rgba(23,19,12,0.6)] dark:text-[rgba(250,246,238,0.62)]">
+          <p className="mt-2 max-w-[20rem] text-[15px] leading-[1.45] text-[rgba(23,19,12,0.6)] dark:text-[rgba(250,246,238,0.62)]">
             Add your phone number to continue.
           </p>
         </div>
 
-        {/* OTP controls sit directly on the shared hero background, matching
-            the welcome/login pages. max-h + overflow-y-auto is a safety net:
-            the page root is overflow-hidden, so on a very short screen
-            (iPhone SE) a tall step scrolls WITHIN this region instead of
-            clipping. It also subtracts --kb-height (KeyboardInsetManager;
-            resize:"none") so the region fits above the on-screen keyboard and
-            the focused OTP field is scrolled into view. Inert on desktop
-            (--kb-height:0). See mobile-bug-log B21. */}
+        {/* The phone form may scroll only on compact screens; the concise OTP
+            step stays fixed above the native keyboard like the vault input. */}
         <div
-          className="relative overflow-y-auto px-6 pb-6"
+          className={`relative px-6 pb-5 ${
+            verificationStep === "phone" ? "overflow-y-auto" : "overflow-hidden"
+          }`}
           style={{ maxHeight: "calc(100dvh - 4rem - var(--kb-height, 0px))" }}
         >
           <PhoneVerificationFlow
@@ -308,35 +307,11 @@ export function PhoneMandatePageContent() {
             confirmVerification={confirmPhoneVerification}
             onCompleted={continueToNextRoute}
             onContinueExisting={continueToNextRoute}
+            onStepChange={setVerificationStep}
             confirmLabel="Verify and continue"
             className="gap-5"
           />
-          <div className="mt-4 flex items-center justify-center gap-1.5 text-[13px] text-[#86868b] dark:text-white/45">
-            <svg
-              width="11"
-              height="12"
-              viewBox="0 0 11 12"
-              fill="none"
-              aria-hidden
-            >
-              <rect
-                x="1.5"
-                y="5"
-                width="8"
-                height="6"
-                rx="1.6"
-                stroke="currentColor"
-                strokeWidth="1.3"
-              />
-              <path
-                d="M3.2 5V3.7a2.3 2.3 0 014.6 0V5"
-                stroke="currentColor"
-                strokeWidth="1.3"
-              />
-            </svg>
-            Used only to secure your vault. Never shared.
-          </div>
-          <div id="recaptcha-container" className="mt-4 min-h-0" />
+          <div id="recaptcha-container" className="mt-3 min-h-0" />
         </div>
       </div>
     </main>

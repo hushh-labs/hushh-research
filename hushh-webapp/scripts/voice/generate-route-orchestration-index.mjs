@@ -35,9 +35,14 @@ function trustBoundary(actionIds, byId) {
   return "none";
 }
 function routeMatchesPattern(route, pattern) {
-  if (route === pattern) return true;
-  const routeSegments = String(route).split("/").filter(Boolean);
-  const patternSegments = String(pattern).split("/").filter(Boolean);
+  // The physical route map intentionally indexes a pathname once. Finance
+  // actions carry explicit tab query state, so compare route families here;
+  // the action target itself remains the authoritative tab destination.
+  const routePath = String(route).split("?", 1)[0];
+  const patternPath = String(pattern).split("?", 1)[0];
+  if (routePath === patternPath) return true;
+  const routeSegments = routePath.split("/").filter(Boolean);
+  const patternSegments = patternPath.split("/").filter(Boolean);
   if (routeSegments.length !== patternSegments.length) return false;
   return patternSegments.every(
     (segment, index) =>

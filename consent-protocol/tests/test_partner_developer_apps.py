@@ -146,11 +146,15 @@ class TestPartnerPrincipal:
             "allowed_tool_groups": '["core_consent"]',
             "kind": "partner_crm",
             "crm_id": "salesforce-fsc-hushh",
+            "schema_profile": "flat",
+            "oauth_client_credentials_enabled": True,
             "token_id": 7,
         }
         principal = DeveloperRegistryService._principal_from_row(row)
         assert principal.kind == "partner_crm"
         assert principal.crm_id == "salesforce-fsc-hushh"
+        assert principal.schema_profile == "flat"
+        assert principal.oauth_client_credentials_enabled is True
         assert principal.agent_id == "developer:app_hushh-technologies_abcd1234"
 
     def test_principal_defaults_to_self_serve_kind(self):
@@ -163,6 +167,8 @@ class TestPartnerPrincipal:
         principal = DeveloperRegistryService._principal_from_row(row)
         assert principal.kind == "self_serve"
         assert principal.crm_id is None
+        assert principal.schema_profile == "standard"
+        assert principal.oauth_client_credentials_enabled is False
 
     def test_dataclass_defaults_keep_backward_compat(self):
         principal = DeveloperPrincipal(
@@ -198,3 +204,20 @@ class TestPartnerMigrationContract:
         cols = contract["required_tables"]["developer_apps"]
         assert "kind" in cols
         assert "crm_id" in cols
+
+    def test_agentforce_compatibility_migration_is_release_guarded(self):
+        migration = ROOT / "db" / "migrations" / "105_agentforce_mcp_compatibility.sql"
+        sql = migration.read_text()
+        manifest = json.loads((ROOT / "db" / "release_migration_manifest.json").read_text())
+        contract = json.loads(
+            (ROOT / "db" / "contracts" / "uat_integrated_schema.json").read_text()
+        )
+        assert "schema_profile" in sql
+        assert "oauth_client_credentials_enabled" in sql
+        assert "developer_connector_keys" in sql
+        assert "105_agentforce_mcp_compatibility.sql" in manifest["ordered_migrations"]
+        assert "105_agentforce_mcp_compatibility.sql" in manifest["groups"]["developer"]
+        assert contract["expected_migration_version"] == 105
+        assert "schema_profile" in contract["required_tables"]["developer_apps"]
+        assert "developer_connector_keys" in contract["required_tables"]
+        assert "developer_oauth_tokens" in contract["required_tables"]

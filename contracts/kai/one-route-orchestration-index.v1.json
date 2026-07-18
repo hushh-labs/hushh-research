@@ -12,13 +12,13 @@
       "route_mode": "hidden",
       "orchestration_class": "interactive",
       "instruction_id": "route.one.intro",
-      "context_policy": "publish",
+      "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.intro",
         "purpose": "Welcome a new person and help them claim their private agent.",
         "screen": "one_intro",
         "entry_cue": "Say ‘Claim your One’ whenever you are ready.",
-        "proactivity": "on_entry",
+        "proactivity": "ambient",
         "primary_action_id": "onboarding.claim_one",
         "happy_path_action_ids": [
           "onboarding.claim_one"
@@ -316,20 +316,18 @@
     {
       "route_pattern": "/consents",
       "page_file": "app/consents/page.tsx",
-      "route_mode": "standard",
-      "orchestration_class": "interactive",
-      "instruction_id": "route.consents",
-      "context_policy": "publish",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.consents.legacy",
+      "context_policy": "suppress",
       "voice_playbook": {
-        "playbook_id": "route.consents",
-        "purpose": "Help the person understand and use the consents screen through its generated controls.",
+        "playbook_id": "route.consents.legacy",
+        "purpose": "Redirect a legacy access-manager link to the canonical One consent workspace.",
         "screen": "consents",
-        "entry_cue": "You can say “Open RIA Requests” to use the primary control on this screen.",
-        "proactivity": "on_entry",
-        "primary_action_id": "route.ria_requests_compat",
-        "happy_path_action_ids": [
-          "route.ria_requests_compat"
-        ],
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -339,9 +337,9 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-        "next_route": "/ria/requests",
-        "return_policy": "stay",
+        "completion_boundary": "Completion is spoken only after the browser settles navigation to the canonical One consent workspace.",
+        "next_route": "/one/consent",
+        "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
@@ -349,20 +347,13 @@
       },
       "canonical_screen": "consents",
       "voice_contract_file": null,
-      "action_ids": [
-        "consent.chat.turn",
-        "route.consents",
-        "route.ria_requests_compat"
-      ],
-      "action_coverage": "inherited",
+      "action_ids": [],
+      "action_coverage": "none",
       "delegation_policy": {
-        "mode": "one_action_gate",
-        "allowed_delegate_agent_ids": [
-          "agent_connections",
-          "agent_nav"
-        ]
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "consent",
+      "trust_boundary": "none",
       "native_surface_id": "native-route-consents"
     },
     {
@@ -524,7 +515,7 @@
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
         "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-        "next_route": null,
+        "next_route": "/one/kai?tab=market",
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
@@ -1298,6 +1289,49 @@
       "native_surface_id": "native-route-marketplace-ria"
     },
     {
+      "route_pattern": "/oauth/authorize",
+      "page_file": "app/oauth/authorize/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.oauth.authorize",
+      "context_policy": "suppress",
+      "voice_playbook": {
+        "playbook_id": "route.oauth.authorize",
+        "purpose": "Help the person approve or cancel a verified MCP connector authorization request.",
+        "screen": "app",
+        "entry_cue": "Review the connector request, then authorize it or cancel.",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Authorization completes only after the verified registered redirect receives the backend-issued OAuth code.",
+        "next_route": null,
+        "return_policy": "navigate",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
       "route_pattern": "/one",
       "page_file": "app/one/page.tsx",
       "route_mode": "standard",
@@ -1449,6 +1483,58 @@
       "native_surface_id": null
     },
     {
+      "route_pattern": "/one/consent",
+      "page_file": "app/one/consent/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.consents",
+      "context_policy": "publish",
+      "voice_playbook": {
+        "playbook_id": "route.consents",
+        "purpose": "Help the person understand and use the consents screen through its generated controls.",
+        "screen": "consents",
+        "entry_cue": "You can say “Open RIA Requests” to use the primary control on this screen.",
+        "proactivity": "on_entry",
+        "primary_action_id": "route.ria_requests_compat",
+        "happy_path_action_ids": [
+          "route.ria_requests_compat"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": "/one/consent",
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "consents",
+      "voice_contract_file": null,
+      "action_ids": [
+        "consent.chat.turn",
+        "route.consents",
+        "route.ria_requests_compat"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "one_action_gate",
+        "allowed_delegate_agent_ids": [
+          "agent_connections",
+          "agent_nav"
+        ]
+      },
+      "trust_boundary": "consent",
+      "native_surface_id": "native-route-consents"
+    },
+    {
       "route_pattern": "/one/gmail",
       "page_file": "app/one/gmail/page.tsx",
       "route_mode": "standard",
@@ -1510,7 +1596,7 @@
         "playbook_id": "route.one.kai",
         "purpose": "Help the person understand and use the kai screen through its generated controls.",
         "screen": "kai_market",
-        "entry_cue": "You can say “Open Market Home” to use the primary control on this screen.",
+        "entry_cue": "Use Market, Portfolio, or Analysis to choose the active finance view.",
         "proactivity": "on_entry",
         "primary_action_id": "route.kai_home",
         "happy_path_action_ids": [
@@ -1525,8 +1611,8 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-        "next_route": null,
+        "completion_boundary": "Completion is spoken only after the selected Finance view settles in the browser.",
+        "next_route": "/one/kai?tab=market",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
@@ -1536,6 +1622,8 @@
       "canonical_screen": "kai_market",
       "voice_contract_file": null,
       "action_ids": [
+        "analysis.cancel_active",
+        "analysis.resume_active",
         "route.back",
         "route.kai_home"
       ],
@@ -1544,7 +1632,7 @@
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "vault",
       "native_surface_id": "native-route-kai-home"
     },
     {
@@ -1593,20 +1681,18 @@
     {
       "route_pattern": "/one/kai/analysis",
       "page_file": "app/one/kai/analysis/page.tsx",
-      "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
       "instruction_id": "route.one.kai.analysis",
-      "context_policy": "publish",
+      "context_policy": "suppress",
       "voice_playbook": {
         "playbook_id": "route.one.kai.analysis",
         "purpose": "Help the person understand and use the analysis screen through its generated controls.",
         "screen": "kai_analysis",
         "entry_cue": "You can say “Open Analysis Surface” to use the primary control on this screen.",
         "proactivity": "on_entry",
-        "primary_action_id": "route.kai_analysis",
-        "happy_path_action_ids": [
-          "route.kai_analysis"
-        ],
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -1617,7 +1703,7 @@
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
         "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-        "next_route": "/one/kai/analysis",
+        "next_route": "/one/kai?tab=analysis",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
@@ -1626,20 +1712,13 @@
       },
       "canonical_screen": "kai_analysis",
       "voice_contract_file": "app/one/kai/analysis/page.voice-action-contract.json",
-      "action_ids": [
-        "analysis.cancel_active",
-        "analysis.resume_active",
-        "analysis.start",
-        "route.analysis_history",
-        "route.back",
-        "route.kai_analysis"
-      ],
-      "action_coverage": "inherited",
+      "action_ids": [],
+      "action_coverage": "local",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "vault",
+      "trust_boundary": "none",
       "native_surface_id": "native-route-kai-analysis"
     },
     {
@@ -1780,6 +1859,49 @@
       "native_surface_id": "native-route-kai-investments"
     },
     {
+      "route_pattern": "/one/kai/market",
+      "page_file": "app/one/kai/market/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.one.kai.market",
+      "context_policy": "suppress",
+      "voice_playbook": {
+        "playbook_id": "route.one.kai.market",
+        "purpose": "Help the person move between Market, Portfolio, and Analysis through the shared Finance workspace.",
+        "screen": "kai_market",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": "/one/kai?tab=market",
+        "return_policy": "navigate",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "kai_market",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-kai-home"
+    },
+    {
       "route_pattern": "/one/kai/onboarding",
       "page_file": "app/one/kai/onboarding/page.tsx",
       "route_mode": "redirect",
@@ -1915,10 +2037,10 @@
     {
       "route_pattern": "/one/kai/portfolio",
       "page_file": "app/one/kai/portfolio/page.tsx",
-      "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
       "instruction_id": "route.one.kai.portfolio",
-      "context_policy": "minimal",
+      "context_policy": "suppress",
       "voice_playbook": {
         "playbook_id": "route.one.kai.portfolio",
         "purpose": "Help the person understand and use the portfolio screen through its generated controls.",
@@ -1937,7 +2059,7 @@
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
         "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-        "next_route": null,
+        "next_route": "/one/kai?tab=portfolio",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
@@ -1966,7 +2088,7 @@
         "playbook_id": "route.one.kyc",
         "purpose": "Help the person understand and use the kyc screen through its generated controls.",
         "screen": "one_kyc",
-        "entry_cue": "You can say “Open Email” to use the primary control on this screen.",
+        "entry_cue": "You can say “Open KYC” to use the primary control on this screen.",
         "proactivity": "on_entry",
         "primary_action_id": "route.one_kyc",
         "happy_path_action_ids": [
@@ -2254,9 +2376,8 @@
         "screen": "one_setup_hub",
         "entry_cue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
         "proactivity": "on_entry",
-        "primary_action_id": "setup.open_gmail",
+        "primary_action_id": "setup.open_location",
         "happy_path_action_ids": [
-          "setup.open_gmail",
           "setup.open_location",
           "setup.open_email",
           "setup.open_finance",
@@ -2288,7 +2409,6 @@
         "setup.open_connected_systems",
         "setup.open_email",
         "setup.open_finance",
-        "setup.open_gmail",
         "setup.open_location",
         "setup.open_ria"
       ],
@@ -2401,9 +2521,9 @@
       "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.one.setup.email",
-        "purpose": "Set up the verified email identity and connector One uses to draft with you.",
+        "purpose": "Set up KYC review and the connector One uses to draft with you.",
         "screen": "one_setup_email",
-        "entry_cue": "Set up your verified email identity, or say skip KYC setup.",
+        "entry_cue": "Set up KYC review, or say skip KYC setup.",
         "proactivity": "on_entry",
         "primary_action_id": "setup.skip_email",
         "happy_path_action_ids": [
@@ -2419,7 +2539,7 @@
           "callback_error": "Use the verified current route and its generated actions only.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "KYC setup finishes only after a verified email identity and client connector are ready.",
+        "completion_boundary": "KYC setup finishes only after KYC readiness and the client connector are ready.",
         "next_route": "/one/setup",
         "return_policy": "return_to_hub",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4203,7 +4323,11 @@
       "canonical_screen": "ria_client_workspace",
       "voice_contract_file": null,
       "action_ids": [
+        "ria.client_workspace.open_access_manager",
+        "ria.client_workspace.open_access_tab",
+        "ria.client_workspace.open_explorer_tab",
         "ria.client_workspace.open_overview_tab",
+        "ria.client_workspace.open_portfolio_tab",
         "route.ria_client_workspace"
       ],
       "action_coverage": "inherited",
@@ -4211,7 +4335,7 @@
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "auth",
+      "trust_boundary": "consent",
       "native_surface_id": null
     },
     {
@@ -4579,6 +4703,49 @@
       },
       "trust_boundary": "none",
       "native_surface_id": "native-route-ria-clients"
+    },
+    {
+      "route_pattern": "/welcome",
+      "page_file": "app/welcome/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.welcome",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.welcome",
+        "purpose": "Help the person navigate the public research, notes, and developer workspace.",
+        "screen": "app",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
     }
   ]
 }

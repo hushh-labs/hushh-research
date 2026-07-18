@@ -202,6 +202,48 @@ async def test_request_consent_returns_only_lifecycle_reference(
 
 
 @pytest.mark.asyncio
+async def test_flat_profile_uses_registered_connector_key_without_sending_legacy_fields(
+    monkeypatch,
+) -> None:
+    calls: list[dict] = []
+    _install_client(
+        monkeypatch,
+        {
+            "status": "pending",
+            "request_ref": "req_" + "0" * 28,
+            "scope": "attr.financial.portfolio.*",
+            "approval_timeout_at": 9999999999999,
+        },
+        calls,
+    )
+    monkeypatch.setattr(tools, "is_local_stdio_transport", lambda: True)
+    monkeypatch.setattr(tools, "get_current_schema_profile", lambda: "flat")
+    monkeypatch.setattr(
+        tools,
+        "get_or_create_local_connector_keypair",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("flat profile must use the registered app key")
+        ),
+    )
+
+    result = _payload(
+        await tools.handle_request_consent(
+            {
+                "user_identifier": "private@example.com",
+                "scope": "attr.financial.portfolio.*",
+                "purpose": "Prepare a bounded portfolio summary.",
+            }
+        )
+    )
+
+    assert result["request_ref"] == "req_" + "0" * 28
+    body = calls[0]["json"]
+    assert "connector_public_key" not in body
+    assert "connector_key_id" not in body
+    assert "connector_wrapping_alg" not in body
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("state", "grant_ref", "poll"),
     [
@@ -278,6 +320,36 @@ async def test_hosted_export_returns_inline_ciphertext_without_resource_link(mon
         if tool["name"] == "get_encrypted_scoped_export"
     )
     jsonschema.validate(result, output_schema)
+
+
+@pytest.mark.asyncio
+async def test_flat_profile_forces_ciphertext_delivery_even_on_stdio(monkeypatch) -> None:
+    calls: list[dict] = []
+    _install_client(
+        monkeypatch,
+        {
+            "status": "success",
+            "granted_scope": "attr.financial.portfolio.*",
+            "expires_at": 9999999999999,
+            "export_revision": 2,
+            "encrypted_data": "ZmFrZQ==",
+            **_hosted_crypto(),
+        },
+        calls,
+    )
+    monkeypatch.setattr(tools, "is_local_stdio_transport", lambda: True)
+    monkeypatch.setattr(tools, "get_current_schema_profile", lambda: "flat")
+    result = _payload(
+        await tools.handle_get_encrypted_scoped_export(
+            {
+                "grant_ref": "req_0123456789abcdef0123456789ab",
+                "expected_scope": "attr.financial.portfolio.*",
+            }
+        )
+    )
+    assert result["delivery"] == "encrypted_inline"
+    assert result["ciphertext"] == "ZmFrZQ=="
+    assert result["information"] is None
 
 
 @pytest.mark.asyncio

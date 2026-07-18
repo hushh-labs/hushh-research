@@ -8,7 +8,7 @@
       "purpose": "Welcome a new person and help them claim their private agent.",
       "screen": "one_intro",
       "entryCue": "Say ‘Claim your One’ whenever you are ready.",
-      "proactivity": "on_entry",
+      "proactivity": "ambient",
       "primaryActionId": "onboarding.claim_one",
       "happyPathActionIds": ["onboarding.claim_one"],
       "requiredInputs": [],
@@ -101,6 +101,33 @@
       "completionBoundary": "Only the hub finish or skip action resolves root onboarding.",
       "nextRoute": "/one",
       "returnPolicy": "resolve_root",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/welcome",
+    "mode": "standard",
+    "exemptionReason": "Foundation public route owns the unified public knowledge workspace and its route-backed tabs.",
+    "voicePlaybook": {
+      "playbookId": "route.welcome",
+      "purpose": "Help the person navigate the public research, notes, and developer workspace.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
@@ -761,10 +788,10 @@
     }
   },
   {
-    "route": "/consents",
+    "route": "/one/consent",
     "mode": "standard",
     "shellVerification": {
-      "file": "components/consent/consent-center-page.tsx",
+      "file": "app/one/consent/page.tsx",
       "includes": [
         "AppPageShell",
         "AppPageHeaderRegion",
@@ -790,15 +817,46 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": "/ria/requests",
+      "nextRoute": "/one/consent",
       "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/consents",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility route only preserves inbound access-manager links while redirecting to the canonical /one/consent workspace.",
+    "voicePlaybook": {
+      "playbookId": "route.consents.legacy",
+      "purpose": "Redirect a legacy access-manager link to the canonical One consent workspace.",
+      "screen": "consents",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the browser settles navigation to the canonical One consent workspace.",
+      "nextRoute": "/one/consent",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
     "route": "/kai",
     "mode": "redirect",
-    "exemptionReason": "Compatibility redirect route only launches the canonical /one/kai market surface.",
+    "exemptionReason": "Compatibility route only redirects to the canonical One-owned Finance Market tab.",
+    "shellVerification": {
+      "file": "app/kai/page.tsx",
+      "includes": ["ClientRedirect"]
+    },
     "voicePlaybook": {
       "playbookId": "route.kai",
       "purpose": "Help the person understand and use the kai screen through its generated controls.",
@@ -817,7 +875,7 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": null,
+      "nextRoute": "/one/kai?tab=market",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
@@ -826,19 +884,14 @@
     "route": "/one/kai",
     "mode": "standard",
     "shellVerification": {
-      "file": "components/kai/views/kai-market-preview-view.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageContentRegion",
-        "SurfaceStack",
-        "SectionHeader"
-      ]
+      "file": "components/kai/kai-market-hub-page.tsx",
+      "includes": ["AppPageShell", "AppPageContentRegion", "SwipeViews"]
     },
     "voicePlaybook": {
       "playbookId": "route.one.kai",
       "purpose": "Help the person understand and use the kai screen through its generated controls.",
       "screen": "kai_market",
-      "entryCue": "You can say “Open Market Home” to use the primary control on this screen.",
+      "entryCue": "Use Market, Portfolio, or Analysis to choose the active finance view.",
       "proactivity": "on_entry",
       "primaryActionId": "route.kai_home",
       "happyPathActionIds": ["route.kai_home"],
@@ -851,9 +904,36 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": null,
+      "completionBoundary": "Completion is spoken only after the selected Finance view settles in the browser.",
+      "nextRoute": "/one/kai?tab=market",
       "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/kai/market",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility route only redirects to the canonical /one/kai Finance Market tab.",
+    "voicePlaybook": {
+      "playbookId": "route.one.kai.market",
+      "purpose": "Help the person move between Market, Portfolio, and Analysis through the shared Finance workspace.",
+      "screen": "kai_market",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": "/one/kai?tab=market",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
@@ -886,7 +966,8 @@
   },
   {
     "route": "/one/kai/analysis",
-    "mode": "standard",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility route only redirects to the canonical Finance Analysis tab.",
     "shellVerification": {
       "file": "app/one/kai/analysis/page.tsx",
       "includes": [
@@ -902,8 +983,8 @@
       "screen": "kai_analysis",
       "entryCue": "You can say “Open Analysis Surface” to use the primary control on this screen.",
       "proactivity": "on_entry",
-      "primaryActionId": "route.kai_analysis",
-      "happyPathActionIds": ["route.kai_analysis"],
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -914,7 +995,7 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": "/one/kai/analysis",
+      "nextRoute": "/one/kai?tab=analysis",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
@@ -1571,7 +1652,8 @@
   },
   {
     "route": "/one/kai/portfolio",
-    "mode": "standard",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility route only redirects to the canonical Finance Portfolio tab.",
     "shellVerification": {
       "file": "app/one/kai/portfolio/page.tsx",
       "includes": ["AppPageShell", "AppPageContentRegion"]
@@ -1594,7 +1676,7 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": null,
+      "nextRoute": "/one/kai?tab=portfolio",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }

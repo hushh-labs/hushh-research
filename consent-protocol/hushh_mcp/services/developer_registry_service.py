@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from db.db_client import get_db
+from hushh_mcp.consent.export_envelope import connector_key_fingerprint
 from hushh_mcp.runtime_settings import get_core_security_settings
 from mcp_modules.public_contract import get_public_tool_names
 
@@ -40,6 +41,9 @@ KNOWN_TOOL_GROUPS = (
 )
 
 DEFAULT_PUBLIC_TOOL_GROUPS = (TOOL_GROUP_CORE_CONSENT,)
+SCHEMA_PROFILE_STANDARD = "standard"
+SCHEMA_PROFILE_FLAT = "flat"
+KNOWN_SCHEMA_PROFILES = (SCHEMA_PROFILE_STANDARD, SCHEMA_PROFILE_FLAT)
 
 TOOL_GROUP_TOOL_NAMES = {
     TOOL_GROUP_CORE_CONSENT: get_public_tool_names(),
@@ -215,6 +219,8 @@ class DeveloperPrincipal:
     # partner_crm = ops-provisioned app representing one CRM system.
     kind: str = "self_serve"
     crm_id: str | None = None
+    schema_profile: str = SCHEMA_PROFILE_STANDARD
+    oauth_client_credentials_enabled: bool = False
 
 
 def normalize_tool_groups(raw_groups: Any) -> tuple[str, ...]:
@@ -245,6 +251,11 @@ def normalize_tool_groups(raw_groups: Any) -> tuple[str, ...]:
         seen.add(group)
         ordered.append(group)
     return tuple(ordered)
+
+
+def normalize_schema_profile(value: Any) -> str:
+    normalized = str(value or SCHEMA_PROFILE_STANDARD).strip().lower()
+    return normalized if normalized in KNOWN_SCHEMA_PROFILES else SCHEMA_PROFILE_STANDARD
 
 
 def visible_tool_names_for_groups(
@@ -407,6 +418,8 @@ class DeveloperRegistryService:
             is_internal_fallback=bool(row.get("is_internal_fallback")),
             kind=str(row.get("kind") or "self_serve").strip() or "self_serve",
             crm_id=cls._sanitize_optional_text(row.get("crm_id")),
+            schema_profile=normalize_schema_profile(row.get("schema_profile")),
+            oauth_client_credentials_enabled=bool(row.get("oauth_client_credentials_enabled")),
         )
 
     def ensure_tables(self) -> None:
@@ -490,6 +503,10 @@ class DeveloperRegistryService:
             # Partner-class apps (canonical: db/migrations/085_developer_partner_apps.sql).
             "ALTER TABLE developer_apps ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'self_serve'",
             "ALTER TABLE developer_apps ADD COLUMN IF NOT EXISTS crm_id TEXT",
+            # Agentforce-compatible profiles and client credentials are opt-in
+            # per app. Defaults preserve the standard v0.3 surface.
+            "ALTER TABLE developer_apps ADD COLUMN IF NOT EXISTS schema_profile TEXT NOT NULL DEFAULT 'standard'",
+            "ALTER TABLE developer_apps ADD COLUMN IF NOT EXISTS oauth_client_credentials_enabled BOOLEAN NOT NULL DEFAULT FALSE",
             "CREATE INDEX IF NOT EXISTS idx_developer_apps_kind ON developer_apps(kind)",
             "CREATE INDEX IF NOT EXISTS idx_developer_apps_status ON developer_apps(status)",
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_developer_apps_owner_firebase_uid ON developer_apps(owner_firebase_uid) WHERE owner_firebase_uid IS NOT NULL",
@@ -631,6 +648,21 @@ class DeveloperRegistryService:
             """,
             "CREATE INDEX IF NOT EXISTS idx_developer_tokens_app_id ON developer_tokens(app_id)",
             "CREATE INDEX IF NOT EXISTS idx_developer_tokens_revoked_at ON developer_tokens(revoked_at)",
+            """
+            CREATE TABLE IF NOT EXISTS developer_connector_keys (
+                app_id TEXT NOT NULL REFERENCES developer_apps(app_id) ON DELETE CASCADE,
+                connector_key_id TEXT NOT NULL,
+                connector_public_key TEXT NOT NULL,
+                recipient_key_fingerprint TEXT NOT NULL,
+                connector_wrapping_alg TEXT NOT NULL DEFAULT 'X25519-AES256-GCM',
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at BIGINT NOT NULL,
+                retired_at BIGINT,
+                revoked_at BIGINT,
+                PRIMARY KEY (app_id, connector_key_id)
+            )
+            """,
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_developer_connector_keys_one_active_per_app ON developer_connector_keys(app_id) WHERE status = 'active'",
         ]
         for statement in statements:
             self._db.execute_raw(statement)
@@ -649,6 +681,143 @@ class DeveloperRegistryService:
             {"app_id": app_id},
         )
         return result.data[0] if result.data else None
+
+    def get_active_connector_key(self, *, app_id: str) -> dict[str, Any] | None:
+        """Return the one key allowed for new encrypted grants for an app."""
+
+        self.ensure_tables()
+        result = self._db.execute_raw(
+            """
+            SELECT app_id, connector_key_id, connector_public_key,
+                   recipient_key_fingerprint, connector_wrapping_alg, status,
+                   created_at
+            FROM developer_connector_keys
+            WHERE app_id = :app_id AND status = 'active'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            {"app_id": app_id},
+        )
+        return result.data[0] if result.data else None
+
+    def register_connector_key(
+        self,
+        *,
+        app_id: str,
+        connector_key_id: str,
+        connector_public_key: str,
+        connector_wrapping_alg: str = "X25519-AES256-GCM",
+        retire_existing: bool = False,
+    ) -> dict[str, Any]:
+        """Register one partner-owned X25519 public key without retaining a private key."""
+
+        self.ensure_tables()
+        clean_key_id = str(connector_key_id or "").strip()
+        clean_public_key = str(connector_public_key or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", clean_key_id):
+            raise ValueError("connector_key_id is invalid")
+        if connector_wrapping_alg != "X25519-AES256-GCM":
+            raise ValueError("connector_wrapping_alg must be X25519-AES256-GCM")
+        try:
+            fingerprint = connector_key_fingerprint(clean_public_key)
+        except ValueError as exc:
+            raise ValueError("connector_public_key must be an X25519 base64 public key") from exc
+
+        app = self.get_app(app_id)
+        if not app or str(app.get("status") or "") != "active":
+            raise ValueError("developer app is not active")
+        existing = self._db.execute_raw(
+            """
+            SELECT app_id, connector_key_id, connector_public_key,
+                   recipient_key_fingerprint, connector_wrapping_alg, status, created_at
+            FROM developer_connector_keys
+            WHERE app_id = :app_id AND connector_key_id = :connector_key_id
+            LIMIT 1
+            """,
+            {"app_id": app_id, "connector_key_id": clean_key_id},
+        )
+        if existing.data:
+            row = existing.data[0]
+            if (
+                str(row.get("connector_public_key")) == clean_public_key
+                and str(row.get("connector_wrapping_alg")) == connector_wrapping_alg
+            ):
+                return row
+            raise ValueError("connector_key_id is already bound to a different public key")
+
+        active = self.get_active_connector_key(app_id=app_id)
+        if active and not retire_existing:
+            raise ValueError(
+                "an active connector key already exists; retire it explicitly before rotation"
+            )
+        now = self._now_ms()
+        if active:
+            self._db.execute_raw(
+                """
+                UPDATE developer_connector_keys
+                SET status = 'retired', retired_at = :now
+                WHERE app_id = :app_id AND status = 'active'
+                """,
+                {"app_id": app_id, "now": now},
+            )
+        result = self._db.execute_raw(
+            """
+            INSERT INTO developer_connector_keys (
+                app_id, connector_key_id, connector_public_key,
+                recipient_key_fingerprint, connector_wrapping_alg, status, created_at
+            ) VALUES (
+                :app_id, :connector_key_id, :connector_public_key,
+                :recipient_key_fingerprint, :connector_wrapping_alg, 'active', :created_at
+            )
+            RETURNING app_id, connector_key_id, connector_public_key,
+                      recipient_key_fingerprint, connector_wrapping_alg, status, created_at
+            """,
+            {
+                "app_id": app_id,
+                "connector_key_id": clean_key_id,
+                "connector_public_key": clean_public_key,
+                "recipient_key_fingerprint": fingerprint,
+                "connector_wrapping_alg": connector_wrapping_alg,
+                "created_at": now,
+            },
+        )
+        return result.data[0]
+
+    def configure_partner_mcp_profile(
+        self,
+        *,
+        app_id: str,
+        schema_profile: str,
+        enable_client_credentials: bool,
+    ) -> dict[str, Any]:
+        """Explicitly configure a partner app's public MCP capability projection."""
+
+        self.ensure_tables()
+        profile = normalize_schema_profile(schema_profile)
+        app = self.get_app(app_id)
+        if not app or str(app.get("kind") or "") != "partner_crm":
+            raise ValueError("only partner_crm apps can be configured by this operations path")
+        if enable_client_credentials and profile != SCHEMA_PROFILE_FLAT:
+            raise ValueError("client credentials require the flat schema profile")
+        result = self._db.execute_raw(
+            """
+            UPDATE developer_apps
+            SET schema_profile = :schema_profile,
+                oauth_client_credentials_enabled = :enabled,
+                updated_at = :updated_at
+            WHERE app_id = :app_id
+            RETURNING *
+            """,
+            {
+                "app_id": app_id,
+                "schema_profile": profile,
+                "enabled": bool(enable_client_credentials),
+                "updated_at": self._now_ms(),
+            },
+        )
+        if not result.data:
+            raise ValueError("developer app configuration failed")
+        return result.data[0]
 
     def get_app_by_owner_uid(self, owner_firebase_uid: str) -> dict[str, Any] | None:
         self.ensure_tables()
@@ -1158,6 +1327,8 @@ class DeveloperRegistryService:
                    apps.contact_email,
                    apps.kind,
                    apps.crm_id,
+                   apps.schema_profile,
+                   apps.oauth_client_credentials_enabled,
                    tokens.id AS token_id
             FROM developer_tokens AS tokens
             INNER JOIN developer_apps AS apps

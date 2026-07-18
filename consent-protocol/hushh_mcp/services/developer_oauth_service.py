@@ -152,9 +152,10 @@ class DeveloperOAuthService:
                 """CREATE TABLE IF NOT EXISTS developer_oauth_tokens (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, token_hash TEXT NOT NULL UNIQUE,
                     token_prefix TEXT NOT NULL, token_kind TEXT NOT NULL, app_id TEXT NOT NULL,
-                    subject_firebase_uid TEXT NOT NULL, authorization_id INTEGER,
+                    subject_firebase_uid TEXT, authorization_id INTEGER,
                     scopes TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
-                    revoked_at INTEGER, last_used_at INTEGER)""",
+                    revoked_at INTEGER, last_used_at INTEGER,
+                    grant_type TEXT NOT NULL DEFAULT 'authorization_code')""",
                 """CREATE TABLE IF NOT EXISTS developer_oauth_audit_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, app_id TEXT NOT NULL,
                     client_id TEXT, subject_firebase_uid TEXT, event_type TEXT NOT NULL,
@@ -179,11 +180,12 @@ class DeveloperOAuthService:
                     id BIGSERIAL PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE,
                     token_prefix TEXT NOT NULL, token_kind TEXT NOT NULL,
                     app_id TEXT NOT NULL REFERENCES developer_apps(app_id) ON DELETE CASCADE,
-                    subject_firebase_uid TEXT NOT NULL,
+                    subject_firebase_uid TEXT,
                     authorization_id BIGINT REFERENCES developer_oauth_authorizations(id) ON DELETE SET NULL,
                     scopes JSONB NOT NULL DEFAULT '["mcp:tools"]'::jsonb,
                     created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL,
                     revoked_at BIGINT, last_used_at BIGINT,
+                    grant_type TEXT NOT NULL DEFAULT 'authorization_code',
                     CONSTRAINT developer_oauth_token_kind_check CHECK (token_kind IN ('access', 'refresh')))""",
                 """CREATE TABLE IF NOT EXISTS developer_oauth_audit_events (
                     id BIGSERIAL PRIMARY KEY, app_id TEXT NOT NULL,
@@ -192,6 +194,17 @@ class DeveloperOAuthService:
             ]
         for statement in statements:
             self._db.execute_raw(statement, {})
+        if str(os.getenv("DB_OFFLINE", "0")).strip().lower() not in {"1", "true", "yes", "on"}:
+            # Migration 105 is authoritative. These additive statements keep a
+            # newly booted service safe against a narrowly lagging database.
+            self._db.execute_raw(
+                "ALTER TABLE developer_oauth_tokens ALTER COLUMN subject_firebase_uid DROP NOT NULL",
+                {},
+            )
+            self._db.execute_raw(
+                "ALTER TABLE developer_oauth_tokens ADD COLUMN IF NOT EXISTS grant_type TEXT NOT NULL DEFAULT 'authorization_code'",
+                {},
+            )
         self.__class__._tables_ensured = True
 
     def _audit(
@@ -453,16 +466,25 @@ class DeveloperOAuthService:
         return {key: str(row.get(key) or "") for key in ("redirect_uri", "state")}
 
     def _issue_tokens(
-        self, *, app_id: str, subject: str, authorization_id: int | None, scopes: tuple[str, ...]
+        self,
+        *,
+        app_id: str,
+        subject: str | None,
+        authorization_id: int | None,
+        scopes: tuple[str, ...],
+        include_refresh_token: bool = True,
+        grant_type: str = "authorization_code",
     ) -> dict[str, Any]:
         now = _now_ms()
         access_token = f"hdo_at_{secrets.token_urlsafe(32)}"
-        refresh_token = f"hdo_rt_{secrets.token_urlsafe(40)}"
+        refresh_token = f"hdo_rt_{secrets.token_urlsafe(40)}" if include_refresh_token else None
         values = []
-        for raw, kind, ttl in (
-            (access_token, "access", _ACCESS_TOKEN_TTL_SECONDS),
-            (refresh_token, "refresh", _REFRESH_TOKEN_TTL_SECONDS),
-        ):
+        token_specs: list[tuple[str, str, int]] = [
+            (access_token, "access", _ACCESS_TOKEN_TTL_SECONDS)
+        ]
+        if refresh_token:
+            token_specs.append((refresh_token, "refresh", _REFRESH_TOKEN_TTL_SECONDS))
+        for raw, kind, ttl in token_specs:
             values.append(
                 {
                     "token_hash": _hash_secret(raw),
@@ -474,21 +496,64 @@ class DeveloperOAuthService:
                     "scopes": json.dumps(scopes),
                     "created_at": now,
                     "expires_at": now + ttl * 1000,
+                    "grant_type": grant_type,
                 }
             )
         if str(os.getenv("DB_OFFLINE", "0")).strip().lower() in {"1", "true", "yes", "on"}:
-            statement = """INSERT INTO developer_oauth_tokens (token_hash, token_prefix, token_kind, app_id, subject_firebase_uid, authorization_id, scopes, created_at, expires_at) VALUES (:token_hash, :token_prefix, :token_kind, :app_id, :subject, :authorization_id, :scopes, :created_at, :expires_at)"""
+            statement = """INSERT INTO developer_oauth_tokens (token_hash, token_prefix, token_kind, app_id, subject_firebase_uid, authorization_id, scopes, created_at, expires_at, grant_type) VALUES (:token_hash, :token_prefix, :token_kind, :app_id, :subject, :authorization_id, :scopes, :created_at, :expires_at, :grant_type)"""
         else:
-            statement = """INSERT INTO developer_oauth_tokens (token_hash, token_prefix, token_kind, app_id, subject_firebase_uid, authorization_id, scopes, created_at, expires_at) VALUES (:token_hash, :token_prefix, :token_kind, :app_id, :subject, :authorization_id, CAST(:scopes AS JSONB), :created_at, :expires_at)"""
+            statement = """INSERT INTO developer_oauth_tokens (token_hash, token_prefix, token_kind, app_id, subject_firebase_uid, authorization_id, scopes, created_at, expires_at, grant_type) VALUES (:token_hash, :token_prefix, :token_kind, :app_id, :subject, :authorization_id, CAST(:scopes AS JSONB), :created_at, :expires_at, :grant_type)"""
         for value in values:
             self._db.execute_raw(statement, value)
-        return {
+        payload = {
             "access_token": access_token,
-            "refresh_token": refresh_token,
             "token_type": "Bearer",
             "expires_in": _ACCESS_TOKEN_TTL_SECONDS,
             "scope": " ".join(scopes),
         }
+        if refresh_token:
+            payload["refresh_token"] = refresh_token
+        return payload
+
+    @staticmethod
+    def _database_bool(value: Any) -> bool:
+        return value is True or str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+    def issue_client_credentials(
+        self, *, client: OAuthClient, scope: str | None = None
+    ) -> dict[str, Any]:
+        """Issue an app-bound access token for an explicitly provisioned connector."""
+
+        requested_scope = str(scope or _MCP_SCOPE).strip() or _MCP_SCOPE
+        if requested_scope != _MCP_SCOPE:
+            raise OAuthValidationError("invalid_scope", "Only the mcp:tools scope is available.")
+        app = self._registry.get_app(client.app_id)
+        if (
+            not app
+            or str(app.get("status") or "") != "active"
+            or str(app.get("kind") or "") != "partner_crm"
+            or str(app.get("schema_profile") or "") != "flat"
+            or not self._database_bool(app.get("oauth_client_credentials_enabled"))
+        ):
+            raise OAuthValidationError(
+                "unauthorized_client",
+                "Client credentials are not enabled for this developer app.",
+            )
+        tokens = self._issue_tokens(
+            app_id=client.app_id,
+            subject=None,
+            authorization_id=None,
+            scopes=(_MCP_SCOPE,),
+            include_refresh_token=False,
+            grant_type="client_credentials",
+        )
+        self._audit(
+            app_id=client.app_id,
+            client_id=client.client_id,
+            subject=None,
+            event="client_credentials_exchanged",
+        )
+        return tokens
 
     def exchange_authorization_code(
         self, *, client: OAuthClient, code: str, redirect_uri: str, code_verifier: str
@@ -586,7 +651,9 @@ class DeveloperOAuthService:
         result = self._db.execute_raw(
             """SELECT apps.app_id, apps.agent_id, apps.display_name, apps.allowed_tool_groups,
                       apps.allowed_capabilities, apps.support_url, apps.policy_url, apps.website_url,
-                      apps.brand_image_url, apps.contact_email, apps.kind, apps.crm_id, tokens.id AS token_id
+                      apps.brand_image_url, apps.contact_email, apps.kind, apps.crm_id,
+                      apps.schema_profile, apps.oauth_client_credentials_enabled,
+                      tokens.id AS token_id
                FROM developer_oauth_tokens AS tokens
                INNER JOIN developer_apps AS apps ON apps.app_id = tokens.app_id
                WHERE tokens.token_hash = :token_hash AND tokens.token_kind = 'access'

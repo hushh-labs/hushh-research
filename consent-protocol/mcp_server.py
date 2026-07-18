@@ -23,6 +23,7 @@ Modular architecture:
 """
 
 import asyncio
+import json
 import logging
 import sys
 import time
@@ -30,14 +31,17 @@ import time
 import jsonschema
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import CallToolResult
+from mcp.types import CallToolResult, TextContent
 
 from mcp_modules import resources as mcp_resources
 from mcp_modules.config import SERVER_INFO
 from mcp_modules.developer_context import (
+    get_current_schema_profile,
     get_current_visible_tool_names,
     is_tool_allowed,
 )
+from mcp_modules.flat_contract import FLAT_PROFILE, validate_flat_input, validate_flat_output
+from mcp_modules.flat_projection import project_flat_result
 from mcp_modules.log_redaction import install_sensitive_log_filter
 from mcp_modules.public_contract import (
     get_public_tool_names,
@@ -149,7 +153,10 @@ def _mcp_error(result: tuple[list, dict]) -> CallToolResult:
 async def list_tools():
     """Expose Hussh consent tools to MCP hosts."""
     allowed_tool_names = set(get_current_visible_tool_names())
-    return get_tool_definitions(allowed_tool_names=allowed_tool_names)
+    return get_tool_definitions(
+        allowed_tool_names=allowed_tool_names,
+        schema_profile=get_current_schema_profile(),
+    )
 
 
 # ============================================================================
@@ -191,7 +198,12 @@ async def call_tool(name: str, arguments: dict):
             )
         )
 
-    if name in _PUBLIC_TOOL_NAMES and not validate_public_tool_input(name, arguments):
+    schema_profile = get_current_schema_profile()
+    if name in _PUBLIC_TOOL_NAMES and not (
+        validate_flat_input(name, arguments)
+        if schema_profile == FLAT_PROFILE
+        else validate_public_tool_input(name, arguments)
+    ):
         return _mcp_error(
             build_safe_error(
                 "INVALID_ARGUMENTS",
@@ -217,7 +229,27 @@ async def call_tool(name: str, arguments: dict):
         result = await handler(arguments)
         if name not in _PUBLIC_TOOL_NAMES:
             return result
-        if not validate_public_tool_output(name, result[1]):
+        if "error_code" in result[1]:
+            return _mcp_error(result)
+        if schema_profile == FLAT_PROFILE:
+            try:
+                flat_payload = project_flat_result(name, result[1])
+            except (TypeError, ValueError):
+                return _mcp_error(
+                    build_safe_error(
+                        "INVALID_TOOL_RESULT",
+                        "Hussh could not produce a contract-valid tool result.",
+                        recoverable=True,
+                        next_action="Retry once; if it repeats, report the correlation reference.",
+                    )
+                )
+            result = ([TextContent(type="text", text=json.dumps(flat_payload))], flat_payload)
+        valid_output = (
+            validate_flat_output(name, result[1])
+            if schema_profile == FLAT_PROFILE
+            else validate_public_tool_output(name, result[1])
+        )
+        if not valid_output:
             logger.error("Tool %s returned a contract-invalid result", name)
             return _mcp_error(
                 build_safe_error(
@@ -231,8 +263,6 @@ async def call_tool(name: str, arguments: dict):
         elapsed_ms = (end_time - start_time) * 1000
         logger.info(f"✅ Tool {name} completed successfully")
         logger.info(f"⏱️ Performance: Tool {name} execution took {elapsed_ms:.2f}ms")
-        if "error_code" in result[1]:
-            return _mcp_error(result)
         return result
     except Exception as exc:
         end_time = time.perf_counter()

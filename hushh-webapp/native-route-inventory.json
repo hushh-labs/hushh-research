@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-06-17",
-  "total_routes": 93,
-  "native_required_routes": 86,
-  "excluded_routes": 7,
+  "total_routes": 96,
+  "native_required_routes": 88,
+  "excluded_routes": 8,
   "routes": [
     {
       "route": "/",
@@ -181,7 +181,21 @@
       "expectedAuth": "authenticated",
       "allowedDataStates": [
         "loaded"
-      ]
+      ],
+      "legacyAlias": true
+    },
+    {
+      "route": "/one/kai/market",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fmarket",
+      "expectedMarker": "native-route-kai-home",
+      "expectedRoute": "/one/kai?tab=market",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ],
+      "legacyAlias": true
     },
     {
       "route": "/kai/analysis",
@@ -206,7 +220,8 @@
       "expectedAuth": "authenticated",
       "allowedDataStates": [
         "loaded"
-      ]
+      ],
+      "legacyAlias": true
     },
     {
       "route": "/kai/dashboard",
@@ -443,7 +458,8 @@
       "expectedAuth": "authenticated",
       "allowedDataStates": [
         "loaded"
-      ]
+      ],
+      "legacyAlias": true
     },
     {
       "route": "/portfolio/shared",
@@ -460,16 +476,29 @@
       ]
     },
     {
-      "route": "/consents",
+      "route": "/one/consent",
       "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fconsents",
+      "initialRoute": "/login?redirect=%2Fone%2Fconsent",
       "expectedMarker": "native-route-consents",
-      "expectedRoute": "/consents",
+      "expectedRoute": "/one/consent",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
         "loaded"
       ]
+    },
+    {
+      "route": "/consents",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fconsents",
+      "expectedMarker": "native-route-consents",
+      "expectedRoute": "/one/consent",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ],
+      "legacyAlias": true
     },
     {
       "route": "/agent",
@@ -989,7 +1018,7 @@
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fria%2Frequests",
       "expectedMarker": "native-route-consents",
-      "expectedRoute": "/consents",
+      "expectedRoute": "/one/consent",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -1041,7 +1070,7 @@
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fmarketplace%2Fconnections",
       "expectedMarker": "native-route-consents",
-      "expectedRoute": "/consents?tab=pending",
+      "expectedRoute": "/one/consent?tab=pending",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -1115,6 +1144,10 @@
     },
     {
       "route": "/developers",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/welcome",
       "classification": "excluded-web-only"
     },
     {

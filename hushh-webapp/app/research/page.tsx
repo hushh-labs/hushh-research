@@ -1,5 +1,6 @@
+import { redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { ResearchLanding } from "@/components/research/research-landing";
+import { buildPublicKnowledgeRoute } from "@/lib/navigation/top-shell-tabs";
 
 export const metadata: Metadata = {
   title: "Research & Papers · Hushh",
@@ -8,5 +9,5 @@ export const metadata: Metadata = {
 };
 
 export default function ResearchPage() {
-  return <ResearchLanding />;
+  redirect(buildPublicKnowledgeRoute("research"));
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Building2 } from "lucide-react";
+import { Network } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -9,7 +9,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { SectionHeader } from "@/components/app-ui/page-sections";
+import { PageHeader } from "@/components/app-ui/page-sections";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
@@ -39,10 +39,11 @@ export default function ConnectedSystemsPage() {
         dataState="loaded"
       />
       <AppPageHeaderRegion>
-        <SectionHeader
+        <PageHeader
           title="Connected systems"
-          icon={Building2}
-          accent="neutral"
+          description="Review the records linked to your CRM systems and approve each change."
+          icon={Network}
+          accent="success"
         />
       </AppPageHeaderRegion>
       <AppPageContentRegion>

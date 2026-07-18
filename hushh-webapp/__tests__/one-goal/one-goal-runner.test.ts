@@ -127,7 +127,7 @@ describe("runOneGoal", () => {
       actionId: "analysis.start",
       label: "Start Stock Analysis",
       routeBefore: "/one/kai",
-      routeAfter: "/one/kai/analysis?ticker=TSLA",
+      routeAfter: "/kai?tab=analysis&ticker=TSLA",
       screenBefore: "kai_market",
       screenAfter: "kai_analysis",
       resultSummary: "Opened the TSLA comparison preview before starting the debate.",
@@ -151,7 +151,7 @@ describe("runOneGoal", () => {
       },
     });
 
-    expect(router.push).toHaveBeenCalledWith("/one/kai/analysis?focus=active&ticker=TSLA");
+    expect(router.push).toHaveBeenCalledWith("/kai?tab=analysis&focus=active&ticker=TSLA");
     expect(setAnalysisParams).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
@@ -166,7 +166,7 @@ describe("runOneGoal", () => {
     );
     expect(result.actionResult).toMatchObject({
       status: "started",
-      routeAfter: "/one/kai/analysis?focus=active&ticker=TSLA",
+      routeAfter: "/kai?tab=analysis&focus=active&ticker=TSLA",
     });
   });
 

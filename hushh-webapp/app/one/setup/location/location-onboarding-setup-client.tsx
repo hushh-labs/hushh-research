@@ -8,7 +8,6 @@ import {
   SetupCapabilityTerminalFooter,
   useSetupCapabilityCoordinator,
 } from "@/components/onboarding/setup/setup-capability-coordinator";
-import { ROUTES } from "@/lib/navigation/routes";
 
 export function LocationOnboardingSetupClient() {
   const [ready, setReady] = useState(false);
@@ -19,14 +18,12 @@ export function LocationOnboardingSetupClient() {
     skipActionId: "setup.skip_location",
   });
 
-  if (!coordinator.isReady) return <SetupCapabilityLoading label="Preparing location setup…" />;
+  if (!coordinator.isReady)
+    return <SetupCapabilityLoading label="Preparing location setup…" />;
 
   return (
     <div className="space-y-4">
-      <OneLocationAgentPage
-        onSetupReadinessChange={setReady}
-        vaultPrerequisiteRouteKey={ROUTES.ONE_SETUP_LOCATION}
-      />
+      <OneLocationAgentPage onSetupReadinessChange={setReady} />
       <SetupCapabilityTerminalFooter
         capabilityId="location"
         isOperationallyReady={ready}

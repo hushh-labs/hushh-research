@@ -113,9 +113,9 @@ import {
 
 Rules:
 
-1. Keep the signed-in primary bottom utility bar constant: `One`, `Connect`, and `Search`. Search is a third segment, never a detached control. The primary group and any workspace group are centered as one composition at every breakpoint.
-2. Keep the bar compact and fixed. The agent bar joins it with a 4px visual gutter; do not add route-local navigation or empty slots.
-3. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`, `Clients`, and `Picks`. Those context tabs render in the shared specialist group immediately left of the primary group on wide layouts. Profile remains the rightmost signed-in top-bar action.
+1. Keep the signed-in primary bottom utility bar constant: `One`, `Connect`, and `Search`. Search is a third segment, never a detached control. The three equal-width segments use the Agent Bar frame and remain centered at every breakpoint.
+2. Keep the bar compact and fixed. The agent bar joins it with a 6px visual gutter; do not add route-local navigation or empty slots.
+3. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`, `Clients`, and `Picks`. Those context tabs render only in the shared top shell. Profile remains the rightmost signed-in top-bar action.
 4. Route files should link to canonical destinations such as `/one/gmail`, `/one/pkm`, and `/one/connected-systems`; legacy Profile panels may redirect, but should not own new mode navigation.
 5. `Search` opens `KaiCommandBarGlobal` command/action discovery through `openKaiCommandBar`; do not route Search to `/agent` or call `agentPopover.openAgent`.
 6. Keep navigation motion stable. Prefer fill, outline, and color changes over bounce, active icon scaling, or spring overshoot.

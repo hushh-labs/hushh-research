@@ -42,6 +42,7 @@ export default function OneHomePage() {
       <OneDashboardPage
         displayName={user.displayName || user.email}
         capabilityStatusById={byId}
+        userId={user.uid}
       />
     </>
   );

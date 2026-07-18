@@ -42,6 +42,7 @@ describe("observability route map", () => {
   it("maps canonical app routes to stable route IDs", () => {
     expect(resolveRouteId("/")).toBe("one_dashboard");
     expect(resolveRouteId("/one")).toBe("one_dashboard");
+    expect(resolveRouteId("/welcome")).toBe("one_dashboard");
     expect(resolveRouteId("/one/gmail")).toBe("gmail");
     expect(resolveRouteId("/one/pkm")).toBe("pkm");
     expect(resolveRouteId("/one/connected-systems")).toBe("connected_systems");
@@ -56,6 +57,7 @@ describe("observability route map", () => {
     expect(resolveRouteId("/pkm")).toBe("pkm");
     expect(resolveRouteId("/connected-systems")).toBe("connected_systems");
     expect(resolveRouteId("/one/kai")).toBe("kai_home");
+    expect(resolveRouteId("/one/kai/market")).toBe("kai_home");
     expect(resolveRouteId("/kai")).toBe("kai_home");
     expect(resolveRouteId("/kai/dashboard")).toBe("kai_dashboard_legacy_redirect");
     expect(resolveRouteId("/kai/dashboard/analysis")).toBe("kai_dashboard_legacy_redirect");

@@ -326,7 +326,10 @@ cd hushh-webapp && npm run test -- __tests__/voice/kai-action-gateway.test.ts __
 
 ## Search, Voice, and UI Parity
 
-The Kai search bar now resolves actions from the same gateway used by voice grounding.
+Agent Bar, voice directives, and Search selections execute only through the generated
+action gateway and the same correlated browser-settlement step. Search is an input and
+suggestion surface, not a planner or executor: it does not call `/voice/plan` or mount
+`VoiceTurnOrchestrator` for action execution.
 
 That means the same action contract controls:
 
@@ -338,6 +341,15 @@ That means the same action contract controls:
 - settlement expectations
 
 Contributors should wire UI controls with stable `control_ids` so both screen context and action suggestions resolve through the same action id.
+
+Finance has one canonical pathname with explicit tab state:
+
+- Market: `/one/kai?tab=market`
+- Portfolio: `/one/kai?tab=portfolio`
+- Analysis: `/one/kai?tab=analysis`
+
+The legacy `/kai` entry and `/kai/*` compatibility routes redirect by meaning and
+are not executable action targets.
 
 Runtime visibility is top-layer-aware. A generated action can exist without being
 available on the current turn; hidden route controls must not remain in the active

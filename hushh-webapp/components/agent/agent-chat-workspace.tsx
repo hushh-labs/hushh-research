@@ -626,14 +626,14 @@ function AgentWelcomePanel({
 }) {
   return (
     <section className="flex min-h-[clamp(18rem,45vh,32rem)] flex-col justify-center py-6 sm:py-10">
-      <div className="mx-auto w-full max-w-2xl">
+      <div className="mx-auto w-full max-w-2xl text-center flex flex-col items-center">
         <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.035] px-3 py-1.5 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
           One workspace
         </div>
         <h2 className="text-[34px] font-medium leading-[1.08] tracking-normal text-foreground max-sm:font-[family-name:var(--font-app-display)] max-sm:font-semibold max-sm:tracking-[-0.5px] sm:text-[38px]">
           Hi {name}
         </h2>
-        <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground max-sm:font-[family-name:var(--font-app-body)] sm:text-[17px]">
+        <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground max-sm:font-[family-name:var(--font-app-body)] sm:text-[17px] mx-auto text-center text-balance">
           Ask One about your markets, portfolio, memories, or consent workflows.
         </p>
         <div className="mt-8 grid gap-3 sm:grid-cols-3">
@@ -1170,6 +1170,7 @@ export function AgentChatWorkspace({
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<AgentChatConversation[]>([]);
   const [messages, setMessages] = useState<AgentMessage[]>(() => [createGreetingMessage()]);
+  const [queuedHandoffPrompt, setQueuedHandoffPrompt] = useState<string | null>(null);
   const consumeHandoff = useOneConversationSession((state) => state.consumeHandoff);
   const consumedHandoffIdRef = useRef<string | null>(null);
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -1226,6 +1227,7 @@ export function AgentChatWorkspace({
   const voiceSessionEpochRef = useRef(0);
   const voiceTtsSpeakingRef = useRef(false);
   const agentTurnSubmitLockRef = useRef(false);
+  const handoffPromptSubmitRef = useRef<((prompt: string) => Promise<void>) | null>(null);
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
   const inlineConsentRequestIdsRef = useRef<Set<string>>(new Set());
@@ -1673,6 +1675,11 @@ export function AgentChatWorkspace({
     const transcript = handoff.transcript?.trim();
     const assistantText = handoff.assistantText?.trim();
     const resultSummary = handoff.resultSummary?.trim();
+    if (handoff.reason === "user_requested" && transcript) {
+      setQueuedHandoffPrompt(transcript);
+      consumeHandoff(handoff.id);
+      return;
+    }
     if (transcript) {
       nextMessages.push({
         id: `handoff-${handoff.id}-user`,
@@ -3475,6 +3482,29 @@ export function AgentChatWorkspace({
       releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
     }
   };
+
+  handoffPromptSubmitRef.current = async (prompt: string) => {
+    if (hasChatAccess) {
+      await runAgentTurn(prompt, { source: "typed" });
+      return;
+    }
+    await runIntroTurn(prompt);
+  };
+
+  useEffect(() => {
+    const prompt = queuedHandoffPrompt?.trim();
+    if (!prompt || isChatLoading || isStreaming) return;
+    if (!tryAcquireAgentTurnSubmitLock(agentTurnSubmitLockRef)) return;
+    setQueuedHandoffPrompt(null);
+
+    void (async () => {
+      try {
+        await handoffPromptSubmitRef.current?.(prompt);
+      } finally {
+        releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
+      }
+    })();
+  }, [isChatLoading, isStreaming, queuedHandoffPrompt]);
 
   const setAgentVoiceStatus = useCallback((status: AgentVoiceStatus, message?: string | null) => {
     setVoiceState(status);

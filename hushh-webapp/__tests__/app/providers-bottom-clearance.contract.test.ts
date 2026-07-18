@@ -16,6 +16,9 @@ describe("app shell bottom-clearance contract", () => {
 
   it("keeps Agent Bar placement outside the scroll-root layout contract", () => {
     expect(source).not.toContain("<AgentBar bottom=");
-    expect(source).toContain('"var(--agent-bar-with-nav-bottom)"');
+    expect(source).toContain("<AppBottomShell model={bottomShellModel} />");
+    expect(source.indexOf("<AppBottomShell model={bottomShellModel} />")).toBeLessThan(
+      source.indexOf("<Suspense"),
+    );
   });
 });

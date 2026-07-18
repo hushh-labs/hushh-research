@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import type { User } from "firebase/auth";
-import { Check, Loader2, ShieldCheck } from "lucide-react";
+import { Loader2, ShieldCheck } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 import {
@@ -77,6 +77,7 @@ type PhoneVerificationFlowProps = {
   className?: string;
   helperText?: string;
   style?: CSSProperties;
+  onStepChange?: (step: VerificationStep) => void;
 };
 
 type VerificationStep = "phone" | "code" | "linked";
@@ -198,6 +199,7 @@ export function PhoneVerificationFlow({
   className,
   helperText,
   style,
+  onStepChange,
 }: PhoneVerificationFlowProps) {
   const pathname = usePathname();
   const [selectedCountry, setSelectedCountry] = useState(DEFAULT_COUNTRY_VALUE);
@@ -228,6 +230,10 @@ export function PhoneVerificationFlow({
     setVerificationCode("");
     setStep(mode === "link" && currentPhoneNumber ? "linked" : "phone");
   }, [currentPhoneNumber, mode]);
+
+  useEffect(() => {
+    onStepChange?.(step);
+  }, [onStepChange, step]);
 
   const maskedPhone = useMemo(
     () => maskPhoneNumber(currentPhoneNumber),
@@ -846,27 +852,13 @@ export function PhoneVerificationFlow({
         </>
       ) : (
         <>
-          <div className="flex items-start gap-3 rounded-2xl border border-[rgba(18,161,80,0.35)] bg-[rgba(18,161,80,0.08)] p-4 dark:border-[rgba(18,161,80,0.35)] dark:bg-[rgba(18,161,80,0.16)]">
-            <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#12A150] text-white">
-              <Check className="h-3 w-3" aria-hidden />
+          <p className="text-center text-sm leading-6 text-muted-foreground">
+            Enter the code sent to{" "}
+            <span className="font-semibold text-foreground">
+              {maskPhoneNumber(submittedPhoneNumber)}
             </span>
-            <div className="min-w-0">
-              <p className="text-[15px] font-bold tracking-[-0.2px] text-[#0A0A0A] dark:text-white">
-                Verification code sent
-              </p>
-              <p className="mt-0.5 text-[13.5px] leading-[1.4] text-black/55 dark:text-white/60">
-                We sent a verification code to{" "}
-                <span className="font-semibold text-foreground">
-                  {submittedPhoneNumber}
-                </span>
-                . Enter it to continue.
-              </p>
-              <p className="mt-1 text-[12px] leading-[1.35] text-black/45 dark:text-white/50">
-                You can type the code or say it to One. Spoken codes are
-                processed by the voice service and are not retained by Hussh.
-              </p>
-            </div>
-          </div>
+            .
+          </p>
 
           <Field className="gap-2.5">
             <FieldLabel htmlFor="phone-flow-code">One-time code</FieldLabel>

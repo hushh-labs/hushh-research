@@ -52,6 +52,37 @@ must not recreate shell chrome, safe-area math, an icon well, or a list row.
    specialist; Nav is the privacy and consent guardian; KYC is the identity
    workflow specialist.
 
+## Unified Mobile Header Guidelines
+
+To maintain absolute uniformity across mobile screens, all top-level workspace pages must adhere to the high-end centered layout of the Profile tab:
+
+1. **No Mixed/Stacked Headers:** Double headers, stacked titles, and triple-line headers are strictly prohibited. The page title must never be repeated below the top app bar breadcrumbs.
+2. **Clean Centered Typography:** The main screen title and its single-sentence supporting description must be perfectly centered on candidate screens, using Apple-clean typography and a maximum description layout width of `480px` for optimal legibility.
+3. **Specialist Squircle Wells:** Workspace icons must be displayed inside glowing frosted squircles (`rounded-[18px]` to `rounded-[22px]`) with a color-matched blurred glow backdrop. Full `rounded-full` circle backgrounds on iconwells are prohibited.
+4. **Standalone Left Back Button:** On sub-pages, the back button must sit on its own dedicated body row immediately preceding the main centered header layout (using a clean circular button with a discrete left margin), keeping the typography area immaculate and un-overloaded.
+
+## Material 3 Expressive Physics & Transforms
+
+The Morphy design language relies on physics-based responsive motion, transitioning away from rigid, linear CSS timelines toward fluid underdamped spring interactions.
+
+### 1. Unified Spring Physics
+Transforms and popovers model a spring-mass-damper system. Underdamped transitions ($\zeta < 1$) establish smooth, natural bounce profiles. The physical displacement is governed by:
+
+$$m \frac{d^2x}{dt^2} + c \frac{dx}{dt} + kx = 0$$
+
+Where:
+- $m$ is the mass (standard = `1.1`), creating a tactile weight feeling.
+- $k$ is the spring stiffness (high = `180`, compact = `260`).
+- $c$ is the damping coefficient (underdamped $\zeta = c / (2\sqrt{km}) \approx 0.76$).
+
+In CSS, these map to custom bezier ease curves that recreate this momentum:
+- **Expressive Expand / Swell:** `cubic-bezier(0.34, 1.56, 0.64, 1)` — creates a subtle, tactile target overshoot during scale transforms.
+- **Emphasized Standard Ease:** `cubic-bezier(0.2, 0.8, 0.2, 1)` — provides a premium decelerating entrance.
+
+### 2. Physical Scale Swells & Inertial Deceleration
+- **Scale Swell Transitions:** Active dialogue boxes and command search sheets zoom-in from `scale(0.95)` to `scale(1.0)` with a concurrent `blur(8.0px)` backdrop opacity fade, dampening visual pop.
+- **Flick Momentum:** List elements and carousels use smooth decay deceleration rates ($v(t) = v_0 \cdot e^{-t / \tau}$ where $\tau \approx 0.2$ represents resistive canvas decay), matching natural touch drags on WebKit and native viewports.
+
 ## Shape and Icon Rules
 
 The radius token does not mean every square is a circle.
@@ -82,8 +113,8 @@ safe area
 │ Finance                     Market · Portfolio · Analysis                    │
 └──────────────────────────────────────────────────────────────────────────────┘
                                      route content
-                              Agent Bar (4px visual join)
-                   Finance/RIA workspace tabs · One · Connect · Search
+                              Agent Bar (6px visual join)
+                              One · Connect · Search
 safe area
 ```
 
@@ -93,48 +124,43 @@ safe area
 2. Search opens the existing global command/search surface. It is not agent
    chat and has no route-local replacement.
 3. The Agent Bar and bottom utility bar are one bottom-chrome stack. Their
-   resting visual separation is 4px; their transforms, safe-area clearance,
+   resting visual separation is 6px; their transforms, safe-area clearance,
    and fade are measured by the shared shell. Neither route nor component may
    add another gap.
-4. Finance and RIA workspace tabs may appear as their own compact group to the
-   left of the primary bottom control on wide layouts. The combined groups are
-   centered as one unit; they remain capability- and route-driven.
+4. Finance and RIA workspace tabs render only in the unified top shell. Their
+   labels, destinations, active query state, and visibility come from the
+   central route registry; route bodies and bottom navigation do not duplicate
+   them.
 5. The rightmost signed-in top-bar control is Profile. It uses the signed-in
    person's image when available and the same generic/initial fallback as the
    Profile route. Connect remains a route but is not shell chrome.
 6. Tabs are horizontally scrollable when needed, retain clear selected state,
    and do not push or overlap the top-bar actions on a small viewport.
-7. The bottom utility frame uses the exact Agent Bar width constraint. On wide
-   layouts its compact action group is right-aligned to the Agent Bar’s edge;
-   on phones it stays centered inside that same frame. It must never align to
-   the wider page shell or viewport edge.
-
-## Material Physics
-
-1. Fixed chrome uses the shared `bar-glass` surface and one shared route
-   transition. Do not add route-local animation frameworks or parallel fades.
-2. Actionable controls use the existing `MaterialRipple` owner. The visible
-   action surface clips its own ripple; outer cards stay unclipped.
-3. Sibling flat controls share one effect, timing family, and press geometry.
-   Use `ShellActionSurface` for top/bottom shell actions.
-4. Motion confirms cause and effect: press → ripple → state change; navigation
-   → one exit/enter crossfade. Reduced-motion behavior remains usable.
-5. Keyboard, vault, and modal layers are authoritative. Fixed chrome either
-   clears the keyboard via the shared inset manager or yields to an active
-   blocking layer; it never competes underneath it.
+7. The bottom utility frame uses the exact Agent Bar width constraint. Its
+   three segments are equal-width and centered at every breakpoint; it never
+   aligns to the wider page shell or viewport edge.
+8. Finance is one `/one/kai?tab=` workspace. Market, Portfolio, and Analysis
+   use the Profile reading measure and shared outer gutter; their content may
+   vary, but they must not introduce a wider dashboard canvas, a second fixed
+   header, or a route-local tab bar.
 
 ## List and Header Rules
 
 1. Every standard signed-in route uses the lean shared header; no route-local
    logo, hero, or duplicate title bar.
-2. `SettingsGroup` and `SettingsRow` own responsive inset lists: icon well,
+2. Profile is the geometry reference for a primary workspace header: one
+   `AppPageShell` at the reading measure, one `AppPageHeaderRegion`, and one
+   primary `PageHeader` or profile identity header. Finance tab content may
+   render supporting section headings, but it must not create a competing
+   primary header above or beside the shared workspace header.
+3. `SettingsGroup` and `SettingsRow` own responsive inset lists: icon well,
    separator, truncation, 44px+ tap target, trailing alignment, and mobile
    stacking. Connected Systems, Profile, and agent lists use the same model.
-3. Section starts align on a stable grid. Do not distribute a short row of
+4. Section starts align on a stable grid. Do not distribute a short row of
    icons across a wide surface.
-4. A list row has one primary action. Nested controls must be explicit and
+5. A list row has one primary action. Nested controls must be explicit and
    cannot create a competing full-row click target.
-5. First-time source selection (such as portfolio import) uses one lean shared
+6. First-time source selection (such as portfolio import) uses one lean shared
    header and one compact inset list. Keep the initial decision state within a
    phone viewport: no decorative cards, status badges, drag zones, repeated
    primary buttons, or terminal setup action before the user has chosen a

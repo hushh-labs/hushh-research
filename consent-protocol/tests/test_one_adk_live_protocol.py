@@ -36,7 +36,7 @@ def test_initial_greeting_gate_invalidates_a_pending_cue_after_visitor_activity(
 def test_live_context_keeps_only_bounded_redacted_ui_fields():
     context = _sanitize_live_context(
         {
-            "route_family": "/one/kai",
+            "route_family": "/one/kai/market",
             "persona": "investor",
             "voice_state": "listening",
             "available_action_ids": ["analysis.start", "analysis.start", "not.generated", 7],
@@ -51,9 +51,9 @@ def test_live_context_keeps_only_bounded_redacted_ui_fields():
     )
 
     assert context == {
-        "route_family": "/one/kai",
-        "route_pattern": "/one/kai",
-        "route_instruction_id": "route.one.kai",
+        "route_family": "/one/kai/market",
+        "route_pattern": "/one/kai/market",
+        "route_instruction_id": "route.one.kai.market",
         "route_context_policy": "publish",
         "route_playbook": context["route_playbook"],
         "screen": "kai_market",

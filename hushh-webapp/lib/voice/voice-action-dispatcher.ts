@@ -1,5 +1,5 @@
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 import { DebateRunManagerService } from "@/lib/services/debate-run-manager";
 import type { Persona } from "@/lib/services/ria-service";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
@@ -388,7 +388,10 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
         vaultKey,
       });
       if (task) {
-        const routeAfter = `${ROUTES.KAI_ANALYSIS}?focus=active&run_id=${encodeURIComponent(task.runId)}`;
+        const routeAfter = buildKaiMarketRoute("analysis", {
+          focus: "active",
+          run_id: task.runId,
+        });
         router.push(routeAfter);
         console.info("[VOICE_UI] dispatch_result=resume_active_analysis attached_run=true");
         return buildDispatchResult({
@@ -410,7 +413,7 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
         });
       }
       toast.info("No active debate run found.");
-      const routeAfter = `${ROUTES.KAI_ANALYSIS}?tab=history`;
+      const routeAfter = buildKaiMarketRoute("analysis", { view: "history" });
       router.push(routeAfter);
       console.info("[VOICE_UI] dispatch_result=resume_active_analysis attached_run=false");
       return buildDispatchResult({
@@ -506,7 +509,7 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
         vaultOwnerToken,
       });
       setAnalysisParams(null);
-      const routeAfter = `${ROUTES.KAI_ANALYSIS}?tab=history`;
+      const routeAfter = buildKaiMarketRoute("analysis", { view: "history" });
       router.push(routeAfter);
       toast.success("Active analysis canceled.");
       console.info("[VOICE_UI] dispatch_result=cancel_active_analysis canceled");

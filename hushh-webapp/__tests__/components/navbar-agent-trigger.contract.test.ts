@@ -16,11 +16,9 @@ describe("Navbar bottom chrome contract", () => {
 
     expect(navbar).toContain("const BOTTOM_GAP_PX = 4;");
     expect(navbar).toContain("flex justify-center");
-    expect(agentBar).toContain(
-      '"calc(var(--app-bottom-inset) + 0.58rem)",',
-    );
+    expect(agentBar).toContain('"var(--agent-bar-with-nav-bottom)",');
     expect(agentBar).not.toContain(
-      'calc(max(var(--app-bottom-inset), calc(var(--bottom-nav-offset) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift))) + 0.5rem)',
+      "calc(max(var(--app-bottom-inset), calc(var(--bottom-nav-offset) + var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift))) + 0.5rem)",
     );
   });
 
@@ -30,8 +28,8 @@ describe("Navbar bottom chrome contract", () => {
     const agentBar = read("components/agent/agent-bar.tsx");
     const providers = read("app/providers.tsx");
 
-    expect(navbar).toContain("function resolveBottomNavMaxWidth");
     expect(navbar).toContain("const bottomNavWidth =");
+    expect(navbar).toContain('"min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))"');
     expect(navbar).toContain("style={{ width: bottomNavWidth }}");
     expect(navbar).not.toContain('data-testid="bottom-agent-trigger"');
 
@@ -40,20 +38,24 @@ describe("Navbar bottom chrome contract", () => {
     expect(searchBar).not.toContain("kai-bottom-agent-action");
     expect(searchBar).not.toContain('aria-label="Open Agent"');
 
-    expect(agentBar).toContain('data-testid="one-voice-agent-bar-start"');
-    expect(agentBar).toContain('onClick={openAgentChat}');
-    expect(agentBar).toContain('aria-label={`Open Agent Chat. ${hint}`}');
-    expect(agentBar).toContain('data-native-voice-control-id="one_voice_agent_bar_start"');
-    expect(agentBar).toContain('onClick={handleVoiceStartClick}');
-    expect(agentBar).toContain('aria-label="Start conversation"');
+    // The Agent Bar is voice-only. Bottom navigation Search remains the one
+    // typed entry and owns the normal-language command surface.
+    expect(agentBar).not.toContain('data-testid="one-agent-search-chat-open"');
+    expect(agentBar).not.toContain("openSearchAndChat");
+    expect(agentBar).not.toContain("openKaiCommandBar");
+    expect(agentBar).toContain("Talk to One");
+    expect(agentBar).toContain(
+      'data-native-voice-control-id="one_voice_agent_bar_start"',
+    );
+    expect(agentBar).toContain("onClick={handleVoiceStartClick}");
+    expect(agentBar).toContain("aria-label={`Start a voice conversation. ${hint}`}");
+    expect(agentBar).not.toContain("MessageCircle");
     expect(agentBar).toContain("loading: authLoading");
     expect(agentBar).toContain("!agentPopover ||\n    authLoading ||");
     expect(agentBar).not.toContain("isRiaChrome");
-    expect(agentBar).toContain("agentBarShellRef,\n    !physicalNavbarAbsent,");
-    expect(agentBar).toContain("useKaiBottomChromeElementTranslation");
-    expect(agentBar).toContain(
-      "bottom: physicalNavbarAbsent",
-    );
+    expect(agentBar).toContain('layout = "fixed"');
+    expect(agentBar).not.toContain("useKaiBottomChromeElementTranslation");
+    expect(agentBar).toContain("bottom: physicalNavbarAbsent");
     expect(agentBar).not.toContain("useKaiBottomChromeVisibility");
     expect(agentBar).not.toContain(
       "calc(var(--bottom-chrome-progress, 0) * var(--agent-bar-hide-distance))",
@@ -79,18 +81,32 @@ describe("Navbar bottom chrome contract", () => {
     expect(mirroredVars).toContain('"--bottom-chrome-hide-distance"');
     expect(mirroredVars).toContain('"--bottom-chrome-full-height"');
 
-    // Compact layouts intentionally keep one continuous ambient mask across
-    // the bottom cluster. Desktop separates the navigation and persistent
-    // Agent Bar vertically, so each must own a locally anchored fade rather
-    // than inheriting the navigation fade's transparent tail.
-    expect(providers).toContain("function SharedBottomChromeGlass({ hideCommandBar }");
-    expect(providers).toContain("z-[108] md:hidden");
-    expect(providers).toContain("z-[108] hidden md:block");
+    // Persistent bottom chrome has one compositor, mounted outside route
+    // Suspense with navigation and Agent Bar remaining separate controls.
+    const bottomShell = read("components/app-ui/app-bottom-shell.tsx");
+    expect(providers).toContain("<AppBottomShell model={bottomShellModel} />");
     expect(providers).toContain(
-      '"calc(var(--app-bottom-inset) + var(--bottom-chrome-fade-overscan))"',
+      "<AmbientChromeController enabled={ambientChromeEnabled} />",
     );
-    expect(providers).toContain(
-      '"calc(3rem + var(--bottom-chrome-fade-overscan))"',
-    );
+    expect(providers).not.toContain("SharedBottomChromeGlass");
+    expect(providers).not.toContain("<AgentBar />");
+    expect(bottomShell).toContain("export function AppBottomShell");
+    expect(bottomShell).not.toContain("AmbientChromeController");
+    expect(bottomShell).toContain('<AmbientChromeMask\n          edge="bottom"');
+    expect(bottomShell).toContain("useKaiBottomChromeElementTranslation");
+    expect(bottomShell).toContain("BOTTOM_SCROLL_TRANSFORM");
+    expect(bottomShell).toContain("data-app-bottom-shell");
+    expect(bottomShell).toContain('<Navbar shellNavigationHidden={model.navigationHidden} layout="slot"');
+    expect(bottomShell).toContain('<AgentBar layout="slot" />');
+    expect(bottomShell).toContain("items-center gap-1.5");
+    expect(agentBar).toContain('? "h-10 rounded-[1.25rem] px-2"');
+    expect(agentBar).toContain("var(--app-agent-bar-max-width)");
+    expect(bottomShell).toContain("var(--bottom-chrome-full-height)");
+    expect(bottomShell).toContain("--app-bottom-shell-height");
+    expect(bottomShell).not.toContain("xl:hidden");
+    expect(navbar).toContain("shellNavigationHidden = false");
+    expect(navbar).toContain("if (shellNavigationHidden || hideNavbar)");
+    expect(navbar).toContain("data-ambient-chrome-ignore");
+    expect(agentBar).toContain("data-ambient-chrome-ignore");
   });
 });

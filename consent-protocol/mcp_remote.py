@@ -12,6 +12,7 @@ from limits.strategies import MovingWindowRateLimiter
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
 from api.developer_auth import remote_mcp_disabled_error, remote_mcp_enabled
+from hushh_mcp.services.developer_oauth_service import DeveloperOAuthService
 from hushh_mcp.services.developer_registry_service import DeveloperRegistryService
 from mcp_modules.developer_context import (
     reset_current_developer_principal,
@@ -109,7 +110,11 @@ class AuthenticatedRemoteMCPApp:
             )
             return
 
-        principal = self._registry.authenticate_token(
+        principal = DeveloperOAuthService().authenticate_access_token(
+            raw_token,
+            ip_address=_client_ip(scope),
+            user_agent=_header_value(scope, b"user-agent"),
+        ) or self._registry.authenticate_token(
             raw_token,
             ip_address=_client_ip(scope),
             user_agent=_header_value(scope, b"user-agent"),

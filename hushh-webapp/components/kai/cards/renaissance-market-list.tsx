@@ -857,8 +857,8 @@ export function RiaPicksList({
                 title="Quote freshness"
                 description={
                   selectedRow.degraded
-                    ? "This row is using delayed or incomplete quote context."
-                    : "Quote context is current for the latest market snapshot."
+                    ? "The latest price update is delayed or incomplete."
+                    : "Prices reflect the latest market update."
                 }
                 trailing={
                   selectedRow.quote_status === "unsupported"

@@ -327,6 +327,25 @@ describe("PostAuthRouteService", () => {
     ).resolves.toBe(ROUTES.ONE_HOME);
   });
 
+  it("uses the backend verified-phone claim when a native session omits its local number", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: false,
+      setupCompleted: true,
+      setupCompletedAt: 1,
+      setupSkipped: false,
+      phoneVerified: true,
+    });
+    loadPendingOnboardingMock.mockResolvedValue(null);
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "native-user",
+        phoneNumber: null,
+        phoneVerified: null,
+      }),
+    ).resolves.toBe(ROUTES.ONE_HOME);
+  });
+
   it("routes phone-verified no-vault Invite to One users through the shared vault flow", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,

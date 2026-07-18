@@ -27,6 +27,7 @@ from defusedxml import ElementTree as DefusedET
 
 from hushh_mcp.consent.token import validate_token
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.services.market_refresh_policy import provider_quote_cache_ttl_seconds
 from hushh_mcp.types import UserID
 
 logger = logging.getLogger(__name__)
@@ -814,7 +815,9 @@ async def fetch_market_data_batch(
             finnhub_enabled=finnhub_enabled,
             pmp_enabled=pmp_enabled,
         )
-        ttl_seconds = max(int(payload.get("ttl_seconds") or 0), _MARKET_DATA_CACHE_TTL_SECONDS)
+        ttl_seconds = provider_quote_cache_ttl_seconds(
+            max(int(payload.get("ttl_seconds") or 0), _MARKET_DATA_CACHE_TTL_SECONDS)
+        )
         normalized_payload = dict(payload)
         normalized_payload["ticker"] = symbol
         normalized_payload["ttl_seconds"] = ttl_seconds
@@ -1396,7 +1399,9 @@ async def fetch_market_data(
                 if payload and float(payload.get("price") or 0) > 0:
                     fetched_at = payload.get("fetched_at")
                     ttl_seconds = int(payload.get("ttl_seconds") or 0)
-                    cache_ttl_seconds = max(ttl_seconds, _MARKET_DATA_CACHE_TTL_SECONDS)
+                    cache_ttl_seconds = provider_quote_cache_ttl_seconds(
+                        max(ttl_seconds, _MARKET_DATA_CACHE_TTL_SECONDS)
+                    )
                     is_stale = bool(payload.get("is_stale", False))
                     normalized_payload = dict(payload)
                     normalized_payload["ticker"] = symbol

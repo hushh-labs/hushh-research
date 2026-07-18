@@ -51,6 +51,7 @@ export interface AuthUser {
   displayName: string;
   photoUrl: string;
   emailVerified?: boolean;
+  phoneNumber?: string | null;
 }
 
 export interface HushhAuthPlugin {

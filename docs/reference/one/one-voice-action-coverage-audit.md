@@ -99,7 +99,7 @@ The frontend dispatcher supports the backend tools above plus `switch_persona`.
 | `history` | Routes to `/one/kai/analysis` with history/tab params. |
 | `dashboard` | Routes to `/one/kai/portfolio`. |
 | `home` | Routes to `/one/kai`. |
-| `consent` | Routes to `/consents`. |
+| `consent` | Routes to `/one/consent`. |
 | `profile` | Routes to `/profile`. |
 
 ## Generated Gateway Snapshot

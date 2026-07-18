@@ -57,7 +57,7 @@ describe("OneAuthGate", () => {
     expect(screen.queryByTestId("phone-mandate-guard")).toBeNull();
   });
 
-  it("lets Location own its contextual vault setup while retaining sign-in and phone admission", () => {
+  it("uses the default vault gate for private Location routes", () => {
     mocks.pathname = "/one/location";
 
     render(
@@ -66,7 +66,7 @@ describe("OneAuthGate", () => {
       </OneAuthGate>,
     );
 
-    expect(screen.queryByTestId("vault-lock-guard")).toBeNull();
+    expect(screen.getByTestId("vault-lock-guard")).toBeTruthy();
     expect(screen.getByTestId("phone-mandate-guard")).toBeTruthy();
     expect(screen.getByText("private one surface")).toBeTruthy();
   });

@@ -7,9 +7,11 @@ import { type CapabilityStatus } from "@/lib/services/capability-setup-state-ser
 
 export function OneDashboardPage({
   capabilityStatusById = {},
+  userId,
 }: {
   displayName?: string | null;
   capabilityStatusById?: Record<string, CapabilityStatus>;
+  userId?: string | null;
 }) {
   return (
     <AppPageShell
@@ -24,7 +26,7 @@ export function OneDashboardPage({
       }}
     >
       <AppPageContentRegion>
-        <OneAgentRoster capabilityStatusById={capabilityStatusById} />
+        <OneAgentRoster capabilityStatusById={capabilityStatusById} userId={userId} />
       </AppPageContentRegion>
     </AppPageShell>
   );

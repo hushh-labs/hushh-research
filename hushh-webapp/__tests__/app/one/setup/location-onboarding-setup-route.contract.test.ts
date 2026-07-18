@@ -19,7 +19,7 @@ describe("Location setup route contract", () => {
     // suppress the feature's first-run Location journey before permission can
     // be granted and readiness can settle.
     expect(adapter).toContain("<OneLocationAgentPage");
-    expect(adapter).toContain("vaultPrerequisiteRouteKey={ROUTES.ONE_SETUP_LOCATION}");
+    expect(adapter).not.toContain("vaultPrerequisiteRouteKey");
     expect(adapter).not.toContain("suppressFirstRunOnboarding");
   });
 });

@@ -1,4 +1,4 @@
-import { ROUTES } from "@/lib/navigation/routes";
+import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { resolveProfileRouteState } from "@/lib/navigation/profile-routes";
 
 export type VoiceRouteScreenInfo = {
@@ -71,8 +71,31 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_SETUP_KAI) {
     return { screen: "one_setup_finance", subview: "legacy" };
   }
+  if (normalizedPath === KAI_MARKET_PATH) {
+    const tab = query.get("tab") || "market";
+    if (tab === "analysis") {
+      return {
+        screen: "kai_analysis",
+        subview: query.get("focus") === "active" ? "active" : "analysis",
+      };
+    }
+    if (tab === "portfolio") {
+      return { screen: "kai_portfolio_dashboard", subview: "portfolio" };
+    }
+    return { screen: "kai_market", subview: "market" };
+  }
+  // These paths exist only long enough to redirect bookmarked Finance links.
+  // Keep their semantic screen until the client redirect completes.
+  if (normalizedPath === "/one/kai/portfolio") {
+    return { screen: "kai_portfolio_dashboard", subview: null };
+  }
+  if (normalizedPath === "/one/kai/analysis") {
+    return {
+      screen: "kai_analysis",
+      subview: query.get("focus") === "active" ? "active" : null,
+    };
+  }
   if (
-    normalizedPath === ROUTES.KAI_HOME ||
     normalizedPath === ROUTES.LEGACY_KAI_HOME ||
     normalizedPath.startsWith("/kai/home")
   ) {
@@ -90,12 +113,10 @@ export function deriveVoiceRouteScreen(
   if (
     normalizedPath.startsWith("/kai/dashboard") ||
     normalizedPath.startsWith("/one/kai/dashboard") ||
-    normalizedPath.startsWith(ROUTES.KAI_PORTFOLIO) ||
     normalizedPath.startsWith(ROUTES.LEGACY_KAI_PORTFOLIO)
   ) {
     const segments = normalizedPath.split("/").filter(Boolean);
     const subview =
-      normalizedPath === ROUTES.KAI_PORTFOLIO ||
       normalizedPath === ROUTES.LEGACY_KAI_PORTFOLIO
         ? null
         : query.get("tab") || segments.at(-1) || null;
@@ -105,7 +126,6 @@ export function deriveVoiceRouteScreen(
     };
   }
   if (
-    normalizedPath.startsWith(ROUTES.KAI_ANALYSIS) ||
     normalizedPath.startsWith(ROUTES.LEGACY_KAI_ANALYSIS)
   ) {
     return {
@@ -158,7 +178,10 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath.startsWith(ROUTES.RIA_SETTINGS)) {
     return { screen: "ria_settings", subview: query.get("tab") || null };
   }
-  if (normalizedPath.startsWith(ROUTES.CONSENTS)) {
+  if (
+    normalizedPath.startsWith(ROUTES.CONSENTS) ||
+    normalizedPath.startsWith(ROUTES.LEGACY_CONSENTS)
+  ) {
     return { screen: "consents", subview: query.get("tab") || null };
   }
   if (normalizedPath === ROUTES.ONE_KYC) {
@@ -269,9 +292,8 @@ export function deriveVoiceRouteScreen(
     }
     return { screen: "profile_account", subview: detail || panel || null };
   }
-  if (normalizedPath.startsWith(ROUTES.KAI_HOME)) {
-    const subview = normalizedPath.slice(ROUTES.KAI_HOME.length).split("/").filter(Boolean)[0];
-    return { screen: "kai", subview: subview || null };
+  if (normalizedPath.startsWith(KAI_MARKET_PATH)) {
+    return { screen: "kai_market", subview: query.get("tab") || "market" };
   }
   if (normalizedPath.startsWith(ROUTES.LEGACY_KAI_HOME)) {
     const subview = normalizedPath

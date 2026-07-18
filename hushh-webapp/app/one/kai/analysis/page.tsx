@@ -2,17 +2,17 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { BarChart3, X } from "lucide-react";
+import { X } from "lucide-react";
+import { ClientRedirect } from "@/components/navigation/client-redirect";
 import { Badge } from "@/components/ui/badge";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
-import { PageHeader } from "@/components/app-ui/page-sections";
 import {
   APP_MEASURE_STYLES,
   AppPageContentRegion,
-  AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
+import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { SurfaceCard, SurfaceCardContent, SurfaceStack } from "@/components/app-ui/surfaces";
 import { DebateStreamView, type AgentState } from "@/components/kai/debate-stream-view";
@@ -53,7 +53,11 @@ import {
 } from "@/lib/kai/pick-source-selection";
 import { deriveAnalysisRouteIntent } from "@/lib/kai/analysis-route-intent";
 import { getStockContext } from "@/lib/services/kai-service";
-import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildKaiAnalysisPreviewRoute,
+  buildKaiMarketRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { isLocalAnalysisPreviewRequest } from "@/components/kai/shared/local-market-preview";
 import {
   usePublishVoiceSurfaceMetadata,
@@ -125,7 +129,7 @@ function HistoryDebateReplay({ entry }: { entry: AnalysisHistoryEntry }) {
   );
 }
 
-function KaiAnalysisPageContent() {
+export function KaiAnalysisPageContent() {
   const pageOpenedAtRef = useRef(Date.now());
   const workspaceTopRef = useRef<HTMLDivElement | null>(null);
   const summaryLoadingToastIdRef = useRef<string | number | null>(null);
@@ -195,8 +199,7 @@ function KaiAnalysisPageContent() {
       if (nextDebateId) {
         params.set("debate_id", nextDebateId);
       }
-      const query = params.toString();
-      router.replace(query ? `${ROUTES.KAI_ANALYSIS}?${query}` : ROUTES.KAI_ANALYSIS);
+      router.replace(buildKaiMarketRoute("analysis", Object.fromEntries(params.entries())));
     },
     [router]
   );
@@ -790,7 +793,7 @@ function KaiAnalysisPageContent() {
       showDebateAlreadyRunningToast(toast, {
         description: "Open the active debate before starting a new one.",
       });
-      router.replace(`${ROUTES.KAI_ANALYSIS}?focus=active`);
+      router.replace(buildKaiMarketRoute("analysis", { focus: "active" }));
       return;
     }
     const previewSource =
@@ -822,9 +825,10 @@ function KaiAnalysisPageContent() {
         setShowHistoryWhileActive(false);
         setWorkspaceTab("debate");
         router.replace(
-          `${ROUTES.KAI_ANALYSIS}?focus=active&ticker=${encodeURIComponent(
-            currentPreviewTicker
-          )}`
+          buildKaiMarketRoute("analysis", {
+            focus: "active",
+            ticker: currentPreviewTicker,
+          }),
         );
       })
       .catch((error) => {
@@ -1039,9 +1043,8 @@ function KaiAnalysisPageContent() {
   return (
     <>
       {showWorkspace ? (
-        <AppPageShell
-          as="div"
-          width="expanded"
+        <div
+          className="w-full"
           data-testid={liveIntentReady ? "kai-analysis-active-run" : "kai-analysis-primary"}
         >
           <NativeTestBeacon
@@ -1050,13 +1053,10 @@ function KaiAnalysisPageContent() {
             authState={user ? "authenticated" : "pending"}
             dataState="loaded"
           />
-          <AppPageHeaderRegion>
-            <PageHeader
-              eyebrow="Kai"
+          <KaiWorkspaceHeader
+              workspace="analysis"
               title="Analysis"
-              description="Move between live debate, summary, and detailed review without losing the current ticker context."
-              icon={BarChart3}
-              accent="kai"
+              description="Review the live debate and detailed recommendation."
               actions={
                 <>
                   {liveIntentReady ? (
@@ -1073,8 +1073,7 @@ function KaiAnalysisPageContent() {
                   ) : null}
                 </>
               }
-            />
-          </AppPageHeaderRegion>
+          />
           <AppPageContentRegion>
             <div ref={workspaceTopRef}>
               <SurfaceStack compact>
@@ -1250,9 +1249,9 @@ function KaiAnalysisPageContent() {
               </SurfaceStack>
             </div>
           </AppPageContentRegion>
-        </AppPageShell>
+        </div>
       ) : !resolvingEntry ? (
-        <AppPageShell as="div" width="expanded" data-testid="kai-analysis-primary">
+        <div className="w-full" data-testid="kai-analysis-primary">
           <NativeTestBeacon
             routeId={ROUTES.KAI_ANALYSIS}
             marker="native-route-kai-analysis"
@@ -1261,9 +1260,8 @@ function KaiAnalysisPageContent() {
             errorCode={stockPreviewError ? "stock_preview" : null}
             errorMessage={stockPreviewError}
           />
-          <AppPageHeaderRegion>
-            <PageHeader
-              eyebrow="Kai"
+          <KaiWorkspaceHeader
+              workspace="analysis"
               title={
                 <span className="inline-flex flex-wrap items-center gap-2">
                   Analysis
@@ -1272,11 +1270,8 @@ function KaiAnalysisPageContent() {
                   ) : null}
                 </span>
               }
-              description="Review saved debates, reopen active analysis, and keep the running history of Kai decisions in one place."
-              icon={BarChart3}
-              accent="kai"
-            />
-          </AppPageHeaderRegion>
+              description="Review saved debates and reopen a previous decision."
+          />
           <AppPageContentRegion>
             <SurfaceStack compact>
           {previewTickerFromQuery ? (
@@ -1330,7 +1325,7 @@ function KaiAnalysisPageContent() {
           />
             </SurfaceStack>
           </AppPageContentRegion>
-        </AppPageShell>
+        </div>
       ) : null}
 
       {resolvingEntry ? (
@@ -1343,9 +1338,16 @@ function KaiAnalysisPageContent() {
 }
 
 export default function KaiAnalysisPage() {
+  const searchParams = useSearchParams();
+  const params = new URLSearchParams(searchParams.toString());
+  const legacyTab = params.get("tab");
+  if (legacyTab && ["history", "debate", "summary", "transcript"].includes(legacyTab)) {
+    params.set("view", legacyTab);
+  }
+  params.delete("tab");
   return (
     <Suspense fallback={<HushhLoader label="Loading analysis..." variant="fullscreen" />}>
-      <KaiAnalysisPageContent />
+      <ClientRedirect to={buildKaiMarketRoute("analysis", Object.fromEntries(params.entries()))} />
     </Suspense>
   );
 }

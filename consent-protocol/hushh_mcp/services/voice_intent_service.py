@@ -1151,7 +1151,7 @@ def _screen_label(screen: str, pathname: str) -> str:
         return labels[screen]
     if pathname.startswith("/profile"):
         return "profile"
-    if pathname.startswith("/kai"):
+    if pathname.startswith(("/one/kai", "/kai")):
         return "Kai"
     return "Kai"
 
@@ -1166,7 +1166,7 @@ def _screen_action_hint(screen: str, pathname: str) -> str | None:
         "kai_analysis",
         "kai_analysis_workspace",
         "kai_analysis_history",
-    } or pathname.startswith("/kai/analysis"):
+    } or pathname.startswith(("/one/kai/analysis", "/kai/analysis")):
         return _SCREEN_ACTION_HINTS.get("analysis")
     if screen in {
         "kai_portfolio_bootstrap",
@@ -1177,11 +1177,13 @@ def _screen_action_hint(screen: str, pathname: str) -> str | None:
         "kai_portfolio_dashboard",
         "kai_portfolio_analysis",
         "dashboard",
-    } or pathname.startswith("/kai/portfolio"):
+    } or pathname.startswith(("/one/kai/portfolio", "/kai/portfolio")):
         return _SCREEN_ACTION_HINTS.get("dashboard")
-    if screen in {"home", "kai_market"} or pathname in {"/kai", "/kai/home"}:
+    if screen in {"home", "kai_market"} or pathname in {"/one/kai", "/kai", "/kai/home"}:
         return _SCREEN_ACTION_HINTS.get("home")
-    if screen in {"import", "kai_import"} or pathname.startswith("/kai/import"):
+    if screen in {"import", "kai_import"} or pathname.startswith(
+        ("/one/kai/import", "/kai/import")
+    ):
         return _SCREEN_ACTION_HINTS.get("import")
     if screen in {"consent", "consents"} or pathname.startswith("/consents"):
         return _SCREEN_ACTION_HINTS.get("consent")

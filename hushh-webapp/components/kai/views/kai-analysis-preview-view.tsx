@@ -24,7 +24,7 @@ import {
   kaiPreviewSectionTitleClassName,
   marketSurfaceVariablesClassName,
 } from "@/components/kai/shared/market-surface-theme";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
@@ -560,7 +560,7 @@ export function KaiAnalysisPreviewView() {
               event.preventDefault();
               const query = stockQuery.trim();
               if (query) {
-                openAnalysisHref(`${ROUTES.KAI_ANALYSIS}?preview=analysis&q=${encodeURIComponent(query)}`);
+                openAnalysisHref(buildKaiMarketRoute("analysis", { preview: "analysis", q: query }));
               }
             }}
             className="mt-5 flex h-12 items-center gap-2.5 rounded-[16px] bg-[color:var(--one-surface)] px-4"

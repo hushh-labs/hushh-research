@@ -31,7 +31,7 @@ if (!fs.existsSync(contractPath)) {
 
 const contract = JSON.parse(fs.readFileSync(contractPath, "utf8"));
 const manifest = {
-  protocolVersion: "2024-11-05",
+  protocolVersion: "2025-11-25",
   transport: {
     kind: "streamableHttp",
     path: "/mcp/",

@@ -173,7 +173,11 @@ class TestNormalizeAliases:
 class TestNormalizeScope:
     def test_no_scope_defaults_to_empty_lists(self):
         result = _normalized()
-        assert result["scope"] == {"screens": [], "routes": []}
+        assert result["scope"] == {
+            "screens": [],
+            "routes": [],
+            "hidden_navigable": False,
+        }
 
     def test_reachability_field_used_over_scope(self):
         result = _normalized(
@@ -269,6 +273,7 @@ _ACTION_PORTFOLIO = {
     "completion_mode": "none",
     "expected_effects": {},
     "background_behavior": {},
+    "execution_target": {"status": "wired", "path": "route", "target": "/portfolio"},
 }
 _ACTION_SETTINGS = {
     "action_id": "open_settings",
@@ -283,6 +288,7 @@ _ACTION_SETTINGS = {
     "completion_mode": "none",
     "expected_effects": {},
     "background_behavior": {},
+    "execution_target": {"status": "wired", "path": "route", "target": "/settings"},
 }
 _ALL_ACTIONS = [_ACTION_PORTFOLIO, _ACTION_SETTINGS]
 
@@ -331,3 +337,24 @@ class TestSelectVoiceManifestActionsForPrompt:
     def test_none_inputs_do_not_crash(self):
         result = self._select(screen=None, available_action_ids=None, transcript=None)
         assert isinstance(result, list)
+
+    def test_direct_route_action_is_selectable_from_another_screen(self):
+        location_action = {
+            **_ACTION_PORTFOLIO,
+            "action_id": "route.one_location",
+            "scope": {"screens": ["one_location"], "routes": ["/one/location"]},
+            "execution_target": {
+                "status": "wired",
+                "path": "route",
+                "target": "/one/location",
+            },
+        }
+        with patch(
+            "hushh_mcp.services.voice_action_manifest.list_voice_manifest_actions",
+            return_value=[location_action],
+        ):
+            result = select_voice_manifest_actions_for_prompt(
+                screen="one_agents",
+                available_action_ids=["route.one_location"],
+            )
+        assert [action["action_id"] for action in result] == ["route.one_location"]

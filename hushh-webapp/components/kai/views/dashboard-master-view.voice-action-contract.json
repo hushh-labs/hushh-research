@@ -29,7 +29,7 @@
       ],
       "reachability": {
         "routes": [
-          "/one/kai/portfolio"
+          "/one/kai?tab=portfolio"
         ],
         "screens": [
           "kai_portfolio_dashboard"
@@ -42,8 +42,8 @@
       "execution_policy": "allow_direct",
       "execution_target": {
         "status": "wired",
-        "path": "kai_command",
-        "target": "dashboard"
+        "path": "route",
+        "target": "/one/kai?tab=portfolio"
       },
       "control_ids": [],
       "state_exposure": [],

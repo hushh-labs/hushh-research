@@ -195,4 +195,16 @@ Body section headings are not page headers. `SectionHeader` and `SettingsGroup` 
 
 Signed-in routes use `AppPageHeaderRegion` with the shared `PageHeader`: a compact title, an optional single-line description, and no route-local hero, logo, or duplicate agent selector. RIA uses the same shell and resolves its accent through the Foundation `--app-accent-*` family.
 
+Finance follows the Profile workspace geometry exactly: `AppPageShell` at the
+`reading` measure and one shared outer gutter. Market, Portfolio, and Analysis
+are query-selected content inside `/one/kai`; they do not get a wider dashboard
+canvas, another fixed header, or a route-local tab bar. The top shell owns the
+single contextual tab row, and a tab may own only its one ordinary `PageHeader`.
+
+Persistent chrome uses the single ambient material system in
+`components/app-ui/ambient-chrome-mask.tsx`: top is the sampled frosted wash
+with its feathered mask and bottom is the same sampled tint as a content
+dissolve. Those edges must remain present on mobile and desktop wherever the
+signed-in top/bottom shell is present.
+
 `SettingsGroup` and `SettingsRow` are the standard responsive list system for Profile, agents, and Connected Systems. Groups use the compact utility radius, inset separators, text truncation, and mobile-stacked trailing controls. Do not make a desktop `DataTable` the only way to operate a narrow route.

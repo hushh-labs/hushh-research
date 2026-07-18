@@ -159,6 +159,32 @@ async def test_valid_token_dispatches_to_inner_app(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_oauth_access_token_dispatches_to_inner_app_before_legacy_bearer(monkeypatch):
+    app, inner = _build_app()
+
+    class _OAuth:
+        def authenticate_access_token(self, raw_token, **_kwargs):
+            return _fake_principal("app_oauth") if raw_token == "hdo_at_valid" else None
+
+    monkeypatch.setattr(mcp_remote_module, "DeveloperOAuthService", _OAuth)
+    monkeypatch.setattr(
+        app._registry,
+        "authenticate_token",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("OAuth bearer must not fall through to legacy token lookup")
+        ),
+    )
+    send = _CapturingSend()
+    await app(
+        _http_scope(headers=[(b"authorization", b"Bearer hdo_at_valid")]),
+        _noop_receive,
+        send,
+    )
+    assert send.status == 200
+    assert inner.calls == 1
+
+
+@pytest.mark.asyncio
 async def test_query_token_authentication_is_rejected(monkeypatch):
     app, inner = _build_app()
     monkeypatch.setattr(app._registry, "authenticate_token", lambda *a, **k: _fake_principal())

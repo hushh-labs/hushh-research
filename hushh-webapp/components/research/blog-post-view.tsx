@@ -6,7 +6,6 @@ import {
   AppPageContentRegion,
 } from "@/components/app-ui/app-page-shell";
 import { Figure } from "@/components/app-ui/sections";
-import { PublicKnowledgeNav } from "@/components/app-ui/public-knowledge-nav";
 import { ProseMarkdown } from "@/components/research/prose-markdown";
 import { ROUTES } from "@/lib/navigation/routes";
 import type { BlogPost } from "@/lib/research/blog";
@@ -16,9 +15,6 @@ export function BlogPostView({ post }: { post: BlogPost }) {
   return (
     <AppPageShell width="reading" className="pb-6 pt-0 sm:pb-10">
       <AppPageHeaderRegion>
-        <div className="mb-5">
-          <PublicKnowledgeNav />
-        </div>
         <Link
           href={ROUTES.BLOG}
           className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-sky-700 dark:hover:text-sky-300"

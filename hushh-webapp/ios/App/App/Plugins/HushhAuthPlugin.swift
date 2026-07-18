@@ -90,13 +90,15 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         email: String?,
         displayName: String?,
         photoUrl: String?,
-        emailVerified: Bool
+        emailVerified: Bool,
+        phoneNumber: String?
     ) {
         keychainSet(uid, forKey: "hushh_user_id")
         keychainSetOptional(email, forKey: "hushh_user_email")
         keychainSetOptional(displayName, forKey: "hushh_user_display_name")
         keychainSetOptional(photoUrl, forKey: "hushh_user_photo_url")
         keychainSet(emailVerified ? "true" : "false", forKey: "hushh_user_email_verified")
+        keychainSetOptional(phoneNumber, forKey: "hushh_user_phone_number")
     }
 
     private func publishIMessageIdentitySilently(
@@ -132,7 +134,8 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             "email": keychainGet("hushh_user_email") ?? "",
             "displayName": keychainGet("hushh_user_display_name") ?? "",
             "photoUrl": keychainGet("hushh_user_photo_url") ?? "",
-            "emailVerified": (keychainGet("hushh_user_email_verified") ?? "false") == "true"
+            "emailVerified": (keychainGet("hushh_user_email_verified") ?? "false") == "true",
+            "phoneNumber": keychainGet("hushh_user_phone_number") ?? ""
         ]
     }
 
@@ -309,7 +312,8 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                         email: firebaseUser.email,
                         displayName: firebaseUser.displayName,
                         photoUrl: firebaseUser.photoURL?.absoluteString,
-                        emailVerified: firebaseUser.isEmailVerified
+                        emailVerified: firebaseUser.isEmailVerified,
+                        phoneNumber: firebaseUser.phoneNumber
                     )
                     self.publishIMessageIdentitySilently(
                         uid: firebaseUser.uid,
@@ -327,7 +331,8 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                             "email": firebaseUser.email ?? "",
                             "displayName": firebaseUser.displayName ?? "",
                             "photoUrl": firebaseUser.photoURL?.absoluteString ?? "",
-                            "emailVerified": firebaseUser.isEmailVerified
+                            "emailVerified": firebaseUser.isEmailVerified,
+                            "phoneNumber": firebaseUser.phoneNumber ?? ""
                         ]
                     ]
                     
@@ -362,6 +367,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         keychainDelete("hushh_user_display_name")
         keychainDelete("hushh_user_photo_url")
         keychainDelete("hushh_user_email_verified")
+        keychainDelete("hushh_user_phone_number")
         HusshIMessageSessionStore.shared.clearSilently()
         
         print("✅ [\(TAG)] Signed out")
@@ -414,7 +420,8 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                 "email": user.email ?? "",
                 "displayName": user.displayName ?? "",
                 "photoUrl": user.photoURL?.absoluteString ?? "",
-                "emailVerified": user.isEmailVerified
+                "emailVerified": user.isEmailVerified,
+                "phoneNumber": user.phoneNumber ?? ""
             ]
             call.resolve(["user": userData])
         } else if freshCachedIdToken() != nil, let cached = cachedUserData() {
@@ -556,7 +563,8 @@ extension HushhAuthPlugin: ASAuthorizationControllerDelegate {
                     email: firebaseUser.email ?? appleIDCredential.email,
                     displayName: displayName,
                     photoUrl: firebaseUser.photoURL?.absoluteString,
-                    emailVerified: firebaseUser.isEmailVerified
+                    emailVerified: firebaseUser.isEmailVerified,
+                    phoneNumber: firebaseUser.phoneNumber
                 )
                 self.publishIMessageIdentitySilently(
                     uid: firebaseUser.uid,
@@ -574,7 +582,8 @@ extension HushhAuthPlugin: ASAuthorizationControllerDelegate {
                         "email": firebaseUser.email ?? appleIDCredential.email ?? "",
                         "displayName": displayName,
                         "photoUrl": firebaseUser.photoURL?.absoluteString ?? "",
-                        "emailVerified": firebaseUser.isEmailVerified
+                        "emailVerified": firebaseUser.isEmailVerified,
+                        "phoneNumber": firebaseUser.phoneNumber ?? ""
                     ]
                 ]
                 

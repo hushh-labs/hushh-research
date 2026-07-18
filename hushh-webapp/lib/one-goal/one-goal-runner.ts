@@ -1,7 +1,7 @@
 "use client";
 
 import type { AgentActionRuntimeResult } from "@/lib/agent/agent-action-runtime";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 import {
   DebateRunManagerService,
   type DebateRunTask,
@@ -183,12 +183,12 @@ function resultSummaryFromTask(task: DebateRunTask): OneGoalResultSummary {
     decision,
     confidence,
     finalStatement,
-    route: `${ROUTES.KAI_ANALYSIS}?focus=active&ticker=${encodeURIComponent(task.ticker)}`,
+    route: buildKaiMarketRoute("analysis", { focus: "active", ticker: task.ticker }),
   };
 }
 
 function analysisActiveRoute(ticker: string): string {
-  return `${ROUTES.KAI_ANALYSIS}?focus=active&ticker=${encodeURIComponent(ticker)}`;
+  return buildKaiMarketRoute("analysis", { focus: "active", ticker });
 }
 
 function hasWorkflowService(plan: Extract<OneGoalPlan, { status: "ready" }>, service: string): boolean {
@@ -392,7 +392,10 @@ async function runAnalysisGoal(options: RunOneGoalOptions): Promise<OneGoalRunne
     );
     const summary = {
       text: message,
-      route: `${ROUTES.KAI_ANALYSIS}?focus=active&ticker=${encodeURIComponent(runResult.task.ticker)}`,
+      route: buildKaiMarketRoute("analysis", {
+        focus: "active",
+        ticker: runResult.task.ticker,
+      }),
     };
     const blocked = updateGoalResult(session.id, "blocked", summary);
     return {

@@ -152,17 +152,17 @@ export function ProfileStackNavigator({
 
   return (
     <div
-      className="relative min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] overflow-hidden bg-background"
+      className="relative min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] overflow-hidden"
       data-profile-stack="true"
     >
       <div
-        className="flex h-full w-full min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] bg-background transition-transform duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+        className="flex h-full w-full min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] transition-transform duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
         style={{ transform: `translateX(-${Math.max(activeIndex, 0) * 100}%)` }}
       >
         {screens.map((entry, index) => (
           <section
             key={entry.key}
-            className="flex min-h-full min-w-full w-full shrink-0 flex-col overflow-x-hidden bg-background"
+            className="flex min-h-full min-w-full w-full shrink-0 flex-col overflow-x-hidden"
           >
             {entry.isRoot ? (
               <div className="flex min-h-full flex-1 flex-col">{entry.content}</div>

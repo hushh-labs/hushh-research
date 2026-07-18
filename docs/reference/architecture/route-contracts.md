@@ -83,7 +83,7 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/profile/support/compose?kind=<support_kind>`
 - `/profile/receipts`
 - `/profile/gmail/oauth/return`
-- `/consents`
+- `/one/consent`
 - `/one/setup`
 - `/one/setup/finance`
 - `/one/setup/finance/import`
@@ -99,7 +99,7 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/ria/picks`
 - `/ria/requests`
 - `/ria/settings`
-- `/one/kai`
+- `/one/kai?tab=market`
 - `/one/kai/import`
 - `/one/kai/plaid/oauth/return`
 - `/one/kai/alpaca/oauth/return`
@@ -117,11 +117,15 @@ Detail entrypoints that require an identifier use query-backed static routes so 
 - `/profile/access/connection?id=<connection_id>`
 - `/profile/support/compose?kind=<support_kind>`
 
-Legacy `/kai/*` aliases and `/one/kai/onboarding` remain compatibility redirect surfaces only. They must not be documented as canonical navigation surfaces or reintroduced as primary routes without updating both `routes.ts` and this reference.
+Legacy `/kai` and `/one/kai/onboarding` remain compatibility redirect surfaces only. They must not be documented as canonical navigation surfaces or reintroduced as primary routes without updating both `routes.ts` and this reference.
 
-Canonical `/one/kai/*` routes are One-owned finance surfaces, not persona shell routes. Page-level role mismatch guards must not block `/one/kai`, `/one/kai/analysis`, `/one/kai/portfolio`, or other canonical One finance routes just because the active persona is RIA; generated action contracts remain responsible for enforcing finance action guards, consent, and any required persona settlement. Legacy `/kai/*` aliases may stay investor-scoped until removed.
+Canonical `/one/kai?tab=<market|portfolio|analysis>` is the One-owned finance workspace, not a persona shell route. Its shared top-shell back control returns to `/one`; page-level role mismatch guards must not block it just because the active persona is RIA. Generated action contracts remain responsible for enforcing finance action guards, consent, and any required persona settlement. Legacy `/kai/*` aliases remain redirect-only.
 
 Legacy `/profile?panel=...&detail=...` URLs remain compatibility inputs only. Canonical profile navigation is nested under `/profile/<panel>` and owned by `hushh-webapp/lib/navigation/profile-routes.ts`.
+
+The access manager is the One-owned `/one/consent` workspace. Legacy
+`/consents` links redirect there while preserving transient query state such as
+the selected review tab and request identifier.
 
 ## Route Contract Cascade
 

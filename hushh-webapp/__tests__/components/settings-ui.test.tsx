@@ -168,6 +168,30 @@ describe("SettingsRow", () => {
     expect(icon?.className).not.toContain("rounded-2xl");
   });
 
+  it("aligns inset separators to actual leading visuals", () => {
+    const { container, rerender } = render(
+      <SettingsGroup separatorInset>
+        <SettingsRow title="Plain row" />
+        <SettingsRow title="Last row" />
+      </SettingsGroup>,
+    );
+
+    expect(container.querySelector('[data-testid="settings-row"]')?.className).toContain(
+      "after:left-0",
+    );
+
+    rerender(
+      <SettingsGroup separatorInset>
+        <SettingsRow icon={Phone} title="Icon row" />
+        <SettingsRow title="Last row" />
+      </SettingsGroup>,
+    );
+
+    expect(container.querySelector('[data-testid="settings-row"]')?.className).toContain(
+      "after:left-[3.75rem]",
+    );
+  });
+
   it("supports asChild rows without losing row content", () => {
     render(
       <SettingsRow

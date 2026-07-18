@@ -7,9 +7,10 @@ import {
   ConsentExportRefreshService,
   type ConsentExportRefreshJob,
 } from "@/lib/services/consent-export-refresh-service";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const TASK_KIND = "consent_export_refresh";
-const TASK_ROUTE = "/consents";
+const TASK_ROUTE = ROUTES.CONSENTS;
 const TASK_RUNNING_STALE_AFTER_MS = 90_000;
 
 class ConsentExportRefreshPausedError extends Error {

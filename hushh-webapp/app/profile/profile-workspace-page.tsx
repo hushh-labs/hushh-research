@@ -1,6 +1,5 @@
 "use client";
 
-import styles from "./page.module.css";
 import {
   Suspense,
   useCallback,
@@ -791,7 +790,7 @@ function ProfilePageContent() {
         metadata: pkmMetadata,
         domains: domainPresentations,
         activeGrants: consentCenter?.active_grants || [],
-        pendingRequestCount: pendingConsents,
+        pendingRequestCount: pendingConsents ?? 0,
         metadataResolved: pkmMetadataReady,
         sharingResolved: consentCenterReady,
       }),
@@ -2302,7 +2301,7 @@ function ProfilePageContent() {
         profile_detail: activeDetail,
         total_attributes: profileSummary.totalAttributes,
         domain_count: profileSummary.totalDomains,
-        pending_consents: pendingConsents,
+        pending_consents: pendingConsents ?? 0,
         gmail_connected: gmailPresentation.isConnected,
         gmail_state: gmailPresentation.state,
         gmail_status_label: gmailStatusLabel,
@@ -3967,7 +3966,7 @@ function ProfilePageContent() {
 
   const profileRootContent = (
     <>
-      <AppPageHeaderRegion className={styles.profilePageHeaderRegion}>
+      <AppPageHeaderRegion>
         <header
           className="flex w-full min-w-0 flex-col items-center gap-2.5 px-4 text-center sm:px-6"
           data-slot="page-header"

@@ -21,7 +21,7 @@ import {
   useRef,
 } from "react";
 import { AuthProvider } from "@/lib/firebase";
-import { VaultContext, VaultProvider } from "@/lib/vault/vault-context";
+import { VaultProvider } from "@/lib/vault/vault-context";
 import { StepProgressProvider } from "@/lib/progress/step-progress-context";
 import { StepProgressBar } from "@/components/app-ui/step-progress-bar";
 import { CacheProvider } from "@/lib/cache/cache-context";
@@ -29,17 +29,18 @@ import { ConsentNotificationProvider } from "@/components/consent/notification-p
 import { ConsentSheetProvider } from "@/components/consent/consent-sheet-controller";
 import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
 import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
-import { TopAppBar } from "@/components/app-ui/top-app-bar";
+import { AppTopShell } from "@/components/app-ui/top-app-bar";
+import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
 import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider";
 import { AgentRuntimeStateProvider } from "@/lib/agent/agent-runtime-context";
-import { AgentBar } from "@/components/agent/agent-bar";
 import { AgentVoiceEdgeGlow } from "@/components/agent/agent-voice-edge-glow";
 import { FoundationPublicAmbient } from "@/components/app-ui/foundation-public-ambient";
-import { Navbar } from "@/components/navbar";
+import { AppBottomShell } from "@/components/app-ui/app-bottom-shell";
+import { AmbientChromeController } from "@/components/app-ui/ambient-chrome-mask";
 import { Toaster } from "@/components/ui/sonner";
 import { StatusBarManager } from "@/components/status-bar-manager";
 import { KeyboardInsetManager } from "@/components/keyboard-inset-manager";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ensureMorphyGsapReady } from "@/lib/morphy-ux/gsap-init";
 import { usePageEnterAnimation } from "@/lib/morphy-ux/hooks/use-page-enter";
 import {
@@ -57,7 +58,12 @@ import {
   useKaiBottomChromeProgressCssVar,
 } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { ROUTES, isRiaRoute } from "@/lib/navigation/routes";
+import {
+  KAI_MARKET_PATH,
+  ROUTES,
+  isFoundationPublicRoute,
+  isRiaRoute,
+} from "@/lib/navigation/routes";
 import { useAuth } from "@/hooks/use-auth";
 import { PersonaProvider } from "@/lib/persona/persona-context";
 import { resolveSignedInShellContentOffset } from "@/components/app-ui/signed-in-shell-content-offset";
@@ -79,103 +85,22 @@ function readCustomVar(style: CSSProperties, key: string): string {
   return value === undefined || value === null ? "" : String(value).trim();
 }
 
-// Shared bottom chrome glass vars. Mirrors the top app bar glass (same bg,
-// blur via the .bar-glass default, overscan, and fade strengths) so the bottom
-// mask fade matches the top exactly, just flipped to fade upward. The dark
-// tint derives from the live --background (same as the top bar) so neither
-// band can read lighter (milky) than the page behind it.
-const SHARED_BOTTOM_CHROME_GLASS_VARS = {
-  "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.76)",
-  "--app-bar-glass-bg-dark":
-    "color-mix(in oklab, var(--background) 76%, transparent)",
-  "--app-bar-shadow": "none",
-  "--app-bar-mask-overscan": "14px",
-} as const;
-
-const BOTTOM_CHROME_SCROLL_TRANSFORM =
-  "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)";
-
-/**
- * The compact shell is one visual stack: the bottom navigation and Agent Bar
- * deliberately share one continuous ambient fade. On desktop those controls
- * occupy separate vertical regions, so each receives its own locally anchored
- * fade. Reusing the viewport-anchored mobile mask there made the upper Agent
- * Bar inherit the navigation's weak tail rather than its own tint.
- */
-function SharedBottomChromeGlass({ hideCommandBar }: { hideCommandBar?: boolean }) {
-  const commonStyle = {
-    transform: BOTTOM_CHROME_SCROLL_TRANSFORM,
-    ...SHARED_BOTTOM_CHROME_GLASS_VARS,
-  } as CSSProperties;
-
-  return (
-    <>
-      <div
-        aria-hidden
-        data-app-bottom-chrome-glass
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-[108] md:hidden"
-      >
-        <div
-          className="w-full bar-glass bar-glass-bottom"
-          style={
-            {
-              ...commonStyle,
-              height: "var(--bottom-chrome-full-height)",
-            } as CSSProperties
-          }
-        />
-      </div>
-      <div
-        aria-hidden
-        data-app-bottom-chrome-glass
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-[108] hidden md:block"
-      >
-        <div
-          className="w-full bar-glass bar-glass-bottom"
-          style={
-            {
-              ...commonStyle,
-              height:
-                "calc(var(--app-bottom-inset) + var(--bottom-chrome-fade-overscan))",
-            } as CSSProperties
-          }
-        />
-      </div>
-      {!hideCommandBar ? (
-        <div
-          aria-hidden
-          data-app-bottom-chrome-glass
-          className="pointer-events-none fixed inset-x-0 z-[108] hidden md:block"
-          style={{
-            bottom:
-              "var(--agent-bar-with-nav-bottom)",
-          }}
-        >
-          <div
-            className="w-full bar-glass bar-glass-bottom"
-            style={
-              {
-                ...commonStyle,
-                height: "calc(3rem + var(--bottom-chrome-fade-overscan))",
-              } as CSSProperties
-            }
-          />
-        </div>
-      ) : null}
-    </>
-  );
-}
-
 function AppShellFrame({ children }: ProvidersProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { isAuthenticated, loading: authLoading } = useAuth();
+  const isPublicKnowledgeWorkspace =
+    pathname === ROUTES.WELCOME &&
+    ["research", "blog", "developers"].includes(searchParams?.get("tab") ?? "");
   const shellPathname = useMemo(
     () =>
-      pathname === ROUTES.HOME && (authLoading || !isAuthenticated)
+      pathname === ROUTES.HOME &&
+      !isPublicKnowledgeWorkspace &&
+      (authLoading || !isAuthenticated)
         ? ROUTES.LOGIN
         : pathname,
-    [authLoading, isAuthenticated, pathname],
+    [authLoading, isAuthenticated, isPublicKnowledgeWorkspace, pathname],
   );
   const chromeState = useMemo(
     () => getKaiChromeState(shellPathname),
@@ -186,20 +111,36 @@ function AppShellFrame({ children }: ProvidersProps) {
     [shellPathname],
   );
   const routeLayoutMode = routeLayout.mode;
-  const topShellRouteProfile = useMemo(
-    () => resolveTopShellRouteProfile(shellPathname),
-    [shellPathname],
+  const topShellRouteProfile = useMemo(() => {
+    const query = searchParams?.toString() ?? "";
+    return resolveTopShellRouteProfile(
+      query ? `${shellPathname}?${query}` : shellPathname,
+    );
+  }, [searchParams, shellPathname]);
+  const topShellModel = topShellRouteProfile.model;
+  const routeSwipeTabSet =
+    topShellModel.mode === "bar-with-tabs" &&
+    topShellModel.tabs.queryParam === null
+      ? topShellModel.tabs
+      : null;
+  const topShellMetrics = useMemo(
+    () => ({
+      shellVisible: topShellModel.mode !== "hidden",
+      hasTabs: topShellModel.mode === "bar-with-tabs",
+      contentOffsetMode: topShellModel.contentOffsetMode,
+    }),
+    [topShellModel],
   );
-  const topShellMetrics = topShellRouteProfile.metrics;
+  const topShellScrollResetKey =
+    topShellModel.mode === "bar-with-tabs"
+      ? `${shellPathname}:${topShellModel.tabs.id}:${topShellModel.tabs.activeValue}`
+      : shellPathname;
   const hideGlobalChrome = !topShellMetrics.shellVisible;
   const isFullscreenTopFlow = routeLayoutMode === "flow";
   const shouldLockFullscreenRoot = isFullscreenTopFlow;
+  const isFoundationRoute = isFoundationPublicRoute(pathname);
   const isPublicStandaloneRoute =
-    pathname === ROUTES.DEVELOPERS ||
-    pathname === ROUTES.RESEARCH ||
-    pathname === ROUTES.RESEARCH_PROTOCOL ||
-    pathname === ROUTES.BLOG ||
-    pathname.startsWith(`${ROUTES.BLOG}/`);
+    isFoundationRoute && pathname !== ROUTES.HOME;
   const signedInShellContentOffset = useMemo(
     () =>
       resolveSignedInShellContentOffset({
@@ -217,13 +158,32 @@ function AppShellFrame({ children }: ProvidersProps) {
     () =>
       ({
         ...signedInShellContentOffset.style,
-        "--top-tabs-gap": "0px",
+        // A tab row is part of the fixed safe-area stack. Give the first body
+        // block an additional shared clearance so Finance/RIA content never
+        // crowds the contextual tabs on phone or desktop.
+        "--page-top-local-offset": topShellMetrics.hasTabs
+          ? `calc(${routeLayout.pageTopLocalOffset || "0px"} + 12px)`
+          : routeLayout.pageTopLocalOffset || "0px",
+        "--top-tabs-gap": "var(--kai-route-tabs-content-gap)",
         "--top-tabs-total": topShellMetrics.hasTabs
           ? "calc(var(--top-tabs-h) + var(--top-tabs-gap))"
           : "0px",
         "--top-subnav-total": "0px",
         "--top-systembar-row-gap": "4px",
-        "--top-fade-active": topShellMetrics.hasTabs ? "22px" : "18px",
+        // These derived values must be declared at the route-shell scope.
+        // CSS custom-property substitution happens before inheritance, so a
+        // root-only definition would keep resolving the root's `0px` tabs.
+        "--top-shell-reserved-height":
+          "calc(var(--top-inset) + var(--top-systembar-row-gap) + var(--top-bar-h) + var(--top-tabs-total))",
+        "--top-shell-visual-height":
+          "calc(var(--top-shell-reserved-height) + var(--top-fade-active))",
+        "--top-shell-h": "var(--top-shell-reserved-height)",
+        "--top-glass-h": "var(--top-shell-visual-height)",
+        // The mask owns the entire resolved shell plus a context-sensitive tail.
+        // Contextual tabs need a longer dissolve below their underline than a
+        // bar-only route, otherwise the tab row reads as a hard crop on scroll.
+        "--top-fade-active": topShellMetrics.hasTabs ? "64px" : "42px",
+        "--top-ambient-tab-tail-midpoint": "32px",
         "--top-content-pad":
           "calc(var(--top-shell-visual-height) + var(--top-subnav-total, 0px) + var(--top-content-safe-gap))",
         "--kai-route-content-gap": topShellMetrics.hasTabs ? "28px" : "20px",
@@ -236,14 +196,17 @@ function AppShellFrame({ children }: ProvidersProps) {
             : "normal",
         "--bottom-chrome-stack-height": chromeState.hideCommandBar
           ? "var(--app-bottom-inset)"
-          : "calc(var(--app-bottom-inset) + var(--kai-command-fixed-ui))",
+          : "var(--app-bottom-shell-height, calc(var(--app-bottom-inset) + var(--kai-command-fixed-ui)))",
         "--bottom-chrome-full-height": chromeState.hideCommandBar
           ? "calc(var(--onboarding-agent-bar-clearance) + var(--bottom-chrome-fade-overscan) + 1.5rem)"
-          : "calc(var(--app-bottom-inset) + var(--kai-command-fixed-ui) + var(--bottom-chrome-fade-overscan))",
+          : "calc(var(--app-bottom-shell-height, calc(var(--app-bottom-inset) + var(--kai-command-fixed-ui))) + var(--bottom-chrome-fade-overscan))",
         "--bottom-chrome-search-height": chromeState.hideCommandBar
           ? "calc(var(--app-bottom-inset) + var(--bottom-chrome-fade-overscan))"
           : "calc(var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift) + var(--kai-command-fixed-ui) + var(--bottom-chrome-fade-overscan))",
         "--bottom-chrome-visual-height": "var(--bottom-chrome-full-height)",
+        "--bottom-chrome-fade-tail": chromeState.hideCommandBar
+          ? "28px"
+          : "64px",
         "--bottom-chrome-hide-distance": "var(--app-bottom-fixed-ui)",
         // Hidden-shell routes deliberately omit the app navigation, but many
         // of them still render the fixed onboarding Agent Bar. The scroll root
@@ -252,13 +215,14 @@ function AppShellFrame({ children }: ProvidersProps) {
         "--app-scroll-bottom-pad": isRiaRoute(pathname)
           ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
           : hideGlobalChrome || isPublicStandaloneRoute
-          ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
-          : "var(--bottom-chrome-stack-height)",
+            ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
+            : "var(--bottom-chrome-stack-height)",
       }) as CSSProperties,
     [
       chromeState.hideCommandBar,
       hideGlobalChrome,
       isPublicStandaloneRoute,
+      routeLayout.pageTopLocalOffset,
       signedInShellContentOffset.style,
       topShellMetrics.contentOffsetMode,
       topShellMetrics.hasTabs,
@@ -266,8 +230,17 @@ function AppShellFrame({ children }: ProvidersProps) {
       pathname,
     ],
   );
-  const showSharedBottomChromeGlass =
-    topShellMetrics.shellVisible && !isFullscreenTopFlow && !isPublicStandaloneRoute;
+  // One controller owns the tokens for both edges. Foundation and onboarding
+  // routes intentionally share it with signed-in chrome; their toggles are a
+  // presentation variant, never a second material implementation.
+  const ambientChromeEnabled =
+    topShellMetrics.shellVisible ||
+    isFoundationRoute ||
+    chromeState.useOnboardingChrome;
+  const bottomShellModel = {
+    ambientEnabled: ambientChromeEnabled && !isFullscreenTopFlow,
+    navigationHidden: chromeState.hideCommandBar,
+  };
   // Drive the bottom-chrome hide animation through a CSS variable instead of a
   // render-coupled value. Reading the continuous scroll progress in this root
   // shell re-rendered the entire provider subtree on every scroll frame, which
@@ -289,21 +262,21 @@ function AppShellFrame({ children }: ProvidersProps) {
   const pageRef = useRef<HTMLDivElement | null>(null);
   const isKaiRoute = useMemo(
     () =>
-      pathname === ROUTES.KAI_HOME ||
-      pathname.startsWith(`${ROUTES.KAI_HOME}/`) ||
+      pathname === KAI_MARKET_PATH ||
+      pathname.startsWith(`${KAI_MARKET_PATH}/`) ||
       pathname === ROUTES.LEGACY_KAI_HOME ||
       pathname.startsWith(`${ROUTES.LEGACY_KAI_HOME}/`),
     [pathname],
   );
   const pageAnimationKey = useMemo(
-    () => (isKaiRoute ? `${ROUTES.KAI_HOME}-stable-shell` : pathname),
+    () => (isKaiRoute ? `${KAI_MARKET_PATH}-stable-shell` : pathname),
     [isKaiRoute, pathname],
   );
   const shouldObservePageMutations = useMemo(
     () =>
       !(
         pathname.startsWith(ROUTES.KAI_ANALYSIS) ||
-        pathname.startsWith(`${ROUTES.KAI_HOME}/dashboard/analysis`) ||
+        pathname.startsWith(`${KAI_MARKET_PATH}/dashboard/analysis`) ||
         pathname.startsWith("/kai/analysis") ||
         pathname.startsWith("/kai/dashboard/analysis")
       ),
@@ -335,11 +308,18 @@ function AppShellFrame({ children }: ProvidersProps) {
   // route loads feel continuous instead of a hard cut (pairs with the GSAP
   // enter animation above). See globals.css → "UNIFORM ROUTE TRANSITION".
   useRouteTransition();
-  useScrollReset(pathname, { enabled: true, behavior: "auto" });
+  // Query-backed workspace tabs share one pathname, so pathname-only reset
+  // leaves the next tab at the previous panel's scroll depth. The resolved
+  // shell selection is the navigation key: click, swipe, history, and direct
+  // query entry all reset the one shared app scroll root consistently.
+  useScrollReset(topShellScrollResetKey, {
+    enabled: true,
+    behavior: "auto",
+  });
 
   useEffect(() => {
     resetKaiBottomChromeVisibility();
-  }, [pathname]);
+  }, [topShellScrollResetKey]);
 
   useEffect(() => {
     const handleInternalNavigation = (event: Event) => {
@@ -378,6 +358,19 @@ function AppShellFrame({ children }: ProvidersProps) {
     if (typeof document === "undefined") return;
     const root = document.documentElement;
     const mirroredVars = [
+      // Top-shell geometry is consumed by both the fixed sibling shell and
+      // route content. Mirror the complete dependency chain so a tabbed route
+      // never resolves a root-level `0px` tab stack for its mask or fade.
+      "--top-tabs-gap",
+      "--top-tabs-total",
+      "--top-subnav-total",
+      "--top-systembar-row-gap",
+      "--top-fade-active",
+      "--top-ambient-tab-tail-midpoint",
+      "--top-shell-reserved-height",
+      "--top-shell-visual-height",
+      "--top-shell-h",
+      "--top-glass-h",
       "--page-top-start",
       "--page-top-local-offset",
       "--app-top-mask-tail-clearance",
@@ -443,6 +436,7 @@ function AppShellFrame({ children }: ProvidersProps) {
               <NativeTestBootstrap />
               <NativeTestRouteStatus />
               <FoundationPublicAmbient />
+              <AmbientChromeController enabled={ambientChromeEnabled} />
               {/* Voice chrome is hoisted ABOVE the page Suspense boundary so it
                 mounts exactly once and survives client-side route transitions.
                 Inside the boundary it would remount whenever a navigation
@@ -450,7 +444,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                 the live voice session and restarting the conversation on every
                 route switch. Both are fixed overlays, so position is unaffected. */}
               <AgentVoiceEdgeGlow />
-              <AgentBar />
+              <AppBottomShell model={bottomShellModel} />
               {/* This bridge owns one post-unlock reconciliation for the whole
                 app. Keeping it outside the route Suspense boundary prevents
                 fallback/resolved remounts from launching the same sync twice. */}
@@ -468,19 +462,9 @@ function AppShellFrame({ children }: ProvidersProps) {
                         signedInShellContentOffset.mode
                       }
                     >
-                      <Navbar />
-                      {!hideGlobalChrome ? (
-                        <Suspense fallback={null}>
-                          <TopAppBar />
-                        </Suspense>
-                      ) : null}
-                      <VaultContext.Consumer>
-                        {() =>
-                          showSharedBottomChromeGlass ? (
-                            <SharedBottomChromeGlass hideCommandBar={chromeState.hideCommandBar} />
-                          ) : null
-                        }
-                      </VaultContext.Consumer>
+                      <Suspense fallback={null}>
+                        <AppTopShell model={topShellModel} />
+                      </Suspense>
                       <Suspense fallback={null}>
                         <KaiCommandBarGlobal />
                       </Suspense>
@@ -513,7 +497,11 @@ function AppShellFrame({ children }: ProvidersProps) {
                               : "min-h-0"
                           }
                         >
-                          <OnboardingJourneyGuard>{children}</OnboardingJourneyGuard>
+                          <TopShellRouteSwipe tabSet={routeSwipeTabSet}>
+                            <OnboardingJourneyGuard>
+                              {children}
+                            </OnboardingJourneyGuard>
+                          </TopShellRouteSwipe>
                         </div>
                       </div>
                     </div>
@@ -532,19 +520,9 @@ function AppShellFrame({ children }: ProvidersProps) {
                         signedInShellContentOffset.mode
                       }
                     >
-                      <Navbar />
-                      {!hideGlobalChrome ? (
-                        <Suspense fallback={null}>
-                          <TopAppBar />
-                        </Suspense>
-                      ) : null}
-                      <VaultContext.Consumer>
-                        {() =>
-                          showSharedBottomChromeGlass ? (
-                            <SharedBottomChromeGlass hideCommandBar={chromeState.hideCommandBar} />
-                          ) : null
-                        }
-                      </VaultContext.Consumer>
+                      <Suspense fallback={null}>
+                        <AppTopShell model={topShellModel} />
+                      </Suspense>
                       <Suspense fallback={null}>
                         <KaiCommandBarGlobal />
                       </Suspense>
@@ -580,7 +558,11 @@ function AppShellFrame({ children }: ProvidersProps) {
                               : "min-h-0"
                           }
                         >
-                          <OnboardingJourneyGuard>{children}</OnboardingJourneyGuard>
+                          <TopShellRouteSwipe tabSet={routeSwipeTabSet}>
+                            <OnboardingJourneyGuard>
+                              {children}
+                            </OnboardingJourneyGuard>
+                          </TopShellRouteSwipe>
                         </div>
                       </div>
                     </div>
@@ -605,7 +587,14 @@ export function Providers({ children }: ProvidersProps) {
         {/* Step-based progress bar at top of viewport */}
         <StepProgressBar />
         <AuthProvider>
-          <AppShellFrame>{children}</AppShellFrame>
+          {/* AppShellFrame resolves route-backed tab state through
+              useSearchParams(). This boundary must be above that shared shell
+              so static/native builds can pre-render every route, including
+              /one and /agent. Route-local boundaries cannot catch a hook in
+              the provider that owns them. */}
+          <Suspense fallback={null}>
+            <AppShellFrame>{children}</AppShellFrame>
+          </Suspense>
         </AuthProvider>
         <Toaster
           position="top-center"

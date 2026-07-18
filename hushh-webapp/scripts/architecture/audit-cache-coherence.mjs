@@ -128,7 +128,7 @@ function screenClassForRoute(route, mode, flags) {
   ) {
     return "PKM-secure";
   }
-  if (route.startsWith("/kai")) return "vault-backed";
+  if (route.startsWith("/one/kai")) return "vault-backed";
   if (route === "/profile" || route === "/consents") return "vault-backed";
   return mode === "hidden" ? "hidden flow" : "vault-backed";
 }
@@ -137,7 +137,7 @@ function cachePolicyFor(route, screenClass, flags) {
   if (screenClass === "redirect/alias" || screenClass === "public/static") return "none";
   if (screenClass === "auth/pre-vault") return "memory-only";
   if (route === "/kai/portfolio" || route === "/kai/analysis") return "secure-resource";
-  if (route === "/kai") return "device-resource";
+  if (route === "/one/kai") return "device-resource";
   if (screenClass === "PKM-secure") return "secure-resource";
   if (screenClass === "realtime/SSE") return flags.secure_cache ? "secure-resource+sse-background" : "memory-only+sse-background";
   if (screenClass === "RIA/provider") return "device-resource";
@@ -155,10 +155,10 @@ function routeCacheKeys(route) {
   if (route === "/connected-systems") return ["CONNECTED_SYSTEMS", "CONNECTED_SYSTEM_INTENTS"];
   if (route === "/profile/pkm-agent-lab") return ["PKM_METADATA", "PKM_DOMAIN_RESOURCE", "PKM_UPGRADE_STATUS"];
   if (route === "/profile/receipts") return ["Gmail receipts resource cache", "PKM_DOMAIN_RESOURCE"];
-  if (route === "/kai") return ["KAI_MARKET_HOME", "KAI_MARKET_HOME_BASELINE", "KAI_DASHBOARD_PROFILE_PICKS"];
+  if (route === "/one/kai") return ["KAI_MARKET_HOME", "KAI_MARKET_HOME_BASELINE", "KAI_DASHBOARD_PROFILE_PICKS"];
   if (route === "/kai/portfolio") return ["KAI_FINANCIAL_RESOURCE", "PKM_METADATA", "DOMAIN_DATA(financial)"];
   if (route === "/kai/analysis") return ["STOCK_CONTEXT", "ANALYSIS_HISTORY", "KAI_FINANCIAL_RESOURCE"];
-  if (route.startsWith("/kai")) return ["KAI_FINANCIAL_RESOURCE", "STOCK_CONTEXT", "PKM_METADATA"];
+  if (route.startsWith("/one/kai")) return ["KAI_FINANCIAL_RESOURCE", "STOCK_CONTEXT", "PKM_METADATA"];
   if (route === "/ria") return ["RIA_HOME", "PERSONA_STATE", "RIA_ONBOARDING_STATUS"];
   if (route === "/ria/clients") return ["RIA_CLIENTS"];
   if (route.startsWith("/ria/clients/[userId]/accounts")) return ["RIA_CLIENT_DETAIL", "RIA_WORKSPACE"];
@@ -187,7 +187,7 @@ function resourceClassesFor(route, screenClass) {
   if (route === "/kai/portfolio" || route === "/kai/analysis") {
     return ["financial_resource", "pkm_metadata"];
   }
-  if (route.startsWith("/kai")) return ["market_data", "financial_resource"];
+  if (route.startsWith("/one/kai")) return ["market_data", "financial_resource"];
   if (route.startsWith("/ria")) return ["ria_workspace", "consent_list"];
   if (route.startsWith("/marketplace")) return ["ria_workspace"];
   if (screenClass === "realtime/SSE") return ["realtime_stream"];
@@ -229,7 +229,7 @@ function readinessKpisFor(route, screenClass, cachePolicy) {
     "route_refresh_completed",
   ];
 
-  if (route.startsWith("/kai") || route === "/profile" || route === "/one/kyc") {
+  if (route.startsWith("/one/kai") || route === "/profile" || route === "/one/kyc") {
     kpis.push("warmup_completed");
   }
 
@@ -244,14 +244,14 @@ function ttlClassFor(route, screenClass) {
   if (screenClass === "redirect/alias" || screenClass === "public/static") return "none";
   if (route.includes("/oauth/return") || route === "/logout") return "single-use";
   if (screenClass === "realtime/SSE") return "CACHE_TTL.SHORT with active stream patching";
-  if (screenClass === "RIA/provider" || route.startsWith("/kai")) return "CACHE_TTL.MEDIUM";
+  if (screenClass === "RIA/provider" || route.startsWith("/one/kai")) return "CACHE_TTL.MEDIUM";
   if (screenClass === "PKM-secure") return "CACHE_TTL.SESSION for metadata; secure resource revision controls payload freshness";
   return "CACHE_TTL.MEDIUM";
 }
 
 function warmSourceFor(route, screenClass) {
   if (screenClass === "public/static" || screenClass === "redirect/alias") return "none";
-  if (route.startsWith("/kai")) return "UnlockWarmOrchestrator plus route resource loader";
+  if (route.startsWith("/one/kai")) return "UnlockWarmOrchestrator plus route resource loader";
   if (route.startsWith("/ria") || route.startsWith("/marketplace")) return "RIA service memory/device cache";
   if (route === "/consents") return "ConsentCenterService memory cache";
   if (screenClass === "PKM-secure") return "Vault unlock plus secure resource cache";
@@ -268,7 +268,7 @@ function invalidatorFor(route, screenClass) {
   if (screenClass === "redirect/alias" || screenClass === "public/static") return "none";
   if (route === "/consents" || route.includes("/requests")) return "CacheSyncService.onConsentMutated";
   if (
-    route.startsWith("/kai") ||
+    route.startsWith("/one/kai") ||
     route === "/pkm" ||
     route === "/gmail" ||
     route === "/connected-systems" ||

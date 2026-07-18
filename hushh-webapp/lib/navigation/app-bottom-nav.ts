@@ -1,4 +1,4 @@
-import { ROUTES } from "@/lib/navigation/routes";
+import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import {
   buildConsentCenterHref,
   buildRiaConsentManagerHref,
@@ -8,17 +8,9 @@ import { activeRiaRouteTabFromPath } from "@/lib/navigation/ria-route-tabs";
 
 export type SharedBottomNavKey = "dashboard" | "connect" | "search" | "profile";
 export type InvestorNavKey =
-  | SharedBottomNavKey
-  | "finance"
-  | "portfolio"
-  | "connect"
-  | "analysis";
+  SharedBottomNavKey | "finance" | "portfolio" | "connect" | "analysis";
 export type RiaNavKey =
-  | SharedBottomNavKey
-  | "ria-home"
-  | "clients"
-  | "connect"
-  | "picks";
+  SharedBottomNavKey | "ria-home" | "clients" | "connect" | "picks";
 export type OneNavKey =
   | SharedBottomNavKey
   | "finance"
@@ -51,7 +43,9 @@ function isBottomNavRoute(pathname: string, route: string): boolean {
   return pathname === route || pathname.startsWith(`${route}/`);
 }
 
-export function isCommonBottomNavRoute(pathname: string | null | undefined): boolean {
+export function isCommonBottomNavRoute(
+  pathname: string | null | undefined,
+): boolean {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
   return (
     isBottomNavRoute(normalizedPathname, ROUTES.MARKETPLACE) ||
@@ -76,7 +70,7 @@ export function resolveBottomNavigationScope(
     return "ria";
   }
   if (
-    isBottomNavRoute(normalizedPathname, ROUTES.KAI_HOME) ||
+    isBottomNavRoute(normalizedPathname, KAI_MARKET_PATH) ||
     isBottomNavRoute(normalizedPathname, ROUTES.LEGACY_KAI_HOME)
   ) {
     return "investor";
@@ -135,7 +129,10 @@ export function resolveOneNavSlot(
   if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_LOCATION)) {
     return "location";
   }
-  if (isBottomNavRoute(normalizedPathname, ROUTES.CONSENTS)) {
+  if (
+    isBottomNavRoute(normalizedPathname, ROUTES.CONSENTS) ||
+    isBottomNavRoute(normalizedPathname, ROUTES.LEGACY_CONSENTS)
+  ) {
     return "guardian";
   }
   return "dashboard";
@@ -163,7 +160,7 @@ export function resolveInvestorNavSlot(
 ): InvestorNavKey {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
   const activeTab = activeKaiRouteTabFromPath(
-    normalizedPathname || ROUTES.KAI_HOME,
+    normalizedPathname || KAI_MARKET_PATH,
   );
   if (activeTab === "dashboard") return "portfolio";
   if (activeTab === "analysis") return "analysis";
@@ -186,7 +183,7 @@ export function resolveInvestorActiveNav(
   }
 
   const activeTab = activeKaiRouteTabFromPath(
-    normalizedPathname || ROUTES.KAI_HOME,
+    normalizedPathname || KAI_MARKET_PATH,
   );
   if (activeTab === "market") return "finance";
   if (activeTab === "dashboard") return "portfolio";
@@ -250,17 +247,6 @@ export function resolveBottomNavActiveKey(
     return "dashboard";
   }
 
-  if (
-    normalizedPathname.startsWith(ROUTES.KAI_HOME) ||
-    normalizedPathname.startsWith(ROUTES.LEGACY_KAI_HOME)
-  ) {
-    const activeTab = activeKaiRouteTabFromPath(normalizedPathname);
-    if (activeTab === "market") return "finance";
-    if (activeTab === "dashboard") return "portfolio";
-    if (activeTab === "analysis") return "analysis";
-    return "finance";
-  }
-
   return "dashboard";
 }
 
@@ -278,18 +264,13 @@ export function resolveBottomNavOptionKeys(
   _scope: AppBottomNavScope,
   _context?: AppBottomNavContext,
 ): AppBottomNavKey[] {
-  // The primary group is stable on every signed-in route. Specialist tabs are
-  // deliberately rendered beside it on wide layouts, never folded into a
-  // six-slot global control.
   return ["dashboard", "connect", "search"];
 }
 
-/** Contextual workspace tabs render beside the stable primary navigation. */
+/** Contextual workspace tabs belong exclusively to the unified top shell. */
 export function resolveBottomNavSpecialistOptionKeys(
-  scope: AppBottomNavScope,
+  _scope: AppBottomNavScope,
 ): AppBottomNavKey[] {
-  if (scope === "investor") return ["finance", "portfolio", "analysis"];
-  if (scope === "ria") return ["ria-home", "clients", "picks"];
   return [];
 }
 

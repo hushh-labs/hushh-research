@@ -1,0 +1,97 @@
+"use client";
+
+import { useEffect, useState, type CSSProperties } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+
+import { AppPageContentRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
+import { KaiFlow, type FlowState } from "@/components/kai/kai-flow";
+import { SwipeViews } from "@/components/app-ui/swipe-views";
+import { useAuth } from "@/lib/firebase/auth-context";
+import { useStepProgress } from "@/lib/progress/step-progress-context";
+import { useVault } from "@/lib/vault/vault-context";
+import {
+  resolveRegisteredTopShellTabValue,
+  TOP_SHELL_TAB_REGISTRY,
+} from "@/lib/navigation/top-shell-tabs";
+import { KAI_MARKET_PATH } from "@/lib/navigation/routes";
+import { KaiPreviewRouter } from "@/components/kai/views/kai-preview-router";
+import { KaiAnalysisPageContent } from "@/app/one/kai/analysis/page";
+
+const FINANCE_TAB_DEFINITION = TOP_SHELL_TAB_REGISTRY.finance;
+type PortfolioTab = (typeof FINANCE_TAB_DEFINITION.tabs)[number]["value"];
+
+/** Canonical query-tabbed Finance workspace. */
+export function KaiMarketHubPage() {
+  const { user, loading: authLoading } = useAuth();
+  const { vaultOwnerToken } = useVault();
+  const { registerSteps, completeStep, reset } = useStepProgress();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [initialized, setInitialized] = useState(false);
+  const [flowState, setFlowState] = useState<FlowState>("checking");
+
+  const activeTab = resolveRegisteredTopShellTabValue(
+    FINANCE_TAB_DEFINITION,
+    searchParams.get(FINANCE_TAB_DEFINITION.queryParam),
+  ) as PortfolioTab;
+
+  const setActiveTab = (tab: PortfolioTab) => {
+    const destination = FINANCE_TAB_DEFINITION.tabs.find(
+      (candidate) => candidate.value === tab,
+    );
+    if (destination) router.replace(destination.href, { scroll: false });
+  };
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!initialized) {
+      registerSteps(2);
+      setInitialized(true);
+    }
+    if (user) completeStep();
+    return () => reset();
+  }, [authLoading, completeStep, initialized, registerSteps, reset, user]);
+
+  useEffect(() => {
+    if (initialized && flowState !== "checking") completeStep();
+  }, [completeStep, flowState, initialized]);
+
+  if (authLoading || !user) return null;
+
+  // Finance is a One workspace, not a dashboard canvas. Match Profile's
+  // reading measure and let the shared shell own the only outer gutter.
+  return (
+    <AppPageShell
+      as="div"
+      width="reading"
+      className="relative pb-32"
+      style={{ "--one-gutter": "0px" } as CSSProperties}
+      data-finance-workspace="true"
+      nativeTest={{
+        routeId: KAI_MARKET_PATH,
+        marker: "native-route-kai-home",
+        authState: "authenticated",
+        dataState: flowState === "checking" ? "loading" : "loaded",
+      }}
+    >
+      <SwipeViews
+        tabSetId={FINANCE_TAB_DEFINITION.id}
+        activeValue={activeTab}
+        options={FINANCE_TAB_DEFINITION.tabs}
+        onChildSwiped={(value) => setActiveTab(value as PortfolioTab)}
+      >
+        <div className="h-full w-full">
+          <AppPageContentRegion><KaiPreviewRouter /></AppPageContentRegion>
+        </div>
+        <div className="h-full w-full">
+          <AppPageContentRegion>
+            <KaiFlow userId={user.uid} mode="dashboard" vaultOwnerToken={vaultOwnerToken ?? ""} onStateChange={setFlowState} />
+          </AppPageContentRegion>
+        </div>
+        <div className="h-full w-full">
+          <AppPageContentRegion><KaiAnalysisPageContent /></AppPageContentRegion>
+        </div>
+      </SwipeViews>
+    </AppPageShell>
+  );
+}

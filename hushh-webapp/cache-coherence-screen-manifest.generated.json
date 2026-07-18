@@ -11,16 +11,16 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 100,
-    "physical_page_count": 100,
-    "route_contract_count": 100,
-    "surface_map_count": 100,
+    "total_screens": 104,
+    "physical_page_count": 104,
+    "route_contract_count": 104,
+    "surface_map_count": 104,
     "class_counts": {
       "public/static": 3,
-      "realtime/SSE": 2,
+      "realtime/SSE": 1,
       "vault-backed": 41,
-      "redirect/alias": 30,
-      "hidden flow": 8,
+      "redirect/alias": 34,
+      "hidden flow": 9,
       "auth/pre-vault": 6,
       "RIA/provider": 8,
       "PKM-secure": 2
@@ -353,9 +353,9 @@
     {
       "route": "/consents",
       "page_file": "app/consents/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "realtime/SSE",
-      "cache_policy": "memory-only+sse-background",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
       "cache_keys": [
         "CONSENT_CENTER_SUMMARY",
         "CONSENT_CENTER_LIST"
@@ -364,36 +364,31 @@
         "consent_list"
       ],
       "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.SHORT with active stream patching",
-      "warm_source": "ConsentCenterService memory cache",
-      "refresh_trigger": "SSE stream patch plus stale-aware background refresh",
-      "mutation_invalidator": "CacheSyncService.onConsentMutated",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
       "best_available_ux_path": [
-        "fresh memory",
-        "background refresh",
-        "cold loader when missing"
+        "static render"
       ],
       "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed",
-        "stream patch latency through route_refresh_completed"
+        "route_readiness_completed"
       ],
-      "realtime_policy": "cached shell/data renders first; stream patches active view state and cache through service-layer adapters only",
-      "reviewer_fixture": "/login?redirect=%2Fconsents",
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/consents",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
         "cache_service": false,
-        "use_stale_resource": true,
+        "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
-        "cache_sync": true,
+        "cache_sync": false,
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
         "hushh_loader": false,
-        "sse_or_streaming": true,
+        "sse_or_streaming": false,
         "native_beacon": false
       },
       "findings": []
@@ -533,16 +528,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_MARKET_HOME",
-        "KAI_MARKET_HOME_BASELINE",
-        "KAI_DASHBOARD_PROFILE_PICKS"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -578,16 +568,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_FINANCIAL_RESOURCE",
-        "STOCK_CONTEXT",
-        "PKM_METADATA"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -668,16 +653,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_FINANCIAL_RESOURCE",
-        "STOCK_CONTEXT",
-        "PKM_METADATA"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -713,16 +693,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_FINANCIAL_RESOURCE",
-        "STOCK_CONTEXT",
-        "PKM_METADATA"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -758,16 +733,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_FINANCIAL_RESOURCE",
-        "STOCK_CONTEXT",
-        "PKM_METADATA"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -803,16 +773,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_FINANCIAL_RESOURCE",
-        "STOCK_CONTEXT",
-        "PKM_METADATA"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -848,16 +813,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_FINANCIAL_RESOURCE",
-        "STOCK_CONTEXT",
-        "PKM_METADATA"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -893,16 +853,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_FINANCIAL_RESOURCE",
-        "STOCK_CONTEXT",
-        "PKM_METADATA"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -938,16 +893,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_FINANCIAL_RESOURCE",
-        "STOCK_CONTEXT",
-        "PKM_METADATA"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -983,16 +933,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_FINANCIAL_RESOURCE",
-        "STOCK_CONTEXT",
-        "PKM_METADATA"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -1340,6 +1285,51 @@
       ]
     },
     {
+      "route": "/oauth/authorize",
+      "page_file": "app/oauth/authorize/page.tsx",
+      "route_contract_mode": "hidden",
+      "screen_class": "hidden flow",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/oauth/authorize",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": true,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
       "route": "/one",
       "page_file": "app/one/page.tsx",
       "route_contract_mode": "standard",
@@ -1477,6 +1467,51 @@
       ]
     },
     {
+      "route": "/one/consent",
+      "page_file": "app/one/consent/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fconsent",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
       "route": "/one/gmail",
       "page_file": "app/one/gmail/page.tsx",
       "route_contract_mode": "standard",
@@ -1524,24 +1559,32 @@
       "page_file": "app/one/kai/page.tsx",
       "route_contract_mode": "standard",
       "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
+      "cache_policy": "device-resource",
+      "cache_keys": [
+        "KAI_MARKET_HOME",
+        "KAI_MARKET_HOME_BASELINE",
+        "KAI_DASHBOARD_PROFILE_PICKS"
       ],
-      "sensitivity_class": "app-metadata",
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
+      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
       "best_available_ux_path": [
         "fresh memory",
-        "cold loader"
+        "secure device stale render",
+        "background refresh",
+        "cold loader when locked or missing"
       ],
       "readiness_kpis": [
         "route_readiness_completed",
         "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_refresh_completed",
+        "warmup_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fkai",
@@ -1549,18 +1592,20 @@
       "route_contract_present": true,
       "evidence": {
         "cache_service": false,
-        "use_stale_resource": true,
+        "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
         "cache_sync": false,
-        "resource_wrapper": true,
+        "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
         "hushh_loader": false,
         "sse_or_streaming": false,
-        "native_beacon": true
+        "native_beacon": false
       },
-      "findings": []
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
     },
     {
       "route": "/one/kai/alpaca/oauth/return",
@@ -1568,15 +1613,19 @@
       "route_contract_mode": "standard",
       "screen_class": "auth/pre-vault",
       "cache_policy": "memory-only",
-      "cache_keys": [],
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
+      ],
       "resource_classes": [
         "auth_state"
       ],
       "sensitivity_class": "auth-state",
       "ttl_class": "single-use",
-      "warm_source": "Route-local resource loader",
+      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
       "best_available_ux_path": [
         "fresh memory",
         "cold loader"
@@ -1584,7 +1633,8 @@
       "readiness_kpis": [
         "route_readiness_completed",
         "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_refresh_completed",
+        "warmup_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Falpaca%2Foauth%2Freturn",
@@ -1608,26 +1658,28 @@
     {
       "route": "/one/kai/analysis",
       "page_file": "app/one/kai/analysis/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
       ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
       "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
+        "static render"
       ],
       "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Fanalysis%3Fticker%3DAAPL",
@@ -1647,7 +1699,6 @@
         "native_beacon": false
       },
       "findings": [
-        "no local cache primitive detected in page/contract source",
         "loader detected; verify warm cache path avoids blocking loader"
       ]
     },
@@ -1657,15 +1708,20 @@
       "route_contract_mode": "standard",
       "screen_class": "vault-backed",
       "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
       ],
-      "sensitivity_class": "app-metadata",
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
+      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
       "best_available_ux_path": [
         "fresh memory",
         "cold loader"
@@ -1673,7 +1729,8 @@
       "readiness_kpis": [
         "route_readiness_completed",
         "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_refresh_completed",
+        "warmup_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Ffunding-trade",
@@ -1703,15 +1760,20 @@
       "route_contract_mode": "flow",
       "screen_class": "hidden flow",
       "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
       ],
-      "sensitivity_class": "app-metadata",
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
+      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
       "best_available_ux_path": [
         "fresh memory",
         "cold loader"
@@ -1719,7 +1781,8 @@
       "readiness_kpis": [
         "route_readiness_completed",
         "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_refresh_completed",
+        "warmup_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Fimport",
@@ -1748,15 +1811,20 @@
       "route_contract_mode": "standard",
       "screen_class": "vault-backed",
       "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
       ],
-      "sensitivity_class": "app-metadata",
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
+      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
       "best_available_ux_path": [
         "fresh memory",
         "cold loader"
@@ -1764,7 +1832,8 @@
       "readiness_kpis": [
         "route_readiness_completed",
         "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_refresh_completed",
+        "warmup_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Finvestments",
@@ -1789,16 +1858,66 @@
       ]
     },
     {
+      "route": "/one/kai/market",
+      "page_file": "app/one/kai/market/page.tsx",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
+      ],
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/kai/market",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
       "route": "/one/kai/onboarding",
       "page_file": "app/one/kai/onboarding/page.tsx",
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
       ],
-      "sensitivity_class": "app-metadata",
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -1834,15 +1953,20 @@
       "route_contract_mode": "standard",
       "screen_class": "vault-backed",
       "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
       ],
-      "sensitivity_class": "app-metadata",
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
+      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
       "best_available_ux_path": [
         "fresh memory",
         "cold loader"
@@ -1850,7 +1974,8 @@
       "readiness_kpis": [
         "route_readiness_completed",
         "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_refresh_completed",
+        "warmup_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Foptimize",
@@ -1879,15 +2004,19 @@
       "route_contract_mode": "standard",
       "screen_class": "auth/pre-vault",
       "cache_policy": "memory-only",
-      "cache_keys": [],
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
+      ],
       "resource_classes": [
         "auth_state"
       ],
       "sensitivity_class": "auth-state",
       "ttl_class": "single-use",
-      "warm_source": "Route-local resource loader",
+      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
       "best_available_ux_path": [
         "fresh memory",
         "cold loader"
@@ -1895,7 +2024,8 @@
       "readiness_kpis": [
         "route_readiness_completed",
         "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_refresh_completed",
+        "warmup_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Fplaid%2Foauth%2Freturn",
@@ -1919,26 +2049,28 @@
     {
       "route": "/one/kai/portfolio",
       "page_file": "app/one/kai/portfolio/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
       ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
       "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
+        "static render"
       ],
       "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Fportfolio",
@@ -1957,9 +2089,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/one/kyc",
@@ -4521,6 +4651,52 @@
         "native_beacon": false
       },
       "findings": []
+    },
+    {
+      "route": "/welcome",
+      "page_file": "app/welcome/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/welcome",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "review native route beacon coverage",
+        "no local cache primitive detected in page/contract source"
+      ]
     }
   ]
 }

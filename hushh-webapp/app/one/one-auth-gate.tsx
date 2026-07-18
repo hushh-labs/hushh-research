@@ -8,7 +8,7 @@ import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { useAuth } from "@/hooks/use-auth";
-import { isPublicRoute, ROUTES } from "@/lib/navigation/routes";
+import { isPublicRoute } from "@/lib/navigation/routes";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 
 /**
@@ -34,22 +34,14 @@ import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppr
  */
 /**
  * Routes that stay signed-in-gated but skip the hard vault wall. The CRM
- * systems overview lists registry metadata only, while Location owns an
- * authored contextual vault prerequisite for its encrypted workflow. Forcing
- * the full-screen guard ahead of either route would make that route-owned
- * recovery unreachable.
+ * systems overview lists registry metadata only, so it can remain available
+ * before a vault is unlocked.
  */
 const SOFT_VAULT_ROUTE_PREFIXES = ["/one/connected-systems"] as const;
-const SOFT_VAULT_ROUTES = [ROUTES.ONE_LOCATION] as const;
 
 function isSoftVaultRoute(pathname: string): boolean {
-  return (
-    SOFT_VAULT_ROUTES.includes(
-      pathname as (typeof SOFT_VAULT_ROUTES)[number],
-    ) ||
-    SOFT_VAULT_ROUTE_PREFIXES.some(
-      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-    )
+  return SOFT_VAULT_ROUTE_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
 }
 
@@ -67,7 +59,9 @@ function SignedInGate({ children }: { children: ReactNode }) {
     if (loading || user) return;
     if (typeof window !== "undefined") {
       const currentPath =
-        window.location.pathname + window.location.search + window.location.hash;
+        window.location.pathname +
+        window.location.search +
+        window.location.hash;
       router.replace(`/login?redirect=${encodeURIComponent(currentPath)}`);
     }
   }, [loading, router, user]);

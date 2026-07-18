@@ -308,7 +308,7 @@
       "reachability": {
         "routes": [
           "/marketplace/connections",
-          "/consents",
+          "/one/consent",
           "/one"
         ],
         "screens": [
@@ -371,7 +371,7 @@
             "service": "specialist_chat.turn",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/consents?tab=connections",
+              "route": "/one/consent?tab=connections",
               "screen": "consents"
             }
           }
@@ -535,7 +535,7 @@
       "delegate_agent_id": "agent_nav",
       "reachability": {
         "routes": [
-          "/consents",
+          "/one/consent",
           "/one"
         ],
         "screens": [
@@ -598,7 +598,7 @@
             "service": "specialist_chat.turn",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/consents",
+              "route": "/one/consent",
               "screen": "consents"
             }
           }

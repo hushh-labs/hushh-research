@@ -18,8 +18,13 @@ describe("home shell contract", () => {
     expect(getKaiChromeState(ROUTES.CONNECT).hideCommandBar).toBe(false);
   });
 
-  it("keeps workspace controls in the bottom shell rather than a top-tab row", () => {
-    expect(resolveTopShellMetrics(ROUTES.KAI_ANALYSIS).hasTabs).toBe(false);
+  it("keeps contextual Finance and Location tabs inside the shared top shell", () => {
+    expect(resolveTopShellMetrics(ROUTES.ONE_LOCATION).hasTabs).toBe(true);
+    expect(resolveTopShellMetrics(ROUTES.KAI_HOME).hasTabs).toBe(true);
+    expect(resolveTopShellMetrics(ROUTES.KAI_ANALYSIS).hasTabs).toBe(true);
+    expect(resolveTopShellMetrics("/one/location?action=share").hasTabs).toBe(
+      false,
+    );
     expect(resolveTopShellMetrics(ROUTES.RIA_PICKS).hasTabs).toBe(false);
     expect(resolveTopShellMetrics(ROUTES.PROFILE).hasTabs).toBe(false);
     expect(resolveTopShellMetrics(ROUTES.CONNECT).hasTabs).toBe(false);

@@ -27,7 +27,7 @@
       ],
       "reachability": {
         "routes": [
-          "/one/kai/analysis"
+          "/one/kai?tab=analysis"
         ],
         "screens": [
           "kai_analysis"
@@ -41,7 +41,7 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/one/kai/analysis"
+        "target": "/one/kai?tab=analysis"
       },
       "control_ids": [],
       "state_exposure": [],
@@ -64,8 +64,8 @@
       ],
       "reachability": {
         "routes": [
-          "/one/kai/analysis",
-          "/one/kai/analysis?tab=history"
+          "/one/kai?tab=analysis",
+          "/one/kai?tab=analysis&view=history"
         ],
         "screens": [
           "kai_analysis"
@@ -104,7 +104,7 @@
       ],
       "reachability": {
         "routes": [
-          "/one/kai/analysis"
+          "/one/kai?tab=analysis"
         ],
         "screens": [
           "kai_analysis"
@@ -160,7 +160,7 @@
             "label": "Prepare stock analysis",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/kai/analysis",
+              "route": "/one/kai?tab=analysis",
               "screen": "kai_analysis"
             }
           },
@@ -170,7 +170,7 @@
             "label": "Run Kai debate",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/kai/analysis",
+              "route": "/one/kai?tab=analysis",
               "screen": "kai_analysis_workspace"
             }
           }
@@ -219,8 +219,8 @@
       ],
       "reachability": {
         "routes": [
-          "/one/kai/analysis",
-          "/one/kai/analysis?focus=active"
+          "/one/kai?tab=analysis",
+          "/one/kai?tab=analysis&focus=active"
         ],
         "screens": [
           "kai_analysis"
@@ -264,7 +264,7 @@
       ],
       "reachability": {
         "routes": [
-          "/one/kai/analysis"
+          "/one/kai?tab=analysis"
         ],
         "screens": [
           "kai_analysis"
@@ -308,7 +308,7 @@
       ],
       "reachability": {
         "routes": [
-          "/one/kai/analysis?tab=transcript"
+          "/one/kai?tab=analysis&view=transcript"
         ],
         "screens": [
           "kai_analysis"

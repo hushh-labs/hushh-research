@@ -46,11 +46,16 @@ Use the trailing-slash endpoint shape:
 - authenticate with `Authorization: Bearer <developer-token>`
 - query-string tokens are rejected
 
-The hosted Streamable HTTP transport returns the complete public catalog from
-`tools/list`; no ResourceLink download or extra catalog endpoint is involved.
-Each advertised input and output schema has a root `type: object` for strict
-MCP clients. Configure the bearer header, call `initialize`, then call
-`tools/list`.
+The hosted Streamable HTTP transport returns the authenticated app's catalog
+from `tools/list`; no ResourceLink download, second MCP endpoint, or extra
+catalog endpoint is involved. Configure the bearer header or OAuth token, call
+`initialize`, then call `tools/list`.
+
+Apps use an operator-configured schema profile. `standard` is the default and
+preserves the five-tool v0.3 catalog exactly. `flat` is an explicit,
+constrained-host capability projection: it exposes only the four lifecycle
+tools with shallow described schemas and flat ciphertext fields. It runs the
+same handlers and consent lifecycle, not an Agentforce-specific adapter.
 
 ## Public Tool Surface
 
@@ -113,9 +118,11 @@ own sandbox typically does not have. On this transport only:
   a new consent request with a retained key.
 
 The remote/hosted MCP endpoint (`/mcp`, see below) has no local trusted
-process to hold a private key. It requires explicit connector arguments and
-returns the encrypted envelope directly in the MCP tool result; the connector
-decrypts it outside model context. No plaintext is returned.
+process to hold a private key. Standard apps provide the connector bundle per
+request. An app with a registered connector key may omit it; any legacy bundle
+provided must exactly match the active registration. The endpoint returns the
+encrypted envelope directly in the MCP tool result; the connector decrypts it
+outside model context. No plaintext is returned.
 
 ## Claude Remote Connector
 
@@ -131,8 +138,8 @@ The transport is already compatible:
 - no query-string credential
 
 Authentication is the remaining host-compatibility boundary. Hussh supports
-both the existing developer token in `Authorization: Bearer <token>` and
-OAuth authorization code with S256 PKCE. Claude custom connectors should use
+the existing developer token in `Authorization: Bearer <token>` and OAuth
+authorization code with S256 PKCE. Claude custom connectors should use
 the OAuth discovery document at `/.well-known/oauth-authorization-server`;
 create the confidential client and register its exact callback URI in
 `/developers` first. MuleSoft and generic remote hosts may continue injecting
@@ -144,9 +151,13 @@ still follows the scoped consent lifecycle and encryption rules above.
 
 Hosted CRM platforms (for example Salesforce Agentforce/FSC via a Named
 Credential, or a MuleSoft-fronted integration) connect directly over HTTPS to
-the remote `/mcp` endpoint, without spawning any local process.
+the remote `/mcp` endpoint, without spawning any local process. There is one
+endpoint and one consent lifecycle.
 
-- **Auth**: use `Authorization: Bearer <developer-token>`. Query-string
+- **Auth**: existing integrations may use `Authorization: Bearer <developer-token>`.
+  Explicitly provisioned flat partner apps may instead use OAuth
+  `client_credentials` at `/oauth/token`; they receive an app-bound short-lived
+  access token and no refresh token. Query-string
   credentials are rejected so tokens cannot leak through Referer headers,
   access logs, browser history, or CDN/proxy logs. Bearer headers are directly
   compatible with Salesforce Named Credentials.
@@ -158,13 +169,24 @@ the remote `/mcp` endpoint, without spawning any local process.
   python scripts/ops/provision_partner_developer_app.py \
     --display-name "Salesforce FSC" \
     --contact-email partners@hushh.ai \
-    [--crm-id salesforce-fsc-hushh]
+    --crm-id salesforce-fsc-hushh \
+    --schema-profile flat \
+    --enable-client-credentials \
+    --connector-key-id salesforce-fsc-key-2026-07 \
+    --connector-public-key "$PARTNER_X25519_PUBLIC_KEY"
   ```
 
-  Every CRM system gets its own token so revocation, audit, and last-used
-  telemetry stay per-system. The raw token prints once on issuance; store it
-  in the partner's secret manager (Salesforce Named Credential, MuleSoft
-  connected-app config, etc.) immediately.
+  Every CRM system gets its own app so revocation, audit, and last-used
+  telemetry stay per-system. The operator stores the one-time raw bearer token
+  or OAuth client secret only in the partner's secret manager. Hussh stores the
+  public X25519 key and fingerprint only, never the partner private key.
+- **Agentforce gate**: Salesforce currently documents Streamable HTTP and
+  client credentials support, but warns that user-level/personalized MCP
+  responses require validation. Direct Agentforce remains a UAT production
+  gate: verify catalog registration, four actions, lifecycle, ciphertext
+  retrieval, partner-side decryption, and trace visibility. If that host gate
+  fails, MuleSoft may expose the same flat Hussh contract; it must not proxy
+  the standard catalog unchanged.
 - **Rate limits**: the remote endpoint enforces a per-developer-app rate
   limit (default `120/minute`, configurable via `MCP_REMOTE_RATE_LIMIT`) and
   a per-request timeout (default 120s, configurable via

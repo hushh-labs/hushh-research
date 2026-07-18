@@ -4,6 +4,7 @@ import {
   buildRiaClientAccountRoute,
   buildRiaClientRequestRoute,
   buildRiaClientWorkspaceRoute,
+  buildKaiMarketRoute,
   buildOneSetupKaiRoute,
   buildOneSetupCapabilityRoute,
   buildWelcomeRoute,
@@ -28,6 +29,16 @@ import {
 } from "@/lib/navigation/route-scope";
 
 describe("navigation routes", () => {
+  it("builds Finance URLs with one explicit canonical tab", () => {
+    expect(buildKaiMarketRoute("market")).toBe("/one/kai?tab=market");
+    expect(buildKaiMarketRoute("analysis", { ticker: "AAPL" })).toBe(
+      "/one/kai?tab=analysis&ticker=AAPL",
+    );
+    expect(buildKaiMarketRoute("portfolio", { tab: "analysis" })).toBe(
+      "/one/kai?tab=portfolio",
+    );
+  });
+
   it("returns Login to the canonical welcome parent without accepting an external redirect", () => {
     expect(buildWelcomeRoute()).toBe(ROUTES.HOME);
     expect(buildWelcomeRoute(ROUTES.ONE_SETUP)).toBe(
@@ -139,6 +150,7 @@ describe("navigation routes", () => {
   });
   it("preserves public route classification stability", () => {
     expect(isPublicRoute("/")).toBe(true);
+    expect(isPublicRoute("/welcome")).toBe(true);
     expect(isPublicRoute("/developers")).toBe(true);
     expect(isPublicRoute("/login")).toBe(true);
 
@@ -161,8 +173,8 @@ describe("navigation routes", () => {
     expect(getRouteScope("/one/kai/analysis")).toBe("shared");
     expect(routePersonaForScope(getRouteScope("/one/kai/analysis"))).toBeNull();
 
-    expect(getRouteScope("/kai")).toBe("investor");
-    expect(routePersonaForScope(getRouteScope("/kai"))).toBe("investor");
+    expect(getRouteScope("/kai")).toBe("shared");
+    expect(routePersonaForScope(getRouteScope("/kai"))).toBeNull();
   });
 
   it("builds the kai setup wizard route with query parameters", () => {

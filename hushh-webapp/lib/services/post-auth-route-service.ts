@@ -98,6 +98,12 @@ export class PostAuthRouteService {
       fallbackUrl.searchParams.get("return_to"),
     );
     const remoteState = await PreVaultUserStateService.bootstrapState(params.userId);
+    // Native auth bridges can restore a valid Firebase session before their
+    // local user object has hydrated `phoneNumber`. A positive backend claim
+    // is authoritative for this login decision; an unknown/false claim still
+    // follows the normal fail-closed phone mandate.
+    const phoneVerified =
+      params.phoneVerified === true || remoteState.phoneVerified === true;
     const canOverrideWithPersona =
       !params.redirectPath ||
       fallbackRoute === ROUTES.HOME ||
@@ -149,7 +155,7 @@ export class PostAuthRouteService {
         inviteRedirectTarget &&
         shouldRequirePhoneMandate({
           phoneNumber: params.phoneNumber,
-          phoneVerified: params.phoneVerified,
+          phoneVerified,
           hasVault: true,
           hostname: params.hostname ?? (typeof window === "undefined" ? null : window.location.hostname),
           pathname: fallbackRoute,
@@ -211,7 +217,7 @@ export class PostAuthRouteService {
     if (
       shouldRequirePhoneMandate({
         phoneNumber: params.phoneNumber,
-        phoneVerified: params.phoneVerified,
+        phoneVerified,
         hasVault: false,
         hostname: params.hostname ?? (typeof window === "undefined" ? null : window.location.hostname),
       })

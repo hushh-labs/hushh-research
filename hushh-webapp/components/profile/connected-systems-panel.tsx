@@ -172,7 +172,16 @@ function customerLogoSrc(
 function crmTypeDisplayLabel(
   system?: Pick<ConnectedSystemSummary, "systemType" | "systemName"> | null,
 ): string {
-  return [system?.systemType, system?.systemName].filter(Boolean).join(" ");
+  const labels = [system?.systemType, system?.systemName]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .filter(
+      (value, index, values) =>
+        values.findIndex((candidate) =>
+          candidate.localeCompare(value, undefined, { sensitivity: "accent" }) === 0,
+        ) === index,
+    );
+  return labels.join(" · ");
 }
 
 function ConnectedSystemLogo({

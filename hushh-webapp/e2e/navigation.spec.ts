@@ -43,8 +43,8 @@ test.describe("Auth-Protected Route Guards", () => {
     expect(url.includes("/login") || url === page.url()).toBeTruthy();
   });
 
-  test("consents page redirects unauthenticated users", async ({ page }) => {
-    await page.goto("/consents");
+  test("consent workspace redirects unauthenticated users", async ({ page }) => {
+    await page.goto("/one/consent");
     await page.waitForLoadState("networkidle");
     const url = page.url();
     expect(url.includes("/login") || url === page.url()).toBeTruthy();

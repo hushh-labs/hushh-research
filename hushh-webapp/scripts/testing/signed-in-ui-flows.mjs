@@ -322,7 +322,7 @@ export const ONE_VOICE_NATIVE_CONTROL_FLOW = {
       timeoutMs: 90000,
       allowPermissionFallback: true,
     },
-    { type: "end_voice_if_active", timeoutMs: 15000 },
+    { type: "end_voice_if_active", timeoutMs: 2000 },
     {
       type: "wait_voice_mode",
       modes: ["idle", "error"],

@@ -1,18 +1,14 @@
 
-import React from "react";
 import {
-  ChartSquareBoldDuotone,
-  UsersGroupTwoRoundedBoldDuotone,
-  LetterBoldDuotone,
-  ShieldCheckBoldDuotone,
-  CPUBoldDuotone,
-  LockKeyholeBoldDuotone,
-  GlobalBoldDuotone,
-  MapPointBoldDuotone
-} from "solar-icon-set";
-
-import {
+  BookMarked,
+  ContactRound,
+  FileCheck2,
+  KeyRound,
+  Landmark,
+  Mail,
+  MapPin,
   Store,
+  UsersRound,
   type LucideIcon,
 } from "lucide-react";
 
@@ -56,16 +52,11 @@ export type OneCapabilityTone =
 export type OneCapabilityGroup = "workflow" | "memory" | "access";
 
 export type OneCapabilityIcon =
-  | { kind: "solar"; component: React.ComponentType<{ className?: string }> }
   | { kind: "lucide"; icon: LucideIcon }
   | { kind: "image"; src: string; alt: string };
 
 export function lucideCapabilityIcon(icon: LucideIcon): OneCapabilityIcon {
   return { kind: "lucide", icon };
-}
-
-export function solarCapabilityIcon(component: React.ComponentType<{ className?: string }>): OneCapabilityIcon {
-  return { kind: "solar", component };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -144,7 +135,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Market, portfolio, analysis, and RIA handoff.",
     previewLabel: "Market, portfolio & analysis",
     href: ROUTES.KAI_HOME,
-    icon: solarCapabilityIcon(ChartSquareBoldDuotone),
+    icon: lucideCapabilityIcon(Landmark),
     tone: "finance",
     group: "workflow",
     requiresVault: true,
@@ -160,7 +151,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Advisor verification, profile, clients, and requests.",
     previewLabel: "Advisor profile & verification",
     href: ROUTES.RIA_ONBOARDING,
-    icon: solarCapabilityIcon(UsersGroupTwoRoundedBoldDuotone),
+    icon: lucideCapabilityIcon(UsersRound),
     tone: "ria",
     group: "workflow",
     requiresVault: true,
@@ -174,7 +165,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Receipt sync and purchase-memory review.",
     previewLabel: "Receipt & purchase memory",
     href: ROUTES.GMAIL,
-    icon: solarCapabilityIcon(LetterBoldDuotone),
+    icon: lucideCapabilityIcon(Mail),
     tone: "gmail",
     group: "memory",
     availability: "paused",
@@ -188,7 +179,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "KYC",
     description: "Review information requests and approve each response.",
     href: ROUTES.ONE_KYC,
-    icon: solarCapabilityIcon(ShieldCheckBoldDuotone),
+    icon: lucideCapabilityIcon(FileCheck2),
     tone: "email",
     group: "workflow",
     requiresVault: true,
@@ -202,7 +193,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Live location & Alerts",
     previewLabel: "Live location & Alerts",
     href: ROUTES.ONE_LOCATION,
-    icon: solarCapabilityIcon(MapPointBoldDuotone),
+    icon: lucideCapabilityIcon(MapPin),
     tone: "location",
     group: "workflow",
     requiresVault: true,
@@ -213,7 +204,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "Memory",
     description: "Saved knowledge and context you can review.",
     href: ROUTES.PKM,
-    icon: solarCapabilityIcon(CPUBoldDuotone),
+    icon: lucideCapabilityIcon(BookMarked),
     tone: "pkm",
     group: "memory",
     requiresVault: true,
@@ -226,7 +217,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "Consent",
     description: "Access requests, approvals, and revocations.",
     href: buildConsentCenterHref("pending"),
-    icon: solarCapabilityIcon(LockKeyholeBoldDuotone),
+    icon: lucideCapabilityIcon(KeyRound),
     tone: "consent",
     group: "access",
     isExploreOnly: true,
@@ -254,7 +245,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "CRM",
     description: "Approved CRM reads and writes.",
     href: ROUTES.CONNECTED_SYSTEMS,
-    icon: solarCapabilityIcon(GlobalBoldDuotone),
+    icon: lucideCapabilityIcon(ContactRound),
     tone: "connected",
     group: "workflow",
     requiresVault: true,

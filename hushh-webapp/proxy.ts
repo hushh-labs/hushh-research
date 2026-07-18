@@ -20,6 +20,7 @@ const API_PREFIX = "/api";
 
 const LEGACY_ROUTE_REDIRECTS: Record<string, string> = {
   [ROUTES.LEGACY_KAI_HOME]: ROUTES.KAI_HOME,
+  [ROUTES.LEGACY_ONE_KAI_MARKET]: ROUTES.KAI_HOME,
   [ROUTES.LEGACY_KAI_ANALYSIS]: ROUTES.KAI_ANALYSIS,
   [ROUTES.LEGACY_KAI_IMPORT]: ROUTES.KAI_IMPORT,
   [ROUTES.LEGACY_KAI_INVESTMENTS]: ROUTES.KAI_INVESTMENTS,
@@ -31,8 +32,10 @@ const LEGACY_ROUTE_REDIRECTS: Record<string, string> = {
   [ROUTES.LEGACY_KAI_PORTFOLIO]: ROUTES.KAI_PORTFOLIO,
   [ROUTES.LEGACY_KAI_PLAID_OAUTH_RETURN]: ROUTES.KAI_PLAID_OAUTH_RETURN,
   [ROUTES.LEGACY_KAI_ALPACA_OAUTH_RETURN]: ROUTES.KAI_ALPACA_OAUTH_RETURN,
-  "/kai/dashboard": ROUTES.KAI_PORTFOLIO,
+  "/kai/dashboard": ROUTES.KAI_DASHBOARD,
   "/kai/dashboard/analysis": ROUTES.KAI_ANALYSIS,
+  "/one/kai/portfolio": ROUTES.KAI_PORTFOLIO,
+  "/one/kai/analysis": ROUTES.KAI_ANALYSIS,
 };
 
 export function proxy(request: NextRequest) {
@@ -55,7 +58,16 @@ export function proxy(request: NextRequest) {
   const legacyRedirectTarget = LEGACY_ROUTE_REDIRECTS[pathname];
   if (legacyRedirectTarget) {
     const url = request.nextUrl.clone();
-    url.pathname = legacyRedirectTarget;
+    const [targetPath, targetSearch] = legacyRedirectTarget.split("?");
+    url.pathname = targetPath;
+    if (targetSearch) {
+      // The canonical target supplies the default tab, while an explicit
+      // legacy query (for example `/kai?tab=portfolio`) always wins.
+      const defaults = new URLSearchParams(targetSearch);
+      defaults.forEach((value, key) => {
+        if (!url.searchParams.has(key)) url.searchParams.set(key, value);
+      });
+    }
     return NextResponse.redirect(url);
   }
 

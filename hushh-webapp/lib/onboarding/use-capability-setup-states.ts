@@ -351,7 +351,10 @@ export function useCapabilitySetupStates(
       isVaultUnlocked,
       preVaultState: preVaultState ?? cachedPreVaultState,
       kaiProfile,
-      pendingConsents,
+      // A cold consent summary is unknown, not zero. The setup-state resolver
+      // intentionally accepts only a number, so retain its conservative
+      // no-attention fallback until the shared summary resolves.
+      pendingConsents: pendingConsents ?? 0,
       oauthConnections,
       exploredCapabilityIds: exploredIds,
       locationRecipientKeyReady,

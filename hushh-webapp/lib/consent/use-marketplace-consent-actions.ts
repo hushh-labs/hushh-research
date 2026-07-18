@@ -4,7 +4,7 @@
  * Marketplace Consent Actions Hook
  * ================================
  *
- * The shared `/consents` Access Manager renders Information Marketplace access
+ * The shared `/one/consent` Access Manager renders Information Marketplace access
  * requests via the backend `MarketplaceCenterContributor`. Those rows carry
  * `metadata.request_source === "marketplace_access_request"` (see
  * `marketplace-consent.ts`).

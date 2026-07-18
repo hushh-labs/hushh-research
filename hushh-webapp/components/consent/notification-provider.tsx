@@ -84,6 +84,7 @@ import {
   type OneLocationWorkflowNotificationType,
 } from "@/lib/one-location/notifications";
 import { OneLocationService } from "@/lib/one-location/service";
+import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { buildOneLocationNotificationPayloads } from "@/lib/one-location/notification-reconciliation";
 
 
@@ -354,14 +355,19 @@ function shouldPrioritizeConsentRealtime(pathname: string): boolean {
   if (!normalized) return false;
   return (
     normalized.startsWith("/agent") ||
-    normalized.startsWith("/consents") ||
+    normalized.startsWith(ROUTES.CONSENTS) ||
+    normalized.startsWith(ROUTES.LEGACY_CONSENTS) ||
     normalized.startsWith("/profile") ||
     normalized.startsWith("/ria")
   );
 }
 
 function isConsentWorkspaceRoute(pathname: string): boolean {
-  return String(pathname || "").trim().toLowerCase().startsWith("/consents");
+  const normalized = String(pathname || "").trim().toLowerCase();
+  return (
+    normalized.startsWith(ROUTES.CONSENTS) ||
+    normalized.startsWith(ROUTES.LEGACY_CONSENTS)
+  );
 }
 
 function isOneLocationNotificationType(value: unknown): boolean {
@@ -498,6 +504,7 @@ export function ConsentNotificationProvider({
   const silentlyReconciledOneLocationIdsRef = useRef(new Set<string>());
   const oneLocationReconcilePromiseRef = useRef<Promise<void> | null>(null);
   const lastOneLocationReconcileWarningRef = useRef(0);
+  const consentReconcilePromiseRef = useRef<Promise<void> | null>(null);
 
   // Use the centralized consent actions hook
   const { handleDeny } = useConsentActions({
@@ -1338,6 +1345,11 @@ export function ConsentNotificationProvider({
       const vaultOwnerToken = getVaultOwnerToken();
       if (!vaultOwnerToken) return;
       const state = await OneLocationService.getState(vaultOwnerToken);
+      // Location owns a single memory-only server-state resource. Publishing
+      // reconciliation results here lets the Location route update instantly
+      // from the same push/resume read instead of issuing a second foreground
+      // request and briefly falling back to a loader.
+      OneLocationStateResource.write(user.uid, state);
       // Reconciliation is also the fallback for foreground pushes that never
       // reach the page. The persistent event record keeps a later live push
       // from presenting or creating a bell item twice.
@@ -1529,6 +1541,63 @@ export function ConsentNotificationProvider({
       globalThis.clearTimeout(timeoutId);
     };
   }, [getVaultOwnerToken, isVaultUnlocked, pathname, showConsentToast, user?.uid]);
+
+  // Push is authoritative when it is available. If a browser/device cannot
+  // keep that channel, reconcile only while visible at a deliberately bounded
+  // cadence. This writes the same memory cache the consent surfaces already
+  // render from, so a missed push repairs state without a blocking route load.
+  const reconcilePendingConsents = useCallback(async () => {
+    if (!user?.uid || !isVaultUnlocked) return;
+    if (consentReconcilePromiseRef.current) {
+      return consentReconcilePromiseRef.current;
+    }
+    const request = (async () => {
+      const vaultOwnerToken = getVaultOwnerToken();
+      if (!vaultOwnerToken) return;
+      const pending = await loadPendingConsentsOnce(user.uid, vaultOwnerToken, {
+        forceRefresh: true,
+      });
+      setPendingCount(pending.length);
+      dispatchConsentStateChanged({ source: "fallback_reconciled" });
+    })()
+      .catch((error) => {
+        if (!isTransientFetchFailure(error)) {
+          console.warn("[NotificationProvider] Consent fallback reconciliation failed:", error);
+        }
+      })
+      .finally(() => {
+        if (consentReconcilePromiseRef.current === request) {
+          consentReconcilePromiseRef.current = null;
+        }
+      });
+    consentReconcilePromiseRef.current = request;
+    return request;
+  }, [getVaultOwnerToken, isVaultUnlocked, user?.uid]);
+
+  useEffect(() => {
+    if (!user?.uid || !isVaultUnlocked || deliveryMode === "push_active") {
+      return;
+    }
+    const reconcileWhenVisible = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        return;
+      }
+      void reconcilePendingConsents();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") reconcileWhenVisible();
+    };
+    window.addEventListener("focus", reconcileWhenVisible);
+    window.addEventListener("online", reconcileWhenVisible);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    const intervalId = window.setInterval(reconcileWhenVisible, 5 * 60_000);
+    return () => {
+      window.removeEventListener("focus", reconcileWhenVisible);
+      window.removeEventListener("online", reconcileWhenVisible);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.clearInterval(intervalId);
+    };
+  }, [deliveryMode, isVaultUnlocked, reconcilePendingConsents, user?.uid]);
 
   return (
     <ConsentNotificationStateContext.Provider

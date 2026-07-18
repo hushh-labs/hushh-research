@@ -80,7 +80,15 @@ OAuth is an additional transport-authentication option for hosts such as Claude 
 - Token and refresh: `POST /oauth/token` with confidential-client authentication and PKCE `code_verifier`
 - Revocation: `POST /oauth/revoke`
 
-Only authorization-code and refresh-token grants are supported. Client credentials are intentionally unsupported. Register an exact HTTPS redirect URI in the developer portal first; loopback HTTP is permitted solely for local development. Client secrets, authorization codes, access tokens, refresh tokens, Firebase identifiers, and consent tokens are never returned by ordinary portal reads or MCP tools.
+Authorization-code and refresh-token grants remain the self-serve interactive
+path. `client_credentials` is available only to an operations-provisioned
+`partner_crm` app that has both the `flat` schema profile and an explicit
+client-credentials enablement. It issues a short-lived app-bound access token,
+never a refresh token or synthetic user subject. Register an exact HTTPS
+redirect URI for PKCE first; loopback HTTP is permitted solely for local
+development. Client secrets, authorization codes, access tokens, refresh
+tokens, Firebase identifiers, and consent tokens are never returned by
+ordinary portal reads or MCP tools.
 
 ---
 
@@ -146,7 +154,11 @@ Authorization: Bearer <developer-token>
 }
 ```
 
-For the raw HTTP developer API, the connector fields are required. They tell Hussh which public key to use when wrapping the export key for later client-side decryption. MCP callers also provide the same connector bundle fields. Hussh never manages the connector private key.
+For the raw HTTP developer API, the connector fields are required unless the
+developer app has an active registered connector bundle. Registered apps may
+omit the fields; any supplied legacy bundle must match the app's public key,
+key id, and wrapping algorithm exactly. This prevents one app from rebinding a
+grant to another connector key. Hussh never manages the connector private key.
 
 ### 3. Poll status
 

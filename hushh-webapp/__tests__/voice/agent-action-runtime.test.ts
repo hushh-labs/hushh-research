@@ -8,7 +8,7 @@ import {
   registerLocalOnboardingHandler,
   unregisterLocalOnboardingHandler,
 } from "@/lib/agent/local-onboarding-actions";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 
 function runtimeState(
@@ -139,12 +139,12 @@ describe("executeAgentGatewayAction", () => {
 
     expect(setAnalysisParams).toHaveBeenCalledWith(null);
     expect(router.push).toHaveBeenCalledWith(
-      `${ROUTES.KAI_ANALYSIS}?ticker=NVDA`,
+      buildKaiMarketRoute("analysis", { ticker: "NVDA" }),
     );
     expect(result).toMatchObject({
       status: "started",
       actionId: "analysis.start",
-      routeAfter: `${ROUTES.KAI_ANALYSIS}?ticker=NVDA`,
+      routeAfter: buildKaiMarketRoute("analysis", { ticker: "NVDA" }),
       screenAfter: "kai_analysis",
       resultSummary:
         "Opened the NVDA comparison preview before starting the debate.",
@@ -183,12 +183,12 @@ describe("executeAgentGatewayAction", () => {
 
     expect(switchPersona).toHaveBeenCalledWith("investor");
     expect(router.push).toHaveBeenCalledWith(
-      `${ROUTES.KAI_ANALYSIS}?ticker=TSLA`,
+      buildKaiMarketRoute("analysis", { ticker: "TSLA" }),
     );
     expect(result).toMatchObject({
       status: "started",
       actionId: "analysis.start",
-      routeAfter: `${ROUTES.KAI_ANALYSIS}?ticker=TSLA`,
+      routeAfter: buildKaiMarketRoute("analysis", { ticker: "TSLA" }),
       screenAfter: "kai_analysis",
     });
   });

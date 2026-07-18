@@ -2935,7 +2935,7 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/kai/analysis"
+          "/one/kai?tab=analysis"
         ],
         "screens": [
           "kai_analysis"
@@ -2954,7 +2954,7 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/one/kai/analysis"
+        "target": "/one/kai?tab=analysis"
       },
       "control_ids": [],
       "state_exposure": [],
@@ -2966,7 +2966,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/kai/analysis"
+          "current route becomes /one/kai?tab=analysis"
         ],
         "backend_effects": []
       },
@@ -2991,7 +2991,7 @@
             "label": "Open Analysis Surface",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/kai/analysis",
+              "route": "/one/kai?tab=analysis",
               "screen": "kai_analysis"
             }
           }
@@ -3033,8 +3033,8 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/kai/analysis",
-          "/one/kai/analysis?tab=history"
+          "/one/kai?tab=analysis",
+          "/one/kai?tab=analysis&view=history"
         ],
         "screens": [
           "kai_analysis"
@@ -3065,7 +3065,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/kai/analysis"
+          "current route becomes /one/kai?tab=analysis"
         ],
         "backend_effects": []
       },
@@ -3090,7 +3090,7 @@
             "label": "Open Analysis History",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/kai/analysis",
+              "route": "/one/kai?tab=analysis",
               "screen": "kai_analysis"
             }
           }
@@ -3134,7 +3134,7 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/kai/analysis"
+          "/one/kai?tab=analysis"
         ],
         "screens": [
           "kai_analysis"
@@ -3170,7 +3170,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/kai/analysis"
+          "current route becomes /one/kai?tab=analysis"
         ],
         "backend_effects": []
       },
@@ -3220,7 +3220,7 @@
             "failure_behavior": "stop",
             "action_id": "analysis.start",
             "settlement_target": {
-              "route": "/one/kai/analysis",
+              "route": "/one/kai?tab=analysis",
               "screen": "kai_analysis"
             }
           },
@@ -3230,7 +3230,7 @@
             "failure_behavior": "stop",
             "service": "kai_debate.ensure_run",
             "settlement_target": {
-              "route": "/one/kai/analysis",
+              "route": "/one/kai?tab=analysis",
               "screen": "kai_analysis_workspace"
             }
           }
@@ -3276,8 +3276,8 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/kai/analysis",
-          "/one/kai/analysis?focus=active"
+          "/one/kai?tab=analysis",
+          "/one/kai?tab=analysis&focus=active"
         ],
         "screens": [
           "kai_analysis"
@@ -3315,7 +3315,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/kai/analysis"
+          "current route becomes /one/kai?tab=analysis"
         ],
         "backend_effects": []
       },
@@ -3340,7 +3340,7 @@
             "label": "Resume Active Analysis Run",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/kai/analysis",
+              "route": "/one/kai?tab=analysis",
               "screen": "kai_analysis"
             }
           }
@@ -3382,7 +3382,7 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/kai/analysis"
+          "/one/kai?tab=analysis"
         ],
         "screens": [
           "kai_analysis"
@@ -3421,7 +3421,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/kai/analysis"
+          "current route becomes /one/kai?tab=analysis"
         ],
         "backend_effects": []
       },
@@ -3446,7 +3446,7 @@
             "label": "Cancel Active Analysis Run",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/kai/analysis",
+              "route": "/one/kai?tab=analysis",
               "screen": "kai_analysis"
             }
           }
@@ -3487,7 +3487,7 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/kai/analysis?tab=transcript"
+          "/one/kai?tab=analysis&view=transcript"
         ],
         "screens": [
           "kai_analysis"
@@ -3520,7 +3520,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/kai/analysis?tab=transcript"
+          "current route becomes /one/kai?tab=analysis&view=transcript"
         ],
         "backend_effects": []
       },
@@ -3545,7 +3545,7 @@
             "label": "Legacy Transcript Tab Route",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/kai/analysis?tab=transcript",
+              "route": "/one/kai?tab=analysis&view=transcript",
               "screen": "kai_analysis"
             }
           }
@@ -10973,7 +10973,7 @@
       "reachability": {
         "routes": [
           "/ria/requests",
-          "/consents"
+          "/one/consent"
         ],
         "screens": [
           "ria_requests_compat"
@@ -11624,7 +11624,7 @@
       "reachability": {
         "routes": [
           "/marketplace/connections",
-          "/consents",
+          "/one/consent",
           "/one"
         ],
         "screens": [
@@ -11712,7 +11712,7 @@
             "failure_behavior": "stop",
             "service": "specialist_chat.turn",
             "settlement_target": {
-              "route": "/consents?tab=connections",
+              "route": "/one/consent?tab=connections",
               "screen": "consents"
             }
           }
@@ -11905,7 +11905,7 @@
       "delegate_agent_id": "agent_nav",
       "reachability": {
         "routes": [
-          "/consents",
+          "/one/consent",
           "/one"
         ],
         "screens": [
@@ -11953,7 +11953,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /consents"
+          "current route becomes /one/consent"
         ],
         "backend_effects": []
       },
@@ -11993,7 +11993,7 @@
             "failure_behavior": "stop",
             "service": "specialist_chat.turn",
             "settlement_target": {
-              "route": "/consents",
+              "route": "/one/consent",
               "screen": "consents"
             }
           }
@@ -12462,7 +12462,7 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/consents"
+          "/one/consent"
         ],
         "screens": [
           "consents"
@@ -12496,7 +12496,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /consents"
+          "current route becomes /one/consent"
         ],
         "backend_effects": []
       },
@@ -12521,7 +12521,7 @@
             "label": "Open Consent Center",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/consents",
+              "route": "/one/consent",
               "screen": "consents"
             }
           }
@@ -12562,8 +12562,8 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/kai",
-          "/one/kai/analysis",
+          "/one/kai?tab=market",
+          "/one/kai?tab=analysis",
           "/profile"
         ],
         "screens": [
@@ -12601,7 +12601,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/kai"
+          "current route becomes /one/kai?tab=market"
         ],
         "backend_effects": []
       },
@@ -12626,7 +12626,7 @@
             "label": "Go Back",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/kai",
+              "route": "/one/kai?tab=market",
               "screen": "kai_market"
             }
           }
@@ -12670,7 +12670,7 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/kai/portfolio"
+          "/one/kai?tab=portfolio"
         ],
         "screens": [
           "kai_portfolio_dashboard"
@@ -12688,8 +12688,8 @@
       "activation_policy": "none",
       "execution_target": {
         "status": "wired",
-        "path": "kai_command",
-        "target": "dashboard"
+        "path": "route",
+        "target": "/one/kai?tab=portfolio"
       },
       "control_ids": [],
       "state_exposure": [],
@@ -12701,7 +12701,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/kai/portfolio"
+          "current route becomes /one/kai?tab=portfolio"
         ],
         "backend_effects": []
       },
@@ -12726,7 +12726,7 @@
             "label": "Open Portfolio Dashboard",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/kai/portfolio",
+              "route": "/one/kai?tab=portfolio",
               "screen": "kai_portfolio_dashboard"
             }
           }
@@ -13076,8 +13076,7 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/kai",
-          "/one/kai/home"
+          "/one/kai?tab=market"
         ],
         "screens": [
           "kai_market"
@@ -13095,8 +13094,8 @@
       "activation_policy": "none",
       "execution_target": {
         "status": "wired",
-        "path": "kai_command",
-        "target": "home"
+        "path": "route",
+        "target": "/one/kai?tab=market"
       },
       "control_ids": [
         "top_agent_section_finance"
@@ -13110,7 +13109,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/kai"
+          "current route becomes /one/kai?tab=market"
         ],
         "backend_effects": []
       },
@@ -13135,7 +13134,7 @@
             "label": "Open Market Home",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/kai",
+              "route": "/one/kai?tab=market",
               "screen": "kai_market"
             }
           }
@@ -15038,7 +15037,7 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/consents?tab=pending"
+        "target": "/one/consent?tab=pending"
       },
       "control_ids": [
         "ria_client_workspace_open_access_manager"
@@ -15054,7 +15053,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /consents?tab=pending"
+          "current route becomes /one/consent?tab=pending"
         ],
         "backend_effects": []
       },
@@ -15079,7 +15078,7 @@
             "label": "Open Access Manager",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/consents?tab=pending",
+              "route": "/one/consent?tab=pending",
               "screen": "ria_client_workspace_access"
             }
           }

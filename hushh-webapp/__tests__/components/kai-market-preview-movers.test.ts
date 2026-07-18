@@ -67,4 +67,27 @@ describe("market route overlays", () => {
     expect(source).not.toContain("OneMarketNotificationsSheet");
     expect(source).not.toContain("notificationsOpen");
   });
+
+  it("uses the Finance route shell instead of nesting another page canvas", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/kai/views/kai-market-preview-view.tsx"),
+      "utf8",
+    );
+
+    expect(source).not.toContain("<AppPageShell");
+    expect(source).not.toContain("bg-[color:var(--one-bg)] font-sans");
+  });
+
+  it("uses the same neutral primary header grammar as Portfolio and Analysis", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/kai/views/kai-market-preview-view.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain('title="Market"');
+    expect(source).toContain('accent="neutral"');
+    expect(source).not.toContain("eyebrow={marketStatus");
+    expect(source).toContain('data-testid="market-header-status"');
+    expect(source).toContain("actionsInlineMobile");
+  });
 });

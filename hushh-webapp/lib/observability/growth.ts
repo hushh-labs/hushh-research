@@ -1,6 +1,6 @@
 "use client";
 
-import { ROUTES } from "@/lib/navigation/routes";
+import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { trackEvent } from "@/lib/observability/client";
 import type {
   AuthMethod,
@@ -142,7 +142,7 @@ export function resolveGrowthJourneyForPath(pathname: string): GrowthJourney | n
   if (pathname === ROUTES.RIA_HOME || pathname.startsWith(`${ROUTES.RIA_HOME}/`)) {
     return "ria";
   }
-  if (pathname === ROUTES.KAI_HOME || pathname.startsWith(`${ROUTES.KAI_HOME}/`)) {
+  if (pathname === KAI_MARKET_PATH || pathname.startsWith(`${KAI_MARKET_PATH}/`)) {
     return "investor";
   }
   return null;
@@ -157,7 +157,7 @@ export function resolveGrowthEntrySurface(pathname: string): GrowthEntrySurface 
   if (pathname === ROUTES.KAI_IMPORT || pathname.startsWith(`${ROUTES.KAI_IMPORT}/`)) {
     return "kai_import";
   }
-  if (pathname === ROUTES.KAI_HOME || pathname.startsWith(`${ROUTES.KAI_HOME}/`)) {
+  if (pathname === KAI_MARKET_PATH || pathname.startsWith(`${KAI_MARKET_PATH}/`)) {
     return "kai_home";
   }
   if (pathname === ROUTES.MARKETPLACE || pathname.startsWith(`${ROUTES.MARKETPLACE}/`)) {
