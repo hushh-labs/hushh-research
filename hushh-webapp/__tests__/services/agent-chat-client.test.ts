@@ -244,6 +244,39 @@ describe("agent chat client", () => {
     expect(errors).toEqual(["Agent chat stream returned malformed data. Please retry."]);
   });
 
+  it.each([
+    ["unclosed object", '{"token":"unterminated"'],
+    ["unclosed nested array", '{"token":[[[[[[[[[[[[}'],
+    ["broken bracket payload", "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[["],
+  ])("handles malformed %s SSE JSON without logging raw parser stacks", async (_label, payload) => {
+    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
+      sseResponse([
+        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-2.5-pro"}\n\n',
+        `event: token\ndata: ${payload}\n\n`,
+      ])
+    );
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errors: string[] = [];
+
+    await expect(
+      streamAgentChat({
+        userId: "user-1",
+        message: "Hello",
+        vaultOwnerToken: "vault-token",
+        handlers: {
+          onError: (message) => errors.push(message),
+        },
+      })
+    ).rejects.toThrow("Agent chat stream returned malformed data. Please retry.");
+
+    expect(errors).toEqual(["Agent chat stream returned malformed data. Please retry."]);
+    expect(consoleError).not.toHaveBeenCalled();
+    expect(consoleWarn).not.toHaveBeenCalled();
+    expect(consoleLog).not.toHaveBeenCalled();
+  });
+
   it("formats streamed runtime provider errors", async () => {
     vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
       sseResponse([
