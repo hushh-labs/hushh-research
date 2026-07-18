@@ -76,8 +76,10 @@ export async function POST(request: NextRequest) {
       ));
     }
 
-    console.log(`[API] Approving consent request: ${requestId}`);
-    console.log(`[API] Export data present: ${!!encryptedData}`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[API] Approving consent request: ${requestId}`);
+      console.log(`[API] Export data present: ${!!encryptedData}`);
+    }
 
     // Forward to FastAPI with encrypted export
     const response = await fetch(`${BACKEND_URL}/api/consent/pending/approve`, {
@@ -130,7 +132,9 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json();
-    console.log(`[API] Consent approved with token`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[API] Consent approved with token`);
+    }
 
     return withSecurityHeaders(NextResponse.json(data));
   } catch (error) {
