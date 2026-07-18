@@ -1,8 +1,16 @@
 "use client";
 
 import { useMemo } from "react";
-import { AlertCircle } from "lucide-react";
-import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { AlertCircle, XIcon } from "lucide-react";
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
@@ -72,7 +80,19 @@ export function HoldingDetailsDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="border-border/70 bg-background/95 backdrop-blur-lg">
+      <DrawerContent className="relative border-border/70 bg-background/95 backdrop-blur-lg">
+        <DrawerClose
+          type="button"
+          aria-label="Close holding details"
+          className={cn(
+            "absolute right-4 top-4 rounded-full p-2 text-muted-foreground",
+            "transition-colors hover:text-foreground focus-visible:outline-none",
+            "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          )}
+        >
+          <XIcon aria-hidden="true" className="size-4" />
+        </DrawerClose>
+
         <DrawerHeader className="sticky top-0 z-10 bg-background/80 px-5 pb-2 text-left backdrop-blur-md">
           {isPending && (
             <div className="mb-2 flex items-center gap-2 rounded-lg bg-rose-500/10 p-2 text-xs text-rose-600">
