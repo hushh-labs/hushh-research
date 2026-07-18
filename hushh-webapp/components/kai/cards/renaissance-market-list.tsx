@@ -369,7 +369,7 @@ export function RiaPicksList({
                 {activeMobileControl === "search" ? (
                   <SurfaceInset className="px-3 py-3">
                     <div className="relative">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
@@ -516,7 +516,7 @@ export function RiaPicksList({
               <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
                 <MarketListControlField label="Search">
                   <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       value={query}
                       onChange={(event) => setQuery(event.target.value)}
