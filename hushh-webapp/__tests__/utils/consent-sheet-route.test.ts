@@ -15,6 +15,12 @@ describe("consent sheet route helpers", () => {
     );
   });
 
+  it("preserves consent callback anchor hashes used as internal review return routes", () => {
+    const anchorInputString = "/consents/callback#id=44";
+
+    expect(normalizeInternalAppHref(anchorInputString)).toBe(anchorInputString);
+  });
+
   it("normalizes absolute localhost consent links to relative app routes", () => {
     expect(
       normalizeInternalAppHref(
