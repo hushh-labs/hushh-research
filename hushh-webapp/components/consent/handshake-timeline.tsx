@@ -48,21 +48,21 @@ async function getIdTokenFromUser(user: ReturnType<typeof useAuth>["user"]): Pro
 function actionIcon(action: string) {
   switch (action) {
     case "CONSENT_GRANTED":
-      return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
+      return <CheckCircle2 aria-hidden="true" className="h-4 w-4 text-emerald-500" />;
     case "CONSENT_DENIED":
-      return <XCircle className="h-4 w-4 text-rose-500" />;
+      return <XCircle aria-hidden="true" className="h-4 w-4 text-rose-500" />;
     case "REVOKED":
-      return <ShieldOff className="h-4 w-4 text-rose-500" />;
+      return <ShieldOff aria-hidden="true" className="h-4 w-4 text-rose-500" />;
     case "CANCELLED":
-      return <XCircle className="h-4 w-4 text-zinc-400" />;
+      return <XCircle aria-hidden="true" className="h-4 w-4 text-zinc-400" />;
     case "TIMEOUT":
-      return <Timer className="h-4 w-4 text-amber-500" />;
+      return <Timer aria-hidden="true" className="h-4 w-4 text-amber-500" />;
     case "REQUESTED":
-      return <Clock className="h-4 w-4 text-sky-500" />;
+      return <Clock aria-hidden="true" className="h-4 w-4 text-sky-500" />;
     case "INVITE_SENT":
-      return <Mail className="h-4 w-4 text-indigo-500" />;
+      return <Mail aria-hidden="true" className="h-4 w-4 text-indigo-500" />;
     default:
-      return <Clock className="h-4 w-4 text-muted-foreground" />;
+      return <Clock aria-hidden="true" className="h-4 w-4 text-muted-foreground" />;
   }
 }
 
