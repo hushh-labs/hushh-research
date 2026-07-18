@@ -26,7 +26,7 @@ const THEME_OPTIONS: Array<{
   { value: "system", label: "System", icon: Monitor },
 ];
 
-function resolveActiveTheme(theme: string | undefined): ThemeOption {
+export function resolveActiveTheme(theme: string | undefined): ThemeOption {
   const normalized = (theme ?? "").trim().toLowerCase();
   if (normalized === "light" || normalized === "dark" || normalized === "system") {
     return normalized as ThemeOption;
