@@ -42,17 +42,17 @@ export function AgentVoiceWaveInput({
         aria-label="Back to text input"
         title="Back to text input"
       >
-        <Keyboard className="h-4 w-4" />
+        <Keyboard aria-hidden="true" className="h-4 w-4" />
       </Button>
 
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-foreground">
           {isBusy ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+            <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin text-primary" />
           ) : muted ? (
-            <MicOff className="h-3.5 w-3.5 text-muted-foreground" />
+            <MicOff aria-hidden="true" className="h-3.5 w-3.5 text-muted-foreground" />
           ) : (
-            <Mic className="h-3.5 w-3.5 text-primary" />
+            <Mic aria-hidden="true" className="h-3.5 w-3.5 text-primary" />
           )}
           <span className="truncate">{label}</span>
         </div>
@@ -90,7 +90,11 @@ export function AgentVoiceWaveInput({
         aria-label={muted ? "Unmute Agent voice" : "Mute Agent voice"}
         title={muted ? "Unmute Agent voice" : "Mute Agent voice"}
       >
-        {muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+        {muted ? (
+          <MicOff aria-hidden="true" className="h-4 w-4" />
+        ) : (
+          <Mic aria-hidden="true" className="h-4 w-4" />
+        )}
       </Button>
 
       <Button
@@ -103,7 +107,7 @@ export function AgentVoiceWaveInput({
         aria-label="Exit voice mode"
         title="Exit voice mode"
       >
-        <X className="h-4 w-4" />
+        <X aria-hidden="true" className="h-4 w-4" />
       </Button>
     </div>
   );
