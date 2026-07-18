@@ -67,4 +67,12 @@ describe("Progress", () => {
 
     expect(root?.getAttribute("aria-valuenow")).toBe("50");
   });
+
+  it("renders root with role='progressbar'", () => {
+    const { container } = render(<Progress value={50} />);
+
+    const root = container.querySelector('[data-slot="progress"]');
+
+    expect(root?.getAttribute("role")).toBe("progressbar");
+  });
 });
