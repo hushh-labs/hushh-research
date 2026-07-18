@@ -185,4 +185,18 @@ describe("observability schema", () => {
     expect(result.sanitized.resource_class).toBe("pkm_projection");
     expect(result.sanitized.freshness).toBe("fresh");
   });
+    it("preserves short bounded metadata values", () => {
+    const result = validateAndSanitizeEvent("auth_failed", {
+      env: "uat",
+      platform: "web",
+      event_category: "system",
+      app_version: "2.1.0",
+      action: "google",
+      result: "error",
+      error_class: "auth_failed",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.sanitized.action).toBe("google");
+  });
 });
