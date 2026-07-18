@@ -79,6 +79,21 @@ describe("consent sheet route helpers", () => {
     });
   });
 
+  it("preserves hyphenated token query hrefs from consent notification review targets", () => {
+    const notificationReviewHref = "/consents/target?token=auth-session-guid-verification-101";
+    const result = resolveConsentNavigationTarget(notificationReviewHref, "pending", {
+      requestId: "req_123",
+      bundleId: "bundle_456",
+      from: "/kai/analysis?tab=history",
+    });
+
+    expect(result).toEqual({
+      kind: "internal",
+      href: notificationReviewHref,
+      pathname: "/consents/target",
+    });
+  });
+
   it("classifies Email Helper workflow links as SPA routes", () => {
     expect(
       resolveConsentNavigationTarget(
