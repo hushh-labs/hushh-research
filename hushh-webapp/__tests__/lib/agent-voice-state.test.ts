@@ -28,10 +28,13 @@ describe("agent voice state", () => {
   });
 
   it("formats compact status labels", () => {
-    expect(getAgentVoiceStatusLabel("listening")).toBe("Listening");
-    expect(getAgentVoiceStatusLabel("muted")).toBe("Muted");
-    expect(getAgentVoiceStatusLabel("transcribing")).toBe("Transcribing");
-    expect(getAgentVoiceStatusLabel("thinking")).toBe("Thinking");
-    expect(getAgentVoiceStatusLabel("speaking")).toBe("Speaking");
+   expect(getAgentVoiceStatusLabel("idle")).toBe("Voice idle");
+   expect(getAgentVoiceStatusLabel("connecting")).toBe("Voice connecting");
+   expect(getAgentVoiceStatusLabel("listening")).toBe("Listening");
+   expect(getAgentVoiceStatusLabel("muted")).toBe("Muted");
+   expect(getAgentVoiceStatusLabel("transcribing")).toBe("Transcribing");
+   expect(getAgentVoiceStatusLabel("thinking")).toBe("Thinking");
+   expect(getAgentVoiceStatusLabel("speaking")).toBe("Speaking");
+   expect(getAgentVoiceStatusLabel("error")).toBe("Voice error");
   });
 });
