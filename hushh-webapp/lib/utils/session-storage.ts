@@ -19,6 +19,26 @@ function isNativeCapacitorPlatform(): boolean {
 
 const SESSION_PREFIX = "_session_";
 const BOOT_ID_KEY = "__hushh_boot_id__";
+const memoryLocalFallback = new Map<string, string>();
+const SENSITIVE_LOCAL_STORAGE_KEYS = new Set(["vaultkey", "vaultownertoken"]);
+
+function normalizeStorageKey(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function isSensitiveStorageKey(key: string): boolean {
+  return SENSITIVE_LOCAL_STORAGE_KEYS.has(normalizeStorageKey(key));
+}
+
+function isStorageQuotaExceededError(error: unknown): boolean {
+  return (
+    error instanceof DOMException &&
+    (error.name === "QuotaExceededError" ||
+      error.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+      error.code === 22 ||
+      error.code === 1014)
+  );
+}
 
 /**
  * On native Capacitor, session storage falls back to localStorage which persists
@@ -78,8 +98,7 @@ function getPersistentStorage(): Storage | null {
 
   try {
     return window.localStorage;
-  } catch (e) {
-    console.warn("[SessionStorage] Failed to access local storage:", e);
+  } catch {
     return null;
   }
 }
@@ -191,36 +210,61 @@ export function clearSessionStorage(): void {
 }
 
 export function setLocalItem(key: string, value: string): void {
+  if (isSensitiveStorageKey(key)) {
+    memoryLocalFallback.delete(key);
+    const storage = getPersistentStorage();
+    try {
+      storage?.removeItem(key);
+    } catch {
+      // Persistent storage may be blocked; memory fallback has already been cleared.
+    }
+    return;
+  }
+
   const storage = getPersistentStorage();
-  if (!storage) return;
+  if (!storage) {
+    memoryLocalFallback.set(key, value);
+    return;
+  }
 
   try {
     storage.setItem(key, value);
-  } catch (e) {
-    console.warn("[SessionStorage] Failed to set local item:", e);
+    memoryLocalFallback.delete(key);
+  } catch (error) {
+    if (isStorageQuotaExceededError(error)) {
+      memoryLocalFallback.set(key, value);
+      return;
+    }
+    memoryLocalFallback.set(key, value);
   }
 }
 
 export function getLocalItem(key: string): string | null {
+  if (isSensitiveStorageKey(key)) return null;
+
+  const fallbackValue = memoryLocalFallback.get(key);
+  if (fallbackValue !== undefined) return fallbackValue;
+
   const storage = getPersistentStorage();
   if (!storage) return null;
 
   try {
     return storage.getItem(key);
-  } catch (e) {
-    console.warn("[SessionStorage] Failed to get local item:", e);
+  } catch {
     return null;
   }
 }
 
 export function removeLocalItem(key: string): void {
+  memoryLocalFallback.delete(key);
+
   const storage = getPersistentStorage();
   if (!storage) return;
 
   try {
     storage.removeItem(key);
-  } catch (e) {
-    console.warn("[SessionStorage] Failed to remove local item:", e);
+  } catch {
+    // Persistent storage may be blocked in strict browser modes; memory is already cleared.
   }
 }
 
@@ -231,13 +275,15 @@ export function removeLocalItems(keys: string[]): void {
 }
 
 export function clearLocalStorage(): void {
+  memoryLocalFallback.clear();
+
   const storage = getPersistentStorage();
   if (!storage) return;
 
   try {
     storage.clear();
-  } catch (e) {
-    console.warn("[SessionStorage] Failed to clear local storage:", e);
+  } catch {
+    // Persistent storage may be blocked in strict browser modes; memory is already cleared.
   }
 }
 
