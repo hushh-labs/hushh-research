@@ -248,7 +248,7 @@ export function ConsentInboxDropdown({
               </p>
             </div>
             {summaryResource.loading || summaryResource.refreshing ? (
-              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+              <Loader2 aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
             ) : null}
           </div>
         </div>
