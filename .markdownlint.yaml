@@ -1,0 +1,22 @@
+# .markdownlint.yaml
+# Relaxing strict rules for existing markdown files
+
+default: true
+
+# Line length (MD013)
+MD013: false
+
+# Inline HTML (MD033) - often used for badges and centering
+MD033: false
+
+# Multiple headings with the same content (MD024) - common in CHANGELOGs
+MD024: false
+
+# First line in file should be a top level heading (MD041) - often fails on badges
+MD041: false
+
+# Headings should be surrounded by blank lines (MD022) - often fails in docs
+MD022: false
+
+# Lists should be surrounded by blank lines (MD032)
+MD032: false

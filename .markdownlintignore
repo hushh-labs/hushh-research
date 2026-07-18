@@ -1,0 +1,5 @@
+# Ignore machine-generated AI tool memory directories
+.claude/
+.codex/
+.qwen/
+node_modules/
