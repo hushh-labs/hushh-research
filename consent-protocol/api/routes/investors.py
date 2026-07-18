@@ -134,6 +134,16 @@ async def search_investors(
     return results
 
 
+@router.get("/stats")
+async def get_stats():
+    """Get statistics about investor profiles."""
+    # Use service layer
+    service = InvestorDBService()
+    stats = await service.get_investor_stats()
+
+    return {"total_profiles": stats.get("total", 0), "by_type": stats.get("by_type", {})}
+
+
 @router.get("/{investor_id}", response_model=InvestorProfile)
 async def get_investor(investor_id: int):
     """
@@ -289,13 +299,3 @@ async def bulk_create_investors(
     logger.info("investor.bulk_create.success count=%s", len(results))
 
     return {"created": len(results), "profiles": results}
-
-
-@router.get("/stats")
-async def get_stats():
-    """Get statistics about investor profiles."""
-    # Use service layer
-    service = InvestorDBService()
-    stats = await service.get_investor_stats()
-
-    return {"total_profiles": stats.get("total", 0), "by_type": stats.get("by_type", {})}
