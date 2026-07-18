@@ -504,7 +504,9 @@ export default function PortfolioHealthPage() {
 
       } catch (e) {
         if ((e as Error).name === "AbortError") {
-          console.log("[PortfolioHealth] Analysis aborted");
+          if (process.env.NODE_ENV !== "production") {
+            console.log("[PortfolioHealth] Analysis aborted");
+          }
           setStatusMessage("Analysis stopped before completion.");
         } else {
           setError((e as Error).message);
