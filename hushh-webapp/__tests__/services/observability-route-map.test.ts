@@ -67,6 +67,7 @@ describe("observability route map", () => {
     expect(resolveRouteId("/profile/receipts")).toBe("profile_receipts");
     expect(resolveRouteId("/profile/gmail/oauth/return")).toBe("profile_gmail_oauth_return");
     expect(resolveRouteId("/one/location")).toBe("one_location");
+    expect(resolveRouteId("/one/kyc")).toBe("one_kyc");
     expect(resolveRouteId("/one/location/request/sample")).toBe("one_location_public_request");
     expect(resolveRouteId("/agent")).toBe("agent");
     expect(resolveRouteId("/portfolio/shared")).toBe("portfolio_shared");
