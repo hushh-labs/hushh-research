@@ -11,7 +11,7 @@ const appOrigin = String(
   process.env.REVIEWER_APP_ORIGIN || "https://uat.one.hushh.ai"
 ).replace(/\/$/, "");
 const timeoutMs = Number(process.env.REVIEWER_APP_TIMEOUT_MS || 360_000);
-const routes = String(process.env.REVIEWER_APP_ROUTES || "/agent,/one/kai/portfolio")
+const routes = String(process.env.REVIEWER_APP_ROUTES || "/agent,/one/kai?tab=portfolio")
   .split(",")
   .map((route) => route.trim())
   .filter(Boolean);
@@ -23,7 +23,7 @@ if (process.argv.includes("--help")) {
       "",
       "Optional:",
       "  REVIEWER_APP_ORIGIN=https://uat.one.hushh.ai",
-      "  REVIEWER_APP_ROUTES=/agent,/one/kai/portfolio",
+      "  REVIEWER_APP_ROUTES=/agent,/one/kai?tab=portfolio",
       "  PLAYWRIGHT_HEADLESS=0",
       "",
     ].join("\n")
