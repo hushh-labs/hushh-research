@@ -161,13 +161,13 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
     Backfills once on connect, then only yields when NOTIFY delivers an event.
     Heartbeat every 30s to keep connection alive.
     """
-    from datetime import datetime
+    from datetime import UTC, datetime
 
     from api.consent_listener import get_consent_queue
     from hushh_mcp.services.consent_db import ConsentDBService
 
     logger.info("consent_sse.open user_id=%s", user_id)
-    connection_start_ms = int(datetime.now().timestamp() * 1000)
+    connection_start_ms = int(datetime.now(UTC).timestamp() * 1000)
     backfill_window_ms = 2 * 60 * 1000
     after_timestamp_ms = connection_start_ms - backfill_window_ms
     notified_event_ids = set()
