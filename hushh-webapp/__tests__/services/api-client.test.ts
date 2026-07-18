@@ -83,6 +83,17 @@ describe("apiJson", () => {
     } satisfies Partial<ApiError>);
   });
 
+  it("skips an empty error field and falls back to the message field", async () => {
+    mockApiFetch.mockResolvedValueOnce(
+      jsonResponse({ error: "", message: "fallback message" }, 400)
+    );
+
+    await expect(apiJson("/api/test")).rejects.toMatchObject({
+      message: "fallback message",
+      status: 400,
+    } satisfies Partial<ApiError>);
+  });
+
   it("skips a whitespace-only detail string and falls back to the status code", async () => {
     mockApiFetch.mockResolvedValueOnce(jsonResponse({ detail: "   " }, 400));
 
@@ -92,9 +103,7 @@ describe("apiJson", () => {
   });
 
   it("uses the nested detail.error field when detail.message is absent", async () => {
-    mockApiFetch.mockResolvedValueOnce(
-      jsonResponse({ detail: { error: "nested error text" } }, 500)
-    );
+    mockApiFetch.mockResolvedValueOnce(jsonResponse({ detail: { error: "nested error text" } }, 500));
 
     await expect(apiJson("/api/test")).rejects.toMatchObject({
       message: "nested error text",
@@ -103,9 +112,7 @@ describe("apiJson", () => {
   });
 
   it("uses the nested detail.code when no readable detail message exists when message and error are absent", async () => {
-    mockApiFetch.mockResolvedValueOnce(
-      jsonResponse({ detail: { code: "ERR_UNAVAILABLE" } }, 503)
-    );
+    mockApiFetch.mockResolvedValueOnce(jsonResponse({ detail: { code: "ERR_UNAVAILABLE" } }, 503));
 
     await expect(apiJson("/api/test")).rejects.toMatchObject({
       message: "ERR_UNAVAILABLE",
@@ -147,19 +154,17 @@ describe("apiJson", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// apiJson — response size boundary enforcement (CWE-400)
-// ---------------------------------------------------------------------------
-
 describe("apiJson — MAX_RESPONSE_BYTES Content-Length guard", () => {
   beforeEach(() => {
-    vi.clearAllMocks(); 
+    vi.clearAllMocks();
   });
+
   it("allows responses when Content-Length header is absent", async () => {
-      const response = jsonResponse({ ok: true });
-      vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(response);
-      await expect(apiJson("/api/test")).resolves.toEqual({ ok: true });
-  }); 
+    const response = jsonResponse({ ok: true });
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(response);
+
+    await expect(apiJson("/api/test")).resolves.toEqual({ ok: true });
+  });
 
   function responseWithContentLength(
     body: unknown,
@@ -211,9 +216,7 @@ describe("apiJson — MAX_RESPONSE_BYTES Content-Length guard", () => {
   });
 
   it("allows response well within MAX_RESPONSE_BYTES", async () => {
-    mockApiFetch.mockResolvedValueOnce(
-      responseWithContentLength({ result: "small" }, 200, 512)
-    );
+    mockApiFetch.mockResolvedValueOnce(responseWithContentLength({ result: "small" }, 200, 512));
 
     await expect(apiJson("/api/data")).resolves.toEqual({ result: "small" });
   });
