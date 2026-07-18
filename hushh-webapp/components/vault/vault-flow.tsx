@@ -319,7 +319,9 @@ export function VaultFlow({
       setRecoveryKey(vaultData.recoveryKey);
       setStep("recovery"); // Show recovery key dialog
     } catch (err: any) {
-      console.error("Create vault error:", err);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("Create vault error:", err);
+      }
       toast.error(err.message || "We could not create your Vault. Please try again.");
     } finally {
       setIsUnlocking(false);
