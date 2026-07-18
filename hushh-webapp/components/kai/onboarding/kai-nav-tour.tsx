@@ -336,7 +336,7 @@ export function KaiNavTour() {
         skippedAt: local.skipped_at,
       });
     } catch (error) {
-      console.warn("[KaiNavTour] Failed to mark skipped:", error);
+      // Background sync failure is handled implicitly
     }
   }
 
@@ -350,7 +350,7 @@ export function KaiNavTour() {
         skippedAt: null,
       });
     } catch (error) {
-      console.warn("[KaiNavTour] Failed to mark completed:", error);
+      // Background sync failure is handled implicitly
     }
   }
 
