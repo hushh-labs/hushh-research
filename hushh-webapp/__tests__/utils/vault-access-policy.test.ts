@@ -55,4 +55,21 @@ describe("vault access policy", () => {
       needsUnlock: false,
     });
   });
+  it("treats unknown vault ownership as unavailable until resolved", () => {
+  expect(
+    resolveVaultAvailabilityState({
+      hasVault: null,
+      isVaultUnlocked: false,
+      vaultKey: null,
+      vaultOwnerToken: null,
+    }),
+  ).toMatchObject({
+   hasVault: false,
+    vaultUnknown: true,
+    needsVaultCreation: false,
+    needsUnlock: false,
+    canReadSecureData: false,
+    canMutateSecureData: false,
+  });
+});
 });
