@@ -124,6 +124,7 @@ export function PortfolioSourceSwitcher({
           <div className="flex flex-wrap items-center gap-2">
             {showImportStatement ? (
               <Button
+                type="button"
                 variant="none"
                 effect="fade"
                 size="sm"
@@ -145,6 +146,7 @@ export function PortfolioSourceSwitcher({
                 </Badge>
                 {onRefreshPlaid ? (
                   <Button
+                    type="button"
                     variant="none"
                     effect="fade"
                     size="sm"
@@ -158,12 +160,12 @@ export function PortfolioSourceSwitcher({
                   </Button>
                 ) : null}
                 {onCancelRefreshPlaid && isRefreshing ? (
-                  <Button variant="none" effect="fade" size="sm" onClick={onCancelRefreshPlaid}>
+                  <Button type="button" variant="none" effect="fade" size="sm" onClick={onCancelRefreshPlaid}>
                     Cancel
                   </Button>
                 ) : null}
                 {onManageConnections ? (
-                  <Button variant="none" effect="fade" size="sm" onClick={onManageConnections}>
+                  <Button type="button" variant="none" effect="fade" size="sm" onClick={onManageConnections}>
                     {(freshness?.itemCount || 0) > 0 ? "Connect Another Brokerage" : "Connect Plaid"}
                   </Button>
                 ) : null}
@@ -171,6 +173,7 @@ export function PortfolioSourceSwitcher({
             ) : null}
             {onDeletePortfolio ? (
               <Button
+                type="button"
                 variant="none"
                 effect="fade"
                 size="sm"
