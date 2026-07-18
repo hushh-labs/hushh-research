@@ -47,12 +47,11 @@ export async function POST(request: NextRequest) {
     );
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error("[API] Backend error:", response.status, errorText);
-      return NextResponse.json(
-        { error: "Failed to issue VAULT_OWNER token" },
-        { status: response.status }
-      );
+      const errorPayload = await response.json().catch(async () => ({
+        error: (await response.text().catch(() => "")) || "Failed to issue VAULT_OWNER token",
+      }));
+      console.error("[API] Backend error:", response.status, errorPayload);
+      return NextResponse.json(errorPayload, { status: response.status });
     }
 
     const data = await response.json();
