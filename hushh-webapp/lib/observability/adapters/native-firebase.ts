@@ -19,6 +19,8 @@ function getFirebaseAnalyticsModule() {
 function toFirebaseParams(payload: Record<string, PrimitiveEventValue>) {
   const params: Record<string, string | number> = {};
 
+  // Object.entries only enumerates own enumerable properties, so inherited
+  // metadata on the payload prototype is never forwarded to Firebase.
   for (const [key, value] of Object.entries(payload)) {
     if (value === null || value === undefined) continue;
     if (typeof value === "boolean") {
@@ -33,6 +35,7 @@ function toFirebaseParams(payload: Record<string, PrimitiveEventValue>) {
 
 export const nativeFirebaseAdapter: ObservabilityAdapter = {
   name: "native-firebase",
+
 
   isAvailable(): boolean {
     return Capacitor.isNativePlatform();
