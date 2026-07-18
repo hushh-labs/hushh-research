@@ -3,6 +3,13 @@ import { describe, expect, it } from "vitest";
 
 import { Command, CommandDialog, CommandInput } from "@/components/ui/command";
 
+describe("Command", () => {
+  it("propagates custom class names", () => {
+    const { container } = render(<Command className="custom-command" />);
+    expect(container.querySelector('[data-slot="command"]')?.className).toContain("custom-command");
+  });
+});
+
 describe("CommandDialog", () => {
   it("renders the close button by default", () => {
     render(
