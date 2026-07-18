@@ -227,4 +227,26 @@ describe("agent voice TTS", () => {
 
     expect(aborted).toBe(true);
   });
+
+  it("preserves image alt text and replaces fenced code blocks for speech synthesis", () => {
+   expect(
+    markdownToSpeechText(
+      `
+   # Analysis
+
+   ![chart](https://example.com/chart.png)
+
+   <div>Important update</div>
+
+   \`\`\`ts
+   const secret = "hidden";
+   \`\`\`
+
+   Review completed.
+   `
+     )
+   ).toBe(
+     "Analysis chart <div Important update</div code block Review completed."
+   );
+  });
 });
