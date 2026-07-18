@@ -45,4 +45,25 @@ describe("GET /api/account/export proxy", () => {
     expect(response.status).toBe(502);
     expect(payload).toEqual({ error: "Invalid response from backend" });
   });
+    it("forwards the authorization header to the backend", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        Response.json({ downloadUrl: "https://example.com/export.json" }),
+      );
+
+    const response = await route.GET(
+      request({ Authorization: "Bearer HCT:test" }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+  "http://backend.test/api/account/export",
+  expect.objectContaining({
+    headers: expect.objectContaining({
+      Authorization: "Bearer HCT:test",
+    }),
+  }),
+);
+  });
 });
