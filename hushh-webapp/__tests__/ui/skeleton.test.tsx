@@ -16,6 +16,11 @@ describe("Skeleton", () => {
     expect(container.firstElementChild?.getAttribute("data-slot")).toBe("skeleton");
   });
 
+  it("propagates custom class names", () => {
+    const { container } = render(<Skeleton className="custom-skeleton" />);
+    expect(container.querySelector('[data-slot="skeleton"]')?.className).toContain("custom-skeleton");
+  });
+
   it("renders with aria-hidden='true'", () => {
     const { container } = render(<Skeleton />);
 
