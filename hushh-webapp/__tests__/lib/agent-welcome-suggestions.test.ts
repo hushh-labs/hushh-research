@@ -47,6 +47,21 @@ describe("agent welcome suggestions", () => {
     expect(rotated).toHaveLength(3);
     expect(rotated).not.toEqual(first);
   });
+  
+  it("clamps suggestion limits to the supported range", () => {
+   const minimum = resolveAgentWelcomeSuggestions({
+    userId: "limit-user",
+    limit: 0,
+   });
+
+   const maximum = resolveAgentWelcomeSuggestions({
+    userId: "limit-user",
+    limit: 999,
+   });
+
+   expect(minimum).toHaveLength(1);
+   expect(maximum).toHaveLength(5);
+   });
 
   it("matches route suggestions when pathname contains query parameters", () => {
   const suggestions = resolveAgentWelcomeSuggestions({
