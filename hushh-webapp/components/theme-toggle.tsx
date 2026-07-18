@@ -72,6 +72,7 @@ export function ThemeToggle({ className }: { className?: string }) {
             type="button"
             role="radio"
             aria-checked={isActive}
+            aria-label={`Switch to ${option.label.toLowerCase()} theme`}
             onClick={() => {
               if (option.value === activeTheme) return;
               setTheme(option.value);
