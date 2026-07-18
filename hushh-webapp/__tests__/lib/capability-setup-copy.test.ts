@@ -16,14 +16,17 @@ describe("onboarding capability copy", () => {
     expect(location?.setupBlurb).toContain("trusted people you choose");
   });
 
-  it("uses KYC for the email capability and names the invocation address", () => {
+  it("uses human drafting copy for the email capability and names the invocation address", () => {
     const email = getCapabilitySetupCopy("email");
 
+    // The user-facing surface must not leak the internal "KYC" term.
     expect(email).toMatchObject({
-      setupTitle: "KYC",
-      actionLabel: "Set up KYC",
-      resumeActionLabel: "Finish KYC",
+      setupTitle: "Let One draft for you",
+      actionLabel: "Set up drafting",
+      resumeActionLabel: "Finish drafting setup",
     });
+    expect(email?.setupTitle).not.toContain("KYC");
+    expect(email?.actionLabel).not.toContain("KYC");
     expect(email?.setupBlurb).toContain("one@hushh.ai");
   });
 

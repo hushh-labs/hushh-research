@@ -20,6 +20,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { useConsentActions } from "@/lib/consent";
+import { humanizeConsentScope } from "@/lib/consent/consent-display";
 import {
   ConsentCenterService,
   type ConsentCenterActor,
@@ -171,10 +172,11 @@ function entryHeadline(entry: ConsentCenterEntry) {
 
 function entrySupportingCopy(entry: ConsentCenterEntry) {
   if (entry.scope_description) return entry.scope_description;
-  if (entry.kind === "invite") return "Pre-consent handshake before the investor reviews access.";
-  if (entry.kind === "outgoing_request") return "Request created from your advisor relationship flow.";
-  if (entry.kind === "incoming_request") return "Approval is required before any protected information can be accessed.";
-  return entry.scope || "Consent workflow event";
+  if (entry.kind === "invite") return "Waiting for the investor to review and approve access.";
+  if (entry.kind === "outgoing_request") return "You asked for access — waiting on their yes.";
+  if (entry.kind === "incoming_request")
+    return "Someone would like your OK before anything is shared.";
+  return humanizeConsentScope(entry.scope) || "Consent request";
 }
 
 function getEntriesForSurfaceView(
@@ -934,7 +936,7 @@ export function ConsentCenterView({
             <p className="text-sm text-muted-foreground">{entrySupportingCopy(entry)}</p>
             {entry.scope ? (
               <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                Scope code: {entry.scope}
+                Covers {humanizeConsentScope(entry.scope)}
               </p>
             ) : null}
             {requestReason ? (
@@ -945,16 +947,15 @@ export function ConsentCenterView({
             ) : null}
             {existingGrantedScopes.length > 0 ? (
               <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                <span>Already granted:</span>
+                <span>Already shared:</span>
                 {existingGrantedScopes.map((scope) => (
                   <Badge key={scope} variant="secondary" className="font-normal">
-                    {scope}
+                    {humanizeConsentScope(scope)}
                   </Badge>
                 ))}
               </div>
             ) : null}
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-              <span>Action: {entry.action}</span>
               {formatDate(entry.issued_at) ? (
                 <span>Issued: {formatDate(entry.issued_at)}</span>
               ) : null}
@@ -1155,27 +1156,29 @@ export function ConsentCenterView({
             <div className="grid gap-3 px-5 pb-5 md:grid-cols-3">
               <SurfaceInset className="p-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                  Browser permission
+                  Turn on notifications
                 </p>
                 <p className="mt-2 text-sm text-foreground">
-                  Confirm notifications are allowed for this origin before retrying.
+                  Allow notifications for Hussh in your browser or device settings,
+                  then try again.
                 </p>
               </SurfaceInset>
               <SurfaceInset className="p-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                  Token registration
+                  Nothing is lost
                 </p>
                 <p className="mt-2 text-sm text-foreground">
-                  A healthy retry should create a row in <code>user_push_tokens</code>.
+                  Until alerts are on, every request still waits safely for you
+                  right here.
                 </p>
               </SurfaceInset>
               <SurfaceInset className="p-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                  Firebase Console
+                  You&apos;re always in control
                 </p>
                 <p className="mt-2 text-sm text-foreground">
-                  Check the active project&apos;s Cloud Messaging web configuration and
-                  use the project-specific VAPID key.
+                  Nothing moves without your yes — approvals stay here until you
+                  act on them.
                 </p>
               </SurfaceInset>
             </div>

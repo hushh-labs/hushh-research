@@ -92,11 +92,11 @@ const SETUP_COPY_BY_ID: Record<
     ],
   },
   email: {
-    setupTitle: "KYC",
+    setupTitle: "Let One draft for you",
     setupBlurb:
       "Let One draft for you when you invoke it from email at one@hushh.ai.",
-    actionLabel: "Set up KYC",
-    resumeActionLabel: "Finish KYC",
+    actionLabel: "Set up drafting",
+    resumeActionLabel: "Finish drafting setup",
     setupBullets: [
       "Invoke One from email at one@hushh.ai when you want a draft.",
       "One prepares replies and approvals you can review before sending.",

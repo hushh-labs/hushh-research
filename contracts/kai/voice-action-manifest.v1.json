@@ -8988,13 +8988,14 @@
     },
     {
       "id": "setup.open_email",
-      "label": "KYC",
-      "meaning": "Opens KYC setup for approval-gated drafting when One is invoked at one@hushh.ai.",
+      "label": "Let One draft for you",
+      "meaning": "Opens drafting setup for approval-gated drafting when One is invoked at one@hushh.ai.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "aliases": [
         "kyc",
         "let one draft for me",
+        "set up drafting",
         "set up email",
         "open email setup"
       ],
@@ -9030,7 +9031,7 @@
           {
             "type": "action",
             "action_id": "setup.open_email",
-            "label": "KYC",
+            "label": "Let One draft for you",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/email",
