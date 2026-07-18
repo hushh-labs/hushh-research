@@ -625,7 +625,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                         router.push(topShellBreadcrumb.backHref);
                       }}
                     >
-                      <ArrowLeft className="h-5 w-5" />
+                      <ArrowLeft className="h-5 w-5" aria-hidden="true" />
                     </ShellActionSurface>
                   ) : (
                     <div className="h-10 w-10" aria-hidden />
@@ -646,6 +646,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                             aria-label="Switch role"
                           >
                             <Icon
+                              aria-hidden="true"
                               icon={
                                 switchingPersona
                                   ? Loader2
@@ -673,7 +674,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                                 aria-label={`Active role: ${activePersona === "ria" ? "RIA" : "Investor"}`}
                               />
                             )}
-                            <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" />
+                            <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" aria-hidden="true" />
                           </ShellActionSurface>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent
@@ -686,7 +687,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                             className="group"
                           >
                             <div className="relative z-10 flex min-w-0 items-center gap-2 text-current">
-                              <UserRound className="h-4 w-4 text-current" />
+                              <UserRound className="h-4 w-4 text-current" aria-hidden="true" />
                               <span>Investor</span>
                             </div>
                             {activePersona === "investor" ? (
@@ -699,7 +700,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                             className="group"
                           >
                             <div className="relative z-10 flex min-w-0 items-center gap-2 text-current">
-                              <BriefcaseBusiness className="h-4 w-4 text-current" />
+                              <BriefcaseBusiness className="h-4 w-4 text-current" aria-hidden="true" />
                               <span>
                                 {riaCapability === "switch"
                                   ? "RIA"
@@ -728,6 +729,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                     >
                       {centerTitle.icon ? (
                         <Icon
+                          aria-hidden="true"
                           icon={centerTitle.icon}
                           size="sm"
                           className="shrink-0 text-current"
