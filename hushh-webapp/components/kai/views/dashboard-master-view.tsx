@@ -1742,7 +1742,9 @@ export function DashboardMasterView({
       setHoldingsDraft(managed);
       toast.success("Holdings updated");
     } catch (error) {
-      console.error("[DashboardMasterView] Failed to save holdings:", error);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[DashboardMasterView] Failed to save holdings:", error);
+      }
       toast.error("We could not save your holdings. Please try again.");
     } finally {
       setIsSavingHoldings(false);
@@ -1976,7 +1978,9 @@ export function DashboardMasterView({
         onReupload();
       }
     } catch (error) {
-      console.error("[DashboardMasterView] Failed to delete portfolio data:", error);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[DashboardMasterView] Failed to delete portfolio data:", error);
+      }
       toast.error("We could not delete portfolio data. Please try again.");
     } finally {
       setIsDeletingImportedData(false);
@@ -2253,7 +2257,9 @@ export function DashboardMasterView({
       ) {
         return;
       }
-      console.error("[DashboardMasterView] Failed to share portfolio PDF:", error);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[DashboardMasterView] Failed to share portfolio PDF:", error);
+      }
       toast.error("Could not share portfolio PDF.");
     } finally {
       setIsSharingPortfolioPdf(false);
