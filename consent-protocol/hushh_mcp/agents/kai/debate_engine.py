@@ -28,7 +28,7 @@ NOTE: The 'data' field should be a plain dict, not json.dumps()!
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from hushh_mcp.operons.kai.llm import stream_gemini_response
@@ -98,6 +98,13 @@ class DebateRound:
     round_number: int
     agent_statements: Dict[str, str]  # agent_id -> statement
     timestamp: datetime
+
+    def __post_init__(self) -> None:
+        if self.timestamp.tzinfo is None:
+            raise ValueError(
+                "DebateRound.timestamp must be timezone-aware; "
+                "use datetime.now(UTC) to produce an aware datetime"
+            )
 
 
 @dataclass
@@ -212,7 +219,7 @@ class DebateEngine:
         }
 
         # Record Round 1
-        self.rounds.append(DebateRound(1, round1_statements, datetime.utcnow()))
+        self.rounds.append(DebateRound(1, round1_statements, datetime.now(UTC)))
         yield {
             "event": "debate_round",
             "data": {
@@ -313,7 +320,7 @@ class DebateEngine:
         )
 
         # Record Round 2
-        self.rounds.append(DebateRound(2, round2_statements, datetime.utcnow()))
+        self.rounds.append(DebateRound(2, round2_statements, datetime.now(UTC)))
         yield {
             "event": "debate_round",
             "data": {
