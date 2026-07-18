@@ -90,4 +90,14 @@ describe("Card", () => {
     expect(description?.tagName).toBe("DIV");
   });
 
+  it("merges a custom className onto the Card root element", () => {
+    const { container } = render(
+      <Card className="test-class">Content</Card>,
+    );
+
+    const card = container.querySelector('[data-slot="card"]');
+
+    expect(card?.classList.contains("test-class")).toBe(true);
+  });
+
 });
