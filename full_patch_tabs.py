@@ -1,17 +1,17 @@
-"use client";
+content = """\"use client\";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from \"react\";
+import { usePathname, useRouter } from \"next/navigation\";
 
-import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
-import { activeKaiRouteTabFromPath, KAI_ROUTE_TABS } from "@/lib/navigation/kai-route-tabs";
-import { useKaiSession } from "@/lib/stores/kai-session-store";
-import { ROUTES } from "@/lib/navigation/routes";
-import { cn } from "@/lib/utils";
-import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
-import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import { APP_SHELL_FRAME_CLASSNAME, APP_SHELL_FRAME_STYLE } from "@/components/app-ui/app-page-shell";
-import { SegmentedPill } from "@/lib/morphy-ux/ui/segmented-pill";
+import { useKaiBottomChromeVisibility } from \"@/lib/navigation/kai-bottom-chrome-visibility\";
+import { activeKaiRouteTabFromPath, KAI_ROUTE_TABS } from \"@/lib/navigation/kai-route-tabs\";
+import { useKaiSession } from \"@/lib/stores/kai-session-store\";
+import { ROUTES } from \"@/lib/navigation/routes\";
+import { cn } from \"@/lib/utils\";
+import { scrollAppToTop } from \"@/lib/navigation/use-scroll-reset\";
+import { morphyToast as toast } from \"@/lib/morphy-ux/morphy\";
+import { APP_SHELL_FRAME_CLASSNAME, APP_SHELL_FRAME_STYLE } from \"@/components/app-ui/app-page-shell\";
+import { SegmentedPill } from \"@/lib/morphy-ux/ui/segmented-tabs\";
 
 interface DashboardRouteTabsProps {
   embedded?: boolean;
@@ -38,13 +38,13 @@ export function DashboardRouteTabs({ embedded = false }: DashboardRouteTabsProps
 
   const handleTabChange = useCallback(
     (nextTab: string) => {
-      if (busyOperations["portfolio_save"]) {
-        toast.info("Saving to vault. Please wait until encryption completes.");
+      if (busyOperations[\"portfolio_save\"]) {
+        toast.info(\"Saving to vault. Please wait until encryption completes.\");
         return;
       }
       const target = KAI_ROUTE_TABS.find((tab) => tab.id === nextTab);
       if (!target || target.id === activeTab) return;
-      scrollAppToTop("auto");
+      scrollAppToTop(\"auto\");
       router.push(target.href);
     },
     [activeTab, busyOperations, router]
@@ -60,16 +60,16 @@ export function DashboardRouteTabs({ embedded = false }: DashboardRouteTabsProps
   }));
 
   const tabsBody = (
-    <div className="w-full px-3 py-2">
+    <div className=\"w-full px-3 py-2\">
       <SegmentedPill
-        size="compact"
-        layout="stacked"
-        hitArea="segment"
+        size=\"compact\"
+        layout=\"stacked\"
+        hitArea=\"segment\"
         value={activeTab}
         options={options}
-        onValueChange={(val: string) => handleTabChange(val)}
-        ariaLabel="Workspace navigation"
-        className="w-full bg-white/40 dark:bg-black/20 backdrop-blur-md rounded-full border border-border/60 drop-shadow-sm"
+        onValueChange={(val) => handleTabChange(val)}
+        ariaLabel=\"Workspace navigation\"
+        className=\"w-full bg-white/40 dark:bg-black/20 backdrop-blur-md rounded-full border border-border/60 drop-shadow-sm\"
       />
     </div>
   );
@@ -78,8 +78,8 @@ export function DashboardRouteTabs({ embedded = false }: DashboardRouteTabsProps
     return (
       <div
         className={cn(
-          "relative flex w-full justify-center transform-gpu will-change-transform",
-          hideRouteTabs ? "pointer-events-none opacity-0" : "pointer-events-auto opacity-100"
+          \"relative flex w-full justify-center transform-gpu will-change-transform\",
+          hideRouteTabs ? \"pointer-events-none opacity-0\" : \"pointer-events-auto opacity-100\"
         )}
         style={{
           transform: `translate3d(0, calc(${-100 * hideRouteTabsProgress}% - ${6 * hideRouteTabsProgress}px), 0)`,
@@ -88,8 +88,8 @@ export function DashboardRouteTabs({ embedded = false }: DashboardRouteTabsProps
       >
         <div
           ref={tabsRootRef}
-          data-tour-id="kai-route-tabs"
-          className="pointer-events-auto w-full max-w-[460px] overflow-hidden"
+          data-tour-id=\"kai-route-tabs\"
+          className=\"pointer-events-auto w-full max-w-[460px] overflow-hidden\"
         >
           {tabsBody}
         </div>
@@ -101,8 +101,8 @@ export function DashboardRouteTabs({ embedded = false }: DashboardRouteTabsProps
     <div
       className={cn(
         APP_SHELL_FRAME_CLASSNAME,
-        "relative flex w-full justify-center transform-gpu will-change-transform z-10",
-        hideRouteTabs ? "pointer-events-none opacity-0" : "pointer-events-auto opacity-100"
+        \"relative flex w-full justify-center transform-gpu will-change-transform z-10\",
+        hideRouteTabs ? \"pointer-events-none opacity-0\" : \"pointer-events-auto opacity-100\"
       )}
       style={{
         ...APP_SHELL_FRAME_STYLE,
@@ -112,11 +112,14 @@ export function DashboardRouteTabs({ embedded = false }: DashboardRouteTabsProps
     >
       <div
         ref={tabsRootRef}
-        data-tour-id="kai-route-tabs"
-        className="pointer-events-auto w-full max-w-[460px] overflow-hidden"
+        data-tour-id=\"kai-route-tabs\"
+        className=\"pointer-events-auto w-full max-w-[460px] overflow-hidden\"
       >
         {tabsBody}
       </div>
     </div>
   );
 }
+"""
+with open('hushh-webapp/components/kai/layout/dashboard-route-tabs.tsx', 'w') as f:
+    f.write(content)
