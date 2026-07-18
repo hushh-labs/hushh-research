@@ -7,6 +7,7 @@ import {
   normalizeInternalAppHref,
   resolveConsentRequestHref,
 } from "@/lib/consent/consent-sheet-route";
+import { ROUTES } from "@/lib/navigation/routes";
 
 describe("consent sheet route helpers", () => {
   it("keeps internal relative app routes relative", () => {
@@ -21,6 +22,18 @@ describe("consent sheet route helpers", () => {
         "http://localhost:3000/consents?tab=pending&requestId=req_123",
       ),
     ).toBe("/consents?tab=pending&requestId=req_123");
+  });
+
+  it("normalizes explicit localhost-port consent links as internal SPA navigation targets", () => {
+    const explicitPortHref = "http://localhost:8080/consents/dashboard";
+    const internalHref = `${ROUTES.CONSENTS}/dashboard`;
+
+    expect(normalizeInternalAppHref(explicitPortHref)).toBe(internalHref);
+    expect(resolveConsentNavigationTarget(explicitPortHref)).toEqual({
+      kind: "internal",
+      href: internalHref,
+      pathname: internalHref,
+    });
   });
 
   it("normalizes Email Helper workflow links to internal app routes", () => {
