@@ -1302,8 +1302,8 @@ export function KaiFlow({
             requireTerminal: true,
           }
         );
-      } catch (resumeError) {
-        if (resumeError instanceof Error && resumeError.name === "AbortError") {
+      } catch (_resumeError) {
+        if (_resumeError instanceof Error && _resumeError.name === "AbortError") {
           return;
         }
       } finally {
