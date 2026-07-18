@@ -3,6 +3,25 @@ import { describe, expect, it } from "vitest";
 import { buildPkmSectionPreviewPresentation } from "@/lib/profile/pkm-section-preview";
 
 describe("buildPkmSectionPreviewPresentation", () => {
+  it("returns an empty preview fallback when section values are missing", () => {
+    const presentation = buildPkmSectionPreviewPresentation({
+      domain: "financial",
+      domainTitle: "Financial",
+      permissionLabel: "Portfolio",
+      permissionDescription: "Saved holdings and balances.",
+      topLevelScopePath: "portfolio",
+      value: null,
+    });
+
+    expect(presentation.title).toBe("Portfolio");
+    expect(presentation.description).toBe("Saved holdings and balances.");
+    expect(presentation.summary).toBe(
+      "No saved values are available for this section yet."
+    );
+    expect(presentation.stats).toEqual([]);
+    expect(presentation.groups).toEqual([]);
+  });
+
   it("unwraps single-key section payloads and converts entity maps into readable entries", () => {
     const presentation = buildPkmSectionPreviewPresentation({
       domain: "location",
