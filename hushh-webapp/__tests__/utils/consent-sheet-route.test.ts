@@ -67,6 +67,18 @@ describe("consent sheet route helpers", () => {
     );
   });
 
+  it("omits undefined notification identifiers from consent fallback hrefs", () => {
+    const fallbackHref = resolveConsentRequestHref(null, "pending", {
+      requestId: undefined,
+      bundleId: undefined,
+      from: "/kai/analysis",
+    });
+
+    expect(fallbackHref).toBe("/consents?tab=pending&from=%2Fkai%2Fanalysis");
+    expect(fallbackHref).not.toContain("requestId");
+    expect(fallbackHref).not.toContain("bundleId");
+  });
+
   it("classifies internal consent links as SPA routes", () => {
     expect(
       resolveConsentNavigationTarget(
