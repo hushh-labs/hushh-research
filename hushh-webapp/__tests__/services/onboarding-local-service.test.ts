@@ -95,6 +95,21 @@ describe("OnboardingLocalService", () => {
       });
       expect(mockRemoveLocalItem).toHaveBeenCalledWith("onboarding_marketing_seen_v1");
     });
+    it("does not throw when clearing marketing state fails", async () => {
+   const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    mockPreferences.set.mockRejectedValue(
+     new Error("Clear failed")
+    );
+
+    await expect(
+      OnboardingLocalService.clearMarketingSeen()
+    ).resolves.toBeUndefined();
+
+   expect(warnSpy).toHaveBeenCalled();
+
+   warnSpy.mockRestore();
+   });
   });
 
   describe("consumeForceIntroOnce", () => {
