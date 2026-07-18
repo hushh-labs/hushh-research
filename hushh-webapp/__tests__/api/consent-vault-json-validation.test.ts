@@ -14,6 +14,14 @@ function malformedPost(path: string): NextRequest {
   });
 }
 
+function vaultSetupPost(body: unknown): NextRequest {
+  return new NextRequest("http://localhost:3000/api/vault/setup", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 async function expectInvalidJson(response: Response) {
   expect(response.status).toBe(400);
   await expect(response.json()).resolves.toEqual({
@@ -26,6 +34,32 @@ describe("malformed JSON route handling", () => {
     await expectInvalidJson(
       await setupVault(malformedPost("/api/vault/setup")),
     );
+  });
+
+  it("rejects vault setup payloads without a passphrase wrapper", async () => {
+    const response = await setupVault(
+      vaultSetupPost({
+        userId: "user_1",
+        vaultKeyHash: "hash",
+        primaryMethod: "passkey",
+        recoveryEncryptedVaultKey: "encrypted",
+        recoverySalt: "salt",
+        recoveryIv: "iv",
+        wrappers: [
+          {
+            method: "passkey",
+            encryptedVaultKey: "encrypted",
+            salt: "salt",
+            iv: "iv",
+          },
+        ],
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Passphrase wrapper is required",
+    });
   });
 
   it.each([
