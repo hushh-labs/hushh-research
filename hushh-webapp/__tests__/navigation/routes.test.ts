@@ -6,6 +6,7 @@ import {
   buildRiaClientWorkspaceRoute,
   buildOneOnboardingRoute,
   isKaiOnboardingRoute,
+  isOneOnboardingRoute,
   isPublicRoute,
   isRiaRoute,
 } from "@/lib/navigation/routes";
@@ -63,4 +64,16 @@ describe("navigation routes", () => {
 
     expect(isKaiOnboardingRoute("/one/kai")).toBe(false);
   });
+
+  it("returns false for non-onboarding paths", () => {
+    expect(isOneOnboardingRoute("")).toBe(false);
+
+    expect(isOneOnboardingRoute("/")).toBe(false);
+
+    expect(
+      isOneOnboardingRoute("/one/kai/portfolio")).toBe(false);
+
+    expect(isOneOnboardingRoute("/onboarding")).toBe(false);
+  });
+
 });
