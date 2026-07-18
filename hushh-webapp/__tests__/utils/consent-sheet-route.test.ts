@@ -224,5 +224,14 @@ describe("path resolver safety — dangerous edge case handling", () => {
     );
     expect(result.kind).toBe("external");
   });
+
+  it("strips escaped control sequences such as backspaces from incoming path strings to ensure path isolation", () => {
+    const maliciousControlInput = "/consent/callback\b/unauthorized-leak";
+    const result = resolveConsentNavigationTarget(maliciousControlInput);
+
+    expect(result.href).not.toContain("\b");
+  });
 });
 // ── End path safety coverage ──────────────────────────────────────────────────
+
+

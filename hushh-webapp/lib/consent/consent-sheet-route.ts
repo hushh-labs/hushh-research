@@ -10,6 +10,10 @@ export const CONSENT_LEGACY_PANEL_QUERY_KEY = "panel";
 export const CONSENT_LEGACY_PANEL_VALUE = "consents";
 export const CONSENT_TAB_QUERY_KEY = "tab";
 
+// Escaped control characters (\b backspace, \f form-feed, \v vertical-tab) that
+// must be stripped from incoming navigation paths to prevent path-leak bugs.
+const CONTROL_SEQUENCE_PATTERN = /[\b\f\v]/g;
+
 export type ConsentSheetView = "pending" | "active" | "previous";
 export type ConsentCenterManagerView = Extract<ConsentCenterView, "incoming" | "outgoing">;
 export type ConsentNavigationTarget =
@@ -226,7 +230,12 @@ export function resolveConsentNavigationTarget(
     from?: string;
   }
 ): ConsentNavigationTarget {
-  const nextHref = resolveConsentRequestHref(href, fallbackView, options);
+  const sanitizedHref =
+    typeof href === "string" && CONTROL_SEQUENCE_PATTERN.test(href)
+      ? href.replace(CONTROL_SEQUENCE_PATTERN, "")
+      : href;
+  const nextHref = resolveConsentRequestHref(sanitizedHref, fallbackView, options);
+
   if (isInternalAppHref(nextHref)) {
     const [pathname] = nextHref.split("?", 1);
     return {
