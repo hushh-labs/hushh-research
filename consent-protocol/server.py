@@ -31,6 +31,11 @@ def _track_startup_background_task(task: asyncio.Task[None]) -> None:
     _STARTUP_BACKGROUND_TASKS.add(task)
     task.add_done_callback(_STARTUP_BACKGROUND_TASKS.discard)
 
+# Strong reference for background startup tasks. asyncio only holds a weak
+# reference to tasks created via create_task; without this, the consent
+# listener task can be garbage collected mid-run before it ever raises.
+_background_startup_tasks: set[asyncio.Task] = set()
+
 
 def _env_truthy(name: str, fallback: str = "false") -> bool:
     raw = str(os.getenv(name, fallback)).strip().lower()
@@ -444,11 +449,11 @@ async def startup_pool_and_iam_cache() -> None:
 @app.on_event("startup")
 async def startup_consent_listener():
     """Start background task that LISTENs to consent_audit_new (NOTIFY)."""
-    import asyncio
-
     from api.consent_listener import run_consent_listener
 
-    asyncio.create_task(run_consent_listener())
+    task = asyncio.create_task(run_consent_listener(), name="consent-listener")
+    _background_startup_tasks.add(task)
+    task.add_done_callback(_background_startup_tasks.discard)
 
 
 @app.on_event("startup")
