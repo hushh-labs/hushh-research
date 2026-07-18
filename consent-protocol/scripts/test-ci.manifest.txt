@@ -19,3 +19,4 @@ tests/test_stream_path_query_bounds_cwe400.py
 tests/performance/test_market_cache_instrumentation.py
 tests/test_llm_operon_stream_error_leak.py
 tests/test_stream_agent_thinking_gemini_error_cwe209.py
+tests/test_sse_worker_exception_leak_cwe209.py

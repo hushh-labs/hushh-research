@@ -184,7 +184,7 @@ class KaiAnalyzeRunManager:
                 event_name="error",
                 payload={
                     "code": "ANALYZE_RUN_WORKER_FAILED",
-                    "message": str(exc),
+                    "message": "Analysis run failed due to an internal error.",
                     "ticker": run.ticker,
                     "run_id": run.run_id,
                 },
