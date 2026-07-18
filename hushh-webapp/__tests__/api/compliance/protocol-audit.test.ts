@@ -16,6 +16,7 @@
 
 import {
   createMockGET,
+  createMockPOST,
   expectError,
   mockFetch,
 } from "../../utils/test-helpers";
@@ -23,16 +24,15 @@ import {
 // Dynamic imports for route handlers (food/professional routes removed; use PKM)
 let vaultGetRoute: { GET: Function };
 let vaultCheckRoute: { GET: Function };
+let vaultStatusRoute: { GET: Function; POST: Function };
 
 beforeAll(async () => {
   vaultGetRoute = await import("../../../app/api/vault/get/route");
   vaultCheckRoute = await import("../../../app/api/vault/check/route");
+  vaultStatusRoute = await import("../../../app/api/vault/status/route");
 });
 
 describe("🔐 Protocol Compliance Audit", () => {
-  // =========================================================================
-  // VAULT WRITE ENDPOINTS - Require Consent Token
-  // =========================================================================
   // =========================================================================
   // IDENTITY ENDPOINTS - Require Firebase Auth
   // =========================================================================
@@ -64,6 +64,34 @@ describe("🔐 Protocol Compliance Audit", () => {
         await expectError(response, 401, "AUTH_REQUIRED");
 
         process.env.NEXT_PUBLIC_APP_ENV = "development";
+      });
+    });
+
+    describe("GET /api/vault/status", () => {
+      it("should reject without Authorization header", async () => {
+        const request = createMockGET("/api/vault/status", {
+          userId: "test_user",
+          consentToken: "test_consent",
+        });
+
+        const response = await vaultStatusRoute.GET(request);
+        await expectError(response, 401);
+        const data = await response.json();
+        expect(data.error).toContain("Missing Authorization header");
+      });
+    });
+
+    describe("POST /api/vault/status", () => {
+      it("should reject without Authorization header", async () => {
+        const request = createMockPOST("/api/vault/status", {
+          userId: "test_user",
+          consentToken: "test_consent",
+        });
+
+        const response = await vaultStatusRoute.POST(request);
+        await expectError(response, 401);
+        const data = await response.json();
+        expect(data.error).toContain("Missing Authorization header");
       });
     });
   });
