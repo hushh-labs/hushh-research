@@ -39,8 +39,8 @@ export function LocationHeader({
   return (
     <header className="flex items-start justify-between gap-3">
       <div className="min-w-0">
-        <h1 className={SCREEN_TITLE}>{title}</h1>
-        {subtitle ? <p className={cn(MUTED_TEXT, "mt-1")}>{subtitle}</p> : null}
+        <h1 className={cn(SCREEN_TITLE, "max-sm:hidden")}>{title}</h1>
+        {subtitle ? <p className={cn(MUTED_TEXT, "mt-1 max-sm:mt-0")}>{subtitle}</p> : null}
       </div>
       {trailing ? <div className="shrink-0">{trailing}</div> : null}
     </header>

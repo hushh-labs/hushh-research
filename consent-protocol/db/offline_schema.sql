@@ -443,7 +443,25 @@ CREATE TABLE IF NOT EXISTS "developer_apps" (
   "owner_email" TEXT,
   "owner_display_name" TEXT,
   "owner_provider_ids" TEXT NOT NULL,
-  "brand_image_url" TEXT
+  "brand_image_url" TEXT,
+  "kind" TEXT NOT NULL DEFAULT 'self_serve',
+  "crm_id" TEXT,
+  "allowed_capabilities" TEXT NOT NULL DEFAULT '[]',
+  "schema_profile" TEXT NOT NULL DEFAULT 'standard',
+  "oauth_client_credentials_enabled" INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS "developer_connector_keys" (
+  "app_id" TEXT NOT NULL,
+  "connector_key_id" TEXT NOT NULL,
+  "connector_public_key" TEXT NOT NULL,
+  "recipient_key_fingerprint" TEXT NOT NULL,
+  "connector_wrapping_alg" TEXT NOT NULL DEFAULT 'X25519-AES256-GCM',
+  "status" TEXT NOT NULL DEFAULT 'active',
+  "created_at" INTEGER NOT NULL,
+  "retired_at" INTEGER,
+  "revoked_at" INTEGER,
+  PRIMARY KEY ("app_id", "connector_key_id")
 );
 
 CREATE TABLE IF NOT EXISTS "developer_tokens" (
