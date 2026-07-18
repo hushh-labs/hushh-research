@@ -257,6 +257,7 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
             <Dots count={slides.length} activeIndex={selectedIndex} />
 
             <Button
+              type="button"
               size="lg"
               fullWidth
               className="mx-auto h-[52px] w-full max-w-[22rem] rounded-full bg-[#0066cc] text-[17px] font-medium tracking-normal !text-white shadow-none hover:bg-[#0071e3] dark:!text-white"
