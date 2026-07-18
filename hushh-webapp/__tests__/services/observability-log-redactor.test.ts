@@ -19,6 +19,30 @@ describe("observability log redactor", () => {
     expect(redacted).not.toContain("abcdefghijklmnopqrstuvwxyz123456");
   });
 
+  it("redacts whitespace-wrapped sensitive tokens without throwing or expanding the log line", () => {
+    const raw = [
+      "auth_header=Bearer abcdefghijklmnopqrstuvwxyz1234567890   ",
+      "owner_email=kai@example.com\r",
+      "vault_key=vault_whitespace_test_key_001\n",
+      "session=abcdefghijklmnopqrstuvwxyz1234567890abcdef      ",
+    ].join(" ");
+
+    expect(() => redactObservabilityLog(raw)).not.toThrow();
+
+    const redacted = redactObservabilityLog(raw);
+
+    expect(redacted).toContain("Bearer [REDACTED_TOKEN]");
+    expect(redacted).toContain("[REDACTED_EMAIL]");
+    expect(redacted).toContain("[REDACTED_VAULT_KEY]");
+    expect(redacted).toContain("[REDACTED_SECRET]");
+    expect(redacted).not.toContain("abcdefghijklmnopqrstuvwxyz1234567890");
+    expect(redacted).not.toContain("kai@example.com");
+    expect(redacted).not.toContain("vault_whitespace_test_key_001");
+    expect(redacted).toContain("\r");
+    expect(redacted).toContain("\n");
+    expect(redacted.length).toBeLessThan(raw.length);
+  });
+
   it("does not coerce non-string diagnostic values", () => {
     const value = { droppedKeys: ["user_id"] };
 
