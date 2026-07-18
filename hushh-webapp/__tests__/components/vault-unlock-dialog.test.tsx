@@ -32,4 +32,19 @@ describe("VaultUnlockDialog", () => {
 
     expect(onOpenChange).not.toHaveBeenCalled();
   });
+
+  it("renders VaultFlow inside the open dialog", () => {
+    render(
+      <VaultUnlockDialog
+        user={user}
+        open
+        onSuccess={vi.fn()}
+        title="Unlock vault"
+        description="Enter your passphrase."
+      />,
+    );
+
+    expect(screen.getByTestId("vault-flow")).toBeTruthy();
+  });
+
 });
