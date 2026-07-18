@@ -7,12 +7,24 @@ import {
   normalizeInternalAppHref,
   resolveConsentRequestHref,
 } from "@/lib/consent/consent-sheet-route";
+import { ROUTES } from "@/lib/navigation/routes";
 
 describe("consent sheet route helpers", () => {
   it("keeps internal relative app routes relative", () => {
     expect(normalizeInternalAppHref("/consents?tab=pending")).toBe(
       "/consents?tab=pending",
     );
+  });
+
+  it("preserves non-ASCII consent subpath routes as internal SPA navigation targets", () => {
+    const unicodeInputPath = `${ROUTES.CONSENTS}/locale/déjà-vu/callback`;
+
+    expect(normalizeInternalAppHref(unicodeInputPath)).toBe(unicodeInputPath);
+    expect(resolveConsentNavigationTarget(unicodeInputPath)).toEqual({
+      kind: "internal",
+      href: unicodeInputPath,
+      pathname: unicodeInputPath,
+    });
   });
 
   it("normalizes absolute localhost consent links to relative app routes", () => {
