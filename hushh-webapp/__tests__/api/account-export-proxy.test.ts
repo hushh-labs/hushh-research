@@ -26,10 +26,12 @@ function request(headers: Record<string, string> = {}) {
 describe("GET /api/account/export proxy", () => {
   it("does not expose raw backend error text", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response("raw database failure with table names", { status: 500 })
+      new Response("raw database failure with table names", { status: 500 }),
     );
 
-    const response = await route.GET(request({ Authorization: "Bearer HCT:test" }));
+    const response = await route.GET(
+      request({ Authorization: "Bearer HCT:test" }),
+    );
     const payload = await response.json();
 
     expect(response.status).toBe(500);
@@ -37,12 +39,26 @@ describe("GET /api/account/export proxy", () => {
   });
 
   it("returns a stable error for invalid backend success payloads", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("not json", { status: 200 }));
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("not json", { status: 200 }),
+    );
 
-    const response = await route.GET(request({ Authorization: "Bearer HCT:test" }));
+    const response = await route.GET(
+      request({ Authorization: "Bearer HCT:test" }),
+    );
     const payload = await response.json();
 
     expect(response.status).toBe(502);
     expect(payload).toEqual({ error: "Invalid response from backend" });
+  });
+
+  it("rejects requests without authorization", async () => {
+    const response = await route.GET(request());
+    const payload = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(payload).toEqual({
+      error: "Missing Authorization header",
+    });
   });
 });
