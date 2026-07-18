@@ -30,7 +30,6 @@ import pytest
 from hushh_mcp.consent.token import issue_token, validate_token
 from hushh_mcp.constants import CONSENT_TOKEN_PREFIX, ConsentScope
 
-
 # Multi-byte UTF-8 samples spanning several scripts and the emoji plane.
 UTF8_SAMPLES = [
     ("emoji", "user_\U0001f680\U0001f512"),        # 🚀🔒 (4-byte astral)
