@@ -78,7 +78,13 @@ export const ROUTE_ID_VALUES = [
 export type RouteId = (typeof ROUTE_ID_VALUES)[number];
 
 export function resolveRouteId(pathname: string): RouteId {
-  if (pathname === ROUTES.HOME || pathname === ROUTES.ONE_HOME) return "one_dashboard";
+  if (
+    pathname === ROUTES.HOME ||
+    pathname === ROUTES.ONE_HOME ||
+    pathname === ROUTES.WELCOME
+  ) {
+    return "one_dashboard";
+  }
   if (pathname === ROUTES.GETTING_STARTED) return "getting_started";
   if (pathname === ROUTES.ONE_SETUP || pathname.startsWith(`${ROUTES.ONE_SETUP}/`)) {
     return "one_setup";
@@ -176,6 +182,7 @@ export function resolveRouteId(pathname: string): RouteId {
   // only long enough for redirect telemetry to preserve its route ID.
   if (
     pathname === KAI_MARKET_PATH ||
+    pathname === ROUTES.LEGACY_ONE_KAI_MARKET ||
     pathname === ROUTES.LEGACY_KAI_HOME
   ) {
     return "kai_home";
