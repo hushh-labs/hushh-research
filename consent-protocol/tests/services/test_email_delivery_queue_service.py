@@ -60,3 +60,48 @@ async def test_email_delivery_queue_runs_failure_callback():
         assert callback_errors == ["boom"]
     finally:
         await service.shutdown()
+
+@pytest.mark.asyncio
+async def test_failure_callback_failure_does_not_stop_worker():
+    service = EmailDeliveryQueueService()
+
+    calls: list[str] = []
+    completed: list[str] = []
+
+    def send_job_1():
+        calls.append("job1")
+        raise RuntimeError("boom")
+
+    def send_job_2():
+        calls.append("job2")
+        return {"message_id": "msg2"}
+
+    async def failing_failure_callback(_exc):
+        raise RuntimeError("failure callback failed")
+
+    async def success_callback(result):
+        completed.append(result["message_id"])
+
+    try:
+        ack1 = await service.enqueue(
+            kind="invite_email",
+            send_callable=send_job_1,
+            on_failure=failing_failure_callback,
+        )
+
+        ack2 = await service.enqueue(
+            kind="support_message",
+            send_callable=send_job_2,
+            on_success=success_callback,
+        )
+
+        assert ack1["delivery_status"] == "queued"
+        assert ack2["delivery_status"] == "queued"
+
+        await service.wait_for_idle()
+
+        assert calls == ["job1", "job2"]
+        assert completed == ["msg2"]
+
+    finally:
+        await service.shutdown()
