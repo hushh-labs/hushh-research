@@ -130,8 +130,7 @@
       "101_backfill_crm_operation_endpoints.sql",
       "102_crm_operation_response_contract.sql",
       "103_demo_crm_response_contracts.sql",
-      "104_crm_schema_mapping_cache.sql",
-      "105_agentforce_mcp_compatibility.sql"
+      "104_crm_schema_mapping_cache.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -160,7 +159,8 @@
       "088_consent_export_envelope_v2.sql",
       "090_public_profile_projection_foundation.sql",
       "091_public_profile_projection_cutover.sql",
-      "099_developer_oauth_pkce.sql"
+      "099_developer_oauth_pkce.sql",
+      "105_agentforce_mcp_compatibility.sql"
     ]
   }
 }

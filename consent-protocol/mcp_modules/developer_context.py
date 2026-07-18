@@ -9,6 +9,7 @@ from hushh_mcp.services.developer_registry_service import (
     DeveloperRegistryService,
     visible_tool_names_for_groups,
 )
+from mcp_modules.flat_contract import FLAT_PROFILE, get_flat_tool_names
 
 _current_developer_principal: ContextVar[DeveloperPrincipal | None] = ContextVar(
     "hushh_mcp_developer_principal",
@@ -55,7 +56,18 @@ def get_current_visible_tool_names() -> tuple[str, ...]:
     principal = get_current_developer_principal()
     if principal is None:
         return visible_tool_names_for_groups(DEFAULT_PUBLIC_TOOL_GROUPS)
-    return visible_tool_names_for_groups(principal.allowed_tool_groups)
+    visible = visible_tool_names_for_groups(principal.allowed_tool_groups)
+    if get_current_schema_profile() == FLAT_PROFILE:
+        allowed = set(get_flat_tool_names())
+        return tuple(name for name in visible if name in allowed)
+    return visible
+
+
+def get_current_schema_profile() -> str:
+    principal = get_current_developer_principal()
+    if principal is None:
+        return "standard"
+    return FLAT_PROFILE if principal.schema_profile == FLAT_PROFILE else "standard"
 
 
 def is_tool_allowed(tool_name: str) -> bool:

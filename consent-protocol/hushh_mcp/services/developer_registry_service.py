@@ -747,7 +747,9 @@ class DeveloperRegistryService:
 
         active = self.get_active_connector_key(app_id=app_id)
         if active and not retire_existing:
-            raise ValueError("an active connector key already exists; retire it explicitly before rotation")
+            raise ValueError(
+                "an active connector key already exists; retire it explicitly before rotation"
+            )
         now = self._now_ms()
         if active:
             self._db.execute_raw(
@@ -1325,6 +1327,8 @@ class DeveloperRegistryService:
                    apps.contact_email,
                    apps.kind,
                    apps.crm_id,
+                   apps.schema_profile,
+                   apps.oauth_client_credentials_enabled,
                    tokens.id AS token_id
             FROM developer_tokens AS tokens
             INNER JOIN developer_apps AS apps

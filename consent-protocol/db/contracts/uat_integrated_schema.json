@@ -734,7 +734,9 @@
       "created_at",
       "updated_at",
       "kind",
-      "crm_id"
+      "crm_id",
+      "schema_profile",
+      "oauth_client_credentials_enabled"
     ],
     "developer_tokens": [
       "id",
@@ -747,6 +749,42 @@
       "created_at",
       "revoked_at",
       "last_used_at"
+    ],
+    "developer_oauth_clients": [
+      "app_id",
+      "client_id",
+      "client_secret_hash",
+      "client_secret_prefix",
+      "redirect_uris",
+      "created_at",
+      "secret_rotated_at",
+      "revoked_at"
+    ],
+    "developer_oauth_tokens": [
+      "id",
+      "token_hash",
+      "token_prefix",
+      "token_kind",
+      "app_id",
+      "subject_firebase_uid",
+      "authorization_id",
+      "scopes",
+      "created_at",
+      "expires_at",
+      "revoked_at",
+      "last_used_at",
+      "grant_type"
+    ],
+    "developer_connector_keys": [
+      "app_id",
+      "connector_key_id",
+      "connector_public_key",
+      "recipient_key_fingerprint",
+      "connector_wrapping_alg",
+      "status",
+      "created_at",
+      "retired_at",
+      "revoked_at"
     ],
     "enterprise_crm_registry": [
       "crm_id",

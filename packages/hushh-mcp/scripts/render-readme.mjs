@@ -17,6 +17,15 @@ const mcpContractPath = path.resolve(
   "tools",
   "public_contract.json",
 );
+const webPublicDocsPath = path.resolve(
+  packageDir,
+  "..",
+  "..",
+  "hushh-webapp",
+  "lib",
+  "developers",
+  "public-docs.json",
+);
 
 const contract = JSON.parse(fs.readFileSync(contractPath, "utf8"));
 const mcpContract = JSON.parse(fs.readFileSync(mcpContractPath, "utf8"));
@@ -106,6 +115,15 @@ Use this when the host expects a local stdio MCP process.
 \`\`\`bash
 npx -y ${contract.packageName} --help
 \`\`\`
+
+### Authenticated schema profiles
+
+The same \`/mcp/\` endpoint has one consent lifecycle and an app-configured catalog projection:
+
+- \`standard\` is the default. It preserves this package's five-tool v0.3 catalog, Codex remote bearer setup, Codex stdio bridge, Claude OAuth PKCE setup, and existing result shapes.
+- \`flat\` is provisioned only for constrained hosts. It exposes the four core lifecycle tools with shallow, described schemas and ciphertext-only export fields. It is not a second endpoint or a plaintext adapter.
+
+OAuth client credentials are issued only to explicitly provisioned flat partner apps. They authenticate the connector, never the user; every information request still follows the same consent and encrypted-export lifecycle. Direct Agentforce registration remains an environment gate because host support for user-specific MCP responses must be verified before production use.
 
 Minimal env for stdio hosts:
 
@@ -223,7 +241,11 @@ python mcp_server.py
 
 if (process.argv.includes("--check")) {
   const existing = fs.readFileSync(readmePath, "utf8");
-  if (existing !== readme) {
+  const renderedWebPublicDocs = `${JSON.stringify(contract, null, 2)}\n`;
+  const existingWebPublicDocs = fs.existsSync(webPublicDocsPath)
+    ? fs.readFileSync(webPublicDocsPath, "utf8")
+    : "";
+  if (existing !== readme || existingWebPublicDocs !== renderedWebPublicDocs) {
     console.error("README.md is out of date. Run: node ./scripts/render-readme.mjs");
     process.exit(1);
   }
@@ -231,3 +253,4 @@ if (process.argv.includes("--check")) {
 }
 
 fs.writeFileSync(readmePath, readme);
+fs.writeFileSync(webPublicDocsPath, `${JSON.stringify(contract, null, 2)}\n`);

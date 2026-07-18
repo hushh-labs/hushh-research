@@ -56,12 +56,14 @@ def test_every_public_catalog_uses_core_plus_campaign_compatibility_contract() -
 
     monorepo_root = _monorepo_root()
     if monorepo_root is not None:
-        for public_docs_path in (
-            monorepo_root / "packages" / "hushh-mcp" / "public-docs.json",
-            monorepo_root / "hushh-webapp" / "lib" / "developers" / "public-docs.json",
-        ):
-            public_docs = json.loads(public_docs_path.read_text())
-            assert tuple(public_docs["publicTools"]) == EXPECTED_TOOLS
+        package_public_docs = json.loads(
+            (monorepo_root / "packages" / "hushh-mcp" / "public-docs.json").read_text()
+        )
+        web_public_docs = json.loads(
+            (monorepo_root / "hushh-webapp" / "lib" / "developers" / "public-docs.json").read_text()
+        )
+        assert package_public_docs == web_public_docs
+        assert tuple(package_public_docs["publicTools"]) == EXPECTED_TOOLS
 
 
 def test_non_public_entitlement_groups_keep_definitions_and_handlers() -> None:

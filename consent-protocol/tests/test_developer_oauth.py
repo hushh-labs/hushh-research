@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -83,6 +84,15 @@ class _OAuthService:
         return {
             "access_token": "hdo_at_new",
             "refresh_token": "hdo_rt_new",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "scope": "mcp:tools",
+        }
+
+    def issue_client_credentials(self, **kwargs):
+        assert kwargs["scope"] == "mcp:tools"
+        return {
+            "access_token": "hdo_at_service",
             "token_type": "Bearer",
             "expires_in": 3600,
             "scope": "mcp:tools",
@@ -194,6 +204,65 @@ def test_authorization_approval_and_pkce_exchange_contract(monkeypatch):
     assert good.status_code == 200
     assert good.json()["token_type"] == "Bearer"
     assert _OAuthService.exchanged is not None
+
+
+def test_client_credentials_is_advertised_and_returns_no_refresh_token(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "DeveloperOAuthService", _OAuthService)
+    client = TestClient(_app())
+    metadata = client.get("/.well-known/oauth-authorization-server")
+    assert metadata.status_code == 200
+    assert "client_credentials" in metadata.json()["grant_types_supported"]
+    response = client.post(
+        "/oauth/token",
+        data={
+            "grant_type": "client_credentials",
+            "client_id": "hco_demo_client",
+            "client_secret": "secret",
+            "scope": "mcp:tools",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["access_token"] == "hdo_at_service"
+    assert "refresh_token" not in response.json()
+
+
+def test_client_credentials_requires_explicit_flat_partner_configuration():
+    service = DeveloperOAuthService.__new__(DeveloperOAuthService)
+    service._registry = MagicMock()  # type: ignore[attr-defined]
+    service._issue_tokens = MagicMock(  # type: ignore[method-assign]
+        return_value={"access_token": "hdo_at_service", "token_type": "Bearer"}
+    )
+    service._audit = MagicMock()  # type: ignore[method-assign]
+    service._registry.get_app.return_value = {
+        "status": "active",
+        "kind": "partner_crm",
+        "schema_profile": "standard",
+        "oauth_client_credentials_enabled": True,
+    }
+    with pytest.raises(OAuthValidationError) as blocked:
+        service.issue_client_credentials(client=_client(), scope="mcp:tools")
+    assert blocked.value.code == "unauthorized_client"
+
+    service._registry.get_app.return_value = {
+        "status": "active",
+        "kind": "partner_crm",
+        "schema_profile": "flat",
+        "oauth_client_credentials_enabled": True,
+    }
+    assert service.issue_client_credentials(client=_client(), scope="mcp:tools") == {
+        "access_token": "hdo_at_service",
+        "token_type": "Bearer",
+    }
+    service._issue_tokens.assert_called_once_with(
+        app_id="app_demo",
+        subject=None,
+        authorization_id=None,
+        scopes=("mcp:tools",),
+        include_refresh_token=False,
+        grant_type="client_credentials",
+    )
 
 
 def test_refresh_replay_and_revoke_contract(monkeypatch):

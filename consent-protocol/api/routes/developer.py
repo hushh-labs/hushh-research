@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import hmac
 import inspect
 import json
 import logging
@@ -512,6 +513,61 @@ def _validate_connector_public_key(connector_public_key: str) -> str:
                 "message": "connector_public_key must be one base64-encoded 32-byte X25519 key.",
             },
         ) from exc
+
+
+def _resolve_registered_connector_key(
+    payload: DeveloperConsentRequest,
+    *,
+    principal: DeveloperPrincipal,
+) -> DeveloperConsentRequest:
+    """Resolve or verify an app-owned public encryption key before consent.
+
+    A registered binding removes repeated key material from constrained-host
+    calls. Legacy callers can still provide the existing three fields, but a
+    registered app may only use the exact registered bundle.
+    """
+
+    registered = DeveloperRegistryService().get_active_connector_key(app_id=principal.app_id)
+    if not registered:
+        return payload
+
+    supplied = (
+        payload.connector_public_key,
+        payload.connector_key_id,
+        payload.connector_wrapping_alg,
+    )
+    supplied_count = sum(value is not None and str(value).strip() != "" for value in supplied)
+    if supplied_count == 0:
+        return payload.model_copy(
+            update={
+                "connector_public_key": str(registered["connector_public_key"]),
+                "connector_key_id": str(registered["connector_key_id"]),
+                "connector_wrapping_alg": str(registered["connector_wrapping_alg"]),
+            }
+        )
+    if supplied_count != 3:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error_code": "CONNECTOR_KEY_REQUIRED",
+                "message": "Provide all connector key fields or use the registered app key.",
+            },
+        )
+    expected = (
+        str(registered["connector_public_key"]),
+        str(registered["connector_key_id"]),
+        str(registered["connector_wrapping_alg"]),
+    )
+    actual = tuple(str(value).strip() for value in supplied)
+    if any(not hmac.compare_digest(value, expected[index]) for index, value in enumerate(actual)):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error_code": "CONNECTOR_KEY_REBIND_REQUIRED",
+                "message": "The supplied connector key does not match this developer app binding.",
+            },
+        )
+    return payload
 
 
 def _request_url_from_metadata(
@@ -1722,6 +1778,7 @@ async def _request_consent_impl(
     connector_wrapping_alg: str | None = None
     recipient_key_fingerprint: str | None = None
     if is_information_scope:
+        payload = _resolve_registered_connector_key(payload, principal=principal)
         if not all(
             (
                 payload.connector_public_key,
@@ -1793,7 +1850,13 @@ async def _request_consent_impl(
             (export_metadata or {}).get("recipient_key_fingerprint") or ""
         ).strip()
         export_policy = str((export_metadata or {}).get("refresh_policy") or "snapshot").strip()
+        export_key_id = str((export_metadata or {}).get("connector_key_id") or "").strip()
+        export_algorithm = str((export_metadata or {}).get("connector_wrapping_alg") or "").strip()
         if export_fingerprint and export_fingerprint != recipient_key_fingerprint:
+            active = None
+        elif export_key_id and export_key_id != str(payload.connector_key_id or ""):
+            active = None
+        elif export_algorithm and export_algorithm != connector_wrapping_alg:
             active = None
         elif export_policy != payload.refresh_policy:
             active = None
@@ -2708,7 +2771,7 @@ async def oauth_authorization_server_metadata(request: Request):
         "token_endpoint": f"{origin}/oauth/token",
         "revocation_endpoint": f"{origin}/oauth/revoke",
         "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "grant_types_supported": ["authorization_code", "refresh_token", "client_credentials"],
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
         "scopes_supported": ["mcp:tools"],
@@ -2817,8 +2880,14 @@ async def oauth_token(request: Request):
             return DeveloperOAuthService().refresh(
                 client=client, refresh_token=str(form.get("refresh_token") or "")
             )
+        if grant_type == "client_credentials":
+            return DeveloperOAuthService().issue_client_credentials(
+                client=client,
+                scope=str(form.get("scope") or ""),
+            )
         raise OAuthValidationError(
-            "unsupported_grant_type", "Supported grants are authorization_code and refresh_token."
+            "unsupported_grant_type",
+            "Supported grants are authorization_code, refresh_token, and client_credentials.",
         )
     except OAuthValidationError as error:
         raise _oauth_error(

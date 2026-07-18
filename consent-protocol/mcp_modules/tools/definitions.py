@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from mcp.types import Tool
 
+from mcp_modules.flat_contract import FLAT_PROFILE, get_flat_contract
 from mcp_modules.public_contract import get_public_contract
 
 
@@ -123,8 +124,24 @@ def _private_tool_definitions() -> list[Tool]:
     ]
 
 
-def get_tool_definitions(allowed_tool_names: set[str] | None = None) -> list[Tool]:
+def get_tool_definitions(
+    allowed_tool_names: set[str] | None = None,
+    *,
+    schema_profile: str = "standard",
+) -> list[Tool]:
     """Return the default public contract or an explicitly entitled subset."""
+
+    if schema_profile == FLAT_PROFILE:
+        allowed = (
+            allowed_tool_names
+            if allowed_tool_names is not None
+            else {str(tool["name"]) for tool in get_flat_contract()["tools"]}
+        )
+        return [
+            Tool.model_validate(definition)
+            for definition in get_flat_contract()["tools"]
+            if str(definition["name"]) in allowed
+        ]
 
     tools: list[Tool] = []
     for definition in get_public_contract()["tools"]:

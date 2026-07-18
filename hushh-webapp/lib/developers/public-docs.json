@@ -29,15 +29,15 @@
       "id": "generic-remote",
       "title": "Generic mcpServers JSON",
       "whenToUse": "your host supports HTTP MCP directly.",
-      "secretNote": "The API requires 'Authorization: Bearer <token>' — query-string tokens are rejected. Keep the token machine-local and never commit host config with inline credentials.",
-      "template": "{\n  \"mcpServers\": {\n    \"hushh-consent\": {\n      \"url\": \"{{API_ORIGIN}}/mcp/\",\n      \"headers\": {\n        \"Authorization\": \"Bearer <developer-token>\"\n      }\n    }\n  }\n}"
+      "secretNote": "Keep the developer token machine-local and send it only in the Authorization header.",
+      "template": "{\n  \"mcpServers\": {\n    \"hushh-consent\": {\n      \"url\": \"{{REMOTE_URL}}\",\n      \"headers\": {\n        \"Authorization\": \"Bearer <developer-token>\"\n      }\n    }\n  }\n}"
     },
     {
       "id": "codex-remote",
       "title": "Codex remote setup",
       "whenToUse": "Codex should connect to the hosted UAT MCP endpoint directly.",
-      "secretNote": "Codex's CLI add flow does not take a header flag yet, so add the bearer token to ~/.codex/config.toml under the new [mcp_servers.hushh_consent] table after running this command.",
-      "template": "codex mcp add hushh_consent --url \"{{API_ORIGIN}}/mcp/\"\n\n# Then edit ~/.codex/config.toml and add under [mcp_servers.hushh_consent]:\n# bearer_token_env_var = \"{{TOKEN_ENV_VAR}}\""
+      "secretNote": "Configure the Authorization bearer header in the host secret store; never put the token in the URL.",
+      "template": "codex mcp add hushh_consent --url \"{{REMOTE_URL}}\" --bearer-token-env-var HUSHH_DEVELOPER_TOKEN"
     },
     {
       "id": "codex-stdio",
@@ -54,25 +54,25 @@
       "template": "{\n  \"mcpServers\": {\n    \"hushh-consent\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"{{PACKAGE_NAME}}\"],\n      \"env\": {\n        \"CONSENT_API_URL\": \"{{API_ORIGIN}}\",\n        \"{{TOKEN_ENV_VAR}}\": \"<developer-token>\"\n      }\n    }\n  }\n}"
     },
     {
-      "id": "claude-desktop",
-      "title": "Claude Desktop stdio",
-      "whenToUse": "Claude Desktop is your MCP host and you need a local stdio bridge.",
-      "secretNote": "Claude Desktop stores this config locally. Do not commit the token value.",
-      "template": "{\n  \"mcpServers\": {\n    \"hushh-consent\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"{{PACKAGE_NAME}}\"],\n      \"env\": {\n        \"CONSENT_API_URL\": \"{{API_ORIGIN}}\",\n        \"{{TOKEN_ENV_VAR}}\": \"<developer-token>\"\n      }\n    }\n  }\n}"
+      "id": "claude-remote",
+      "title": "Claude remote custom connector",
+      "whenToUse": "Claude should use the same hosted Streamable HTTP endpoint used by MuleSoft and other remote hosts.",
+      "secretNote": "Add the public HTTPS URL through Claude Customize > Connectors, not claude_desktop_config.json. Claude remote connectors use authorization code with S256 PKCE; create a developer OAuth client and register Claude's exact callback URI first. OAuth does not replace scoped consent.",
+      "template": "{{REMOTE_URL}}"
     },
     {
       "id": "cursor-vscode",
       "title": "Cursor / VS Code remote JSON",
-      "whenToUse": "your editor host understands mcp.json and can call remote MCP directly.",
-      "secretNote": "VS Code's HTTP server type accepts a 'headers' map alongside 'url'. Keep the token machine-local; the API rejects query-string tokens.",
-      "template": "{\n  \"servers\": {\n    \"hushh-consent-remote\": {\n      \"type\": \"http\",\n      \"url\": \"{{API_ORIGIN}}/mcp/\",\n      \"headers\": {\n        \"Authorization\": \"Bearer <developer-token>\"\n      }\n    }\n  }\n}"
+      "whenToUse": "your editor host understands mcpServers JSON and can call remote MCP directly.",
+      "secretNote": "Keep the bearer token in the host secret store; query-string authentication is rejected.",
+      "template": "{\n  \"mcpServers\": {\n    \"hushh-consent-remote\": {\n      \"url\": \"{{REMOTE_URL}}\",\n      \"headers\": {\n        \"Authorization\": \"Bearer <developer-token>\"\n      }\n    }\n  }\n}"
     },
     {
       "id": "raw-remote-url",
       "title": "Raw remote MCP URL",
-      "whenToUse": "your host only asks for the MCP endpoint URL and lets you set a custom header separately.",
-      "secretNote": "Use the exact slash-safe mount shape and attach 'Authorization: Bearer <developer-token>' as a request header, not a query parameter.",
-      "template": "{{API_ORIGIN}}/mcp/"
+      "whenToUse": "your host only asks for the MCP endpoint URL.",
+      "secretNote": "Use the exact slash-safe mount shape and configure Authorization: Bearer <developer-token> separately.",
+      "template": "{{REMOTE_URL}}"
     }
   ]
 }

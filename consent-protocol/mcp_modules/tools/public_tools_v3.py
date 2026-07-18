@@ -16,7 +16,8 @@ from hushh_mcp.consent.export_envelope import ConsentExportEnvelopeSubmissionV2
 from hushh_mcp.consent.scope_helpers import get_scope_display_metadata
 from hushh_mcp.services.local_mcp_keypair_service import get_or_create_local_connector_keypair
 from mcp_modules.config import FASTAPI_URL
-from mcp_modules.developer_context import get_developer_api_headers
+from mcp_modules.developer_context import get_current_schema_profile, get_developer_api_headers
+from mcp_modules.flat_contract import FLAT_PROFILE
 from mcp_modules.transport_context import is_local_stdio_transport
 
 from .data_tools import _try_build_local_decrypted_response
@@ -315,20 +316,24 @@ async def handle_request_consent(args: dict) -> ToolResult:
         )
 
     scope = str(args.get("scope") or "").strip()
+    is_flat_profile = get_current_schema_profile() == FLAT_PROFILE
     connector_public_key = str(args.get("connector_public_key") or "").strip()
     connector_key_id = str(args.get("connector_key_id") or "").strip()
     connector_wrapping_alg = str(args.get("connector_wrapping_alg") or "").strip()
     if (
         scope.startswith("attr.")
         and is_local_stdio_transport()
+        and not is_flat_profile
         and not all((connector_public_key, connector_key_id, connector_wrapping_alg))
     ):
         keypair = get_or_create_local_connector_keypair()
         connector_public_key = keypair.public_key_b64
         connector_key_id = keypair.key_id
         connector_wrapping_alg = keypair.wrapping_alg
-    if scope.startswith("attr.") and not all(
-        (connector_public_key, connector_key_id, connector_wrapping_alg)
+    if (
+        scope.startswith("attr.")
+        and not is_flat_profile
+        and not all((connector_public_key, connector_key_id, connector_wrapping_alg))
     ):
         return _error(
             "CONNECTOR_KEY_REQUIRED",
@@ -351,7 +356,9 @@ async def handle_request_consent(args: dict) -> ToolResult:
         ),
         **({"country": str(args.get("country")).strip()} if args.get("country") else {}),
     }
-    if scope.startswith("attr."):
+    if scope.startswith("attr.") and all(
+        (connector_public_key, connector_key_id, connector_wrapping_alg)
+    ):
         body.update(
             {
                 "connector_public_key": connector_public_key,
@@ -498,7 +505,7 @@ async def handle_get_encrypted_scoped_export(args: dict) -> ToolResult:
         "export_revision": max(1, int(data.get("export_revision") or 1)),
     }
 
-    if is_local_stdio_transport():
+    if is_local_stdio_transport() and get_current_schema_profile() != FLAT_PROFILE:
         decrypted, local_error = await _try_build_local_decrypted_response(
             {},
             export_payload=data,
