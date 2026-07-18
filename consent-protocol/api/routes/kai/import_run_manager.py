@@ -169,7 +169,7 @@ class KaiPortfolioImportRunManager:
                 event_name="error",
                 payload={
                     "code": "IMPORT_RUN_WORKER_FAILED",
-                    "message": str(exc),
+                    "message": "Import run worker failed.",
                     "run_id": run.run_id,
                 },
             )
