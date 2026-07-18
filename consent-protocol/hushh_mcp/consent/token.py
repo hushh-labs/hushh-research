@@ -1,4 +1,49 @@
 # hushh_mcp/consent/token.py
+"""
+Consent Token Management
+
+Provides cryptographic token generation, validation, and revocation for consent-based access.
+
+KEY INVARIANTS:
+    1. Tokens are HMAC-signed to prevent tampering
+    2. Scope strings are preserved exactly to maintain domain isolation
+    3. Tokens include timestamps for expiry validation
+    4. Revoked tokens are tracked in-memory for immediate effect
+    5. Commercial flag allows gating monetized operations
+
+TOKEN FORMAT:
+    {PREFIX}:{BASE64_PAYLOAD}.{SIGNATURE}
+    where PAYLOAD contains: user_id|agent_id|scope|issued_at|expires_at|[commercial]
+
+CRITICAL SECURITY:
+    - scope_str is preserved from token issuance to validation
+    - scope_matches() validates that attr.financial.* ONLY matches attr.financial.*
+    - No scope escalation: attr.financial.* cannot access attr.medical.*
+    - Master scope (vault.owner) bypasses all checks (used only for user-authenticated sessions)
+
+COMMERCIAL FLAG (Issue #30):
+    - Distinguishes user-granted vs. monetized agent access
+    - Tokens issued without flag are non-commercial by default (backward compatible)
+    - Flag is part of HMAC-signed payload, cannot be tampered with
+
+Example Usage:
+    # Issue a token
+    token = issue_token(
+        user_id="user123",
+        agent_id="agent_kai",
+        scope=ConsentScope.PKM_READ,
+        expires_in_ms=24 * 60 * 60 * 1000  # 24 hours
+    )
+
+    # Validate a token
+    valid, error, token_obj = validate_token(
+        token_str=token.token,
+        expected_scope=ConsentScope.PKM_READ
+    )
+
+    # Revoke a token (immediate effect)
+    revoke_token(token.token)
+"""
 
 import base64
 import binascii
@@ -174,8 +219,23 @@ def issue_token(
 def _scope_str_to_enum(scope_str: str) -> ConsentScope:
     """
     Map a scope string to its ConsentScope enum equivalent.
-    Dynamic scopes (attr.*) map to PKM_READ.
-    Unknown static scopes are rejected instead of silently escalating to PKM_READ.
+
+    Handles:
+    - Static scopes (e.g., "pkm.read", "vault.owner")
+    - Dynamic attr.* scopes (e.g., "attr.financial.holdings")
+    - Unknown scopes raise ValueError
+
+    Dynamic scopes (attr.*) are mapped to PKM_READ for type alignment,
+    but the exact scope_str is preserved in the token for isolation.
+
+    Args:
+        scope_str: The scope string to map
+
+    Returns:
+        ConsentScope enum value
+
+    Raises:
+        ValueError: If the scope is unknown
     """
     try:
         return ConsentScope(scope_str)
@@ -409,10 +469,38 @@ async def validate_token_with_db(
 
 
 def revoke_token(token_str: str) -> None:
+    """
+    Revoke a token immediately (in-memory).
+
+    Revoked tokens are added to a module-level set for fast rejection
+    on subsequent validation calls. This provides immediate effect across
+    all requests in a single process.
+
+    For cross-instance consistency, callers should also update the
+    consent_audit table via ConsentDBService.insert_event(..., action="REVOKED").
+
+    Args:
+        token_str: The token string to revoke
+
+    Returns:
+        None
+    """
     _revoked_tokens.add(token_str)
 
 
 def is_token_revoked(token_str: str) -> bool:
+    """
+    Check if a token is in the in-memory revocation set.
+
+    This is a fast O(1) check. For critical operations, use
+    validate_token_with_db() for cross-instance consistency.
+
+    Args:
+        token_str: The token string to check
+
+    Returns:
+        True if the token has been revoked, False otherwise
+    """
     return token_str in _revoked_tokens
 
 
@@ -425,4 +513,17 @@ def _token_fingerprint(token_str: str) -> str:
 
 
 def _sign(input_string: str) -> str:
+    """
+    Compute HMAC-SHA256 signature for a token payload.
+
+    Uses APP_SIGNING_KEY from configuration. This signature is part of the
+    token and prevents tampering: if any part of the payload is modified,
+    the signature will no longer match.
+
+    Args:
+        input_string: The payload string to sign (user_id|agent_id|scope|...)
+
+    Returns:
+        Hex-encoded HMAC-SHA256 signature
+    """
     return hmac.new(APP_SIGNING_KEY.encode(), input_string.encode(), hashlib.sha256).hexdigest()
