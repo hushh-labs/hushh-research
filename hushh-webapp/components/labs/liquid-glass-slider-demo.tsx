@@ -341,7 +341,7 @@ function LiquidGlassSlider({
         className={
           disabled
             ? `absolute ${CONTROL_RESET_CLASS} cursor-not-allowed`
-            : `absolute ${CONTROL_RESET_CLASS} cursor-pointer transition-transform duration-150 ease-out`
+            : `absolute ${CONTROL_RESET_CLASS} cursor-pointer transition-transform duration-150 ease-out will-change-transform`
         }
         style={{
           height: dimensions.thumbHeight,
