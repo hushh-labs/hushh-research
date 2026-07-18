@@ -1,5 +1,5 @@
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
+import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 import { DebateRunManagerService } from "@/lib/services/debate-run-manager";
 import type { Persona } from "@/lib/services/ria-service";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";

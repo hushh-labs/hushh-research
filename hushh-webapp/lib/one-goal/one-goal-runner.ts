@@ -1,7 +1,7 @@
 "use client";
 
 import type { AgentActionRuntimeResult } from "@/lib/agent/agent-action-runtime";
-import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
+import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 import {
   DebateRunManagerService,
   type DebateRunTask,

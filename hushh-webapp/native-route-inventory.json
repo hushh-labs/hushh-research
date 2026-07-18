@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-06-17",
-  "total_routes": 93,
-  "native_required_routes": 86,
-  "excluded_routes": 7,
+  "total_routes": 96,
+  "native_required_routes": 88,
+  "excluded_routes": 8,
   "routes": [
     {
       "route": "/",
@@ -181,7 +181,21 @@
       "expectedAuth": "authenticated",
       "allowedDataStates": [
         "loaded"
-      ]
+      ],
+      "legacyAlias": true
+    },
+    {
+      "route": "/one/kai/market",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fmarket",
+      "expectedMarker": "native-route-kai-home",
+      "expectedRoute": "/one/kai?tab=market",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ],
+      "legacyAlias": true
     },
     {
       "route": "/kai/analysis",
@@ -206,7 +220,8 @@
       "expectedAuth": "authenticated",
       "allowedDataStates": [
         "loaded"
-      ]
+      ],
+      "legacyAlias": true
     },
     {
       "route": "/kai/dashboard",
@@ -443,7 +458,8 @@
       "expectedAuth": "authenticated",
       "allowedDataStates": [
         "loaded"
-      ]
+      ],
+      "legacyAlias": true
     },
     {
       "route": "/portfolio/shared",
@@ -470,6 +486,19 @@
       "allowedDataStates": [
         "loaded"
       ]
+    },
+    {
+      "route": "/consents",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fconsents",
+      "expectedMarker": "native-route-consents",
+      "expectedRoute": "/one/consent",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ],
+      "legacyAlias": true
     },
     {
       "route": "/agent",
@@ -1115,6 +1144,10 @@
     },
     {
       "route": "/developers",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/welcome",
       "classification": "excluded-web-only"
     },
     {

@@ -755,7 +755,19 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/consents",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fconsents",
+        "expectedMarker": "native-route-consents",
+        "expectedRoute": "/one/consent",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ],
+        "legacyAlias": true
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -2565,7 +2577,8 @@
         "expectedAuth": "authenticated",
         "allowedDataStates": [
           "loaded"
-        ]
+        ],
+        "legacyAlias": true
       },
       "shell": {
         "app_page_shell": false,
@@ -2694,7 +2707,8 @@
         "expectedAuth": "authenticated",
         "allowedDataStates": [
           "loaded"
-        ]
+        ],
+        "legacyAlias": true
       },
       "shell": {
         "app_page_shell": true,
@@ -2949,7 +2963,19 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/kai/market",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fmarket",
+        "expectedMarker": "native-route-kai-home",
+        "expectedRoute": "/one/kai?tab=market",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ],
+        "legacyAlias": true
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -3206,7 +3232,8 @@
         "expectedAuth": "authenticated",
         "allowedDataStates": [
           "loaded"
-        ]
+        ],
+        "legacyAlias": true
       },
       "shell": {
         "app_page_shell": false,
@@ -7061,7 +7088,10 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/welcome",
+        "classification": "excluded-web-only"
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,

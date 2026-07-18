@@ -40,7 +40,7 @@ import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-servi
 import { getSessionItem, removeSessionItem } from "@/lib/utils/session-storage";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
-import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
+import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 
 function statusLabel(task: DebateRunTask): string {
   if (task.status === "running") return "Running";

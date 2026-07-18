@@ -23,7 +23,7 @@ import {
   searchTickerUniverse,
   type TickerUniverseRow,
 } from "@/lib/kai/ticker-universe-cache";
-import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
+import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 
 // Top popular stocks for instant suggestion (offline fallback)
 const TOP_STOCKS = [

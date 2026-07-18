@@ -24,7 +24,7 @@ import {
   kaiPreviewSectionTitleClassName,
   marketSurfaceVariablesClassName,
 } from "@/components/kai/shared/market-surface-theme";
-import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
+import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
