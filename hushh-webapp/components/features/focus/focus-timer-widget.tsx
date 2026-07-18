@@ -128,6 +128,7 @@ export function FocusTimerWidget() {
               size="icon" 
               className="rounded-xl w-10 shrink-0"
               onClick={resetTimer}
+              aria-label="Reset timer"
             >
               <RotateCcw className="w-4 h-4" />
             </Button>
