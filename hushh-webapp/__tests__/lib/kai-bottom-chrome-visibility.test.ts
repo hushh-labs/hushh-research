@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   onScroll,
   resetKaiBottomChromeVisibility,
+  snapKaiBottomChromeVisible,
   syncKaiBottomChromeVisibilityToScroll,
   useKaiBottomChromeElementTranslation,
   useKaiBottomChromeVisibility,
@@ -69,6 +70,18 @@ describe("kai bottom chrome visibility singleton", () => {
     act(() => onScroll(40));
     flushAnimation();
     expect(result.current.progress).toBeLessThan(0.1);
+  });
+
+  it("snaps a moving bottom shell visible before an interaction can move its target", () => {
+    const { result } = renderHook(() => useKaiBottomChromeVisibility(true));
+
+    act(() => onScroll(0));
+    act(() => onScroll(120));
+    flushAnimation();
+    expect(result.current.progress).toBeGreaterThan(0.9);
+
+    act(() => snapKaiBottomChromeVisible());
+    expect(result.current.progress).toBe(0);
   });
 
   it("settles a fixed sibling into the bottom-nav slot through shared CSS motion", () => {

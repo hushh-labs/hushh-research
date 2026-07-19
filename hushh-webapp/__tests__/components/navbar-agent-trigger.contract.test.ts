@@ -94,6 +94,8 @@ describe("Navbar bottom chrome contract", () => {
     expect(bottomShell).not.toContain("AmbientChromeController");
     expect(bottomShell).toContain('<AmbientChromeMask\n          edge="bottom"');
     expect(bottomShell).toContain("useKaiBottomChromeElementTranslation");
+    expect(bottomShell).toContain("snapKaiBottomChromeVisible");
+    expect(bottomShell).toContain("onPointerDownCapture");
     expect(bottomShell).toContain("BOTTOM_SCROLL_TRANSFORM");
     expect(bottomShell).toContain("data-app-bottom-shell");
     expect(bottomShell).toContain('<Navbar shellNavigationHidden={model.navigationHidden} layout="slot"');

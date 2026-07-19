@@ -5,7 +5,10 @@ import { useLayoutEffect, useRef, type CSSProperties } from "react";
 import { AgentBar } from "@/components/agent/agent-bar";
 import { Navbar } from "@/components/navbar";
 import { AmbientChromeMask } from "@/components/app-ui/ambient-chrome-mask";
-import { useKaiBottomChromeElementTranslation } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import {
+  snapKaiBottomChromeVisible,
+  useKaiBottomChromeElementTranslation,
+} from "@/lib/navigation/kai-bottom-chrome-visibility";
 
 export type BottomShellModel = {
   ambientEnabled: boolean;
@@ -64,6 +67,11 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
           model.navigationHidden || undefined
         }
         data-ambient-chrome-ignore
+        onPointerDownCapture={
+          model.ambientEnabled && !model.navigationHidden
+            ? snapKaiBottomChromeVisible
+            : undefined
+        }
         className="fixed inset-x-0 bottom-0 z-[118] flex flex-col items-center gap-1.5 px-3 pb-[max(0.75rem,var(--app-safe-area-bottom-effective))] transform-gpu"
       >
         <AgentBar layout="slot" />
