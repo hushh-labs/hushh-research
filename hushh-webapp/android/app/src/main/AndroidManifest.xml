@@ -8,6 +8,9 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@style/AppTheme">
+        <!-- Credential Manager uses this Digital Asset Links declaration to
+             authorize the canonical native passkey relying party. -->
+        <meta-data android:name="asset_statements" android:resource="@string/asset_statements" />
         <!-- Keep the WebView's layout viewport stable while the IME is visible.
              KeyboardInsetManager owns the resulting CSS inset so only
              bottom-anchored controls move above the keyboard. -->

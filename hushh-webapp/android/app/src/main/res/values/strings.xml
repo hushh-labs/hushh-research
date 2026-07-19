@@ -4,4 +4,5 @@
     <string name="title_activity_main">Hussh One</string>
     <string name="package_name">com.hushh.app</string>
     <string name="custom_url_scheme">com.hushh.app</string>
+    <string name="asset_statements" translatable="false">[{\"include\":\"https://one.hushh.ai/.well-known/assetlinks.json\"}]</string>
 </resources>
