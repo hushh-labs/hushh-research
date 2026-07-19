@@ -97,7 +97,10 @@ function profileDetailLabel(detail: string | null): string | null {
 }
 
 function normalizeBreadcrumbPathname(pathname: string): string {
-  const base = String(pathname || "").split(/[?#]/, 1)[0]?.trim() || "/";
+  const base =
+    String(pathname || "")
+      .split(/[?#]/, 1)[0]
+      ?.trim() || "/";
   if (base === "/") return base;
   const withSlash = base.startsWith("/") ? base : `/${base}`;
   return withSlash.endsWith("/") ? withSlash.slice(0, -1) : withSlash;
@@ -119,6 +122,24 @@ export function resolveTopShellBreadcrumb(
   searchParams?: URLSearchParams | { get(name: string): string | null } | null,
 ): TopShellBreadcrumbConfig | null {
   pathname = normalizeBreadcrumbPathname(pathname);
+
+  if (pathname === ROUTES.CONNECT_SETTINGS) {
+    return {
+      backHref: ROUTES.CONNECT,
+      width: "content",
+      align: "center",
+      items: [{ label: "Connect", href: ROUTES.CONNECT }, { label: "Gemini" }],
+    };
+  }
+
+  if (pathname === ROUTES.ONE_SETUP_CONNECTIONS) {
+    return {
+      backHref: ROUTES.ONE_SETUP,
+      width: "content",
+      align: "center",
+      items: [{ label: "Set up", href: ROUTES.ONE_SETUP }, { label: "Connections" }],
+    };
+  }
 
   // Welcome's tabs are peers, just like Finance and Location. The shared back
   // affordance exits the workspace to One; the tab strip and swipe pager own
@@ -157,14 +178,14 @@ export function resolveTopShellBreadcrumb(
       backHref: ROUTES.BLOG,
       width: "content",
       align: "center",
-      items: [
-        { label: "Blog", href: ROUTES.BLOG },
-        { label: "Post" },
-      ],
+      items: [{ label: "Blog", href: ROUTES.BLOG }, { label: "Post" }],
     };
   }
 
-  if (pathname.startsWith(`${ROUTES.RESEARCH}/`) && pathname !== ROUTES.RESEARCH_PROTOCOL) {
+  if (
+    pathname.startsWith(`${ROUTES.RESEARCH}/`) &&
+    pathname !== ROUTES.RESEARCH_PROTOCOL
+  ) {
     return {
       backHref: ROUTES.RESEARCH,
       width: "content",
@@ -173,10 +194,7 @@ export function resolveTopShellBreadcrumb(
     };
   }
 
-  if (
-    pathname === KAI_MARKET_PATH &&
-    searchParams?.get("tab") === "analysis"
-  ) {
+  if (pathname === KAI_MARKET_PATH && searchParams?.get("tab") === "analysis") {
     const debateId = String(searchParams?.get("debate_id") || "").trim();
     const focus = String(searchParams?.get("focus") || "").trim();
     const runId = String(searchParams?.get("run_id") || "").trim();
@@ -229,10 +247,7 @@ export function resolveTopShellBreadcrumb(
       backHref: ROUTES.ONE_HOME,
       width: "content",
       align: "center",
-      items: [
-        { label: "One", href: ROUTES.ONE_HOME },
-        { label: "Kai" },
-      ],
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Kai" }],
     };
   }
 
@@ -294,10 +309,7 @@ export function resolveTopShellBreadcrumb(
       backHref: ROUTES.ONE_HOME,
       width: "content",
       align: "center",
-      items: [
-        { label: "One", href: ROUTES.ONE_HOME },
-        { label: "RIA" },
-      ],
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "RIA" }],
     };
   }
 
@@ -326,11 +338,14 @@ export function resolveTopShellBreadcrumb(
   if (pathname === ROUTES.RIA_ONBOARDING) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     return {
-      backHref: originHref || ROUTES.ONE_SETUP,
+      // RIA is an independently re-enterable sub-onboarding. Only an explicit
+      // setup origin returns to the root setup hub; a bare RIA journey must
+      // not reopen completed One setup just because the user presses Back.
+      backHref: originHref || ROUTES.ONE_HOME,
       width: "content",
       align: "center",
       items: [
-        { label: "One", href: originHref || ROUTES.ONE_SETUP },
+        { label: "One", href: originHref || ROUTES.ONE_HOME },
         { label: "Setup" },
       ],
     };
@@ -358,7 +373,10 @@ export function resolveTopShellBreadcrumb(
     };
   }
 
-  if (pathname === ROUTES.KAI_IMPORT || pathname.startsWith(`${ROUTES.KAI_IMPORT}/`)) {
+  if (
+    pathname === ROUTES.KAI_IMPORT ||
+    pathname.startsWith(`${ROUTES.KAI_IMPORT}/`)
+  ) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     return {
       // Portfolio import is the final finance setup continuation. If the
@@ -413,10 +431,7 @@ export function resolveTopShellBreadcrumb(
       width: "content",
       align: "center",
       hideBack: false,
-      items: [
-        { label: "One", href: returnHref },
-        { label: "Setup" },
-      ],
+      items: [{ label: "One", href: returnHref }, { label: "Setup" }],
     };
   }
 
@@ -480,10 +495,7 @@ export function resolveTopShellBreadcrumb(
     }
   }
 
-  if (
-    pathname === ROUTES.CONSENTS ||
-    pathname === ROUTES.LEGACY_CONSENTS
-  ) {
+  if (pathname === ROUTES.CONSENTS || pathname === ROUTES.LEGACY_CONSENTS) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     const privacyHref = profilePanelHref("access");
     const backHref =
@@ -582,10 +594,7 @@ export function resolveTopShellBreadcrumb(
         resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
-      items: [
-        { label: "One", href: ROUTES.ONE_HOME },
-        { label: "Gmail" },
-      ],
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Gmail" }],
     };
   }
 
@@ -598,10 +607,7 @@ export function resolveTopShellBreadcrumb(
         resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
-      items: [
-        { label: "One", href: ROUTES.ONE_HOME },
-        { label: "PKM" },
-      ],
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "PKM" }],
     };
   }
 
@@ -642,10 +648,7 @@ export function resolveTopShellBreadcrumb(
       // Connect is a level-two workspace. Keep the shared shell back affordance
       // available so this entry behaves like the other One capability routes.
       hideBack: false,
-      items: [
-        { label: "One", href: ROUTES.ONE_HOME },
-        { label: "Connect" },
-      ],
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Connect" }],
     };
   }
 
@@ -678,10 +681,7 @@ export function resolveTopShellBreadcrumb(
         backHref: ROUTES.ONE_HOME,
         width: "profile",
         align: "center",
-        items: [
-          { label: "One", href: ROUTES.ONE_HOME },
-          { label: "Profile" },
-        ],
+        items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Profile" }],
       };
     }
 

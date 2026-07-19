@@ -18,7 +18,9 @@ import { usePathname, useSearchParams } from "next/navigation";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
+import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { useCache } from "@/lib/cache/cache-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -3232,8 +3234,15 @@ export function KaiFlow({
 
   if (state === "checking") {
     return (
-      <div className="min-h-[400px] flex items-center justify-center">
-        <HushhLoader variant="inline" label={toInvestorLoading("ACCOUNT_STATE")} />
+      <div className="w-full">
+        <KaiWorkspaceHeader
+          workspace="portfolio"
+          title="Portfolio"
+          description="Your holdings, sources, and investing context in one place."
+        />
+        <AppPageContentRegion className="flex min-h-[400px] items-center justify-center">
+          <HushhLoader variant="inline" label={toInvestorLoading("ACCOUNT_STATE")} />
+        </AppPageContentRegion>
       </div>
     );
   }

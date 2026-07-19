@@ -222,6 +222,25 @@ local saves fail solely because the cloud projection is temporarily unavailable.
   does not downgrade vault encryption, expose `pkm.read`, or grant access to
   non-consumer-visible data.
 
+### Private runtime-provider references
+
+Connections-owned Gemini configuration uses the existing encrypted PKM store,
+not a new database table or native secret store. The primary references are
+`pkm:runtime_secrets.llm.credential_mode` and
+`pkm:runtime_secrets.llm.gemini_api_key`. For a `byok` Gemini connection,
+`pkm:runtime_secrets.llm.gemini_transport` selects either `developer_api` or
+`vertex_api_key`; the latter also stores the selected Google Cloud project and
+Vertex location in encrypted runtime configuration references.
+
+The browser resolves a user key only after the canonical vault unlock and uses
+it for the current private-agent turn or the first authenticated voice relay
+bootstrap. The backend may validate or use that in-memory request value but
+never persists it in application state, a relay ticket, logs, telemetry, or a
+model prompt. A user may supply a Google Cloud Vertex API key with an explicit
+project and location; it is routed only to Vertex endpoints and is never
+guessed from key shape. OAuth grants and service-account JSON are not accepted.
+Managed background workflows continue to use Hussh workload identity.
+
 ## Partner and CRM boundary
 
 PKM is not a partner CRM mirror.

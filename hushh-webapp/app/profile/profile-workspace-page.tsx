@@ -67,7 +67,6 @@ import {
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
 import { RiaProfileSection } from "@/components/ria/profile/ria-profile-section";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
-import { RuntimeSecretSettingsCard } from "@/components/profile/runtime-secret-settings-card";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import {
   AlertDialog,
@@ -2955,15 +2954,6 @@ function ProfilePageContent() {
 
   const myDataContent = (
     <div className="space-y-4 sm:space-y-5">
-      <RuntimeSecretSettingsCard
-        userId={user?.uid}
-        vaultKey={vaultKey}
-        vaultOwnerToken={vaultOwnerToken}
-        needsVaultCreation={vaultAccess.needsVaultCreation}
-        needsUnlock={vaultAccess.needsUnlock}
-        onRequestVaultUnlock={() => requestVaultUnlock("profile_data")}
-        onRequestVaultCreation={() => setShowVaultCreation(true)}
-      />
       <PkmDataManagerPanel
         signedIn={Boolean(user)}
         loading={profileManagerLoading}

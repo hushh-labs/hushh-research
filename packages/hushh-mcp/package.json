@@ -31,14 +31,15 @@
     "docs:check": "node ./scripts/render-readme.mjs --check",
     "test": "vitest run bin-config.test.ts",
     "gateway:generate": "node ./scripts/generate-gateway-manifest.mjs",
-    "gateway:check": "npm run gateway:generate && git diff --exit-code -- gateway/hushh-mcp-gateway.json",
+    "gateway:check": "npm run gateway:generate && git diff --exit-code -- gateway/hushh-mcp-gateway.json gateway/hushh-agentforce-mcp-manifest.json",
     "verify:package": "npm run docs:check && npm run gateway:check && npm test && npm run verify:packed-runtime && npm pack --dry-run",
     "verify:packed-runtime": "node ./scripts/verify-packed-runtime.mjs",
     "prepack": "node ./scripts/stage-runtime.mjs && node ./scripts/generate-gateway-manifest.mjs",
     "print-config": "node ./bin/hushh-mcp.js --print-config",
     "print-codex-toml": "node ./bin/hushh-mcp.js --print-codex-toml",
     "print-remote-config": "node ./bin/hushh-mcp.js --print-remote-config",
-    "print-gateway-manifest": "node ./bin/hushh-mcp.js --print-gateway-manifest"
+    "print-gateway-manifest": "node ./bin/hushh-mcp.js --print-gateway-manifest",
+    "print-agentforce-manifest": "node ./bin/hushh-mcp.js --print-agentforce-manifest"
   },
   "publishConfig": {
     "access": "public"

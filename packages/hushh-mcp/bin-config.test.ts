@@ -39,7 +39,7 @@ describe("hushh-mcp CLI config output", () => {
     expect(remote.url).not.toContain("token=");
   });
 
-  it("prints the core-plus-campaign static gateway manifest", async () => {
+  it("prints the complete core-plus-campaign static gateway manifest", async () => {
     const { stdout, stderr } = await execAsync(
       `node ${packageJson.bin["hushh-mcp"]} --print-gateway-manifest`,
       { cwd: process.cwd() },
@@ -66,10 +66,55 @@ describe("hushh-mcp CLI config output", () => {
       "get_encrypted_scoped_export",
     ]);
     for (const tool of manifest.tools) {
-      expect(Object.keys(tool).sort()).toEqual(["description", "inputSchema", "name"]);
+      expect(Object.keys(tool).sort()).toEqual([
+        "description",
+        "inputSchema",
+        "name",
+        "outputSchema",
+      ]);
+      expect(tool.outputSchema).toMatchObject({ type: "object" });
     }
-    expect(stdout).not.toContain("outputSchema");
     expect(stdout).not.toContain("annotations");
     expect(stdout).not.toContain("HUSHH_DEVELOPER_TOKEN");
+  });
+
+  it("prints the strict four-tool Agentforce UAT manifest with mapped outputs", async () => {
+    const { stdout, stderr } = await execAsync(
+      `node ${packageJson.bin["hushh-mcp"]} --print-agentforce-manifest`,
+      { cwd: process.cwd() },
+    );
+
+    expect(stderr).toBe("");
+    const manifest = JSON.parse(stdout);
+    expect(manifest.profile).toBe("agentforce-uat");
+    expect(manifest.supportStatus).toBe("schema-compatible-uat-only");
+    expect(manifest.capabilities).toEqual({
+      tools: true,
+      resources: false,
+      prompts: false,
+      logging: false,
+    });
+    expect(manifest.tools.map((tool: { name: string }) => tool.name)).toEqual([
+      "search-user-scopes",
+      "request-consent",
+      "check-consent-status",
+      "get-encrypted-scoped-export",
+    ]);
+    for (const tool of manifest.tools) {
+      expect(Object.keys(tool).sort()).toEqual([
+        "annotations",
+        "description",
+        "inputSchema",
+        "name",
+        "outputSchema",
+        "title",
+      ]);
+      expect(tool.title).toEqual(expect.any(String));
+      expect(tool.outputSchema).toMatchObject({ type: "object" });
+      for (const field of Object.values(tool.inputSchema.properties) as Array<{ title: string; description: string }>) {
+        expect(field.title).toEqual(expect.any(String));
+        expect(field.description).toEqual(expect.any(String));
+      }
+    }
   });
 });

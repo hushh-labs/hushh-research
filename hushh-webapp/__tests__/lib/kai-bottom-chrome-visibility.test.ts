@@ -80,7 +80,7 @@ describe("kai bottom chrome visibility singleton", () => {
     );
 
     expect(probe.style.transform).toBe(
-      "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height))), 0)",
+      "translate3d(0, calc((var(--kb-height, 0px) * -1) + (var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height)))), 0)",
     );
 
     unmount();

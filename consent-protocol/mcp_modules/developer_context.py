@@ -9,6 +9,11 @@ from hushh_mcp.services.developer_registry_service import (
     DeveloperRegistryService,
     visible_tool_names_for_groups,
 )
+from mcp_modules.agentforce_contract import (
+    AGENTFORCE_PROFILE,
+    canonical_agentforce_tool_name,
+    get_agentforce_tool_names,
+)
 from mcp_modules.flat_contract import FLAT_PROFILE, get_flat_tool_names
 
 _current_developer_principal: ContextVar[DeveloperPrincipal | None] = ContextVar(
@@ -60,6 +65,13 @@ def get_current_visible_tool_names() -> tuple[str, ...]:
     if get_current_schema_profile() == FLAT_PROFILE:
         allowed = set(get_flat_tool_names())
         return tuple(name for name in visible if name in allowed)
+    if get_current_schema_profile() == AGENTFORCE_PROFILE:
+        allowed = set(visible)
+        return tuple(
+            name
+            for name in get_agentforce_tool_names()
+            if canonical_agentforce_tool_name(name) in allowed
+        )
     return visible
 
 
@@ -67,7 +79,9 @@ def get_current_schema_profile() -> str:
     principal = get_current_developer_principal()
     if principal is None:
         return "standard"
-    return FLAT_PROFILE if principal.schema_profile == FLAT_PROFILE else "standard"
+    if principal.schema_profile in {FLAT_PROFILE, AGENTFORCE_PROFILE}:
+        return principal.schema_profile
+    return "standard"
 
 
 def is_tool_allowed(tool_name: str) -> bool:

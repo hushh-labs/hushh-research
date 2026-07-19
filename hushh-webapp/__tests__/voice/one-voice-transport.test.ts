@@ -16,6 +16,40 @@ describe("One Voice realtime transports", () => {
     expect(createRealtimeVoiceTransport().provider).toBe("gemini_live");
   });
 
+  it("sends the runtime bootstrap before any app context and drops the BYOK key", () => {
+    const send = vi.fn();
+    const socket: { send: typeof send; onopen: (() => void) | null } = {
+      send,
+      onopen: null,
+    };
+    class WebSocketMock {
+      constructor(_url: string) {
+        return socket;
+      }
+    }
+    vi.stubGlobal("WebSocket", WebSocketMock);
+
+    const transport = new GeminiLiveTransport();
+    const testTransport = transport as unknown as {
+      runtimeCredentialMode: "hushh_managed_vertex" | "byok";
+      runtimeCredential: string | null;
+      connectSocket: (relayUrl: string) => void;
+    };
+    testTransport.runtimeCredentialMode = "byok";
+    testTransport.runtimeCredential = "test-key";
+    testTransport.connectSocket("wss://relay.example.test/live");
+    socket.onopen?.();
+
+    expect(JSON.parse(send.mock.calls[0]?.[0] as string)).toEqual({
+      type: "runtime_bootstrap",
+      runtime_credential_mode: "byok",
+      runtime_credential_transport: "developer_api",
+      runtime_credential: "test-key",
+    });
+    expect(testTransport.runtimeCredential).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
   it("emits Gemini state events with session and source sequence metadata", () => {
     const onEvent = vi.fn();
     const onVoiceState = vi.fn();

@@ -462,23 +462,39 @@ export function SettingsRow({
   );
 }
 
-export function SettingsDetailPanel({
-  open,
-  onOpenChange,
-  title,
-  description,
-  children,
-  desktopMaxWidthClassName,
-  desktopMaxWidth,
-}: {
+export type AdaptiveDetailSurfaceProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  eyebrow?: ReactNode;
   title: ReactNode;
   description?: ReactNode;
   children: ReactNode;
+  footer?: ReactNode;
+  bodyClassName?: string;
+  /** Shared token classes applied inside the Drawer/Dialog portal. */
+  surfaceClassName?: string;
+  contentClassName?: string;
+  mobilePresentation?: "fullscreen" | "sheet";
   desktopMaxWidthClassName?: string;
   desktopMaxWidth?: string;
-}) {
+};
+
+/** The one cross-app, adaptive record-detail surface. */
+export function AdaptiveDetailSurface({
+  open,
+  onOpenChange,
+  eyebrow,
+  title,
+  description,
+  children,
+  footer,
+  bodyClassName,
+  surfaceClassName,
+  contentClassName,
+  mobilePresentation = "fullscreen",
+  desktopMaxWidthClassName,
+  desktopMaxWidth,
+}: AdaptiveDetailSurfaceProps) {
   const isMobile = useIsMobile();
   const closeButton = (
     <button
@@ -501,13 +517,25 @@ export function SettingsDetailPanel({
     return (
       <Drawer open={open} onOpenChange={onOpenChange} modal>
         <DrawerContent
-          className="h-[100dvh] max-h-[100dvh] rounded-none border-none bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)]"
+          className={cn(
+            "bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)]",
+            mobilePresentation === "fullscreen"
+              ? "h-[100dvh] max-h-[100dvh] rounded-none border-none"
+              : "max-h-[calc(85dvh-var(--kb-height,0px))] rounded-t-[var(--app-card-radius-feature)] border-t border-[color:var(--app-card-border-standard)]",
+            surfaceClassName,
+            contentClassName,
+          )}
           onOpenAutoFocus={(e) => {
             e.preventDefault();
             (e.currentTarget as HTMLElement).focus();
           }}
         >
           <DrawerHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 pr-14 text-left sm:px-5 sm:py-4 sm:pr-14">
+            {eyebrow ? (
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                {eyebrow}
+              </p>
+            ) : null}
             <DrawerTitle className="text-base font-semibold tracking-tight">
               {title}
             </DrawerTitle>
@@ -521,9 +549,19 @@ export function SettingsDetailPanel({
             </DrawerDescription>
             {closeButton}
           </DrawerHeader>
-          <div className="flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+2rem)] pt-3 sm:px-4 sm:pt-4">
+          <div
+            className={cn(
+              "flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+2rem)] pt-3 sm:px-4 sm:pt-4",
+              bodyClassName,
+            )}
+          >
             {children}
           </div>
+          {footer ? (
+            <div className="border-t border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-4">
+              {footer}
+            </div>
+          ) : null}
         </DrawerContent>
       </Drawer>
     );
@@ -538,6 +576,8 @@ export function SettingsDetailPanel({
         className={cn(
           "w-[calc(100%-1.5rem)] overflow-hidden p-0",
           desktopMaxWidthClassName || "sm:!max-w-[720px]",
+          surfaceClassName,
+          contentClassName,
         )}
         onOpenAutoFocus={(e) => {
           e.preventDefault();
@@ -545,6 +585,11 @@ export function SettingsDetailPanel({
         }}
       >
         <DialogHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-6 py-4 pr-16 text-left">
+          {eyebrow ? (
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+              {eyebrow}
+            </p>
+          ) : null}
           <DialogTitle className="text-base font-semibold tracking-tight">
             {title}
           </DialogTitle>
@@ -555,10 +600,25 @@ export function SettingsDetailPanel({
           </DialogDescription>
           {closeButton}
         </DialogHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-4 pb-8 pt-4 sm:px-5 sm:pt-5">
+        <div
+          className={cn(
+            "min-h-0 flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-4 pb-8 pt-4 sm:px-5 sm:pt-5",
+            bodyClassName,
+          )}
+        >
           {children}
         </div>
+        {footer ? (
+          <div className="border-t border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-6 py-4 sm:justify-end">
+            {footer}
+          </div>
+        ) : null}
       </DialogContent>
     </Dialog>
   );
+}
+
+/** Compatibility name for existing settings callers. */
+export function SettingsDetailPanel(props: AdaptiveDetailSurfaceProps) {
+  return <AdaptiveDetailSurface {...props} />;
 }

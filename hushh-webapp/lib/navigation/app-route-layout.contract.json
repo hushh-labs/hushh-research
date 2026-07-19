@@ -8,7 +8,7 @@
       "purpose": "Welcome a new person and help them claim their private agent.",
       "screen": "one_intro",
       "entryCue": "Say ‘Claim your One’ whenever you are ready.",
-      "proactivity": "ambient",
+      "proactivity": "on_entry",
       "primaryActionId": "onboarding.claim_one",
       "happyPathActionIds": ["onboarding.claim_one"],
       "requiredInputs": [],
@@ -448,12 +448,12 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.gmail",
-      "purpose": "Help the person understand and use the gmail screen through its generated controls.",
+      "purpose": "Gmail is paused while its dormant connection route is retained for a future explicit enablement.",
       "screen": "gmail",
-      "entryCue": "You can say “Open Receipts Page” to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.profile_receipts",
-      "happyPathActionIds": ["route.profile_receipts"],
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -464,8 +464,8 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": "/one/gmail",
-      "returnPolicy": "stay",
+      "nextRoute": null,
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
@@ -546,13 +546,13 @@
       ]
     },
     "voicePlaybook": {
-      "playbookId": "route.one.marketplace",
-      "purpose": "Help the person understand and use the marketplace screen through its generated controls.",
+      "playbookId": "route.one.marketplace.standalone",
+      "purpose": "Standalone consent-first Marketplace route. One has no actions on this surface.",
       "screen": "one_marketplace",
-      "entryCue": "You can say “Open Information Marketplace” to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.one_marketplace",
-      "happyPathActionIds": ["route.one_marketplace"],
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -563,9 +563,9 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": "/one/marketplace",
+      "nextRoute": null,
       "returnPolicy": "stay",
-      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      "outOfScopeBehavior": "Answer naturally without inventing a control."
     }
   },
   {
@@ -727,6 +727,29 @@
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
       "nextRoute": null,
       "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/connect/settings",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/connections/gemini-runtime-configuration-page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader"]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.connect.settings",
+      "purpose": "Manage private Gemini runtime configuration without exposing a credential to the agent.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {"blocked": "Explain the current guard and retain the goal.", "cancelled": "Respect the cancellation and retain a safe next step.", "failed": "Acknowledge the failure without claiming completion.", "timeout": "Retain the goal and offer one safe retry.", "callbackError": "Return to the verified callback recovery path without claiming success.", "routeMismatch": "Use the verified current route and its generated actions only."},
+      "completionBoundary": "Saving or removing a key is an explicit encrypted-vault mutation, never a voice action.",
+      "nextRoute": "/connect/settings",
+      "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
@@ -981,8 +1004,8 @@
       "playbookId": "route.one.kai.analysis",
       "purpose": "Help the person understand and use the analysis screen through its generated controls.",
       "screen": "kai_analysis",
-      "entryCue": "You can say “Open Analysis Surface” to use the primary control on this screen.",
-      "proactivity": "on_entry",
+      "entryCue": "",
+      "proactivity": "ambient",
       "primaryActionId": null,
       "happyPathActionIds": [],
       "requiredInputs": [],
@@ -1274,7 +1297,7 @@
     "voicePlaybook": {
       "playbookId": "route.one.kai.onboarding",
       "purpose": "Help the person understand and use the onboarding screen through its generated controls.",
-      "screen": "kai",
+      "screen": "kai_market",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1335,24 +1358,24 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.setup.gmail",
-      "purpose": "Connect Gmail, review the receipt signal it creates, then finish this capability and return to setup.",
+      "purpose": "Gmail setup is paused while its dormant capability route is retained for a future explicit enablement.",
       "screen": "one_setup_gmail",
-      "entryCue": "Connect Gmail to review receipt emails and the brands they help One understand.",
-      "proactivity": "on_entry",
-      "primaryActionId": "setup.connect_gmail",
-      "happyPathActionIds": ["setup.connect_gmail", "setup.finish_gmail", "setup.skip_gmail"],
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
-        "cancelled": "Keep Gmail setup available and return to the current setup screen.",
-        "failed": "Explain that Gmail setup is still incomplete and offer a safe retry.",
-        "timeout": "Keep the Gmail goal active and offer one safe retry.",
-        "callbackError": "Return to Gmail setup and show the connector recovery state without claiming success.",
+        "cancelled": "Explain that Gmail setup is paused.",
+        "failed": "Explain that Gmail setup is paused.",
+        "timeout": "Explain that Gmail setup is paused.",
+        "callbackError": "Explain that Gmail setup is paused.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Gmail setup completes only after the connector reports a verified connection and the setup hub route settles.",
-      "nextRoute": "/one/setup",
-      "returnPolicy": "return_to_hub",
+      "completionBoundary": "The paused setup route has no executable actions.",
+      "nextRoute": null,
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
@@ -1417,6 +1440,16 @@
       "playbookId": "route.one.setup.connected.systems", "purpose": "Link an active CRM record before explicitly finishing or skipping setup.", "screen": "one_setup_connected_systems", "entryCue": "Choose a CRM to find or create your record, or say skip linking setup.", "proactivity": "on_entry", "primaryActionId": "setup.skip_connected_systems", "happyPathActionIds": ["setup.skip_connected_systems", "setup.finish_connected_systems"], "requiredInputs": [],
       "recoveries": { "blocked": "Explain the current guard and retain the goal.", "cancelled": "Keep linked systems setup open and preserve the active goal.", "failed": "Explain that an active record binding is needed before finishing.", "timeout": "Retain the goal and offer a safe retry.", "callbackError": "Return to linked systems setup without claiming success.", "routeMismatch": "Use the verified current route and its generated actions only." },
       "completionBoundary": "Linked systems setup finishes only after an active CRM record binding and hub settlement.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/setup/connections",
+    "mode": "standard",
+    "shellVerification": {"file": "components/connections/gemini-runtime-configuration-page.tsx", "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader"]},
+    "voicePlaybook": {
+      "playbookId": "route.one.setup.connections", "purpose": "Choose private Gemini runtime configuration before feature-specific setup without exposing an API key to the agent.", "screen": "app", "entryCue": "", "proactivity": "ambient", "primaryActionId": null, "happyPathActionIds": [], "requiredInputs": [],
+      "recoveries": {"blocked": "Explain the current guard and retain the goal.", "cancelled": "Respect the cancellation and retain a safe next step.", "failed": "Acknowledge the failure without claiming completion.", "timeout": "Retain the goal and offer one safe retry.", "callbackError": "Return to the verified callback recovery path without claiming success.", "routeMismatch": "Use the verified current route and its generated actions only."},
+      "completionBoundary": "The selected runtime is applied only after the vault-backed configuration mutation succeeds.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
@@ -1516,7 +1549,7 @@
     "voicePlaybook": {
       "playbookId": "route.kai.plaid.oauth.return",
       "purpose": "Help the person understand and use the return screen through its generated controls.",
-      "screen": "kai",
+      "screen": "kai_plaid_oauth_return",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1546,7 +1579,7 @@
     "voicePlaybook": {
       "playbookId": "route.one.kai.plaid.oauth.return",
       "purpose": "Help the person understand and use the return screen through its generated controls.",
-      "screen": "kai",
+      "screen": "kai_plaid_oauth_return",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1573,7 +1606,7 @@
     "voicePlaybook": {
       "playbookId": "route.kai.alpaca.oauth.return",
       "purpose": "Help the person understand and use the return screen through its generated controls.",
-      "screen": "kai",
+      "screen": "kai_alpaca_oauth_return",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1603,7 +1636,7 @@
     "voicePlaybook": {
       "playbookId": "route.one.kai.alpaca.oauth.return",
       "purpose": "Help the person understand and use the return screen through its generated controls.",
-      "screen": "kai",
+      "screen": "kai_alpaca_oauth_return",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1697,10 +1730,10 @@
       "playbookId": "route.marketplace",
       "purpose": "Help the person understand and use the marketplace screen through its generated controls.",
       "screen": "marketplace",
-      "entryCue": "You can say “Continue Browsing Marketplace” to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.marketplace_browse_from_ria_profile",
-      "happyPathActionIds": ["route.marketplace_browse_from_ria_profile"],
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1732,10 +1765,10 @@
       "playbookId": "route.marketplace.ria",
       "purpose": "Help the person understand and use the ria screen through its generated controls.",
       "screen": "marketplace_ria_profile",
-      "entryCue": "You can say “Open Marketplace RIA Profile” to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.marketplace_ria_profile",
-      "happyPathActionIds": ["route.marketplace_ria_profile"],
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",

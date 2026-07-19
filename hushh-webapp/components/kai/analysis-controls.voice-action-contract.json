@@ -1,0 +1,90 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "kai_analysis_controls",
+  "surface_title": "Kai Analysis Controls",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "speaker_persona": "kai",
+    "reachability": {
+      "active_personas": ["investor"],
+      "routes": ["/one/kai?tab=analysis"],
+      "screens": ["kai_analysis"],
+      "hidden_navigable": false,
+      "navigation_prerequisites": []
+    }
+  },
+  "actions": [
+    {
+      "action_id": "analysis.back_to_history",
+      "label": "Back to Analysis History",
+      "meaning": "Returns from the live analysis workspace to its saved history.",
+      "aliases": ["back to history", "open analysis history"],
+      "search_keywords": ["analysis", "history", "back"],
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {"status": "wired", "path": "local_handler", "target": "analysis.back_to_history"},
+      "control_ids": ["analysis_back_to_history"],
+      "state_exposure": [],
+      "docs_references": ["hushh-webapp/app/one/kai/analysis/page.tsx"]
+    },
+    {
+      "action_id": "analysis.open_debate_tab",
+      "label": "Open Debate Tab",
+      "meaning": "Shows the current analysis debate transcript.",
+      "aliases": ["open debate tab", "show debate"],
+      "search_keywords": ["analysis", "debate", "tab"],
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {"status": "wired", "path": "local_handler", "target": "analysis.open_debate_tab"},
+      "control_ids": ["analysis_tab_debate"],
+      "state_exposure": [],
+      "docs_references": ["hushh-webapp/app/one/kai/analysis/page.tsx"]
+    },
+    {
+      "action_id": "analysis.open_summary_tab",
+      "label": "Open Summary Tab",
+      "meaning": "Shows the compact analysis summary.",
+      "aliases": ["open summary tab", "show summary"],
+      "search_keywords": ["analysis", "summary", "tab"],
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {"status": "wired", "path": "local_handler", "target": "analysis.open_summary_tab"},
+      "control_ids": ["analysis_tab_summary"],
+      "state_exposure": [],
+      "docs_references": ["hushh-webapp/app/one/kai/analysis/page.tsx"]
+    },
+    {
+      "action_id": "analysis.open_detailed_tab",
+      "label": "Open Detailed Analysis",
+      "meaning": "Shows the detailed analysis review.",
+      "aliases": ["open detailed tab", "show detailed analysis"],
+      "search_keywords": ["analysis", "detailed", "tab"],
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {"status": "wired", "path": "local_handler", "target": "analysis.open_detailed_tab"},
+      "control_ids": ["analysis_tab_detailed"],
+      "state_exposure": [],
+      "docs_references": ["hushh-webapp/app/one/kai/analysis/page.tsx"]
+    },
+    {
+      "action_id": "analysis.confirm_preview",
+      "label": "Start Debate from Preview",
+      "meaning": "Starts the debate after the user confirms the visible stock preview.",
+      "aliases": ["start debate", "confirm analysis preview"],
+      "search_keywords": ["analysis", "preview", "start debate", "confirm"],
+      "guard_ids": ["analysis_idle_required", "explicit_user_confirmation"],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_target": {"status": "wired", "path": "local_handler", "target": "analysis.confirm_preview"},
+      "control_ids": ["analysis_start_preview"],
+      "state_exposure": [],
+      "docs_references": ["hushh-webapp/app/one/kai/analysis/page.tsx"]
+    }
+  ]
+}

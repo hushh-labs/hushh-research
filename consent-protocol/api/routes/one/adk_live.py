@@ -12,10 +12,12 @@ Why this fixes the "random commands" class of bugs by construction:
 - Real interruption: interrupted turns surface as ``event.interrupted`` from
   the provider, not a locally-echoed acknowledgement.
 
-Wire protocol (browser-facing) is kept byte-compatible with the legacy relay
-so ``gemini-live-client.ts`` needs only a URL change:
+Wire protocol (browser-facing) preserves the established relay envelope after
+one new authenticated bootstrap frame. The frame selects managed or BYOK
+runtime mode before the runner/session exists; it never becomes model context:
 
-  browser -> server: {"realtimeInput": {"audio": {"data": b64, "mimeType"}}}
+  browser -> server: {"type": "runtime_bootstrap", "runtime_credential_mode": ...}
+                     {"realtimeInput": {"audio": {"data": b64, "mimeType"}}}
                      {"type": "app_context", "appContext": {...}}   (context)
                      {"type": "action_settled", "actionSettlement": {...}}
                      {"type": "app_speech", "text": ...}            (say this)
@@ -37,9 +39,10 @@ import asyncio
 import base64
 import json
 import logging
+import re
 import secrets
 import uuid
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import (
     APIRouter,
@@ -74,7 +77,7 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_TIMEZONE,
     STATE_USER_ID,
     STATE_VOICE_CONTEXT,
-    get_one_runner,
+    build_one_live_runner,
 )
 
 logger = logging.getLogger(__name__)
@@ -113,6 +116,63 @@ _INITIAL_GREETING_IDLE_SECONDS = 1.5
 # inventory on the first turn (the 1.0s original lost the race on cold
 # connects and produced blanket action_unavailable refusals).
 _INITIAL_CONTEXT_WAIT_SECONDS = 2.5
+_RUNTIME_BOOTSTRAP_WAIT_SECONDS = 6.0
+_RUNTIME_BOOTSTRAP_CREDENTIAL_CAP = 12_000
+_VERTEX_PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
+_VERTEX_LOCATION_RE = re.compile(r"^(?:global|[a-z]+-[a-z]+[0-9]+)$")
+
+
+async def _receive_runtime_bootstrap(
+    websocket: WebSocket,
+    *,
+    uid: str | None,
+) -> tuple[
+    Literal["hushh_managed_vertex", "byok"],
+    str | None,
+    Literal["developer_api", "vertex_api_key"],
+    str | None,
+    str | None,
+]:
+    """Read the one non-model-visible startup frame.
+
+    A raw BYOK credential crosses TLS only in this first WebSocket message. It
+    is not added to session state, context, queues, tickets, telemetry, or
+    errors. The caller must discard its local reference after runner creation.
+    """
+    try:
+        raw = await asyncio.wait_for(websocket.receive_text(), _RUNTIME_BOOTSTRAP_WAIT_SECONDS)
+        message = json.loads(raw)
+    except (asyncio.TimeoutError, WebSocketDisconnect, TypeError, ValueError):
+        raise ValueError("runtime_bootstrap_required") from None
+    if not isinstance(message, dict) or message.get("type") != "runtime_bootstrap":
+        raise ValueError("runtime_bootstrap_required")
+    mode = message.get("runtime_credential_mode")
+    if mode == "hushh_managed_vertex":
+        # Never accept a credential in managed mode, even if a buggy client
+        # supplied one. This keeps the startup contract unambiguous.
+        if message.get("runtime_credential") not in (None, ""):
+            raise ValueError("runtime_bootstrap_invalid")
+        return "hushh_managed_vertex", None, "developer_api", None, None
+    if mode != "byok" or not uid:
+        raise ValueError("runtime_bootstrap_invalid")
+    credential = message.get("runtime_credential")
+    if not isinstance(credential, str):
+        raise ValueError("runtime_bootstrap_invalid")
+    credential = credential.strip()
+    if not credential or len(credential) > _RUNTIME_BOOTSTRAP_CREDENTIAL_CAP:
+        raise ValueError("runtime_bootstrap_invalid")
+    transport = message.get("runtime_credential_transport")
+    if transport not in {"developer_api", "vertex_api_key"}:
+        raise ValueError("runtime_bootstrap_invalid")
+    project = str(message.get("runtime_vertex_project") or "").strip()
+    location = str(message.get("runtime_vertex_location") or "").strip()
+    if transport == "vertex_api_key":
+        if not _VERTEX_PROJECT_RE.fullmatch(project) or not _VERTEX_LOCATION_RE.fullmatch(location):
+            raise ValueError("runtime_bootstrap_invalid")
+        return "byok", credential, "vertex_api_key", project, location
+    if project or location:
+        raise ValueError("runtime_bootstrap_invalid")
+    return "byok", credential, "developer_api", None, None
 
 
 class _InitialGreetingGate:
@@ -224,7 +284,35 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         await websocket.close(code=1008, reason="Voice relay ticket is expired.")
         return
 
-    runner = get_one_runner()
+    try:
+        (
+            runtime_mode,
+            runtime_credential,
+            runtime_credential_transport,
+            runtime_vertex_project,
+            runtime_vertex_location,
+        ) = await _receive_runtime_bootstrap(websocket, uid=uid)
+        runner = build_one_live_runner(
+            runtime_mode=runtime_mode,
+            runtime_credential=runtime_credential,
+            runtime_credential_transport=runtime_credential_transport,
+            runtime_vertex_project=runtime_vertex_project,
+            runtime_vertex_location=runtime_vertex_location,
+        )
+    except ValueError as exc:
+        # Safe class-only close reasons. Never reflect the credential or a raw
+        # provider response to the browser, logger, telemetry, or websocket.
+        reason = str(exc)
+        if reason == "byok_live_unsupported":
+            await websocket.close(code=1008, reason="BYOK Live is unavailable. Use managed Gemini.")
+        else:
+            await websocket.close(code=1008, reason="Voice session configuration was not accepted.")
+        return
+    finally:
+        # Keep the raw key alive only through connection-local runner creation.
+        runtime_credential = None
+        runtime_vertex_project = None
+        runtime_vertex_location = None
     # Ephemeral per-connection session; durable records live in app stores.
     session_user = uid or f"anon_{secrets.token_hex(8)}"
     session_id = f"voice_{uuid.uuid4().hex}"
@@ -350,6 +438,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     # on this same authenticated WebSocket. This keeps arbitrary browser
     # frames from becoming model-visible completion claims.
     issued_action_directives: dict[str, str] = {}
+    issued_goal_directives: dict[str, str] = {}
+    issued_goal_runs: dict[str, dict[str, Any]] = {}
+    awaiting_goal_context: set[str] = set()
     initial_context_ready = asyncio.Event()
 
     async def pump_browser_to_queue() -> None:
@@ -446,6 +537,25 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                                 )
                             )
                 first_app_context_seen = True
+                if (
+                    "goal.analysis.start_debate" in awaiting_goal_context
+                    and clean_screen == "kai_analysis"
+                ):
+                    awaiting_goal_context.discard("goal.analysis.start_debate")
+                    queue.send_content(
+                        genai_types.Content(
+                            role="user",
+                            parts=[
+                                genai_types.Part(
+                                    text=(
+                                        "[Goal runner - not user speech] Analysis route has settled "
+                                        "with fresh app context. Call continue_app_goal now to open "
+                                        "the requested preview; do not start a debate."
+                                    )
+                                )
+                            ],
+                        )
+                    )
                 continue
             if message.get("type") == "voice_activity_start":
                 # The browser emits this once after local speech activity, not
@@ -468,14 +578,34 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     settlement["directive_id"],
                     settlement["status"],
                 )
+                goal_id = issued_goal_directives.pop(settlement["directive_id"], None)
+                if (
+                    goal_id == "goal.analysis.start_debate"
+                    and settlement["action_id"] == "route.kai_analysis"
+                    and settlement["status"] in {"succeeded", "started"}
+                ):
+                    awaiting_goal_context.add(goal_id)
+                settlement_state_delta: dict[str, Any] = {
+                    "hussh:last_action_settlement": settlement
+                }
+                goal_run = issued_goal_runs.get(settlement["directive_id"])
+                if goal_run is not None and settlement["action_id"] == "analysis.start":
+                    issued_goal_runs.pop(settlement["directive_id"], None)
+                    settlement_state_delta["hussh:goal_run"] = {
+                        **goal_run,
+                        "step_cursor": 2,
+                        "status": (
+                            "completed"
+                            if settlement["status"] in {"succeeded", "started"}
+                            else "blocked"
+                        ),
+                    }
                 await runner.session_service.append_event(
                     session,
                     AdkEvent(
                         author="user",
                         invocation_id="action_settled",
-                        actions=EventActions(
-                            state_delta={"hussh:last_action_settlement": settlement}
-                        ),
+                        actions=EventActions(state_delta=settlement_state_delta),
                     ),
                 )
                 # This is an app execution report, never user speech. The
@@ -610,6 +740,12 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     if action_id:
                         directive_id = secrets.token_urlsafe(18)
                         issued_action_directives[directive_id] = action_id
+                        goal_id = _bounded_text(payload.get("goalId"), 128)
+                        if goal_id:
+                            issued_goal_directives[directive_id] = goal_id
+                        goal_run = payload.get("goalRun")
+                        if isinstance(goal_run, dict):
+                            issued_goal_runs[directive_id] = goal_run
                         outgoing_directive = {
                             **directive,
                             "payload": {**payload, "directiveId": directive_id},
@@ -676,9 +812,11 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     try:
         done, pending = await asyncio.wait({up, down}, return_when=asyncio.FIRST_EXCEPTION)
         for task in done:
-            exc = task.exception()
-            if exc is not None and not isinstance(exc, WebSocketDisconnect):
-                logger.warning("one_adk_live_relay_pump_failed error=%s", exc.__class__.__name__)
+            task_error = task.exception()
+            if task_error is not None and not isinstance(task_error, WebSocketDisconnect):
+                logger.warning(
+                    "one_adk_live_relay_pump_failed error=%s", task_error.__class__.__name__
+                )
     except WebSocketDisconnect:
         pass
     finally:

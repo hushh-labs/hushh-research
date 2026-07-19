@@ -43,7 +43,12 @@ KNOWN_TOOL_GROUPS = (
 DEFAULT_PUBLIC_TOOL_GROUPS = (TOOL_GROUP_CORE_CONSENT,)
 SCHEMA_PROFILE_STANDARD = "standard"
 SCHEMA_PROFILE_FLAT = "flat"
-KNOWN_SCHEMA_PROFILES = (SCHEMA_PROFILE_STANDARD, SCHEMA_PROFILE_FLAT)
+SCHEMA_PROFILE_AGENTFORCE = "agentforce"
+KNOWN_SCHEMA_PROFILES = (
+    SCHEMA_PROFILE_STANDARD,
+    SCHEMA_PROFILE_FLAT,
+    SCHEMA_PROFILE_AGENTFORCE,
+)
 
 TOOL_GROUP_TOOL_NAMES = {
     TOOL_GROUP_CORE_CONSENT: get_public_tool_names(),
@@ -797,8 +802,11 @@ class DeveloperRegistryService:
         app = self.get_app(app_id)
         if not app or str(app.get("kind") or "") != "partner_crm":
             raise ValueError("only partner_crm apps can be configured by this operations path")
-        if enable_client_credentials and profile != SCHEMA_PROFILE_FLAT:
-            raise ValueError("client credentials require the flat schema profile")
+        if enable_client_credentials and profile not in {
+            SCHEMA_PROFILE_FLAT,
+            SCHEMA_PROFILE_AGENTFORCE,
+        }:
+            raise ValueError("client credentials require a constrained schema profile")
         result = self._db.execute_raw(
             """
             UPDATE developer_apps

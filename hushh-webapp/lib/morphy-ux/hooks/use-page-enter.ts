@@ -2,7 +2,10 @@
 
 import { useEffect, useLayoutEffect, type RefObject } from "react";
 import { prefersReducedMotion, getGsap } from "@/lib/morphy-ux/gsap";
-import { ensureMorphyGsapReady, getMorphyEaseName } from "@/lib/morphy-ux/gsap-init";
+import {
+  ensureMorphyGsapReady,
+  getMorphyEaseName,
+} from "@/lib/morphy-ux/gsap-init";
 import { getMotionCssVars } from "@/lib/morphy-ux/motion";
 
 const useIsoLayoutEffect =
@@ -21,7 +24,7 @@ function collectFadeTargets(root: HTMLElement): HTMLElement[] {
   }
 
   const semanticNodes = root.querySelectorAll<HTMLElement>(
-    "[data-slot], [data-card], section, article, [role='region'], [role='dialog'], table, ul, ol, [class*='card'], [class*='view'], [class*='chart']"
+    "[data-slot], [data-card], section, article, [role='region'], [role='dialog'], table, ul, ol, [class*='card'], [class*='view'], [class*='chart']",
   );
   for (const node of semanticNodes) {
     candidates.push(node);
@@ -32,10 +35,21 @@ function collectFadeTargets(root: HTMLElement): HTMLElement[] {
   for (const node of candidates) {
     if (seen.has(node)) continue;
     seen.add(node);
-    if ((node.dataset as Record<string, string | undefined>)[AUTO_FADE_DATASET_KEY] === "1") continue;
+    // A controlled pager is already animating its rail. Staggering every
+    // mounted descendant while the user drags competes with that transform,
+    // particularly in a native WebView.
+    if (node.closest("[data-no-auto-fade='true']")) continue;
+    if (
+      (node.dataset as Record<string, string | undefined>)[
+        AUTO_FADE_DATASET_KEY
+      ] === "1"
+    )
+      continue;
     if (node.classList.contains("animate-none")) continue;
     deduped.push(node);
-    (node.dataset as Record<string, string | undefined>)[AUTO_FADE_DATASET_KEY] = "1";
+    (node.dataset as Record<string, string | undefined>)[
+      AUTO_FADE_DATASET_KEY
+    ] = "1";
     if (deduped.length >= AUTO_FADE_MAX_TARGETS) break;
   }
   return deduped;
@@ -43,7 +57,7 @@ function collectFadeTargets(root: HTMLElement): HTMLElement[] {
 
 export function usePageEnterAnimation(
   ref: RefObject<HTMLElement | null>,
-  opts?: { enabled?: boolean; key?: string; observeMutations?: boolean }
+  opts?: { enabled?: boolean; key?: string; observeMutations?: boolean },
 ) {
   const enabled = opts?.enabled ?? true;
   const key = opts?.key;
@@ -81,7 +95,7 @@ export function usePageEnterAnimation(
                 ease: getMorphyEaseName("emphasized"),
                 overwrite: "auto",
                 clearProps: "opacity,transform",
-              }
+              },
             );
           } else {
             gsap.fromTo(
@@ -94,7 +108,7 @@ export function usePageEnterAnimation(
                 ease: getMorphyEaseName("emphasized"),
                 overwrite: "auto",
                 clearProps: "opacity,transform",
-              }
+              },
             );
           }
         }, el);
@@ -111,7 +125,7 @@ export function usePageEnterAnimation(
             ease: getMorphyEaseName("emphasized"),
             overwrite: "auto",
             clearProps: "opacity,transform",
-          }
+          },
         );
       }
 
@@ -153,7 +167,7 @@ export function usePageEnterAnimation(
               ease: getMorphyEaseName("emphasized"),
               overwrite: "auto",
               clearProps: "opacity,transform",
-            }
+            },
           );
         });
         observer.observe(el, { childList: true, subtree: true });

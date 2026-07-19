@@ -1,4 +1,4 @@
-export type AnalysisWorkspaceTabIntent = "debate" | "summary";
+export type AnalysisWorkspaceTabIntent = "debate" | "summary" | "detailed";
 
 export type AnalysisRouteIntent = {
   shouldApply: boolean;
@@ -31,7 +31,11 @@ export function deriveAnalysisRouteIntent(searchParams: URLSearchParams): Analys
   const showHistory =
     !focusActive && !hasRunIdParam && (tab === "history" || tab === "transcript");
   const workspaceTab: AnalysisWorkspaceTabIntent | null =
-    !focusActive && !hasRunIdParam && (tab === "debate" || tab === "summary") ? tab : null;
+    !focusActive &&
+    !hasRunIdParam &&
+    (tab === "debate" || tab === "summary" || tab === "detailed")
+      ? tab
+      : null;
 
   return {
     shouldApply: true,

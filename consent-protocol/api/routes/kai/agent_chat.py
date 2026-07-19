@@ -18,6 +18,7 @@ from api.routes.one.live_context import sanitize_live_context
 from hushh_mcp.adk_bridge.contract import SpecialistTurnResult
 from hushh_mcp.adk_bridge.dispatch import is_wired_specialist
 from hushh_mcp.one_adk.text_runtime import OneTextDirective
+from hushh_mcp.services.action_gateway import get_action_gateway_action
 from hushh_mcp.services.agent_chat_service import (
     AgentChatConversation,
     AgentChatMessage,
@@ -26,11 +27,11 @@ from hushh_mcp.services.agent_chat_service import (
     PreparedAgentChatTurn,
     get_agent_chat_service,
 )
-from hushh_mcp.services.voice_action_manifest import get_voice_manifest_action
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Agent Chat"])
+_EXCLUDED_AGENT_CHAT_SPECIALISTS = frozenset({"agent_personal_information"})
 
 
 class DelegateResultModel(BaseModel):
@@ -63,6 +64,11 @@ class AgentChatStreamRequest(BaseModel):
     timezone: Optional[str] = Field(default=None, max_length=64)
     runtime_credential: Optional[str] = Field(default=None, max_length=12000, exclude=True)
     runtime_credential_mode: Optional[str] = Field(default=None, max_length=64)
+    runtime_credential_transport: Optional[Literal["developer_api", "vertex_api_key"]] = Field(
+        default=None
+    )
+    runtime_vertex_project: Optional[str] = Field(default=None, max_length=30)
+    runtime_vertex_location: Optional[str] = Field(default=None, max_length=64)
     delegate_agent_id: Optional[str] = Field(default=None, max_length=64)
     delegate_result: Optional[DelegateResultModel] = Field(default=None)
 
@@ -189,7 +195,10 @@ def _one_directive_frames(
     conversation_text: str,
 ) -> list[tuple[str, dict[str, Any]]]:
     """Translate One's canonical directive into the existing chat SSE frames."""
-    if directive.delegate_agent_id:
+    if (
+        directive.delegate_agent_id
+        and directive.delegate_agent_id not in _EXCLUDED_AGENT_CHAT_SPECIALISTS
+    ):
         return [
             (
                 "specialist_directive",
@@ -208,7 +217,7 @@ def _one_directive_frames(
     if directive.kind != "action":
         return []
     action_id = str(directive.payload.get("actionId") or "").strip()
-    action = get_voice_manifest_action(action_id)
+    action = get_action_gateway_action(action_id)
     if action is None:
         return []
     label = str(action.get("label") or action_id).strip()
@@ -320,6 +329,20 @@ async def stream_agent_chat(
 
     _assert_user(token_data, body.user_id)
     service = get_agent_chat_service()
+
+    requested_delegate_ids = {
+        candidate
+        for candidate in (
+            body.delegate_agent_id,
+            body.delegate_result.delegate_agent_id if body.delegate_result else None,
+        )
+        if candidate
+    }
+    if requested_delegate_ids & _EXCLUDED_AGENT_CHAT_SPECIALISTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Information Marketplace is not available in Agent Chat.",
+        )
 
     # Explicit specialist continuity remains supported for client-rendered
     # cards and follow-up results. New user meaning is never classified here;
@@ -452,6 +475,9 @@ async def stream_agent_chat(
         runtime = await service.prepare_agent_runtime(
             runtime_credential=body.runtime_credential,
             runtime_credential_mode=body.runtime_credential_mode,
+            runtime_credential_transport=body.runtime_credential_transport,
+            runtime_vertex_project=body.runtime_vertex_project,
+            runtime_vertex_location=body.runtime_vertex_location,
         )
         turn = await service.prepare_turn(
             user_id=body.user_id,
@@ -516,6 +542,9 @@ async def stream_agent_chat(
                 pkm_context=body.pkm_context,
                 runtime=runtime,
                 runtime_credential=body.runtime_credential,
+                runtime_credential_transport=runtime.gemini_byok_transport,
+                runtime_vertex_project=runtime.vertex_project,
+                runtime_vertex_location=runtime.vertex_location,
             ):
                 if await request.is_disconnected():
                     text = "".join(chunks)

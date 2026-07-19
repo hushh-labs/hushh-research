@@ -44,6 +44,7 @@ export const ROUTE_ID_VALUES = [
   "consents",
   "agent",
   "connect",
+  "connect_settings",
   "marketplace",
   "marketplace_connections",
   "marketplace_connection_portfolio",
@@ -148,6 +149,7 @@ export function resolveRouteId(pathname: string): RouteId {
   }
   if (pathname === ROUTES.AGENT) return "agent";
   if (pathname === ROUTES.CONNECT) return "connect";
+  if (pathname === ROUTES.CONNECT_SETTINGS) return "connect_settings";
   if (pathname === ROUTES.MARKETPLACE) return "marketplace";
   if (pathname === ROUTES.MARKETPLACE_CONNECTIONS) return "marketplace_connections";
   if (pathname === `${ROUTES.MARKETPLACE_CONNECTIONS}/portfolio`) {

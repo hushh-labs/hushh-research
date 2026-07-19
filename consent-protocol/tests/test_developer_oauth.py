@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 from fastapi import FastAPI
@@ -255,14 +255,34 @@ def test_client_credentials_requires_explicit_flat_partner_configuration():
         "access_token": "hdo_at_service",
         "token_type": "Bearer",
     }
-    service._issue_tokens.assert_called_once_with(
-        app_id="app_demo",
-        subject=None,
-        authorization_id=None,
-        scopes=("mcp:tools",),
-        include_refresh_token=False,
-        grant_type="client_credentials",
-    )
+    service._registry.get_app.return_value = {
+        "status": "active",
+        "kind": "partner_crm",
+        "schema_profile": "agentforce",
+        "oauth_client_credentials_enabled": True,
+    }
+    assert service.issue_client_credentials(client=_client(), scope="mcp:tools") == {
+        "access_token": "hdo_at_service",
+        "token_type": "Bearer",
+    }
+    assert service._issue_tokens.call_args_list == [
+        call(
+            app_id="app_demo",
+            subject=None,
+            authorization_id=None,
+            scopes=("mcp:tools",),
+            include_refresh_token=False,
+            grant_type="client_credentials",
+        ),
+        call(
+            app_id="app_demo",
+            subject=None,
+            authorization_id=None,
+            scopes=("mcp:tools",),
+            include_refresh_token=False,
+            grant_type="client_credentials",
+        ),
+    ]
 
 
 def test_refresh_replay_and_revoke_contract(monkeypatch):
@@ -335,4 +355,4 @@ def test_oauth_migration_is_in_the_developer_release_lane():
     uat = json.loads((root / "db/contracts/uat_integrated_schema.json").read_text())
     assert "099_developer_oauth_pkce.sql" in manifest["ordered_migrations"]
     assert "099_developer_oauth_pkce.sql" in manifest["groups"]["developer"]
-    assert uat["expected_migration_version"] == 105
+    assert uat["expected_migration_version"] == 106

@@ -48,6 +48,15 @@ export type ExecuteAgentGatewayActionInput = {
   switchPersona?: (target: Persona) => Promise<unknown>;
   executionContext?: LocalOnboardingActionContext;
   signal?: AbortSignal;
+  /**
+   * Narrow authorization issued by the generated goal runner. It never makes
+   * an arbitrary off-screen control executable; it only permits the Analysis
+   * preview step after the generated route step has settled on Analysis.
+   */
+  goalAuthorization?: {
+    goalId: "goal.analysis.start_debate";
+    expectedScreen: "kai_analysis";
+  } | null;
 };
 
 function hasPublishedActionInventory(
@@ -86,6 +95,16 @@ function isActionInActiveInventory(
     ) {
       return true;
     }
+  }
+
+  if (
+    input.goalAuthorization?.goalId === "goal.analysis.start_debate" &&
+    input.goalAuthorization.expectedScreen === "kai_analysis" &&
+    input.actionId === "analysis.start" &&
+    input.appRuntimeState.route.screen === "kai_analysis" &&
+    !routeIsBlockedByActiveLayer
+  ) {
+    return true;
   }
 
   if (input.allowedActionIds) {
@@ -607,6 +626,40 @@ export async function executeAgentGatewayAction(
             ? error.message
             : `${action.label} failed to run.`,
         reason: isAbort ? "execution_aborted" : "local_handler_error",
+      });
+    }
+  }
+
+  // A small number of generated actions are surfaced by native voice tools
+  // and also have a mounted web control (for example Analysis cancel/resume).
+  // The mounted handler is still required by the active inventory gate above;
+  // this is not a fallback to arbitrary DOM or off-screen execution.
+  const mountedHandler = resolveLocalOnboardingHandler(action.action_id);
+  if (mountedHandler) {
+    try {
+      const handlerResult = await mountedHandler(
+        input.slots || {},
+        input.executionContext,
+      );
+      return buildLocalHandlerResult({
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore,
+        goalId: action.goal.goal_id,
+        handlerResult,
+      });
+    } catch (error) {
+      return buildResult({
+        status: "failed",
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary:
+          error instanceof Error && error.message
+            ? error.message
+            : `${action.label} failed to run.`,
+        reason: "local_handler_error",
       });
     }
   }

@@ -4,7 +4,10 @@ import { useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 import type { TopShellTabSet } from "@/lib/navigation/top-shell-tabs";
-import { useTopShellTabSwipeState } from "@/lib/navigation/top-shell-tab-swipe-progress";
+import {
+  topShellTabSwipePositionVariable,
+  useTopShellTabSwipeState,
+} from "@/lib/navigation/top-shell-tab-swipe-progress";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { cn } from "@/lib/utils";
 
@@ -36,9 +39,9 @@ export function TopShellTabs({
   );
   const tabWidth = `${100 / tabSet.tabs.length}%`;
   const tabSwipeState = useTopShellTabSwipeState(tabSet.id);
-  const indicatorPosition = tabSwipeState.isDragging
-    ? tabSwipeState.position
-    : activeIndex;
+  const indicatorTransform = tabSwipeState.isDragging
+    ? `translate3d(calc(var(${topShellTabSwipePositionVariable(tabSet.id)}, ${activeIndex}) * 100%), 0, 0)`
+    : `translate3d(${activeIndex * 100}%, 0, 0)`;
 
   const selectIndex = useCallback(
     (index: number, focus: boolean) => {
@@ -119,7 +122,7 @@ export function TopShellTabs({
               : "transition-transform duration-200",
           )}
           style={{
-            transform: `translate3d(${indicatorPosition * 100}%, 0, 0)`,
+            transform: indicatorTransform,
             width: tabWidth,
           }}
         />

@@ -24,11 +24,11 @@ import logging
 import os
 from typing import Any
 
-from hushh_mcp.services.route_orchestration_index import resolve_route_orchestration_entry
-from hushh_mcp.services.voice_action_manifest import (
-    get_voice_manifest_action,
+from hushh_mcp.services.action_gateway import (
+    get_action_gateway_action,
     is_navigation_action,
 )
+from hushh_mcp.services.route_orchestration_index import resolve_route_orchestration_entry
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +159,7 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
         for action_id in (
             route_entry.get("action_ids", []) if isinstance(route_entry, dict) else []
         )
-        if isinstance(action_id, str) and get_voice_manifest_action(action_id) is not None
+        if isinstance(action_id, str) and get_action_gateway_action(action_id) is not None
     }
     canonical_screen = (
         bounded_text(route_entry.get("canonical_screen"), 64)
@@ -179,7 +179,7 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
         action_id
         for action_id in submitted_raw
         if action_id in route_action_ids
-        or is_navigation_action(get_voice_manifest_action(action_id))
+        or is_navigation_action(get_action_gateway_action(action_id))
     ]
     if submitted_raw and not route_action_ids:
         # Route not in the generated index (or declares no actions): only
@@ -220,6 +220,8 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
         # stale render or forged frame from lending another route's actions to
         # the active page.
         "screen": canonical_screen or None,
+        "context_revision": bounded_text(payload.get("context_revision"), 128) or None,
+        "signed_in": payload.get("signed_in") is True,
         "persona": bounded_text(payload.get("persona")),
         "voice_state": bounded_text(payload.get("voice_state"), 32),
         "available_action_ids": submitted_action_ids,
@@ -262,7 +264,7 @@ def sanitize_interaction_layer(
     visible_action_ids = [
         action_id
         for action_id in bounded_text_list(value.get("visible_action_ids"), LIVE_CONTEXT_ARRAY_CAP)
-        if action_id in submitted and get_voice_manifest_action(action_id) is not None
+        if action_id in submitted and get_action_gateway_action(action_id) is not None
     ]
     dismissible = value.get("dismissible") is True
     dismiss_action_id: str | None = bounded_text(value.get("dismiss_action_id"), 128) or None
@@ -270,7 +272,7 @@ def sanitize_interaction_layer(
         not dismissible
         or not dismiss_action_id
         or dismiss_action_id not in visible_action_ids
-        or get_voice_manifest_action(dismiss_action_id) is None
+        or get_action_gateway_action(dismiss_action_id) is None
     ):
         dismiss_action_id = None
     options: list[dict[str, Any]] = []

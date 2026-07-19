@@ -68,6 +68,12 @@ describe("SwipeViews", () => {
     expect(view.container.querySelectorAll('[role="tabpanel"]')).toHaveLength(
       2,
     );
+    const pager = view.container.querySelector(
+      '[data-swipe-views-root="true"]',
+    );
+    expect(pager).toHaveStyle(
+      "min-height: calc(100dvh - var(--app-top-content-offset, 0px))",
+    );
     expect(
       view.container.querySelector("#top-shell-demo-panel-first"),
     ).toHaveAttribute("aria-labelledby", "top-shell-demo-tab-first");
@@ -86,7 +92,7 @@ describe("SwipeViews", () => {
     expect(embla.scrollTo).toHaveBeenCalledWith(1);
   });
 
-  it("reports the destination selected by a horizontal pager swipe", () => {
+  it("reports the destination after a horizontal pager swipe settles", () => {
     const onChildSwiped = vi.fn();
 
     render(
@@ -103,6 +109,10 @@ describe("SwipeViews", () => {
 
     embla.selectedIndex = 1;
     embla.listeners.get("select")?.();
+
+    expect(onChildSwiped).not.toHaveBeenCalled();
+
+    embla.listeners.get("settle")?.();
 
     expect(onChildSwiped).toHaveBeenCalledWith("second");
   });

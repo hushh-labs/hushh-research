@@ -91,6 +91,37 @@ def test_agent_chat_runtime_contract_rejects_invalid_mode(test_vault_key):
         raise AssertionError("Expected AgentRuntimeContractError")
 
 
+def test_agent_chat_runtime_contract_accepts_a_vertex_api_key_with_explicit_endpoint(
+    test_vault_key,
+):
+    service = AgentChatService(vault_key_hex=test_vault_key)
+
+    contract = service.prepare_runtime_contract(
+        runtime_credential="USER_VERTEX_KEY",
+        runtime_credential_mode="byok",
+        runtime_credential_transport="vertex_api_key",
+        runtime_vertex_project="customer-vertex-project",
+        runtime_vertex_location="us-central1",
+    )
+
+    assert contract.gemini_byok_transport == "vertex_api_key"
+    assert contract.vertex_project == "customer-vertex-project"
+    assert contract.vertex_location == "us-central1"
+
+
+def test_agent_chat_runtime_contract_rejects_vertex_key_without_endpoint_metadata(test_vault_key):
+    service = AgentChatService(vault_key_hex=test_vault_key)
+
+    with pytest.raises(AgentRuntimeContractError, match="Google Cloud Vertex") as error:
+        service.prepare_runtime_contract(
+            runtime_credential="USER_VERTEX_KEY",
+            runtime_credential_mode="byok",
+            runtime_credential_transport="vertex_api_key",
+        )
+
+    assert error.value.error_code == "AGENT_RUNTIME_VERTEX_CONFIGURATION_INVALID"
+
+
 @pytest.mark.anyio
 async def test_agent_chat_service_prepares_byok_runtime_from_pkm_secret(
     monkeypatch,
@@ -482,14 +513,14 @@ def test_current_screen_from_context_reads_voice_shape():
 def test_enrich_plan_with_manifest_flags_manual_only_and_reachability():
     plan = AgentChatActionPlan(
         call_id="tool_1",
-        action_id="marketplace.ria.request_advisory",
-        label="Request Advisory Access",
+        action_id="analysis.cancel_active",
+        label="Cancel Active Analysis Run",
         execution="frontend",
         slots={},
         message="Requesting advisory access.",
     )
 
-    enriched = _enrich_plan_with_manifest(plan, current_screen="marketplace_ria_profile")
+    enriched = _enrich_plan_with_manifest(plan, current_screen="kai_analysis")
 
     assert enriched.execution_policy == "manual_only"
     assert enriched.requires_confirmation is True
@@ -504,8 +535,8 @@ def test_enrich_plan_with_manifest_flags_manual_only_and_reachability():
 def test_enrich_plan_with_manifest_marks_unreachable_off_screen():
     plan = AgentChatActionPlan(
         call_id="tool_2",
-        action_id="marketplace.ria.request_advisory",
-        label="Request Advisory Access",
+        action_id="analysis.cancel_active",
+        label="Cancel Active Analysis Run",
         execution="frontend",
         slots={},
         message="Requesting advisory access.",
@@ -537,8 +568,8 @@ def test_enrich_plan_with_manifest_degrades_on_unknown_action():
 def test_enrich_plan_with_manifest_unknown_screen_leaves_reachability_unknown():
     plan = AgentChatActionPlan(
         call_id="tool_4",
-        action_id="marketplace.ria.request_advisory",
-        label="Request Advisory Access",
+        action_id="analysis.cancel_active",
+        label="Cancel Active Analysis Run",
         execution="frontend",
         slots={},
         message="Requesting advisory access.",

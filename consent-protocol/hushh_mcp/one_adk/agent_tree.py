@@ -12,9 +12,10 @@ Architecture (0->1 rebuild of One's orchestration):
 - Session state carries the caller's identity/consent posture; tools read it
   from ``tool_context.state`` so the LLM never sees or supplies credentials.
 
-The roster mirrors hushh-webapp/lib/onboarding/one-capabilities.ts plus the
-standalone RIA agent: Finance (Kai internal), RIA, Gmail, Email, Location,
-Memory, Consent, Information Marketplace, Connected Systems.
+The active roster mirrors the enabled One capabilities plus the standalone
+RIA agent: Finance (Kai internal), RIA, Email, Location, Memory, Consent,
+and Connected Systems. Gmail remains a dormant Connections child and is not
+loaded into this runtime.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from dataclasses import dataclass
 from typing import Any, Literal, Optional
 
 from google.adk.agents import LlmAgent
@@ -39,9 +41,14 @@ from hushh_mcp.agents.onboarding.agent import (
 from hushh_mcp.agents.onboarding.agent import (
     resolve_onboarding_goal as _resolve_onboarding_goal,
 )
-from hushh_mcp.one_adk.action_tools import list_app_actions, run_app_action
+from hushh_mcp.one_adk.action_tools import (
+    continue_app_goal,
+    list_app_actions,
+    run_app_action,
+    start_app_goal,
+)
+from hushh_mcp.services.action_gateway import get_action_gateway_action
 from hushh_mcp.services.route_orchestration_index import is_one_delegate_admitted
-from hushh_mcp.services.voice_action_manifest import get_voice_manifest_action
 
 logger = logging.getLogger(__name__)
 
@@ -76,12 +83,10 @@ APP_ROUTES: dict[str, str] = {
     "setup": "/one/setup",
     "finance": "/one/kai",
     "ria": "/ria",
-    "gmail": "/one/gmail",
     "email": "/one/kyc",
     "location": "/one/location",
     "personal_data": "/one/pkm",
     "consent": "/consents",
-    "marketplace": "/one/marketplace",
     "connected_systems": "/one/connected-systems",
     "profile": "/profile",
 }
@@ -101,8 +106,46 @@ APP_ROUTES: dict[str, str] = {
 # _build_one_live_model() logs a warning if the override looks like 3.x.
 _ONE_MODEL = (os.getenv("AGENT_ONE_ADK_MODEL") or "gemini-live-2.5-flash-native-audio").strip()
 _ONE_LIVE_LOCATION = (os.getenv("AGENT_ONE_ADK_LOCATION") or "us-central1").strip()
+# The Developer API Live contract is intentionally separate from the Vertex
+# contract above. It is disabled by default until an ADK integration rehearsal
+# has verified the selected model's BIDI audio, tool calls and mid-session
+# send_client_content behavior. A BYOK key must never silently fall back to
+# Hussh's managed Vertex identity.
+_BYOK_LIVE_MODEL = (os.getenv("HUSHH_GEMINI_BYOK_LIVE_MODEL") or "").strip()
 # All worker agents run the same generation: gemini-3.5-flash.
 _SPECIALIST_MODEL = (os.getenv("AGENT_ONE_SPECIALIST_MODEL") or "gemini-3.5-flash").strip()
+
+
+@dataclass(frozen=True)
+class GeminiLiveCompatibility:
+    """One relay requirements for one named Gemini Live model contract."""
+
+    transport: Literal["vertex", "developer_api"]
+    supports_mid_session_client_content: bool
+    operator_enablement_required: bool
+
+
+# The relay injects redacted route state and correlated action settlements after
+# setup, so it requires client content throughout a session. Keep the model
+# differences declarative: adding a Developer API model is an explicit contract
+# decision plus an ADK rehearsal, never a best-effort name-prefix heuristic.
+GEMINI_LIVE_COMPATIBILITY: dict[str, GeminiLiveCompatibility] = {
+    "gemini-live-2.5-flash-native-audio": GeminiLiveCompatibility(
+        transport="vertex",
+        supports_mid_session_client_content=True,
+        operator_enablement_required=False,
+    ),
+    "gemini-2.5-flash-live-preview": GeminiLiveCompatibility(
+        transport="developer_api",
+        supports_mid_session_client_content=True,
+        operator_enablement_required=True,
+    ),
+    "gemini-3.1-flash-live-preview": GeminiLiveCompatibility(
+        transport="developer_api",
+        supports_mid_session_client_content=False,
+        operator_enablement_required=True,
+    ),
+}
 
 
 def _onboarding_goals_enabled(user_id: str) -> bool:
@@ -195,14 +238,12 @@ ONE_IDENTITY_INSTRUCTION = (
     "clients, picks, and requests) and Investor (personal portfolio "
     "review). Route ALL finance, advisor, and investing requests through "
     "Finance.\n"
-    "- Gmail: synced purchase receipts and receipt-sync health.\n"
     "- Email: approval drafts and client request workflows.\n"
     "- Location: live sharing with trusted people and local context.\n"
     "- Memory: saved knowledge the user can review (PKM).\n"
     "- Consent Center (Nav): what the user has shared and with whom, approvals, "
     "and revocations. Its Connections subagent handles the trusted-people "
     "graph itself; both surface in the Consent Center.\n"
-    "- Information Marketplace: governed information-slice requests and delivery.\n"
     "- Connected Systems: CRM and external system workflows.\n\n"
     # Section 4: tool invocation conditions, one tool per sentence.
     "Delegate naturally: when a request belongs to a specialist's domain, call "
@@ -217,16 +258,20 @@ ONE_IDENTITY_INSTRUCTION = (
     "while a question about KYC workflow status is not navigation. When the user "
     "asks to analyze, "
     "research, or run a debate on a stock or company ('analyze Nvidia'), act "
-    "immediately: call run_app_action with action id 'analysis.start' and "
+    "immediately: call start_app_goal with action id 'analysis.start' and "
     "slots {'symbol': <ticker>}; ask only when you cannot infer the ticker. "
-    "For other app actions (opening a workspace tab, connecting Gmail), call "
+    "After start_app_goal reports navigation_started, wait for the correlated "
+    "route settlement and fresh Analysis context, then call continue_app_goal. "
+    "It opens a preview only; never start the debate until the person explicitly "
+    "confirms from that preview. "
+    "For other app actions (opening a workspace tab), call "
     "run_app_action "
     "with the exact action id, using list_app_actions first when unsure. "
     "Actions owned by a specialist must go through that specialist's ask_ "
     "tool; run_app_action will redirect you if needed. Use google_search when "
     "the user needs fresh public information from the web. Answer general "
     "questions yourself. Call at most ONE action-producing tool per turn "
-    "(run_app_action or a specialist ask_ tool); wait for its settlement "
+    "(run_app_action, start_app_goal, or a specialist ask_ tool); wait for its settlement "
     "before starting another action. If a tool reports 'settling', the "
     "previous action has not finished; briefly tell the user you are waiting, "
     "then retry after the settlement note arrives.\n\n"
@@ -336,7 +381,7 @@ def _one_runtime_instruction(context: Any) -> str:
     action_lines: list[str] = []
     rendered_ids: set[str] = set()
     for action_id in prompt_action_ids[:18]:
-        entry = get_voice_manifest_action(str(action_id))
+        entry = get_action_gateway_action(str(action_id))
         if entry is None:
             continue
         label = str(entry.get("label") or action_id).strip()[:120]
@@ -692,11 +737,6 @@ async def ask_location_agent(request: str, tool_context: ToolContext) -> dict[st
     return await _specialist_turn("agent_location", request, tool_context)
 
 
-async def ask_marketplace_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Ask the Information Marketplace specialist about data-slice subscriptions, requests, and approvals."""
-    return await _specialist_turn("agent_personal_information", request, tool_context)
-
-
 async def ask_connected_systems_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
     """Ask the Connected Systems specialist about CRM records and external system workflows."""
     return await _specialist_turn("agent_connected_systems", request, tool_context)
@@ -783,7 +823,7 @@ def _one_roster_tools() -> list:
 
     AgentTool wraps the LLM-backed specialists (Finance, RIA) so One can
     consult them as tools; the dispatch-backed specialists (email, location,
-    connections, marketplace, connected systems, consent) are plain function
+    connections, connected systems, consent) are plain function
     tools that call the existing governed adk_bridge handlers.
 
     Uses GoogleSearchTool(bypass_multi_tools_limit=True) rather than the bare
@@ -813,22 +853,22 @@ def _one_roster_tools() -> list:
         open_screen,
         resolve_onboarding_goal,
         run_app_action,
+        start_app_goal,
+        continue_app_goal,
         list_app_actions,
         AgentTool(agent=_build_finance_agent()),
         ask_email_agent,
-        ask_gmail_agent,
         ask_location_agent,
-        ask_marketplace_agent,
         ask_connected_systems_agent,
         ask_consent_agent,
     ]
 
 
-def build_one_root_agent() -> LlmAgent:
+def build_one_root_agent(*, model: Any | None = None) -> LlmAgent:
     """Build the One VOICE head (native-audio Live model) with the full roster."""
     return LlmAgent(
         name="one",
-        model=_build_one_live_model(),
+        model=model or _build_one_live_model(),
         description="One, the Hussh head private agent and orchestrator.",
         instruction=_one_runtime_instruction,
         tools=_one_roster_tools(),
@@ -876,6 +916,69 @@ def get_one_runner() -> Runner:
             auto_create_session=True,
         )
     return _runner
+
+
+def build_one_live_runner(
+    *,
+    runtime_mode: Literal["hushh_managed_vertex", "byok"],
+    runtime_credential: str | None = None,
+    runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
+    runtime_vertex_project: str | None = None,
+    runtime_vertex_location: str | None = None,
+) -> Runner:
+    """Return the managed runner or an isolated, connection-local BYOK runner.
+
+    The BYOK Live compatibility gate is deliberately explicit. The current
+    managed runner relies on Vertex's 2.5 native-audio contract; a Developer
+    API model can only be enabled once it is named through the strict model
+    allowlist and the deployment flag. This prevents an API key from causing a
+    credential fallback or an unverified model swap.
+    """
+    if runtime_mode == "hushh_managed_vertex":
+        return get_one_runner()
+
+    enabled = (os.getenv("HUSHH_GEMINI_BYOK_LIVE_ENABLED") or "").strip().lower()
+    if enabled not in {"1", "true", "yes", "on"}:
+        raise ValueError("byok_live_unsupported")
+    # Google documents different live capability and endpoint contracts for
+    # Developer API and Vertex/Enterprise. Keep a Vertex API key out of voice
+    # until it has its own approved model/endpoint rehearsal; typed turns are
+    # already endpoint-safe through the provider factory.
+    if runtime_credential_transport == "vertex_api_key":
+        raise ValueError("byok_live_unsupported")
+    compatibility = GEMINI_LIVE_COMPATIBILITY.get(_BYOK_LIVE_MODEL)
+    if (
+        not runtime_credential
+        or compatibility is None
+        or compatibility.transport != "developer_api"
+        or not compatibility.supports_mid_session_client_content
+    ):
+        raise ValueError("byok_live_unsupported")
+
+    client_kwargs: dict[str, Any] = {"api_key": runtime_credential}
+    if runtime_credential_transport == "vertex_api_key":
+        project = str(runtime_vertex_project or "").strip()
+        location = str(runtime_vertex_location or "").strip()
+        if not project or not location:
+            raise ValueError("byok_live_unsupported")
+        client_kwargs.update(
+            {
+                "vertexai": True,
+                "project": project,
+                "location": location,
+            }
+        )
+
+    from google.adk.models import Gemini
+
+    return Runner(
+        app_name=ONE_APP_NAME,
+        agent=build_one_root_agent(
+            model=Gemini(model=_BYOK_LIVE_MODEL, client_kwargs=client_kwargs)
+        ),
+        session_service=InMemorySessionService(),
+        auto_create_session=True,
+    )
 
 
 _text_runner: Runner | None = None

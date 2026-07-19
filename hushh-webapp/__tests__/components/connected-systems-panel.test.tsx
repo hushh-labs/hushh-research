@@ -95,7 +95,7 @@ describe("ConnectedSystemsPanel", () => {
     render(<ConnectedSystemsPanel vaultOwnerToken={null} mode="list" />);
 
     expect(await screen.findByText("Customer CRM")).toBeTruthy();
-    expect(screen.getByText("Example CRM")).toBeTruthy();
+    expect(screen.getByText("Example · CRM")).toBeTruthy();
     fireEvent.click(screen.getByText("Customer CRM"));
     expect(routerPushMock).toHaveBeenCalledWith("/one/connected-systems/customer-crm");
   });

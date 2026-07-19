@@ -153,5 +153,8 @@ def test_partner_gateway_is_generated_from_canonical_inputs_only() -> None:
     assert manifest["transport"]["path"] == "/mcp/"
     assert all(isinstance(value, bool) for value in manifest["capabilities"].values())
     assert tuple(tool["name"] for tool in manifest["tools"]) == EXPECTED_TOOLS
-    assert all(set(tool) == {"name", "description", "inputSchema"} for tool in manifest["tools"])
+    assert all(
+        set(tool) == {"name", "description", "inputSchema", "outputSchema"}
+        for tool in manifest["tools"]
+    )
     assert "HUSHH_DEVELOPER_TOKEN" not in json.dumps(manifest)

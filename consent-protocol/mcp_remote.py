@@ -14,6 +14,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from api.developer_auth import remote_mcp_disabled_error, remote_mcp_enabled
 from hushh_mcp.services.developer_oauth_service import DeveloperOAuthService
 from hushh_mcp.services.developer_registry_service import DeveloperRegistryService
+from mcp_modules.agentforce_contract import AGENTFORCE_MAX_REQUEST_SECONDS, AGENTFORCE_PROFILE
 from mcp_modules.developer_context import (
     reset_current_developer_principal,
     set_current_developer_principal,
@@ -43,6 +44,14 @@ _rate_limit_storage = storage_from_string(
     os.environ.get("RATE_LIMIT_STORAGE_URI", "") or "memory://"
 )
 _rate_limiter = MovingWindowRateLimiter(_rate_limit_storage)
+
+
+def _request_timeout_seconds(schema_profile: str) -> float:
+    """Return a server timeout that settles before the host's own timeout."""
+
+    if schema_profile == AGENTFORCE_PROFILE:
+        return min(_MCP_REMOTE_REQUEST_TIMEOUT_SECONDS, AGENTFORCE_MAX_REQUEST_SECONDS)
+    return _MCP_REMOTE_REQUEST_TIMEOUT_SECONDS
 
 
 def _header_value(scope: dict[str, Any], header_name: bytes) -> str | None:
@@ -153,10 +162,11 @@ class AuthenticatedRemoteMCPApp:
             return
 
         context_tokens = set_current_developer_principal(principal, token=raw_token)
+        request_timeout_seconds = _request_timeout_seconds(principal.schema_profile)
         try:
             await asyncio.wait_for(
                 self._inner(scope, receive, send),
-                timeout=_MCP_REMOTE_REQUEST_TIMEOUT_SECONDS,
+                timeout=request_timeout_seconds,
             )
         except asyncio.TimeoutError:
             logger.warning(
@@ -169,8 +179,7 @@ class AuthenticatedRemoteMCPApp:
                 {
                     "error_code": "REQUEST_TIMEOUT",
                     "message": (
-                        f"Remote MCP request exceeded the {_MCP_REMOTE_REQUEST_TIMEOUT_SECONDS:.0f}s "
-                        "timeout."
+                        f"Remote MCP request exceeded the {request_timeout_seconds:.0f}s timeout."
                     ),
                 },
             )

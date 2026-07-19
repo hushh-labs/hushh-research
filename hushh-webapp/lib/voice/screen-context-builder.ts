@@ -46,7 +46,6 @@ export const GLOBAL_NAV_ACTION_IDS: readonly string[] = [
   "route.profile",
   "route.one_location",
   "route.one_pkm",
-  "route.one_marketplace",
   "route.consents",
 ];
 export const ARRAY_DIMENSION_CAP_ERROR =
@@ -225,6 +224,10 @@ export type OneVoiceContextSnapshot = {
     interaction_layer?: StructuredVoiceInteractionLayer | null;
   };
   available_action_ids: string[];
+  /** Redacted admission bit only; never an account identifier. */
+  auth?: {
+    signed_in: boolean;
+  };
   pending_settlement: boolean;
   cache: {
     vault_ready: boolean;
@@ -681,6 +684,9 @@ export function buildStructuredScreenContext(args: {
     ...readObject(rawContext.screen_metadata),
     ...readObject(publishedSurface?.screenMetadata),
     available_action_ids: availableActionIds,
+    auth: {
+      signed_in: args.appRuntimeState?.auth.signed_in === true,
+    },
   };
 
   return {

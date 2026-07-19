@@ -4,16 +4,12 @@
   "source_contracts": [
     "hushh-webapp/app/getting-started/page.voice-action-contract.json",
     "hushh-webapp/app/login/page.voice-action-contract.json",
-    "hushh-webapp/app/marketplace/ria/page-client.voice-action-contract.json",
-    "hushh-webapp/app/one/gmail/page.voice-action-contract.json",
     "hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json",
     "hushh-webapp/app/one/kyc/page.voice-action-contract.json",
-    "hushh-webapp/app/one/marketplace/page.voice-action-contract.json",
     "hushh-webapp/app/one/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/connected-systems/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/email/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/finance/import/page.voice-action-contract.json",
-    "hushh-webapp/app/one/setup/gmail/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/kai/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/location/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/ria/page.voice-action-contract.json",
@@ -29,6 +25,7 @@
     "hushh-webapp/app/ria/workspace/page.voice-action-contract.json",
     "hushh-webapp/components/agent/specialist-turns.voice-action-contract.json",
     "hushh-webapp/components/consent/consent-center-page.voice-action-contract.json",
+    "hushh-webapp/components/kai/analysis-controls.voice-action-contract.json",
     "hushh-webapp/components/kai/kai-command-bar-global.voice-action-contract.json",
     "hushh-webapp/components/kai/views/dashboard-master-view.voice-action-contract.json",
     "hushh-webapp/components/kai/views/kai-market-preview-view.voice-action-contract.json",
@@ -89,52 +86,6 @@
     },
     {
       "schema_version": "kai.local_action_contract.v1",
-      "surface_id": "marketplace_ria_profile",
-      "surface_title": "Marketplace RIA Profile",
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
-      ],
-      "contract_file": "hushh-webapp/app/marketplace/ria/page-client.voice-action-contract.json",
-      "defaults": {
-        "reachability": {
-          "active_personas": [
-            "investor",
-            "ria"
-          ]
-        }
-      },
-      "orchestration": {
-        "instruction_id": null,
-        "context_policy": null,
-        "trust_boundary": null,
-        "delegation_policy": null
-      }
-    },
-    {
-      "schema_version": "kai.local_action_contract.v1",
-      "surface_id": "gmail",
-      "surface_title": "Gmail",
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
-      ],
-      "contract_file": "hushh-webapp/app/one/gmail/page.voice-action-contract.json",
-      "defaults": {
-        "reachability": {
-          "active_personas": [
-            "investor",
-            "ria"
-          ]
-        }
-      },
-      "orchestration": {
-        "instruction_id": null,
-        "context_policy": null,
-        "trust_boundary": null,
-        "delegation_policy": null
-      }
-    },
-    {
-      "schema_version": "kai.local_action_contract.v1",
       "surface_id": "kai_analysis",
       "surface_title": "Kai Analysis Workspace",
       "docs_references": [
@@ -182,29 +133,6 @@
         },
         "speaker_persona": "kyc",
         "delegate_agent_id": "agent_kyc"
-      },
-      "orchestration": {
-        "instruction_id": null,
-        "context_policy": null,
-        "trust_boundary": null,
-        "delegation_policy": null
-      }
-    },
-    {
-      "schema_version": "kai.local_action_contract.v1",
-      "surface_id": "one_marketplace",
-      "surface_title": "Information Marketplace",
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
-      ],
-      "contract_file": "hushh-webapp/app/one/marketplace/page.voice-action-contract.json",
-      "defaults": {
-        "reachability": {
-          "active_personas": [
-            "investor",
-            "ria"
-          ]
-        }
       },
       "orchestration": {
         "instruction_id": null,
@@ -297,34 +225,6 @@
         "reachability": {
           "active_personas": [
             "investor"
-          ]
-        },
-        "speaker_persona": "one",
-        "guard_ids": [
-          "auth_signed_in"
-        ]
-      },
-      "orchestration": {
-        "instruction_id": null,
-        "context_policy": null,
-        "trust_boundary": null,
-        "delegation_policy": null
-      }
-    },
-    {
-      "schema_version": "kai.local_action_contract.v1",
-      "surface_id": "one_setup_gmail",
-      "surface_title": "Gmail Setup",
-      "docs_references": [
-        "docs/reference/quality/one-onboarding-architecture.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
-      ],
-      "contract_file": "hushh-webapp/app/one/setup/gmail/page.voice-action-contract.json",
-      "defaults": {
-        "reachability": {
-          "active_personas": [
-            "investor",
-            "ria"
           ]
         },
         "speaker_persona": "one",
@@ -696,6 +596,37 @@
             "investor",
             "ria"
           ]
+        }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "kai_analysis_controls",
+      "surface_title": "Kai Analysis Controls",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/components/kai/analysis-controls.voice-action-contract.json",
+      "defaults": {
+        "speaker_persona": "kai",
+        "reachability": {
+          "active_personas": [
+            "investor"
+          ],
+          "routes": [
+            "/one/kai?tab=analysis"
+          ],
+          "screens": [
+            "kai_analysis"
+          ],
+          "hidden_navigable": false,
+          "navigation_prerequisites": []
         }
       },
       "orchestration": {
@@ -1918,1007 +1849,6 @@
       }
     },
     {
-      "action_id": "route.marketplace_ria_profile",
-      "surface_id": "marketplace_ria_profile",
-      "label": "Open Marketplace RIA Profile",
-      "aliases": [
-        "open ria marketplace profile",
-        "show advisor profile",
-        "open this advisor"
-      ],
-      "search_keywords": [
-        "marketplace",
-        "ria profile",
-        "advisor profile"
-      ],
-      "meaning": "Navigates to a public marketplace RIA profile route.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/marketplace/ria",
-          "/marketplace/ria?riaId=[riaId]"
-        ],
-        "screens": [
-          "marketplace_ria_profile"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "RIA profile identifier should be known for a full profile view."
-        ],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "marketplace_profile_public_metadata_only"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/marketplace/ria",
-        "params": {
-          "optional_ria_id": true
-        }
-      },
-      "control_ids": [
-        "marketplace_ria_profile_route"
-      ],
-      "state_exposure": [
-        "public RIA profile metadata"
-      ],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "hushh-webapp/app/marketplace/ria/page-client.tsx",
-        "hushh-webapp/lib/navigation/routes.ts"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /marketplace/ria"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.route.marketplace_ria_profile",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "route.marketplace_ria_profile",
-            "label": "Open Marketplace RIA Profile",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/marketplace/ria",
-              "screen": "marketplace_ria_profile"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "marketplace.ria.request_advisory",
-      "surface_id": "marketplace_ria_profile",
-      "label": "Request Advisory Access",
-      "aliases": [
-        "request advisory",
-        "ask this advisor for access",
-        "send advisory request"
-      ],
-      "search_keywords": [
-        "request advisory",
-        "consent request",
-        "advisor connection"
-      ],
-      "meaning": "Creates an investor-to-RIA advisory consent request for the current marketplace profile.",
-      "speaker_persona": "nav",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/marketplace/ria"
-        ],
-        "screens": [
-          "marketplace_ria_profile"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "Signed-in investor persona must be active.",
-          "RIA profile must be loaded.",
-          "RIA profile must have a connectable verification status."
-        ],
-        "active_personas": [
-          "investor"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "active_persona_investor",
-        "marketplace_ria_profile_loaded",
-        "marketplace_ria_connectable",
-        "explicit_user_confirmation"
-      ],
-      "risk_level": "high",
-      "execution_policy": "manual_only",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Creating an investor-to-RIA consent request must stay user-triggered on the marketplace profile.",
-        "intended_handler": "dispatchVoiceToolCall"
-      },
-      "control_ids": [
-        "marketplace_ria_request_advisory"
-      ],
-      "state_exposure": [
-        "selected RIA user identifier",
-        "scope template investor_advisor_disclosure_v1",
-        "request duration"
-      ],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "hushh-webapp/app/marketplace/ria/page-client.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "advisory consent request is created",
-          "route moves to pending marketplace connections"
-        ],
-        "backend_effects": [
-          {
-            "api": "ConsentCenterService.createRequest",
-            "effect": "Creates an investor-to-RIA consent request using investor_advisor_disclosure_v1."
-          }
-        ]
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.marketplace.ria.request_advisory",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "marketplace.ria.request_advisory",
-            "label": "Request Advisory Access",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/marketplace/ria",
-              "screen": "marketplace_ria_profile"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "marketplace.ria.manage_profile",
-      "surface_id": "marketplace_ria_profile",
-      "label": "Manage RIA Profile",
-      "aliases": [
-        "manage my ria profile",
-        "edit advisor profile",
-        "open ria settings"
-      ],
-      "search_keywords": [
-        "manage profile",
-        "ria settings",
-        "advisor profile"
-      ],
-      "meaning": "Navigates an active RIA persona from their public marketplace profile back to profile management.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/marketplace/ria",
-          "/ria/settings"
-        ],
-        "screens": [
-          "marketplace_ria_profile"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "Active persona must be RIA."
-        ],
-        "active_personas": [
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "active_persona_ria",
-        "ria_persona_available"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/ria/settings"
-      },
-      "control_ids": [
-        "marketplace_ria_manage_profile"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "hushh-webapp/app/marketplace/ria/page-client.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /ria/settings"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.marketplace.ria.manage_profile",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "marketplace.ria.manage_profile",
-            "label": "Manage RIA Profile",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/ria/settings",
-              "screen": "marketplace_ria_profile"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "route.marketplace_browse_from_ria_profile",
-      "surface_id": "marketplace_ria_profile",
-      "label": "Continue Browsing Marketplace",
-      "aliases": [
-        "continue browsing",
-        "back to marketplace",
-        "open marketplace"
-      ],
-      "search_keywords": [
-        "marketplace",
-        "browse",
-        "back"
-      ],
-      "meaning": "Returns from the marketplace RIA profile to the marketplace browsing surface.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/marketplace/ria",
-          "/marketplace"
-        ],
-        "screens": [
-          "marketplace_ria_profile"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/marketplace"
-      },
-      "control_ids": [
-        "marketplace_ria_continue_browsing",
-        "marketplace_ria_back_to_marketplace"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "hushh-webapp/app/marketplace/ria/page-client.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /marketplace"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.route.marketplace_browse_from_ria_profile",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "route.marketplace_browse_from_ria_profile",
-            "label": "Continue Browsing Marketplace",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/marketplace",
-              "screen": "marketplace_ria_profile"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "marketplace.ria.open_public_disclosure",
-      "surface_id": "marketplace_ria_profile",
-      "label": "Open Public Disclosure",
-      "aliases": [
-        "open public disclosure",
-        "show advisor disclosure",
-        "open disclosure link"
-      ],
-      "search_keywords": [
-        "disclosure",
-        "external link",
-        "public filing"
-      ],
-      "meaning": "Opens the external public disclosure URL attached to the marketplace RIA profile.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/marketplace/ria"
-        ],
-        "screens": [
-          "marketplace_ria_profile"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "Profile must expose a public disclosures URL."
-        ],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "marketplace_public_disclosure_url_present",
-        "manual_user_execution"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "External disclosure URLs are dynamic profile state and should be opened manually.",
-        "intended_handler": "router.push"
-      },
-      "control_ids": [
-        "marketplace_ria_public_disclosure"
-      ],
-      "state_exposure": [
-        "external public disclosure URL"
-      ],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "hushh-webapp/app/marketplace/ria/page-client.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /marketplace/ria"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.marketplace.ria.open_public_disclosure",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "marketplace.ria.open_public_disclosure",
-            "label": "Open Public Disclosure",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/marketplace/ria",
-              "screen": "marketplace_ria_profile"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "route.profile_receipts",
-      "surface_id": "gmail",
-      "label": "Open Receipts Page",
-      "aliases": [
-        "open receipts",
-        "open gmail receipts"
-      ],
-      "search_keywords": [
-        "receipts",
-        "gmail receipts"
-      ],
-      "meaning": "Navigates directly to receipts page from any investor surface.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/gmail"
-        ],
-        "screens": [
-          "gmail"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "navigate to Gmail surface if route is currently outside Gmail scope"
-        ],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/gmail"
-      },
-      "control_ids": [
-        "top_agent_section_gmail"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/one/gmail/page.tsx",
-        "components/gmail/gmail-receipts-page.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/gmail"
-        ],
-        "backend_effects": [
-          {
-            "api": "GET /api/kai/gmail/status/{user_id} (proxied)",
-            "effect": "Reads Gmail connector status on mount."
-          },
-          {
-            "api": "GET /api/kai/gmail/receipts/{user_id} (proxied)",
-            "effect": "Reads paginated receipt items."
-          }
-        ]
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.route.profile_receipts",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "route.profile_receipts",
-            "label": "Open Receipts Page",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/gmail",
-              "screen": "gmail"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "profile.gmail.connect",
-      "surface_id": "gmail",
-      "label": "Connect Gmail",
-      "aliases": [
-        "connect gmail",
-        "link gmail"
-      ],
-      "search_keywords": [
-        "gmail connect",
-        "gmail"
-      ],
-      "meaning": "Starts OAuth flow for Gmail receipts connector.",
-      "speaker_persona": "nav",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/gmail"
-        ],
-        "screens": [
-          "gmail"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "gmail_configured"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "confirm_required",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Only local component handler exists (handleConnectGmail in GmailReceiptsPage).",
-        "intended_handler": "handleConnectGmail"
-      },
-      "control_ids": [
-        "open_gmail_connector"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "components/gmail/gmail-receipts-page.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/gmail"
-        ],
-        "backend_effects": [
-          {
-            "api": "POST /api/kai/gmail/connect/start (proxied)",
-            "effect": "Generates OAuth authorize URL and state nonce."
-          }
-        ]
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.profile.gmail.connect",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "profile.gmail.connect",
-            "label": "Connect Gmail",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/gmail",
-              "screen": "gmail"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "profile.gmail.sync_now",
-      "surface_id": "gmail",
-      "label": "Sync Gmail Receipts Now",
-      "aliases": [
-        "sync gmail receipts",
-        "refresh gmail receipts"
-      ],
-      "search_keywords": [
-        "gmail sync",
-        "refresh receipts"
-      ],
-      "meaning": "Queues and polls Gmail receipt sync run.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/gmail"
-        ],
-        "screens": [
-          "gmail"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "gmail_connected"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "confirm_required",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Implemented only in local page handlers; no shared voice/action adapter yet.",
-        "intended_handler": "dispatchVoiceToolCall"
-      },
-      "control_ids": [
-        "sync_gmail_receipts"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "components/gmail/gmail-receipts-page.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/gmail"
-        ],
-        "backend_effects": [
-          {
-            "api": "POST /api/kai/gmail/sync (proxied)",
-            "effect": "Queues sync job."
-          },
-          {
-            "api": "GET /api/kai/gmail/sync/{run_id} (proxied)",
-            "effect": "Polls sync run status."
-          }
-        ]
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.profile.gmail.sync_now",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "profile.gmail.sync_now",
-            "label": "Sync Gmail Receipts Now",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/gmail",
-              "screen": "gmail"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "profile.gmail.disconnect",
-      "surface_id": "gmail",
-      "label": "Disconnect Gmail",
-      "aliases": [
-        "disconnect gmail",
-        "unlink gmail"
-      ],
-      "search_keywords": [
-        "disconnect gmail"
-      ],
-      "meaning": "Disconnects Gmail OAuth credentials for future syncs.",
-      "speaker_persona": "nav",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/gmail"
-        ],
-        "screens": [
-          "gmail"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "gmail_connected",
-        "manual_user_execution"
-      ],
-      "risk_level": "high",
-      "execution_policy": "manual_only",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Only local component handler exists (handleDisconnectGmail in GmailReceiptsPage).",
-        "intended_handler": "handleDisconnectGmail"
-      },
-      "control_ids": [
-        "disconnect_gmail"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "components/gmail/gmail-receipts-page.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/gmail"
-        ],
-        "backend_effects": [
-          {
-            "api": "POST /api/kai/gmail/disconnect (proxied)",
-            "effect": "Revokes connector state in backend."
-          }
-        ]
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.profile.gmail.disconnect",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "profile.gmail.disconnect",
-            "label": "Disconnect Gmail",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/gmail",
-              "screen": "gmail"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
       "action_id": "route.kai_analysis",
       "surface_id": "kai_analysis",
       "label": "Open Analysis Surface",
@@ -3216,22 +2146,12 @@
         "workflow_steps": [
           {
             "type": "action",
-            "label": "Prepare stock analysis",
+            "label": "Open stock analysis preview",
             "failure_behavior": "stop",
             "action_id": "analysis.start",
             "settlement_target": {
               "route": "/one/kai?tab=analysis",
               "screen": "kai_analysis"
-            }
-          },
-          {
-            "type": "service",
-            "label": "Run Kai debate",
-            "failure_behavior": "stop",
-            "service": "kai_debate.ensure_run",
-            "settlement_target": {
-              "route": "/one/kai?tab=analysis",
-              "screen": "kai_analysis_workspace"
             }
           }
         ],
@@ -3248,7 +2168,7 @@
           "cancel_action_id": "analysis.cancel_active"
         },
         "result_contract": {
-          "summary_mode": "decision_summary"
+          "summary_mode": "preview_ready"
         },
         "entrypoint_support": [
           "voice",
@@ -3457,105 +2377,6 @@
         },
         "cancellation_contract": {
           "cancellable": true,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "analysis.open_transcript_tab_legacy",
-      "surface_id": "kai_analysis",
-      "label": "Legacy Transcript Tab Route",
-      "aliases": [
-        "open transcript tab",
-        "show transcript tab"
-      ],
-      "search_keywords": [
-        "analysis transcript"
-      ],
-      "meaning": "Legacy tab token accepted by parser but no transcript tab is rendered in current analysis UI.",
-      "speaker_persona": "kai",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/kai?tab=analysis&view=transcript"
-        ],
-        "screens": [
-          "kai_analysis"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "analysis route must be loaded"
-        ],
-        "active_personas": [
-          "investor"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "dead",
-        "reason": "No transcript tab trigger/content exists in app/kai/analysis/page.tsx."
-      },
-      "control_ids": [],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "lib/voice/voice-json-validator.ts",
-        "app/kai/analysis/page.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/kai?tab=analysis&view=transcript"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.analysis.open_transcript_tab_legacy",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "analysis.open_transcript_tab_legacy",
-            "label": "Legacy Transcript Tab Route",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kai?tab=analysis&view=transcript",
-              "screen": "kai_analysis"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
           "cancel_action_id": null
         },
         "result_contract": {
@@ -4307,116 +3128,6 @@
             "settlement_target": {
               "route": "/one/kyc",
               "screen": "one_kyc"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "route.one_marketplace",
-      "surface_id": "one_marketplace",
-      "label": "Open Information Marketplace",
-      "aliases": [
-        "open information marketplace",
-        "open the information marketplace",
-        "open data marketplace",
-        "go to information marketplace",
-        "go to the data marketplace",
-        "take me to the information marketplace",
-        "show me the information marketplace",
-        "open my data marketplace"
-      ],
-      "search_keywords": [
-        "marketplace",
-        "data marketplace",
-        "data slices",
-        "sell my data",
-        "published slices"
-      ],
-      "meaning": "Navigates to the One Information Marketplace (personal data-slice) route.",
-      "speaker_persona": "nav",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/marketplace"
-        ],
-        "screens": [
-          "one_marketplace"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/marketplace"
-      },
-      "control_ids": [
-        "top_agent_section_marketplace"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/marketplace"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.route.one_marketplace",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "route.one_marketplace",
-            "label": "Open Information Marketplace",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/marketplace",
-              "screen": "one_marketplace"
             }
           }
         ],
@@ -5372,340 +4083,6 @@
             "action_id": "setup.skip_finance",
             "label": "Skip Finance setup",
             "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/setup",
-              "screen": "one_setup_hub"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "setup.connect_gmail",
-      "surface_id": "one_setup_gmail",
-      "label": "Connect Gmail",
-      "aliases": [
-        "connect gmail",
-        "connect my gmail",
-        "set up gmail",
-        "open gmail connector"
-      ],
-      "search_keywords": [
-        "connect",
-        "gmail",
-        "connector"
-      ],
-      "meaning": "Presents the exact Connect Gmail action so a confirming tap can open the secure Gmail popup while the private-agent session remains active.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/setup/gmail"
-        ],
-        "screens": [
-          "one_setup_gmail"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "trusted_activation_required",
-      "execution_target": {
-        "status": "wired",
-        "path": "local_handler",
-        "target": "setup.connect_gmail"
-      },
-      "control_ids": [
-        "open_gmail_connector"
-      ],
-      "state_exposure": [
-        "gmail connection state",
-        "active setup capability"
-      ],
-      "docs_references": [
-        "docs/reference/quality/one-onboarding-architecture.md",
-        "docs/reference/one/one-voice-runtime-architecture.md",
-        "components/gmail/gmail-receipts-page.tsx",
-        "app/one/setup/gmail/gmail-onboarding-setup-client.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/setup/gmail"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.setup.connect_gmail",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "label": "Connect Gmail",
-            "failure_behavior": "stop",
-            "action_id": "setup.connect_gmail",
-            "settlement_target": {
-              "route": "/one/setup/gmail",
-              "screen": "one_setup_gmail"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "setup.finish_gmail",
-      "surface_id": "one_setup_gmail",
-      "label": "Finish Gmail setup",
-      "aliases": [
-        "finish gmail setup",
-        "finish gmail",
-        "complete gmail setup"
-      ],
-      "search_keywords": [
-        "finish",
-        "gmail",
-        "complete"
-      ],
-      "meaning": "Records an already verified Gmail connection as complete and returns to the setup hub.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/setup/gmail"
-        ],
-        "screens": [
-          "one_setup",
-          "one_setup_gmail"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "gmail_connected"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "local_handler",
-        "target": "setup.finish_gmail"
-      },
-      "control_ids": [
-        "finish_gmail_setup"
-      ],
-      "state_exposure": [
-        "gmail connection state",
-        "active setup capability"
-      ],
-      "docs_references": [
-        "docs/reference/quality/one-onboarding-architecture.md",
-        "docs/reference/one/one-voice-runtime-architecture.md",
-        "app/one/setup/gmail/gmail-onboarding-setup-client.tsx",
-        "components/onboarding/setup/setup-completion-footer.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/setup/gmail"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.setup.finish_gmail",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "label": "Finish Gmail setup",
-            "failure_behavior": "stop",
-            "action_id": "setup.finish_gmail",
-            "settlement_target": {
-              "route": "/one/setup",
-              "screen": "one_setup_hub"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "setup.skip_gmail",
-      "surface_id": "one_setup_gmail",
-      "label": "Skip Gmail setup",
-      "aliases": [
-        "skip gmail setup",
-        "skip gmail",
-        "not now"
-      ],
-      "search_keywords": [
-        "skip",
-        "gmail",
-        "not now"
-      ],
-      "meaning": "Leaves Gmail setup and returns to the setup hub without recording Gmail as complete.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/setup/gmail"
-        ],
-        "screens": [
-          "one_setup",
-          "one_setup_gmail"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "local_handler",
-        "target": "setup.skip_gmail"
-      },
-      "control_ids": [
-        "skip_gmail_setup"
-      ],
-      "state_exposure": [
-        "gmail connection state",
-        "active setup capability"
-      ],
-      "docs_references": [
-        "docs/reference/quality/one-onboarding-architecture.md",
-        "docs/reference/one/one-voice-runtime-architecture.md",
-        "app/one/setup/gmail/gmail-onboarding-setup-client.tsx",
-        "components/onboarding/setup/setup-completion-footer.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/setup/gmail"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.setup.skip_gmail",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "label": "Skip Gmail setup",
-            "failure_behavior": "stop",
-            "action_id": "setup.skip_gmail",
             "settlement_target": {
               "route": "/one/setup",
               "screen": "one_setup_hub"
@@ -7059,110 +5436,6 @@
       }
     },
     {
-      "action_id": "route.profile_gmail_panel",
-      "surface_id": "profile_account",
-      "label": "Open Gmail",
-      "aliases": [
-        "open gmail settings",
-        "open gmail panel",
-        "open gmail"
-      ],
-      "search_keywords": [
-        "gmail",
-        "gmail panel",
-        "receipts"
-      ],
-      "meaning": "Navigates to the canonical Gmail receipts workspace.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/gmail"
-        ],
-        "screens": [
-          "gmail"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "Gmail route must be reachable"
-        ],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/gmail"
-      },
-      "control_ids": [],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/one/gmail/page.tsx",
-        "components/gmail/gmail-receipts-page.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/gmail"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.route.profile_gmail_panel",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "route.profile_gmail_panel",
-            "label": "Open Gmail",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/gmail",
-              "screen": "gmail"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
       "action_id": "route.profile_connected_systems",
       "surface_id": "profile_account",
       "label": "Open Connected Systems Panel",
@@ -8265,7 +6538,7 @@
         "phone-flow-number"
       ],
       "state_exposure": [
-        "masked phone number"
+        "verification step only"
       ],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -8653,114 +6926,6 @@
             "settlement_target": {
               "route": "/ria/clients",
               "screen": "ria_clients"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "route.ria_marketplace_connect",
-      "surface_id": "ria_clients",
-      "label": "Open RIA Connect Marketplace",
-      "aliases": [
-        "open connect",
-        "browse marketplace",
-        "find investor connections"
-      ],
-      "search_keywords": [
-        "marketplace",
-        "connect",
-        "relationships"
-      ],
-      "meaning": "Navigates from the RIA shell to the marketplace connection surface.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/marketplace"
-        ],
-        "screens": [
-          "marketplace",
-          "ria_route_tabs"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "ria",
-          "investor"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/marketplace"
-      },
-      "control_ids": [
-        "ria_route_tab_connect",
-        "ria_clients_browse_marketplace"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "hushh-webapp/app/ria/clients/page.tsx",
-        "hushh-webapp/components/ria/layout/ria-route-tabs.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /marketplace"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.route.ria_marketplace_connect",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "route.ria_marketplace_connect",
-            "label": "Open RIA Connect Marketplace",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/marketplace",
-              "screen": "marketplace"
             }
           }
         ],
@@ -11297,32 +9462,28 @@
         "what needs reply today",
         "check my inbox",
         "show emails that need a reply",
-        "summarize my gmail",
         "search my email"
       ],
       "search_keywords": [
         "email",
-        "gmail",
         "inbox",
         "needs a reply",
         "unread email",
         "reply today"
       ],
-      "meaning": "Delegates a governed read-only Gmail or Email triage turn to the Email specialist under One.",
+      "meaning": "Delegates a governed approval-draft or client-request turn to the Email specialist under One.",
       "speaker_persona": "one",
       "delegate_agent_id": "agent_email",
       "reachability": {
         "routes": [
-          "/one/gmail",
           "/one"
         ],
         "screens": [
-          "gmail",
           "one_agents"
         ],
         "hidden_navigable": true,
         "navigation_prerequisites": [
-          "gmail connection required for mailbox content"
+          "exact information authority is required for email workflows"
         ],
         "active_personas": [
           "investor",
@@ -11346,7 +9507,6 @@
         "agent_chat_email_turn"
       ],
       "state_exposure": [
-        "gmail_connection_status",
         "vault_ready",
         "allowed_action_ids"
       ],
@@ -11359,7 +9519,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/gmail"
+          "current route becomes /one"
         ],
         "backend_effects": []
       },
@@ -11384,8 +9544,7 @@
           }
         ],
         "input_resolvers": [
-          "user_utterance",
-          "gmail_connection_status"
+          "user_utterance"
         ],
         "slot_schema": {
           "utterance": {
@@ -11400,8 +9559,8 @@
             "failure_behavior": "stop",
             "service": "specialist_chat.turn",
             "settlement_target": {
-              "route": "/one/gmail",
-              "screen": "gmail"
+              "route": "/one",
+              "screen": "one_agents"
             }
           }
         ],
@@ -11741,146 +9900,6 @@
       }
     },
     {
-      "action_id": "gmail.chat.turn",
-      "surface_id": "one_specialist_turns",
-      "label": "Ask Gmail",
-      "aliases": [
-        "what did i buy this month",
-        "show my receipts",
-        "how much did i spend at",
-        "show my purchases",
-        "is my receipt sync working",
-        "are my receipts up to date"
-      ],
-      "search_keywords": [
-        "receipts",
-        "purchases",
-        "purchase memory",
-        "spending",
-        "merchant",
-        "receipt sync"
-      ],
-      "meaning": "Delegates read-only purchase-receipt and receipt-sync questions to the Gmail specialist under One.",
-      "speaker_persona": "one",
-      "delegate_agent_id": "agent_gmail",
-      "reachability": {
-        "routes": [
-          "/one/gmail",
-          "/one"
-        ],
-        "screens": [
-          "gmail",
-          "one_agents"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "gmail connection required for synced receipt content"
-        ],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "vault_owner_token"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Gmail specialist turns require an ingress-minted, task-bound information authority context before delegation.",
-        "intended_handler": "specialist_chat.turn"
-      },
-      "control_ids": [
-        "agent_chat_gmail_turn"
-      ],
-      "state_exposure": [
-        "gmail_connection_status",
-        "vault_ready",
-        "allowed_action_ids"
-      ],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-agent-hierarchy.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/gmail"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.gmail.chat.turn",
-        "required_inputs": [
-          {
-            "name": "utterance",
-            "prompt": "What should I ask Gmail?",
-            "required": true,
-            "slot": "utterance",
-            "resolver": "user_utterance"
-          }
-        ],
-        "input_resolvers": [
-          "user_utterance",
-          "gmail_connection_status"
-        ],
-        "slot_schema": {
-          "utterance": {
-            "type": "string",
-            "maxLength": 8000
-          }
-        },
-        "workflow_steps": [
-          {
-            "type": "tool_call",
-            "label": "Delegate to Gmail specialist",
-            "failure_behavior": "stop",
-            "service": "specialist_chat.turn",
-            "settlement_target": {
-              "route": "/one/gmail",
-              "screen": "gmail"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "single_turn",
-          "milestone_events": [
-            "delegated",
-            "completed"
-          ]
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "specialist_answer"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
       "action_id": "consent.chat.turn",
       "surface_id": "one_specialist_turns",
       "label": "Ask Consent (Nav)",
@@ -12158,294 +10177,6 @@
       }
     },
     {
-      "action_id": "marketplace.information.chat.turn",
-      "surface_id": "one_specialist_turns",
-      "label": "Ask Information Marketplace",
-      "aliases": [
-        "how many subscriptions have i put available on marketplace",
-        "how many listings have i put available on marketplace",
-        "what have i published to the information marketplace",
-        "what data have i published",
-        "how much is my data worth",
-        "show marketplace demand"
-      ],
-      "search_keywords": [
-        "information marketplace",
-        "data marketplace",
-        "marketplace listing",
-        "marketplace listings",
-        "subscription available",
-        "published slices",
-        "data slices",
-        "potential earnings"
-      ],
-      "meaning": "Delegates read-only Information Marketplace questions about published information slices, listings, demand, and potential earnings.",
-      "speaker_persona": "one",
-      "delegate_agent_id": "agent_personal_information",
-      "reachability": {
-        "routes": [
-          "/one/marketplace",
-          "/one"
-        ],
-        "screens": [
-          "one_marketplace",
-          "one_agents"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "marketplace information requires vault and marketplace readiness"
-        ],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "vault_owner_token"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "voice_tool",
-        "target": "specialist_chat.turn",
-        "params": {
-          "delegate_agent_id": "agent_personal_information"
-        }
-      },
-      "control_ids": [
-        "agent_chat_information_marketplace_turn"
-      ],
-      "state_exposure": [
-        "marketplace_readiness",
-        "vault_ready",
-        "allowed_action_ids"
-      ],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-agent-hierarchy.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/marketplace"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.marketplace.information.chat.turn",
-        "required_inputs": [
-          {
-            "name": "utterance",
-            "prompt": "What should I ask the Information Marketplace?",
-            "required": true,
-            "slot": "utterance",
-            "resolver": "user_utterance"
-          }
-        ],
-        "input_resolvers": [
-          "user_utterance",
-          "marketplace_readiness"
-        ],
-        "slot_schema": {
-          "utterance": {
-            "type": "string",
-            "maxLength": 8000
-          }
-        },
-        "workflow_steps": [
-          {
-            "type": "tool_call",
-            "label": "Delegate to Information Marketplace specialist",
-            "failure_behavior": "stop",
-            "service": "specialist_chat.turn",
-            "settlement_target": {
-              "route": "/one/marketplace",
-              "screen": "one_marketplace"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "single_turn",
-          "milestone_events": [
-            "delegated",
-            "completed"
-          ]
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "specialist_answer"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "marketplace.information.requests.turn",
-      "surface_id": "one_specialist_turns",
-      "label": "Review Information Marketplace Requests",
-      "aliases": [
-        "can you approve any pending request for information marketplace",
-        "approve pending information marketplace request",
-        "approve marketplace request",
-        "review pending marketplace requests",
-        "show pending marketplace requests",
-        "deny marketplace request"
-      ],
-      "search_keywords": [
-        "information marketplace request",
-        "pending marketplace request",
-        "approve request",
-        "deny request",
-        "access request",
-        "marketplace approvals"
-      ],
-      "meaning": "Delegates pending Information Marketplace request review to the specialist and requires chat confirmation before any approval or denial mutation.",
-      "speaker_persona": "one",
-      "delegate_agent_id": "agent_personal_information",
-      "reachability": {
-        "routes": [
-          "/one/marketplace",
-          "/one"
-        ],
-        "screens": [
-          "one_marketplace",
-          "one_agents"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "marketplace approvals require explicit owner confirmation"
-        ],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "vault_owner_token"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "confirm_required",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "voice_tool",
-        "target": "specialist_chat.turn",
-        "params": {
-          "delegate_agent_id": "agent_personal_information"
-        }
-      },
-      "control_ids": [
-        "agent_chat_information_marketplace_requests"
-      ],
-      "state_exposure": [
-        "marketplace_pending_requests",
-        "vault_ready",
-        "allowed_action_ids"
-      ],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-agent-hierarchy.md",
-        "docs/reference/one/one-voice-runtime-architecture.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/marketplace"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.marketplace.information.requests.turn",
-        "required_inputs": [
-          {
-            "name": "utterance",
-            "prompt": "What should I ask the Information Marketplace request reviewer?",
-            "required": true,
-            "slot": "utterance",
-            "resolver": "user_utterance"
-          }
-        ],
-        "input_resolvers": [
-          "user_utterance",
-          "marketplace_pending_requests"
-        ],
-        "slot_schema": {
-          "utterance": {
-            "type": "string",
-            "maxLength": 8000
-          }
-        },
-        "workflow_steps": [
-          {
-            "type": "tool_call",
-            "label": "Delegate to Information Marketplace request specialist",
-            "failure_behavior": "stop",
-            "service": "specialist_chat.turn",
-            "settlement_target": {
-              "route": "/one/marketplace",
-              "screen": "one_marketplace"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "single_turn",
-          "milestone_events": [
-            "delegated",
-            "confirmation_needed"
-          ]
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "chat_handoff"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
       "action_id": "route.consents",
       "surface_id": "consents",
       "label": "Open Consent Center",
@@ -12547,6 +10278,515 @@
       }
     },
     {
+      "action_id": "analysis.back_to_history",
+      "surface_id": "kai_analysis_controls",
+      "label": "Back to Analysis History",
+      "aliases": [
+        "back to history",
+        "open analysis history"
+      ],
+      "search_keywords": [
+        "analysis",
+        "history",
+        "back"
+      ],
+      "meaning": "Returns from the live analysis workspace to its saved history.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai?tab=analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "analysis.back_to_history"
+      },
+      "control_ids": [
+        "analysis_back_to_history"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/one/kai/analysis/page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai?tab=analysis"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.analysis.back_to_history",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "analysis.back_to_history",
+            "label": "Back to Analysis History",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai?tab=analysis",
+              "screen": "kai_analysis"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "analysis.open_debate_tab",
+      "surface_id": "kai_analysis_controls",
+      "label": "Open Debate Tab",
+      "aliases": [
+        "open debate tab",
+        "show debate"
+      ],
+      "search_keywords": [
+        "analysis",
+        "debate",
+        "tab"
+      ],
+      "meaning": "Shows the current analysis debate transcript.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai?tab=analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "analysis.open_debate_tab"
+      },
+      "control_ids": [
+        "analysis_tab_debate"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/one/kai/analysis/page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai?tab=analysis"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.analysis.open_debate_tab",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "analysis.open_debate_tab",
+            "label": "Open Debate Tab",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai?tab=analysis",
+              "screen": "kai_analysis"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "analysis.open_summary_tab",
+      "surface_id": "kai_analysis_controls",
+      "label": "Open Summary Tab",
+      "aliases": [
+        "open summary tab",
+        "show summary"
+      ],
+      "search_keywords": [
+        "analysis",
+        "summary",
+        "tab"
+      ],
+      "meaning": "Shows the compact analysis summary.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai?tab=analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "analysis.open_summary_tab"
+      },
+      "control_ids": [
+        "analysis_tab_summary"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/one/kai/analysis/page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai?tab=analysis"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.analysis.open_summary_tab",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "analysis.open_summary_tab",
+            "label": "Open Summary Tab",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai?tab=analysis",
+              "screen": "kai_analysis"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "analysis.open_detailed_tab",
+      "surface_id": "kai_analysis_controls",
+      "label": "Open Detailed Analysis",
+      "aliases": [
+        "open detailed tab",
+        "show detailed analysis"
+      ],
+      "search_keywords": [
+        "analysis",
+        "detailed",
+        "tab"
+      ],
+      "meaning": "Shows the detailed analysis review.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai?tab=analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "analysis.open_detailed_tab"
+      },
+      "control_ids": [
+        "analysis_tab_detailed"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/one/kai/analysis/page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai?tab=analysis"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.analysis.open_detailed_tab",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "analysis.open_detailed_tab",
+            "label": "Open Detailed Analysis",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai?tab=analysis",
+              "screen": "kai_analysis"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "analysis.confirm_preview",
+      "surface_id": "kai_analysis_controls",
+      "label": "Start Debate from Preview",
+      "aliases": [
+        "start debate",
+        "confirm analysis preview"
+      ],
+      "search_keywords": [
+        "analysis",
+        "preview",
+        "start debate",
+        "confirm"
+      ],
+      "meaning": "Starts the debate after the user confirms the visible stock preview.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai?tab=analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "analysis_idle_required",
+        "explicit_user_confirmation"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "analysis.confirm_preview"
+      },
+      "control_ids": [
+        "analysis_start_preview"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/one/kai/analysis/page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai?tab=analysis"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.analysis.confirm_preview",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "analysis.confirm_preview",
+            "label": "Start Debate from Preview",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai?tab=analysis",
+              "screen": "kai_analysis"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.back",
       "surface_id": "kai_command_bar",
       "label": "Go Back",
@@ -12595,7 +10835,7 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "hushh-webapp/lib/voice/voice-action-dispatcher.ts"
+        "hushh-webapp/lib/agent/agent-action-runtime.ts"
       ],
       "workflow": null,
       "external_callback": null,

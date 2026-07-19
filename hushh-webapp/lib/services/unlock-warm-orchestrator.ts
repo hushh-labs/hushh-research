@@ -360,6 +360,11 @@ export class UnlockWarmOrchestrator {
       warmPriority === "analysis" ||
       warmPriority === "default";
     const shouldWarmConsents = warmPriority === "consents" || warmPriority === "default";
+    // The Consent Center's canonical summary/pending page cache is lightweight
+    // and must be ready after every successful unlock, regardless of the route
+    // that happened to unlock the vault. Legacy consent resources below remain
+    // route-prioritized because they are not used by the canonical screen.
+    const shouldWarmConsentCenter = Boolean(params.firebaseIdToken);
     const shouldWarmVaultStatus =
       warmPriority === "consents" ||
       warmPriority === "profile" ||
@@ -558,7 +563,7 @@ export class UnlockWarmOrchestrator {
     // handles its own cache.set into CONSENT_CENTER_SUMMARY / CONSENT_CENTER_LIST,
     // so calling it here populates the page-read keys directly. Requires a
     // Firebase ID token (the consent center proxy is Firebase-authenticated).
-    if (shouldWarmConsents && params.firebaseIdToken) {
+    if (shouldWarmConsentCenter && params.firebaseIdToken) {
       const idToken = params.firebaseIdToken;
       await Promise.allSettled([
         ConsentCenterService.getSummary({
@@ -571,15 +576,6 @@ export class UnlockWarmOrchestrator {
           userId: params.userId,
           mode: "consents",
           surface: "pending",
-          q: "",
-          page: 1,
-          limit: CONSENT_CENTER_PAGE_SIZE,
-        }),
-        ConsentCenterService.listEntries({
-          idToken,
-          userId: params.userId,
-          mode: "consents",
-          surface: "active",
           q: "",
           page: 1,
           limit: CONSENT_CENTER_PAGE_SIZE,

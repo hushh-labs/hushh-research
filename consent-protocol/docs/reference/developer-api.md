@@ -82,9 +82,13 @@ OAuth is an additional transport-authentication option for hosts such as Claude 
 
 Authorization-code and refresh-token grants remain the self-serve interactive
 path. `client_credentials` is available only to an operations-provisioned
-`partner_crm` app that has both the `flat` schema profile and an explicit
-client-credentials enablement. It issues a short-lived app-bound access token,
-never a refresh token or synthetic user subject. Register an exact HTTPS
+`partner_crm` app that has either the `flat` generic-host profile or the
+`agentforce` schema-registration-UAT profile, plus explicit client-credentials
+enablement. It issues a short-lived app-bound access token, never a refresh
+token or synthetic user subject. The `agentforce` profile is not a production
+personal-data integration: Salesforce currently excludes user-level and
+personalized MCP responses, so Hussh rejects personalized calls from that
+profile. Register an exact HTTPS
 redirect URI for PKCE first; loopback HTTP is permitted solely for local
 development. Client secrets, authorization codes, access tokens, refresh
 tokens, Firebase identifiers, and consent tokens are never returned by

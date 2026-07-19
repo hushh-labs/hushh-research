@@ -14,9 +14,10 @@ import { mapAgentVoiceStatusToOneVoiceState } from "@/lib/voice/voice-ui-state-m
  * Browser client for Gemini Live full-duplex voice.
  *
  * Flow:
- *   1. Open a WebSocket to our backend Vertex Live relay. The relay runs Gemini
- *      Live over Vertex AI via ADC, so it works on projects where the Developer
- *      API is restricted; the managed key never reaches the browser.
+ *   1. Open a WebSocket to the backend relay. The first authenticated frame
+ *      selects either Hushh-managed Vertex or a turn-local Gemini API key.
+ *      The key is immediately cleared and never enters route state, storage,
+ *      telemetry, or model context.
  *   2. The relay owns the Live setup and announces readiness with a
  *      {"setupComplete": {}} frame.
  *   3. Capture mic audio as 16 kHz mono PCM16 and stream it up.
@@ -190,6 +191,12 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private captureNode: AudioWorkletNode | null = null;
   private closed = false;
   private setupComplete = false;
+  private runtimeCredentialMode: "hushh_managed_vertex" | "byok" =
+    "hushh_managed_vertex";
+  private runtimeCredential: string | null = null;
+  private runtimeCredentialTransport: "developer_api" | "vertex_api_key" = "developer_api";
+  private runtimeVertexProject: string | null = null;
+  private runtimeVertexLocation: string | null = null;
   private playheadTime = 0;
   private activeSources = new Set<AudioBufferSourceNode>();
   private outputLevelTimer: ReturnType<typeof setInterval> | null = null;
@@ -269,6 +276,26 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     const context = options?.context ?? null;
     this.startContext = context;
     this.consentToken = options?.consentToken ?? null;
+    this.runtimeCredentialMode =
+      options?.runtimeCredentialMode === "byok"
+        ? "byok"
+        : "hushh_managed_vertex";
+    this.runtimeCredential =
+      this.runtimeCredentialMode === "byok"
+        ? options?.runtimeCredential?.trim() || null
+        : null;
+    this.runtimeCredentialTransport =
+      options?.runtimeCredentialTransport === "vertex_api_key"
+        ? "vertex_api_key"
+        : "developer_api";
+    this.runtimeVertexProject =
+      this.runtimeCredentialTransport === "vertex_api_key"
+        ? options?.runtimeVertexProject?.trim() || null
+        : null;
+    this.runtimeVertexLocation =
+      this.runtimeCredentialTransport === "vertex_api_key"
+        ? options?.runtimeVertexLocation?.trim() || null
+        : null;
     let relayUrl: string;
     try {
       relayUrl =
@@ -423,10 +450,31 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     const ws = new WebSocket(relayUrl);
     this.ws = ws;
 
-    // The server relay owns the Live setup (model, voice, system instruction)
-    // and announces readiness with a {"setupComplete": {}} frame, so the browser
-    // does not send a setup message here. It simply waits for setupComplete and
-    // then streams mic audio.
+    // The first post-ticket frame picks the current connection's provider mode.
+    // A BYOK credential exists only in this closure and is cleared immediately
+    // after `send`; it never enters app_context, a URL, storage, or telemetry.
+    ws.onopen = () => {
+      const credential = this.runtimeCredential;
+      ws.send(
+        JSON.stringify({
+          type: "runtime_bootstrap",
+          runtime_credential_mode: this.runtimeCredentialMode,
+          runtime_credential_transport: this.runtimeCredentialTransport,
+          ...(this.runtimeCredentialTransport === "vertex_api_key"
+            ? {
+                runtime_vertex_project: this.runtimeVertexProject,
+                runtime_vertex_location: this.runtimeVertexLocation,
+              }
+            : {}),
+          ...(this.runtimeCredentialMode === "byok" && credential
+            ? { runtime_credential: credential }
+            : {}),
+        }),
+      );
+      this.runtimeCredential = null;
+      this.runtimeVertexProject = null;
+      this.runtimeVertexLocation = null;
+    };
 
     ws.onmessage = (event) => {
       void this.handleSocketMessage(event.data);
@@ -752,6 +800,8 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       screen: context.route.screen,
       route_family: context.route.route_family,
       route_playbook_id: context.route.playbook_id,
+      context_revision: `${context.revisions.route}:${context.revisions.ui}`,
+      signed_in: context.auth?.signed_in === true,
       persona: context.persona.active,
       voice_state: context.voice.state,
       available_action_ids: context.available_action_ids,
@@ -928,6 +978,9 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     if (this.closed) return;
     this.closed = true;
     this.setupComplete = false;
+    this.runtimeCredential = null;
+    this.runtimeVertexProject = null;
+    this.runtimeVertexLocation = null;
     this.resolvePlaybackDrain();
 
     if (this.outputLevelTimer) {

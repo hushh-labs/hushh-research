@@ -27,12 +27,16 @@ export function KaiWorkspaceHeader({
   className?: string;
 }) {
   return (
-    <AppPageHeaderRegion data-kai-workspace-header={workspace}>
+    <AppPageHeaderRegion
+      className="mb-[var(--page-header-section-gap)]"
+      data-kai-workspace-header={workspace}
+    >
       <PageHeader
         title={title}
         description={description}
         actions={actions}
         actionsInlineMobile={actionsInlineMobile}
+        accent="neutral"
         className={className}
       />
     </AppPageHeaderRegion>

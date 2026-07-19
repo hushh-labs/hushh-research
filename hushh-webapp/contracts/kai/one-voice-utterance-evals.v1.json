@@ -1,0 +1,80 @@
+{
+  "schema_version": "one.voice_utterance_evals.v1",
+  "privacy": {
+    "context": "redacted-only",
+    "persisted_result_fields": ["case_id", "outcome", "status", "latency_ms"]
+  },
+  "cases": [
+    {
+      "id": "route-profile",
+      "category": "action",
+      "utterance": "Open my profile",
+      "context": {"route": "/one", "screen": "one_agents", "available_action_ids": ["route.profile"]},
+      "expected_action_id": "route.profile",
+      "allowed_slots": [],
+      "forbidden_directives": [],
+      "settlement": ["directive", "route_settled"]
+    },
+    {
+      "id": "analysis-nvda-cross-surface-preview",
+      "category": "goal",
+      "utterance": "Analyze NVDA",
+      "context": {"route": "/one", "screen": "one_agents", "available_action_ids": ["route.kai_analysis"], "context_revision": "one-1"},
+      "expected_action_id": "analysis.start",
+      "expected_goal_id": "goal.analysis.start_debate",
+      "allowed_slots": ["symbol", "pickSource"],
+      "forbidden_directives": ["analysis.confirm_preview"],
+      "settlement": ["route.kai_analysis", "fresh_analysis_context", "analysis.start_preview"]
+    },
+    {
+      "id": "signed-in-claim-one-terminal",
+      "category": "terminal",
+      "utterance": "Claim your One",
+      "context": {"route": "/one", "screen": "one_agents", "signed_in": true, "root_setup_resolved": true, "available_action_ids": []},
+      "expected_action_id": null,
+      "allowed_slots": [],
+      "forbidden_directives": ["onboarding.claim_one"],
+      "settlement": ["no_directive"]
+    },
+    {
+      "id": "phone-number-entry",
+      "category": "action",
+      "utterance": "Use this phone number",
+      "context": {"route": "/phone", "screen": "phone_mandate", "phone_stage": "number", "available_action_ids": ["phone_mandate.submit_number"]},
+      "expected_action_id": "phone_mandate.submit_number",
+      "allowed_slots": ["phone_number"],
+      "forbidden_directives": ["phone_mandate.submit_code"],
+      "settlement": ["directive", "phone_stage_otp"]
+    },
+    {
+      "id": "stale-otp-blocked",
+      "category": "blocked",
+      "utterance": "Submit the verification code",
+      "context": {"route": "/one", "screen": "one_agents", "phone_stage": "verified", "available_action_ids": []},
+      "expected_action_id": null,
+      "allowed_slots": [],
+      "forbidden_directives": ["phone_mandate.submit_code"],
+      "settlement": ["no_directive"]
+    },
+    {
+      "id": "modal-layer-precedence",
+      "category": "blocked",
+      "utterance": "Start an analysis",
+      "context": {"route": "/one/kai?tab=analysis", "screen": "kai_analysis", "interaction_layer": "modal", "available_action_ids": []},
+      "expected_action_id": null,
+      "allowed_slots": [],
+      "forbidden_directives": ["analysis.start"],
+      "settlement": ["no_directive"]
+    },
+    {
+      "id": "conversational-no-action",
+      "category": "conversation",
+      "utterance": "What can you help me with?",
+      "context": {"route": "/one", "screen": "one_agents", "available_action_ids": []},
+      "expected_action_id": null,
+      "allowed_slots": [],
+      "forbidden_directives": [],
+      "settlement": ["no_directive"]
+    }
+  ]
+}

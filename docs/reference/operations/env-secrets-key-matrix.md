@@ -77,8 +77,8 @@ Profile bootstrap rule:
 | `GMAIL_OAUTH_CLIENT_SECRET` | `consent-protocol/hushh_mcp/services/gmail_receipts_service.py` | Y | N | Y | secret | N | secret | N | required |
 | `GMAIL_OAUTH_REDIRECT_URI` | `consent-protocol/hushh_mcp/services/gmail_receipts_service.py` | Y | N | Y | secret | N | secret | N | required; exact `APP_FRONTEND_ORIGIN + /profile/gmail/oauth/return` |
 | `GMAIL_OAUTH_TOKEN_KEY` | `consent-protocol/hushh_mcp/services/gmail_receipts_service.py` | Y | N | Y | secret | N | secret | N | required |
-| `OPENAI_API_KEY` | `consent-protocol/hushh_mcp/services/voice_intent_service.py` | Y | N | Y | secret | N | secret | N | required |
-| `VOICE_RUNTIME_CONFIG_JSON` | `consent-protocol/hushh_mcp/runtime_settings.py`, `consent-protocol/api/routes/kai/voice.py`, `consent-protocol/hushh_mcp/services/voice_intent_service.py` | Y | N | Y | secret | N | secret | N | required |
+| `OPENAI_API_KEY` | Legacy compatibility configuration; no active One ADK relay reader | N | N | N | secret | N | secret | N | deprecated |
+| `VOICE_RUNTIME_CONFIG_JSON` | `consent-protocol/hushh_mcp/runtime_settings.py` | Y | N | Y | secret | N | secret | N | required |
 | `HUSHH_DEVELOPER_TOKEN` | `consent-protocol/api/routes/session.py` | Y | N | N | N | N | N | N | optional |
 | `ENVIRONMENT` | `consent-protocol/hushh_mcp/config.py` | Y | N | N | env | N | env | N | required |
 | `GOOGLE_GENAI_USE_VERTEXAI` | runtime SDK config | Y | N | N | env | N | env | N | required |

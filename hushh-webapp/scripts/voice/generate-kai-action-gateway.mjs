@@ -13,17 +13,13 @@ const GATEWAY_OUTPUT_PATH = path.resolve(
   REPO_ROOT,
   "contracts/kai/kai-action-gateway.vnext.json",
 );
-const MANIFEST_OUTPUT_PATH = path.resolve(
-  REPO_ROOT,
-  "contracts/kai/voice-action-manifest.v1.json",
-);
 const WEBAPP_GATEWAY_OUTPUT_PATH = path.resolve(
   WEBAPP_ROOT,
   "contracts/kai/kai-action-gateway.vnext.json",
 );
-const WEBAPP_MANIFEST_OUTPUT_PATH = path.resolve(
+const CAPABILITY_GUARD_COVERAGE_PATH = path.resolve(
   WEBAPP_ROOT,
-  "contracts/kai/voice-action-manifest.v1.json",
+  "contracts/kai/capability-guard-coverage.v1.json",
 );
 
 const SPEAKER_PERSONAS = new Set(["one", "kai", "nav", "kyc"]);
@@ -36,9 +32,7 @@ const AGENT_PERSONAS = new Set([
   "agent_connected_systems",
   "agent_connections",
   "agent_email",
-  "agent_gmail",
   "agent_location",
-  "agent_personal_information",
 ]);
 const DEFAULT_TRIGGER = {
   primary: "voice",
@@ -428,14 +422,7 @@ function normalizeExecutionTarget(raw, actionId) {
   }
 
   if (status === "dead") {
-    const reason = cleanString(raw.reason);
-    if (!reason) {
-      throw new Error(`${actionId}: dead execution_target requires reason`);
-    }
-    return {
-      status,
-      reason,
-    };
+    throw new Error(`${actionId}: dead actions must be removed from their authored contract`);
   }
 
   throw new Error(
@@ -730,31 +717,6 @@ async function listContractFiles(startDir) {
   return files;
 }
 
-function toLegacyManifestAction(action) {
-  return {
-    id: action.action_id,
-    label: action.label,
-    meaning: action.meaning,
-    speaker_persona: action.speaker_persona,
-    delegate_agent_id: action.delegate_agent_id,
-    aliases: action.aliases,
-    scope: {
-      routes: action.reachability.routes,
-      screens: action.reachability.screens,
-      hidden_navigable: action.reachability.hidden_navigable,
-      navigation_prerequisites: action.reachability.navigation_prerequisites,
-    },
-    guard_ids: action.guard_ids,
-    risk_level: action.risk_level,
-    execution_policy: action.execution_policy,
-    activation_policy: action.activation_policy,
-    execution_hint: action.execution_target,
-    external_callback: action.external_callback,
-    goal: action.goal,
-    map_references: action.docs_references,
-  };
-}
-
 async function readContracts() {
   const contractFiles = (await listContractFiles(WEBAPP_ROOT)).sort();
   if (contractFiles.length === 0) {
@@ -767,6 +729,11 @@ async function readContracts() {
 
   for (const contractPath of contractFiles) {
     const raw = JSON.parse(await fs.readFile(contractPath, "utf8"));
+    // Keep paused source contracts for explicit future enablement, but never
+    // publish their actions to One, voice, Search, or generated discovery.
+    if (cleanString(raw.availability) === "paused") {
+      continue;
+    }
     const normalized = normalizeSurface(contractPath, raw);
     surfaces.push(normalized.surface);
     for (const action of normalized.actions) {
@@ -785,8 +752,44 @@ async function readContracts() {
   return {
     surfaces,
     actions,
-    contractFiles,
+    contractFiles: surfaces.map((surface) =>
+      path.resolve(REPO_ROOT, surface.contract_file),
+    ),
   };
+}
+
+async function validateCapabilityGuardCoverage(contracts) {
+  const raw = JSON.parse(
+    await fs.readFile(CAPABILITY_GUARD_COVERAGE_PATH, "utf8"),
+  );
+  if (!isPlainObject(raw) || !isPlainObject(raw.guards)) {
+    throw new Error(
+      "capability guard coverage must contain a guards object",
+    );
+  }
+
+  for (const action of contracts.actions) {
+    for (const guardId of action.guard_ids) {
+      const coverage = raw.guards[guardId];
+      if (!isPlainObject(coverage)) {
+        throw new Error(
+          `${action.action_id}: guard \"${guardId}\" has no capability projection or server validator coverage`,
+        );
+      }
+      const kind = cleanString(coverage.kind);
+      const predicate = cleanString(coverage.predicate);
+      const validator = cleanString(coverage.validator);
+      if (
+        (kind === "projection" && predicate) ||
+        (kind === "server_only" && validator)
+      ) {
+        continue;
+      }
+      throw new Error(
+        `${action.action_id}: guard \"${guardId}\" coverage must declare a projection predicate or server-only validator`,
+      );
+    }
+  }
 }
 
 function createGatewayPayload(contracts) {
@@ -798,16 +801,6 @@ function createGatewayPayload(contracts) {
     ),
     surfaces: contracts.surfaces,
     actions: contracts.actions,
-  };
-}
-
-function createLegacyManifestPayload(contracts) {
-  return {
-    schema_version: "kai.voice_action_manifest.v1",
-    source_registry:
-      "generated from colocated One Voice/Kai compatibility action contracts",
-    source_gateway: "contracts/kai/kai-action-gateway.vnext.json",
-    actions: contracts.actions.map((action) => toLegacyManifestAction(action)),
   };
 }
 
@@ -837,17 +830,13 @@ async function main() {
   const checkOnly = args.has("--check");
 
   const contracts = await readContracts();
+  await validateCapabilityGuardCoverage(contracts);
   const gatewayPayload = createGatewayPayload(contracts);
-  const legacyManifestPayload = createLegacyManifestPayload(contracts);
-
   const gatewayText = `${JSON.stringify(gatewayPayload, null, 2)}\n`;
-  const manifestText = `${JSON.stringify(legacyManifestPayload, null, 2)}\n`;
 
   const outputResults = await Promise.all([
     writeIfChanged(GATEWAY_OUTPUT_PATH, gatewayText, checkOnly),
-    writeIfChanged(MANIFEST_OUTPUT_PATH, manifestText, checkOnly),
     writeIfChanged(WEBAPP_GATEWAY_OUTPUT_PATH, gatewayText, checkOnly),
-    writeIfChanged(WEBAPP_MANIFEST_OUTPUT_PATH, manifestText, checkOnly),
   ]);
 
   if (checkOnly) {

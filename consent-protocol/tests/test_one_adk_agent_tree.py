@@ -65,13 +65,12 @@ class TestAgentTreeShape:
         assert {"ria", "investor"} <= finance_sub_names
         assert {
             "ask_email_agent",
-            "ask_gmail_agent",
             "ask_location_agent",
-            "ask_marketplace_agent",
             "ask_connected_systems_agent",
             "ask_consent_agent",
         } <= tool_names
         assert "ask_connections_agent" not in tool_names
+        assert "ask_gmail_agent" not in tool_names
 
     def test_isolated_google_search_uses_the_text_model(self):
         agent = build_one_root_agent()
@@ -81,6 +80,17 @@ class TestAgentTreeShape:
         # ADK executes bypassed Google Search in a nested text GenerateContent
         # turn. It must never inherit One's native-audio Live model.
         assert search_tool.model == _tree._SPECIALIST_MODEL
+
+    def test_byok_live_registry_rejects_models_without_mid_session_content(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("HUSHH_GEMINI_BYOK_LIVE_ENABLED", "true")
+        monkeypatch.setattr(_tree, "_BYOK_LIVE_MODEL", "gemini-3.1-flash-live-preview")
+        with pytest.raises(ValueError, match="byok_live_unsupported"):
+            _tree.build_one_live_runner(
+                runtime_mode="byok",
+                runtime_credential="test-key",
+            )
 
     def test_identity_instruction_answers_name_question(self):
         assert "I'm One" in ONE_IDENTITY_INSTRUCTION
@@ -369,11 +379,11 @@ class TestRunAppAction:
         assert _STATE_SCREEN == _tree.STATE_SCREEN
 
     @pytest.mark.asyncio
-    async def test_unknown_action_returns_suggestions(self):
+    async def test_unknown_action_never_infers_a_fallback(self):
         state: dict = {}
         result = await run_app_action("totally.bogus.action", {}, _tool_context(state))
         assert result["status"] == "unknown_action"
-        assert isinstance(result["suggestions"], list)
+        assert "suggestions" not in result
         assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
 
     @pytest.mark.asyncio

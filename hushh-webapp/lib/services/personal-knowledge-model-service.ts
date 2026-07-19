@@ -160,7 +160,17 @@ export const OPENAI_RUNTIME_CREDENTIAL_REF =
   "pkm:runtime_secrets.llm.openai_api_key";
 export const RUNTIME_CREDENTIAL_MODE_REF =
   "pkm:runtime_secrets.llm.credential_mode";
+export const GEMINI_RUNTIME_TRANSPORT_REF =
+  "pkm:runtime_secrets.llm.gemini_transport";
+export const GEMINI_VERTEX_PROJECT_REF =
+  "pkm:runtime_secrets.llm.gemini_vertex_project";
+export const GEMINI_VERTEX_LOCATION_REF =
+  "pkm:runtime_secrets.llm.gemini_vertex_location";
 export type RuntimeCredentialMode = "byok" | "hushh_managed_vertex";
+/** The selected endpoint for an encrypted Gemini BYOK credential. */
+export type GeminiRuntimeTransport =
+  | "developer_api"
+  | "vertex_api_key";
 
 export interface PkmUpgradeContext {
   schemaVersion: "pkm_upgrade_claim.v1";

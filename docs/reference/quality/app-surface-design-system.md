@@ -60,8 +60,8 @@ Rules:
 6. Row-level saves, deletes, refreshes, and short-lived failures must use the shadcn Sonner notification stack. Do not add inline route banners for transient row actions because they shift page layout and create loading bounce.
 7. Destructive actions must use the shadcn AlertDialog confirmation pattern before mutation. Keep the in-flight state inside the dialog or the initiating row action, not as a page-level loader.
 8. Async actionables (deletes, resets, disconnects, sends, and any mutation that waits for a backend ack or status) must surface a single branded loading -> success/error lifecycle through `morphyToast.promise` from `@/lib/morphy-ux/morphy`, tied to the real action promise. The toast stays in its loading state while the promise is pending and morphs in place to success or error once the ack lands. Do not hand-roll a `loading` toast plus a separate `success`/`error` toast, and do not fire a success toast before the promise resolves. Pre-flight guards that are not failures of the action itself (for example a required vault unlock) stay outside the promise as an `info`/`error` toast. Use `variant: "destructive"` for destructive actionables so the toast accent matches the action.
-8. Email Helper draft previews must not expose raw data structure terms such as `changes`, `entities`, hashes, provenance, parser metadata, or internal ids. Use readable sections, facts, and tables from the approved render model.
-9. Dense email tables, especially portfolios and holdings, should remain complete and readable on mobile through horizontal scrolling. Do not force all table columns to fit the viewport when that creates overlap.
+9. Email Helper draft previews must not expose raw data structure terms such as `changes`, `entities`, hashes, provenance, parser metadata, or internal ids. Use readable sections, facts, and tables from the approved render model.
+10. Dense email tables, especially portfolios and holdings, should remain complete and readable on mobile through horizontal scrolling. Do not force all table columns to fit the viewport when that creates overlap.
 
 ## Shell Contract
 
@@ -84,14 +84,7 @@ surfaces reserve the existing Agent Bar through
 `--onboarding-agent-bar-clearance`. Route content must not reposition the Agent
 Bar or recreate that safe-area calculation locally. Terminal setup actions stay
 in normal flow and use the shared scroll tail so their final control can be
-scrolled fully above fixed chrome on compact viewports.
-9. Decorative glass fade is visual-only and must never add extra content spacing.
-10. Signed-in app pages default to `compact` density through `AppPageShell`; route-level spacing overrides are the exception, not the norm.
-11. Compact density tightens page headers, section headers, card padding, list/table rows, and pagination spacing through shared CSS variables rather than page-local class tweaks.
-12. Back, persona, shield, and bell interactions must use the shared shell action surface so ripple, focus, contrast, and badge positioning stay consistent.
-13. Dropdown-triggered shell actions must accept a wrapper or render-trigger contract when the shell owns interaction behavior.
-14. `AppPageShell` owns route width and horizontal gutters for signed-in routes.
-15. The canonical shell widths are:
+scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade is visual-only and must never add extra content spacing. 10. Signed-in app pages default to `compact` density through `AppPageShell`; route-level spacing overrides are the exception, not the norm. 11. Compact density tightens page headers, section headers, card padding, list/table rows, and pagination spacing through shared CSS variables rather than page-local class tweaks. 12. Back, persona, shield, and bell interactions must use the shared shell action surface so ripple, focus, contrast, and badge positioning stay consistent. 13. Dropdown-triggered shell actions must accept a wrapper or render-trigger contract when the shell owns interaction behavior. 14. `AppPageShell` owns route width and horizontal gutters for signed-in routes. 15. The canonical shell widths are:
 
 - `reading`
 - `standard`
@@ -118,7 +111,13 @@ scrolled fully above fixed chrome on compact viewports.
     bottom-chrome scroll-hide progress. Query-backed workspace tab selection is
     also the shared scroll-reset key, so click, swipe, history, and direct query
     entry cannot inherit another panel's scroll depth.
-29. Persistent signed-in chrome uses `AmbientChromeMask` and its shared ambient
+29. Back navigation has one authored contract in
+    `lib/navigation/top-shell-back.ts`. The visible top-bar back control and
+    native iOS left-edge gesture must invoke that same action; neither may use
+    browser history as its parent resolver. The left edge wins over contextual
+    tab swipes, appears only when the route exposes a back action, and never
+    runs over a modal surface. Android preserves platform system-back behavior.
+30. Persistent signed-in chrome uses `AmbientChromeMask` and its shared ambient
     token engine. It samples the painted app surface behind the top and bottom
     edges, including Foundation's computed `oklch()` theme colors, excludes
     chrome and transient overlays, and keeps theme-derived fallback tokens
@@ -126,15 +125,18 @@ scrolled fully above fixed chrome on compact viewports.
     `--background` from a chrome sample or add a route-local blur/tint recipe.
     The top mask height is the resolved shell height plus a mode-specific tail:
     `bar-with-tabs` must dissolve farther below its tab underline than `bar`.
-30. `AppBottomShell` is the only persistent bottom compositor. It owns the
+    The engine also publishes the top surface tone for native system-bar icon
+    contrast; native bridges consume that shared decision rather than guessing
+    from the global theme.
+31. `AppBottomShell` is the only persistent bottom compositor. It owns the
     bottom mask, safe-area stack, and scroll-hide transform, then renders the
     bottom navigation and Agent Bar as separate accessible slots. Keep route
     visibility in its route-derived model; never recreate fixed bottom wrappers
     or move either slot inside a page Suspense boundary.
-31. `FoundationPublicAmbient` is the canonical Foundation canvas for every
+32. `FoundationPublicAmbient` is the canonical Foundation canvas for every
     route, signed in or signed out. Routes may place opaque cards or fullscreen
     experiences above it, but must not introduce a competing page-level canvas.
-32. Finance is a single shared workspace at `/one/kai?tab=`. Its Market,
+33. Finance is a single shared workspace at `/one/kai?tab=`. Its Market,
     Portfolio, and Analysis content inherits the Profile reading measure and
     one shared outer gutter. The top shell owns contextual tabs; each tab may
     have one primary `PageHeader`, never another fixed header or wider
@@ -233,20 +235,24 @@ Rules:
 1. The primary bottom utility bar is fixed and constant on all signed-in standard routes: `One`, `Connect`, and `Search`. Search is part of the same segmented control and opens `KaiCommandBarGlobal`; it does not route to `/agent` or open agent chat.
 2. Profile remains the rightmost signed-in top-bar action, using the signed-in image or shared generic fallback.
 3. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`, `Clients`, and `Picks`. Contextual workspace tabs are rendered by the shared top shell from the central route registry; they never become route-local or bottom-navigation chrome.
-4. Finance uses one canonical workspace pathname: `/one/kai`. Portfolio
+4. Consent Center owns `Requests`, `Active`, `History`, and `Connections` in
+   the same shared top shell. Do not render a second in-page segmented control;
+   tab changes clear transient search, pagination, and detail selection while
+   preserving valid advisor context.
+5. Finance uses one canonical workspace pathname: `/one/kai`. Portfolio
    and Analysis are URL-backed selections at
    `/one/kai?tab=portfolio` and
    `/one/kai?tab=analysis`; route inventories normalize those URLs to
    the shared pathname without discarding their tab state.
-5. Use canonical route constants through `lib/navigation/app-bottom-nav.ts` and `lib/navigation/*-route-tabs.ts`; route files must not build their own shell navigation arrays.
-6. The Agent Bar and bottom utility bar share the measured bottom-chrome stack with a 6px resting join. The three bottom segments use the Agent Bar's shared frame and remain centered with equal widths on both wide and narrow screens. Do not add component- or route-local offsets.
-7. Bottom active state uses fill and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
-8. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
-9. The pending-consent count belongs on the One utility only; never duplicate it onto Profile or a workspace tab.
-10. Top and bottom shell material uses the same ambient mask falloff, blur,
-    saturation, tint, foreground-contrast, and reduced-motion-safe OKLCH
-    spring contract. A dark or gradient surface must not acquire a milky light
-    chrome band.
+6. Use canonical route constants through `lib/navigation/app-bottom-nav.ts` and `lib/navigation/*-route-tabs.ts`; route files must not build their own shell navigation arrays.
+7. The Agent Bar and bottom utility bar share the measured bottom-chrome stack with a 6px resting join. The three bottom segments use the Agent Bar's shared frame and remain centered with equal widths on both wide and narrow screens. Do not add component- or route-local offsets.
+8. Bottom active state uses fill and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
+9. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
+10. The pending-consent count belongs on the One utility only; never duplicate it onto Profile or a workspace tab.
+11. Top and bottom shell material uses the same blur-free sampled-tint,
+    feathered-mask, foreground-contrast, and reduced-motion-safe OKLCH spring
+    contract. A dark or gradient surface must not acquire a milky light chrome
+    band.
 
 ## Row and Card Interaction Contract
 
@@ -351,15 +357,15 @@ collide with the amber/warning semantic).
 
 ### Mapping cheat-sheet
 
-| Off-palette (from) | Foundation (to) |
-|---|---|
-| `bg-blue-50`, `dark:bg-blue-950/40` | `bg-accent-surface` (no `dark:` needed) |
-| `text-blue-500/600/700` | `text-accent-strong` |
-| `bg-blue-500/600` accent fill | `bg-accent` (gold) — OR `bg-primary` (ink) if it's a PRIMARY CTA |
-| `hover:bg-blue-600` | `hover:opacity-90` |
-| `border-blue-*` | `border-accent-border` |
-| `ring-blue-*`, `focus:ring-blue-*` | `ring-accent` / `focus-visible:ring-accent/70` |
-| `from-blue-500 to-purple-600` brand gradient | `from-[var(--morphy-primary-start)] to-[var(--morphy-primary-end)]` |
+| Off-palette (from)                                         | Foundation (to)                                                                  |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `bg-blue-50`, `dark:bg-blue-950/40`                        | `bg-accent-surface` (no `dark:` needed)                                          |
+| `text-blue-500/600/700`                                    | `text-accent-strong`                                                             |
+| `bg-blue-500/600` accent fill                              | `bg-accent` (gold) — OR `bg-primary` (ink) if it's a PRIMARY CTA                 |
+| `hover:bg-blue-600`                                        | `hover:opacity-90`                                                               |
+| `border-blue-*`                                            | `border-accent-border`                                                           |
+| `ring-blue-*`, `focus:ring-blue-*`                         | `ring-accent` / `focus-visible:ring-accent/70`                                   |
+| `from-blue-500 to-purple-600` brand gradient               | `from-[var(--morphy-primary-start)] to-[var(--morphy-primary-end)]`              |
 | brand hex `#0071e3`/`#0066cc` (+ dark `#0a84ff`/`#2997ff`) | `text-[color:var(--app-accent-deep)]` text / `bg-[color:var(--app-accent)]` fill |
 
 NOTE: `MaterialRipple variant="blue"` and the `morphy-ux` `gradients.primary`
@@ -400,6 +406,13 @@ Rules:
    and non-flashing spring-back. Bottom sheets inherit this behavior by default;
    do not reimplement pointer handlers in a feature sheet. Surface colors and
    content spacing remain feature-owned.
+7. `AdaptiveDetailSurface` is the single cross-app record-detail container. It
+   owns responsive Drawer/Dialog transport, close affordance, header, body,
+   footer, keyboard clearance, and portal-safe surface tokens. Do not create a
+   Kai-, CRM-, consent-, or route-local detail shell. Activity is the deliberate
+   exception in transport only: its desktop view remains a non-modal anchored
+   dropdown and its mobile view remains the shared Sheet, while both retain the
+   same surface tokens and compact header/body anatomy.
 
 ## Consent Inbox And Notification Contract
 

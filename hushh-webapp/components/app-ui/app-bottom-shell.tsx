@@ -13,7 +13,7 @@ export type BottomShellModel = {
 };
 
 const BOTTOM_SCROLL_TRANSFORM =
-  "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)";
+  "translate3d(0, calc((var(--kb-height, 0px) * -1) + (var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance))), 0)";
 
 /** Shared persistent bottom chrome: one material/motion owner, separate controls. */
 export function AppBottomShell({ model }: { model: BottomShellModel }) {
@@ -44,7 +44,8 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
 
   const maskStyle = {
     transform: BOTTOM_SCROLL_TRANSFORM,
-    height: "calc(var(--bottom-chrome-full-height) + var(--bottom-chrome-fade-tail))",
+    height:
+      "calc(var(--bottom-chrome-full-height) + var(--bottom-chrome-fade-tail))",
   } as CSSProperties;
 
   return (
@@ -59,7 +60,9 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
       <div
         ref={shellRef}
         data-app-bottom-shell
-        data-bottom-shell-navigation-hidden={model.navigationHidden || undefined}
+        data-bottom-shell-navigation-hidden={
+          model.navigationHidden || undefined
+        }
         data-ambient-chrome-ignore
         className="fixed inset-x-0 bottom-0 z-[118] flex flex-col items-center gap-1.5 px-3 pb-[max(0.75rem,var(--app-safe-area-bottom-effective))] transform-gpu"
       >

@@ -19,7 +19,7 @@ flowchart TD
   search["google_search<br/>web grounding"]
   nav["open_screen<br/>governed navigation allowlist"]
   agenttools["AgentTool specialists<br/>Finance, RIA"]
-  fntools["Specialist turn tools<br/>Email, Location, Connections,<br/>Marketplace, Connected Systems, Consent"]
+  fntools["Specialist turn tools<br/>Email, Location, Connections,<br/>Connected Systems, Consent"]
   a2a["adk_bridge dispatch<br/>A2A scope-gated specialists"]
 
   shell --> fsm
@@ -70,7 +70,7 @@ and TrustLink validation remains separate for delegation paths that use it.
 One uses two deliberately separate tool planes:
 
 1. **Native, local tools** are the latency-critical plane. `list_app_actions`,
-   `run_app_action`, route navigation, onboarding resolution, and correlated
+   `run_app_action`, `start_app_goal`, route navigation, onboarding resolution, and correlated
    browser settlement stay as bounded ADK function tools over generated
    contracts. A visible control never becomes an MCP-discovered tool, and an
    MCP server can never decide the current route, infer a DOM control, or
@@ -148,10 +148,10 @@ runtime. A selected Search action is passed to `executeAgentGatewayAction` and s
 through the same correlated browser path as an Agent Bar directive. The browser never
 uses DOM state or a legacy client planner to make an action executable.
 
-One's voice runtime is Google ADK's `Runner.run_live` over Vertex AI. The
-browser is an audio pump and directive executor; every decision (conversation
-vs tool call vs navigation vs specialist delegation) is made inside One's
-agent tree on the backend.
+One's voice runtime is Google ADK's `Runner.run_live` over Vertex AI by
+default. The browser is an audio pump and directive executor; every decision
+(conversation vs tool call vs navigation vs specialist delegation) is made
+inside One's agent tree on the backend.
 
 What shipped:
 
@@ -187,11 +187,36 @@ Voice responder contract (who makes LLM calls, who speaks):
   conversational ownership. See [One Voice Onboarding Journey](./one-voice-onboarding-journey.md).
 
 Current delegation limit: only Location, Nav, and Personal Information are
-registered for a Live turn today. Email, Gmail, Connections, and Connected
-Systems wrappers intentionally return `unavailable` until their callers can
+registered for a Live turn today. Email, Connections, and Connected Systems
+wrappers intentionally return `unavailable` until their callers can
 mint an ingress-validated `A2AAuthorityContext`; the live relay must not pass
 its raw vault-owner token into those ambient-user service paths. This is a
 known capability gap, not a permission bypass.
+
+### Gemini runtime selection
+
+- `hushh_managed_vertex` is the default. It uses Hussh workload identity and
+  requires neither a vault nor a user credential.
+- `byok` is an optional Google AI Studio Gemini API key or Google Cloud Vertex
+  API key. The selected endpoint is explicit and encrypted alongside
+  `pkm:runtime_secrets.llm.gemini_api_key` and
+  `pkm:runtime_secrets.llm.credential_mode`; Vertex requires the selected
+  project and location. Connections setup
+  (`/one/setup/connections`) and Connections settings (`/connect/settings`) are
+  the only configuration surfaces; Connections the agent never receives the key.
+- Typed private-agent turns resolve the key only from an unlocked vault and pass
+  it to the existing runtime-provider factory for that request. CRM mapping,
+  portfolio ingestion, consent execution, and all other background workflows
+  remain on managed Vertex.
+- Live BYOK is disabled by default. The relay accepts it only after an operator
+  selects a registry-approved Developer API model and enables it after an ADK
+  rehearsal. The registry currently permits `gemini-2.5-flash-live-preview`;
+  `gemini-3.1-flash-live-preview` fails closed because its Live contract does
+  not support the relay's required mid-session client-content updates. A Google
+  Cloud Vertex API key is currently typed-turn only and is rejected before the
+  live relay; its Live endpoint/model contract needs its own UAT rehearsal. An
+  unsupported, invalid, or quota-limited key offers managed Gemini instead;
+  it never silently falls back to Hussh credentials.
 
 Why this fixes the "random commands" class of bugs by construction:
 
@@ -210,6 +235,7 @@ Browser to relay:
 
 | Frame | Meaning |
 | --- | --- |
+| `{"type": "runtime_bootstrap", "runtime_credential_mode": "hushh_managed_vertex"\|"byok", "runtime_credential_transport": "developer_api"\|"vertex_api_key", "runtime_vertex_project"?: "…", "runtime_vertex_location"?: "…", "runtime_credential"?: "…"}` | **First authenticated frame only.** Selects the connection-local runner; Vertex metadata is required only for a Vertex key. The optional BYOK key is cleared after runner creation and never enters `app_context`. |
 | `{"realtimeInput": {"audio": {"data": b64, "mimeType"}}}` | 16 kHz mono PCM16 mic audio |
 | `{"type": "app_context", "appContext": {...}}` | redacted screen context + governed `consent_token` (explicit `null` clears it) + `timezone` |
 | `{"type": "action_settled", "actionSettlement": {...}}` | correlated browser-observed outcome of an action directive |
@@ -233,6 +259,13 @@ Relay to browser:
 
 - The ws URL carries ONLY the opaque relay ticket. No hints, no bearer, no
   consent token in any URL.
+- A BYOK credential may exist only in the first TLS-protected
+  `runtime_bootstrap` frame. It is not put in the ticket, URL, ADK session
+  state, Postgres, browser/native storage, telemetry, logs, or model prompt.
+  The relay builds a connection-local runner and drops its raw reference.
+- Vault lock, key removal, mode change, app backgrounding, and reconnect end
+  the current BYOK voice connection. A later voice session resolves the current
+  encrypted configuration again; no durable relay credential reference exists.
 - The vault owner consent token rides in the post-connect `app_context` frame
   and lands in ADK session state (`hussh:consent_token`). It is read by
   specialist turn tools only; it never reaches the model prompt.
@@ -257,10 +290,18 @@ the event stream. The client executes it (`agent-bar.tsx` handles
 screen ids to routes; anything outside the map is refused by construction.
 `run_app_action` is the broader governed-action lane: it looks up an exact
 `action_id` in the generated gateway (`contracts/kai/kai-action-gateway.vnext.json`,
-loaded via `hushh_mcp.services.voice_action_manifest`) and parks the same
+loaded by `hushh_mcp.services.action_gateway`) and parks the same
 kind of client directive, or redirects to a specialist's `ask_*` tool when
 the action is delegate-owned, or refuses `manual_only` actions with
 where-to-do-it guidance.
+
+`start_app_goal` and `continue_app_goal` own the narrow cross-surface lane.
+They currently handle `goal.analysis.start_debate`: navigate to Analysis,
+wait for a fresh redacted context revision, then issue `analysis.start` to
+open the comparison preview. The goal run records its generated ids, bounded
+non-sensitive slots, expected screen/context revision, cursor, and terminal
+status. It never starts a debate; preview confirmation remains a separate
+visible action.
 
 ### Action settlement
 
@@ -351,22 +392,17 @@ execution by `action_id` is unaffected either way.
 
 ## Chat Runtime (parity path)
 
-Typed Agent Chat (`api/routes/kai/agent_chat.py`) still uses its own
-delegation gate (`classify_specialist_domain` + `adk_bridge.dispatch`) and
-durable encrypted history. It shares the same specialist dispatch contract
-(`A2ATask` / `SpecialistTurnResult`) as One's voice tools, so specialists
-behave identically on both surfaces.
-
-Migration rule for chat: move the chat turn loop onto the same
-`get_one_runner()` via `run_async` only with dedicated regression coverage
-for durable history, CRM action plans, and the SSE frame contract. Do not
-fork a second agent tree for chat.
+Typed Agent Chat (`api/routes/kai/agent_chat.py`) sends new natural-language
+turns to One's ADK semantic head and retains encrypted history plus explicit
+specialist continuity. It does not run a client lexical action planner. The
+Information Marketplace is intentionally rejected at this boundary; its
+standalone consent-first chat and routes remain separate.
 
 ## Context Snapshot
 
 `OneVoiceContextSnapshot` stays intentionally lossy:
 
-- keeps screen id, route family, visible modules, available action ids,
+- keeps redacted sign-in state, screen id, route family, visible modules, available action ids,
   cache posture, vault readiness, portfolio readiness, persona, voice state,
   and the top redacted interaction-layer posture
 - redacts user ids, vault keys, raw PKM, transcript history, private

@@ -1,5 +1,6 @@
 {
   "schema_version": "kai.local_action_contract.v1",
+  "availability": "paused",
   "surface_id": "one_setup_gmail",
   "surface_title": "Gmail Setup",
   "docs_references": [

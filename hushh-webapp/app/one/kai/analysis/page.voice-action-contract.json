@@ -157,21 +157,11 @@
           {
             "type": "action",
             "action_id": "analysis.start",
-            "label": "Prepare stock analysis",
+            "label": "Open stock analysis preview",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/kai?tab=analysis",
               "screen": "kai_analysis"
-            }
-          },
-          {
-            "type": "service",
-            "service": "kai_debate.ensure_run",
-            "label": "Run Kai debate",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kai?tab=analysis",
-              "screen": "kai_analysis_workspace"
             }
           }
         ],
@@ -188,7 +178,7 @@
           "cancel_action_id": "analysis.cancel_active"
         },
         "result_contract": {
-          "summary_mode": "decision_summary"
+          "summary_mode": "preview_ready"
         },
         "entrypoint_support": [
           "voice",
@@ -292,44 +282,6 @@
       "state_exposure": [],
       "docs_references": [
         "docs/reference/one/one-voice-kai-compatibility-runtime.md"
-      ],
-      "speaker_persona": "kai"
-    },
-    {
-      "action_id": "analysis.open_transcript_tab_legacy",
-      "label": "Legacy Transcript Tab Route",
-      "meaning": "Legacy tab token accepted by parser but no transcript tab is rendered in current analysis UI.",
-      "aliases": [
-        "open transcript tab",
-        "show transcript tab"
-      ],
-      "search_keywords": [
-        "analysis transcript"
-      ],
-      "reachability": {
-        "routes": [
-          "/one/kai?tab=analysis&view=transcript"
-        ],
-        "screens": [
-          "kai_analysis"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "analysis route must be loaded"
-        ]
-      },
-      "guard_ids": [],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "execution_target": {
-        "status": "dead",
-        "reason": "No transcript tab trigger/content exists in app/kai/analysis/page.tsx."
-      },
-      "control_ids": [],
-      "state_exposure": [],
-      "docs_references": [
-        "lib/voice/voice-json-validator.ts",
-        "app/kai/analysis/page.tsx"
       ],
       "speaker_persona": "kai"
     }

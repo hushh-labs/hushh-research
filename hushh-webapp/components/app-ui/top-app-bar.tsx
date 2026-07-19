@@ -91,13 +91,13 @@ import {
   resolveTopShellBreadcrumb,
   type TopShellBreadcrumbConfig,
 } from "@/lib/navigation/top-shell-breadcrumbs";
+import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
 import {
   ShellActionSurface,
   SHELL_ICON_BUTTON_CLASSNAME,
   SHELL_PILL_TRIGGER_CLASSNAME,
 } from "@/components/app-ui/shell-action-surface";
 import { trackEvent } from "@/lib/observability/client";
-import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import {
   resolveGrowthEntrySurface,
   trackGrowthFunnelStepCompleted,
@@ -285,10 +285,7 @@ function getScrolledRouteTitle(pathname: string): {
       interactive: false as const,
     };
   }
-  if (
-    pathname === ROUTES.CONSENTS ||
-    pathname === ROUTES.LEGACY_CONSENTS
-  ) {
+  if (pathname === ROUTES.CONSENTS || pathname === ROUTES.LEGACY_CONSENTS) {
     return {
       label: "Access & sharing",
       icon: Shield,
@@ -372,8 +369,6 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   );
   const showOnboardingActions = chromeState.useOnboardingChrome;
   const hideChrome = model.mode === "hidden";
-  const { progress: topShellScrollProgress } =
-    useKaiBottomChromeVisibility(!hideChrome);
   const [hasVault, setHasVault] = useState<boolean | null>(null);
   const [vaultUnlockOpen, setVaultUnlockOpen] = useState(false);
 
@@ -496,6 +491,14 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     isAuthenticated && hasVault === true && !isVaultUnlocked;
   const showOneHomeBrand =
     model.mode !== "hidden" && model.brand === "one" && !showOnboardingActions;
+  const handleTopShellBack = useCallback(() => {
+    navigateTopShellBack({
+      router,
+      pathname: normalizedPathname,
+      searchParams,
+      breadcrumb: topShellBreadcrumb,
+    });
+  }, [normalizedPathname, router, searchParams, topShellBreadcrumb]);
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(
     null,
   );
@@ -579,11 +582,21 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
 
   const topShellHeaderHeight =
     "calc(var(--top-inset) + var(--top-systembar-row-gap) + var(--top-bar-h))";
+  // Contextual tabs remain below the native status area when the header
+  // collapses. Moving them by the full header height put the tab row at y=0
+  // on iOS, directly under the notch/status glyphs.
+  const topShellTabShiftHeight =
+    "calc(var(--top-systembar-row-gap) + var(--top-bar-h))";
+  // The shared scroll controller writes this value outside React. Keeping the
+  // fixed top shell on that compositor path avoids rerendering its inbox,
+  // profile action, and tab tree for every native scroll frame.
+  const topShellScrollProgress = "var(--bottom-chrome-progress, 0)";
   const topShellHeaderTransform = `translate3d(0, calc(-1 * ${topShellScrollProgress} * ${topShellHeaderHeight}), 0)`;
+  const topShellTabsTransform = `translate3d(0, calc(-1 * ${topShellScrollProgress} * ${topShellTabShiftHeight}), 0)`;
   const topShellFullTransform = `translate3d(0, calc(-1 * ${topShellScrollProgress} * var(--top-shell-reserved-height)), 0)`;
   const topShellGlassTransform =
     model.mode === "bar-with-tabs"
-      ? topShellHeaderTransform
+      ? topShellTabsTransform
       : topShellFullTransform;
 
   const topGlassStyle = useMemo<React.CSSProperties>(
@@ -667,43 +680,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                       <ShellActionSurface
                         variant="icon"
                         aria-label="Go back"
-                        onClick={() => {
-                          // Profile query-panels (`/profile?panel=…&detail=…`) are
-                          // a same-pathname, query-only nav. The profile page closes
-                          // its panels only via router.replace(.., { scroll: false })
-                          // (popProfileStack / updateProfileView "replace"), so a
-                          // plain push here is a no-op on device ("Access & Sharing
-                          // back doesn't work"). Mirror the page's own close path.
-                          if (
-                            normalizedPathname === ROUTES.PROFILE &&
-                            (searchParams?.get("panel") ||
-                              searchParams?.get("detail"))
-                          ) {
-                            router.replace(topShellBreadcrumb.backHref, {
-                              scroll: false,
-                            });
-                            return;
-                          }
-                          // Location quick-action flows (Check-In, Drive To, Pick
-                          // Me Up, Safe Arrival, SOS, Share, Ask, Invite, Privacy,
-                          // Temp link) are tracked via `/one/location?action=…`.
-                          // This is the SINGLE back button for those screens: strip
-                          // the action param via replace so it returns to the
-                          // Location hub without leaving a re-openable history entry
-                          // (a plain push would let OS-back reopen the flow).
-                          if (
-                            normalizedPathname === ROUTES.ONE_LOCATION &&
-                            (searchParams?.get("action") || "").trim()
-                          ) {
-                            router.replace(topShellBreadcrumb.backHref, {
-                              scroll: false,
-                            });
-                            return;
-                          }
-                          router.push(topShellBreadcrumb.backHref, {
-                            scroll: false,
-                          });
-                        }}
+                        onClick={handleTopShellBack}
                       >
                         <ArrowLeft className="h-5 w-5" />
                       </ShellActionSurface>
@@ -926,7 +903,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
             <div
               data-testid="top-app-bar-tabs"
               className="pointer-events-auto relative h-[var(--top-tabs-h)] w-full shrink-0 transform-gpu will-change-transform"
-              style={{ transform: topShellHeaderTransform }}
+              style={{ transform: topShellTabsTransform }}
             >
               <TopShellTabs tabSet={model.tabs} />
             </div>

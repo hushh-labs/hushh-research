@@ -102,6 +102,11 @@ export default function RootLayout({
             __html: `try{var a=localStorage.getItem("hushh.app.accent.v1");if(a==="gold"){document.documentElement.setAttribute("data-accent","gold");}}catch(e){}`,
           }}
         />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var c=window.Capacitor;if(c&&typeof c.getPlatform==="function"&&c.getPlatform()==="ios"){document.documentElement.classList.add("native-ios");}}catch(e){}`,
+          }}
+        />
         {loadWebAnalyticsScripts && analyticsMeasurementId ? (
           <>
             <Script

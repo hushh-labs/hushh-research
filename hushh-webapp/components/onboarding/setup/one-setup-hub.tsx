@@ -11,7 +11,7 @@ import {
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { CapabilitySetupTile } from "@/components/onboarding/setup/capability-setup-tile";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
-import { SettingsGroup } from "@/components/app-ui/settings-ui";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
@@ -112,14 +112,18 @@ export function OneSetupHub() {
             : "This setup is still remaining."
         }`,
       })),
-      {
-        id: "master_ack",
-        actionId: "setup.hub_master_ack",
-        label: masterActionLabel,
-        purpose: masterSkipped
-          ? "Skip setup for now and go home."
-          : "Finish setup for now and go home.",
-      },
+      ...(dismissing
+        ? []
+        : [
+            {
+              id: "master_ack",
+              actionId: "setup.hub_master_ack",
+              label: masterActionLabel,
+              purpose: masterSkipped
+                ? "Skip setup for now and go home."
+                : "Finish setup for now and go home.",
+            },
+          ]),
     ],
   });
 
@@ -223,6 +227,20 @@ export function OneSetupHub() {
           </div>
         ) : null}
         <div className={styles.flatChecklist}>
+          <SettingsGroup
+            title="Private configuration"
+            description="Choose how One runs before setting up individual features."
+            testId="one-setup-connections"
+            separatorInset
+          >
+            <SettingsRow
+              title="Connections"
+              description="Use Hushh managed Gemini or your own Google AI Studio key."
+              density="compact"
+              chevron
+              onClick={() => router.push(ROUTES.ONE_SETUP_CONNECTIONS)}
+            />
+          </SettingsGroup>
           {remainingItems.length > 0 ? (
             <SettingsGroup
               title="Remaining"

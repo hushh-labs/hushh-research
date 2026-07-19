@@ -94,6 +94,16 @@ export type OneVoiceTransportStartOptions = {
    * user's behalf. Tools fail closed without it.
    */
   consentToken?: string | null;
+  /**
+   * Non-secret provider selection for this connection. The raw BYOK key, when
+   * present, is sent exactly once in the first authenticated WebSocket frame
+   * and is never kept in browser storage or route state.
+   */
+  runtimeCredentialMode?: "hushh_managed_vertex" | "byok" | null;
+  runtimeCredential?: string | null;
+  runtimeCredentialTransport?: "developer_api" | "vertex_api_key" | null;
+  runtimeVertexProject?: string | null;
+  runtimeVertexLocation?: string | null;
   signal?: AbortSignal;
 };
 

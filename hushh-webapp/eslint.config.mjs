@@ -13,6 +13,8 @@ export default [
       ".next/**/*",
       ".next-prod/**",
       ".next-prod/**/*",
+      ".next-native-uat/**",
+      ".next-native-uat/**/*",
       "out/**",
       "node_modules/**",
       "node_modules*/**",

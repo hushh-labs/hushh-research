@@ -181,15 +181,52 @@ export function PhoneMandatePageContent() {
           title: "Verify your phone",
           purpose:
             "Adding a phone number keeps your account recoverable and secure before setup continues.",
-          actions: [
-            {
-              id: "phone_mandate.submit_number",
-              label: "Submit phone number",
-              purpose: "Send a verification code to the phone number you say.",
-            },
-          ],
+          // The step is the only verification state published to One. Phone
+          // numbers and OTPs stay inside the input and auth operation.
+          screenMetadata: { phone_verification_step: verificationStep },
+          actions:
+            verificationStep === "phone"
+              ? [
+                  {
+                    id: "phone_mandate.submit_number",
+                    actionId: "phone_mandate.submit_number",
+                    label: "Send verification code",
+                    purpose: "Send a code after the phone form is completed.",
+                  },
+                ]
+              : verificationStep === "code"
+                ? [
+                    {
+                      id: "phone_mandate.submit_code",
+                      actionId: "phone_mandate.submit_code",
+                      label: "Confirm verification code",
+                      purpose: "Confirm the code in the current verification form.",
+                    },
+                  ]
+                : [],
+          controls:
+            verificationStep === "phone"
+              ? [
+                  {
+                    id: "phone-flow-number",
+                    label: "Phone number",
+                    type: "tel",
+                    actionId: "phone_mandate.submit_number",
+                  },
+                ]
+              : verificationStep === "code"
+                ? [
+                    {
+                      id: "phone-flow-code",
+                      label: "Verification code",
+                      type: "text",
+                      actionId: "phone_mandate.submit_code",
+                    },
+                  ]
+                : [],
         }
       : null,
+    { role: "route", routeKey: ROUTES.PHONE_MANDATE },
   );
 
   if (loading || !user) {

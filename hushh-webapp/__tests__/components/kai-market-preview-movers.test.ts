@@ -83,11 +83,47 @@ describe("market route overlays", () => {
       join(process.cwd(), "components/kai/views/kai-market-preview-view.tsx"),
       "utf8",
     );
+    const workspaceHeader = readFileSync(
+      join(process.cwd(), "components/kai/kai-workspace-header.tsx"),
+      "utf8",
+    );
 
     expect(source).toContain('title="Market"');
-    expect(source).toContain('accent="neutral"');
+    expect(source).toContain("<AppPageContentRegion>");
+    expect(workspaceHeader).toContain('accent="neutral"');
+    expect(workspaceHeader).toContain(
+      'className="mb-[var(--page-header-section-gap)]"',
+    );
     expect(source).not.toContain("eyebrow={marketStatus");
     expect(source).toContain('data-testid="market-header-status"');
     expect(source).toContain("actionsInlineMobile");
+  });
+
+  it("uses the shared header and content rhythm in every Finance tab state", () => {
+    const portfolioDashboard = readFileSync(
+      join(process.cwd(), "components/kai/views/dashboard-master-view.tsx"),
+      "utf8",
+    );
+    const portfolioImport = readFileSync(
+      join(process.cwd(), "components/kai/views/portfolio-import-view.tsx"),
+      "utf8",
+    );
+    const analysis = readFileSync(
+      join(process.cwd(), "app/one/kai/analysis/page.tsx"),
+      "utf8",
+    );
+    const portfolioFlow = readFileSync(
+      join(process.cwd(), "components/kai/kai-flow.tsx"),
+      "utf8",
+    );
+
+    for (const source of [portfolioDashboard, portfolioImport, analysis]) {
+      expect(source).toContain("KaiWorkspaceHeader");
+      expect(source).toContain("AppPageContentRegion");
+    }
+    expect(portfolioDashboard).toContain("Loading portfolio sources...");
+    expect(portfolioDashboard).toContain('workspace="portfolio"');
+    expect(portfolioFlow).toContain('state === "checking"');
+    expect(portfolioFlow).toContain("KaiWorkspaceHeader");
   });
 });

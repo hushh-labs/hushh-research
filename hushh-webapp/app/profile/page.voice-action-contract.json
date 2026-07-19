@@ -155,48 +155,6 @@
       "speaker_persona": "one"
     },
     {
-      "action_id": "route.profile_gmail_panel",
-      "label": "Open Gmail",
-      "meaning": "Navigates to the canonical Gmail receipts workspace.",
-      "aliases": [
-        "open gmail settings",
-        "open gmail panel",
-        "open gmail"
-      ],
-      "search_keywords": [
-        "gmail",
-        "gmail panel",
-        "receipts"
-      ],
-      "reachability": {
-        "routes": [
-          "/one/gmail"
-        ],
-        "screens": [
-          "gmail"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "Gmail route must be reachable"
-        ]
-      },
-      "guard_ids": [],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/gmail"
-      },
-      "control_ids": [],
-      "state_exposure": [],
-      "docs_references": [
-        "app/one/gmail/page.tsx",
-        "components/gmail/gmail-receipts-page.tsx"
-      ],
-      "speaker_persona": "one"
-    },
-    {
       "action_id": "route.profile_connected_systems",
       "label": "Open Connected Systems Panel",
       "meaning": "Navigates to the Connected Systems route.",
