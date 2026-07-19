@@ -39,7 +39,8 @@
     "print-codex-toml": "node ./bin/hushh-mcp.js --print-codex-toml",
     "print-remote-config": "node ./bin/hushh-mcp.js --print-remote-config",
     "print-gateway-manifest": "node ./bin/hushh-mcp.js --print-gateway-manifest",
-    "print-agentforce-manifest": "node ./bin/hushh-mcp.js --print-agentforce-manifest"
+    "print-agentforce-manifest": "node ./bin/hushh-mcp.js --print-agentforce-manifest",
+    "print-mulesoft-agentforce-handoff": "node ./bin/hushh-mcp.js --print-mulesoft-agentforce-handoff"
   },
   "publishConfig": {
     "access": "public"

@@ -12,6 +12,40 @@
     "prompts": false,
     "logging": false
   },
+  "mulesoftAgentforceHandoff": {
+    "integrationTarget": "mulesoft-agentforce",
+    "supportStatus": "schema-compatible-uat-only",
+    "upstream": {
+      "transport": "streamable-http",
+      "path": "/mcp/",
+      "authentication": "oauth2-client-credentials",
+      "requestTimeoutSeconds": 55
+    },
+    "agentforce": {
+      "catalog": "salesforce-api-catalog",
+      "transport": "streamable-http",
+      "authentication": "oauth2-client-credentials",
+      "toolsOnly": true,
+      "toolAllowlist": [
+        "search-user-scopes",
+        "request-consent",
+        "check-consent-status",
+        "get-encrypted-scoped-export"
+      ]
+    },
+    "relayRequirements": {
+      "preserveToolNames": true,
+      "preserveInputOutputSchemas": true,
+      "allowResources": false,
+      "allowPrompts": false,
+      "expandNestedFields": false
+    },
+    "executionBoundary": {
+      "personalizedToolExecution": "unsupported",
+      "handlerCalls": "fail-closed",
+      "errorCode": "AGENTFORCE_PERSONALIZED_WORKFLOW_UNSUPPORTED"
+    }
+  },
   "tools": [
     {
       "name": "search-user-scopes",

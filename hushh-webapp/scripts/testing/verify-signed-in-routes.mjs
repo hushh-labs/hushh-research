@@ -101,9 +101,7 @@ const TRANSIENT_BACKGROUND_FETCH_ERRORS = [
   "[KaiHistory] Failed to get history: TypeError: Failed to fetch",
   "Failed to load profile manager data: TypeError: Failed to fetch",
 ];
-const TRANSIENT_BACKGROUND_REQUEST_FAILURES = [
-  "/api/kai/voice/capability :: net::ERR_FAILED",
-];
+const TRANSIENT_BACKGROUND_REQUEST_FAILURES = [];
 const TRANSIENT_BACKGROUND_RESPONSE_FAILURES = [
   "/api/connected-systems/salesforce-fsc-customer0/schema?objectType=Contact",
   "/api/connected-systems/salesforce-fsc-customer0/records/search",
@@ -1181,12 +1179,6 @@ function assertNoIssues(route, viewport, issues) {
       return false;
     }
     if (TRANSIENT_BACKGROUND_FETCH_ERRORS.some((pattern) => value.includes(pattern))) {
-      return false;
-    }
-    if (
-      value.includes("/api/kai/voice/capability") &&
-      value.includes("has been blocked by CORS policy")
-    ) {
       return false;
     }
     if (value.includes("Failed to load resource: the server responded with a status of 409")) {

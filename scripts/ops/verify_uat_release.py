@@ -164,29 +164,30 @@ def main() -> int:
             _record_exception(report, failures, name="gmail_status", exc=exc)
 
         try:
-            voice_capability = smoke._request(  # noqa: SLF001
+            relay_session = smoke._request(  # noqa: SLF001
                 "POST",
-                "/api/kai/voice/capability",
-                headers=smoke._vault_headers(),  # noqa: SLF001
-                json_body={"user_id": smoke.user_id},
+                "/api/one/adk/relay-session",
+                headers=smoke._firebase_auth_headers(),  # noqa: SLF001
                 expected=200,
             ).json()
-            voice_capability_ok = bool(
-                voice_capability.get("voice_enabled") and voice_capability.get("realtime_enabled")
+            relay_session_ok = bool(
+                isinstance(relay_session.get("relay_ticket"), str)
+                and relay_session.get("relay_ticket")
+                and isinstance(relay_session.get("expires_at"), int)
+                and relay_session.get("expires_at") > 0
             )
             report["checks"].append(
                 {
-                    "name": "voice_capability",
-                    "ok": voice_capability_ok,
-                    "voice_enabled": bool(voice_capability.get("voice_enabled")),
-                    "execution_allowed": bool(voice_capability.get("execution_allowed")),
-                    "realtime_enabled": bool(voice_capability.get("realtime_enabled")),
+                    "name": "voice_relay_session",
+                    "ok": relay_session_ok,
+                    "model": relay_session.get("model"),
+                    "tier": relay_session.get("tier"),
                 }
             )
-            if not voice_capability_ok:
-                failures.append("voice_capability")
+            if not relay_session_ok:
+                failures.append("voice_relay_session")
         except Exception as exc:  # pragma: no cover - exercised in live verification
-            _record_exception(report, failures, name="voice_capability", exc=exc)
+            _record_exception(report, failures, name="voice_relay_session", exc=exc)
 
         try:
             ria_stage1 = smoke._request(  # noqa: SLF001
@@ -218,30 +219,6 @@ def main() -> int:
                 failures.append("ria_stage1_query_only")
         except Exception as exc:  # pragma: no cover - exercised in live verification
             _record_exception(report, failures, name="ria_stage1_query_only", exc=exc)
-
-        try:
-            realtime_session = smoke._request(  # noqa: SLF001
-                "POST",
-                "/api/kai/voice/realtime/session",
-                headers=smoke._vault_headers(),  # noqa: SLF001
-                json_body={"user_id": smoke.user_id, "voice": "alloy"},
-                expected=200,
-            ).json()
-            realtime_ok = bool(realtime_session.get("client_secret")) and bool(
-                realtime_session.get("session_id")
-            )
-            report["checks"].append(
-                {
-                    "name": "voice_realtime_session",
-                    "ok": realtime_ok,
-                    "model": realtime_session.get("model"),
-                    "voice": realtime_session.get("voice"),
-                }
-            )
-            if not realtime_ok:
-                failures.append("voice_realtime_session")
-        except Exception as exc:  # pragma: no cover - exercised in live verification
-            _record_exception(report, failures, name="voice_realtime_session", exc=exc)
 
     if args.include_signed_in_routes:
         route_results = []

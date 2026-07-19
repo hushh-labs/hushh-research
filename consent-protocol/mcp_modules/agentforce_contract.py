@@ -22,6 +22,7 @@ AGENTFORCE_PROFILE = "agentforce"
 AGENTFORCE_MAX_TOOLS = 20
 AGENTFORCE_MAX_PROPERTY_CHARS = 255
 AGENTFORCE_MAX_REQUEST_SECONDS = 55.0
+MULESOFT_AGENTFORCE_INTEGRATION_TARGET = "mulesoft-agentforce"
 
 # Salesforce's current external-MCP documentation permits letters, numbers,
 # dots, slashes, and hyphens. Keep the existing canonical identifiers intact
@@ -47,6 +48,48 @@ def canonical_agentforce_tool_name(name: str) -> str | None:
     """Resolve one Agentforce alias to its canonical Hussh handler name."""
 
     return _CANONICAL_TOOL_NAMES.get(str(name or "").strip())
+
+
+def get_mulesoft_agentforce_handoff() -> dict[str, Any]:
+    """Return the non-secret relay contract for MuleSoft to Agentforce.
+
+    This is an integration handoff, not a deployable Mule configuration. It
+    deliberately captures the constraints MuleSoft must preserve when it
+    publishes Hussh into Salesforce API Catalog. MuleSoft changes discovery,
+    routing, and policy ownership; it does not relax Agentforce MCP-client
+    limits or turn its app credentials into an end-user identity.
+    """
+
+    tool_allowlist = list(get_agentforce_tool_names())
+    return {
+        "integrationTarget": MULESOFT_AGENTFORCE_INTEGRATION_TARGET,
+        "supportStatus": "schema-compatible-uat-only",
+        "upstream": {
+            "transport": "streamable-http",
+            "path": "/mcp/",
+            "authentication": "oauth2-client-credentials",
+            "requestTimeoutSeconds": AGENTFORCE_MAX_REQUEST_SECONDS,
+        },
+        "agentforce": {
+            "catalog": "salesforce-api-catalog",
+            "transport": "streamable-http",
+            "authentication": "oauth2-client-credentials",
+            "toolsOnly": True,
+            "toolAllowlist": tool_allowlist,
+        },
+        "relayRequirements": {
+            "preserveToolNames": True,
+            "preserveInputOutputSchemas": True,
+            "allowResources": False,
+            "allowPrompts": False,
+            "expandNestedFields": False,
+        },
+        "executionBoundary": {
+            "personalizedToolExecution": "unsupported",
+            "handlerCalls": "fail-closed",
+            "errorCode": "AGENTFORCE_PERSONALIZED_WORKFLOW_UNSUPPORTED",
+        },
+    }
 
 
 def _tool_annotations(canonical_name: str, title: str) -> dict[str, Any]:

@@ -33,6 +33,7 @@ function printUsage() {
   console.log("  hushh-mcp --print-remote-config");
   console.log("  hushh-mcp --print-gateway-manifest");
   console.log("  hushh-mcp --print-agentforce-manifest");
+  console.log("  hushh-mcp --print-mulesoft-agentforce-handoff");
   console.log("");
   console.log("Environment:");
   console.log("  HUSHH_MCP_ENV_FILE      Optional path to a consent-protocol style .env file");
@@ -374,6 +375,23 @@ if (args.includes("--print-gateway-manifest")) {
 
 if (args.includes("--print-agentforce-manifest")) {
   printGatewayManifest("hushh-agentforce-mcp-manifest.json");
+  process.exit(0);
+}
+
+if (args.includes("--print-mulesoft-agentforce-handoff")) {
+  const manifestPath = path.join(
+    packageDir,
+    "gateway",
+    "hushh-agentforce-mcp-manifest.json",
+  );
+  if (!fs.existsSync(manifestPath)) {
+    fatal("The packaged Agentforce MCP manifest is unavailable.");
+  }
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  if (!manifest.mulesoftAgentforceHandoff) {
+    fatal("The packaged MuleSoft Agentforce handoff is unavailable.");
+  }
+  process.stdout.write(`${JSON.stringify(manifest.mulesoftAgentforceHandoff, null, 2)}\n`);
   process.exit(0);
 }
 

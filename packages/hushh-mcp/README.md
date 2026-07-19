@@ -63,6 +63,8 @@ OAuth client credentials are issued only to explicitly provisioned constrained p
 
 Use `hushh-mcp --print-agentforce-manifest` to inspect the exact four-tool UAT catalog. It is generated from the same runtime contract that authenticated `agentforce` apps receive from `tools/list`; it is a preflight artifact, not a replacement endpoint or a deployable Salesforce registration.
 
+For the dedicated MuleSoft → Agentforce partner app, use the generated `hushh-mcp --print-mulesoft-agentforce-handoff` baseline. It requires two distinct app-bound OAuth client-credential hops (Agentforce → MuleSoft and MuleSoft → Hussh), an API Catalog allowlist matching exactly the four generated aliases, tools only, and exact preservation of the published flat schemas. It is an implementation handoff, not a deployable Mule flow and does not turn either app credential into a Hussh user identity.
+
 Each tool includes a semantic machine name, client-facing title and description, strictly typed flat input fields, explicit `required` entries, and a complete `outputSchema`. Preserve the published machine field names. Salesforce currently has a Builder label-rendering defect for some data types, so an administrator must verify and, if necessary, replace input/output display labels in the Asset Library after registration. JSON Schema titles improve inspection metadata but do not claim to fix that Salesforce UI defect.
 
 The current UAT boundary is intentionally narrow:
@@ -72,7 +74,7 @@ The current UAT boundary is intentionally narrow:
 - verify names, descriptions, field counts, labels, and output mappings from `tools/list`;
 - do not invoke the personalized consent/export lifecycle from Agentforce. The server returns a documented fail-closed error instead.
 
-Salesforce references: [MCP considerations](https://help.salesforce.com/s/articleView?id=ai.agent_mcp_considerations.htm&language=en_US&type=5) and [MCP response schemas](https://help.salesforce.com/s/articleView?id=ai.agent_mcp_tool_action_design.htm&language=en_US&type=5).
+Salesforce references: [MCP considerations](https://help.salesforce.com/s/articleView?id=ai.agent_mcp_considerations.htm&language=en_US&type=5), [MCP response schemas](https://help.salesforce.com/s/articleView?id=ai.agent_mcp_tool_action_design.htm&language=en_US&type=5), and [MuleSoft MCP servers in API Catalog](https://help.salesforce.com/s/articleView?id=platform.api_catalog_manage_mulesoft_mcp_servers.htm&language=en_US&type=5).
 
 Minimal env for stdio hosts:
 
