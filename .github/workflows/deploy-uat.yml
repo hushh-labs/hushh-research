@@ -526,6 +526,18 @@ jobs:
             --assert-runtime-env-contract \
             --report-path /tmp/uat-runtime-parity-attempt-2.json
 
+      - name: Verify UAT native passkey domain associations
+        id: verify-passkey-associations
+        if: steps.scope.outputs.deploy_frontend == 'true'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ops/verify_passkey_domain_associations.py \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --origin "${{ env.APP_FRONTEND_ORIGIN }}" \
+            --origin "https://one.hushh.ai"
+
       - name: Post-deploy UAT schema contract gate
         id: postdeploy-db-gate
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -678,6 +690,7 @@ jobs:
           SEMANTIC_ATTEMPT_2: ${{ steps.verify-uat-2.outcome }}
           REVIEWER_BYOK_OUTCOME: ${{ steps.verify-reviewer-byok.outcome }}
           REVIEWER_BYOK_REQUIRED: ${{ steps.verification-plan.outputs.run_reviewer_byok }}
+          PASSKEY_ASSOCIATIONS_OUTCOME: ${{ steps.verify-passkey-associations.outcome }}
           PKM_EVALUATOR_RUNS: ${{ steps.verification-plan.outputs.pkm_evaluator_runs }}
           VERIFICATION_PLAN_REASON: ${{ steps.verification-plan.outputs.reason }}
         run: |
@@ -737,6 +750,11 @@ jobs:
               not reviewer_byok_required
               or not browser_authority_ready
               or os.environ.get("REVIEWER_BYOK_OUTCOME") == "success"
+          )
+          passkey_associations_required = os.environ.get("DEPLOY_FRONTEND") == "true"
+          passkey_associations_success = (
+              not passkey_associations_required
+              or os.environ.get("PASSKEY_ASSOCIATIONS_OUTCOME") == "success"
           )
 
           blocking: list[str] = []
@@ -818,6 +836,10 @@ jobs:
               if os.environ.get("DEPLOY_FRONTEND") == "true":
                   frontend_failure = True
 
+          if not passkey_associations_success:
+              append_unique(blocking, ["passkey_domain_association_failed"])
+              frontend_failure = True
+
           blocking = list(dict.fromkeys(blocking))
           release_failed = bool(blocking)
 
@@ -864,6 +886,11 @@ jobs:
                   "outcome": os.environ.get("REVIEWER_BYOK_OUTCOME", ""),
                   "success": reviewer_byok_success,
               },
+              "passkey_domain_associations": {
+                  "required": passkey_associations_required,
+                  "outcome": os.environ.get("PASSKEY_ASSOCIATIONS_OUTCOME", ""),
+                  "success": passkey_associations_success,
+              },
               "verification_plan": {
                   "reason": os.environ.get("VERIFICATION_PLAN_REASON", ""),
                   "pkm_evaluator_runs": int(os.environ.get("PKM_EVALUATOR_RUNS") or "0"),
@@ -884,6 +911,7 @@ jobs:
               handle.write(f"provenance_success={'true' if backend_provenance_success and frontend_provenance_success else 'false'}\n")
               handle.write(f"semantic_success={'true' if semantic_success else 'false'}\n")
               handle.write(f"reviewer_byok_success={'true' if reviewer_byok_success else 'false'}\n")
+              handle.write(f"passkey_associations_success={'true' if passkey_associations_success else 'false'}\n")
           PY
 
       - name: Roll back backend revision

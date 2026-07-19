@@ -28,6 +28,28 @@ if ! grep -q 'DEVELOPER_API_URL=BACKEND_URL:latest' "$frontend_cloudbuild"; then
   exit 1
 fi
 
+for association_secret in \
+  APPLE_TEAM_ID \
+  NEXT_PUBLIC_IOS_BUNDLE_ID \
+  NEXT_PUBLIC_ANDROID_APP_ID \
+  ANDROID_SHA256_CERT_FINGERPRINTS; do
+  if ! grep -q "${association_secret}=${association_secret}:latest" "$frontend_cloudbuild"; then
+    echo "❌ frontend Cloud Run deploy must inject ${association_secret} for native passkey association."
+    exit 1
+  fi
+done
+
+android_manifest="$REPO_ROOT/hushh-webapp/android/app/src/main/AndroidManifest.xml"
+android_strings="$REPO_ROOT/hushh-webapp/android/app/src/main/res/values/strings.xml"
+if ! grep -q 'android:name="asset_statements"' "$android_manifest"; then
+  echo "❌ Android manifest must declare Credential Manager Digital Asset Links."
+  exit 1
+fi
+if ! grep -q 'https://one.hushh.ai/.well-known/assetlinks.json' "$android_strings"; then
+  echo "❌ Android passkeys must use the canonical one.hushh.ai association document."
+  exit 1
+fi
+
 if ! grep -q -- '--set-env-vars=NEXT_PUBLIC_APP_ENV=' "$frontend_cloudbuild"; then
   echo "❌ frontend Cloud Run deploy must inject NEXT_PUBLIC_APP_ENV at runtime."
   exit 1

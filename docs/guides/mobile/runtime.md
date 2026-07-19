@@ -58,6 +58,26 @@ Required configuration:
 
 Keep `NEXT_PUBLIC_PASSKEY_RP_ID` unset for dual-domain web behavior unless a dedicated migration proves otherwise.
 
+The four association values are Cloud Run runtime secrets. They must be mounted
+on the frontend service, not only present in Secret Manager, because the
+well-known routes are dynamic. Native passkeys use `one.hushh.ai` as the
+canonical relying-party ID; both `one.hushh.ai` and `uat.one.hushh.ai` must
+serve valid association documents for their corresponding mobile builds.
+
+Release verification uses:
+
+```bash
+python3 scripts/ops/verify_passkey_domain_associations.py \
+  --project <project-id> \
+  --origin https://one.hushh.ai
+```
+
+The verifier compares the published documents with Secret Manager in memory
+and emits only pass/fail status, never the app identifiers or certificate
+fingerprints. iOS retrieves association files through Apple’s CDN, so a device
+may need an app reinstall or time for the CDN/device cache to refresh after a
+domain-association repair.
+
 ## Firebase Artifact Safety
 
 Native Firebase artifacts are local build inputs, not tracked source files.
