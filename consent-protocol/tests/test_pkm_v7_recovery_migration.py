@@ -13,7 +13,12 @@ def test_recovery_migration_is_registered_and_additive():
 
     assert MIGRATION.name in release["ordered_migrations"]
     assert MIGRATION.name in release["groups"]["pkm"]
-    assert uat["expected_migration_version"] == 101
+    release_versions = [
+        int(migration.split("_", 1)[0])
+        for migration in release["ordered_migrations"]
+        if migration[:3].isdigit()
+    ]
+    assert uat["expected_migration_version"] == max(release_versions)
     assert dev["expected_migration_version"] == 99
     assert "DROP FUNCTION commit_pkm_domain_mutation_v2" not in sql
     assert "DROP FUNCTION commit_pkm_domain_mutation_v3" not in sql
