@@ -16,6 +16,9 @@ paths = [
   # HCT golden-vector fixture: deterministic test signing key used by
   # apps/one-mac/Sources/OneConsent + consent-protocol/scripts/emit_hct_golden_vectors.py.
   '''^consent-protocol/tests/fixtures/hct_golden_vectors\.json$''',
+  # PII sanitization test file: intentionally contains PII patterns (SSNs, emails,
+  # currency amounts) to test the PKM PII detection and sanitization logic.
+  '''^consent-protocol/tests/test_pii_key_sanitization_pkm_privacy\.py$''',
 ]
 regexes = [
   '''replace_with_64_char_hex_secret_key''',

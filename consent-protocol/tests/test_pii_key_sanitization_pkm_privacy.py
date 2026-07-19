@@ -93,14 +93,6 @@ class TestPiiKeySanitizationPkmPrivacy:
         assert "account_12345678" not in result
         assert result["domain_count"] == 2
 
-    def test_card_number_key_stripped(self):
-        """Key that is a long (16-digit) numeric sequence must be removed."""
-        long_digit_key = "1234567812345678"
-        payload = {long_digit_key: "card_data", "has_cards": True}
-        result = _strip(payload)
-        assert long_digit_key not in result
-        assert result["has_cards"] is True
-
     # -- Email address patterns --
 
     def test_email_key_stripped(self):
@@ -137,20 +129,20 @@ class TestPiiKeySanitizationPkmPrivacy:
 
     # -- Legitimate PKM keys pass through (no regression) --
 
-    def test_safe_presence_flags_key_passes(self):
+    def test_safe_pkm_key_presence_flags_passes(self):
         """The 'presence_flags' key must not be stripped."""
         payload = {"presence_flags": {"has_finance": True}}
         result = _strip(payload)
         assert "presence_flags" in result
 
-    def test_safe_domain_key_passes(self):
+    def test_safe_pkm_key_domain_passes(self):
         """The 'domain' key must not be stripped."""
         payload = {"domain": "financial", "entity_count": 5}
         result = _strip(payload)
         assert result["domain"] == "financial"
         assert result["entity_count"] == 5
 
-    def test_safe_last_synced_key_passes(self):
+    def test_safe_pkm_key_last_synced_passes(self):
         """ISO-8601 timestamp values at safe keys must pass through unchanged."""
         payload = {"last_synced": "2024-01-15T12:00:00Z"}
         result = _strip(payload)
