@@ -72,11 +72,11 @@ function loadAgentforceContract() {
       "-c",
       [
         "import json",
-        "from mcp_modules.agentforce_contract import agentforce_contract_errors, get_agentforce_contract",
+        "from mcp_modules.agentforce_contract import agentforce_contract_errors, get_agentforce_contract, get_mulesoft_agentforce_handoff",
         "errors = agentforce_contract_errors()",
         "if errors:",
         "    raise SystemExit('; '.join(errors))",
-        "print(json.dumps(get_agentforce_contract(), separators=(',', ':')))"
+        "print(json.dumps({'contract': get_agentforce_contract(), 'mulesoftAgentforceHandoff': get_mulesoft_agentforce_handoff()}, separators=(',', ':')))"
       ].join("\n"),
     ],
     {
@@ -96,7 +96,8 @@ function loadAgentforceContract() {
   return JSON.parse(result.stdout);
 }
 
-const agentforceContract = loadAgentforceContract();
+const agentforceProjection = loadAgentforceContract();
+const agentforceContract = agentforceProjection.contract;
 const agentforceManifest = {
   profile: "agentforce-uat",
   supportStatus: "schema-compatible-uat-only",
@@ -108,6 +109,7 @@ const agentforceManifest = {
     prompts: false,
     logging: false,
   },
+  mulesoftAgentforceHandoff: agentforceProjection.mulesoftAgentforceHandoff,
   tools: agentforceContract.tools.map(
     ({ name, title, description, inputSchema, outputSchema, annotations }) => ({
       name,

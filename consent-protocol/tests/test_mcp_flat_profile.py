@@ -12,6 +12,7 @@ from mcp_modules.agentforce_contract import (
     agentforce_contract_errors,
     get_agentforce_contract,
     get_agentforce_tool_names,
+    get_mulesoft_agentforce_handoff,
 )
 from mcp_modules.developer_context import (
     reset_current_developer_principal,
@@ -86,6 +87,32 @@ def test_agentforce_uat_contract_is_strict_and_keeps_canonical_field_ids() -> No
         assert agentforce_tool["title"].strip()
         assert agentforce_tool["description"].strip()
         assert agentforce_tool["annotations"]["title"] == agentforce_tool["title"]
+
+
+def test_mulesoft_agentforce_handoff_preserves_the_narrow_catalog_and_boundary() -> None:
+    handoff = get_mulesoft_agentforce_handoff()
+
+    assert handoff["integrationTarget"] == "mulesoft-agentforce"
+    assert handoff["upstream"] == {
+        "transport": "streamable-http",
+        "path": "/mcp/",
+        "authentication": "oauth2-client-credentials",
+        "requestTimeoutSeconds": 55.0,
+    }
+    assert handoff["agentforce"]["toolsOnly"] is True
+    assert handoff["agentforce"]["toolAllowlist"] == list(get_agentforce_tool_names())
+    assert handoff["relayRequirements"] == {
+        "preserveToolNames": True,
+        "preserveInputOutputSchemas": True,
+        "allowResources": False,
+        "allowPrompts": False,
+        "expandNestedFields": False,
+    }
+    assert handoff["executionBoundary"] == {
+        "personalizedToolExecution": "unsupported",
+        "handlerCalls": "fail-closed",
+        "errorCode": "AGENTFORCE_PERSONALIZED_WORKFLOW_UNSUPPORTED",
+    }
 
 
 def test_flat_projection_preserves_lifecycle_references_and_export_envelope() -> None:

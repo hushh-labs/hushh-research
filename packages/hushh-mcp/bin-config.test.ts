@@ -94,6 +94,26 @@ describe("hushh-mcp CLI config output", () => {
       prompts: false,
       logging: false,
     });
+    expect(manifest.mulesoftAgentforceHandoff).toMatchObject({
+      integrationTarget: "mulesoft-agentforce",
+      supportStatus: "schema-compatible-uat-only",
+      upstream: {
+        transport: "streamable-http",
+        authentication: "oauth2-client-credentials",
+        requestTimeoutSeconds: 55,
+      },
+      agentforce: {
+        catalog: "salesforce-api-catalog",
+        toolsOnly: true,
+      },
+      executionBoundary: {
+        personalizedToolExecution: "unsupported",
+        handlerCalls: "fail-closed",
+      },
+    });
+    expect(manifest.mulesoftAgentforceHandoff.agentforce.toolAllowlist).toEqual(
+      manifest.tools.map((tool: { name: string }) => tool.name),
+    );
     expect(manifest.tools.map((tool: { name: string }) => tool.name)).toEqual([
       "search-user-scopes",
       "request-consent",
@@ -116,5 +136,27 @@ describe("hushh-mcp CLI config output", () => {
         expect(field.description).toEqual(expect.any(String));
       }
     }
+  });
+
+  it("prints the non-secret MuleSoft to Agentforce handoff without widening the UAT boundary", async () => {
+    const { stdout, stderr } = await execAsync(
+      `node ${packageJson.bin["hushh-mcp"]} --print-mulesoft-agentforce-handoff`,
+      { cwd: process.cwd() },
+    );
+
+    expect(stderr).toBe("");
+    const handoff = JSON.parse(stdout);
+    expect(handoff.integrationTarget).toBe("mulesoft-agentforce");
+    expect(handoff.agentforce.toolAllowlist).toHaveLength(4);
+    expect(handoff.relayRequirements).toEqual({
+      preserveToolNames: true,
+      preserveInputOutputSchemas: true,
+      allowResources: false,
+      allowPrompts: false,
+      expandNestedFields: false,
+    });
+    expect(handoff.executionBoundary.personalizedToolExecution).toBe("unsupported");
+    expect(stdout).not.toContain("client_secret");
+    expect(stdout).not.toContain("developer-token");
   });
 });

@@ -199,10 +199,34 @@ python scripts/ops/provision_partner_developer_app.py \
   --display-name "Salesforce Agentforce UAT" \
   --contact-email partners@hushh.ai \
   --crm-id salesforce-agentforce-uat \
-  --schema-profile agentforce \
-  --enable-client-credentials \
+  --integration-target mulesoft-agentforce \
   --connector-key-id salesforce-agentforce-uat-2026-07 \
   --connector-public-key "$PARTNER_X25519_PUBLIC_KEY"
+```
+
+`--integration-target mulesoft-agentforce` is the default template for the
+dedicated MuleSoft → Agentforce partner app. It selects `agentforce`, enables
+app-bound OAuth client credentials, and leaves the global `standard` default
+unchanged for every other MCP client. It does **not** make the app an end-user
+identity or permit personalized Agentforce execution.
+
+MuleSoft must relay the exact generated catalog into Salesforce API Catalog:
+
+- Agentforce → MuleSoft and MuleSoft → Hussh are separate OAuth
+  client-credential hops. Neither hop represents a Hussh end user.
+- Preserve the four aliases and their flat input/output schemas exactly; do not
+  add resources, prompts, nested fields, or a wider tool allowlist.
+- Register and allowlist the server in API Catalog, then inspect the final
+  Agentforce Asset Library mappings. Salesforce's
+  [API Catalog guidance](https://help.salesforce.com/s/articleView?id=platform.api_catalog_manage_mulesoft_mcp_servers.htm&language=en_US&type=5)
+  still requires an authentication protocol supported by the Agentforce MCP
+  client.
+
+Print the versioned, non-secret relay handoff before configuring the Mule flow:
+
+```bash
+cd packages/hushh-mcp
+npm run print-mulesoft-agentforce-handoff
 ```
 
 This UAT catalog is generated from the runtime and has exactly four tools:

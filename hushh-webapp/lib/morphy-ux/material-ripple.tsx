@@ -26,6 +26,35 @@ interface MdRipple extends HTMLElement {
   detach?: () => void;
 }
 
+const INTERACTIVE_CONTROL_SELECTOR = [
+  "button",
+  "a[href]",
+  "input[type='button']",
+  "input[type='submit']",
+  "input[type='reset']",
+  "[role='button']",
+  "[role='tab']",
+  "[role='menuitem']",
+  "[role='option']",
+  "[role='radio']",
+  "[role='switch']",
+  "[role='checkbox']",
+].join(", ");
+
+// Material Web releases a touch press on `click`, rather than `pointerup`.
+// Safari/WKWebView can suppress that click if a fixed ancestor moved during the
+// gesture. This is deliberately longer than a normal synthesized click, so the
+// regular Material 3 release animation remains untouched.
+const MISSING_TOUCH_CLICK_RESET_MS = 700;
+
+function resolveRippleControl(container: HTMLDivElement): HTMLElement {
+  return (
+    container.closest<HTMLElement>(INTERACTIVE_CONTROL_SELECTOR) ??
+    container.parentElement ??
+    container
+  );
+}
+
 // ============================================================================
 // COLOR MAPPING - Morphy Variants to Material 3 Tokens
 // ============================================================================
@@ -197,9 +226,7 @@ export const MaterialRipple = ({
     rippleElement.className = "morphy-md-ripple";
     rippleElement.disabled = disabled;
     containerRef.current.appendChild(rippleElement);
-    rippleElement.attach?.(
-      containerRef.current.parentElement || containerRef.current,
-    );
+    rippleElement.attach?.(resolveRippleControl(containerRef.current));
     rippleRef.current = rippleElement;
 
     return () => {
@@ -216,6 +243,82 @@ export const MaterialRipple = ({
       rippleRef.current.disabled = disabled;
     }
   }, [disabled]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!isRippleReady || !container) return;
+    const control = resolveRippleControl(container);
+
+    let resetFrame: number | undefined;
+    let missingClickTimer: number | undefined;
+    const clearInterruptedPress = () => {
+      const ripple = rippleRef.current;
+      if (!ripple || disabled) return;
+
+      // Material Web listens for pointercancel, but iOS WKWebView may surface
+      // an interrupted long press as touchcancel only. Toggle disabled across
+      // frames so Lit commits `pressed = false` without intercepting the
+      // control's tap or shortening a normal pointerup/click ripple.
+      ripple.disabled = true;
+      if (resetFrame !== undefined) {
+        window.cancelAnimationFrame(resetFrame);
+      }
+      resetFrame = window.requestAnimationFrame(() => {
+        if (rippleRef.current === ripple && !disabled) {
+          ripple.disabled = false;
+        }
+      });
+    };
+    const clearMissingClickReset = () => {
+      if (missingClickTimer === undefined) return;
+      window.clearTimeout(missingClickTimer);
+      missingClickTimer = undefined;
+    };
+    const scheduleMissingClickReset = (event: Event) => {
+      // Mouse and pen input reliably produces a click. Keep their normal
+      // Material release path intact; this is a WebKit touch fallback only.
+      if (
+        event.type === "pointerup" &&
+        "pointerType" in event &&
+        (event as PointerEvent).pointerType !== "touch"
+      ) {
+        return;
+      }
+
+      clearMissingClickReset();
+      missingClickTimer = window.setTimeout(() => {
+        missingClickTimer = undefined;
+        clearInterruptedPress();
+      }, MISSING_TOUCH_CLICK_RESET_MS);
+    };
+    const clearWhenHidden = () => {
+      if (document.visibilityState !== "visible") {
+        clearInterruptedPress();
+      }
+    };
+
+    control.addEventListener("pointercancel", clearInterruptedPress, true);
+    control.addEventListener("touchcancel", clearInterruptedPress, true);
+    control.addEventListener("pointerup", scheduleMissingClickReset, true);
+    control.addEventListener("touchend", scheduleMissingClickReset, true);
+    control.addEventListener("click", clearMissingClickReset, true);
+    window.addEventListener("blur", clearInterruptedPress);
+    document.addEventListener("visibilitychange", clearWhenHidden);
+
+    return () => {
+      control.removeEventListener("pointercancel", clearInterruptedPress, true);
+      control.removeEventListener("touchcancel", clearInterruptedPress, true);
+      control.removeEventListener("pointerup", scheduleMissingClickReset, true);
+      control.removeEventListener("touchend", scheduleMissingClickReset, true);
+      control.removeEventListener("click", clearMissingClickReset, true);
+      window.removeEventListener("blur", clearInterruptedPress);
+      document.removeEventListener("visibilitychange", clearWhenHidden);
+      clearMissingClickReset();
+      if (resetFrame !== undefined) {
+        window.cancelAnimationFrame(resetFrame);
+      }
+    };
+  }, [disabled, isRippleReady]);
 
   useEffect(() => {
     // Check for dark mode

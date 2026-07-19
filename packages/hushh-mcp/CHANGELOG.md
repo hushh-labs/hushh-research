@@ -8,6 +8,9 @@
 - Added an explicit fail-closed production boundary for personalized Agentforce
   calls while Salesforce documents that user-level authentication and
   personalized MCP responses are unsupported.
+- Added a versioned, non-secret `mulesoft-agentforce` relay handoff that
+  locks API Catalog allowlisting, flat schema preservation, tools-only
+  capabilities, client-credential hops, and the UAT-only execution boundary.
 
 ## 0.3.0 - 2026-07-15
 

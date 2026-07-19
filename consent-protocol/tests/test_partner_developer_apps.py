@@ -8,6 +8,8 @@ the same registry lane as self-serve tokens.
 
 from __future__ import annotations
 
+import argparse
+import importlib.util
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -20,6 +22,15 @@ from hushh_mcp.services.developer_registry_service import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _partner_provisioning_module():
+    script_path = ROOT / "scripts" / "ops" / "provision_partner_developer_app.py"
+    spec = importlib.util.spec_from_file_location("partner_provisioning", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _result(rows):
@@ -179,6 +190,34 @@ class TestPartnerPrincipal:
         )
         assert principal.kind == "self_serve"
         assert principal.crm_id is None
+
+
+class TestMuleSoftAgentforceProvisioning:
+    def test_named_integration_selects_agentforce_uat_profile_and_client_credentials(self):
+        module = _partner_provisioning_module()
+        parser = argparse.ArgumentParser()
+        args = argparse.Namespace(
+            integration_target="mulesoft-agentforce",
+            schema_profile="standard",
+            enable_client_credentials=False,
+        )
+
+        module._apply_integration_defaults(parser, args)
+
+        assert args.schema_profile == "agentforce"
+        assert args.enable_client_credentials is True
+
+    def test_named_integration_rejects_an_incompatible_catalog(self):
+        module = _partner_provisioning_module()
+        parser = argparse.ArgumentParser()
+        args = argparse.Namespace(
+            integration_target="mulesoft-agentforce",
+            schema_profile="flat",
+            enable_client_credentials=False,
+        )
+
+        with pytest.raises(SystemExit):
+            module._apply_integration_defaults(parser, args)
 
 
 class TestPartnerMigrationContract:

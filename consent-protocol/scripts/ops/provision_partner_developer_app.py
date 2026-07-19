@@ -32,12 +32,39 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
-from hushh_mcp.services.developer_oauth_service import DeveloperOAuthService
-from hushh_mcp.services.developer_registry_service import DeveloperRegistryService
+CONSENT_PROTOCOL_ROOT = Path(__file__).resolve().parents[2]
+if str(CONSENT_PROTOCOL_ROOT) not in sys.path:
+    sys.path.insert(0, str(CONSENT_PROTOCOL_ROOT))
+
+INTEGRATION_TARGET_GENERIC = "generic"
+INTEGRATION_TARGET_MULESOFT_AGENTFORCE = "mulesoft-agentforce"
+
+
+def _apply_integration_defaults(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Apply a named partner integration without changing the global default.
+
+    Existing MCP applications keep the standard profile. The named MuleSoft →
+    Agentforce target always receives the narrow Agentforce UAT catalog and an
+    app-bound OAuth client credential. It never authorizes personalized tool
+    execution.
+    """
+
+    if args.integration_target != INTEGRATION_TARGET_MULESOFT_AGENTFORCE:
+        return
+    if args.schema_profile not in {"standard", "agentforce"}:
+        parser.error(
+            "--integration-target mulesoft-agentforce requires the agentforce schema profile"
+        )
+    args.schema_profile = "agentforce"
+    args.enable_client_credentials = True
 
 
 def main() -> int:
+    from hushh_mcp.services.developer_oauth_service import DeveloperOAuthService
+    from hushh_mcp.services.developer_registry_service import DeveloperRegistryService
+
     parser = argparse.ArgumentParser(
         description="Provision a partner-class developer app + token for one CRM system."
     )
@@ -64,9 +91,19 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--integration-target",
+        choices=(INTEGRATION_TARGET_GENERIC, INTEGRATION_TARGET_MULESOFT_AGENTFORCE),
+        default=INTEGRATION_TARGET_GENERIC,
+        help=(
+            "Named partner integration. mulesoft-agentforce selects the strict Agentforce "
+            "UAT catalog and app-bound OAuth client credentials; it does not enable "
+            "personalized Agentforce execution."
+        ),
+    )
+    parser.add_argument(
         "--enable-client-credentials",
         action="store_true",
-        help="Explicitly permit OAuth client_credentials for a flat-profile partner app.",
+        help="Explicitly permit OAuth client_credentials for a constrained-profile partner app.",
     )
     parser.add_argument(
         "--connector-public-key",
@@ -109,6 +146,8 @@ def main() -> int:
         help="Revoke all active tokens for the app and exit (no new token)",
     )
     args = parser.parse_args()
+
+    _apply_integration_defaults(parser, args)
 
     if args.enable_client_credentials and args.schema_profile not in {"flat", "agentforce"}:
         parser.error("--enable-client-credentials requires a constrained schema profile")
@@ -179,6 +218,7 @@ def main() -> int:
     print(f"kind:          {app.get('kind')}")
     print(f"crm_id:        {app.get('crm_id') or '(none)'}")
     print(f"tool_groups:   {app.get('allowed_tool_groups')}")
+    print(f"integration_target: {args.integration_target}")
     print(f"schema_profile:{app.get('schema_profile') or 'standard'}")
     print(f"client_credentials_enabled: {bool(app.get('oauth_client_credentials_enabled'))}")
     print(f"created_app:   {result['created_app']}")
