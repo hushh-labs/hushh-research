@@ -143,6 +143,14 @@ Do:
 - An unresolved consent summary is unknown, not zero. Do not render `0` in
   consent tabs, badges, or roster metrics until the canonical summary resolves.
 - Keep the first-party consent inbox on the same memory-only `pending page 1` list cache used by `/one/consent`; do not introduce a second browser cache lane just for the top-shell preview.
+- On every successful vault unlock, warm the canonical `one:consents` summary
+  and pending-page cache in the background, regardless of the route that
+  opened the vault. This preserves an immediate same-session render without
+  persisting consent list entries.
+- FCM consent request, resolution, and connection events must invalidate the
+  canonical in-memory consent cache and trigger one retained-data background
+  refresh for an open Consent Center. When push is unavailable, the visible
+  fallback reconciler uses the same cache keys and event path.
 - Keep passive background refresh copy human-readable:
   - `Getting your portfolio data ready`
   - `Refreshing your profile details`

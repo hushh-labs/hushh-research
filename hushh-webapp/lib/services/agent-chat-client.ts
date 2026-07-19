@@ -74,10 +74,10 @@ function readRecord(record: Record<string, unknown>, key: string): Record<string
 
 function formatAgentChatErrorMessage(message: string, code?: string): string {
   if (code === "AGENT_RUNTIME_CREDENTIAL_MISSING") {
-    return "Kai needs your Gemini key. Add it in Profile > Runtime keys, or switch Kai to Hushh managed Gemini.";
+    return "One needs your Gemini key. Add it in Connections settings, or switch to Hushh managed Gemini.";
   }
   if (code === "AGENT_RUNTIME_CREDENTIAL_INVALID") {
-    return "Your saved Gemini key could not be used. Update it in Profile > Runtime keys, or switch Kai to Hushh managed Gemini.";
+    return "Your saved Gemini key could not be used. Update it in Connections settings, or switch to Hushh managed Gemini.";
   }
   if (code === "AGENT_RUNTIME_MANAGED_CREDENTIALS_UNAVAILABLE") {
     return "Hushh managed Gemini is not available in this environment.";
@@ -137,6 +137,9 @@ export async function streamAgentChat(input: {
   screenContext?: Record<string, unknown> | null;
   runtimeCredential?: string | null;
   runtimeCredentialMode?: string | null;
+  runtimeCredentialTransport?: "developer_api" | "vertex_api_key" | null;
+  runtimeVertexProject?: string | null;
+  runtimeVertexLocation?: string | null;
   delegateAgentId?: string | null;
   delegateResult?: Record<string, unknown>;
   signal?: AbortSignal;
@@ -153,6 +156,9 @@ export async function streamAgentChat(input: {
     ...(timezone ? { timezone } : {}),
     runtimeCredential: input.runtimeCredential,
     runtimeCredentialMode: input.runtimeCredentialMode,
+    runtimeCredentialTransport: input.runtimeCredentialTransport,
+    runtimeVertexProject: input.runtimeVertexProject,
+    runtimeVertexLocation: input.runtimeVertexLocation,
     delegateAgentId: input.delegateAgentId,
     delegateResult: input.delegateResult,
     signal: input.signal,

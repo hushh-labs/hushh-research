@@ -189,6 +189,11 @@ The practical contract is split across:
 - `hushh-webapp/frontend-native-surface-map.generated.json` for the
   route-to-API/native/plugin/voice scaffold used by Codex agents and parity audits
 
+Connections-owned runtime configuration is intentionally a non-agent route pair:
+`/one/setup/connections` is the setup preface and `/connect/settings` is its
+management re-entry point. They publish no voice action contract because a
+provider-secret mutation must remain a direct, vault-gated UI action.
+
 ## Relationship To Other Docs
 
 - [api-contracts.md](./api-contracts.md) describes the API surface itself.

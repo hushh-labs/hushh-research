@@ -19,9 +19,7 @@ export type KaiActionDelegateAgentId =
   | "agent_connected_systems"
   | "agent_connections"
   | "agent_email"
-  | "agent_gmail"
-  | "agent_location"
-  | "agent_personal_information";
+  | "agent_location";
 export type KaiActionExecutionTarget =
   | {
       status: "wired";
@@ -34,10 +32,6 @@ export type KaiActionExecutionTarget =
       reason: string;
       intended_handler?: string;
     }
-  | {
-      status: "dead";
-      reason: string;
-    };
 
 export type KaiActionWorkflowStep =
   | {
@@ -272,9 +266,7 @@ function validateDelegateAgentId(
     normalized === "agent_connected_systems" ||
     normalized === "agent_connections" ||
     normalized === "agent_email" ||
-    normalized === "agent_gmail" ||
-    normalized === "agent_location" ||
-    normalized === "agent_personal_information"
+    normalized === "agent_location"
   ) {
     return normalized;
   }
@@ -313,11 +305,6 @@ function validateExecutionTarget(
       reason,
       intended_handler: cleanString(value.intended_handler) || undefined,
     };
-  }
-  if (status === "dead") {
-    const reason = cleanString(value.reason);
-    if (!reason) return null;
-    return { status, reason };
   }
   return null;
 }
@@ -852,14 +839,6 @@ export function evaluateKaiActionAvailability(input: {
   allowPersonaRouteSettlement?: boolean;
 }): KaiActionAvailability {
   const { action, appRuntimeState, surfaceMetadata } = input;
-  if (action.execution_target.status === "dead") {
-    return {
-      status: "dead",
-      reason: action.execution_target.reason,
-      target_persona: null,
-      blocked_guidance: action.workflow?.blocked_guidance || null,
-    };
-  }
   if (action.execution_policy === "manual_only") {
     return {
       status: "manual_only",

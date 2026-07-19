@@ -824,7 +824,8 @@ html.native-ios .agent-chat-workspace[data-agent-chat-workspace="page"] {
    dialog and shift its center up by half the keyboard height so it stays in the
    band above the keyboard. Only active while kb-open, so desktop is untouched
    (kb-open is never set there). See mobile-bug-log B21. */
-html.kb-open [data-slot="dialog-content"] {
+html.kb-open
+  [data-slot="dialog-content"]:not([data-keyboard-anchor="bottom"]) {
   max-height: calc(100dvh - 2rem - var(--kb-height, 0px));
   margin-top: calc(var(--kb-height, 0px) / -2);
 }
@@ -1013,6 +1014,16 @@ html.kb-open [data-slot="dialog-content"] {
 .app-page-header-region + .surface-stack,
 .app-page-shell > .surface-stack:first-of-type {
   margin-top: var(--page-header-section-gap);
+}
+
+/*
+ * Market, Portfolio, and Analysis own their spacing through the shared
+ * workspace header. Keep the content region directly after that header from
+ * adding a second gap so every Finance tab starts its first surface at the
+ * same rhythm, including loading and empty states.
+ */
+.app-page-header-region[data-kai-workspace-header] + .app-page-content-region {
+  margin-top: 0;
 }
 
 .surface-stack {
@@ -2688,6 +2699,8 @@ md-ripple.morphy-md-ripple {
   --ambient-chrome-top-fg: #1d1d1f;
   --ambient-chrome-bottom-bg: #ffffff;
   --ambient-chrome-bottom-fg: #1d1d1f;
+  --ambient-chrome-bottom-base-bg: #ffffff;
+  --ambient-chrome-bottom-base-fg: #1d1d1f;
 }
 
 .dark {
@@ -2695,17 +2708,21 @@ md-ripple.morphy-md-ripple {
   --ambient-chrome-top-fg: #f5f5f7;
   --ambient-chrome-bottom-bg: var(--background);
   --ambient-chrome-bottom-fg: #f5f5f7;
+  --ambient-chrome-bottom-base-bg: var(--background);
+  --ambient-chrome-bottom-base-fg: #f5f5f7;
 }
 
 .ambient-chrome-mask {
-  --ambient-chrome-wash: 88%;
-  /* Search Console's shared material rhythm: solid chrome first, then one
-     continuous 62% midpoint into transparent. The tab variant below keeps the
-     same curve, but anchors its solid segment to the measured tab stack. */
-  --ambient-chrome-ramp-hold: 50%;
-  --ambient-chrome-ramp-mid: 78%;
-  --ambient-chrome-ramp-mid-alpha: 0.62;
-  will-change: backdrop-filter, background-color;
+  /* Persistent chrome is a sampled tint and feathered fade, never frosted
+     content. The structure remains opaque through contextual tabs; only the
+     material wash and tail are deliberately light and transparent. */
+  --tw-backdrop-blur: blur(0px);
+  --tw-backdrop-saturate: saturate(1);
+  --ambient-chrome-wash: 52%;
+  --ambient-chrome-ramp-hold: 42%;
+  --ambient-chrome-ramp-mid: 72%;
+  --ambient-chrome-ramp-mid-alpha: 0.38;
+  will-change: background-color;
 }
 
 html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
@@ -2748,7 +2765,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
     to bottom,
     #000 0,
     #000 var(--top-shell-reserved-height),
-    rgba(0, 0, 0, 0.62)
+    rgba(0, 0, 0, 0.38)
       calc(
         var(--top-shell-reserved-height) +
           var(--top-ambient-tab-tail-midpoint, 32px)
@@ -2759,7 +2776,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
     to bottom,
     #000 0,
     #000 var(--top-shell-reserved-height),
-    rgba(0, 0, 0, 0.62)
+    rgba(0, 0, 0, 0.38)
       calc(
         var(--top-shell-reserved-height) +
           var(--top-ambient-tab-tail-midpoint, 32px)
@@ -2769,15 +2786,13 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .ambient-chrome-mask--bottom {
-  --ambient-chrome-bg: var(--ambient-chrome-bottom-bg, #f5f5f7);
+  --ambient-chrome-bg: var(--ambient-chrome-bottom-base-bg, #f5f5f7);
   /* Match the Search Console dock: the bottom edge dissolves content into its
      live sampled tint rather than placing a second frosted slab over cards. */
-  --tw-backdrop-blur: blur(0px);
-  --tw-backdrop-saturate: saturate(1);
   background-color: transparent;
   background-image: linear-gradient(
     to top,
-    var(--ambient-chrome-bg) 0%,
+    color-mix(in srgb, var(--ambient-chrome-bg) 92%, transparent) 0%,
     color-mix(in srgb, var(--ambient-chrome-bg) 86%, transparent) 22%,
     color-mix(in srgb, var(--ambient-chrome-bg) 42%, transparent) 52%,
     transparent 100%
@@ -3019,9 +3034,9 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
    subtle highlight so the current route stays readable. */
 .bottom-chrome-surface,
 .kai-bottom-nav-pill {
-  color: var(--ambient-chrome-bottom-fg, #1d1d1f);
-  border: 1px solid color-mix(in srgb, var(--ambient-chrome-bottom-fg, #1d1d1f) 10%, transparent) !important;
-  background: color-mix(in srgb, var(--ambient-chrome-bottom-bg, #f5f5f7) 94%, transparent) !important;
+  color: var(--ambient-chrome-bottom-base-fg, #1d1d1f);
+  border: 1px solid color-mix(in srgb, var(--ambient-chrome-bottom-base-fg, #1d1d1f) 10%, transparent) !important;
+  background: color-mix(in srgb, var(--ambient-chrome-bottom-base-bg, #f5f5f7) 74%, transparent) !important;
   box-shadow: none !important;
   -webkit-backdrop-filter: blur(12px) saturate(130%);
   backdrop-filter: blur(12px) saturate(130%);
@@ -3029,7 +3044,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 .dark .bottom-chrome-surface,
 .dark .kai-bottom-nav-pill {
-  color: var(--ambient-chrome-bottom-fg, #f5f5f7);
+  color: var(--ambient-chrome-bottom-base-fg, #f5f5f7);
 }
 
 .kai-bottom-nav-pill [data-segment-indicator] {

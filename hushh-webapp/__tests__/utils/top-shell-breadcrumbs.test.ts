@@ -28,10 +28,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       hideBack: false,
-      items: [
-        { label: "One", href: "/one" },
-        { label: "Connect" },
-      ],
+      items: [{ label: "One", href: "/one" }, { label: "Connect" }],
     });
   });
 
@@ -97,9 +94,9 @@ describe("top shell breadcrumbs", () => {
     const unsafeParams = new URLSearchParams();
     unsafeParams.set("from", "//evil.example/path");
 
-    expect(resolveTopShellBreadcrumb("/one/setup/kai", unsafeParams)?.backHref).toBe(
-      "/one/setup",
-    );
+    expect(
+      resolveTopShellBreadcrumb("/one/setup/kai", unsafeParams)?.backHref,
+    ).toBe("/one/setup");
   });
 
   it("retraces the Kai finance workspace back to the setup hub (?from=/one/setup)", () => {
@@ -112,10 +109,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one/setup",
       width: "content",
       align: "center",
-      items: [
-        { label: "Set up", href: "/one/setup" },
-        { label: "Kai" },
-      ],
+      items: [{ label: "Set up", href: "/one/setup" }, { label: "Kai" }],
     });
 
     // No origin → Kai home still falls back to One home (unchanged behavior).
@@ -123,27 +117,21 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one",
       width: "content",
       align: "center",
-      items: [
-        { label: "One", href: "/one" },
-        { label: "Kai" },
-      ],
+      items: [{ label: "One", href: "/one" }, { label: "Kai" }],
     });
 
     // A Kai subroute opened during onboarding preserves the setup origin on the
     // Kai-home hop so the retrace can still reach the hub.
     expect(
-      resolveTopShellBreadcrumb(
-        "/one/kai/investments",
-        fromSetup,
-      )?.backHref,
+      resolveTopShellBreadcrumb("/one/kai/investments", fromSetup)?.backHref,
     ).toBe("/one/kai?tab=market&from=%2Fone%2Fsetup");
 
     // Unsafe origins are rejected → One home fallback.
     const unsafe = new URLSearchParams();
     unsafe.set("from", "//evil.example/path");
-    expect(
-      resolveTopShellBreadcrumb("/one/kai", unsafe)?.backHref,
-    ).toBe("/one");
+    expect(resolveTopShellBreadcrumb("/one/kai", unsafe)?.backHref).toBe(
+      "/one",
+    );
   });
 
   it("returns every base Finance tab to One", () => {
@@ -162,10 +150,7 @@ describe("top shell breadcrumbs", () => {
       width: "content",
       align: "center",
       hideBack: false,
-      items: [
-        { label: "One", href: "/" },
-        { label: "Setup" },
-      ],
+      items: [{ label: "One", href: "/" }, { label: "Setup" }],
     });
 
     expect(resolveTopShellBreadcrumb("/one/setup/")).toEqual({
@@ -173,10 +158,7 @@ describe("top shell breadcrumbs", () => {
       width: "content",
       align: "center",
       hideBack: false,
-      items: [
-        { label: "One", href: "/" },
-        { label: "Setup" },
-      ],
+      items: [{ label: "One", href: "/" }, { label: "Setup" }],
     });
 
     const fromDashboard = new URLSearchParams();
@@ -224,6 +206,20 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
+  it("keeps bare RIA re-entry independent from the completed One setup hub", () => {
+    expect(resolveTopShellBreadcrumb("/ria/onboarding")).toEqual({
+      backHref: "/one",
+      width: "content",
+      align: "center",
+      items: [{ label: "One", href: "/one" }, { label: "Setup" }],
+    });
+
+    const fromSetup = new URLSearchParams("from=/one/setup");
+    expect(
+      resolveTopShellBreadcrumb("/ria/onboarding", fromSetup)?.backHref,
+    ).toBe("/one/setup");
+  });
+
   it("gives the portfolio import setup continuation a back affordance", () => {
     const params = new URLSearchParams();
     params.set("from", "/one/setup/kai?from=/one/setup");
@@ -255,9 +251,9 @@ describe("top shell breadcrumbs", () => {
     const unsafeParams = new URLSearchParams();
     unsafeParams.set("from", "https://evil.example/path");
 
-    expect(resolveTopShellBreadcrumb("/one/kai/import", unsafeParams)?.backHref).toBe(
-      "/one/setup",
-    );
+    expect(
+      resolveTopShellBreadcrumb("/one/kai/import", unsafeParams)?.backHref,
+    ).toBe("/one/setup");
   });
 
   it("treats the PKM agent lab as a profile privacy surface", () => {
@@ -405,9 +401,9 @@ describe("top shell breadcrumbs", () => {
     // through so its back returns to /one too.
     const consentFromOne = new URLSearchParams();
     consentFromOne.set("from", "/one");
-    expect(resolveTopShellBreadcrumb("/one/consent", consentFromOne)?.backHref).toBe(
-      "/one",
-    );
+    expect(
+      resolveTopShellBreadcrumb("/one/consent", consentFromOne)?.backHref,
+    ).toBe("/one");
   });
 
   it("returns the single top-bar back button to the Location hub while a quick-action flow is open", () => {
@@ -508,8 +504,12 @@ describe("top shell breadcrumbs", () => {
     // Unsafe origins are still rejected → the route's own default fallback.
     const unsafe = new URLSearchParams();
     unsafe.set("from", "https://evil.example/path");
-    expect(resolveTopShellBreadcrumb("/one/kyc", unsafe)?.backHref).toBe("/one");
-    expect(resolveTopShellBreadcrumb("/one/pkm", unsafe)?.backHref).toBe("/one");
+    expect(resolveTopShellBreadcrumb("/one/kyc", unsafe)?.backHref).toBe(
+      "/one",
+    );
+    expect(resolveTopShellBreadcrumb("/one/pkm", unsafe)?.backHref).toBe(
+      "/one",
+    );
   });
 
   it("owns ria client workspace back navigation from the shared top bar", () => {

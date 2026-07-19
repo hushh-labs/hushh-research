@@ -102,6 +102,14 @@ if (!androidManifest.includes('android.permission.READ_CONTACTS')) {
 if (androidManifest.includes('android.permission.ACCESS_BACKGROUND_LOCATION')) {
   fail("One Location Agent v1 must not request android.permission.ACCESS_BACKGROUND_LOCATION.");
 }
+const androidMainActivity = androidManifest.match(
+  /<activity\b(?=[^>]*android:name="\.MainActivity")[^>]*>/,
+);
+if (!androidMainActivity?.[0]?.includes('android:windowSoftInputMode="adjustNothing"')) {
+  fail(
+    "Android MainActivity must use windowSoftInputMode=adjustNothing so KeyboardInsetManager is the only keyboard layout authority.",
+  );
+}
 if (!infoPlist.includes("<string>location</string>")) {
   fail("One Location background sharing requires the iOS 'location' background mode in Info.plist UIBackgroundModes.");
 }

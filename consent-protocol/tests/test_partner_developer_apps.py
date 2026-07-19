@@ -217,7 +217,12 @@ class TestPartnerMigrationContract:
         assert "developer_connector_keys" in sql
         assert "105_agentforce_mcp_compatibility.sql" in manifest["ordered_migrations"]
         assert "105_agentforce_mcp_compatibility.sql" in manifest["groups"]["developer"]
-        assert contract["expected_migration_version"] == 105
+        agentforce_uat_migration = ROOT / "db" / "migrations" / "106_agentforce_uat_profile.sql"
+        assert agentforce_uat_migration.exists()
+        assert "agentforce" in agentforce_uat_migration.read_text()
+        assert "106_agentforce_uat_profile.sql" in manifest["ordered_migrations"]
+        assert "106_agentforce_uat_profile.sql" in manifest["groups"]["developer"]
+        assert contract["expected_migration_version"] == 106
         assert "schema_profile" in contract["required_tables"]["developer_apps"]
         assert "developer_connector_keys" in contract["required_tables"]
         assert "developer_oauth_tokens" in contract["required_tables"]

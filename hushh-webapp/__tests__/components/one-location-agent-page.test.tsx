@@ -741,7 +741,7 @@ describe("OneLocationAgentPage", () => {
 
   it("scrolls Active shares only when more than three shares are present", async () => {
     const baseGrant = locationState().ownerGrants[0]!;
-    mockGetState.mockResolvedValueOnce({
+    mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: Array.from({ length: 4 }, (_, index) => ({
         ...baseGrant,
@@ -775,7 +775,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("previews my live location without creating a share, request, or public link", async () => {
-    mockGetState.mockResolvedValueOnce({
+    mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
       receivedGrants: [],
@@ -819,7 +819,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("requests native foreground permission from the onboarding permission step", async () => {
-    mockGetState.mockResolvedValueOnce({
+    mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
     });
@@ -870,7 +870,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("shows the location entry flow even when foreground permission is already granted", async () => {
-    mockGetState.mockResolvedValueOnce({
+    mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
     });
@@ -1213,7 +1213,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("creates one encrypted share without exposing phone-derived labels", async () => {
-    mockGetState.mockResolvedValueOnce({
+    mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
     });
@@ -1280,7 +1280,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("retries transient foreground publish failures and tracks backoff metadata", async () => {
-    mockGetState.mockResolvedValueOnce({
+    mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
     });
@@ -1680,13 +1680,13 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("blocks share actions when browser location permission is denied", async () => {
-    mockGetPermissionState.mockResolvedValueOnce({
+    mockGetPermissionState.mockResolvedValue({
       state: "denied",
       precise: false,
       background: "unavailable",
       locationServicesEnabled: true,
     });
-    mockGetState.mockResolvedValueOnce({
+    mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
     });
@@ -1713,7 +1713,7 @@ describe("OneLocationAgentPage", () => {
       background: "foreground-only",
       locationServicesEnabled: false,
     });
-    mockGetState.mockResolvedValueOnce({
+    mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
     });
@@ -1738,7 +1738,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("keeps People empty states visible when no candidates exist", async () => {
-    mockGetState.mockResolvedValueOnce({
+    mockGetState.mockResolvedValue({
       ...locationState(),
       recipients: [],
       ownerGrants: [],

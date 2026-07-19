@@ -19,6 +19,50 @@ _CORE_TOOL_NAMES = (
     "get_encrypted_scoped_export",
 )
 
+_FIELD_TITLES = {
+    "approval_timeout_at": "Approval timeout time",
+    "approval_timeout_minutes": "Approval timeout minutes",
+    "ciphertext": "Encrypted ciphertext",
+    "connector_key_id": "Connector key identifier",
+    "connector_public_key": "Connector public key",
+    "connector_wrapping_alg": "Connector wrapping algorithm",
+    "country": "Country name",
+    "country_iso2": "Country ISO 3166-1 alpha-2 code",
+    "coverage_kind": "Scope coverage kind",
+    "cursor": "Pagination cursor",
+    "delivery": "Delivery mode",
+    "domain": "Scope domain",
+    "expected_scope": "Expected scope",
+    "expires_at": "Expiry time",
+    "export_envelope_json": "Encrypted export envelope JSON",
+    "export_revision": "Export revision",
+    "grant_ref": "Consent grant reference",
+    "granted_scope": "Granted scope",
+    "has_more": "More results available",
+    "limit": "Result limit",
+    "next_cursor": "Next-page cursor",
+    "payload_iv": "Payload initialization vector",
+    "payload_tag": "Payload authentication tag",
+    "poll_after_seconds": "Polling delay seconds",
+    "purpose": "Consent purpose",
+    "query": "Scope search text",
+    "refresh_policy": "Grant refresh policy",
+    "request_ref": "Consent request reference",
+    "scope": "Consent scope",
+    "scope_values": "Available consent scopes",
+    "sender_public_key": "Sender public key",
+    "status": "Lifecycle status",
+    "user_identifier": "User identifier",
+    "wrapped_export_key": "Wrapped export key",
+    "wrapped_key_iv": "Wrapped-key initialization vector",
+    "wrapped_key_tag": "Wrapped-key authentication tag",
+    "wrapping_alg": "Key wrapping algorithm",
+}
+
+
+def _field_title(name: str) -> str:
+    return _FIELD_TITLES.get(name, name.replace("_", " ").capitalize())
+
 
 def _field(kind: str, description: str, **constraints: Any) -> dict[str, Any]:
     return {"type": kind, "description": description, **constraints}
@@ -27,9 +71,11 @@ def _field(kind: str, description: str, **constraints: Any) -> dict[str, Any]:
 def _object(properties: dict[str, dict[str, Any]], required: list[str]) -> dict[str, Any]:
     return {
         "type": "object",
-        "description": "A flat, capability-safe result object.",
+        "description": "A flat, capability-safe field set.",
         "additionalProperties": False,
-        "properties": properties,
+        "properties": {
+            name: {"title": _field_title(name), **schema} for name, schema in properties.items()
+        },
         "required": required,
     }
 
@@ -78,6 +124,7 @@ def get_flat_contract() -> dict[str, Any]:
         "tools": [
             {
                 "name": "search_user_scopes",
+                "title": "Search user scopes",
                 "description": "Finds consent scopes available for one registered user. Use this before request_consent to choose the narrowest scope. Returns only scope strings and pagination state.",
                 "inputSchema": _object(
                     {
@@ -145,6 +192,7 @@ def get_flat_contract() -> dict[str, Any]:
             },
             {
                 "name": "request_consent",
+                "title": "Request consent",
                 "description": "Creates or reuses a least-privilege consent request for one user. Use after search_user_scopes. The user must approve before encrypted retrieval is available.",
                 "inputSchema": _object(
                     {
@@ -239,6 +287,7 @@ def get_flat_contract() -> dict[str, Any]:
             },
             {
                 "name": "check_consent_status",
+                "title": "Check consent status",
                 "description": "Checks one consent request previously returned by request_consent. Poll no faster than poll_after_seconds and stop at a terminal state.",
                 "inputSchema": _object(
                     {
@@ -286,6 +335,7 @@ def get_flat_contract() -> dict[str, Any]:
             },
             {
                 "name": "get_encrypted_scoped_export",
+                "title": "Get encrypted scoped export",
                 "description": "Retrieves ciphertext for an approved grant. Use only after check_consent_status returns a grant_ref. Decrypt outside the LLM with the partner-owned private key.",
                 "inputSchema": _object(
                     {

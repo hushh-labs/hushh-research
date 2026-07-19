@@ -11,6 +11,8 @@ This folder is the canonical home for signed-in shell primitives, page chrome, a
 - `top-app-bar.tsx`: the single `AppTopShell` renderer for the fixed bar,
   optional route-owned contextual tabs, persona switcher, consent inbox, vault
   action, notifications, and Profile.
+- `app-edge-back-gesture.tsx`: native iOS left-edge back affordance. It shares
+  the authored top-shell back contract and takes priority over tab swipes.
 - `shell-action-surface.tsx`: canonical interaction surface for top-shell buttons and pills.
 - `top-shell-dropdown.ts`: shared dropdown chrome contract for shield/bell overlays.
 - `command-fields.tsx`: shared command/search field chrome for route-local filters and pickers.

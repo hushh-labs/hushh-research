@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from mcp.types import Tool
 
+from mcp_modules.agentforce_contract import AGENTFORCE_PROFILE, get_agentforce_contract
 from mcp_modules.flat_contract import FLAT_PROFILE, get_flat_contract
 from mcp_modules.public_contract import get_public_contract
 
@@ -140,6 +141,18 @@ def get_tool_definitions(
         return [
             Tool.model_validate(definition)
             for definition in get_flat_contract()["tools"]
+            if str(definition["name"]) in allowed
+        ]
+
+    if schema_profile == AGENTFORCE_PROFILE:
+        allowed = (
+            allowed_tool_names
+            if allowed_tool_names is not None
+            else {str(tool["name"]) for tool in get_agentforce_contract()["tools"]}
+        )
+        return [
+            Tool.model_validate(definition)
+            for definition in get_agentforce_contract()["tools"]
             if str(definition["name"]) in allowed
         ]
 

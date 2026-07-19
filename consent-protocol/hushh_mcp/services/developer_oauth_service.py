@@ -22,6 +22,8 @@ from urllib.parse import urlsplit, urlunsplit
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.developer_registry_service import (
+    SCHEMA_PROFILE_AGENTFORCE,
+    SCHEMA_PROFILE_FLAT,
     DeveloperPrincipal,
     DeveloperRegistryService,
 )
@@ -532,7 +534,8 @@ class DeveloperOAuthService:
             not app
             or str(app.get("status") or "") != "active"
             or str(app.get("kind") or "") != "partner_crm"
-            or str(app.get("schema_profile") or "") != "flat"
+            or str(app.get("schema_profile") or "")
+            not in {SCHEMA_PROFILE_FLAT, SCHEMA_PROFILE_AGENTFORCE}
             or not self._database_bool(app.get("oauth_client_credentials_enabled"))
         ):
             raise OAuthValidationError(

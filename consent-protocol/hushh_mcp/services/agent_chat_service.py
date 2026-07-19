@@ -25,7 +25,7 @@ from hushh_mcp.runtime_providers import (
     build_runtime_client,
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
-from hushh_mcp.services.voice_action_manifest import get_voice_manifest_action
+from hushh_mcp.services.action_gateway import get_action_gateway_action
 from hushh_mcp.types import EncryptedPayload
 from hushh_mcp.vault.encrypt import decrypt_data, encrypt_data
 from hussh_sdk import (
@@ -54,7 +54,6 @@ Current capability boundary:
 - When the stream includes a planned frontend app action, keep the reply to a short receipt. The frontend owns the actual navigation/action state.
 - For Connected Systems CRM, read/create/update requests require explicit user approval. Delete is blocked in v1.
 - Destructive, account-changing, trading, approval, revocation, and manual-only actions must be blocked and explained safely.
-- "Marketplace" is ambiguous: there are TWO. The Information Marketplace is where the user publishes and prices their own personal-data slices (what they've published, potential earnings). Kai's Market Home is the markets/investing surface. If the user says just "marketplace" without qualifying which, ask a short clarifying question — "Do you mean your Information Marketplace (your personal data slices) or Kai's Market Home (markets)?" — before answering or navigating. Once qualified (e.g. "information marketplace", "data marketplace", or "market home"), proceed to the right one.
 - Keep answers concise, practical, and clear. Financial answers are educational, not personalized investment advice.
 """
 
@@ -80,10 +79,7 @@ When unsure, do not call a function.
 """
 
 # Curated allowlist of surfaces the chat action planner may open. The KEYS
-# are a deliberate product decision (the Information Marketplace is
-# intentionally absent: the planner opens surfaces too eagerly, so
-# marketplace navigation stays deterministic in _plan_marketplace_navigation
-# and marketplace questions go to the delegated specialist). The VALUES
+# are a deliberate product decision. The VALUES
 # (action id validity, label, policy) are governed by the generated action
 # gateway manifest: _resolved_app_surface_actions() drops any entry whose
 # contract disappeared or stopped being allow_direct, so this map can never
@@ -109,11 +105,11 @@ def _resolved_app_surface_actions() -> dict[str, tuple[str, str]]:
     no longer allow_direct is dropped (and logged) instead of letting the
     planner open a surface the contract no longer permits.
     """
-    from hushh_mcp.services.voice_action_manifest import get_voice_manifest_action
+    from hushh_mcp.services.action_gateway import get_action_gateway_action
 
     resolved: dict[str, tuple[str, str]] = {}
     for surface, action_id in _APP_SURFACE_ACTION_IDS.items():
-        entry = get_voice_manifest_action(action_id)
+        entry = get_action_gateway_action(action_id)
         if entry is None:
             logger.error(
                 "agent_chat.surface_action_missing_from_manifest surface=%s action_id=%s",
@@ -140,6 +136,10 @@ MessageStatus = Literal["complete", "interrupted", "error"]
 AgentActionExecution = Literal["frontend", "blocked"]
 AgentRuntimeCredentialMode = Literal["byok", "hushh_managed_vertex"]
 DEFAULT_AGENT_RUNTIME_CREDENTIAL_MODE: AgentRuntimeCredentialMode = "hushh_managed_vertex"
+GeminiByokTransport = Literal["developer_api", "vertex_api_key"]
+DEFAULT_GEMINI_BYOK_TRANSPORT: GeminiByokTransport = "developer_api"
+_VERTEX_PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
+_VERTEX_LOCATION_RE = re.compile(r"^(?:global|[a-z]+-[a-z]+[0-9]+)$")
 
 _STOCK_ALIAS_TO_TICKER = {
     "alphabet": "GOOGL",
@@ -231,19 +231,6 @@ _NAVIGATION_ACTION_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
         "Open Optimize Surface",
     ),
     (
-        # Must precede the "market"/kai-home pattern: "marketplace" contains
-        # "market". Cues are QUALIFIED (information/data marketplace, data slices)
-        # so a bare "open marketplace" is left for One to disambiguate rather than
-        # silently opening the wrong surface.
-        re.compile(
-            r"\b(?:open|go to|show|take me to|navigate to)\b.*"
-            r"\b(?:information marketplace|data marketplace|data slices?|my slices)\b",
-            re.IGNORECASE,
-        ),
-        "route.one_marketplace",
-        "Open Information Marketplace",
-    ),
-    (
         re.compile(
             r"\b(?:open|go to|show|take me to|navigate to)\b.*\b(?:market home|kai market|kai home|home)\b",
             re.IGNORECASE,
@@ -260,15 +247,6 @@ _NAVIGATION_ACTION_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
         "Open Connected Systems",
     ),
 ]
-
-# Deterministic Information Marketplace navigation: only a QUALIFIED open-intent
-# ("open/take me to the information/data marketplace", "open my slices"). A bare
-# "marketplace" deliberately does NOT match so One can disambiguate.
-_INFO_MARKETPLACE_NAV_RE = re.compile(
-    r"\b(?:open|go to|show|take me to|navigate to|bring up|launch)\b.*"
-    r"\b(?:information marketplace|data marketplace|data slices?|my slices)\b",
-    re.IGNORECASE,
-)
 
 _CRM_READ_PATTERNS = [
     re.compile(
@@ -400,6 +378,9 @@ class AgentChatActionPlan:
 class AgentRuntimeContract:
     mode: AgentRuntimeCredentialMode
     credential_supplied: bool
+    gemini_byok_transport: GeminiByokTransport
+    vertex_project: str | None
+    vertex_location: str | None
 
 
 @dataclass(frozen=True)
@@ -408,6 +389,9 @@ class PreparedAgentRuntime:
     provider: str
     model: str
     credential_ref: str | None
+    gemini_byok_transport: GeminiByokTransport
+    vertex_project: str | None
+    vertex_location: str | None
     client: Any
     evidence: dict[str, Any]
 
@@ -468,6 +452,16 @@ def _parse_credential_mode(value: str | None) -> AgentRuntimeCredentialMode:
     )
 
 
+def _parse_gemini_byok_transport(value: str | None) -> GeminiByokTransport:
+    transport = (value or DEFAULT_GEMINI_BYOK_TRANSPORT).strip()
+    if transport in {"developer_api", "vertex_api_key"}:
+        return transport  # type: ignore[return-value]
+    raise AgentRuntimeContractError(
+        error_code="AGENT_RUNTIME_TRANSPORT_INVALID",
+        message="Gemini runtime transport is invalid.",
+    )
+
+
 def _load_kai_agent_manifest_data() -> dict[str, Any]:
     with KAI_AGENT_MANIFEST_PATH.open("r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle)
@@ -503,10 +497,23 @@ def load_kai_agent_runtime_manifest() -> KaiAgentRuntimeManifest:
     )
 
 
-def create_runtime_client(runtime_provider: str, user_key: str):
+def create_runtime_client(
+    runtime_provider: str,
+    user_key: str,
+    *,
+    gemini_byok_transport: GeminiByokTransport = "developer_api",
+    vertex_project: str | None = None,
+    vertex_location: str | None = None,
+):
     """BYOK runtime client for the chosen provider (Gemini, Anthropic, OpenAI, Grok)."""
 
-    return build_runtime_client(runtime_provider, user_key)
+    return build_runtime_client(
+        runtime_provider,
+        user_key,
+        gemini_byok_transport=gemini_byok_transport,
+        vertex_project=vertex_project,
+        vertex_location=vertex_location,
+    )
 
 
 def create_managed_runtime_client(runtime_provider: str, managed_credential: str = ""):
@@ -705,8 +712,8 @@ def _runtime_provider_error_code(detail: dict[str, Any]) -> str:
 def _runtime_provider_user_message(error_code: str) -> str:
     if error_code == "AGENT_RUNTIME_CREDENTIAL_INVALID":
         return (
-            "Your saved Gemini key could not be used. Update it in Profile > Runtime keys "
-            "or switch Kai to Hushh managed Gemini."
+            "Your saved Gemini key could not be used. Update it in Connections settings "
+            "or switch to Hushh managed Gemini."
         )
     if error_code == "AGENT_RUNTIME_MANAGED_CREDENTIALS_UNAVAILABLE":
         return "Hushh managed Gemini is not available in this environment."
@@ -778,7 +785,7 @@ def _enrich_plan_with_manifest(
     """
     if plan.execution != "frontend" or not plan.action_id:
         return plan
-    manifest_action = get_voice_manifest_action(plan.action_id)
+    manifest_action = get_action_gateway_action(plan.action_id)
     if manifest_action is None:
         return plan
 
@@ -1033,6 +1040,9 @@ class AgentChatService:
         *,
         runtime_credential: str | None = None,
         runtime_credential_mode: str | None = None,
+        runtime_credential_transport: str | None = None,
+        runtime_vertex_project: str | None = None,
+        runtime_vertex_location: str | None = None,
     ) -> AgentRuntimeContract:
         mode = _parse_credential_mode(
             runtime_credential_mode or self.runtime_manifest.credential_policy.default
@@ -1044,18 +1054,37 @@ class AgentChatService:
             )
 
         secret = (runtime_credential or "").strip()
+        transport = _parse_gemini_byok_transport(runtime_credential_transport)
+        project = (runtime_vertex_project or "").strip()
+        location = (runtime_vertex_location or "").strip()
         if mode == "byok" and not secret:
             raise AgentRuntimeContractError(
                 error_code="AGENT_RUNTIME_CREDENTIAL_MISSING",
                 message=(
-                    "Kai needs your Gemini key to continue. Add or update it in "
-                    "Profile > Runtime keys, or switch Kai to Hushh managed Gemini."
+                    "One needs your Gemini key to continue. Add or update it in "
+                    "Connections settings, or switch to Hushh managed Gemini."
                 ),
+            )
+        if mode == "byok" and transport == "vertex_api_key":
+            if not _VERTEX_PROJECT_RE.fullmatch(project) or not _VERTEX_LOCATION_RE.fullmatch(
+                location
+            ):
+                raise AgentRuntimeContractError(
+                    error_code="AGENT_RUNTIME_VERTEX_CONFIGURATION_INVALID",
+                    message="Google Cloud Vertex requires a valid project ID and location.",
+                )
+        if mode == "byok" and transport == "developer_api" and (project or location):
+            raise AgentRuntimeContractError(
+                error_code="AGENT_RUNTIME_VERTEX_CONFIGURATION_INVALID",
+                message="Google AI Studio credentials cannot include Vertex project settings.",
             )
 
         return AgentRuntimeContract(
             mode=mode,
             credential_supplied=bool(secret),
+            gemini_byok_transport=transport,
+            vertex_project=project or None,
+            vertex_location=location or None,
         )
 
     async def prepare_agent_runtime(
@@ -1063,10 +1092,16 @@ class AgentChatService:
         *,
         runtime_credential: str | None = None,
         runtime_credential_mode: str | None = None,
+        runtime_credential_transport: str | None = None,
+        runtime_vertex_project: str | None = None,
+        runtime_vertex_location: str | None = None,
     ) -> PreparedAgentRuntime:
         contract = self.prepare_runtime_contract(
             runtime_credential=runtime_credential,
             runtime_credential_mode=runtime_credential_mode,
+            runtime_credential_transport=runtime_credential_transport,
+            runtime_vertex_project=runtime_vertex_project,
+            runtime_vertex_location=runtime_vertex_location,
         )
         model_config = self.runtime_manifest.model
         provider = model_config.provider.strip().lower()
@@ -1091,6 +1126,9 @@ class AgentChatService:
                 provider=provider,
                 model=model_name,
                 credential_ref=credential_ref,
+                gemini_byok_transport=contract.gemini_byok_transport,
+                vertex_project=None,
+                vertex_location=None,
                 client=self.client,
                 evidence=evidence,
             )
@@ -1123,8 +1161,8 @@ class AgentChatService:
             raise AgentRuntimeContractError(
                 error_code="AGENT_RUNTIME_CREDENTIAL_MISSING",
                 message=(
-                    "Kai needs your Gemini key to continue. Add or update it in "
-                    "Profile > Runtime keys, or switch Kai to Hushh managed Gemini."
+                    "One needs your Gemini key to continue. Add or update it in "
+                    "Connections settings, or switch to Hushh managed Gemini."
                 ),
             )
 
@@ -1140,7 +1178,13 @@ class AgentChatService:
             client=create_runtime_client(
                 runtime_provider=runtime.model.provider,
                 user_key=bundle.credential.secret,
+                gemini_byok_transport=contract.gemini_byok_transport,
+                vertex_project=contract.vertex_project,
+                vertex_location=contract.vertex_location,
             ),
+            gemini_byok_transport=contract.gemini_byok_transport,
+            vertex_project=contract.vertex_project,
+            vertex_location=contract.vertex_location,
             evidence=bundle.evidence,
         )
 
@@ -1534,6 +1578,9 @@ class AgentChatService:
         pkm_context: str | None,
         runtime: PreparedAgentRuntime,
         runtime_credential: str | None,
+        runtime_credential_transport: GeminiByokTransport,
+        runtime_vertex_project: str | None,
+        runtime_vertex_location: str | None,
     ) -> AsyncGenerator[OneTextStreamEvent, None]:
         """Run typed Agent Chat through One's canonical ADK semantic head."""
         try:
@@ -1553,6 +1600,9 @@ class AgentChatService:
                 # explicitly supplied and is never persisted or replaced by a
                 # backend credential.
                 runtime_credential=(runtime_credential if runtime.mode == "byok" else None),
+                runtime_credential_transport=runtime_credential_transport,
+                runtime_vertex_project=runtime_vertex_project,
+                runtime_vertex_location=runtime_vertex_location,
             ):
                 yield event
         except genai_errors.APIError as error:
@@ -1583,13 +1633,6 @@ class AgentChatService:
         deterministic_block = self._plan_blocked_action(user_message)
         if deterministic_block is not None:
             return deterministic_block
-
-        # Deterministic Information Marketplace navigation (qualified open-intent
-        # only), decided BEFORE the LLM planner so questions and a bare
-        # "marketplace" are never auto-navigated by the model.
-        marketplace_nav = self._plan_marketplace_navigation(user_message)
-        if marketplace_nav is not None:
-            return _enrich_plan_with_manifest(marketplace_nav, current_screen=current_screen)
 
         try:
             # Action planning is a non-streaming, idempotent call, so a short
@@ -1701,22 +1744,6 @@ class AgentChatService:
                     message=f"{label} in the app.",
                 )
         return None
-
-    def _plan_marketplace_navigation(self, user_message: str) -> AgentChatActionPlan | None:
-        """Deterministic navigation to the Information Marketplace on a QUALIFIED
-        open-intent. Bare "marketplace" and questions return None (One handles them:
-        disambiguation for bare, delegated answer for questions)."""
-        message = " ".join(str(user_message or "").split())
-        if not message or not _INFO_MARKETPLACE_NAV_RE.search(message):
-            return None
-        return AgentChatActionPlan(
-            call_id=_tool_call_id(),
-            action_id="route.one_marketplace",
-            label="Open Information Marketplace",
-            execution="frontend",
-            slots={},
-            message="Open Information Marketplace in the app.",
-        )
 
     def _plan_crm_action(self, user_message: str) -> AgentChatActionPlan | None:
         message = " ".join(str(user_message or "").split())

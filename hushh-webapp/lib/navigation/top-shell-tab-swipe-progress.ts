@@ -15,6 +15,15 @@ const DEFAULT_STATE: TopShellTabSwipeState = Object.freeze({
 const states = new Map<string, TopShellTabSwipeState>();
 const listeners = new Map<string, Set<() => void>>();
 
+function positionVariable(tabSetId: string): string {
+  return `--top-shell-tab-swipe-${tabSetId.replace(/[^a-zA-Z0-9_-]/g, "-")}-position`;
+}
+
+/** CSS variable used by the compositor-owned tab underline during a drag. */
+export function topShellTabSwipePositionVariable(tabSetId: string): string {
+  return positionVariable(tabSetId);
+}
+
 function normalizePosition(position: number): number {
   return Number.isFinite(position) ? Math.max(0, position) : 0;
 }
@@ -29,6 +38,20 @@ export function setTopShellTabSwipeState(
     isDragging,
   };
   const current = states.get(tabSetId);
+  if (typeof document !== "undefined") {
+    const variable = positionVariable(tabSetId);
+    const value = String(next.position);
+    if (document.documentElement.style.getPropertyValue(variable) !== value) {
+      document.documentElement.style.setProperty(variable, value);
+    }
+  }
+
+  // Drag frames update a CSS property, not the React tree. Consumers only
+  // rerender at the start/end of a drag so they can toggle transition policy.
+  if (current && current.isDragging === next.isDragging) {
+    states.set(tabSetId, next);
+    return;
+  }
   if (
     current &&
     Math.abs(current.position - next.position) < 0.001 &&
@@ -57,7 +80,9 @@ function readState(tabSetId: string): TopShellTabSwipeState {
 }
 
 /** Shared visual state between a controlled workspace pager and its top tabs. */
-export function useTopShellTabSwipeState(tabSetId: string): TopShellTabSwipeState {
+export function useTopShellTabSwipeState(
+  tabSetId: string,
+): TopShellTabSwipeState {
   const subscribeToTab = useCallback(
     (listener: () => void) => subscribe(tabSetId, listener),
     [tabSetId],

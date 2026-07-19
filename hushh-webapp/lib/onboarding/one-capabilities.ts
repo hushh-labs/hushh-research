@@ -200,7 +200,8 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
   },
   {
     id: "pkm",
-    agentId: "agent_personal_information",
+    // Memory is a direct private-agent surface, not Marketplace delegation.
+    agentId: null,
     title: "Memory",
     description: "Saved knowledge and context you can review.",
     href: ROUTES.PKM,

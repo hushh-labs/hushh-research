@@ -1367,104 +1367,102 @@ export function DeveloperDocsHub({
 
         <AppPageContentRegion className="mt-5">
           <div className="min-w-0 space-y-6">
-            <section id="start" className="scroll-mt-24 space-y-4">
-              <SurfaceCard className="min-w-0">
-                <SurfaceCardHeader>
-                  <SurfaceCardTitle className="text-base sm:text-lg">
-                    Connect your MCP host
-                  </SurfaceCardTitle>
-                  <SurfaceCardDescription className="max-w-3xl text-sm leading-6">
-                    One endpoint, one app credential, and one explicit consent
-                    lifecycle. No resource download step is required.
-                  </SurfaceCardDescription>
-                </SurfaceCardHeader>
-                <SurfaceCardContent className="space-y-4">
-                  <div className="grid min-w-0 gap-4">
-                    <SnippetCard
-                      title="Host configuration"
-                      description="Paste this into a streamable HTTP MCP host."
-                      code={mcpSnippets.remote}
-                      copyLabel="Remote MCP config"
-                    />
-                    <SurfaceInset className="space-y-3">
-                      <p
-                        role="status"
-                        className="text-sm font-semibold text-foreground"
-                      >
-                        {liveContractStatus}
-                      </p>
-                      <RuntimeValueRow
-                        label="MCP"
-                        value={workspaceSnippets.remoteUrl}
-                        copyLabel="Remote MCP URL"
-                        isMobile={isMobile}
-                      />
-                      <dl className="grid gap-3 border-t border-border/60 pt-3 sm:grid-cols-3">
-                        <div className="space-y-1">
-                          <dt className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                            MCP revision
-                          </dt>
-                          <dd className="text-sm font-medium text-foreground">
-                            {MCP_PROTOCOL_REVISION}
-                          </dd>
-                        </div>
-                        <div className="space-y-1">
-                          <dt className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                            Transport
-                          </dt>
-                          <dd className="text-sm font-medium text-foreground">
-                            Streamable HTTP
-                          </dd>
-                        </div>
-                        <div className="space-y-1">
-                          <dt className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                            Results
-                          </dt>
-                          <dd className="text-sm font-medium text-foreground">
-                            Structured JSON
-                          </dd>
-                        </div>
-                      </dl>
-                      <RuntimeValueRow
-                        label="Env"
-                        value={workspaceSnippets.envVar}
-                        copyLabel="Developer env var"
-                        isMobile={isMobile}
-                      />
-                    </SurfaceInset>
-                  </div>
-                  <Accordion
-                    type="single"
-                    collapsible
-                    className="rounded-2xl border border-border/65 px-4"
-                  >
-                    <AccordionItem
-                      value="advanced-start"
-                      className="border-b-0"
+            <section
+              id="start"
+              className="scroll-mt-24 border-y border-border/60 py-5"
+            >
+              <div className="space-y-1">
+                <h2 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">
+                  Connect your MCP host
+                </h2>
+                <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+                  One endpoint, one app credential, and one explicit consent
+                  lifecycle. No resource download step is required.
+                </p>
+              </div>
+              <div className="mt-5 space-y-4">
+                <div className="grid min-w-0 gap-4">
+                  <SnippetCard
+                    title="Host configuration"
+                    description="Paste this into a streamable HTTP MCP host."
+                    code={mcpSnippets.remote}
+                    copyLabel="Remote MCP config"
+                  />
+                  <SurfaceInset className="space-y-3">
+                    <p
+                      role="status"
+                      className="text-sm font-semibold text-foreground"
                     >
-                      <AccordionTrigger className="py-4 text-sm font-semibold hover:no-underline">
-                        Advanced: REST API and npm bridge
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className="grid min-w-0 gap-4 pb-4 lg:grid-cols-2">
-                          <SnippetCard
-                            title="REST base"
-                            description="Use direct HTTP only when you need manual control over discovery, consent requests, and polling."
-                            code={restSnippets.base}
-                            copyLabel="REST base snippet"
-                          />
-                          <SnippetCard
-                            title="npm bridge config"
-                            description="Use the npm launcher only for hosts that still require a local stdio MCP process."
-                            code={mcpSnippets.npm}
-                            copyLabel="npm MCP config"
-                          />
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  </Accordion>
-                </SurfaceCardContent>
-              </SurfaceCard>
+                      {liveContractStatus}
+                    </p>
+                    <RuntimeValueRow
+                      label="MCP"
+                      value={workspaceSnippets.remoteUrl}
+                      copyLabel="Remote MCP URL"
+                      isMobile={isMobile}
+                    />
+                    <dl className="grid gap-3 border-t border-border/60 pt-3 sm:grid-cols-3">
+                      <div className="space-y-1">
+                        <dt className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                          MCP revision
+                        </dt>
+                        <dd className="text-sm font-medium text-foreground">
+                          {MCP_PROTOCOL_REVISION}
+                        </dd>
+                      </div>
+                      <div className="space-y-1">
+                        <dt className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                          Transport
+                        </dt>
+                        <dd className="text-sm font-medium text-foreground">
+                          Streamable HTTP
+                        </dd>
+                      </div>
+                      <div className="space-y-1">
+                        <dt className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                          Results
+                        </dt>
+                        <dd className="text-sm font-medium text-foreground">
+                          Structured JSON
+                        </dd>
+                      </div>
+                    </dl>
+                    <RuntimeValueRow
+                      label="Env"
+                      value={workspaceSnippets.envVar}
+                      copyLabel="Developer env var"
+                      isMobile={isMobile}
+                    />
+                  </SurfaceInset>
+                </div>
+                <Accordion
+                  type="single"
+                  collapsible
+                  className="border-y border-border/65"
+                >
+                  <AccordionItem value="advanced-start" className="border-b-0">
+                    <AccordionTrigger className="py-4 text-sm font-semibold hover:no-underline">
+                      Advanced: REST API and npm bridge
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <div className="grid min-w-0 gap-4 pb-4 lg:grid-cols-2">
+                        <SnippetCard
+                          title="REST base"
+                          description="Use direct HTTP only when you need manual control over discovery, consent requests, and polling."
+                          code={restSnippets.base}
+                          copyLabel="REST base snippet"
+                        />
+                        <SnippetCard
+                          title="npm bridge config"
+                          description="Use the npm launcher only for hosts that still require a local stdio MCP process."
+                          code={mcpSnippets.npm}
+                          copyLabel="npm MCP config"
+                        />
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+              </div>
             </section>
 
             <section
@@ -1483,568 +1481,558 @@ export function DeveloperDocsHub({
                 </p>
               </header>
               <div>
-                    <DeveloperSectionShell
-                      sectionId="mcp"
-                      mobileOpenSections={mobileOpenSections}
-                      onMobileSectionChange={handleMobileSectionChange}
-                      header={
-                        <SectionHeader
-                          eyebrow="MCP"
-                          title="Remote MCP first"
-                          description="Use the npm bridge only when a host requires stdio."
-                          icon={Cable}
-                          accent="consent"
+                <DeveloperSectionShell
+                  sectionId="mcp"
+                  mobileOpenSections={mobileOpenSections}
+                  onMobileSectionChange={handleMobileSectionChange}
+                  header={
+                    <SectionHeader
+                      eyebrow="MCP"
+                      title="Remote MCP first"
+                      description="Use the npm bridge only when a host requires stdio."
+                      icon={Cable}
+                      accent="consent"
+                    />
+                  }
+                >
+                  <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+                    <div className="min-w-0 space-y-4">
+                      {mcpSnippets.primaryExamples.map((example) => (
+                        <SnippetCard
+                          key={example.id}
+                          title={example.title}
+                          description={example.whenToUse}
+                          note={example.secretNote}
+                          code={example.code}
+                          copyLabel={example.copyLabel}
                         />
-                      }
-                    >
-                      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-                        <div className="min-w-0 space-y-4">
-                          {mcpSnippets.primaryExamples.map((example) => (
-                            <SnippetCard
-                              key={example.id}
-                              title={example.title}
-                              description={example.whenToUse}
-                              note={example.secretNote}
-                              code={example.code}
-                              copyLabel={example.copyLabel}
-                            />
-                          ))}
+                      ))}
+                    </div>
+                    <SurfaceCard className="min-w-0">
+                      <SurfaceCardHeader>
+                        <SurfaceCardTitle>Public MCP tools</SurfaceCardTitle>
+                        <SurfaceCardDescription>
+                          The standard catalog keeps five tools for
+                          compatibility. New integrations use the four core
+                          lifecycle tools; {STANDARD_CATALOG_COMPATIBILITY_TOOL}{" "}
+                          is reserved for the Hussh campaign integration.
+                        </SurfaceCardDescription>
+                      </SurfaceCardHeader>
+                      <SurfaceCardContent className="space-y-4">
+                        <div className="flex flex-wrap gap-2">
+                          <MorphyButton
+                            asChild
+                            variant="none"
+                            effect="glass"
+                            size="sm"
+                          >
+                            <Link
+                              href={MCP_PUBLIC_LINKS.npmPackageUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              npm package
+                            </Link>
+                          </MorphyButton>
+                          <MorphyButton
+                            asChild
+                            variant="none"
+                            effect="glass"
+                            size="sm"
+                          >
+                            <Link
+                              href={MCP_PUBLIC_LINKS.apiReferenceUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              API reference
+                            </Link>
+                          </MorphyButton>
+                          <MorphyButton
+                            asChild
+                            variant="none"
+                            effect="glass"
+                            size="sm"
+                          >
+                            <Link
+                              href={MCP_PUBLIC_LINKS.technicalCompanionUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              Technical companion
+                            </Link>
+                          </MorphyButton>
                         </div>
-                        <SurfaceCard className="min-w-0">
-                          <SurfaceCardHeader>
-                            <SurfaceCardTitle>
-                              Public MCP tools
-                            </SurfaceCardTitle>
-                            <SurfaceCardDescription>
-                              The standard catalog keeps five tools for
-                              compatibility. New integrations use the four
-                              core lifecycle tools; {STANDARD_CATALOG_COMPATIBILITY_TOOL} is
-                              reserved for the Hussh campaign integration.
-                            </SurfaceCardDescription>
-                          </SurfaceCardHeader>
-                          <SurfaceCardContent className="space-y-4">
-                            <div className="flex flex-wrap gap-2">
-                              <MorphyButton
-                                asChild
-                                variant="none"
-                                effect="glass"
-                                size="sm"
-                              >
-                                <Link
-                                  href={MCP_PUBLIC_LINKS.npmPackageUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  npm package
-                                </Link>
-                              </MorphyButton>
-                              <MorphyButton
-                                asChild
-                                variant="none"
-                                effect="glass"
-                                size="sm"
-                              >
-                                <Link
-                                  href={MCP_PUBLIC_LINKS.apiReferenceUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  API reference
-                                </Link>
-                              </MorphyButton>
-                              <MorphyButton
-                                asChild
-                                variant="none"
-                                effect="glass"
-                                size="sm"
-                              >
-                                <Link
-                                  href={MCP_PUBLIC_LINKS.technicalCompanionUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  Technical companion
-                                </Link>
-                              </MorphyButton>
-                            </div>
-                            <SurfaceInset className="space-y-3">
-                              <div className="space-y-1">
-                                <p className="text-sm font-semibold text-foreground">
-                                  Promoted environment:{" "}
-                                  {PUBLIC_MCP_ENVIRONMENT.label}
-                                </p>
-                                <p className="text-sm leading-6 text-muted-foreground">
-                                  Use the exact trailing-slash endpoint shape
-                                  and keep the developer token machine-local.
-                                </p>
-                              </div>
-                              <div className="rounded-2xl border border-border/70 bg-slate-950/95 px-4 py-4 font-mono text-xs leading-6 text-slate-100">
-                                {PUBLIC_MCP_ENVIRONMENT.remoteUrlTemplate}
-                              </div>
-                            </SurfaceInset>
-                            <CodeList values={CORE_CONSENT_LIFECYCLE_TOOLS} />
-                            <p className="text-xs leading-5 text-muted-foreground">
-                              Standard catalog compatibility: <code>{STANDARD_CATALOG_COMPATIBILITY_TOOL}</code>
+                        <SurfaceInset className="space-y-3">
+                          <div className="space-y-1">
+                            <p className="text-sm font-semibold text-foreground">
+                              Promoted environment:{" "}
+                              {PUBLIC_MCP_ENVIRONMENT.label}
                             </p>
-                            <CodeList values={PUBLIC_RESOURCE_URIS} />
-                            {liveDocs?.tools?.length ? (
-                              <ScrollArea className="h-64 rounded-2xl border border-border/65 sm:h-72">
-                                <div className="space-y-3 p-4">
-                                  {liveDocs.tools.map((tool) => (
-                                    <SurfaceInset
-                                      key={tool.name}
-                                      className="min-w-0 space-y-2"
-                                    >
-                                      <p className="text-sm font-semibold text-foreground">
-                                        {tool.name}
-                                      </p>
-                                      <p className="text-sm leading-6 text-muted-foreground">
-                                        {tool.description}
-                                      </p>
-                                    </SurfaceInset>
-                                  ))}
-                                </div>
-                              </ScrollArea>
-                            ) : null}
-                          </SurfaceCardContent>
-                        </SurfaceCard>
-                      </div>
-                      <div className="grid min-w-0 gap-4 lg:grid-cols-2 xl:grid-cols-3">
-                        {mcpSnippets.hostExamples.map((example) => (
-                          <SnippetCard
-                            key={example.id}
-                            title={example.title}
-                            description={example.whenToUse}
-                            note={example.secretNote}
-                            code={example.code}
-                            copyLabel={example.copyLabel}
-                          />
-                        ))}
-                      </div>
-                    </DeveloperSectionShell>
-
-                    <DeveloperSectionShell
-                      sectionId="access"
-                      mobileOpenSections={mobileOpenSections}
-                      onMobileSectionChange={handleMobileSectionChange}
-                      header={
-                        <SectionHeader
-                          eyebrow="Access"
-                          title="Developer access"
-                          description="Sign in only to create a token or edit your app identity."
-                          icon={KeyRound}
-                          accent="emerald"
-                        />
-                      }
-                    >
-                      {!user ? (
-                        <SignedOutAccessCard
-                          authLoading={loading}
-                          onGoogle={() => handleProviderSignIn("google")}
-                          onApple={() => handleProviderSignIn("apple")}
-                        />
-                      ) : (
-                        <AccessWorkspace
-                          access={access}
-                          accessLoading={accessLoading}
-                          accessError={accessError}
-                          authLoading={loading}
-                          runtime={runtime}
-                          signedInEmail={user.email}
-                          signedInDisplayName={user.displayName}
-                          profileDraft={profileDraft}
-                          profileSaving={profileSaving}
-                          revealedToken={revealedToken}
-                          oauthClient={oauthClient}
-                          revealedClientSecret={revealedClientSecret}
-                          oauthRedirectUris={oauthRedirectUris}
-                          oauthSaving={oauthSaving}
-                          isMobile={isMobile}
-                          onEnable={handleEnableAccess}
-                          onProfileDraftChange={updateProfileDraft}
-                          onRotateKey={handleRotateKey}
-                          onCreateOrRotateOAuthClient={
-                            handleCreateOrRotateOAuthClient
-                          }
-                          onOAuthRedirectUrisChange={setOAuthRedirectUris}
-                          onSaveOAuthRedirectUris={handleSaveOAuthRedirectUris}
-                          onSaveProfile={handleSaveProfile}
-                          onSignOut={handleSignOut}
-                        />
-                      )}
-
-                      <SurfaceCard className="min-w-0">
-                        <SurfaceCardHeader>
-                          <SurfaceCardTitle>
-                            Copy-ready setup values
-                          </SurfaceCardTitle>
-                          <SurfaceCardDescription>
-                            These values track the environment this page is
-                            running in.
-                          </SurfaceCardDescription>
-                        </SurfaceCardHeader>
-                        <SurfaceCardContent className="space-y-3">
-                          <RuntimeValueRow
-                            label="MCP URL"
-                            value={workspaceSnippets.remoteUrl}
-                            copyLabel="Remote MCP URL"
-                            isMobile={isMobile}
-                          />
-                          <RuntimeValueRow
-                            label="Env"
-                            value={workspaceSnippets.envVar}
-                            copyLabel="Developer env var"
-                            isMobile={isMobile}
-                          />
-                          <RuntimeValueRow
-                            label="Auth header"
-                            value={workspaceSnippets.authHeader}
-                            copyLabel="Authorization header"
-                            isMobile={isMobile}
-                          />
-                        </SurfaceCardContent>
-                      </SurfaceCard>
-                    </DeveloperSectionShell>
-
-                    <DeveloperSectionShell
-                      sectionId="overview"
-                      mobileOpenSections={mobileOpenSections}
-                      onMobileSectionChange={handleMobileSectionChange}
-                      header={
-                        <SectionHeader
-                          eyebrow="Overview"
-                          title="Authentication is not consent"
-                          description="A token identifies the app. The person approves each scope."
-                          icon={ShieldCheck}
-                          accent="emerald"
-                        />
-                      }
-                    >
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <SurfaceCard className="min-w-0">
-                          <SurfaceCardHeader>
-                            <SurfaceCardTitle>
-                              What the user sees
-                            </SurfaceCardTitle>
-                          </SurfaceCardHeader>
-                          <SurfaceCardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
-                            <p>
-                              Consent prompts show your app display name,
-                              support link, and policy link so the user
-                              understands who is asking and why.
+                            <p className="text-sm leading-6 text-muted-foreground">
+                              Use the exact trailing-slash endpoint shape and
+                              keep the developer token machine-local.
                             </p>
-                            <p>
-                              Access is always per scope. Signing in, enabling
-                              developer access, or running your agent does not
-                              bypass consent.
-                            </p>
-                          </SurfaceCardContent>
-                        </SurfaceCard>
-                        <SurfaceCard className="min-w-0">
-                          <SurfaceCardHeader>
-                            <SurfaceCardTitle>
-                              What the developer gets
-                            </SurfaceCardTitle>
-                          </SurfaceCardHeader>
-                          <SurfaceCardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
-                            <p>
-                              One self-serve app per Kai account, one active
-                              token, and the same contract surfaced through
-                              remote MCP, the API, and the npm bridge.
-                            </p>
-                            <p>
-                              The data path is the same everywhere: discover
-                              scopes, request consent, poll status, then read
-                              approved scoped data.
-                            </p>
-                          </SurfaceCardContent>
-                        </SurfaceCard>
-                      </div>
-                    </DeveloperSectionShell>
-
-                    <DeveloperSectionShell
-                      sectionId="dynamic-scopes"
-                      mobileOpenSections={mobileOpenSections}
-                      onMobileSectionChange={handleMobileSectionChange}
-                      header={
-                        <SectionHeader
-                          eyebrow="Dynamic Scopes"
-                          title="Discover scopes first"
-                          description="Available scopes come from the person’s indexed information."
-                          icon={ScanSearch}
-                          accent="violet"
-                          actions={
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <MorphyButton
-                                  variant="none"
-                                  effect="glass"
-                                  size="sm"
-                                >
-                                  Why dynamic?
-                                </MorphyButton>
-                              </TooltipTrigger>
-                              <TooltipContent className="max-w-xs text-sm leading-6">
-                                Dynamic scopes let the backend publish only the
-                                domains and paths the user actually has, rather
-                                than pretending every user has the same data
-                                graph.
-                              </TooltipContent>
-                            </Tooltip>
-                          }
-                        />
-                      }
-                    >
-                      <SurfaceCard className="min-w-0">
-                        <SurfaceCardContent className="space-y-5 pt-6">
-                          <CodeList values={PUBLIC_SCOPE_PATTERNS} />
-                          {liveDocsLoading ? (
-                            <div className="grid gap-3 lg:grid-cols-2">
-                              <Skeleton className="h-28 rounded-3xl" />
-                              <Skeleton className="h-28 rounded-3xl" />
-                            </div>
-                          ) : liveDocs?.scopes?.length ? (
-                            <div className="grid gap-3 lg:grid-cols-2">
-                              {liveDocs.scopes.map((scope) => (
+                          </div>
+                          <div className="rounded-2xl border border-border/70 bg-slate-950/95 px-4 py-4 font-mono text-xs leading-6 text-slate-100">
+                            {PUBLIC_MCP_ENVIRONMENT.remoteUrlTemplate}
+                          </div>
+                        </SurfaceInset>
+                        <CodeList values={CORE_CONSENT_LIFECYCLE_TOOLS} />
+                        <p className="text-xs leading-5 text-muted-foreground">
+                          Standard catalog compatibility:{" "}
+                          <code>{STANDARD_CATALOG_COMPATIBILITY_TOOL}</code>
+                        </p>
+                        <CodeList values={PUBLIC_RESOURCE_URIS} />
+                        {liveDocs?.tools?.length ? (
+                          <ScrollArea className="h-64 rounded-2xl border border-border/65 sm:h-72">
+                            <div className="space-y-3 p-4">
+                              {liveDocs.tools.map((tool) => (
                                 <SurfaceInset
-                                  key={scope.name}
+                                  key={tool.name}
                                   className="min-w-0 space-y-2"
                                 >
                                   <p className="text-sm font-semibold text-foreground">
-                                    {scope.name}
+                                    {tool.name}
                                   </p>
                                   <p className="text-sm leading-6 text-muted-foreground">
-                                    {scope.description}
+                                    {tool.description}
                                   </p>
                                 </SurfaceInset>
                               ))}
                             </div>
-                          ) : null}
-                          <Accordion
-                            type="single"
-                            collapsible
-                            className="rounded-2xl border border-border/65 px-4"
-                          >
-                            <AccordionItem
-                              value="payload-examples"
-                              className="border-b-0"
-                            >
-                              <AccordionTrigger className="py-4 text-sm font-semibold hover:no-underline">
-                                Response examples
-                              </AccordionTrigger>
-                              <AccordionContent>
-                                <div className="grid min-w-0 gap-4 pb-4 xl:grid-cols-2">
-                                  {DEVELOPER_SAMPLE_PAYLOADS.map((sample) => (
-                                    <SnippetCard
-                                      key={sample.title}
-                                      title={sample.title}
-                                      description={sample.description}
-                                      code={sample.code}
-                                      copyLabel={sample.title}
-                                    />
-                                  ))}
-                                </div>
-                              </AccordionContent>
-                            </AccordionItem>
-                          </Accordion>
-                        </SurfaceCardContent>
-                      </SurfaceCard>
-                    </DeveloperSectionShell>
+                          </ScrollArea>
+                        ) : null}
+                      </SurfaceCardContent>
+                    </SurfaceCard>
+                  </div>
+                  <div className="grid min-w-0 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                    {mcpSnippets.hostExamples.map((example) => (
+                      <SnippetCard
+                        key={example.id}
+                        title={example.title}
+                        description={example.whenToUse}
+                        note={example.secretNote}
+                        code={example.code}
+                        copyLabel={example.copyLabel}
+                      />
+                    ))}
+                  </div>
+                </DeveloperSectionShell>
 
-                    <DeveloperSectionShell
-                      sectionId="consent-flow"
-                      mobileOpenSections={mobileOpenSections}
-                      onMobileSectionChange={handleMobileSectionChange}
-                      header={
-                        <SectionHeader
-                          eyebrow="Consent Flow"
-                          title="Discover, request, approve, read"
-                          description="Every read follows a person-approved scope."
-                          icon={Workflow}
-                          accent="amber"
-                        />
+                <DeveloperSectionShell
+                  sectionId="access"
+                  mobileOpenSections={mobileOpenSections}
+                  onMobileSectionChange={handleMobileSectionChange}
+                  header={
+                    <SectionHeader
+                      eyebrow="Access"
+                      title="Developer access"
+                      description="Sign in only to create a token or edit your app identity."
+                      icon={KeyRound}
+                      accent="emerald"
+                    />
+                  }
+                >
+                  {!user ? (
+                    <SignedOutAccessCard
+                      authLoading={loading}
+                      onGoogle={() => handleProviderSignIn("google")}
+                      onApple={() => handleProviderSignIn("apple")}
+                    />
+                  ) : (
+                    <AccessWorkspace
+                      access={access}
+                      accessLoading={accessLoading}
+                      accessError={accessError}
+                      authLoading={loading}
+                      runtime={runtime}
+                      signedInEmail={user.email}
+                      signedInDisplayName={user.displayName}
+                      profileDraft={profileDraft}
+                      profileSaving={profileSaving}
+                      revealedToken={revealedToken}
+                      oauthClient={oauthClient}
+                      revealedClientSecret={revealedClientSecret}
+                      oauthRedirectUris={oauthRedirectUris}
+                      oauthSaving={oauthSaving}
+                      isMobile={isMobile}
+                      onEnable={handleEnableAccess}
+                      onProfileDraftChange={updateProfileDraft}
+                      onRotateKey={handleRotateKey}
+                      onCreateOrRotateOAuthClient={
+                        handleCreateOrRotateOAuthClient
                       }
-                    >
-                      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                        {CONSENT_FLOW_STEPS.map((step, index) => (
-                          <SurfaceCard key={step.title} className="min-w-0">
-                            <SurfaceCardContent className="space-y-3 pt-6">
-                              <span className="text-xs font-semibold text-muted-foreground">
-                                {String(index + 1).padStart(2, "0")}
-                              </span>
-                              <h3 className="text-base font-semibold text-foreground">
-                                {step.title}
-                              </h3>
-                              <p className="text-sm leading-6 text-muted-foreground">
-                                {step.detail}
+                      onOAuthRedirectUrisChange={setOAuthRedirectUris}
+                      onSaveOAuthRedirectUris={handleSaveOAuthRedirectUris}
+                      onSaveProfile={handleSaveProfile}
+                      onSignOut={handleSignOut}
+                    />
+                  )}
+
+                  <SurfaceCard className="min-w-0">
+                    <SurfaceCardHeader>
+                      <SurfaceCardTitle>
+                        Copy-ready setup values
+                      </SurfaceCardTitle>
+                      <SurfaceCardDescription>
+                        These values track the environment this page is running
+                        in.
+                      </SurfaceCardDescription>
+                    </SurfaceCardHeader>
+                    <SurfaceCardContent className="space-y-3">
+                      <RuntimeValueRow
+                        label="MCP URL"
+                        value={workspaceSnippets.remoteUrl}
+                        copyLabel="Remote MCP URL"
+                        isMobile={isMobile}
+                      />
+                      <RuntimeValueRow
+                        label="Env"
+                        value={workspaceSnippets.envVar}
+                        copyLabel="Developer env var"
+                        isMobile={isMobile}
+                      />
+                      <RuntimeValueRow
+                        label="Auth header"
+                        value={workspaceSnippets.authHeader}
+                        copyLabel="Authorization header"
+                        isMobile={isMobile}
+                      />
+                    </SurfaceCardContent>
+                  </SurfaceCard>
+                </DeveloperSectionShell>
+
+                <DeveloperSectionShell
+                  sectionId="overview"
+                  mobileOpenSections={mobileOpenSections}
+                  onMobileSectionChange={handleMobileSectionChange}
+                  header={
+                    <SectionHeader
+                      eyebrow="Overview"
+                      title="Authentication is not consent"
+                      description="A token identifies the app. The person approves each scope."
+                      icon={ShieldCheck}
+                      accent="emerald"
+                    />
+                  }
+                >
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <SurfaceCard className="min-w-0">
+                      <SurfaceCardHeader>
+                        <SurfaceCardTitle>What the user sees</SurfaceCardTitle>
+                      </SurfaceCardHeader>
+                      <SurfaceCardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
+                        <p>
+                          Consent prompts show your app display name, support
+                          link, and policy link so the user understands who is
+                          asking and why.
+                        </p>
+                        <p>
+                          Access is always per scope. Signing in, enabling
+                          developer access, or running your agent does not
+                          bypass consent.
+                        </p>
+                      </SurfaceCardContent>
+                    </SurfaceCard>
+                    <SurfaceCard className="min-w-0">
+                      <SurfaceCardHeader>
+                        <SurfaceCardTitle>
+                          What the developer gets
+                        </SurfaceCardTitle>
+                      </SurfaceCardHeader>
+                      <SurfaceCardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
+                        <p>
+                          One self-serve app per Kai account, one active token,
+                          and the same contract surfaced through remote MCP, the
+                          API, and the npm bridge.
+                        </p>
+                        <p>
+                          The data path is the same everywhere: discover scopes,
+                          request consent, poll status, then read approved
+                          scoped data.
+                        </p>
+                      </SurfaceCardContent>
+                    </SurfaceCard>
+                  </div>
+                </DeveloperSectionShell>
+
+                <DeveloperSectionShell
+                  sectionId="dynamic-scopes"
+                  mobileOpenSections={mobileOpenSections}
+                  onMobileSectionChange={handleMobileSectionChange}
+                  header={
+                    <SectionHeader
+                      eyebrow="Dynamic Scopes"
+                      title="Discover scopes first"
+                      description="Available scopes come from the person’s indexed information."
+                      icon={ScanSearch}
+                      accent="violet"
+                      actions={
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <MorphyButton
+                              variant="none"
+                              effect="glass"
+                              size="sm"
+                            >
+                              Why dynamic?
+                            </MorphyButton>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs text-sm leading-6">
+                            Dynamic scopes let the backend publish only the
+                            domains and paths the user actually has, rather than
+                            pretending every user has the same data graph.
+                          </TooltipContent>
+                        </Tooltip>
+                      }
+                    />
+                  }
+                >
+                  <SurfaceCard className="min-w-0">
+                    <SurfaceCardContent className="space-y-5 pt-6">
+                      <CodeList values={PUBLIC_SCOPE_PATTERNS} />
+                      {liveDocsLoading ? (
+                        <div className="grid gap-3 lg:grid-cols-2">
+                          <Skeleton className="h-28 rounded-3xl" />
+                          <Skeleton className="h-28 rounded-3xl" />
+                        </div>
+                      ) : liveDocs?.scopes?.length ? (
+                        <div className="grid gap-3 lg:grid-cols-2">
+                          {liveDocs.scopes.map((scope) => (
+                            <SurfaceInset
+                              key={scope.name}
+                              className="min-w-0 space-y-2"
+                            >
+                              <p className="text-sm font-semibold text-foreground">
+                                {scope.name}
                               </p>
-                            </SurfaceCardContent>
-                          </SurfaceCard>
-                        ))}
-                      </div>
-                    </DeveloperSectionShell>
-
-                    <DeveloperSectionShell
-                      sectionId="modes"
-                      mobileOpenSections={mobileOpenSections}
-                      onMobileSectionChange={handleMobileSectionChange}
-                      header={
-                        <SectionHeader
-                          eyebrow="Advanced"
-                          title="REST and npm fallbacks"
-                          description="Use these only when Remote MCP does not fit the host."
-                          icon={Cable}
-                          accent="sky"
-                        />
-                      }
-                    >
-                      <SettingsGroup
-                        eyebrow="Transport options"
-                        title="Remote MCP first"
-                        description="The transport changes; the consent contract does not."
+                              <p className="text-sm leading-6 text-muted-foreground">
+                                {scope.description}
+                              </p>
+                            </SurfaceInset>
+                          ))}
+                        </div>
+                      ) : null}
+                      <Accordion
+                        type="single"
+                        collapsible
+                        className="rounded-2xl border border-border/65 px-4"
                       >
-                        {integrationModes.map((mode) => (
-                          <SettingsRow
-                            key={mode.id}
-                            title={mode.title}
-                            description={mode.summary}
-                            trailing={
-                              integrationTab === mode.id ? (
-                                <span className="text-sm font-semibold text-foreground">
-                                  Selected
-                                </span>
-                              ) : undefined
-                            }
-                            stackTrailingOnMobile
-                            onClick={() => setIntegrationTab(mode.id)}
-                          />
-                        ))}
-                      </SettingsGroup>
-                    </DeveloperSectionShell>
-
-                    <DeveloperSectionShell
-                      sectionId="api"
-                      mobileOpenSections={mobileOpenSections}
-                      onMobileSectionChange={handleMobileSectionChange}
-                      header={
-                        <SectionHeader
-                          eyebrow="REST API"
-                          title="REST reference"
-                          description="Versioned endpoints for discovery, consent, status, and scoped reads."
-                          icon={Globe}
-                          accent="sky"
-                        />
-                      }
-                    >
-                      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-                        <SurfaceCard className="min-w-0">
-                          <SurfaceCardContent className="space-y-3 pt-6">
-                            <SettingsGroup
-                              eyebrow="Endpoint map"
-                              title="Small on purpose"
-                              description="The public contract stays narrow."
-                            >
-                              {REST_ENDPOINTS.map((endpoint) => (
-                                <SettingsRow
-                                  key={endpoint.path}
-                                  leading={
-                                    <span className="font-mono text-xs font-semibold text-muted-foreground">
-                                      {endpoint.method}
-                                    </span>
-                                  }
-                                  title={
-                                    <code className="text-xs sm:text-[13px]">
-                                      {endpoint.path}
-                                    </code>
-                                  }
-                                  description={
-                                    <div className="space-y-1">
-                                      <p>{endpoint.purpose}</p>
-                                      <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/80">
-                                        {endpoint.auth}
-                                      </p>
-                                    </div>
-                                  }
+                        <AccordionItem
+                          value="payload-examples"
+                          className="border-b-0"
+                        >
+                          <AccordionTrigger className="py-4 text-sm font-semibold hover:no-underline">
+                            Response examples
+                          </AccordionTrigger>
+                          <AccordionContent>
+                            <div className="grid min-w-0 gap-4 pb-4 xl:grid-cols-2">
+                              {DEVELOPER_SAMPLE_PAYLOADS.map((sample) => (
+                                <SnippetCard
+                                  key={sample.title}
+                                  title={sample.title}
+                                  description={sample.description}
+                                  code={sample.code}
+                                  copyLabel={sample.title}
                                 />
                               ))}
-                            </SettingsGroup>
-                          </SurfaceCardContent>
-                        </SurfaceCard>
-                        <div className="min-w-0 space-y-4">
-                          <SnippetCard
-                            title="Discover user scopes"
-                            description="Always start by inspecting the actual scope strings available for the target user."
-                            code={restSnippets.discover}
-                            copyLabel="Discover scopes curl"
-                          />
-                          <SnippetCard
-                            title="Request consent"
-                            description="Send a single scope request and let Kai handle approval."
-                            code={restSnippets.requestConsent}
-                            copyLabel="Request consent curl"
-                          />
-                          <SnippetCard
-                            title="Poll consent status"
-                            description="Check whether the user has approved, denied, or revoked the request."
-                            code={restSnippets.checkStatus}
-                            copyLabel="Consent status curl"
-                          />
-                        </div>
-                      </div>
-                    </DeveloperSectionShell>
+                            </div>
+                          </AccordionContent>
+                        </AccordionItem>
+                      </Accordion>
+                    </SurfaceCardContent>
+                  </SurfaceCard>
+                </DeveloperSectionShell>
 
-                    <DeveloperSectionShell
-                      sectionId="faq"
-                      mobileOpenSections={mobileOpenSections}
-                      onMobileSectionChange={handleMobileSectionChange}
-                      header={
-                        <SectionHeader
-                          eyebrow="Troubleshooting"
-                          title="Common questions"
-                          description="Answers from the current runtime contract."
-                          icon={LifeBuoy}
-                          accent="default"
-                        />
-                      }
-                    >
-                      <SurfaceCard className="min-w-0">
-                        <SurfaceCardContent className="pt-6">
-                          <Accordion
-                            type="single"
-                            collapsible
-                            className="w-full"
-                          >
-                            {FAQ_ITEMS.map((item) => (
-                              <AccordionItem
-                                key={item.question}
-                                value={item.question}
-                              >
-                                <AccordionTrigger>
-                                  {item.question}
-                                </AccordionTrigger>
-                                <AccordionContent className="text-sm leading-6 text-muted-foreground">
-                                  {item.answer}
-                                </AccordionContent>
-                              </AccordionItem>
-                            ))}
-                          </Accordion>
+                <DeveloperSectionShell
+                  sectionId="consent-flow"
+                  mobileOpenSections={mobileOpenSections}
+                  onMobileSectionChange={handleMobileSectionChange}
+                  header={
+                    <SectionHeader
+                      eyebrow="Consent Flow"
+                      title="Discover, request, approve, read"
+                      description="Every read follows a person-approved scope."
+                      icon={Workflow}
+                      accent="amber"
+                    />
+                  }
+                >
+                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    {CONSENT_FLOW_STEPS.map((step, index) => (
+                      <SurfaceCard key={step.title} className="min-w-0">
+                        <SurfaceCardContent className="space-y-3 pt-6">
+                          <span className="text-xs font-semibold text-muted-foreground">
+                            {String(index + 1).padStart(2, "0")}
+                          </span>
+                          <h3 className="text-base font-semibold text-foreground">
+                            {step.title}
+                          </h3>
+                          <p className="text-sm leading-6 text-muted-foreground">
+                            {step.detail}
+                          </p>
                         </SurfaceCardContent>
                       </SurfaceCard>
-                      <SurfaceInset className="space-y-3">
-                        <p className="text-sm font-semibold text-foreground">
-                          Quick checks
-                        </p>
-                        <p className="text-sm leading-6 text-muted-foreground">
-                          If remote MCP fails, confirm the developer token is
-                          active, the environment URL matches the page you are
-                          using, and the user has a populated indexed PKM.
-                        </p>
-                        <p className="text-sm leading-6 text-muted-foreground">
-                          If a scope request fails, discover the user’s scopes
-                          again instead of retrying a hardcoded domain string.
-                        </p>
-                      </SurfaceInset>
-                    </DeveloperSectionShell>
+                    ))}
+                  </div>
+                </DeveloperSectionShell>
+
+                <DeveloperSectionShell
+                  sectionId="modes"
+                  mobileOpenSections={mobileOpenSections}
+                  onMobileSectionChange={handleMobileSectionChange}
+                  header={
+                    <SectionHeader
+                      eyebrow="Advanced"
+                      title="REST and npm fallbacks"
+                      description="Use these only when Remote MCP does not fit the host."
+                      icon={Cable}
+                      accent="sky"
+                    />
+                  }
+                >
+                  <SettingsGroup
+                    eyebrow="Transport options"
+                    title="Remote MCP first"
+                    description="The transport changes; the consent contract does not."
+                  >
+                    {integrationModes.map((mode) => (
+                      <SettingsRow
+                        key={mode.id}
+                        title={mode.title}
+                        description={mode.summary}
+                        trailing={
+                          integrationTab === mode.id ? (
+                            <span className="text-sm font-semibold text-foreground">
+                              Selected
+                            </span>
+                          ) : undefined
+                        }
+                        stackTrailingOnMobile
+                        onClick={() => setIntegrationTab(mode.id)}
+                      />
+                    ))}
+                  </SettingsGroup>
+                </DeveloperSectionShell>
+
+                <DeveloperSectionShell
+                  sectionId="api"
+                  mobileOpenSections={mobileOpenSections}
+                  onMobileSectionChange={handleMobileSectionChange}
+                  header={
+                    <SectionHeader
+                      eyebrow="REST API"
+                      title="REST reference"
+                      description="Versioned endpoints for discovery, consent, status, and scoped reads."
+                      icon={Globe}
+                      accent="sky"
+                    />
+                  }
+                >
+                  <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+                    <SurfaceCard className="min-w-0">
+                      <SurfaceCardContent className="space-y-3 pt-6">
+                        <SettingsGroup
+                          eyebrow="Endpoint map"
+                          title="Small on purpose"
+                          description="The public contract stays narrow."
+                        >
+                          {REST_ENDPOINTS.map((endpoint) => (
+                            <SettingsRow
+                              key={endpoint.path}
+                              leading={
+                                <span className="font-mono text-xs font-semibold text-muted-foreground">
+                                  {endpoint.method}
+                                </span>
+                              }
+                              title={
+                                <code className="text-xs sm:text-[13px]">
+                                  {endpoint.path}
+                                </code>
+                              }
+                              description={
+                                <div className="space-y-1">
+                                  <p>{endpoint.purpose}</p>
+                                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/80">
+                                    {endpoint.auth}
+                                  </p>
+                                </div>
+                              }
+                            />
+                          ))}
+                        </SettingsGroup>
+                      </SurfaceCardContent>
+                    </SurfaceCard>
+                    <div className="min-w-0 space-y-4">
+                      <SnippetCard
+                        title="Discover user scopes"
+                        description="Always start by inspecting the actual scope strings available for the target user."
+                        code={restSnippets.discover}
+                        copyLabel="Discover scopes curl"
+                      />
+                      <SnippetCard
+                        title="Request consent"
+                        description="Send a single scope request and let Kai handle approval."
+                        code={restSnippets.requestConsent}
+                        copyLabel="Request consent curl"
+                      />
+                      <SnippetCard
+                        title="Poll consent status"
+                        description="Check whether the user has approved, denied, or revoked the request."
+                        code={restSnippets.checkStatus}
+                        copyLabel="Consent status curl"
+                      />
+                    </div>
+                  </div>
+                </DeveloperSectionShell>
+
+                <DeveloperSectionShell
+                  sectionId="faq"
+                  mobileOpenSections={mobileOpenSections}
+                  onMobileSectionChange={handleMobileSectionChange}
+                  header={
+                    <SectionHeader
+                      eyebrow="Troubleshooting"
+                      title="Common questions"
+                      description="Answers from the current runtime contract."
+                      icon={LifeBuoy}
+                      accent="default"
+                    />
+                  }
+                >
+                  <SurfaceCard className="min-w-0">
+                    <SurfaceCardContent className="pt-6">
+                      <Accordion type="single" collapsible className="w-full">
+                        {FAQ_ITEMS.map((item) => (
+                          <AccordionItem
+                            key={item.question}
+                            value={item.question}
+                          >
+                            <AccordionTrigger>{item.question}</AccordionTrigger>
+                            <AccordionContent className="text-sm leading-6 text-muted-foreground">
+                              {item.answer}
+                            </AccordionContent>
+                          </AccordionItem>
+                        ))}
+                      </Accordion>
+                    </SurfaceCardContent>
+                  </SurfaceCard>
+                  <SurfaceInset className="space-y-3">
+                    <p className="text-sm font-semibold text-foreground">
+                      Quick checks
+                    </p>
+                    <p className="text-sm leading-6 text-muted-foreground">
+                      If remote MCP fails, confirm the developer token is
+                      active, the environment URL matches the page you are
+                      using, and the user has a populated indexed PKM.
+                    </p>
+                    <p className="text-sm leading-6 text-muted-foreground">
+                      If a scope request fails, discover the user’s scopes again
+                      instead of retrying a hardcoded domain string.
+                    </p>
+                  </SurfaceInset>
+                </DeveloperSectionShell>
               </div>
             </section>
           </div>

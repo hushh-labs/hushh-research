@@ -54,9 +54,25 @@ npx -y @hushh/mcp --help
 The same `/mcp/` endpoint has one consent lifecycle and an app-configured catalog projection:
 
 - `standard` is the default. It preserves this package's five-tool v0.3 catalog, Codex remote bearer setup, Codex stdio bridge, Claude OAuth PKCE setup, and existing result shapes.
-- `flat` is provisioned only for constrained hosts. It exposes the four core lifecycle tools with shallow, described schemas and ciphertext-only export fields. It is not a second endpoint or a plaintext adapter.
+- `flat` is provisioned only for constrained generic hosts. It exposes the four core lifecycle tools with shallow, described schemas and ciphertext-only export fields. It is not a second endpoint or a plaintext adapter.
+- `agentforce` is a separate, four-tool schema-registration UAT projection. It uses Salesforce-compatible hyphenated tool aliases, explicit field titles/descriptions, flat input/output schemas, and a 55-second server timeout. It exposes tools only—never MCP resources or prompts.
 
-OAuth client credentials are issued only to explicitly provisioned flat partner apps. They authenticate the connector, never the user; every information request still follows the same consent and encrypted-export lifecycle. Direct Agentforce registration remains an environment gate because host support for user-specific MCP responses must be verified before production use.
+OAuth client credentials are issued only to explicitly provisioned constrained partner apps. They authenticate the connector, never the user. The `flat` profile may run the consent lifecycle for compatible hosts. The `agentforce` profile is intentionally blocked from user-specific tool execution: Salesforce currently documents that its MCP client does not support user-level authentication or personalized responses. Do not represent direct Agentforce consent or encrypted export as production-supported until Salesforce removes that limitation and Hussh completes a fresh production review.
+
+### Agentforce schema-registration UAT
+
+Use `hushh-mcp --print-agentforce-manifest` to inspect the exact four-tool UAT catalog. It is generated from the same runtime contract that authenticated `agentforce` apps receive from `tools/list`; it is a preflight artifact, not a replacement endpoint or a deployable Salesforce registration.
+
+Each tool includes a semantic machine name, client-facing title and description, strictly typed flat input fields, explicit `required` entries, and a complete `outputSchema`. Preserve the published machine field names. Salesforce currently has a Builder label-rendering defect for some data types, so an administrator must verify and, if necessary, replace input/output display labels in the Asset Library after registration. JSON Schema titles improve inspection metadata but do not claim to fix that Salesforce UI defect.
+
+The current UAT boundary is intentionally narrow:
+
+- register the Streamable HTTP endpoint with OAuth client credentials;
+- allowlist only the four printed tool aliases;
+- verify names, descriptions, field counts, labels, and output mappings from `tools/list`;
+- do not invoke the personalized consent/export lifecycle from Agentforce. The server returns a documented fail-closed error instead.
+
+Salesforce references: [MCP considerations](https://help.salesforce.com/s/articleView?id=ai.agent_mcp_considerations.htm&language=en_US&type=5) and [MCP response schemas](https://help.salesforce.com/s/articleView?id=ai.agent_mcp_tool_action_design.htm&language=en_US&type=5).
 
 Minimal env for stdio hosts:
 

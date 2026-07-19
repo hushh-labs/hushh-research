@@ -51,6 +51,10 @@ import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
+import {
+  onGeminiRuntimeConfigurationChanged,
+  resolveGeminiRuntimeConnection,
+} from "@/lib/connections/gemini-runtime-configuration";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
@@ -172,7 +176,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const runtime = useAgentRuntimeStateOptional();
   const { user, loading: authLoading } = useAuth();
   const { theme, resolvedTheme, setTheme } = useTheme();
-  const { vaultOwnerToken } = useVault();
+  const { vaultOwnerToken, vaultKey, isVaultUnlocked } = useVault();
   const { switchPersona } = usePersonaState();
   const busyOperations = useKaiSession((state) => state.busyOperations);
   const setAnalysisParams = useKaiSession((state) => state.setAnalysisParams);
@@ -199,6 +203,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const setVoiceLevel = useAgentVoiceState((s) => s.setLevel);
   const resetVoice = useAgentVoiceState((s) => s.reset);
   const liveClientRef = useRef<RealtimeVoiceTransport | null>(null);
+  const activeRuntimeModeRef = useRef<"hushh_managed_vertex" | "byok" | null>(null);
   const lastTranscriptRef = useRef<{ text: string; atMs: number } | null>(null);
   const prewarmedRelayRef = useRef<PrewarmedGeminiRelay | null>(null);
   // Idle-close precaution: any live-session activity (speech, thinking, tool
@@ -379,7 +384,15 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                 : undefined;
             const needsConfirmation =
               event.directive.payload?.needsConfirmation === true;
-            if (runtime?.morphyAxEnabled) {
+            const goalId =
+              typeof event.directive.payload?.goalId === "string"
+                ? event.directive.payload.goalId
+                : null;
+            const isSettledAnalysisGoalDirective =
+              goalId === "goal.analysis.start_debate" &&
+              actionId === "analysis.start" &&
+              runtime?.appRuntimeState.route.screen === "kai_analysis";
+            if (runtime?.morphyAxEnabled && !isSettledAnalysisGoalDirective) {
               const decision = validateMorphyAxAssessment(
                 {
                   schema_version: "morphy_ax_assessment.v1",
@@ -465,6 +478,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                   switchPersona,
                   executionContext: { directiveId },
                   signal: actionAbortControllerRef.current.signal,
+                  goalAuthorization: isSettledAnalysisGoalDirective
+                    ? {
+                        goalId: "goal.analysis.start_debate",
+                        expectedScreen: "kai_analysis",
+                      }
+                    : null,
                 });
                 const result = await settleAgentBarAction(executionResult);
                 if (directiveId) {
@@ -560,6 +579,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           "The confirmation was cancelled when the voice session closed.",
         );
         liveClientRef.current = null;
+        activeRuntimeModeRef.current = null;
         if (erroredRef.current) return;
         setConversationActive(false);
       }
@@ -593,6 +613,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     );
     liveClientRef.current?.stop();
     liveClientRef.current = null;
+    activeRuntimeModeRef.current = null;
     prewarmedRelayRef.current = null;
     setConversationActive(false);
     resetVoice();
@@ -711,10 +732,28 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     );
   }, [abandonPendingConfirmation, pathname]);
 
-  const startConversation = useCallback(() => {
+  const startConversation = useCallback(async () => {
     // Toggle off when a session (live OR an error still on screen) exists.
     if (liveClientRef.current || erroredRef.current || conversationActive) {
       stopConversation();
+      return;
+    }
+    const runtimeConnection = await resolveGeminiRuntimeConnection({
+      userId: user?.uid,
+      vaultKey,
+      vaultOwnerToken,
+    });
+    if (runtimeConnection.mode === "byok" && !runtimeConnection.credential) {
+      erroredRef.current = true;
+      setVoiceStatus("error", "Your Gemini key is unavailable. Open Connections settings.");
+      return;
+    }
+    if (runtimeConnection.transport === "vertex_api_key") {
+      erroredRef.current = true;
+      setVoiceStatus(
+        "error",
+        "Your Google Cloud Vertex key is ready for typed turns. Use managed Gemini for voice.",
+      );
       return;
     }
     erroredRef.current = false;
@@ -735,6 +774,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       onEvent: handleTransportEvent,
     });
     liveClientRef.current = client;
+    activeRuntimeModeRef.current = runtimeConnection.mode;
     // The client pushes the starting snapshot as app_context on setupComplete.
     lastPushedContextRef.current = context
       ? actionableContextKey(context)
@@ -746,6 +786,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       sessionMirrorId: mirrorSessionId,
       allowedActionIds: context?.available_action_ids ?? null,
       consentToken: vaultOwnerToken ?? null,
+      runtimeCredentialMode: runtimeConnection.mode,
+      runtimeCredential: runtimeConnection.credential,
+      runtimeCredentialTransport: runtimeConnection.transport,
+      runtimeVertexProject: runtimeConnection.vertexProject,
+      runtimeVertexLocation: runtimeConnection.vertexLocation,
     });
   }, [
     conversationActive,
@@ -756,6 +801,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     scheduleVoiceIdleTimer,
     stopConversation,
     vaultOwnerToken,
+    vaultKey,
+    user?.uid,
+    setVoiceStatus,
   ]);
 
   // Continuous voice context: when the user navigates while a live session is
@@ -779,7 +827,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
 
   // Sign-in / vault unlock while a voice session is already open: without
   // this, a call started signed-out or locked never learns the token exists
-  // and specialist tools (location, gmail, etc.) fail closed for the rest of
+  // and specialist tools (for example, Location) fail closed for the rest of
   // the call even after the user authenticates in the same session.
   const pushedConsentTokenRef = useRef<string | null>(null);
   useEffect(() => {
@@ -798,10 +846,24 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const handleVoiceStartClick = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => {
       event.stopPropagation();
-      startConversation();
+      void startConversation();
     },
     [startConversation],
   );
+
+  useEffect(() => {
+    return onGeminiRuntimeConfigurationChanged(() => {
+      if (activeRuntimeModeRef.current === "byok") {
+        stopConversation();
+      }
+    });
+  }, [stopConversation]);
+
+  useEffect(() => {
+    if (!isVaultUnlocked && activeRuntimeModeRef.current === "byok") {
+      stopConversation();
+    }
+  }, [isVaultUnlocked, stopConversation]);
 
   useEffect(() => {
     const context = runtime?.oneVoiceContextSnapshot ?? null;

@@ -79,7 +79,6 @@ const AGENT_SECTION_OVERRIDES: Record<
     routeFamily: "one",
     bottomNavScope: "one",
     screenId: "one_marketplace",
-    voiceRouteActionId: "route.one_marketplace",
   },
   "connected-systems": {
     routeFamily: "one",

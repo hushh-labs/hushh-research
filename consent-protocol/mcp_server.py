@@ -34,6 +34,10 @@ from mcp.server.stdio import stdio_server
 from mcp.types import CallToolResult, TextContent
 
 from mcp_modules import resources as mcp_resources
+from mcp_modules.agentforce_contract import (
+    AGENTFORCE_PROFILE,
+    canonical_agentforce_tool_name,
+)
 from mcp_modules.config import SERVER_INFO
 from mcp_modules.developer_context import (
     get_current_schema_profile,
@@ -175,7 +179,11 @@ async def call_tool(name: str, arguments: dict):
     start_time = time.perf_counter()
     logger.info("Tool called: %s", name)
 
-    handler = HANDLERS.get(name)
+    schema_profile = get_current_schema_profile()
+    canonical_name = (
+        canonical_agentforce_tool_name(name) if schema_profile == AGENTFORCE_PROFILE else name
+    )
+    handler = HANDLERS.get(canonical_name or "")
     if not handler:
         logger.warning(f"❌ Unknown tool requested: {name}")
         return _mcp_error(
@@ -198,11 +206,20 @@ async def call_tool(name: str, arguments: dict):
             )
         )
 
-    schema_profile = get_current_schema_profile()
-    if name in _PUBLIC_TOOL_NAMES and not (
+    if schema_profile == AGENTFORCE_PROFILE:
+        return _mcp_error(
+            build_safe_error(
+                "AGENTFORCE_PERSONALIZED_WORKFLOW_UNSUPPORTED",
+                "This Agentforce catalog is available for schema registration only. Salesforce currently does not support user-level or personalized MCP workflows.",
+                recoverable=False,
+                next_action="Do not call this user-specific consent workflow from Agentforce until the platform limitation is removed and Hussh enables production support.",
+            )
+        )
+
+    if canonical_name in _PUBLIC_TOOL_NAMES and not (
         validate_flat_input(name, arguments)
         if schema_profile == FLAT_PROFILE
-        else validate_public_tool_input(name, arguments)
+        else validate_public_tool_input(canonical_name, arguments)
     ):
         return _mcp_error(
             build_safe_error(
@@ -212,9 +229,9 @@ async def call_tool(name: str, arguments: dict):
                 next_action="Call tools/list and retry with only the declared fields.",
             )
         )
-    if name not in _PUBLIC_TOOL_NAMES:
+    if canonical_name not in _PUBLIC_TOOL_NAMES:
         try:
-            jsonschema.validate(arguments, _PRIVATE_INPUT_SCHEMAS[name])
+            jsonschema.validate(arguments, _PRIVATE_INPUT_SCHEMAS[canonical_name])
         except (KeyError, jsonschema.ValidationError, jsonschema.SchemaError):
             return _mcp_error(
                 build_safe_error(
@@ -227,13 +244,13 @@ async def call_tool(name: str, arguments: dict):
 
     try:
         result = await handler(arguments)
-        if name not in _PUBLIC_TOOL_NAMES:
+        if canonical_name not in _PUBLIC_TOOL_NAMES:
             return result
         if "error_code" in result[1]:
             return _mcp_error(result)
         if schema_profile == FLAT_PROFILE:
             try:
-                flat_payload = project_flat_result(name, result[1])
+                flat_payload = project_flat_result(canonical_name, result[1])
             except (TypeError, ValueError):
                 return _mcp_error(
                     build_safe_error(
@@ -245,9 +262,9 @@ async def call_tool(name: str, arguments: dict):
                 )
             result = ([TextContent(type="text", text=json.dumps(flat_payload))], flat_payload)
         valid_output = (
-            validate_flat_output(name, result[1])
+            validate_flat_output(canonical_name, result[1])
             if schema_profile == FLAT_PROFILE
-            else validate_public_tool_output(name, result[1])
+            else validate_public_tool_output(canonical_name, result[1])
         )
         if not valid_output:
             logger.error("Tool %s returned a contract-invalid result", name)

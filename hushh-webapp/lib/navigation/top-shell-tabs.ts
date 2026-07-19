@@ -10,7 +10,7 @@ import {
   ROUTES,
 } from "@/lib/navigation/routes";
 
-export type TopShellTabSetId = "location" | "finance" | "public";
+export type TopShellTabSetId = "location" | "finance" | "consent" | "public";
 
 export interface TopShellTabDefinition {
   id: TopShellTabSetId;
@@ -34,9 +34,34 @@ export interface TopShellTabSet {
  * history so a deep-linked workspace still has deterministic back behavior.
  */
 export type PublicKnowledgeTab = "research" | "blog" | "developers";
+export type ConsentCenterTab =
+  "requests" | "active" | "history" | "connections";
 
 export function buildPublicKnowledgeRoute(tab: PublicKnowledgeTab): string {
   return `${ROUTES.WELCOME}?tab=${tab}`;
+}
+
+/**
+ * A Consent Center tab switch deliberately drops list/search/detail state.
+ * Keep only the route-owned advisor context and a verified in-app return link.
+ */
+function buildConsentCenterTabRoute(
+  tab: ConsentCenterTab,
+  searchParams: URLSearchParams,
+): string {
+  const params = new URLSearchParams({ tab });
+  if (
+    searchParams.get("actor") === "ria" &&
+    searchParams.get("view") === "outgoing"
+  ) {
+    params.set("actor", "ria");
+    params.set("view", "outgoing");
+  }
+  const from = searchParams.get("from");
+  if (from?.startsWith("/") && !from.startsWith("//")) {
+    params.set("from", from);
+  }
+  return `${ROUTES.CONSENTS}?${params.toString()}`;
 }
 
 /**
@@ -81,6 +106,34 @@ export const TOP_SHELL_TAB_REGISTRY = {
         value: "analysis",
         label: "Analysis",
         href: buildKaiMarketRoute("analysis"),
+      },
+    ],
+  },
+  consent: {
+    id: "consent",
+    label: "Consent Center",
+    queryParam: "tab",
+    defaultValue: "requests",
+    tabs: [
+      {
+        value: "requests",
+        label: "Requests",
+        href: `${ROUTES.CONSENTS}?tab=requests`,
+      },
+      {
+        value: "active",
+        label: "Active",
+        href: `${ROUTES.CONSENTS}?tab=active`,
+      },
+      {
+        value: "history",
+        label: "History",
+        href: `${ROUTES.CONSENTS}?tab=history`,
+      },
+      {
+        value: "connections",
+        label: "Connections",
+        href: `${ROUTES.CONSENTS}?tab=connections`,
       },
     ],
   },
@@ -162,6 +215,24 @@ export function resolveTopShellTabSet(routeKey: string): TopShellTabSet | null {
         definition,
         searchParams.get(definition.queryParam),
       ),
+    };
+  }
+
+  if (pathname === ROUTES.CONSENTS) {
+    const definition = TOP_SHELL_TAB_REGISTRY.consent;
+    return {
+      ...definition,
+      activeValue: resolveRegisteredTopShellTabValue(
+        definition,
+        searchParams.get(definition.queryParam),
+      ),
+      tabs: definition.tabs.map((tab) => ({
+        ...tab,
+        href: buildConsentCenterTabRoute(
+          tab.value as ConsentCenterTab,
+          searchParams,
+        ),
+      })),
     };
   }
 

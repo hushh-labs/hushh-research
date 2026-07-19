@@ -12,11 +12,19 @@ import { setTopShellTabSwipeState } from "@/lib/navigation/top-shell-tab-swipe-p
  * capture at the parent. The marker makes that arbitration explicit at the
  * shared pager boundary rather than requiring each route to work around it.
  */
-export const SWIPE_VIEWS_HORIZONTAL_SCROLL_ATTR = "data-swipe-views-horizontal-scroll";
+export const SWIPE_VIEWS_HORIZONTAL_SCROLL_ATTR =
+  "data-swipe-views-horizontal-scroll";
+
+// The pager lives below the shared top-shell spacer. Its gesture surface must
+// still fill the remaining viewport when a panel is shorter than the screen;
+// `h-full` only inherited the content height and left empty areas unswipeable.
+const SWIPE_VIEWPORT_MIN_HEIGHT =
+  "calc(100dvh - var(--app-top-content-offset, 0px))";
 
 function isNestedHorizontalScrollTarget(target: EventTarget | null): boolean {
-  return target instanceof Element && Boolean(
-    target.closest(`[${SWIPE_VIEWS_HORIZONTAL_SCROLL_ATTR}]`),
+  return (
+    target instanceof Element &&
+    Boolean(target.closest(`[${SWIPE_VIEWS_HORIZONTAL_SCROLL_ATTR}]`))
   );
 }
 
@@ -36,7 +44,8 @@ export function SwipeViews({
   onChildSwiped,
 }: SwipeViewsProps) {
   const watchDrag = useCallback(
-    (_emblaApi: unknown, event: Event) => !isNestedHorizontalScrollTarget(event.target),
+    (_emblaApi: unknown, event: Event) =>
+      !isNestedHorizontalScrollTarget(event.target),
     [],
   );
   const [emblaRef, emblaApi] = useEmblaCarousel({
@@ -80,8 +89,10 @@ export function SwipeViews({
     setTopShellTabSwipeState(tabSetId, Math.max(0, targetIdx), false);
   }, [emblaApi, activeValue, options, tabSetId]);
 
-  // Setup embla listeners
-  const onSelect = useCallback(() => {
+  // Commit the route only after Embla has settled. Selecting a snap happens
+  // while the rail is still moving; committing there mounted a heavy Finance
+  // panel (and its data/effects) in the same frame as the gesture.
+  const onSettle = useCallback(() => {
     if (!emblaApi) return;
     const currentIdx = emblaApi.selectedScrollSnap();
     const newValue = options[currentIdx]?.value;
@@ -92,12 +103,12 @@ export function SwipeViews({
 
   useEffect(() => {
     if (!emblaApi) return;
-    emblaApi.on("select", onSelect);
+    emblaApi.on("settle", onSettle);
 
     return () => {
-      emblaApi.off("select", onSelect);
+      emblaApi.off("settle", onSettle);
     };
-  }, [emblaApi, onSelect]);
+  }, [emblaApi, onSettle]);
 
   useEffect(() => {
     if (!emblaApi) return;
@@ -125,8 +136,17 @@ export function SwipeViews({
   }, [emblaApi, syncTabIndicator]);
 
   return (
-    <div className="overflow-hidden w-full h-full" ref={emblaRef}>
-      <div className="flex w-full h-full touch-pan-y">
+    <div
+      data-swipe-views-root="true"
+      data-no-auto-fade="true"
+      className="w-full min-h-0 overflow-hidden"
+      ref={emblaRef}
+      style={{ minHeight: SWIPE_VIEWPORT_MIN_HEIGHT }}
+    >
+      <div
+        className="flex w-full min-h-0 touch-pan-y"
+        style={{ minHeight: "inherit" }}
+      >
         {options.map((option, index) => {
           const isActive = index === activeIndex;
           const safeValue = option.value.replace(/[^a-zA-Z0-9_-]/g, "-");
@@ -138,7 +158,8 @@ export function SwipeViews({
               aria-labelledby={`top-shell-${tabSetId}-tab-${safeValue}`}
               aria-hidden={!isActive}
               tabIndex={isActive ? 0 : -1}
-              className="flex-[0_0_100%] min-w-0 h-full"
+              className="flex-[0_0_100%] min-h-0 min-w-0"
+              style={{ minHeight: "inherit" }}
             >
               {isActive ? panels[index] : null}
             </div>

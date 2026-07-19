@@ -6,22 +6,41 @@ export const AMBIENT_CHROME_MASK_ATTR = "data-ambient-chrome-mask";
 export const AMBIENT_CHROME_IGNORE_ATTR = "data-ambient-chrome-ignore";
 /** Marks a real full-viewport painted route surface, never a neutral scaffold. */
 export const AMBIENT_CHROME_FULL_BLEED_ATTR = "data-ambient-full-bleed";
+/** Publishes whether the surface directly beneath the top chrome is dark or light. */
+export const AMBIENT_CHROME_TOP_SURFACE_ATTR =
+  "data-ambient-chrome-top-surface";
+export type AmbientChromeSurfaceTone = "dark" | "light";
+/** Keep the foreground, wordmark, and native system-bar contrast decision aligned. */
+export const AMBIENT_CHROME_DARK_LIGHTNESS_THRESHOLD = 0.55;
 
 const TRANSIENT_OVERLAY_SELECTOR = [
   `[${AMBIENT_CHROME_IGNORE_ATTR}]`,
   '[data-slot="dialog-overlay"]',
   '[data-slot="alert-dialog-overlay"]',
-  '[data-radix-popper-content-wrapper]',
+  "[data-radix-popper-content-wrapper]",
   '[role="dialog"]',
 ].join(", ");
 
 export const AMBIENT_CHROME_VARS = {
-  top: { background: "--ambient-chrome-top-bg", foreground: "--ambient-chrome-top-fg" },
+  top: {
+    background: "--ambient-chrome-top-bg",
+    foreground: "--ambient-chrome-top-fg",
+  },
   bottom: {
     background: "--ambient-chrome-bottom-bg",
     foreground: "--ambient-chrome-bottom-fg",
+    baseBackground: "--ambient-chrome-bottom-base-bg",
+    baseForeground: "--ambient-chrome-bottom-base-fg",
   },
 } as const;
+
+export function resolveAmbientChromeSurfaceTone(
+  lightness: number | null,
+): AmbientChromeSurfaceTone {
+  return (lightness ?? 1) < AMBIENT_CHROME_DARK_LIGHTNESS_THRESHOLD
+    ? "dark"
+    : "light";
+}
 
 export function ambientChromeMaskAttr(edge: AmbientChromeEdge) {
   return { [AMBIENT_CHROME_MASK_ATTR]: edge } as const;
@@ -107,7 +126,11 @@ function parseCssOklab(value: string): Rgb | null {
   }
   const chroma = Math.hypot(a, b);
   const hue = (Math.atan2(b, a) * 180) / Math.PI;
-  return oklchToRgb([lightness > 1 ? lightness / 100 : lightness, chroma, hue < 0 ? hue + 360 : hue]);
+  return oklchToRgb([
+    lightness > 1 ? lightness / 100 : lightness,
+    chroma,
+    hue < 0 ? hue + 360 : hue,
+  ]);
 }
 
 function parseCssLab(value: string): Rgb | null {
@@ -153,18 +176,31 @@ function parseCssLab(value: string): Rgb | null {
 
 /** Parses computed CSS colors emitted by the Foundation theme. */
 export function parseCssColor(value: string): Rgb | null {
-  return parseCssRgb(value) ?? parseCssOklch(value) ?? parseCssOklab(value) ?? parseCssLab(value);
+  return (
+    parseCssRgb(value) ??
+    parseCssOklch(value) ??
+    parseCssOklab(value) ??
+    parseCssLab(value)
+  );
 }
 
 export function parseGradientSurface(value: string): Rgb | null {
   if (!value.includes("gradient(") || value.includes("url(")) return null;
   const colors = value.match(/(?:rgba?|oklch|oklab|lab)\([^)]+\)/gi) ?? [];
-  const parsed = colors.map(parseCssColor).filter((color): color is Rgb => color !== null);
+  const parsed = colors
+    .map(parseCssColor)
+    .filter((color): color is Rgb => color !== null);
   if (!parsed.length) return null;
-  return parsed.reduce<Rgb>(
-    (total, color) => [total[0] + color[0], total[1] + color[1], total[2] + color[2]],
-    [0, 0, 0],
-  ).map((channel) => Math.round(channel / parsed.length)) as Rgb;
+  return parsed
+    .reduce<Rgb>(
+      (total, color) => [
+        total[0] + color[0],
+        total[1] + color[1],
+        total[2] + color[2],
+      ],
+      [0, 0, 0],
+    )
+    .map((channel) => Math.round(channel / parsed.length)) as Rgb;
 }
 
 function toLinear(value: number): number {
@@ -175,7 +211,10 @@ function toLinear(value: number): number {
 }
 
 function toSrgb(value: number): number {
-  const normalized = value <= 0.0031308 ? value * 12.92 : 1.055 * Math.pow(value, 1 / 2.4) - 0.055;
+  const normalized =
+    value <= 0.0031308
+      ? value * 12.92
+      : 1.055 * Math.pow(value, 1 / 2.4) - 0.055;
   return Math.round(Math.max(0, Math.min(1, normalized)) * 255);
 }
 
@@ -183,9 +222,15 @@ function rgbToOklch([r, g, b]: Rgb): Oklch {
   const lr = toLinear(r);
   const lg = toLinear(g);
   const lb = toLinear(b);
-  const l = Math.cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
-  const m = Math.cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
-  const s = Math.cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);
+  const l = Math.cbrt(
+    0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb,
+  );
+  const m = Math.cbrt(
+    0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb,
+  );
+  const s = Math.cbrt(
+    0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb,
+  );
   const lightness = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
   const a = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
   const bb = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
@@ -235,7 +280,8 @@ export class AmbientColorSpring {
   }
 
   step(deltaMs: number): Rgb | null {
-    if (!this.current || !this.target) return this.current ? oklchToRgb(this.current) : null;
+    if (!this.current || !this.target)
+      return this.current ? oklchToRgb(this.current) : null;
     const dt = Math.min(deltaMs / 1000, 0.064);
     const steps = Math.max(1, Math.ceil(dt / 0.008));
     for (let index = 0; index < steps; index += 1) {
@@ -263,7 +309,8 @@ export class AmbientColorSpring {
     return (
       Math.abs(this.current[0] - this.target[0]) < 0.001 &&
       Math.abs(this.current[1] - this.target[1]) < 0.001 &&
-      Math.abs(hueDelta(this.current[2], this.target[2])) * this.current[1] < 0.2
+      Math.abs(hueDelta(this.current[2], this.target[2])) * this.current[1] <
+        0.2
     );
   }
 
@@ -272,16 +319,31 @@ export class AmbientColorSpring {
   }
 }
 
-const AMBIENT_SAMPLE_COLUMNS: Record<AmbientChromeEdge, (width: number) => number[]> = {
+const AMBIENT_SAMPLE_COLUMNS: Record<
+  AmbientChromeEdge,
+  (width: number) => number[]
+> = {
   // Match the Search Console contract: start at the visual centre, then cover
   // the primary content columns. A card or gap can no longer choose the tint.
-  top: (width) => [width / 2, width * 0.35, width * 0.65, width * 0.2, width * 0.8],
+  top: (width) => [
+    width / 2,
+    width * 0.35,
+    width * 0.65,
+    width * 0.2,
+    width * 0.8,
+  ],
   bottom: (width) => [width * 0.2, width * 0.8, width / 2, width * 0.4],
 };
 const AMBIENT_SAMPLE_GAP = 6;
 const AMBIENT_SAMPLE_DEPTH = 34;
 const AMBIENT_SAMPLE_COUNT = 5;
 const AMBIENT_MIN_SURFACE_WIDTH = 0.6;
+// Sampling calls elementsFromPoint, computed style, and layout reads. Keep
+// the visual spring at frame rate, but cap expensive surface discovery while
+// a native scroll gesture is active.
+const AMBIENT_SCROLL_SAMPLE_INTERVAL_MS = 96;
+const AMBIENT_SCROLL_SAMPLE_DISTANCE_PX = 24;
+const AMBIENT_SCROLL_IDLE_RESAMPLE_MS = 120;
 
 /**
  * Resolve one real surface at a probe point. The long-lived app scaffold is a
@@ -289,7 +351,11 @@ const AMBIENT_MIN_SURFACE_WIDTH = 0.6;
  * neutral canvas behind a shorter, meaningful route surface.
  */
 function surfaceAt(x: number, y: number, skipScaffold = false): Rgb | null {
-  if (typeof document === "undefined" || typeof document.elementsFromPoint !== "function") return null;
+  if (
+    typeof document === "undefined" ||
+    typeof document.elementsFromPoint !== "function"
+  )
+    return null;
   const viewportWidth = window.innerWidth || 1;
   const viewportHeight = window.innerHeight || 1;
   let documentFallback: Rgb | null = null;
@@ -300,8 +366,11 @@ function surfaceAt(x: number, y: number, skipScaffold = false): Rgb | null {
     while (node) {
       if (node.closest(TRANSIENT_OVERLAY_SELECTOR)) break;
       const style = getComputedStyle(node);
-      const color = parseCssColor(style.backgroundColor) ?? parseGradientSurface(style.backgroundImage);
-      const isDocumentPaint = node === document.body || node === document.documentElement;
+      const color =
+        parseCssColor(style.backgroundColor) ??
+        parseGradientSurface(style.backgroundImage);
+      const isDocumentPaint =
+        node === document.body || node === document.documentElement;
       if (color && isDocumentPaint) {
         // The body is a theme fallback, not route paint. Prefer the shared
         // Foundation canvas below so a mobile WebKit fallback cannot turn a
@@ -326,7 +395,9 @@ function surfaceAt(x: number, y: number, skipScaffold = false): Rgb | null {
   const foundation = document.querySelector("[data-foundation-canvas='true']");
   if (foundation) {
     const style = getComputedStyle(foundation);
-    const color = parseCssColor(style.backgroundColor) ?? parseGradientSurface(style.backgroundImage);
+    const color =
+      parseCssColor(style.backgroundColor) ??
+      parseGradientSurface(style.backgroundImage);
     if (color) return color;
   }
   return firstSolid ?? documentFallback;
@@ -345,6 +416,22 @@ function sampleSurfaceAtDepth(
 }
 
 /**
+ * The Foundation canvas is the canonical app paint below the bottom dock.
+ * Search Console uses that stable canvas for the dock material while the live
+ * sample remains available for edge-aware transitions. This avoids turning a
+ * temporary card/background sample into a persistent grey slab.
+ */
+function foundationCanvasSurface(): Rgb | null {
+  const foundation = document.querySelector("[data-foundation-canvas='true']");
+  if (!foundation) return null;
+  const style = getComputedStyle(foundation);
+  return (
+    parseCssColor(style.backgroundColor) ??
+    parseGradientSurface(style.backgroundImage)
+  );
+}
+
+/**
  * Search Console's position-aware rule: sample from the opaque part of the
  * mask toward its content edge and take the first actual surface. This avoids
  * muddy averages and prevents a card, gap, or tab fade from deciding the tint.
@@ -354,8 +441,10 @@ function sampleSurfaceAcrossMask(
   contentY: number,
   solidY: number,
 ): Rgb | null {
-  const depths = Array.from({ length: AMBIENT_SAMPLE_COUNT }, (_, index) =>
-    solidY + ((contentY - solidY) * index) / (AMBIENT_SAMPLE_COUNT - 1),
+  const depths = Array.from(
+    { length: AMBIENT_SAMPLE_COUNT },
+    (_, index) =>
+      solidY + ((contentY - solidY) * index) / (AMBIENT_SAMPLE_COUNT - 1),
   );
   for (const y of depths) {
     const color = sampleSurfaceAtDepth(columns, y, true);
@@ -370,17 +459,21 @@ function sampleSurfaceAcrossMask(
 
 function sampleMask(mask: Element, edge: AmbientChromeEdge): Rgb | null {
   const rect = mask.getBoundingClientRect();
-  if (rect.height <= 0 || getComputedStyle(mask).display === "none") return null;
+  if (rect.height <= 0 || getComputedStyle(mask).display === "none")
+    return null;
   const viewportHeight = window.innerHeight || 1;
   const contentEdge = edge === "top" ? rect.bottom : rect.top;
   const direction = edge === "top" ? 1 : -1;
-  const clampY = (value: number) => Math.max(0, Math.min(viewportHeight - 1, value));
+  const clampY = (value: number) =>
+    Math.max(0, Math.min(viewportHeight - 1, value));
   const contentY = clampY(contentEdge + direction * AMBIENT_SAMPLE_GAP);
   // The solid probe is anchored at the viewport edge, never the moving mask
   // edge. This is the key Search Console behaviour: the tint represents the
   // actual surface underneath opaque chrome, while the fade only reveals it.
   const solidY = clampY(
-    edge === "top" ? AMBIENT_SAMPLE_DEPTH : viewportHeight - AMBIENT_SAMPLE_DEPTH,
+    edge === "top"
+      ? AMBIENT_SAMPLE_DEPTH
+      : viewportHeight - AMBIENT_SAMPLE_DEPTH,
   );
   return sampleSurfaceAcrossMask(
     AMBIENT_SAMPLE_COLUMNS[edge](window.innerWidth || 1),
@@ -397,49 +490,129 @@ export function createAmbientChromeEngine(enabled = true): () => void {
   let lastFrame = 0;
   let lastActivity = 0;
   let scrollRoot: Element | null = null;
+  let lastSampleAt = 0;
+  let lastSampleScrollY = 0;
+  let sampleRequested = true;
+  let lastOnScreen = false;
+  let scrollIdleTimer: number | null = null;
 
-  const write = (edge: AmbientChromeEdge, color: Rgb, lightness: number | null) => {
+  const setRootVariable = (name: string, value: string) => {
+    if (root.style.getPropertyValue(name) !== value) {
+      root.style.setProperty(name, value);
+    }
+  };
+  const readScrollY = () => {
+    if (scrollRoot instanceof HTMLElement) {
+      return Math.max(0, scrollRoot.scrollTop || 0);
+    }
+    return Math.max(0, window.scrollY || window.pageYOffset || 0);
+  };
+
+  const write = (
+    edge: AmbientChromeEdge,
+    color: Rgb,
+    lightness: number | null,
+  ) => {
     const vars = AMBIENT_CHROME_VARS[edge];
-    root.style.setProperty(vars.background, `rgb(${color.join(", ")})`);
-    root.style.setProperty(vars.foreground, (lightness ?? 1) < 0.55 ? "#f5f5f7" : "#1d1d1f");
+    const tone = resolveAmbientChromeSurfaceTone(lightness);
+    setRootVariable(vars.background, `rgb(${color.join(", ")})`);
+    setRootVariable(vars.foreground, tone === "dark" ? "#f5f5f7" : "#1d1d1f");
+    if (
+      edge === "top" &&
+      root.getAttribute(AMBIENT_CHROME_TOP_SURFACE_ATTR) !== tone
+    ) {
+      root.setAttribute(AMBIENT_CHROME_TOP_SURFACE_ATTR, tone);
+    }
     root.dataset.ambientChromePrimed = "true";
   };
+  const writeBottomBase = () => {
+    const color = foundationCanvasSurface();
+    if (!color) return;
+    const lightness = rgbToOklch(color)[0];
+    const tone = resolveAmbientChromeSurfaceTone(lightness);
+    setRootVariable(
+      AMBIENT_CHROME_VARS.bottom.baseBackground,
+      `rgb(${color.join(", ")})`,
+    );
+    setRootVariable(
+      AMBIENT_CHROME_VARS.bottom.baseForeground,
+      tone === "dark" ? "#f5f5f7" : "#1d1d1f",
+    );
+  };
   const sampleTargets = (snap = false) => {
-    const masks = Array.from(document.querySelectorAll(`[${AMBIENT_CHROME_MASK_ATTR}]`));
+    writeBottomBase();
+    const masks = Array.from(
+      document.querySelectorAll(`[${AMBIENT_CHROME_MASK_ATTR}]`),
+    );
     let onScreen = false;
     for (const mask of masks) {
-      const edge = mask.getAttribute(AMBIENT_CHROME_MASK_ATTR) as AmbientChromeEdge | null;
+      const edge = mask.getAttribute(
+        AMBIENT_CHROME_MASK_ATTR,
+      ) as AmbientChromeEdge | null;
       if (edge !== "top" && edge !== "bottom") continue;
       const sampled = sampleMask(mask, edge);
       if (!sampled) continue;
       onScreen = true;
       const spring = springs.get(edge) ?? new AmbientColorSpring();
       springs.set(edge, spring);
-      spring.setTarget(sampled, snap || window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+      spring.setTarget(
+        sampled,
+        snap || window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+      );
     }
     return onScreen;
   };
   const tick = (time: number) => {
-    const onScreen = sampleTargets(false);
+    const scrollY = readScrollY();
+    const shouldSample =
+      sampleRequested ||
+      (!lastSampleAt && !lastOnScreen) ||
+      (time - lastSampleAt >= AMBIENT_SCROLL_SAMPLE_INTERVAL_MS &&
+        Math.abs(scrollY - lastSampleScrollY) >=
+          AMBIENT_SCROLL_SAMPLE_DISTANCE_PX);
+    let sampledThisFrame = false;
+    if (shouldSample) {
+      lastOnScreen = sampleTargets(false);
+      lastSampleAt = time;
+      lastSampleScrollY = scrollY;
+      sampleRequested = false;
+      sampledThisFrame = true;
+    }
     let moving = false;
     for (const [edge, spring] of springs) {
+      const wasMoving = !spring.settled;
       const color = spring.step(lastFrame ? time - lastFrame : 16);
-      if (color) write(edge, color, spring.lightness);
-      moving ||= !spring.settled;
+      const isMoving = !spring.settled;
+      if (color && (sampledThisFrame || wasMoving || isMoving)) {
+        write(edge, color, spring.lightness);
+      }
+      moving ||= isMoving;
     }
     lastFrame = time;
-    if (onScreen && (moving || time - lastActivity < 240)) {
+    if (
+      lastOnScreen &&
+      (moving || time - lastActivity < 240 || sampleRequested)
+    ) {
       frame = window.requestAnimationFrame(tick);
       return;
     }
     frame = 0;
     lastFrame = 0;
   };
-  const wake = () => {
+  const wakeWithSampling = (requestSample: boolean) => {
+    sampleRequested ||= requestSample;
     lastActivity = performance.now();
     if (!frame) frame = window.requestAnimationFrame(tick);
   };
-  const wakeFromScroll = () => wake();
+  const wake = () => wakeWithSampling(true);
+  const wakeFromScroll = () => {
+    wakeWithSampling(false);
+    if (scrollIdleTimer !== null) window.clearTimeout(scrollIdleTimer);
+    scrollIdleTimer = window.setTimeout(() => {
+      scrollIdleTimer = null;
+      wake();
+    }, AMBIENT_SCROLL_IDLE_RESAMPLE_MS);
+  };
   const bindScrollRoot = () => {
     const next = document.querySelector('[data-app-scroll-root="true"]');
     if (next === scrollRoot) return;
@@ -454,6 +627,10 @@ export function createAmbientChromeEngine(enabled = true): () => void {
   let primeFrames = 0;
   const prime = () => {
     sampleTargets(true);
+    lastSampleAt = performance.now();
+    lastSampleScrollY = readScrollY();
+    sampleRequested = false;
+    lastOnScreen = springs.size > 0;
     for (const [edge, spring] of springs) {
       const color = spring.step(0);
       if (color) write(edge, color, spring.lightness);
@@ -464,13 +641,21 @@ export function createAmbientChromeEngine(enabled = true): () => void {
   wake();
   // Capture phase also observes the document scroll path on desktop and any
   // route that swaps its scroll root after the shell first mounts.
-  window.addEventListener("scroll", wakeFromScroll, { passive: true, capture: true });
+  window.addEventListener("scroll", wakeFromScroll, {
+    passive: true,
+    capture: true,
+  });
   window.addEventListener("resize", wake, { passive: true });
   const observer = new MutationObserver(() => {
     bindScrollRoot();
     wake();
   });
-  observer.observe(document.body, { attributes: true, attributeFilter: ["class", "style", "data-state"], childList: true, subtree: true });
+  observer.observe(document.body, {
+    attributes: true,
+    attributeFilter: ["class", "style", "data-state"],
+    childList: true,
+    subtree: true,
+  });
   // next-themes switches the resolved theme on <html>. Watch that class
   // separately: observing body never sees an ancestor mutation, and watching
   // root style would loop on the inline tint tokens this engine writes.
@@ -481,5 +666,7 @@ export function createAmbientChromeEngine(enabled = true): () => void {
     window.removeEventListener("resize", wake);
     observer.disconnect();
     if (frame) window.cancelAnimationFrame(frame);
+    if (scrollIdleTimer !== null) window.clearTimeout(scrollIdleTimer);
+    root.removeAttribute(AMBIENT_CHROME_TOP_SURFACE_ATTR);
   };
 }

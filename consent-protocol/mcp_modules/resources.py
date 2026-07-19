@@ -7,6 +7,7 @@ import logging
 
 from mcp.types import Resource
 
+from mcp_modules.agentforce_contract import AGENTFORCE_PROFILE
 from mcp_modules.config import SERVER_INFO
 from mcp_modules.developer_context import get_current_schema_profile
 from mcp_modules.flat_contract import FLAT_PROFILE, get_flat_tool_names
@@ -39,6 +40,9 @@ _RESOURCE_METADATA = {
 
 
 async def list_resources() -> list[Resource]:
+    if get_current_schema_profile() == AGENTFORCE_PROFILE:
+        # Agentforce supports server tools, not MCP resources.
+        return []
     contract = get_public_contract()
     return [
         Resource(
@@ -54,7 +58,15 @@ async def list_resources() -> list[Resource]:
 async def read_resource(uri: str) -> str:
     uri_str = str(uri).strip().rstrip("/")
     contract = get_public_contract()
-    is_flat = get_current_schema_profile() == FLAT_PROFILE
+    schema_profile = get_current_schema_profile()
+    if schema_profile == AGENTFORCE_PROFILE:
+        return json.dumps(
+            {
+                "error_code": "AGENTFORCE_RESOURCES_UNSUPPORTED",
+                "message": "This Agentforce UAT profile exposes server tools only.",
+            }
+        )
+    is_flat = schema_profile == FLAT_PROFILE
     tool_names = (
         list(get_flat_tool_names()) if is_flat else [tool["name"] for tool in contract["tools"]]
     )

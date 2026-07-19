@@ -55,7 +55,10 @@ Apps use an operator-configured schema profile. `standard` is the default and
 preserves the five-tool v0.3 catalog exactly. `flat` is an explicit,
 constrained-host capability projection: it exposes only the four lifecycle
 tools with shallow described schemas and flat ciphertext fields. It runs the
-same handlers and consent lifecycle, not an Agentforce-specific adapter.
+same handlers and consent lifecycle. `agentforce` is a separate
+schema-registration UAT profile with Salesforce-compatible tool aliases and
+complete flat output schemas; it intentionally fails user-specific execution
+closed while Salesforce does not support personalized MCP responses.
 
 ## Public Tool Surface
 
@@ -147,15 +150,14 @@ the bearer header. Do not work around either path with stdio, `?token=`, or an
 unauthenticated endpoint. OAuth authenticates the connector only; each read
 still follows the scoped consent lifecycle and encryption rules above.
 
-## Partner / CRM Connectors (Salesforce Agentforce, MuleSoft-Fronted Systems)
+## Partner / CRM Connectors
 
-Hosted CRM platforms (for example Salesforce Agentforce/FSC via a Named
-Credential, or a MuleSoft-fronted integration) connect directly over HTTPS to
-the remote `/mcp` endpoint, without spawning any local process. There is one
-endpoint and one consent lifecycle.
+Compatible hosted CRM connectors (for example MuleSoft-fronted integrations)
+connect directly over HTTPS to the remote `/mcp` endpoint, without spawning a
+local process. There is one endpoint and one consent lifecycle.
 
 - **Auth**: existing integrations may use `Authorization: Bearer <developer-token>`.
-  Explicitly provisioned flat partner apps may instead use OAuth
+  Explicitly provisioned constrained partner apps may instead use OAuth
   `client_credentials` at `/oauth/token`; they receive an app-bound short-lived
   access token and no refresh token. Query-string
   credentials are rejected so tokens cannot leak through Referer headers,
@@ -167,9 +169,9 @@ endpoint and one consent lifecycle.
   ```bash
   cd consent-protocol
   python scripts/ops/provision_partner_developer_app.py \
-    --display-name "Salesforce FSC" \
+    --display-name "Partner CRM" \
     --contact-email partners@hushh.ai \
-    --crm-id salesforce-fsc-hushh \
+    --crm-id partner-crm-hushh \
     --schema-profile flat \
     --enable-client-credentials \
     --connector-key-id salesforce-fsc-key-2026-07 \
@@ -180,13 +182,59 @@ endpoint and one consent lifecycle.
   telemetry stay per-system. The operator stores the one-time raw bearer token
   or OAuth client secret only in the partner's secret manager. Hussh stores the
   public X25519 key and fingerprint only, never the partner private key.
-- **Agentforce gate**: Salesforce currently documents Streamable HTTP and
-  client credentials support, but warns that user-level/personalized MCP
-  responses require validation. Direct Agentforce remains a UAT production
-  gate: verify catalog registration, four actions, lifecycle, ciphertext
-  retrieval, partner-side decryption, and trace visibility. If that host gate
-  fails, MuleSoft may expose the same flat Hussh contract; it must not proxy
-  the standard catalog unchanged.
+### Salesforce Agentforce: schema-registration UAT only
+
+Salesforce supports Streamable HTTP and OAuth client credentials for MCP, but
+its current [MCP considerations](https://help.salesforce.com/s/articleView?id=ai.agent_mcp_considerations.htm&language=en_US&type=5)
+explicitly exclude user-level authentication and use cases that need individual
+user IDs or personalized responses. Hussh consent and encrypted export are
+personalized workflows. Direct production Agentforce support is therefore
+blocked; a MuleSoft broker does not remove that platform limitation.
+
+Hussh provides an `agentforce` profile only for safe registration/schema UAT:
+
+```bash
+cd consent-protocol
+python scripts/ops/provision_partner_developer_app.py \
+  --display-name "Salesforce Agentforce UAT" \
+  --contact-email partners@hushh.ai \
+  --crm-id salesforce-agentforce-uat \
+  --schema-profile agentforce \
+  --enable-client-credentials \
+  --connector-key-id salesforce-agentforce-uat-2026-07 \
+  --connector-public-key "$PARTNER_X25519_PUBLIC_KEY"
+```
+
+This UAT catalog is generated from the runtime and has exactly four tools:
+
+- `search-user-scopes`
+- `request-consent`
+- `check-consent-status`
+- `get-encrypted-scoped-export`
+
+They have client-facing names/descriptions, primitive or string-array fields,
+explicit required inputs, bounded field metadata, and complete output schemas.
+The server exposes no resources or prompts to this profile and caps the request
+timeout at 55 seconds so it settles before Agentforce's 60-second MCP timeout.
+Calls that would execute the user-specific lifecycle return
+`AGENTFORCE_PERSONALIZED_WORKFLOW_UNSUPPORTED` without contacting a handler.
+
+Before every Agentforce registration or schema change, print and review the
+generated catalog:
+
+```bash
+cd packages/hushh-mcp
+npm run print-agentforce-manifest
+```
+
+In Agentforce Registry, register the Streamable HTTP endpoint, configure OAuth
+client credentials, and allowlist only those four aliases. Then inspect the
+Asset Library action schemas: verify all input/output field counts and manually
+replace any display labels that Salesforce renders as `string`. Salesforce
+documents this as a current Builder issue; JSON Schema `title` is included for
+inspection but is not claimed as a platform UI fix. Record only safe metadata
+(tool IDs, field counts, mapping status, latency, and trace correlation), never
+identities, tokens, ciphertext, or customer screenshots.
 - **Rate limits**: the remote endpoint enforces a per-developer-app rate
   limit (default `120/minute`, configurable via `MCP_REMOTE_RATE_LIMIT`) and
   a per-request timeout (default 120s, configurable via

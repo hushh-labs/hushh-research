@@ -62,8 +62,6 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `GMAIL_OAUTH_CLIENT_SECRET` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Gmail OAuth client secret. Same key name across local, UAT, and production. |
 | `GMAIL_OAUTH_REDIRECT_URI` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Environment-owned Gmail OAuth callback. It must equal `APP_FRONTEND_ORIGIN + /profile/gmail/oauth/return`; the key name is shared but the value is environment-specific. |
 | `GMAIL_OAUTH_TOKEN_KEY` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Encryption key for persisted Gmail OAuth tokens. Same key name across local, UAT, and production. |
-| `OPENAI_API_KEY` | `hushh_mcp/services/voice_intent_service.py` | Yes (voice) | Required for the Kai voice lane's realtime transcription, planning/composition, and TTS. |
-| `VOICE_RUNTIME_CONFIG_JSON` | `hushh_mcp/runtime_settings.py`, `api/routes/kai/voice.py`, `hushh_mcp/services/voice_intent_service.py` | Yes (voice) | Structured runtime config for rollout, allowlists/canary, fail-fast policy, and model defaults. |
 | `DEFAULT_CONSENT_TOKEN_EXPIRY_MS` | `hushh_mcp/config.py` | No | Token TTL (default: 24h). |
 | `DEFAULT_TRUST_LINK_EXPIRY_MS` | `hushh_mcp/config.py` | No | TrustLink TTL. |
 | `ENVIRONMENT` | `hushh_mcp/config.py` | No | `production` or `development` (default). |
@@ -87,6 +85,8 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `AGENT_GEMINI_TTS_VOICE` | `hushh_mcp/services/agent_voice_service.py` | No | Optional backend default Agent TTS voice. Defaults to `Sulafat`. |
 | `AGENT_GEMINI_TTS_TIMEOUT_SECONDS` | `hushh_mcp/services/agent_voice_service.py` | No | Optional Agent voice TTS Gemini timeout per attempt. Defaults to `45`. |
 | `AGENT_GEMINI_TTS_MAX_ATTEMPTS` | `hushh_mcp/services/agent_voice_service.py` | No | Optional Agent voice TTS retry cap. Defaults to `2`; bounded from `1` to `4`. |
+| `HUSHH_GEMINI_BYOK_LIVE_ENABLED` | `hushh_mcp/one_adk/agent_tree.py` | No | Default disabled. Enables only a registry-approved Developer API Live model after an ADK UAT rehearsal; never carries a user key. |
+| `HUSHH_GEMINI_BYOK_LIVE_MODEL` | `hushh_mcp/one_adk/agent_tree.py` | No | Exact registry-approved Developer API Live model for optional BYOK voice. Unset or unsupported values fail closed to managed Gemini. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | Cloud Run env | Yes (hosted) | Set `true` with `HUSHH_GENAI_AUTH_MODE=vertex_adc`; API-key fallback is prohibited. |
 | `PLAID_ENV` / `PLAID_ENVIRONMENT` | `hushh_mcp/services/plaid_portfolio_service.py` | No | Plaid environment. Defaults to `sandbox`. |
 | `PLAID_CLIENT_ID` | `hushh_mcp/services/plaid_portfolio_service.py` | If Plaid enabled | Plaid client ID. |

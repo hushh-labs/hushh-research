@@ -5,13 +5,11 @@ import {
   useMemo,
   useState,
   type KeyboardEvent,
-  type MouseEvent,
 } from "react";
 import {
   Activity,
   Compass,
   History,
-  Mic,
   Search,
   ShieldCheck,
   UserRound,
@@ -35,9 +33,14 @@ import {
   type TickerUniverseRow,
 } from "@/lib/kai/ticker-universe-cache";
 import { searchKaiActions } from "@/lib/voice/kai-action-gateway";
+import {
+  isDiscoverableCapability,
+  projectKaiActionCapability,
+  type VoiceCapabilityStateV1,
+} from "@/lib/voice/capability-projection";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
+import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { cn } from "@/lib/utils";
 
 export type KaiCommandPaletteSelection = {
   actionId: string;
@@ -50,10 +53,9 @@ interface KaiCommandPaletteProps {
   onSelectAction: (selection: KaiCommandPaletteSelection) => void;
   onSubmitPrompt: (prompt: string) => void;
   appRuntimeState?: AppRuntimeState;
-  onVoiceClick?: (event: MouseEvent<HTMLButtonElement>) => void;
-  voiceActive?: boolean;
-  voiceDisabled?: boolean;
-  voiceHidden?: boolean;
+  capabilityState?: VoiceCapabilityStateV1;
+  surfaceMetadata?: VoiceSurfaceMetadata | null;
+  disabled?: boolean;
   portfolioTickers?: Array<{
     symbol: string;
     name?: string;
@@ -162,10 +164,9 @@ export function KaiCommandPalette({
   onSelectAction,
   onSubmitPrompt,
   appRuntimeState,
-  onVoiceClick,
-  voiceActive = false,
-  voiceDisabled = false,
-  voiceHidden = false,
+  capabilityState,
+  surfaceMetadata,
+  disabled = false,
   portfolioTickers = [],
 }: KaiCommandPaletteProps) {
   const [query, setQuery] = useState("");
@@ -386,9 +387,19 @@ export function KaiCommandPalette({
       searchKaiActions({
         query,
         appRuntimeState,
+        surfaceMetadata,
         limit: 24,
+      }).filter((entry) => {
+        if (!capabilityState) return true;
+        return isDiscoverableCapability(
+          projectKaiActionCapability({
+            actionId: entry.action.action_id,
+            state: capabilityState,
+            surfaceMetadata,
+          }),
+        );
       }),
-    [appRuntimeState, query]
+    [appRuntimeState, capabilityState, query, surfaceMetadata]
   );
 
   const exactActionMatch = useMemo(() => {
@@ -402,6 +413,7 @@ export function KaiCommandPalette({
   }, [actionMatches, query]);
 
   function runAction(actionId: string, slots?: Record<string, unknown>) {
+    if (disabled) return;
     onOpenChange(false);
     setQuery("");
     onSelectAction({
@@ -411,6 +423,7 @@ export function KaiCommandPalette({
   }
 
   function submitSearchOrPrompt(event: KeyboardEvent<HTMLInputElement>) {
+    if (disabled) return;
     if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
     event.preventDefault();
     const value = query.trim();
@@ -425,6 +438,7 @@ export function KaiCommandPalette({
   }
 
   function submitPromptSuggestion() {
+    if (disabled) return;
     const value = query.trim();
     if (!value) return;
     onOpenChange(false);
@@ -441,7 +455,8 @@ export function KaiCommandPalette({
       onOpenChange={onOpenChange}
       showCloseButton={false}
       title="Search or ask One"
-      className="top-auto bottom-[calc(var(--kb-height,0px)+0.5rem)] max-h-[min(72dvh,34rem)] w-[calc(100%-1rem)] translate-y-0 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-h-none sm:-translate-y-1/2"
+      data-keyboard-anchor="bottom"
+      className="top-auto bottom-[calc(var(--kb-height,0px)+0.5rem)] max-h-[min(calc(100dvh-var(--kb-height,0px)-1rem),34rem)] w-[calc(100%-1rem)] translate-y-0 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-h-none sm:-translate-y-1/2"
     >
       <CommandList className="max-h-[min(56dvh,24rem)] sm:max-h-[300px]">
         <CommandEmpty className={isFiltering ? undefined : "hidden"}>{commandEmptyMessage}</CommandEmpty>
@@ -450,6 +465,7 @@ export function KaiCommandPalette({
           <CommandItem
             className={commandItemClass}
             value={`Ask One ${query}`}
+            disabled={disabled}
             onSelect={submitPromptSuggestion}
           >
             <Icon icon={Search} size="sm" className="mr-2 text-accent-strong" />
@@ -469,7 +485,8 @@ export function KaiCommandPalette({
             </CommandItem>
           ) : null}
           {actionMatches.map(({ action, availability }) => {
-            const disabled =
+            const actionDisabled =
+              disabled ||
               availability.status === "dead" ||
               availability.status === "unwired" ||
               availability.status === "manual_only" ||
@@ -488,7 +505,7 @@ export function KaiCommandPalette({
               <CommandItem
                 className={commandItemClass}
                 key={action.action_id}
-                disabled={disabled}
+                disabled={actionDisabled}
                 value={[
                   action.label,
                   action.action_id,
@@ -529,6 +546,7 @@ export function KaiCommandPalette({
               <CommandItem
                 className={commandItemClass}
                 key={`${ticker}:${title}`}
+                disabled={disabled}
                 value={`${ticker} ${title} ${row.sector || row.sector_primary || ""} ${row.exchange || ""}`}
                 onSelect={() =>
                   runAction("analysis.start", {
@@ -554,28 +572,13 @@ export function KaiCommandPalette({
           value={query}
           onValueChange={setQuery}
           onKeyDown={submitSearchOrPrompt}
+          disabled={disabled}
           placeholder="Ask One or search"
           className="pr-28"
           enterKeyHint="send"
           autoFocus
         />
         <div className="absolute right-2.5 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
-          {!voiceHidden ? (
-            <button
-              type="button"
-              aria-label={voiceActive ? "End One Voice" : "Start One Voice"}
-              aria-disabled={voiceDisabled}
-              data-native-voice-control-id="one_voice_command_palette_toggle"
-              data-testid="one-voice-command-palette-toggle"
-              onClick={onVoiceClick}
-              className={cn(
-                "inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/10",
-                voiceActive ? "bg-primary text-primary-foreground hover:bg-primary/90" : "text-muted-foreground"
-              )}
-            >
-              <Mic className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
-            </button>
-          ) : null}
           <button
             type="button"
             aria-label="Close search"

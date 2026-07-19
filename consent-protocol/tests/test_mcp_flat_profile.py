@@ -7,6 +7,12 @@ import pytest
 from mcp.types import TextContent
 
 from hushh_mcp.services.developer_registry_service import DeveloperPrincipal
+from mcp_modules.agentforce_contract import (
+    AGENTFORCE_PROFILE,
+    agentforce_contract_errors,
+    get_agentforce_contract,
+    get_agentforce_tool_names,
+)
 from mcp_modules.developer_context import (
     reset_current_developer_principal,
     set_current_developer_principal,
@@ -51,11 +57,35 @@ def test_flat_profile_has_only_four_described_shallow_tools() -> None:
                 if "properties" in node:
                     assert node["type"] == "object"
                     for property_schema in node["properties"].values():
+                        assert property_schema["title"].strip()
                         assert property_schema["description"].strip()
                         assert property_schema["type"] != "object"
                 if node.get("type") == "array":
                     assert node["items"]["type"] != "object"
                     assert node["items"]["description"].strip()
+
+
+def test_agentforce_uat_contract_is_strict_and_keeps_canonical_field_ids() -> None:
+    contract = get_agentforce_contract()
+    flat = get_flat_contract()
+
+    assert contract["profile"] == AGENTFORCE_PROFILE
+    assert agentforce_contract_errors(contract) == []
+    assert tuple(tool["name"] for tool in contract["tools"]) == get_agentforce_tool_names()
+    assert tuple(tool["name"] for tool in flat["tools"]) == get_flat_tool_names()
+    assert len(contract["tools"]) == 4
+
+    for agentforce_tool, flat_tool in zip(contract["tools"], flat["tools"], strict=True):
+        assert agentforce_tool["name"] != flat_tool["name"]
+        assert set(agentforce_tool["inputSchema"]["properties"]) == set(
+            flat_tool["inputSchema"]["properties"]
+        )
+        assert set(agentforce_tool["outputSchema"]["properties"]) == set(
+            flat_tool["outputSchema"]["properties"]
+        )
+        assert agentforce_tool["title"].strip()
+        assert agentforce_tool["description"].strip()
+        assert agentforce_tool["annotations"]["title"] == agentforce_tool["title"]
 
 
 def test_flat_projection_preserves_lifecycle_references_and_export_envelope() -> None:
@@ -166,3 +196,38 @@ async def test_flat_mcp_boundary_lists_four_tools_and_mirrors_projected_json(mon
         "next_cursor": "",
         "has_more": False,
     }
+
+
+@pytest.mark.asyncio
+async def test_agentforce_uat_boundary_lists_schema_but_rejects_personalized_calls() -> None:
+    import mcp_server
+    from mcp_modules import resources
+
+    tokens = set_current_developer_principal(
+        DeveloperPrincipal(
+            app_id="app_agentforce",
+            agent_id="developer:app_agentforce",
+            display_name="Agentforce UAT",
+            allowed_tool_groups=("core_consent",),
+            schema_profile=AGENTFORCE_PROFILE,
+        ),
+        token="hdo_at_agentforce_fixture",  # noqa: S106 - opaque test access-token fixture
+    )
+    try:
+        tools = await mcp_server.list_tools()
+        result = await mcp_server.call_tool(
+            "search-user-scopes", {"user_identifier": "user@example.test"}
+        )
+        resources_list = await resources.list_resources()
+    finally:
+        reset_current_developer_principal(tokens)
+
+    assert tuple(tool.name for tool in tools) == get_agentforce_tool_names()
+    for tool in tools:
+        dumped = tool.model_dump(by_alias=True, exclude_none=True)
+        assert dumped["title"]
+        assert dumped["outputSchema"]
+        assert all(field["title"] for field in dumped["outputSchema"]["properties"].values())
+    assert result.isError is True
+    assert result.structuredContent["error_code"] == "AGENTFORCE_PERSONALIZED_WORKFLOW_UNSUPPORTED"
+    assert resources_list == []

@@ -13,15 +13,12 @@ import { useVault } from "@/lib/vault/vault-context";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { DebateRunManagerService } from "@/lib/services/debate-run-manager";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
-import { useVoiceSession } from "@/lib/voice/voice-session-store";
-import { isRiaActionBarRoute } from "@/lib/navigation/routes";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
-import { buildOneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
-import { executeAgentGatewayAction } from "@/lib/agent/agent-action-runtime";
-import { settleAgentGatewayAction } from "@/lib/agent/agent-gateway-action-settlement";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
+import { startAppGoal } from "@/lib/agent/app-goal-client";
 
 function toBoolean(value: unknown): boolean | undefined {
   if (typeof value === "boolean") return value;
@@ -58,6 +55,7 @@ export function KaiCommandBarGlobal() {
   const searchParams = useSearchParams();
   const agentPopover = useOptionalAgentPopover();
   const createHandoff = useOneConversationSession((state) => state.createHandoff);
+  const canonicalAgentRuntime = useAgentRuntimeStateOptional();
   const { user, loading } = useAuth();
   const {
     activePersona,
@@ -72,10 +70,8 @@ export function KaiCommandBarGlobal() {
   const setAnalysisParams = useKaiSession((s) => s.setAnalysisParams);
   const busyOperations = useKaiSession((s) => s.busyOperations);
   const analysisParams = useKaiSession((s) => s.analysisParams);
-  const { lastToolName, lastTicker } = useVoiceSession();
   const cache = useMemo(() => CacheService.getInstance(), []);
   const [hasPortfolioData, setHasPortfolioData] = useState(false);
-  const [ttsPlaying, setTtsPlaying] = useState(false);
   const [backgroundTaskState, setBackgroundTaskState] = useState(() =>
     AppBackgroundTaskService.getState()
   );
@@ -216,10 +212,6 @@ export function KaiCommandBarGlobal() {
     () => deriveVoiceRouteScreen(pathname || "", routeQuery),
     [pathname, routeQuery]
   );
-  const useRiaActionBar = useMemo(
-    () => isRiaActionBarRoute(pathname),
-    [pathname]
-  );
   const agentWindowOpen =
     agentPopover?.expanded || agentPopover?.motionState === "opening";
 
@@ -283,9 +275,9 @@ export function KaiCommandBarGlobal() {
       },
       voice: {
         available: false,
-        tts_playing: ttsPlaying,
-        last_tool_name: lastToolName,
-        last_ticker: lastTicker,
+        tts_playing: false,
+        last_tool_name: null,
+        last_ticker: null,
       },
     }),
     [
@@ -294,8 +286,6 @@ export function KaiCommandBarGlobal() {
       busyOperations,
       hasPortfolioData,
       isVaultUnlocked,
-      lastTicker,
-      lastToolName,
       pathnameWithQuery,
       routeInfo.screen,
       routeInfo.subview,
@@ -304,7 +294,6 @@ export function KaiCommandBarGlobal() {
       signedIn,
       tokenAvailable,
       tokenValid,
-      ttsPlaying,
       userId,
       personaState?.personas,
       personaTransitionTarget,
@@ -314,58 +303,47 @@ export function KaiCommandBarGlobal() {
     ]
   );
 
-  const voiceContext = useMemo(
-    () => ({
-      route: pathname,
-      route_query: routeQuery || null,
-      stock_analysis_active: appRuntimeState.runtime.analysis_active,
-      last_tool_name: lastToolName,
-      last_ticker: lastTicker,
-      current_ticker: appRuntimeState.runtime.analysis_ticker || null,
-      has_portfolio_data: hasPortfolioData,
-    }),
-    [
-      appRuntimeState.runtime.analysis_active,
-      appRuntimeState.runtime.analysis_ticker,
-      hasPortfolioData,
-      lastTicker,
-      lastToolName,
-      pathname,
-      routeQuery,
-    ]
-  );
-
   const appRuntimeStateRef = useRef(appRuntimeState);
+  const canonicalAgentRuntimeRef = useRef(canonicalAgentRuntime);
 
   useEffect(() => {
     appRuntimeStateRef.current = appRuntimeState;
   }, [appRuntimeState]);
 
+  useEffect(() => {
+    canonicalAgentRuntimeRef.current = canonicalAgentRuntime;
+  }, [canonicalAgentRuntime]);
+
   const runGatewayAction = useCallback(
     async (actionId: string, slots?: Record<string, unknown>) => {
-      const currentState = appRuntimeStateRef.current;
-      const surfaceMetadata = getVoiceSurfaceMetadata();
-      const snapshot = buildOneVoiceContextSnapshot({
-        appRuntimeState: currentState,
-        voiceContext,
-        surfaceMetadata,
-      });
-      const executionResult = await executeAgentGatewayAction({
+      const runtime = canonicalAgentRuntimeRef.current;
+      if (!runtime) {
+        const handoff = createHandoff({
+          reason: "user_requested",
+          transcript: actionId,
+        });
+        agentPopover?.openAgent({ handoff });
+        return;
+      }
+      await startAppGoal({
         actionId,
         slots,
         userId,
         router,
-        appRuntimeState: currentState,
-        surfaceMetadata,
-        allowedActionIds: snapshot.available_action_ids,
-        hasPortfolioData: currentState.portfolio.has_portfolio_data,
+        getAppRuntimeState: () =>
+          canonicalAgentRuntimeRef.current?.appRuntimeState ?? appRuntimeStateRef.current,
+        getCapabilityState: () => {
+          const current = canonicalAgentRuntimeRef.current;
+          if (!current) {
+            throw new Error("One action state is unavailable.");
+          }
+          return current.capabilityState;
+        },
+        getSurfaceMetadata: getVoiceSurfaceMetadata,
+        hasPortfolioData: runtime.appRuntimeState.portfolio.has_portfolio_data,
         busyOperations,
         setAnalysisParams,
         switchPersona,
-      });
-      await settleAgentGatewayAction(executionResult, {
-        getCurrentRoute: () => appRuntimeStateRef.current.route,
-        getCurrentSurfaceMetadata: getVoiceSurfaceMetadata,
       });
     },
     [
@@ -374,7 +352,8 @@ export function KaiCommandBarGlobal() {
       setAnalysisParams,
       switchPersona,
       userId,
-      voiceContext,
+      agentPopover,
+      createHandoff,
     ]
   );
 
@@ -405,14 +384,9 @@ export function KaiCommandBarGlobal() {
         void runGatewayAction(selection.actionId, selection.slots);
       }}
       onSubmitPrompt={submitPromptToOne}
-      userId={userId}
-      vaultOwnerToken={vaultOwnerToken || undefined}
-      voiceAvailable={false}
-      voiceVisibilityMode="hidden"
-      onTtsPlayingChange={setTtsPlaying}
       appRuntimeState={appRuntimeState}
-      voiceContext={voiceContext}
-      surfaceVariant={useRiaActionBar ? "ria" : "kai"}
+      capabilityState={canonicalAgentRuntime?.capabilityState}
+      surfaceMetadata={getVoiceSurfaceMetadata()}
       portfolioTickers={portfolioTickers}
     />
   );

@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Database, FileUp, Loader2 } from "lucide-react";
 
+import { AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
@@ -131,28 +132,29 @@ export function PortfolioImportView({
   const isBusy = isUploading || isPreloadingSchema || isConnectingPlaid;
 
   return (
-    <div className="w-full space-y-3 pb-2">
+    <div className="w-full pb-2">
       <KaiWorkspaceHeader
         workspace="portfolio"
         title="Portfolio"
         description="Choose how you want to begin."
       />
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".csv,.pdf"
-        onChange={handleFileChange}
-        className="sr-only"
-        disabled={isBusy}
-        aria-label="Choose a PDF or CSV brokerage statement"
-      />
+      <AppPageContentRegion className="space-y-3">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".csv,.pdf"
+          onChange={handleFileChange}
+          className="sr-only"
+          disabled={isBusy}
+          aria-label="Choose a PDF or CSV brokerage statement"
+        />
 
-      <SettingsGroup
-        embedded
-        separatorInset
-        testId="portfolio-import-source-options"
-      >
+        <SettingsGroup
+          embedded
+          separatorInset
+          testId="portfolio-import-source-options"
+        >
         <SettingsRow
           icon={PlaidIcon as any}
           iconTone="blue"
@@ -223,25 +225,26 @@ export function PortfolioImportView({
             testId="portfolio-import-load-sample"
           />
         ) : null}
-      </SettingsGroup>
+        </SettingsGroup>
 
-      {selectionError ? (
-        <p className="px-1 text-sm text-destructive" role="alert">
-          {selectionError}
-        </p>
-      ) : null}
+        {selectionError ? (
+          <p className="px-1 text-sm text-destructive" role="alert">
+            {selectionError}
+          </p>
+        ) : null}
 
-      <div className="pt-0.5 text-center">
-        <MorphyButton
-          variant="none"
-          effect="fade"
-          onClick={onSkip}
-          disabled={isBusy}
-          className="h-10 rounded-full px-4 text-sm text-muted-foreground hover:text-foreground"
-        >
-          I&apos;ll link this later
-        </MorphyButton>
-      </div>
+        <div className="pt-0.5 text-center">
+          <MorphyButton
+            variant="none"
+            effect="fade"
+            onClick={onSkip}
+            disabled={isBusy}
+            className="h-10 rounded-full px-4 text-sm text-muted-foreground hover:text-foreground"
+          >
+            I&apos;ll link this later
+          </MorphyButton>
+        </div>
+      </AppPageContentRegion>
     </div>
   );
 }

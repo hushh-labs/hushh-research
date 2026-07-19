@@ -202,9 +202,9 @@ canvas, another fixed header, or a route-local tab bar. The top shell owns the
 single contextual tab row, and a tab may own only its one ordinary `PageHeader`.
 
 Persistent chrome uses the single ambient material system in
-`components/app-ui/ambient-chrome-mask.tsx`: top is the sampled frosted wash
-with its feathered mask and bottom is the same sampled tint as a content
-dissolve. Those edges must remain present on mobile and desktop wherever the
-signed-in top/bottom shell is present.
+`components/app-ui/ambient-chrome-mask.tsx`: both edges use a blur-free sampled
+tint and feathered dissolve; the top mask keeps the shell legible through its
+tab stack before fading into content. Those edges must remain present on mobile
+and desktop wherever the signed-in top/bottom shell is present.
 
 `SettingsGroup` and `SettingsRow` are the standard responsive list system for Profile, agents, and Connected Systems. Groups use the compact utility radius, inset separators, text truncation, and mobile-stacked trailing controls. Do not make a desktop `DataTable` the only way to operate a narrow route.

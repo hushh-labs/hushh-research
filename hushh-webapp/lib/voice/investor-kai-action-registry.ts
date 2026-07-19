@@ -162,12 +162,6 @@ function describeGuard(guardId: string): string {
 }
 
 function toWiring(executionTarget: KaiActionExecutionTarget): InvestorKaiActionWiring {
-  if (executionTarget.status === "dead") {
-    return {
-      status: "dead",
-      reason: executionTarget.reason,
-    };
-  }
   if (executionTarget.status === "unwired") {
     return {
       status: "unwired",

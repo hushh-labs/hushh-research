@@ -10,7 +10,7 @@ managed Gemini uses Vertex workload ADC and never falls back to a hosted key.
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, Literal
 
 from .registry import ProviderId, normalize_provider
 from .vertex_failover import VertexRegionalClient
@@ -28,6 +28,7 @@ _PROJECT_ENV_NAMES = (
     "GCLOUD_PROJECT",
     "VERTEX_PROJECT_ID",
 )
+GeminiByokTransport = Literal["developer_api", "vertex_api_key"]
 
 
 def _clean_env(name: str) -> str:
@@ -112,11 +113,31 @@ def _vertex_location_cooldown_seconds() -> float:
     return value
 
 
-def _gemini_client(api_key: str, *, managed: bool) -> Any:
+def _gemini_client(
+    api_key: str,
+    *,
+    managed: bool,
+    byok_transport: GeminiByokTransport = "developer_api",
+    vertex_project: str | None = None,
+    vertex_location: str | None = None,
+) -> Any:
     from google import genai
 
     if not managed:
         # BYOK is deliberately isolated from backend ADC and environment keys.
+        if byok_transport == "vertex_api_key":
+            project = (vertex_project or "").strip()
+            location = (vertex_location or "").strip()
+            if not project or not location:
+                raise ValueError("Vertex API-key BYOK requires project and location")
+            # This is a Google Cloud/Gemini Enterprise API key, not a Gemini
+            # Developer API key. Never infer the endpoint from key shape.
+            return genai.Client(
+                vertexai=True,
+                api_key=api_key,
+                project=project,
+                location=location,
+            )
         return genai.Client(vertexai=False, api_key=api_key)
 
     mode = _managed_genai_auth_mode()
@@ -145,9 +166,23 @@ def _gemini_client(api_key: str, *, managed: bool) -> Any:
     )
 
 
-def _build(provider: ProviderId, api_key: str, *, managed: bool) -> Any:
+def _build(
+    provider: ProviderId,
+    api_key: str,
+    *,
+    managed: bool,
+    gemini_byok_transport: GeminiByokTransport = "developer_api",
+    vertex_project: str | None = None,
+    vertex_location: str | None = None,
+) -> Any:
     if provider == "gemini":
-        return _gemini_client(api_key, managed=managed)
+        return _gemini_client(
+            api_key,
+            managed=managed,
+            byok_transport=gemini_byok_transport,
+            vertex_project=vertex_project,
+            vertex_location=vertex_location,
+        )
     if provider == "anthropic":
         from .anthropic_transport import AnthropicTransport
 
@@ -164,14 +199,30 @@ def _build(provider: ProviderId, api_key: str, *, managed: bool) -> Any:
     raise ValueError(f"Unsupported runtime provider: {provider!r}")
 
 
-def build_runtime_client(runtime_provider: str, user_key: str) -> Any:
+def build_runtime_client(
+    runtime_provider: str,
+    user_key: str,
+    *,
+    gemini_byok_transport: GeminiByokTransport = "developer_api",
+    vertex_project: str | None = None,
+    vertex_location: str | None = None,
+) -> Any:
     """BYOK client: the user supplies the key for the chosen provider."""
 
     provider = normalize_provider(runtime_provider)
     key = (user_key or "").strip()
     if not key:
         raise ValueError("User BYOK runtime key is required")
-    return _build(provider, key, managed=False)
+    if gemini_byok_transport not in {"developer_api", "vertex_api_key"}:
+        raise ValueError("Unsupported Gemini BYOK transport")
+    return _build(
+        provider,
+        key,
+        managed=False,
+        gemini_byok_transport=gemini_byok_transport,
+        vertex_project=vertex_project,
+        vertex_location=vertex_location,
+    )
 
 
 def build_managed_runtime_client(runtime_provider: str, managed_credential: str = "") -> Any:

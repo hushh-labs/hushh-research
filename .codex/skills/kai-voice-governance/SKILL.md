@@ -19,7 +19,7 @@ description: Use when changing One Voice capability authoring, Kai compatibility
 Owned repo surfaces:
 
 1. `contracts/kai`
-2. `consent-protocol/hushh_mcp/services/voice_action_manifest.py`
+2. `consent-protocol/hushh_mcp/services/action_gateway.py`
 3. `docs/reference/one/one-voice-runtime-architecture.md`
 4. `docs/reference/one/one-voice-kai-compatibility-runtime.md`
 5. `docs/reference/kai`
@@ -63,7 +63,7 @@ Non-owned surfaces:
 ## Workflow
 
 1. Treat local voice action contracts as the authoring source of truth.
-2. Keep the generated gateway as semantic authority and the manifest as compatibility artifact.
+2. Keep the generated gateway as the single semantic authority; do not restore a parallel compatibility manifest.
 3. Reuse stable `action_id` values across voice, search, UI actionables, analytics, and docs.
 4. Do not add capabilities through runtime heuristics, ad hoc DOM discovery, or parallel voice systems.
 5. Treat One Voice as the product-facing voice contract; keep Kai-era voice routes as compatibility/runtime identifiers until explicitly migrated.
@@ -90,7 +90,7 @@ Non-owned surfaces:
 cd hushh-webapp && npm run build:voice-gateway
 cd hushh-webapp && npm run verify:voice-gateway
 cd hushh-webapp && npm run typecheck
-cd hushh-webapp && npm run test -- __tests__/voice/kai-action-gateway.test.ts __tests__/voice/voice-action-manifest.test.ts __tests__/voice/investor-kai-action-registry.test.ts __tests__/voice/voice-grounding.test.ts __tests__/voice/voice-turn-orchestrator.test.ts
-cd consent-protocol && python3 -m pytest tests/test_kai_voice_contract.py -q
+cd hushh-webapp && npm run test -- __tests__/voice/kai-action-gateway.test.ts __tests__/voice/capability-projection.test.ts __tests__/voice/one-voice-transport.test.ts
+cd consent-protocol && python3 -m pytest tests/test_one_adk_live_protocol.py tests/services/test_agent_chat_service.py -q
 ./bin/hushh docs verify
 ```

@@ -266,6 +266,33 @@ def test_factory_gemini_uses_byok_and_managed_adc_clients(monkeypatch):
     ]
 
 
+def test_factory_routes_a_google_cloud_vertex_api_key_to_the_vertex_endpoint(monkeypatch):
+    calls: list[dict] = []
+
+    monkeypatch.setattr(
+        "google.genai.Client",
+        lambda **kwargs: calls.append(kwargs) or types.SimpleNamespace(kind="vertex-api-key"),
+    )
+
+    client = build_runtime_client(
+        "gemini",
+        "K1",
+        gemini_byok_transport="vertex_api_key",
+        vertex_project="customer-vertex-project",
+        vertex_location="us-central1",
+    )
+
+    assert client.kind == "vertex-api-key"
+    assert calls == [
+        {
+            "vertexai": True,
+            "api_key": "K1",
+            "project": "customer-vertex-project",
+            "location": "us-central1",
+        }
+    ]
+
+
 def test_factory_managed_adc_ignores_legacy_environment_key(monkeypatch):
     calls: list[dict] = []
 

@@ -52,6 +52,7 @@ export function getRouteScope(pathname: string): RouteScope {
     isRoute(pathname, ROUTES.ONE_KYC) ||
     isRoute(pathname, ROUTES.ONE_LOCATION) ||
     isRoute(pathname, ROUTES.PROFILE) ||
+    isRoute(pathname, ROUTES.CONNECT) ||
     isRoute(pathname, ROUTES.MARKETPLACE)
   ) {
     return "shared";

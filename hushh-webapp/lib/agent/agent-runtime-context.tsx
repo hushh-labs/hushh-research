@@ -56,6 +56,10 @@ import {
 } from "@/lib/morphy-ax";
 import { getVoiceV2Flags } from "@/lib/voice/voice-feature-flags";
 import { useLocalOnboardingHandlerRevision } from "@/lib/agent/local-onboarding-actions";
+import {
+  deriveVoiceCapabilityState,
+  type VoiceCapabilityStateV1,
+} from "@/lib/voice/capability-projection";
 
 // The access tier the agent should operate at. This is what drives how the
 // bar presents itself and which persona the backend should compose.
@@ -94,6 +98,8 @@ export type AgentRuntimeState = {
   screen: string;
   /** Redacted One Voice snapshot safe for realtime prompt shaping. */
   oneVoiceContextSnapshot: OneVoiceContextSnapshot;
+  /** Redacted lifecycle and mounted-control state for action discovery. */
+  capabilityState: VoiceCapabilityStateV1;
   /** Pure, redacted Agent Experience snapshot; never an action authority. */
   morphyAxSnapshot: MorphyAxSnapshotV1;
   /** Shared presentation posture derived from the existing voice FSM. */
@@ -457,6 +463,10 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       const oneVoiceContextSnapshot = morphyAxEnabled
         ? toOneVoiceContextSnapshot(morphyAxSnapshot, compatibilitySnapshot)
         : compatibilitySnapshot;
+      const capabilityState = deriveVoiceCapabilityState({
+        appRuntimeState,
+        snapshot: oneVoiceContextSnapshot,
+      });
       return {
         appRuntimeState,
         tier,
@@ -466,6 +476,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
         activePersona,
         screen: routeInfo.screen,
         oneVoiceContextSnapshot,
+        capabilityState,
         morphyAxSnapshot,
         morphyAxPresentation: resolveMorphyAxPresentation(oneVoiceState),
         morphyAxEnabled,

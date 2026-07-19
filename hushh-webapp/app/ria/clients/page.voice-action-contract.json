@@ -118,56 +118,6 @@
         "hushh-webapp/lib/navigation/routes.ts"
       ],
       "speaker_persona": "kai"
-    },
-    {
-      "action_id": "route.ria_marketplace_connect",
-      "label": "Open RIA Connect Marketplace",
-      "meaning": "Navigates from the RIA shell to the marketplace connection surface.",
-      "aliases": [
-        "open connect",
-        "browse marketplace",
-        "find investor connections"
-      ],
-      "search_keywords": [
-        "marketplace",
-        "connect",
-        "relationships"
-      ],
-      "reachability": {
-        "routes": [
-          "/marketplace"
-        ],
-        "screens": [
-          "marketplace",
-          "ria_route_tabs"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "ria",
-          "investor"
-        ]
-      },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/marketplace"
-      },
-      "control_ids": [
-        "ria_route_tab_connect",
-        "ria_clients_browse_marketplace"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "hushh-webapp/app/ria/clients/page.tsx",
-        "hushh-webapp/components/ria/layout/ria-route-tabs.tsx"
-      ],
-      "speaker_persona": "one"
     }
   ]
 }

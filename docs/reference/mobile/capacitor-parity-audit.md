@@ -87,6 +87,15 @@ Direct usage is allowed only in:
 - explicitly exempt web-only plugin implementations
 - documented accepted exceptions in the mobile docs
 
+## Gemini runtime configuration parity
+
+Connections setup and settings use the shared web vault/PKM path inside both
+native WebViews. No Capacitor secret-storage plugin or native preference is
+added for a Gemini API key. The shared One voice client sends provider mode and,
+only for BYOK, a one-time first authenticated relay bootstrap frame; native code
+does not log, persist, or replay the credential. iOS and Android therefore use
+the same lock, background, reconnect, and managed-mode fallback behavior as web.
+
 ## Accepted Exceptions
 
 Current accepted parity exceptions are:

@@ -1,8 +1,7 @@
 """Contract-derived app action tools for One's agent tree.
 
-The generated action gateway manifest (~94 actions in
-``contracts/kai/kai-action-gateway.vnext.json``, loaded through
-``hushh_mcp.services.voice_action_manifest``) is the routing authority:
+The generated action gateway manifest (``contracts/kai/kai-action-gateway.vnext.json``,
+loaded through ``hushh_mcp.services.action_gateway``) is the routing authority:
 
 - Actions WITHOUT a wired ``delegate_agent_id`` execute as client directives:
   ``run_app_action`` validates policy + slots and parks a
@@ -26,11 +25,10 @@ from typing import Any
 
 from google.adk.tools.tool_context import ToolContext
 
-from hushh_mcp.services.voice_action_manifest import (
-    get_voice_manifest_action,
+from hushh_mcp.services.action_gateway import (
+    get_action_gateway_action,
     is_navigation_action,
-    list_voice_manifest_actions,
-    select_voice_manifest_actions_for_prompt,
+    list_action_gateway_actions,
 )
 
 logger = logging.getLogger(__name__)
@@ -40,21 +38,20 @@ logger = logging.getLogger(__name__)
 _STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
 _STATE_SCREEN = "hussh:screen"
 _STATE_VOICE_CONTEXT = "hussh:voice_context"
+_STATE_GOAL_RUN = "hussh:goal_run"
+_ANALYSIS_GOAL_ID = "goal.analysis.start_debate"
 
 # Manifest delegate ids -> One's specialist tool names. Only these redirect;
 # other delegate markers (e.g. "agent_kyc", which has no conversational
 # specialist) fall through to normal policy handling.
 _DELEGATE_TOOL_BY_AGENT_ID: dict[str, str] = {
     "agent_email": "ask_email_agent",
-    "agent_gmail": "ask_gmail_agent",
     "agent_location": "ask_location_agent",
     "agent_connections": "ask_consent_agent",
-    "agent_personal_information": "ask_marketplace_agent",
     "agent_connected_systems": "ask_connected_systems_agent",
     "agent_nav": "ask_consent_agent",
 }
 
-_MAX_SUGGESTIONS = 5
 _MAX_LIST_RESULTS = 10
 
 
@@ -73,12 +70,6 @@ def _available_action_ids(tool_context: ToolContext) -> set[str] | None:
     if not isinstance(ids, list):
         return set()
     return {str(value).strip() for value in ids if isinstance(value, str) and value.strip()}
-
-
-def _suggest_action_ids(query: str) -> list[dict[str, str]]:
-    """Nearest-match suggestions for an unknown action id or free text."""
-    ranked = select_voice_manifest_actions_for_prompt(transcript=query, limit=_MAX_SUGGESTIONS)
-    return [{"action_id": e["action_id"], "label": str(e.get("label") or "")} for e in ranked]
 
 
 def _missing_required_slot(entry: dict[str, Any], slots: dict[str, Any]) -> dict[str, Any] | None:
@@ -112,13 +103,12 @@ async def run_app_action(
     """
     clean_id = str(action_id or "").strip()
     clean_slots = {k: v for k, v in (slots or {}).items() if v not in (None, "")}
-    entry = get_voice_manifest_action(clean_id)
+    entry = get_action_gateway_action(clean_id)
     if entry is None:
         logger.info("one_adk_action_decision action=%s status=unknown_action", clean_id[:128])
         return {
             "status": "unknown_action",
             "message": f"'{clean_id}' is not a known app action.",
-            "suggestions": _suggest_action_ids(clean_id),
         }
 
     context = tool_context.state.get(_STATE_VOICE_CONTEXT)
@@ -147,6 +137,30 @@ async def run_app_action(
                 "settlement report, then run this action against the fresh "
                 "screen state."
             ),
+        }
+
+    onboarding = context.get("onboarding") if isinstance(context, dict) else {}
+    onboarding = onboarding if isinstance(onboarding, dict) else {}
+    if clean_id == "onboarding.claim_one" and (
+        (isinstance(context, dict) and context.get("signed_in") is True)
+        or onboarding.get("root_resolved") is True
+    ):
+        return {
+            "status": "terminal",
+            "message": "One is already claimed for this session.",
+        }
+    if clean_id == "setup.hub_master_ack" and onboarding.get("root_resolved") is True:
+        return {
+            "status": "terminal",
+            "message": "Setup acknowledgement is already complete.",
+        }
+    if (
+        clean_id in {"phone_mandate.submit_number", "phone_mandate.submit_code"}
+        and onboarding.get("phone_verified") is True
+    ):
+        return {
+            "status": "terminal",
+            "message": "Phone verification is already complete.",
         }
 
     policy = str((entry.get("risk") or {}).get("execution_policy") or "allow_direct")
@@ -290,18 +304,139 @@ async def run_app_action(
     }
 
 
-async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Search the app's governed actions by intent (e.g. "start analysis").
+def _context_revision(tool_context: ToolContext) -> str:
+    context = tool_context.state.get(_STATE_VOICE_CONTEXT)
+    if not isinstance(context, dict):
+        return ""
+    return str(context.get("context_revision") or "").strip()[:128]
 
-    Returns up to 10 ranked actions with their exact ids for run_app_action.
-    Prefers actions on the user's current screen.
+
+async def start_app_goal(
+    action_id: str, slots: dict[str, Any], tool_context: ToolContext
+) -> dict[str, Any]:
+    """Start a generated cross-surface app goal.
+
+    This is intentionally narrower than ``run_app_action``: direct actions
+    remain bound to mounted controls. Today the only cross-surface goal is
+    stock analysis, which must navigate to Analysis, receive a fresh bounded
+    context, and then open its preview (never start a debate automatically).
     """
-    screen = str(tool_context.state.get(_STATE_SCREEN) or "").strip() or None
-    ranked = select_voice_manifest_actions_for_prompt(
-        screen=screen,
-        transcript=str(query or "").strip() or None,
-        limit=_MAX_LIST_RESULTS,
-    )
+    clean_id = str(action_id or "").strip()
+    if clean_id != "analysis.start":
+        return await run_app_action(clean_id, slots, tool_context)
+    entry = get_action_gateway_action(clean_id)
+    if entry is None or str((entry.get("goal") or {}).get("goal_id") or "") != _ANALYSIS_GOAL_ID:
+        return {"status": "unknown_action", "message": "Stock analysis is not available."}
+    symbol = str((slots or {}).get("symbol") or "").strip().upper()
+    if not symbol:
+        return {
+            "status": "input_needed",
+            "missing_slot": "symbol",
+            "message": "Which stock should I analyze?",
+        }
+    context = tool_context.state.get(_STATE_VOICE_CONTEXT)
+    if not isinstance(context, dict) or context.get("context_pending") is True:
+        return {
+            "status": "context_not_ready",
+            "message": "The app is still publishing its screen state. Please try again in a moment.",
+        }
+    if context.get("pending_settlement") is True:
+        return {
+            "status": "settling",
+            "message": "The previous action is still settling. Wait for the fresh screen state.",
+        }
+
+    current_screen = str(context.get("screen") or "")
+    run = {
+        "schema_version": "one.goal_run.v1",
+        "goal_id": _ANALYSIS_GOAL_ID,
+        "action_id": clean_id,
+        # Ticker and pick source are non-sensitive, bounded action slots.
+        "slots": {
+            "symbol": symbol,
+            "pickSource": str((slots or {}).get("pickSource") or "default")[:32],
+        },
+        "step_cursor": 0,
+        "expected_screen": "kai_analysis",
+        "expected_context_revision": _context_revision(tool_context),
+        "status": "awaiting_analysis_context",
+    }
+    tool_context.state[_STATE_GOAL_RUN] = run
+    if current_screen == "kai_analysis":
+        return await continue_app_goal(tool_context)
+
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:goal:{_ANALYSIS_GOAL_ID}"] = {
+        "kind": "action",
+        "payload": {
+            "actionId": "route.kai_analysis",
+            "slots": {},
+            "goalId": _ANALYSIS_GOAL_ID,
+            "goalRun": run,
+        },
+    }
+    return {
+        "status": "navigation_started",
+        "message": "Opening Analysis, then I will prepare the stock preview.",
+        "goal_id": _ANALYSIS_GOAL_ID,
+    }
+
+
+async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
+    """Continue the single generated goal after route settlement/context refresh."""
+    run = tool_context.state.get(_STATE_GOAL_RUN)
+    if not isinstance(run, dict) or run.get("goal_id") != _ANALYSIS_GOAL_ID:
+        return {"status": "no_active_goal", "message": "There is no app goal waiting to continue."}
+    context = tool_context.state.get(_STATE_VOICE_CONTEXT)
+    if not isinstance(context, dict) or context.get("context_pending") is True:
+        return {"status": "settling", "message": "Waiting for fresh Analysis context."}
+    if (
+        context.get("pending_settlement") is True
+        or str(context.get("screen") or "") != "kai_analysis"
+    ):
+        return {"status": "settling", "message": "Waiting for the Analysis screen to settle."}
+    expected_revision = str(run.get("expected_context_revision") or "")
+    current_revision = _context_revision(tool_context)
+    if (
+        expected_revision
+        and current_revision
+        and expected_revision == current_revision
+        and run.get("step_cursor") == 0
+    ):
+        return {"status": "settling", "message": "Waiting for a fresh Analysis context."}
+
+    slots = run.get("slots") if isinstance(run.get("slots"), dict) else {}
+    next_run = {
+        **run,
+        "step_cursor": 1,
+        "expected_context_revision": current_revision,
+        "status": "preview_started",
+    }
+    tool_context.state[_STATE_GOAL_RUN] = next_run
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:goal:{_ANALYSIS_GOAL_ID}:preview"] = {
+        "kind": "action",
+        "payload": {
+            "actionId": "analysis.start",
+            "slots": slots,
+            "goalId": _ANALYSIS_GOAL_ID,
+            "goalRun": next_run,
+        },
+    }
+    return {
+        "status": "preview_started",
+        "message": "Opening the stock preview. The debate will wait for your confirmation.",
+        "goal_id": _ANALYSIS_GOAL_ID,
+    }
+
+
+async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, Any]:
+    """List generated actions that are executable from the active app context.
+
+    ``query`` is preserved for the model-facing tool contract, but is never
+    lexically ranked here. Semantic selection belongs to One; this loader only
+    projects the generated inventory and the browser's current control set.
+    """
+    del query
+    ranked = sorted(list_action_gateway_actions(), key=lambda entry: str(entry.get("label") or ""))
     available_action_ids = _available_action_ids(tool_context)
     if available_action_ids is not None:
         # Navigation actions stay listable from any screen (matching the
@@ -328,6 +463,6 @@ async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, A
         )
     return {
         "status": "ok",
-        "total_actions": len(list_voice_manifest_actions()),
-        "results": results,
+        "total_actions": len(list_action_gateway_actions()),
+        "results": results[:_MAX_LIST_RESULTS],
     }

@@ -59,6 +59,108 @@
         "required": [
           "user_identifier"
         ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "const": "success"
+              },
+              "scopes": {
+                "type": "array",
+                "maxItems": 50,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "scope": {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "domain": {
+                      "type": "string",
+                      "maxLength": 64
+                    },
+                    "label": {
+                      "type": "string",
+                      "maxLength": 120
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 280
+                    }
+                  },
+                  "required": [
+                    "scope",
+                    "domain",
+                    "label",
+                    "description"
+                  ]
+                }
+              },
+              "next_cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 64
+              },
+              "has_more": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "status",
+              "scopes",
+              "next_cursor",
+              "has_more"
+            ]
+          },
+          {
+            "$ref": "#/$defs/error"
+          }
+        ],
+        "$defs": {
+          "error": {
+            "$ref": "#/$defs/stable_error"
+          },
+          "stable_error": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "error_code": {
+                "type": "string",
+                "pattern": "^[A-Z0-9_]{3,64}$"
+              },
+              "message": {
+                "type": "string",
+                "maxLength": 240
+              },
+              "recoverable": {
+                "type": "boolean"
+              },
+              "next_action": {
+                "type": "string",
+                "maxLength": 240
+              },
+              "correlation_ref": {
+                "type": "string",
+                "pattern": "^err_[a-f0-9]{16}$"
+              }
+            },
+            "required": [
+              "error_code",
+              "message",
+              "recoverable",
+              "next_action",
+              "correlation_ref"
+            ]
+          }
+        }
       }
     },
     {
@@ -166,6 +268,164 @@
             ]
           }
         ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "granted",
+                  "denied",
+                  "expired",
+                  "revoked",
+                  "cancelled"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "pending_approval",
+                  "approved_ready",
+                  "denied",
+                  "expired",
+                  "revoked",
+                  "cancelled"
+                ]
+              },
+              "selected_scope": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "selected_scope_label": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "available_scopes": {
+                "type": "array",
+                "maxItems": 50,
+                "items": {
+                  "type": "string",
+                  "maxLength": 200
+                }
+              },
+              "request_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^req_[a-f0-9]{28}$",
+                "maxLength": 32
+              },
+              "request_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^req_[a-f0-9]{28}$",
+                "maxLength": 32
+              },
+              "grant_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^req_[a-f0-9]{28}$",
+                "maxLength": 32
+              },
+              "grant_reused": {
+                "type": "boolean"
+              },
+              "export_metadata_ready": {
+                "type": "boolean"
+              },
+              "export_revision": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1
+              },
+              "expires_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "approval_timeout_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "poll_attempts": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 90
+              }
+            },
+            "required": [
+              "status",
+              "state",
+              "selected_scope",
+              "selected_scope_label",
+              "available_scopes",
+              "request_id",
+              "request_ref",
+              "grant_ref",
+              "grant_reused",
+              "export_metadata_ready",
+              "export_revision",
+              "expires_at",
+              "approval_timeout_at",
+              "poll_attempts"
+            ]
+          },
+          {
+            "$ref": "#/$defs/stable_error"
+          }
+        ],
+        "$defs": {
+          "stable_error": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "error_code": {
+                "type": "string",
+                "pattern": "^[A-Z0-9_]{3,64}$"
+              },
+              "message": {
+                "type": "string",
+                "maxLength": 240
+              },
+              "recoverable": {
+                "type": "boolean"
+              },
+              "next_action": {
+                "type": "string",
+                "maxLength": 240
+              },
+              "correlation_ref": {
+                "type": "string",
+                "pattern": "^err_[a-f0-9]{16}$"
+              }
+            },
+            "required": [
+              "error_code",
+              "message",
+              "recoverable",
+              "next_action",
+              "correlation_ref"
+            ]
+          }
+        }
       }
     },
     {
@@ -243,6 +503,127 @@
           "scope",
           "purpose"
         ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "granted",
+                  "denied"
+                ]
+              },
+              "scope": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "coverage_kind": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "exact",
+                  "superset",
+                  null
+                ]
+              },
+              "request_ref": {
+                "type": "string",
+                "pattern": "^req_[a-f0-9]{28}$"
+              },
+              "grant_ref": {
+                "type": "string",
+                "pattern": "^req_[a-f0-9]{28}$"
+              },
+              "expires_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "poll_after_seconds": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1,
+                "maximum": 300
+              },
+              "approval_timeout_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              }
+            },
+            "required": [
+              "status",
+              "scope",
+              "coverage_kind",
+              "expires_at",
+              "poll_after_seconds",
+              "approval_timeout_at"
+            ],
+            "anyOf": [
+              {
+                "required": [
+                  "request_ref"
+                ]
+              },
+              {
+                "required": [
+                  "grant_ref"
+                ]
+              }
+            ]
+          },
+          {
+            "$ref": "#/$defs/stable_error"
+          }
+        ],
+        "$defs": {
+          "stable_error": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "error_code": {
+                "type": "string",
+                "pattern": "^[A-Z0-9_]{3,64}$"
+              },
+              "message": {
+                "type": "string",
+                "maxLength": 240
+              },
+              "recoverable": {
+                "type": "boolean"
+              },
+              "next_action": {
+                "type": "string",
+                "maxLength": 240
+              },
+              "correlation_ref": {
+                "type": "string",
+                "pattern": "^err_[a-f0-9]{16}$"
+              }
+            },
+            "required": [
+              "error_code",
+              "message",
+              "recoverable",
+              "next_action",
+              "correlation_ref"
+            ]
+          }
+        }
       }
     },
     {
@@ -261,6 +642,102 @@
         "required": [
           "request_ref"
         ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "granted",
+                  "denied",
+                  "expired",
+                  "revoked",
+                  "cancelled"
+                ]
+              },
+              "expires_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "poll_after_seconds": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1,
+                "maximum": 300
+              },
+              "approval_timeout_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "grant_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^req_[a-f0-9]{28}$",
+                "maxLength": 32
+              }
+            },
+            "required": [
+              "status",
+              "expires_at",
+              "poll_after_seconds",
+              "approval_timeout_at",
+              "grant_ref"
+            ]
+          },
+          {
+            "$ref": "#/$defs/stable_error"
+          }
+        ],
+        "$defs": {
+          "stable_error": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "error_code": {
+                "type": "string",
+                "pattern": "^[A-Z0-9_]{3,64}$"
+              },
+              "message": {
+                "type": "string",
+                "maxLength": 240
+              },
+              "recoverable": {
+                "type": "boolean"
+              },
+              "next_action": {
+                "type": "string",
+                "maxLength": 240
+              },
+              "correlation_ref": {
+                "type": "string",
+                "pattern": "^err_[a-f0-9]{16}$"
+              }
+            },
+            "required": [
+              "error_code",
+              "message",
+              "recoverable",
+              "next_action",
+              "correlation_ref"
+            ]
+          }
+        }
       }
     },
     {
@@ -286,6 +763,343 @@
           "grant_ref",
           "expected_scope"
         ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "const": "success"
+              },
+              "delivery": {
+                "type": "string",
+                "enum": [
+                  "encrypted_inline",
+                  "decrypted_local"
+                ]
+              },
+              "expected_scope": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "granted_scope": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "expires_at": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "export_revision": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "resource": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 120
+                  },
+                  "uri": {
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  "mime_type": {
+                    "type": "string",
+                    "maxLength": 120
+                  },
+                  "size": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "name",
+                  "uri",
+                  "mime_type",
+                  "size"
+                ]
+              },
+              "crypto": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "iv": {
+                    "type": "string",
+                    "maxLength": 512
+                  },
+                  "tag": {
+                    "type": "string",
+                    "maxLength": 512
+                  },
+                  "wrapped_key_bundle": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "wrapped_export_key": {
+                        "type": "string",
+                        "maxLength": 2048
+                      },
+                      "wrapped_key_iv": {
+                        "type": "string",
+                        "maxLength": 512
+                      },
+                      "wrapped_key_tag": {
+                        "type": "string",
+                        "maxLength": 512
+                      },
+                      "sender_public_key": {
+                        "type": "string",
+                        "maxLength": 512
+                      },
+                      "wrapping_alg": {
+                        "const": "X25519-AES256-GCM"
+                      },
+                      "connector_key_id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 128
+                      }
+                    },
+                    "required": [
+                      "wrapped_export_key",
+                      "wrapped_key_iv",
+                      "wrapped_key_tag",
+                      "sender_public_key",
+                      "wrapping_alg",
+                      "connector_key_id"
+                    ]
+                  },
+                  "export_envelope": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "version": {
+                        "const": 2
+                      },
+                      "export_id": {
+                        "type": "string",
+                        "minLength": 32,
+                        "maxLength": 64
+                      },
+                      "aad": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "version": {
+                            "const": 2
+                          },
+                          "app_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "grant_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "export_id": {
+                            "type": "string",
+                            "minLength": 32,
+                            "maxLength": 64
+                          },
+                          "revision": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 10000000
+                          },
+                          "machine_scope": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          },
+                          "scope_handle": {
+                            "type": "string",
+                            "maxLength": 134
+                          },
+                          "recipient_key_fingerprint": {
+                            "type": "string",
+                            "pattern": "^sha256:[0-9a-f]{64}$"
+                          },
+                          "payload_algorithm": {
+                            "const": "AES-256-GCM"
+                          },
+                          "expires_at_ms": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        },
+                        "required": [
+                          "version",
+                          "app_id",
+                          "grant_id",
+                          "export_id",
+                          "revision",
+                          "machine_scope",
+                          "scope_handle",
+                          "recipient_key_fingerprint",
+                          "payload_algorithm",
+                          "expires_at_ms"
+                        ]
+                      },
+                      "aad_sha256": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$"
+                      },
+                      "ciphertext_sha256": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$"
+                      },
+                      "ciphertext_bytes": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000000000
+                      }
+                    },
+                    "required": [
+                      "version",
+                      "export_id",
+                      "aad",
+                      "aad_sha256",
+                      "ciphertext_sha256",
+                      "ciphertext_bytes"
+                    ]
+                  }
+                },
+                "required": [
+                  "iv",
+                  "tag",
+                  "wrapped_key_bundle",
+                  "export_envelope"
+                ]
+              },
+              "ciphertext": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 1500000
+              },
+              "information": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "maxProperties": 100
+              }
+            },
+            "required": [
+              "status",
+              "delivery",
+              "expected_scope",
+              "granted_scope",
+              "expires_at",
+              "export_revision",
+              "resource",
+              "crypto",
+              "ciphertext",
+              "information"
+            ],
+            "oneOf": [
+              {
+                "properties": {
+                  "delivery": {
+                    "const": "encrypted_inline"
+                  },
+                  "resource": {
+                    "type": "null"
+                  },
+                  "crypto": {
+                    "type": "object"
+                  },
+                  "ciphertext": {
+                    "type": "string"
+                  },
+                  "information": {
+                    "type": "null"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "delivery": {
+                    "const": "decrypted_local"
+                  },
+                  "resource": {
+                    "type": "null"
+                  },
+                  "crypto": {
+                    "type": "null"
+                  },
+                  "ciphertext": {
+                    "type": "null"
+                  },
+                  "information": {
+                    "type": "object",
+                    "maxProperties": 100
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "$ref": "#/$defs/stable_error"
+          }
+        ],
+        "$defs": {
+          "stable_error": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "error_code": {
+                "type": "string",
+                "pattern": "^[A-Z0-9_]{3,64}$"
+              },
+              "message": {
+                "type": "string",
+                "maxLength": 240
+              },
+              "recoverable": {
+                "type": "boolean"
+              },
+              "next_action": {
+                "type": "string",
+                "maxLength": 240
+              },
+              "correlation_ref": {
+                "type": "string",
+                "pattern": "^err_[a-f0-9]{16}$"
+              }
+            },
+            "required": [
+              "error_code",
+              "message",
+              "recoverable",
+              "next_action",
+              "correlation_ref"
+            ]
+          }
+        }
       }
     }
   ]

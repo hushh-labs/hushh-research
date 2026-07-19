@@ -30,6 +30,7 @@ import { ConsentSheetProvider } from "@/components/consent/consent-sheet-control
 import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
 import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import { AppTopShell } from "@/components/app-ui/top-app-bar";
+import { AppEdgeBackGesture } from "@/components/app-ui/app-edge-back-gesture";
 import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
 import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider";
 import { AgentRuntimeStateProvider } from "@/lib/agent/agent-runtime-context";
@@ -120,7 +121,8 @@ function AppShellFrame({ children }: ProvidersProps) {
   const topShellModel = topShellRouteProfile.model;
   const routeSwipeTabSet =
     topShellModel.mode === "bar-with-tabs" &&
-    topShellModel.tabs.queryParam === null
+    (topShellModel.tabs.queryParam === null ||
+      topShellModel.tabs.id === "consent")
       ? topShellModel.tabs
       : null;
   const topShellMetrics = useMemo(
@@ -139,8 +141,7 @@ function AppShellFrame({ children }: ProvidersProps) {
   const isFullscreenTopFlow = routeLayoutMode === "flow";
   const shouldLockFullscreenRoot = isFullscreenTopFlow;
   const isFoundationRoute = isFoundationPublicRoute(pathname);
-  const isPublicStandaloneRoute =
-    isFoundationRoute && pathname !== ROUTES.HOME;
+  const isPublicStandaloneRoute = isFoundationRoute && pathname !== ROUTES.HOME;
   const signedInShellContentOffset = useMemo(
     () =>
       resolveSignedInShellContentOffset({
@@ -444,6 +445,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                 the live voice session and restarting the conversation on every
                 route switch. Both are fixed overlays, so position is unaffected. */}
               <AgentVoiceEdgeGlow />
+              <AppEdgeBackGesture />
               <AppBottomShell model={bottomShellModel} />
               {/* This bridge owns one post-unlock reconciliation for the whole
                 app. Keeping it outside the route Suspense boundary prevents

@@ -30,7 +30,7 @@ export function AmbientChromeMask({
       {...{ [AMBIENT_CHROME_IGNORE_ATTR]: "" }}
       {...ambientChromeMaskAttr(edge)}
       className={cn(
-        "ambient-chrome-mask backdrop-blur-[12px] backdrop-saturate-[1.3]",
+        "ambient-chrome-mask",
         `ambient-chrome-mask--${edge}`,
         className,
       )}

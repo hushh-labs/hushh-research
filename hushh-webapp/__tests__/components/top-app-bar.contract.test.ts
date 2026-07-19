@@ -65,7 +65,8 @@ describe("Top app bar responsive contract", () => {
     expect(source).not.toContain('data-testid="top-app-bar-ria-cluster"');
     expect(source).not.toContain("const isRiaOnboardingScope");
     expect(source).not.toContain("const isRiaScope");
-    expect(source).toContain("useKaiBottomChromeVisibility");
+    expect(source).not.toContain("useKaiBottomChromeVisibility");
+    expect(source).toContain("var(--bottom-chrome-progress, 0)");
     expect(source).not.toContain("topChromeHideProgress");
     expect(source).not.toContain("topChromeTransform");
     expect(source).toContain("const topShellHeaderTransform");
@@ -115,10 +116,18 @@ describe("Top app bar responsive contract", () => {
 
   it("uses deterministic breadcrumb parents instead of browser history for top-bar back", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
+    const back = read("lib/navigation/top-shell-back.ts");
 
-    expect(source).toContain("router.push(topShellBreadcrumb.backHref, {");
-    // Profile query-panels close via replace (mirrors the page's popProfileStack).
-    expect(source).toContain("router.replace(topShellBreadcrumb.backHref, {");
+    expect(source).toContain("import { navigateTopShellBack }");
+    expect(source).toContain("const handleTopShellBack");
+    expect(source).toContain("onClick={handleTopShellBack}");
+    expect(back).toContain("resolveTopShellBreadcrumb");
+    expect(back).toContain(
+      'mode: profilePanelOpen || locationActionOpen ? "replace" : "push"',
+    );
+    expect(back).toContain(
+      "params.router[action.mode](action.href, { scroll: false })",
+    );
     expect(source).not.toContain("router.back();");
   });
 
@@ -154,16 +163,20 @@ describe("Top app bar responsive contract", () => {
     expect(inbox).toContain("<Activity className=");
     expect(inbox).not.toContain("<Heart className=");
     expect(inbox).not.toContain("<Shield");
-    expect(inbox).toContain('wrapperClassName={badgeCount > 0 ? "pr-5" : undefined}');
+    expect(inbox).toContain(
+      'wrapperClassName={badgeCount > 0 ? "pr-5" : undefined}',
+    );
     expect(inbox).toContain("<SheetContent");
     expect(inbox).not.toContain("useMobileSheetDragDismiss");
-    expect(inbox).not.toContain("onPointerMove={sheetDrag.onContentPointerMove}");
+    expect(inbox).not.toContain(
+      "onPointerMove={sheetDrag.onContentPointerMove}",
+    );
     expect(inbox).toContain('overlayClassName="activity-inbox-sheet-overlay"');
     expect(inbox).toContain('presentation="section"');
     expect(sheet).toContain('data-slot="sheet-drag-handle"');
     expect(sheet).toContain("surface.scrollTop <= 0 && movedDown > 6");
     expect(sheet).toContain("distance > 96 || velocity > 0.5");
-    expect(sheet).toContain("surface.style.animation = \"none\"");
+    expect(sheet).toContain('surface.style.animation = "none"');
   });
 
   it("keeps the rightmost signed-in Profile action in the shared top bar", () => {
@@ -222,19 +235,23 @@ describe("Top app bar responsive contract", () => {
   });
   it("preserves deterministic breadcrumb navigation contracts", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
+    const back = read("lib/navigation/top-shell-back.ts");
 
-    expect(source).toContain("topShellBreadcrumb.backHref");
-    expect(source).toContain("router.push(topShellBreadcrumb.backHref, {");
+    expect(source).toContain("breadcrumb: topShellBreadcrumb");
+    expect(source).toContain("navigateTopShellBack({");
+    expect(back).toContain("router: TopShellBackRouter");
     expect(source).not.toContain("history.back()");
   });
 
   it("keeps setup back as navigation and root completion explicit", () => {
     const topBar = read("components/app-ui/top-app-bar.tsx");
+    const back = read("lib/navigation/top-shell-back.ts");
     const setupHub = read("components/onboarding/setup/one-setup-hub.tsx");
     const exitService = read("lib/services/one-setup-exit-service.ts");
 
     expect(topBar).not.toContain("acknowledgeOneSetupExit({");
-    expect(topBar).toContain("router.push(topShellBreadcrumb.backHref, {");
+    expect(topBar).toContain("navigateTopShellBack({");
+    expect(back).toContain("resolveTopShellBackAction");
     expect(setupHub).toContain("acknowledgeOneSetupExit({");
     expect(exitService).toContain("export function acknowledgeOneSetupExit");
     expect(exitService).toContain("primeOneSetupResolved({");

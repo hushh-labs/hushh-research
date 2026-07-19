@@ -44,9 +44,10 @@ function shouldIgnoreSwipeTarget(target: EventTarget | null): boolean {
 }
 
 /**
- * Route-hop gestures for finite, route-backed shell tabs. Query-backed
- * workspaces retain their own controlled pager; this is deliberately limited
- * to route-backed tabs so gesture navigation never invents URL state.
+ * Route-hop gestures for finite, route-backed shell tabs. Consent is the one
+ * query-backed exception: its tab registry produces complete canonical URLs
+ * and clears transient list/detail state before navigation. Other query-backed
+ * workspaces retain their controlled pager.
  */
 export function TopShellRouteSwipe({
   children,
@@ -57,12 +58,17 @@ export function TopShellRouteSwipe({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const enabled = Boolean(tabSet && tabSet.queryParam === null && tabSet.tabs.length > 1);
+  const enabled = Boolean(
+    tabSet &&
+    (tabSet.queryParam === null || tabSet.id === "consent") &&
+    tabSet.tabs.length > 1,
+  );
 
   useEffect(() => {
     if (!enabled || !tabSet || typeof document === "undefined") return;
     const swipeSurface =
-      document.querySelector<HTMLElement>("[data-app-scroll-root='true']") ?? document;
+      document.querySelector<HTMLElement>("[data-app-scroll-root='true']") ??
+      document;
     const activeIndex = Math.max(
       0,
       tabSet.tabs.findIndex((tab) => tab.value === tabSet.activeValue),
@@ -95,49 +101,86 @@ export function TopShellRouteSwipe({
     };
 
     const onMove = (event: TouchEvent) => {
-      if (!tracking || ignored || event.touches.length !== 1 || startX === null || startY === null) return;
+      if (
+        !tracking ||
+        ignored ||
+        event.touches.length !== 1 ||
+        startX === null ||
+        startY === null
+      )
+        return;
       const touch = event.touches[0];
       if (!touch) return;
       const horizontal = Math.abs(touch.clientX - startX);
       const vertical = Math.abs(touch.clientY - startY);
-      if (axis !== "undecided" || (horizontal < AXIS_LOCK_THRESHOLD_PX && vertical < AXIS_LOCK_THRESHOLD_PX)) return;
-      axis = horizontal > vertical * DIRECTION_RATIO ? "horizontal" : "vertical";
+      if (
+        axis !== "undecided" ||
+        (horizontal < AXIS_LOCK_THRESHOLD_PX &&
+          vertical < AXIS_LOCK_THRESHOLD_PX)
+      )
+        return;
+      axis =
+        horizontal > vertical * DIRECTION_RATIO ? "horizontal" : "vertical";
       if (axis === "vertical") tracking = false;
     };
 
     const onEnd = (event: TouchEvent) => {
-      if (!tracking || ignored || event.changedTouches.length !== 1 || startX === null || startY === null) return reset();
+      if (
+        !tracking ||
+        ignored ||
+        event.changedTouches.length !== 1 ||
+        startX === null ||
+        startY === null
+      )
+        return reset();
       const touch = event.changedTouches[0];
       if (!touch) return reset();
       const deltaX = touch.clientX - startX;
       const deltaY = touch.clientY - startY;
       const horizontal = Math.abs(deltaX);
       const vertical = Math.abs(deltaY);
-      const durationMs = Math.max(1, (event.timeStamp || performance.now()) - startTimestamp);
+      const durationMs = Math.max(
+        1,
+        (event.timeStamp || performance.now()) - startTimestamp,
+      );
       const velocity = horizontal / durationMs;
       const finalAxis = axis;
       reset();
 
-      if (finalAxis !== "horizontal" || vertical > VERTICAL_LIMIT_PX || horizontal < vertical * DIRECTION_RATIO) return;
+      if (
+        finalAxis !== "horizontal" ||
+        vertical > VERTICAL_LIMIT_PX ||
+        horizontal < vertical * DIRECTION_RATIO
+      )
+        return;
       const threshold = Math.max(
         COMMIT_DISTANCE_MIN_PX,
-        Math.min(COMMIT_DISTANCE_MAX_PX, window.innerWidth * COMMIT_DISTANCE_RATIO),
+        Math.min(
+          COMMIT_DISTANCE_MAX_PX,
+          window.innerWidth * COMMIT_DISTANCE_RATIO,
+        ),
       );
-      if (horizontal < threshold && velocity < COMMIT_VELOCITY_PX_PER_MS) return;
+      if (horizontal < threshold && velocity < COMMIT_VELOCITY_PX_PER_MS)
+        return;
       const destination = tabSet.tabs[activeIndex + (deltaX < 0 ? 1 : -1)];
       if (!destination || destination.href === pathname) return;
       scrollAppToTop("auto");
       router.push(destination.href);
     };
 
-    const startListener: EventListener = (event) => onStart(event as TouchEvent);
+    const startListener: EventListener = (event) =>
+      onStart(event as TouchEvent);
     const moveListener: EventListener = (event) => onMove(event as TouchEvent);
     const endListener: EventListener = (event) => onEnd(event as TouchEvent);
     const cancelListener: EventListener = () => reset();
-    swipeSurface.addEventListener("touchstart", startListener, { passive: true });
+    swipeSurface.addEventListener("touchstart", startListener, {
+      passive: true,
+    });
     swipeSurface.addEventListener("touchmove", moveListener, { passive: true });
     swipeSurface.addEventListener("touchend", endListener, { passive: true });
-    swipeSurface.addEventListener("touchcancel", cancelListener, { passive: true });
+    swipeSurface.addEventListener("touchcancel", cancelListener, {
+      passive: true,
+    });
     return () => {
       swipeSurface.removeEventListener("touchstart", startListener);
       swipeSurface.removeEventListener("touchmove", moveListener);

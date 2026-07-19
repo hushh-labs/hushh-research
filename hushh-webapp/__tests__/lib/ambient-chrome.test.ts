@@ -4,6 +4,7 @@ import {
   AMBIENT_CHROME_FULL_BLEED_ATTR,
   AMBIENT_CHROME_IGNORE_ATTR,
   AMBIENT_CHROME_MASK_ATTR,
+  AMBIENT_CHROME_TOP_SURFACE_ATTR,
   AmbientColorSpring,
   createAmbientChromeEngine,
   parseCssColor,
@@ -16,6 +17,14 @@ describe("ambient chrome", () => {
     document.body.replaceChildren();
     document.documentElement.style.removeProperty("--ambient-chrome-top-bg");
     document.documentElement.style.removeProperty("--ambient-chrome-top-fg");
+    document.documentElement.style.removeProperty("--ambient-chrome-bottom-bg");
+    document.documentElement.style.removeProperty("--ambient-chrome-bottom-fg");
+    document.documentElement.style.removeProperty(
+      "--ambient-chrome-bottom-base-bg",
+    );
+    document.documentElement.style.removeProperty(
+      "--ambient-chrome-bottom-base-fg",
+    );
     vi.restoreAllMocks();
   });
 
@@ -35,7 +44,7 @@ describe("ambient chrome", () => {
     const mask = document.createElement("div");
     mask.setAttribute(AMBIENT_CHROME_MASK_ATTR, "top");
     mask.getBoundingClientRect = () =>
-      ({ top: 0, bottom: 80, height: 80, width: 2000 } as DOMRect);
+      ({ top: 0, bottom: 80, height: 80, width: 2000 }) as DOMRect;
     document.body.append(mask);
 
     const chrome = document.createElement("div");
@@ -51,7 +60,7 @@ describe("ambient chrome", () => {
     const darkSurface = document.createElement("main");
     darkSurface.style.backgroundColor = "rgb(18, 24, 36)";
     darkSurface.getBoundingClientRect = () =>
-      ({ top: 0, bottom: 800, height: 800, width: 2000 } as DOMRect);
+      ({ top: 0, bottom: 800, height: 800, width: 2000 }) as DOMRect;
     document.body.append(darkSurface);
 
     const scrollRoot = document.createElement("div");
@@ -69,23 +78,33 @@ describe("ambient chrome", () => {
 
     const stop = createAmbientChromeEngine();
 
-    expect(document.documentElement.style.getPropertyValue("--ambient-chrome-top-bg")).toBe(
-      "rgb(18, 24, 36)",
-    );
-    expect(document.documentElement.style.getPropertyValue("--ambient-chrome-top-fg")).toBe(
-      "#f5f5f7",
-    );
+    expect(
+      document.documentElement.style.getPropertyValue(
+        "--ambient-chrome-top-bg",
+      ),
+    ).toBe("rgb(18, 24, 36)");
+    expect(
+      document.documentElement.style.getPropertyValue(
+        "--ambient-chrome-top-fg",
+      ),
+    ).toBe("#f5f5f7");
+    expect(
+      document.documentElement.getAttribute(AMBIENT_CHROME_TOP_SURFACE_ATTR),
+    ).toBe("dark");
     requestAnimationFrame.mockClear();
     scrollRoot.dispatchEvent(new Event("scroll"));
     expect(requestAnimationFrame).toHaveBeenCalled();
     stop();
+    expect(
+      document.documentElement.hasAttribute(AMBIENT_CHROME_TOP_SURFACE_ATTR),
+    ).toBe(false);
   });
 
   it("uses the Foundation canvas before the document fallback", () => {
     const mask = document.createElement("div");
     mask.setAttribute(AMBIENT_CHROME_MASK_ATTR, "bottom");
     mask.getBoundingClientRect = () =>
-      ({ top: 700, bottom: 800, height: 100, width: 2000 } as DOMRect);
+      ({ top: 700, bottom: 800, height: 100, width: 2000 }) as DOMRect;
     document.body.append(mask);
 
     const foundation = document.createElement("div");
@@ -101,9 +120,51 @@ describe("ambient chrome", () => {
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
 
     const stop = createAmbientChromeEngine();
-    expect(document.documentElement.style.getPropertyValue("--ambient-chrome-bottom-bg")).toMatch(
-      /^rgb\(\d+, \d+, \d+\)$/,
-    );
+    expect(
+      document.documentElement.style.getPropertyValue(
+        "--ambient-chrome-bottom-bg",
+      ),
+    ).toMatch(/^rgb\(\d+, \d+, \d+\)$/);
+    stop();
+  });
+
+  it("keeps the bottom dock material on the Foundation canvas, not a transient surface", () => {
+    const mask = document.createElement("div");
+    mask.setAttribute(AMBIENT_CHROME_MASK_ATTR, "bottom");
+    mask.getBoundingClientRect = () =>
+      ({ top: 700, bottom: 800, height: 100, width: 2000 }) as DOMRect;
+    document.body.append(mask);
+
+    const foundation = document.createElement("div");
+    foundation.setAttribute("data-foundation-canvas", "true");
+    foundation.style.backgroundColor = "rgb(18, 24, 36)";
+    document.body.append(foundation);
+
+    const fullBleedSurface = document.createElement("main");
+    fullBleedSurface.setAttribute(AMBIENT_CHROME_FULL_BLEED_ATTR, "");
+    fullBleedSurface.style.backgroundColor = "rgb(80, 90, 100)";
+    fullBleedSurface.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 800, height: 800, width: 2000 }) as DOMRect;
+    document.body.append(fullBleedSurface);
+
+    Object.defineProperty(document, "elementsFromPoint", {
+      configurable: true,
+      value: vi.fn(() => [fullBleedSurface]),
+    });
+    vi.spyOn(window, "requestAnimationFrame").mockReturnValue(0);
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+
+    const stop = createAmbientChromeEngine();
+    expect(
+      document.documentElement.style.getPropertyValue(
+        "--ambient-chrome-bottom-bg",
+      ),
+    ).toBe("rgb(80, 90, 100)");
+    expect(
+      document.documentElement.style.getPropertyValue(
+        "--ambient-chrome-bottom-base-bg",
+      ),
+    ).toBe("rgb(18, 24, 36)");
     stop();
   });
 
@@ -122,7 +183,9 @@ describe("ambient chrome", () => {
     for (let frame = 0; frame < 180; frame += 1) {
       const color = spring.step(16);
       expect(color).not.toBeNull();
-      expect(color!.every((channel) => channel >= 0 && channel <= 255)).toBe(true);
+      expect(color!.every((channel) => channel >= 0 && channel <= 255)).toBe(
+        true,
+      );
       expect(color!.every((channel) => channel <= 230)).toBe(true);
     }
 
@@ -133,7 +196,7 @@ describe("ambient chrome", () => {
     const mask = document.createElement("div");
     mask.setAttribute(AMBIENT_CHROME_MASK_ATTR, "top");
     mask.getBoundingClientRect = () =>
-      ({ top: 0, bottom: 80, height: 80, width: window.innerWidth } as DOMRect);
+      ({ top: 0, bottom: 80, height: 80, width: window.innerWidth }) as DOMRect;
     document.body.append(mask);
 
     const surface = document.createElement("main");
@@ -158,9 +221,11 @@ describe("ambient chrome", () => {
 
     const stop = createAmbientChromeEngine();
 
-    expect(document.documentElement.style.getPropertyValue("--ambient-chrome-top-bg")).toBe(
-      "rgb(18, 24, 36)",
-    );
+    expect(
+      document.documentElement.style.getPropertyValue(
+        "--ambient-chrome-top-bg",
+      ),
+    ).toBe("rgb(18, 24, 36)");
     expect(elementsFromPoint).toHaveBeenCalledTimes(1);
     stop();
   });

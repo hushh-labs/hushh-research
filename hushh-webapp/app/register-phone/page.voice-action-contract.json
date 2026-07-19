@@ -110,7 +110,7 @@
         "target": "phone_mandate.submit_number"
       },
       "control_ids": ["phone-flow-number"],
-      "state_exposure": ["masked phone number"],
+      "state_exposure": ["verification step only"],
       "docs_references": [
         "hushh-webapp/components/auth/phone-verification-flow.tsx"
       ],

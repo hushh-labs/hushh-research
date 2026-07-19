@@ -41,9 +41,6 @@ import {
 import { resolveRouteId } from "@/lib/observability/route-map";
 import {
   resolveRuntimeBackendUrl,
-  resolveVoiceDirectBackendPreference,
-  resolveVoiceFailFastPolicy,
-  resolveVoiceForceProxyPreference,
 } from "@/lib/runtime/settings";
 import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
 
@@ -200,66 +197,27 @@ export const getDirectBackendUrl = (): string => {
   return getEnvBackendUrl();
 };
 
+// No production feature calls this legacy transport. The active One Live
+// session owns its authenticated WebSocket transport independently.
 type VoiceTransportMode = {
   mode: "nextjs_proxy" | "direct_backend";
-  reason:
-    | "native_platform"
-    | "missing_backend_url"
-    | "explicit_proxy"
-    | "explicit_direct"
-    | "dev_local_default_direct"
-    | "local_backend_default_direct"
-    | "same_origin_default_direct"
-    | "backend_url_default_direct"
-    | "proxy_default";
+  reason: "legacy_unreachable" | "missing_backend_url";
   backendUrl?: string;
 };
 
 function getVoiceTransportMode(): VoiceTransportMode {
-  if (Capacitor.isNativePlatform()) {
-    return { mode: "nextjs_proxy", reason: "native_platform" };
-  }
-  const backend = getEnvBackendUrl();
-  if (!backend) {
-    return { mode: "nextjs_proxy", reason: "missing_backend_url" };
-  }
-  const explicitProxy = resolveVoiceForceProxyPreference();
-  if (explicitProxy) {
-    return { mode: "nextjs_proxy", reason: "explicit_proxy", backendUrl: backend };
-  }
-  const explicitDirect = resolveVoiceDirectBackendPreference();
-  if (explicitDirect) {
-    return { mode: "direct_backend", reason: "explicit_direct", backendUrl: backend };
-  }
-  const backendHost = hostFromUrl(backend);
-  const isDev = process.env.NODE_ENV !== "production";
-  if (isLocalNativeHost(backendHost)) {
-    return {
-      mode: "direct_backend",
-      reason: isDev ? "dev_local_default_direct" : "local_backend_default_direct",
-      backendUrl: backend,
-    };
-  }
-  if (typeof window !== "undefined") {
-    const originHost = hostFromUrl(window.location.origin);
-    if (backendHost && originHost && backendHost === originHost) {
-      return { mode: "direct_backend", reason: "same_origin_default_direct", backendUrl: backend };
-    }
-  }
-  if (backendHost) {
-    return { mode: "direct_backend", reason: "backend_url_default_direct", backendUrl: backend };
-  }
-  return { mode: "nextjs_proxy", reason: "proxy_default", backendUrl: backend };
+  const backendUrl = getEnvBackendUrl();
+  return backendUrl
+    ? { mode: "direct_backend", reason: "legacy_unreachable", backendUrl }
+    : { mode: "nextjs_proxy", reason: "missing_backend_url" };
 }
 
 function isVoiceFailFastEnabled(): boolean {
-  return resolveVoiceFailFastPolicy();
+  return false;
 }
 
 function isVoiceDirectBackendRequired(): boolean {
-  if (Capacitor.isNativePlatform()) return false;
-  const explicitDirect = resolveVoiceDirectBackendPreference();
-  return explicitDirect || isVoiceFailFastEnabled();
+  return false;
 }
 
 function toResultFromStatus(status: number): "success" | "expected_error" | "error" {
@@ -1217,49 +1175,6 @@ export class ApiService {
    */
   static getDirectBackendUrl(): string {
     return getDirectBackendUrl();
-  }
-
-  static getVoiceTransportMode(): VoiceTransportMode {
-    return getVoiceTransportMode();
-  }
-
-  // ==================== Kai Voice ====================
-
-  static async planKaiVoiceIntent(data: {
-    userId: string;
-    vaultOwnerToken: string;
-    transcript: string;
-    context?: Record<string, unknown>;
-    appState?: AppRuntimeState;
-    plannerV2?: {
-      turnId: string;
-      transcriptFinal: string;
-      structuredContext?: unknown;
-      memoryShort?: unknown[];
-      memoryRetrieved?: unknown[];
-    };
-    voiceTurnId?: string;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    return voiceFetch("/api/kai/voice/plan", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
-      },
-      body: JSON.stringify({
-        user_id: data.userId,
-        transcript: data.transcript,
-        context: data.context || {},
-        app_state: data.appState,
-        turn_id: data.plannerV2?.turnId,
-        transcript_final: data.plannerV2?.transcriptFinal,
-        context_structured: data.plannerV2?.structuredContext,
-        memory_short: data.plannerV2?.memoryShort || [],
-        memory_retrieved: data.plannerV2?.memoryRetrieved || [],
-      }),
-      signal: data.signal,
-    });
   }
 
   static async composeKaiVoiceReply(data: {
@@ -2803,6 +2718,9 @@ export class ApiService {
     timezone?: string;
     runtimeCredential?: string | null;
     runtimeCredentialMode?: string | null;
+    runtimeCredentialTransport?: "developer_api" | "vertex_api_key" | null;
+    runtimeVertexProject?: string | null;
+    runtimeVertexLocation?: string | null;
     delegateAgentId?: string | null;
     delegateResult?: Record<string, unknown>;
     signal?: AbortSignal;
@@ -2821,6 +2739,9 @@ export class ApiService {
         timezone: data.timezone || undefined,
         runtime_credential: data.runtimeCredential || undefined,
         runtime_credential_mode: data.runtimeCredentialMode || undefined,
+        runtime_credential_transport: data.runtimeCredentialTransport || undefined,
+        runtime_vertex_project: data.runtimeVertexProject || undefined,
+        runtime_vertex_location: data.runtimeVertexLocation || undefined,
         delegate_agent_id: data.delegateAgentId || undefined,
         delegate_result: data.delegateResult || undefined,
       }),
@@ -2879,6 +2800,45 @@ export class ApiService {
       throw new Error(`One voice relay session failed: ${response.status}`);
     }
     return response.json();
+  }
+
+  /** Validate a Gemini Developer API key before encrypted vault storage. */
+  static async validateGeminiRuntimeCredential(input: {
+    credential: string;
+    transport: "developer_api" | "vertex_api_key";
+    vertexProject?: string | null;
+    vertexLocation?: string | null;
+  }): Promise<{
+    status: "ready";
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch("/api/one/runtime/gemini/validate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+      },
+      body: JSON.stringify({
+        credential: input.credential,
+        transport: input.transport,
+        vertex_project: input.vertexProject || undefined,
+        vertex_location: input.vertexLocation || undefined,
+      }),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        detail?: { status?: string };
+      } | null;
+      const status = payload?.detail?.status;
+      if (status === "invalid_key") {
+        throw new Error("Gemini could not accept that API key.");
+      }
+      if (status === "quota_or_billing") {
+        throw new Error("This Gemini key needs an available quota or billing setup.");
+      }
+      throw new Error("Gemini could not be reached to validate this key.");
+    }
+    return response.json() as Promise<{ status: "ready" }>;
   }
 
   /**

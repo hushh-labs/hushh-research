@@ -44,22 +44,18 @@ def test_generated_wired_specialist_actions_match_dispatch_registry():
     import importlib
 
     from hushh_mcp import adk_bridge
-    from hushh_mcp.services.voice_action_manifest import list_voice_manifest_actions
+    from hushh_mcp.services.action_gateway import list_action_gateway_actions
 
     importlib.reload(adk_bridge)
     from hushh_mcp.adk_bridge import dispatch as d
 
     wired_delegate_ids = {
         str(action.get("delegate_agent_id") or "")
-        for action in list_voice_manifest_actions()
+        for action in list_action_gateway_actions()
         if (action.get("execution_target") or {}).get("status") == "wired"
         and (action.get("execution_target") or {}).get("path") == "voice_tool"
         and (action.get("execution_target") or {}).get("target") == "specialist_chat.turn"
     }
 
-    assert wired_delegate_ids == {
-        "agent_location",
-        "agent_nav",
-        "agent_personal_information",
-    }
+    assert wired_delegate_ids == {"agent_location", "agent_nav"}
     assert all(d.is_wired_specialist(agent_id) for agent_id in wired_delegate_ids)

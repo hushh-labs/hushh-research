@@ -70,16 +70,13 @@ const ALLOWED_DELEGATE_AGENT_IDS = [
   "agent_connected_systems",
   "agent_connections",
   "agent_email",
-  "agent_gmail",
   "agent_location",
-  "agent_personal_information",
 ];
 
 describe("kai-action-gateway", () => {
   it("does not advertise specialists that lack task-bound authority ingress as wired", () => {
     for (const actionId of [
       "email.chat.turn",
-      "gmail.chat.turn",
       "connections.chat.turn",
       "connected_systems.chat.turn",
     ]) {
@@ -91,12 +88,14 @@ describe("kai-action-gateway", () => {
     for (const actionId of [
       "location.chat.turn",
       "consent.chat.turn",
-      "marketplace.information.chat.turn",
     ]) {
       expect(getKaiActionById(actionId)?.execution_target.status).toBe(
         "wired",
       );
     }
+    expect(getKaiActionById("marketplace.information.chat.turn")).toBeNull();
+    expect(getKaiActionById("gmail.chat.turn")).toBeNull();
+    expect(getKaiActionById("route.profile_gmail_panel")).toBeNull();
   });
 
   it("loads the generated gateway with stable action identity", () => {
@@ -150,7 +149,7 @@ describe("kai-action-gateway", () => {
     );
   });
 
-  it("keeps analysis.start as the reference multi-step goal contract", () => {
+  it("keeps analysis.start as the generated preview-first goal contract", () => {
     const action = getKaiActionById("analysis.start");
     expect(action?.goal).toEqual(
       expect.objectContaining({
@@ -170,7 +169,7 @@ describe("kai-action-gateway", () => {
           cancel_action_id: "analysis.cancel_active",
         }),
         result_contract: expect.objectContaining({
-          summary_mode: "decision_summary",
+          summary_mode: "preview_ready",
         }),
       })
     );
@@ -180,12 +179,9 @@ describe("kai-action-gateway", () => {
           type: "action",
           action_id: "analysis.start",
         }),
-        expect.objectContaining({
-          type: "service",
-          service: "kai_debate.ensure_run",
-        }),
       ])
     );
+    expect(action?.goal.workflow_steps).toHaveLength(1);
   });
 
   it("maps control ids and authored workflows back to canonical actions", () => {
@@ -238,13 +234,11 @@ describe("kai-action-gateway", () => {
         "route.ria_onboarding",
         "route.ria_clients",
         "route.ria_picks",
-        "route.ria_marketplace_connect",
         "ria.picks.open_source_kai",
         "ria.picks.open_source_my",
         "ria.picks.save_package",
         "ria.client_workspace.open_access_tab",
         "ria.client_workspace.request_access",
-        "marketplace.ria.request_advisory",
       ])
     );
 
@@ -298,15 +292,6 @@ describe("kai-action-gateway", () => {
       target: "/ria/picks?source=kai",
     });
     expect(getKaiActionById("ria.picks.save_package")).toEqual(
-      expect.objectContaining({
-        risk_level: "high",
-        execution_policy: "manual_only",
-        execution_target: expect.objectContaining({
-          status: "unwired",
-        }),
-      })
-    );
-    expect(getKaiActionById("marketplace.ria.request_advisory")).toEqual(
       expect.objectContaining({
         risk_level: "high",
         execution_policy: "manual_only",

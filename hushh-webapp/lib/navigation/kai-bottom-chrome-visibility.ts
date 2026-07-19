@@ -1,13 +1,10 @@
-import {
-  useEffect,
-  useSyncExternalStore,
-  type RefObject,
-} from "react";
+import { useEffect, useSyncExternalStore, type RefObject } from "react";
 
 const MIN_SCROLL_Y_FOR_SHOW = 10;
 const MIN_SCROLL_Y_FOR_HIDE = 24;
 const JITTER_DELTA_PX = 1.5;
 const DIRECTION_DELTA_PX = 2;
+const DIRECTION_REVERSAL_HYSTERESIS_PX = 12;
 const PROGRESS_EPSILON = 0.001;
 const ANIMATION_TIME_CONSTANT_MS = 85;
 const APP_SCROLL_ROOT_SELECTOR = '[data-app-scroll-root="true"]';
@@ -21,6 +18,8 @@ interface VisibilityState {
   initialized: boolean;
   rafId: number | null;
   lastFrameTs: number | null;
+  direction: -1 | 0 | 1;
+  directionalDistance: number;
 }
 
 const listeners = new Set<Listener>();
@@ -38,6 +37,8 @@ const state: VisibilityState = {
   initialized: false,
   rafId: null,
   lastFrameTs: null,
+  direction: 0,
+  directionalDistance: 0,
 };
 
 function clamp01(value: number): number {
@@ -69,7 +70,8 @@ function animateProgress(ts: number) {
   const next = state.progress + (state.targetProgress - state.progress) * alpha;
 
   if (Math.abs(state.targetProgress - next) <= PROGRESS_EPSILON) {
-    const shouldEmit = Math.abs(state.progress - state.targetProgress) > PROGRESS_EPSILON;
+    const shouldEmit =
+      Math.abs(state.progress - state.targetProgress) > PROGRESS_EPSILON;
     state.progress = state.targetProgress;
     cancelAnimation();
     if (shouldEmit) {
@@ -94,7 +96,8 @@ function setTargetProgress(nextTarget: number) {
   state.targetProgress = clampedTarget;
 
   if (Math.abs(state.progress - state.targetProgress) <= PROGRESS_EPSILON) {
-    const shouldEmit = Math.abs(state.progress - state.targetProgress) > PROGRESS_EPSILON;
+    const shouldEmit =
+      Math.abs(state.progress - state.targetProgress) > PROGRESS_EPSILON;
     state.progress = state.targetProgress;
     cancelAnimation();
     if (shouldEmit) {
@@ -131,7 +134,9 @@ function resolveScrollTarget(): Window | HTMLElement | null {
   if (typeof window === "undefined" || typeof document === "undefined") {
     return null;
   }
-  const appScrollRoot = document.querySelector<HTMLElement>(APP_SCROLL_ROOT_SELECTOR);
+  const appScrollRoot = document.querySelector<HTMLElement>(
+    APP_SCROLL_ROOT_SELECTOR,
+  );
   if (appScrollRoot) {
     return appScrollRoot;
   }
@@ -164,16 +169,33 @@ export function onScroll(y: number): void {
   }
 
   if (nextY <= MIN_SCROLL_Y_FOR_SHOW) {
+    state.direction = -1;
+    state.directionalDistance = DIRECTION_REVERSAL_HYSTERESIS_PX;
     setTargetProgress(0);
     return;
   }
 
-  if (delta >= DIRECTION_DELTA_PX && nextY >= MIN_SCROLL_Y_FOR_HIDE) {
+  const direction = delta >= DIRECTION_DELTA_PX ? 1 : -1;
+  if (direction === state.direction) {
+    state.directionalDistance += Math.abs(delta);
+  } else {
+    state.direction = direction;
+    state.directionalDistance = Math.abs(delta);
+  }
+
+  // Native momentum commonly changes by a few pixels in the opposite
+  // direction while decelerating. Do not reverse the fixed chrome until that
+  // direction is intentional, otherwise the spring visibly chatters.
+  if (state.directionalDistance < DIRECTION_REVERSAL_HYSTERESIS_PX) {
+    return;
+  }
+
+  if (direction === 1 && nextY >= MIN_SCROLL_Y_FOR_HIDE) {
     setTargetProgress(1);
     return;
   }
 
-  if (delta <= -DIRECTION_DELTA_PX) {
+  if (direction === -1) {
     setTargetProgress(0);
   }
 }
@@ -256,6 +278,8 @@ export function resetKaiBottomChromeVisibility(): void {
   state.targetProgress = 0;
   state.initialized = false;
   state.lastY = readActiveScrollY();
+  state.direction = 0;
+  state.directionalDistance = 0;
   emit();
 }
 
@@ -273,6 +297,8 @@ export function snapKaiBottomChromeVisible(): void {
   state.progress = 0;
   state.targetProgress = 0;
   state.lastY = readActiveScrollY();
+  state.direction = 0;
+  state.directionalDistance = 0;
   emit();
 }
 
@@ -339,12 +365,16 @@ export function useKaiBottomChromeVisibility(enabled: boolean): {
     };
   }, [enabled]);
 
-  return { hidden: enabled ? hidden : false, progress: enabled ? progress : 0, onScroll };
+  return {
+    hidden: enabled ? hidden : false,
+    progress: enabled ? progress : 0,
+    onScroll,
+  };
 }
 
 const BOTTOM_CHROME_PROGRESS_VAR = "--bottom-chrome-progress";
 const BOTTOM_CHROME_SHARED_TRANSLATION =
-  "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height))), 0)";
+  "translate3d(0, calc((var(--kb-height, 0px) * -1) + (var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height)))), 0)";
 
 /**
  * Drives the bottom-chrome hide animation by writing the continuous scroll
@@ -374,10 +404,7 @@ export function useKaiBottomChromeProgressCssVar(enabled: boolean): void {
 
     const root = document.documentElement;
     const writeVar = () => {
-      root.style.setProperty(
-        BOTTOM_CHROME_PROGRESS_VAR,
-        String(getSnapshot()),
-      );
+      root.style.setProperty(BOTTOM_CHROME_PROGRESS_VAR, String(getSnapshot()));
     };
 
     listenerRefCount += 1;

@@ -139,7 +139,7 @@ describe("OneDashboardPage", () => {
       ROUTES.PKM,
     );
     expect(screen.getByRole("link", { name: "Open Consent" }).getAttribute("href")).toContain(
-      "/consents",
+      ROUTES.CONSENTS,
     );
     expect(
       screen.queryByRole("link", { name: "Open Information Marketplace" }),

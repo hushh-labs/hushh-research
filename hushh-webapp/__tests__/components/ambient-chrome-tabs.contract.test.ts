@@ -40,7 +40,14 @@ describe("tabbed ambient chrome contract", () => {
 
   it("uses the shared Search Console dissolve curve at the bottom edge", () => {
     const styles = read("app/globals.css");
+    const mask = read("components/app-ui/ambient-chrome-mask.tsx");
 
+    expect(mask).toContain('"ambient-chrome-mask"');
+    expect(mask).not.toContain("backdrop-blur");
+    expect(mask).not.toContain("backdrop-saturate");
+    expect(styles).toMatch(
+      /\.ambient-chrome-mask\s*\{[^}]*--tw-backdrop-blur: blur\(0px\);/s,
+    );
     expect(styles).toContain(".ambient-chrome-mask--bottom");
     expect(styles).toContain(
       "color-mix(in srgb, var(--ambient-chrome-bg) 86%, transparent) 22%",

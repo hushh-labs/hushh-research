@@ -28,7 +28,8 @@ const KB_MIN_SHRINK_PX = 120;
 
 function isMobileWebEnv(): boolean {
   if (typeof window === "undefined") return false;
-  const coarsePointer = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+  const coarsePointer =
+    window.matchMedia?.("(pointer: coarse)").matches ?? false;
   const hasTouch =
     "ontouchstart" in window || (navigator.maxTouchPoints ?? 0) > 0;
   const narrow = window.matchMedia?.("(max-width: 820px)").matches ?? false;
@@ -80,36 +81,49 @@ export function KeyboardInsetManager() {
     };
     document.addEventListener("focusin", onFocusIn, true);
     cleanups.push(() =>
-      document.removeEventListener("focusin", onFocusIn, true)
+      document.removeEventListener("focusin", onFocusIn, true),
     );
     cleanups.push(() => cancelAnimationFrame(rafId));
 
     if (isNative) {
       // Native: authoritative keyboard height from @capacitor/keyboard.
       // Dynamic import keeps SSR / static export safe.
-      let showHandle: { remove: () => void } | undefined;
-      let hideHandle: { remove: () => void } | undefined;
+      const listenerHandles: Array<{ remove: () => void }> = [];
       void import("@capacitor/keyboard")
         .then(({ Keyboard }) => {
           if (disposed) return;
-          void Keyboard.addListener("keyboardWillShow", (info) => {
-            setKeyboardHeight(info.keyboardHeight ?? 0);
-          }).then((handle) => {
-            if (disposed) handle.remove();
-            else showHandle = handle;
-          });
-          void Keyboard.addListener("keyboardWillHide", () => {
-            setKeyboardHeight(0);
-          }).then((handle) => {
-            if (disposed) handle.remove();
-            else hideHandle = handle;
-          });
+          const register = (promise: Promise<{ remove: () => void }>) => {
+            void promise.then((handle) => {
+              if (disposed) handle.remove();
+              else listenerHandles.push(handle);
+            });
+          };
+          // iOS normally emits `will*`, but an interrupted animation/reopened
+          // command palette can arrive only as `did*`. Subscribe to both so the
+          // CSS inset always converges on the keyboard's final geometry.
+          register(
+            Keyboard.addListener("keyboardWillShow", (info) =>
+              setKeyboardHeight(info.keyboardHeight ?? 0),
+            ),
+          );
+          register(
+            Keyboard.addListener("keyboardDidShow", (info) =>
+              setKeyboardHeight(info.keyboardHeight ?? 0),
+            ),
+          );
+          register(
+            Keyboard.addListener("keyboardWillHide", () =>
+              setKeyboardHeight(0),
+            ),
+          );
+          register(
+            Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0)),
+          );
         })
         .catch(() => {
           /* plugin unavailable → stay inert */
         });
-      cleanups.push(() => showHandle?.remove());
-      cleanups.push(() => hideHandle?.remove());
+      cleanups.push(() => listenerHandles.forEach((handle) => handle.remove()));
     } else {
       // Mobile web: derive height from a thresholded visualViewport shrink.
       const vv = window.visualViewport;

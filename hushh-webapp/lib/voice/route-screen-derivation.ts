@@ -71,6 +71,18 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_SETUP_KAI) {
     return { screen: "one_setup_finance", subview: "legacy" };
   }
+  if (
+    normalizedPath === ROUTES.KAI_PLAID_OAUTH_RETURN ||
+    normalizedPath === ROUTES.LEGACY_KAI_PLAID_OAUTH_RETURN
+  ) {
+    return { screen: "kai_plaid_oauth_return", subview: null };
+  }
+  if (
+    normalizedPath === ROUTES.KAI_ALPACA_OAUTH_RETURN ||
+    normalizedPath === ROUTES.LEGACY_KAI_ALPACA_OAUTH_RETURN
+  ) {
+    return { screen: "kai_alpaca_oauth_return", subview: null };
+  }
   if (normalizedPath === KAI_MARKET_PATH) {
     const tab = query.get("tab") || "market";
     if (tab === "analysis") {

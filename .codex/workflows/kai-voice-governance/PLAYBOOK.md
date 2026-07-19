@@ -11,7 +11,7 @@ Keep One Voice, Kai runtime compatibility, typed search, UI actionables, persona
 1. Start with `kai-voice-governance`.
 2. Read the gateway contract doc, runtime architecture doc, and review checklist before editing behavior.
 3. Author capability existence in local `.voice-action-contract.json` files, not in runtime heuristics.
-4. Rebuild the gateway and compatibility manifest after any contract change.
+4. Rebuild the generated gateway and route orchestration index after any contract change.
 5. Keep search, voice, and control-id mappings on the same `action_id`.
 6. Treat persona, vault, consent, onboarding, and workspace state as central guard inputs.
 7. Use authored multi-step workflows only when the UI really supports the same prerequisite chain.

@@ -300,9 +300,9 @@ def _describe_action_contract(action_id: str, ctx: AgentPersonaContext) -> str:
     still enforces every guard at execution time.
     """
     try:
-        from hushh_mcp.services.voice_action_manifest import get_voice_manifest_action
+        from hushh_mcp.services.action_gateway import get_action_gateway_action
 
-        manifest_action = get_voice_manifest_action(action_id)
+        manifest_action = get_action_gateway_action(action_id)
     except Exception:  # noqa: BLE001 - instruction enrichment is best-effort
         manifest_action = None
     if not manifest_action:

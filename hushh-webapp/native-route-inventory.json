@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-06-17",
-  "total_routes": 96,
-  "native_required_routes": 88,
+  "total_routes": 98,
+  "native_required_routes": 90,
   "excluded_routes": 8,
   "routes": [
     {
@@ -34,6 +34,18 @@
       "initialRoute": "/login?redirect=%2Fone%2Fsetup",
       "expectedMarker": "native-route-one-setup",
       "expectedRoute": "/one/setup",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/one/setup/connections",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fconnections",
+      "expectedMarker": "native-route-one-setup-connections",
+      "expectedRoute": "/one/setup/connections",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -905,6 +917,18 @@
         "loaded",
         "empty-valid",
         "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/connect/settings",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fconnect%2Fsettings",
+      "expectedMarker": "native-route-connect-settings",
+      "expectedRoute": "/connect/settings",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
       ]
     },
     {

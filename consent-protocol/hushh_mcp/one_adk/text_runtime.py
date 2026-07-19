@@ -35,7 +35,7 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_VOICE_CONTEXT,
     build_one_text_agent,
 )
-from hushh_mcp.services.voice_action_manifest import get_voice_manifest_action
+from hushh_mcp.services.action_gateway import get_action_gateway_action
 
 OneTextEventKind = Literal["token", "directive"]
 
@@ -59,6 +59,9 @@ def _runtime_model(
     runtime_model: str,
     runtime_mode: str,
     runtime_credential: str | None,
+    runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
+    runtime_vertex_project: str | None = None,
+    runtime_vertex_location: str | None = None,
 ) -> str | Gemini:
     """Build a turn-local ADK model without persisting a BYOK secret."""
     model = str(runtime_model or "").strip()
@@ -68,6 +71,20 @@ def _runtime_model(
     if runtime_mode == "byok" and not credential:
         raise ValueError("One text BYOK credential is missing")
     if runtime_mode == "byok":
+        if runtime_credential_transport == "vertex_api_key":
+            project = str(runtime_vertex_project or "").strip()
+            location = str(runtime_vertex_location or "").strip()
+            if not project or not location:
+                raise ValueError("One text Vertex BYOK requires project and location")
+            return Gemini(
+                model=model,
+                client_kwargs={
+                    "vertexai": True,
+                    "api_key": credential,
+                    "project": project,
+                    "location": location,
+                },
+            )
         return Gemini(model=model, client_kwargs={"api_key": credential})
     if credential:
         # Mirror the existing managed Agent Chat transport: Vertex mode with
@@ -123,7 +140,7 @@ def _directive_from_value(value: Any) -> OneTextDirective | None:
     delegate_agent_id = str(value.get("delegateAgentId") or "").strip() or None
     if kind == "action" and delegate_agent_id is None:
         action_id = str(payload.get("actionId") or "").strip()
-        if not action_id or get_voice_manifest_action(action_id) is None:
+        if not action_id or get_action_gateway_action(action_id) is None:
             return None
     return OneTextDirective(
         kind=kind,
@@ -174,6 +191,9 @@ async def stream_one_text_turn(
     runtime_model: str,
     runtime_mode: str,
     runtime_credential: str | None,
+    runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
+    runtime_vertex_project: str | None = None,
+    runtime_vertex_location: str | None = None,
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run one typed turn through One and expose text/directive deltas."""
     if str(runtime_provider or "").strip().lower() != "gemini":
@@ -192,6 +212,9 @@ async def stream_one_text_turn(
                 runtime_model=runtime_model,
                 runtime_mode=runtime_mode,
                 runtime_credential=runtime_credential,
+                runtime_credential_transport=runtime_credential_transport,
+                runtime_vertex_project=runtime_vertex_project,
+                runtime_vertex_location=runtime_vertex_location,
             )
         ),
         session_service=session_service,

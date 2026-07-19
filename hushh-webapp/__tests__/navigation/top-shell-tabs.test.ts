@@ -28,6 +28,27 @@ describe("top shell contextual tabs", () => {
     });
   });
 
+  it("moves Consent Center state into the shared top shell", () => {
+    const tabs = resolveTopShellTabSet(
+      "/one/consent?tab=history&q=tax&page=3&requestId=req_123&from=%2Fone",
+    );
+
+    expect(tabs).toMatchObject({
+      id: "consent",
+      label: "Consent Center",
+      activeValue: "history",
+    });
+    expect(tabs?.tabs.find((tab) => tab.value === "active")?.href).toBe(
+      "/one/consent?tab=active&from=%2Fone",
+    );
+    expect(
+      resolveTopShellRouteProfile("/one/consent?tab=connections").model,
+    ).toMatchObject({
+      mode: "bar-with-tabs",
+      tabs: { id: "consent", activeValue: "connections" },
+    });
+  });
+
   it("does not expose contextual tabs on unrelated routes", () => {
     expect(resolveTopShellTabSet("/profile")).toBeNull();
   });
@@ -73,6 +94,14 @@ describe("top shell contextual tabs", () => {
       mode: "bar-with-tabs",
       tabs: { id: "public", activeValue: "blog" },
     });
+    expect(resolveTopShellRouteProfile("/research").model).toMatchObject({
+      mode: "bar-with-tabs",
+      tabs: { id: "public", activeValue: "research" },
+    });
+    expect(resolveTopShellRouteProfile("/developers").model).toMatchObject({
+      mode: "bar-with-tabs",
+      tabs: { id: "public", activeValue: "developers" },
+    });
   });
 
   it.each([
@@ -81,6 +110,7 @@ describe("top shell contextual tabs", () => {
     ["/one/location?action=share", "bar"],
     ["/one/location?view=people", "bar-with-tabs"],
     ["/one/kai?tab=analysis", "bar-with-tabs"],
+    ["/one/consent?tab=history", "bar-with-tabs"],
   ] as const)("resolves %s as %s", (routeKey, expectedMode) => {
     const profile = resolveTopShellRouteProfile(routeKey);
     expect(profile.model.mode).toBe(expectedMode);

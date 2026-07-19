@@ -56,9 +56,12 @@ def main() -> int:
     parser.add_argument("--notes", default=None)
     parser.add_argument(
         "--schema-profile",
-        choices=("standard", "flat"),
+        choices=("standard", "flat", "agentforce"),
         default="standard",
-        help="Authenticated MCP catalog profile (standard preserves the v0.3 contract).",
+        help=(
+            "Authenticated MCP catalog profile. agentforce is schema-registration UAT only; "
+            "user-specific calls fail closed until Salesforce supports them."
+        ),
     )
     parser.add_argument(
         "--enable-client-credentials",
@@ -107,8 +110,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if args.enable_client_credentials and args.schema_profile != "flat":
-        parser.error("--enable-client-credentials requires --schema-profile flat")
+    if args.enable_client_credentials and args.schema_profile not in {"flat", "agentforce"}:
+        parser.error("--enable-client-credentials requires a constrained schema profile")
     supplied_key_values = (args.connector_public_key, args.connector_key_id)
     if any(value for value in supplied_key_values) and not all(supplied_key_values):
         parser.error("--connector-public-key and --connector-key-id must be supplied together")

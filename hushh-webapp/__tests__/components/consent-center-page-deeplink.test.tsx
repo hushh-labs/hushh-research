@@ -1,4 +1,9 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConsentCenterPage } from "@/components/consent/consent-center-page";
@@ -93,7 +98,6 @@ vi.mock("@/lib/consent", () => ({
     isScopeBusy: () => false,
   }),
 }));
-
 
 vi.mock("@/lib/voice/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: vi.fn(),
@@ -299,7 +303,9 @@ describe("ConsentCenterPage requestId deep links", () => {
       });
     });
 
-    expect(await screen.findByRole("dialog", { name: "Macy's CRM" })).toBeTruthy();
+    expect(
+      await screen.findByRole("dialog", { name: "Macy's CRM" }),
+    ).toBeTruthy();
     expect(screen.getByText("Shopping receipts")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Allow" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Don't allow" })).toBeTruthy();
@@ -341,7 +347,8 @@ describe("ConsentCenterPage requestId deep links", () => {
     await waitFor(() => {
       expect(mocks.replace).toHaveBeenCalled();
     });
-    const [calledPath] = mocks.replace.mock.calls[mocks.replace.mock.calls.length - 1];
+    const [calledPath] =
+      mocks.replace.mock.calls[mocks.replace.mock.calls.length - 1];
     expect(calledPath).toContain("tab=history");
     expect(calledPath).not.toContain("requestId");
   });
@@ -356,9 +363,9 @@ describe("ConsentCenterPage requestId deep links", () => {
 
     render(<ConsentCenterPage />);
 
-    const allowButton = await screen.findByRole("button", {
+    const allowButton = (await screen.findByRole("button", {
       name: "Allowing...",
-    }) as HTMLButtonElement;
+    })) as HTMLButtonElement;
     expect(allowButton.disabled).toBe(true);
     expect(
       (screen.getByRole("button", { name: "Don't allow" }) as HTMLButtonElement)
@@ -376,29 +383,17 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(mocks.lookupPendingRequests).not.toHaveBeenCalled();
   });
 
-  it("clears the search query when switching tabs instead of carrying it over", async () => {
-    // Bug: switching tabs reset page/requestId/bundleId but left `q` in the
-    // URL and in local searchValue state. Searching "macy" on Requests, then
-    // clicking Active Access, silently kept filtering Active Access by
-    // "macy" too - the list looked wrong/empty with no visible cause.
+  it("does not render a duplicate in-page tab switcher", async () => {
+    // The shared top shell now owns Consent Center tab navigation. Retaining a
+    // route-local switcher would create two selection authorities and allow a
+    // search query to leak across one of them.
     mocks.search = "tab=pending&q=macy";
     mocks.listEntries.mockResolvedValue(emptyListResponse());
 
     render(<ConsentCenterPage />);
     await waitFor(() => expect(mocks.listEntries).toHaveBeenCalled());
 
-    const activeTabButton = screen.getByRole("button", { name: /Active Access/i });
-    await act(async () => {
-      fireEvent.click(activeTabButton);
-    });
-
-    await waitFor(() => {
-      const lastCall = mocks.replace.mock.calls[mocks.replace.mock.calls.length - 1];
-      expect(lastCall?.[0]).toContain("tab=active");
-    });
-    const [calledPath] = mocks.replace.mock.calls[mocks.replace.mock.calls.length - 1];
-    expect(calledPath).not.toContain("q=macy");
-    expect(calledPath).not.toContain("q=");
+    expect(screen.queryByRole("button", { name: /Active Access/i })).toBeNull();
   });
 
   it("does not auto-select the first row or open the detail panel after switching tabs", async () => {
@@ -535,10 +530,14 @@ describe("ConsentCenterPage requestId deep links", () => {
 
     render(<ConsentCenterPage />);
 
-    expect(await screen.findByRole("dialog", { name: "Kushal Trivedi" })).toBeTruthy();
+    expect(
+      await screen.findByRole("dialog", { name: "Kushal Trivedi" }),
+    ).toBeTruthy();
     expect(screen.queryByText("Consent timeline")).toBeNull();
     expect(
-      screen.queryByText("Full history of consent changes with this connection."),
+      screen.queryByText(
+        "Full history of consent changes with this connection.",
+      ),
     ).toBeNull();
   });
 
@@ -696,9 +695,9 @@ describe("ConsentCenterPage requestId deep links", () => {
 
     render(<ConsentCenterPage />);
 
-    const revokeButton = await screen.findByRole("button", {
+    const revokeButton = (await screen.findByRole("button", {
       name: "Revoking...",
-    }) as HTMLButtonElement;
+    })) as HTMLButtonElement;
     expect(revokeButton.disabled).toBe(true);
   });
 });

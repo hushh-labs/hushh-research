@@ -373,6 +373,9 @@ function validateVoicePlaybook(route, value) {
   ) {
     throw new Error(`Route ${route} proactive playbook requires an entryCue`);
   }
+  if (value.proactivity === "on_entry" && !String(value.primaryActionId || "").trim()) {
+    throw new Error(`Route ${route} proactive playbook requires a primaryActionId`);
+  }
   return value;
 }
 

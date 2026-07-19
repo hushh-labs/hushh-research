@@ -46,15 +46,6 @@ import {
   type SpecialistConsentActionItem,
   type SpecialistPendingConsentRequestItem,
 } from "@/components/agent/specialist-directive-card";
-import { OpportunityNudgeStack } from "@/components/agent/opportunity-nudge-card";
-import {
-  OneOpportunityService,
-  type OpportunitySignal,
-} from "@/lib/one-marketplace/opportunity-service";
-import {
-  OneMarketplaceService,
-  type MarketplaceRequest,
-} from "@/lib/one-marketplace/service";
 import {
   ChatMarkdownLink,
   copyTextToClipboard,
@@ -120,7 +111,6 @@ import {
 } from "@/lib/services/agent-chat-client";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
 import { runLocationDirective, type DelegateResult } from "@/lib/agent/specialist-directive-runtime";
-import { runMarketplaceDeliverySweep } from "@/lib/one-marketplace/delivery-sweep";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
@@ -133,6 +123,7 @@ import {
   type PendingConsentLookupItem,
 } from "@/lib/services/consent-center-service";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
+import { resolveGeminiRuntimeConnection } from "@/lib/connections/gemini-runtime-configuration";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import {
@@ -144,8 +135,6 @@ import {
   releaseAgentTurnSubmitLock,
   tryAcquireAgentTurnSubmitLock,
 } from "@/lib/agent/agent-chat-turn-safety";
-import { planOneGoal } from "@/lib/one-goal/one-goal-planner";
-import { runOneGoal } from "@/lib/one-goal/one-goal-runner";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { buildOneVoiceStructuredScreenContext } from "@/lib/voice/screen-context-builder";
@@ -161,13 +150,6 @@ type AgentMessage = {
   specialistDirective?: SpecialistDirectiveEvent | null;
   streamEvents?: AgentVisibleStreamEvent[];
 };
-
-function goalUsesService(
-  plan: Extract<ReturnType<typeof planOneGoal>, { status: "ready" }>,
-  service: string
-): boolean {
-  return plan.action.goal.workflow_steps.some((step) => step.service === service);
-}
 
 type AgentDebugEvent = {
   id: string;
@@ -260,15 +242,6 @@ const EMPTY_PKM_CONTEXT: AgentPkmContext = {
 };
 const AGENT_STREAM_RENDER_FRAME_MS = 32;
 const VOICE_PKM_CONTEXT_DEADLINE_MS = 650;
-
-// The Information Marketplace route is temporarily disabled; drop
-// `publish_slices` directives here so Agent Chat never surfaces a hand-off
-// card that would route into the disabled surface.
-function isDisabledMarketplaceDirective(event: SpecialistDirectiveEvent | null): boolean {
-  if (!event) return false;
-  const payload = event.directive.payload as Record<string, unknown>;
-  return payload?.type === "publish_slices";
-}
 
 function getConsentRequiredPayload(
   event: SpecialistDirectiveEvent | null,
@@ -1189,16 +1162,6 @@ export function AgentChatWorkspace({
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
   const [pkmActivity, setPkmActivity] = useState<AgentPkmActivity[]>([]);
-  const [opportunitiesDismissedForVaultSession, setOpportunitiesDismissedForVaultSession] =
-    useState(false);
-  const [marketplaceOpportunitySignals, setMarketplaceOpportunitySignals] = useState<
-    OpportunitySignal[]
-  >([]);
-  const [marketplaceOpportunityRequests, setMarketplaceOpportunityRequests] = useState<
-    MarketplaceRequest[]
-  >([]);
-  const [marketplaceOpportunitiesLoading, setMarketplaceOpportunitiesLoading] = useState(false);
-  const marketplaceOpportunityLoadKeyRef = useRef<string | null>(null);
   // A specialist (e.g. agent_location) can return a directive that must be
   // explicitly confirmed by the user before it runs. Stored here and rendered
   // as an inline card; never auto-fired for kind:"action".
@@ -1285,23 +1248,6 @@ export function AgentChatWorkspace({
     clearAgentPkmContext(user?.uid);
   }, [isVaultUnlocked, user?.uid, vaultKey]);
 
-  // After an Agent One turn, seal + deliver any marketplace slice the agent just
-  // approved. A server-side agent approval can only flip a request to `approved`
-  // (no browser/vault key to seal); this runs the on-device delivery sweep from
-  // the seller's unlocked browser so agent approval matches a Guardian approval.
-  // Best-effort and idempotent: a no-op when there is nothing to deliver.
-  const sweepMarketplaceDeliveries = useCallback(() => {
-    if (!user?.uid || !isVaultUnlocked || !vaultKey) return;
-    const ownerToken = getVaultOwnerToken();
-    if (!ownerToken) return;
-    void runMarketplaceDeliverySweep({
-      userId: user.uid,
-      vaultKey,
-      vaultOwnerToken: ownerToken,
-    }).catch((error) => {
-      console.warn("[AgentOne] marketplace delivery sweep failed:", error);
-    });
-  }, [getVaultOwnerToken, isVaultUnlocked, user?.uid, vaultKey]);
   const routeQuery = searchParams?.toString() || "";
   const pathnameWithQuery = routeQuery ? `${pathname || ""}?${routeQuery}` : pathname || "";
   const routeInfo = useMemo(
@@ -1617,11 +1563,6 @@ export function AgentChatWorkspace({
     setActivePkmToolCount(0);
     setPkmReviews([]);
     setPkmActivity([]);
-    setOpportunitiesDismissedForVaultSession(false);
-    setMarketplaceOpportunitySignals([]);
-    setMarketplaceOpportunityRequests([]);
-    setMarketplaceOpportunitiesLoading(false);
-    marketplaceOpportunityLoadKeyRef.current = null;
     setVoiceState("idle");
     setVoiceTranscriptReview(null);
     resetGlobalVoiceState();
@@ -1889,50 +1830,6 @@ export function AgentChatWorkspace({
       cancelled = true;
     };
   }, [hasChatAccess, user?.uid, vaultOwnerToken]);
-
-  const loadMarketplaceOpportunities = useCallback(
-    async (options?: { force?: boolean }) => {
-      if (
-        !hasChatAccess ||
-        !user?.uid ||
-        !vaultOwnerToken ||
-        opportunitiesDismissedForVaultSession
-      ) {
-        return;
-      }
-      const loadKey = `${user.uid}:${vaultOwnerToken.slice(0, 12)}`;
-      if (!options?.force && marketplaceOpportunityLoadKeyRef.current === loadKey) return;
-      marketplaceOpportunityLoadKeyRef.current = loadKey;
-      setMarketplaceOpportunitiesLoading(true);
-      const [dueResult, requestResult] = await Promise.allSettled([
-        OneOpportunityService.listDue({ vaultOwnerToken }),
-        OneMarketplaceService.listRequests({ vaultOwnerToken, status: "pending" }),
-      ]);
-      setMarketplaceOpportunitySignals(
-        dueResult.status === "fulfilled"
-          ? dueResult.value.filter((signal) => signal.status === "active" || signal.status === "snoozed")
-          : [],
-      );
-      setMarketplaceOpportunityRequests(
-        requestResult.status === "fulfilled"
-          ? requestResult.value.filter((request) => request.status === "pending")
-          : [],
-      );
-      setMarketplaceOpportunitiesLoading(false);
-    },
-    [hasChatAccess, opportunitiesDismissedForVaultSession, user?.uid, vaultOwnerToken],
-  );
-
-  useEffect(() => {
-    if (!hasChatAccess || opportunitiesDismissedForVaultSession) {
-      setMarketplaceOpportunitySignals([]);
-      setMarketplaceOpportunityRequests([]);
-      setMarketplaceOpportunitiesLoading(false);
-      marketplaceOpportunityLoadKeyRef.current = null;
-      return;
-    }
-    void loadMarketplaceOpportunities();
-  }, [hasChatAccess, loadMarketplaceOpportunities, opportunitiesDismissedForVaultSession]);
 
   const restoreConversationMessages = useCallback(
     async (nextConversationId: string, token: string) => {
@@ -2636,7 +2533,6 @@ export function AgentChatWorkspace({
     setPkmActivity([]);
     setIsChatLoading(true);
     setIsStreaming(true);
-    void loadMarketplaceOpportunities({ force: true });
 
     if (!token) {
       updateMessage(assistantMessageId, (message) => ({
@@ -2647,113 +2543,6 @@ export function AgentChatWorkspace({
       }));
       setIsChatLoading(false);
       setIsStreaming(false);
-      return;
-    }
-
-    const goalPlan = planOneGoal({
-      transcript: text,
-      appRuntimeState: appRuntimeStateRef.current,
-      entrypoint: isVoiceTurn ? "voice" : "chat",
-    });
-    if (goalPlan.status === "input_needed") {
-      updateMessage(assistantMessageId, (message) => ({
-        ...message,
-        text: goalPlan.prompt.prompt,
-        status: "done",
-        streamEvents: [],
-      }));
-      speakVoiceReceipt(goalPlan.prompt.prompt);
-      setIsChatLoading(false);
-      setIsStreaming(false);
-      return;
-    }
-    if (
-      goalPlan.status === "ready" &&
-      goalPlan.action.execution_policy === "allow_direct" &&
-      (!goalPlan.action.delegate_agent_id ||
-        goalPlan.action.delegate_agent_id === "one" ||
-        goalUsesService(goalPlan, "specialist_chat.turn"))
-    ) {
-      try {
-        upsertToolStatusMessage(`Running ${goalPlan.action.label}...`, "streaming");
-        const goalResult = await runOneGoal({
-          plan: goalPlan,
-          userId,
-          vaultOwnerToken: token,
-          vaultKey,
-          router,
-          setAnalysisParams,
-          screenContext: buildOneVoiceStructuredScreenContext({
-            appRuntimeState: appRuntimeStateRef.current,
-            state: useAgentVoiceState.getState().oneVoiceState,
-            lastTransition: useAgentVoiceState.getState().lastTransition,
-          }) as unknown as Record<string, unknown>,
-          executeAction: (actionId, slots) =>
-            executeAgentGatewayAction({
-              actionId,
-              slots,
-              userId,
-              router,
-              appRuntimeState: appRuntimeStateRef.current,
-              surfaceMetadata: getVoiceSurfaceMetadata(),
-              hasPortfolioData,
-              busyOperations,
-              setAnalysisParams,
-              switchPersona,
-            }),
-          waitForCompletion: goalUsesService(goalPlan, "kai_debate.ensure_run"),
-          callbacks: {
-            onProgressText: async (messageText) => {
-              upsertToolStatusMessage(messageText, "streaming");
-              speakVoiceReceipt(messageText);
-            },
-            onFinalText: async (messageText) => {
-              updateMessage(assistantMessageId, (message) => ({
-                ...message,
-                text: messageText,
-                status: "done",
-                ephemeral: false,
-                streamEvents: [],
-              }));
-              speakVoiceReceipt(messageText);
-            },
-          },
-        });
-        if (goalResult.actionResult.data?.requiresChatHandoff === true) {
-          const specialistDirective =
-            goalResult.actionResult.data.specialistDirective &&
-            typeof goalResult.actionResult.data.specialistDirective === "object"
-              ? (goalResult.actionResult.data.specialistDirective as SpecialistDirectiveEvent)
-              : null;
-          updateMessage(assistantMessageId, (message) => ({
-            ...message,
-            text: goalResult.resultSummary.text,
-            status: "done",
-            ephemeral: false,
-            streamEvents: [],
-          }));
-          if (specialistDirective && !isDisabledMarketplaceDirective(specialistDirective)) {
-            setPendingSpecialistDirective(specialistDirective);
-          }
-          speakVoiceReceipt(goalResult.resultSummary.text);
-        }
-      } catch (error) {
-        const message =
-          error instanceof Error && error.message
-            ? error.message
-            : "One could not complete that goal.";
-        updateMessage(assistantMessageId, (current) => ({
-          ...current,
-          text: message,
-          status: "error",
-          ephemeral: false,
-          streamEvents: [],
-        }));
-        speakVoiceReceipt(message);
-      } finally {
-        setIsChatLoading(false);
-        setIsStreaming(false);
-      }
       return;
     }
 
@@ -2879,6 +2668,11 @@ export function AgentChatWorkspace({
         VOICE_AGENT_FIRST_EVENT_TIMEOUT_MS,
         "Agent voice response timed out before it started. Please try again."
       );
+      const runtimeConnection = await resolveGeminiRuntimeConnection({
+        userId,
+        vaultKey,
+        vaultOwnerToken: token,
+      });
       const streamResult = await streamAgentChat({
         userId,
         message: text,
@@ -2890,6 +2684,11 @@ export function AgentChatWorkspace({
           state: useAgentVoiceState.getState().oneVoiceState,
           lastTransition: useAgentVoiceState.getState().lastTransition,
         }) as unknown as Record<string, unknown>,
+        runtimeCredentialMode: runtimeConnection.mode,
+        runtimeCredential: runtimeConnection.credential,
+        runtimeCredentialTransport: runtimeConnection.transport,
+        runtimeVertexProject: runtimeConnection.vertexProject,
+        runtimeVertexLocation: runtimeConnection.vertexLocation,
         signal: streamAbortController.signal,
         handlers: {
           onStart: ({ conversationId: nextConversationId }) => {
@@ -2972,9 +2771,7 @@ export function AgentChatWorkspace({
                 return [{ ...message, status: "done", streamEvents: [] }];
               })
             );
-            if (!isDisabledMarketplaceDirective(event)) {
-              setPendingSpecialistDirective(event);
-            }
+            setPendingSpecialistDirective(event);
           },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
@@ -2994,7 +2791,6 @@ export function AgentChatWorkspace({
             }));
             setIsChatLoading(false);
             setIsStreaming(false);
-            sweepMarketplaceDeliveries();
           },
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
@@ -3152,13 +2948,17 @@ export function AgentChatWorkspace({
     latestVisibleTurnIdRef.current = debugTurnId;
     setIsChatLoading(true);
     setIsStreaming(true);
-    void loadMarketplaceOpportunities({ force: true });
 
     const streamAbortController = new AbortController();
     streamAbortControllerRef.current?.abort();
     streamAbortControllerRef.current = streamAbortController;
 
     try {
+      const runtimeConnection = await resolveGeminiRuntimeConnection({
+        userId,
+        vaultKey,
+        vaultOwnerToken: token,
+      });
       const streamResult = await streamAgentChat({
         userId,
         message: "",
@@ -3170,6 +2970,11 @@ export function AgentChatWorkspace({
           state: useAgentVoiceState.getState().oneVoiceState,
           lastTransition: useAgentVoiceState.getState().lastTransition,
         }) as unknown as Record<string, unknown>,
+        runtimeCredentialMode: runtimeConnection.mode,
+        runtimeCredential: runtimeConnection.credential,
+        runtimeCredentialTransport: runtimeConnection.transport,
+        runtimeVertexProject: runtimeConnection.vertexProject,
+        runtimeVertexLocation: runtimeConnection.vertexLocation,
         signal: streamAbortController.signal,
         // Handler set is intentionally reduced. A delegate_result turn is
         // serviced by the backend delegation branch (Task 6), which never
@@ -3208,9 +3013,7 @@ export function AgentChatWorkspace({
                 return [{ ...message, status: "done" }];
               })
             );
-            if (!isDisabledMarketplaceDirective(event)) {
-              setPendingSpecialistDirective(event);
-            }
+            setPendingSpecialistDirective(event);
           },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
@@ -3222,7 +3025,6 @@ export function AgentChatWorkspace({
             }));
             setIsChatLoading(false);
             setIsStreaming(false);
-            sweepMarketplaceDeliveries();
           },
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
@@ -3357,7 +3159,6 @@ export function AgentChatWorkspace({
     setInput("");
     setIsChatLoading(true);
     setIsStreaming(true);
-    void loadMarketplaceOpportunities({ force: true });
 
     const streamAbortController = new AbortController();
     streamAbortControllerRef.current?.abort();
@@ -3869,27 +3670,6 @@ export function AgentChatWorkspace({
       return true;
     })
   );
-  const activeStreamPanelMessageId =
-    [...visibleMessages]
-      .reverse()
-      .find((message) => message.role === "assistant" && message.status === "streaming")?.id ??
-    null;
-  const renderMarketplaceOpportunities = () =>
-    hasChatAccess ? (
-      <OpportunityNudgeStack
-        userId={user?.uid ?? null}
-        vaultOwnerToken={vaultOwnerToken}
-        vaultKey={vaultKey}
-        onRequireUnlock={() => setVaultDialogOpen(true)}
-        variant="accordion"
-        dismissed={opportunitiesDismissedForVaultSession}
-        onDismissPanel={() => setOpportunitiesDismissedForVaultSession(true)}
-        signals={marketplaceOpportunitySignals}
-        requests={marketplaceOpportunityRequests}
-        loading={marketplaceOpportunitiesLoading}
-        onRefresh={() => void loadMarketplaceOpportunities({ force: true })}
-      />
-    ) : null;
   const trailingSpecialistLoadingMessages = pendingSpecialistDirective
     ? messages.filter(
         (message) =>
@@ -4223,11 +4003,6 @@ export function AgentChatWorkspace({
                         : undefined
                     }
                     busyConsentItemId={specialistBusyItemId}
-                    turnPanelOpportunities={
-                      message.id === activeStreamPanelMessageId
-                        ? renderMarketplaceOpportunities()
-                        : undefined
-                    }
                     onConsentRevoke={async (item) => {
                       setSpecialistBusyItemId(item.id);
                       try {
@@ -4312,8 +4087,6 @@ export function AgentChatWorkspace({
                   onDismiss={() => handleDismissPkmReview(review.id)}
                 />
               ))}
-
-              {!activeStreamPanelMessageId ? renderMarketplaceOpportunities() : null}
 
               {pendingSpecialistDirective ? (
                 getConsentRequiredPayload(pendingSpecialistDirective) ? (

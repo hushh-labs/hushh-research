@@ -38,7 +38,6 @@ import {
   SettingsDetailPanel,
   SettingsGroup,
   SettingsRow,
-  SettingsSegmentedTabs,
 } from "@/components/profile/settings-ui";
 import { AccessibilityStatusAnnouncer } from "@/components/system/accessibility-status-announcer";
 import { ApiRetryState } from "@/components/system/api-retry-state";
@@ -127,7 +126,8 @@ function normalizeTab(value: string | null): ConsentTab {
   if (value === "active") return "active";
   if (value === "history" || value === "previous") return "history";
   // "relationships" is the legacy name for the Connections tab.
-  if (value === "connections" || value === "relationships") return "connections";
+  if (value === "connections" || value === "relationships")
+    return "connections";
   return "requests";
 }
 
@@ -304,7 +304,8 @@ function entrySummary(entry: ConsentCenterEntry) {
     const eventCount =
       entry.event_count ||
       entry.consent_trails.reduce(
-        (total, trail) => total + (trail.event_count || trail.events?.length || 0),
+        (total, trail) =>
+          total + (trail.event_count || trail.events?.length || 0),
         0,
       );
     return `${eventCount} consent event${eventCount === 1 ? "" : "s"} across ${trailCount} lifecycle${trailCount === 1 ? "" : "s"}.`;
@@ -701,7 +702,9 @@ function ConsentEntryRow({
             {entry.expires_at ? (
               <span>{formatRelative(entry.expires_at)}</span>
             ) : null}
-            {entry.issued_at ? <span>{formatDate(entry.issued_at)}</span> : null}
+            {entry.issued_at ? (
+              <span>{formatDate(entry.issued_at)}</span>
+            ) : null}
           </div>
         </>
       )}
@@ -922,10 +925,7 @@ function ConsentEntryDetail({
         entry.counterpart_secondary_label ||
         "Available in technical details",
     ],
-    [
-      "Scope",
-      entry.scope ? humanizeConsentScope(entry.scope) : "Not provided",
-    ],
+    ["Scope", entry.scope ? humanizeConsentScope(entry.scope) : "Not provided"],
     ["Requested at", formatDate(entry.issued_at) || "Unavailable"],
     [
       "Expires",
@@ -940,11 +940,11 @@ function ConsentEntryDetail({
         ]
       : null,
     entry.chain_request_count && entry.chain_request_count > 1
-        ? [
-            "Request trail",
-            `${entry.chain_request_count} request events in this scope chain`,
-          ]
-        : null,
+      ? [
+          "Request trail",
+          `${entry.chain_request_count} request events in this scope chain`,
+        ]
+      : null,
     entry.reason ? ["Reason", entry.reason] : null,
   ].filter((item): item is [string, string] => Boolean(item));
 
@@ -955,7 +955,8 @@ function ConsentEntryDetail({
         title="Decision"
         description="Approve or reject first. Details stay below for review before you decide."
       >
-        {(entry.kind === "incoming_request" || isConnectionRequestEntry(entry)) &&
+        {(entry.kind === "incoming_request" ||
+          isConnectionRequestEntry(entry)) &&
         entry.status === "pending" ? (
           <>
             <SettingsRow
@@ -1068,7 +1069,6 @@ function ConsentEntryDetail({
           />
         ) : null}
       </SettingsGroup>
-
 
       <SettingsGroup
         embedded
@@ -1240,13 +1240,15 @@ export function ConsentCenterPage() {
   const actor: ConsentCenterActor = riaOutgoingCompatibilityRoute
     ? "ria"
     : "investor";
-  const apiActor: ConsentCenterActor | undefined =
-    riaOutgoingCompatibilityRoute ? "ria" : undefined;
+  const apiActor: ConsentCenterActor | undefined = riaOutgoingCompatibilityRoute
+    ? "ria"
+    : undefined;
   const consentScopeKey = apiActor === "ria" ? "ria" : "one";
   const mode: ConsentManagerMode = "consents";
   const tab = resolveConsentTab(searchParams);
-  const managerView: "incoming" | "outgoing" =
-    riaOutgoingCompatibilityRoute ? "outgoing" : "incoming";
+  const managerView: "incoming" | "outgoing" = riaOutgoingCompatibilityRoute
+    ? "outgoing"
+    : "incoming";
   const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
   const selectedId =
     searchParams.get("requestId") || searchParams.get("selected");
@@ -1452,11 +1454,19 @@ export function ConsentCenterPage() {
           if (!user) return;
           try {
             const idToken = await user.getIdToken();
-            await ConnectionsService.accept({ idToken, requestId: entry.request_id || entry.id });
+            await ConnectionsService.accept({
+              idToken,
+              requestId: entry.request_id || entry.id,
+            });
             CacheSyncService.onConsentMutated(user.uid);
-            window.dispatchEvent(new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT));
+            window.dispatchEvent(
+              new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT),
+            );
           } catch (error) {
-            console.error("[ConsentCenter] Couldn't accept the connection request:", error);
+            console.error(
+              "[ConsentCenter] Couldn't accept the connection request:",
+              error,
+            );
           }
         })();
         return;
@@ -1487,11 +1497,19 @@ export function ConsentCenterPage() {
           if (!user) return;
           try {
             const idToken = await user.getIdToken();
-            await ConnectionsService.reject({ idToken, requestId: entry.request_id || entry.id });
+            await ConnectionsService.reject({
+              idToken,
+              requestId: entry.request_id || entry.id,
+            });
             CacheSyncService.onConsentMutated(user.uid);
-            window.dispatchEvent(new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT));
+            window.dispatchEvent(
+              new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT),
+            );
           } catch (error) {
-            console.error("[ConsentCenter] Couldn't decline the connection request:", error);
+            console.error(
+              "[ConsentCenter] Couldn't decline the connection request:",
+              error,
+            );
           }
         })();
         return;
@@ -1538,7 +1556,6 @@ export function ConsentCenterPage() {
   );
 
   const idTokenLoader = async () => user?.getIdToken();
-
 
   const summaryResource = useStaleResource({
     cacheKey: summaryCacheKey,
@@ -1615,13 +1632,7 @@ export function ConsentCenterPage() {
     } else {
       void listResource.refresh({ force: true });
     }
-  }, [
-    centerResource,
-    listResource,
-    mutationTick,
-    summaryResource,
-    tab,
-  ]);
+  }, [centerResource, listResource, mutationTick, summaryResource, tab]);
 
   useEffect(() => {
     if (summaryResource.data) {
@@ -1674,7 +1685,7 @@ export function ConsentCenterPage() {
         const base =
           current?.key === summaryCacheKey
             ? current.data
-            : summaryData ?? null;
+            : (summaryData ?? null);
         if (!base) return current;
         return {
           key: summaryCacheKey,
@@ -1684,7 +1695,7 @@ export function ConsentCenterPage() {
 
       setRetainedList((current) => {
         const base =
-          current?.key === listCacheKey ? current.data : listData ?? null;
+          current?.key === listCacheKey ? current.data : (listData ?? null);
         if (!base) return current;
         return {
           key: listCacheKey,
@@ -1698,7 +1709,11 @@ export function ConsentCenterPage() {
   useEffect(() => {
     const handleAction = (event: Event) => {
       const detail =
-        (event as CustomEvent<Partial<ConsentMutationDetail>>).detail || {};
+        (
+          event as CustomEvent<
+            Partial<ConsentMutationDetail> & { reconcile?: boolean }
+          >
+        ).detail || {};
       applyConfirmedConsentMutation(detail);
       // CONSENT_STATE_CHANGED_EVENT is also dispatched for non-mutation
       // bookkeeping (e.g. "fcm_opened" when a request is merely opened/
@@ -1715,7 +1730,7 @@ export function ConsentCenterPage() {
       // never echoes back, which is why History never flickered. Only force
       // a refresh for detail.action-bearing events (approve/deny/revoke/
       // cancel), which are real state mutations.
-      if (!detail.action) return;
+      if (!detail.action && !detail.reconcile) return;
       setMutationTick((value) => value + 1);
     };
     window.addEventListener(CONSENT_ACTION_COMPLETE_EVENT, handleAction);
@@ -1734,40 +1749,37 @@ export function ConsentCenterPage() {
       ),
     [centerResource.data, deferredQuery],
   );
-  const items = useMemo(
-    () => {
-      const source =
-        tab === "connections" ? connectionItems : listData?.items || [];
-      return source.filter((entry) => {
-        if (
-          listSurface === "pending" &&
-          entry.request_id &&
-          locallyHandledRequestIds.has(entry.request_id)
-        ) {
-          return false;
-        }
-        if (listSurface === "pending" && locallyHandledRequestIds.has(entry.id)) {
-          return false;
-        }
-        if (
-          entry.scope &&
-          locallyRevokedScopes.has(entry.scope) &&
-          entry.kind === "active_grant"
-        ) {
-          return false;
-        }
-        return true;
-      });
-    },
-    [
-      listData?.items,
-      locallyHandledRequestIds,
-      locallyRevokedScopes,
-      listSurface,
-      connectionItems,
-      tab,
-    ],
-  );
+  const items = useMemo(() => {
+    const source =
+      tab === "connections" ? connectionItems : listData?.items || [];
+    return source.filter((entry) => {
+      if (
+        listSurface === "pending" &&
+        entry.request_id &&
+        locallyHandledRequestIds.has(entry.request_id)
+      ) {
+        return false;
+      }
+      if (listSurface === "pending" && locallyHandledRequestIds.has(entry.id)) {
+        return false;
+      }
+      if (
+        entry.scope &&
+        locallyRevokedScopes.has(entry.scope) &&
+        entry.kind === "active_grant"
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [
+    listData?.items,
+    locallyHandledRequestIds,
+    locallyRevokedScopes,
+    listSurface,
+    connectionItems,
+    tab,
+  ]);
   const selectedEntryFromList = useMemo(() => {
     if (!items.length) return null;
     if (selectedId) {
@@ -1796,10 +1808,7 @@ export function ConsentCenterPage() {
     return null;
   }, [items, selectedBundleId, selectedId]);
   const shouldLookupSelectedPending = Boolean(
-    user?.uid &&
-      selectedId &&
-      tab === "requests" &&
-      !selectedEntryFromList,
+    user?.uid && selectedId && tab === "requests" && !selectedEntryFromList,
   );
   const selectedPendingLookupResource = useStaleResource({
     cacheKey:
@@ -1830,16 +1839,12 @@ export function ConsentCenterPage() {
   const activeListLoading =
     tab === "connections" ? centerResource.loading : listResource.loading;
   const activeListRefreshing =
-    tab === "connections"
-      ? centerResource.refreshing
-      : listResource.refreshing;
+    tab === "connections" ? centerResource.refreshing : listResource.refreshing;
   const consentLoadError = activeListError || summaryResource.error;
   const isAuthLoadError = isAuthConsentLoadError(consentLoadError);
   const hasVisibleConsentListData =
     items.length > 0 ||
-    (tab === "connections"
-      ? Boolean(centerResource.data)
-      : Boolean(listData));
+    (tab === "connections" ? Boolean(centerResource.data) : Boolean(listData));
   const showCompactRetryState = Boolean(
     consentLoadError && hasVisibleConsentListData && !isAuthLoadError,
   );
@@ -1870,23 +1875,23 @@ export function ConsentCenterPage() {
   }, [selectedEntryFromList, selectedId, selectedLookupEntry]);
   const selectedRequestMissing = Boolean(
     selectedId &&
-      selectedPendingLookupResource.data?.missing_request_ids?.includes(selectedId),
+    selectedPendingLookupResource.data?.missing_request_ids?.includes(
+      selectedId,
+    ),
   );
   const selectedRequestResolving = Boolean(
     selectedId &&
-      !selectedEntry &&
-      (listResource.loading ||
-        selectedPendingLookupResource.loading ||
-        selectedPendingLookupResource.refreshing),
+    !selectedEntry &&
+    (listResource.loading ||
+      selectedPendingLookupResource.loading ||
+      selectedPendingLookupResource.refreshing),
   );
   const selectedRequestNeedsUnlock = Boolean(
     selectedId &&
-      !selectedEntry &&
-      shouldLookupSelectedPending &&
-      (!isVaultUnlocked ||
-        selectedPendingLookupResource.error
-          ?.toLowerCase()
-          .includes("unlock")),
+    !selectedEntry &&
+    shouldLookupSelectedPending &&
+    (!isVaultUnlocked ||
+      selectedPendingLookupResource.error?.toLowerCase().includes("unlock")),
   );
   const selectedPendingConsent = useMemo(
     () => (selectedEntry ? toPendingConsent(selectedEntry) : null),
@@ -2165,28 +2170,23 @@ export function ConsentCenterPage() {
   }, [selectedId, selectedBundleId]);
 
   const pageEyebrow = "Access / Consent";
-  const pageTitle = "Access manager";
-  const connectionCount = connectionItems.length;
   const pageDescription =
     actor === "ria"
-      ? "Requests, active access, history, and connections live in one canonical advisor access manager."
+      ? "Review access requests, active access, and connections."
       : managerView === "outgoing"
-        ? "Outgoing access requests, active access, history, and connections stay grouped in one canonical access workspace."
-        : "Incoming access requests, active access, history, and connections stay grouped in one canonical access workspace.";
+        ? "Review outgoing access requests, active access, and connections."
+        : "Review access requests, active access, and connections.";
   const searchPlaceholder =
     tab === "connections"
       ? "Search connections by name, email, scope, or status"
       : `Search ${tab} by name, email, scope, or reason`;
-  const summaryCountLabel = (label: string, value: number | undefined) =>
-    typeof value === "number" ? `${label} (${value})` : label;
-
   return (
     <AppPageShell as="main" width="expanded" className="pb-24 sm:pb-28">
       <CapabilityExploreCard capabilityId="consent" />
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow={pageEyebrow}
-          title={pageTitle}
+          title="Consent Center"
           description={pageDescription}
           icon={ShieldCheck}
           accent="consent"
@@ -2196,44 +2196,6 @@ export function ConsentCenterPage() {
       <AppPageContentRegion>
         <SurfaceStack>
           <section className="space-y-4" data-testid="consent-manager-primary">
-            <SettingsSegmentedTabs
-              value={tab}
-              onValueChange={(value) => {
-                // Each tab has its own search placeholder ("Search requests
-                // by...", "Search connections by...") implying independent
-                // scope, but the query string carried over silently: search
-                // "macy" on Requests, click Active Access, and the list
-                // stays filtered by "macy" with no visible reason why it
-                // looks empty. Clear the search on every tab switch.
-                setSearchValue("");
-                setParam({
-                  tab: value,
-                  page: "1",
-                  requestId: null,
-                  bundleId: null,
-                  q: null,
-                });
-              }}
-              options={[
-                {
-                  value: "requests",
-                  label: summaryCountLabel("Requests", summaryData?.counts.pending),
-                },
-                {
-                  value: "active",
-                  label: summaryCountLabel("Active Access", summaryData?.counts.active),
-                },
-                {
-                  value: "history",
-                  label: summaryCountLabel("History", summaryData?.counts.previous),
-                },
-                {
-                  value: "connections",
-                  label: `Connections (${connectionCount})`,
-                },
-              ]}
-            />
-
             <div className="flex items-center justify-between gap-3">
               {visibleSnapshot ? (
                 <StaleCacheTimestamp
@@ -2370,13 +2332,13 @@ export function ConsentCenterPage() {
                         // comparing ids at all.
                         Boolean(
                           selectedEntry &&
-                            (selectedEntry.id === entry.id ||
-                              (selectedEntry.request_id &&
-                                selectedEntry.request_id === entry.request_id)),
+                          (selectedEntry.id === entry.id ||
+                            (selectedEntry.request_id &&
+                              selectedEntry.request_id === entry.request_id)),
                         ) ||
                         Boolean(
                           selectedId &&
-                            consentEntryMatchesSelectedId(entry, selectedId),
+                          consentEntryMatchesSelectedId(entry, selectedId),
                         )
                       }
                       onSelect={() =>
@@ -2423,7 +2385,7 @@ export function ConsentCenterPage() {
             ? `${formatStatus(selectedEntry.status)} request`
             : selectedId
               ? "Resolving the selected consent request."
-            : "Choose a consent entry from the list to review details and next actions."
+              : "Choose a consent entry from the list to review details and next actions."
         }
       >
         {notificationAction && selectedEntry?.status === "pending" ? (
@@ -2485,7 +2447,6 @@ export function ConsentCenterPage() {
                         denyEntry(selectedEntry);
                       }}
                     >
-
                       {activeAction?.kind === "deny" &&
                       activeAction.requestId ===
                         (selectedEntry.request_id || selectedEntry.id)

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
 import {
   ChartSurfaceCard,
@@ -2645,26 +2646,34 @@ export function DashboardMasterView({
 
   if (isSourcesLoading && !displayedPortfolio) {
     return (
-      <div className="flex w-full items-center justify-center pb-6">
-        <SurfaceCard className="w-full">
-          <SurfaceCardContent className="flex items-center justify-center gap-3 p-6 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading portfolio sources...
-          </SurfaceCardContent>
-        </SurfaceCard>
+      <div className="w-full pb-6">
+        <KaiWorkspaceHeader
+          workspace="portfolio"
+          title="Portfolio"
+          description="Your holdings, sources, and investing context in one place."
+        />
+        <AppPageContentRegion>
+          <SurfaceCard className="w-full">
+            <SurfaceCardContent className="flex items-center justify-center gap-3 p-6 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading portfolio sources...
+            </SurfaceCardContent>
+          </SurfaceCard>
+        </AppPageContentRegion>
       </div>
     );
   }
 
   if (!displayedPortfolio) {
     return (
-      <div className="w-full space-y-6 pb-6">
+      <div className="w-full pb-6">
         <KaiWorkspaceHeader
           workspace="portfolio"
           title="Portfolio"
           description="Your holdings, sources, and investing context in one place."
         />
-        <PortfolioSourceSwitcher
+        <AppPageContentRegion className="space-y-6">
+          <PortfolioSourceSwitcher
           activeSource={activeSource}
           availableSources={availableSources}
           freshness={freshness}
@@ -2684,7 +2693,7 @@ export function DashboardMasterView({
           isDeletingPortfolio={isDeletingImportedData}
           isDeletingStatementSnapshot={isDeletingStatementSnapshot}
         />
-        <SurfaceCard>
+          <SurfaceCard>
           <SurfaceCardContent className="flex min-h-[13rem] flex-col items-center justify-center gap-3 p-6 text-center">
             <p className="text-sm font-semibold">No active portfolio source is ready yet.</p>
             <p className="max-w-md text-sm text-muted-foreground">
@@ -2718,15 +2727,16 @@ export function DashboardMasterView({
               </div>
             ) : null}
           </SurfaceCardContent>
-        </SurfaceCard>
-        {deletePortfolioDialog}
-        {deleteStatementSnapshotDialog}
+          </SurfaceCard>
+          {deletePortfolioDialog}
+          {deleteStatementSnapshotDialog}
+        </AppPageContentRegion>
       </div>
     );
   }
 
   return (
-    <div className="w-full space-y-6 pb-6">
+    <div className="w-full pb-6">
       <KaiWorkspaceHeader
         workspace="portfolio"
         title="Portfolio"
@@ -2751,7 +2761,8 @@ export function DashboardMasterView({
           </MorphyButton>
         }
       />
-      <PortfolioSourceSwitcher
+      <AppPageContentRegion className="space-y-6">
+        <PortfolioSourceSwitcher
         activeSource={activeSource}
         availableSources={availableSources}
         freshness={freshness}
@@ -3315,8 +3326,9 @@ export function DashboardMasterView({
         />
       ) : null}
 
-      {deletePortfolioDialog}
-      {deleteStatementSnapshotDialog}
+        {deletePortfolioDialog}
+        {deleteStatementSnapshotDialog}
+      </AppPageContentRegion>
     </div>
   );
 }

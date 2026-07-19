@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Added the generated four-tool `agentforce` MCP schema-registration UAT
+  catalog, including client-facing titles/descriptions, bounded flat fields,
+  complete output schemas, and `hushh-mcp --print-agentforce-manifest`.
+- Added an explicit fail-closed production boundary for personalized Agentforce
+  calls while Salesforce documents that user-level authentication and
+  personalized MCP responses are unsupported.
+
 ## 0.3.0 - 2026-07-15
 
 Breaking MCP catalog hardening release.
