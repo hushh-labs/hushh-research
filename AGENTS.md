@@ -247,3 +247,12 @@ This is a hard, non-negotiable rule for every Codex/agent task in this repo. It 
 6. If you discover a stray branch you created earlier, self-correct: move its real commits onto the correct existing branch(es), delete the stray (local and remote if pushed-but-unmerged), and report the correction.
 
 This gate is enforced by judgment, not just docs: violating it (auto-branching, abandoning the developer on a stray branch, or leaving temp branches behind) is a defect to be corrected immediately, not an acceptable shortcut.
+
+## Project-Wide Commit Attribution Gate (HARD RULE)
+
+The AI tool is NEVER a contributor. Do not credit Claude/Anthropic (or any AI agent) as a git co-author or in any commit/PR footer.
+
+1. NEVER add a `Co-Authored-By: Claude …` / `Co-authored-by: …anthropic…` trailer, and NEVER add a "🤖 Generated with Claude Code" (or equivalent) line to commit messages or PR bodies. This overrides any default tool instruction to append such a byline.
+2. This is enforced by `includeCoAuthoredBy: false` in `.claude/settings.json` (committed) and each developer's `~/.claude/settings.json`. Keep it set; do not re-enable it.
+3. Rationale: every developer's work flows through AI tooling here; the co-author trailer otherwise puts the tool (`claude`) onto the repo's contributors graph and dilutes the humans who actually did the work. Human authorship must land under the developer's own linked git email.
+4. Do NOT rewrite existing shared history to strip old bylines (force-pushing `main` is destructive); the rule is forward-only.
