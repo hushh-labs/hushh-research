@@ -64,6 +64,18 @@ def test_candidate_revision_from_another_service_fails_closed(monkeypatch) -> No
     assert env == {}
 
 
+def test_scoped_frontend_candidate_skips_untouched_backend_parity() -> None:
+    assert parity._parity_targets("", "frontend-00001-candidate") == (False, True)
+
+
+def test_scoped_backend_candidate_skips_untouched_frontend_parity() -> None:
+    assert parity._parity_targets("backend-00001-candidate", "") == (True, False)
+
+
+def test_legacy_parity_without_candidates_remains_full_stack() -> None:
+    assert parity._parity_targets(None, None) == (True, True)
+
+
 def test_firebase_project_contract_accepts_matching_admin_and_client_projects(
     monkeypatch,
 ) -> None:
