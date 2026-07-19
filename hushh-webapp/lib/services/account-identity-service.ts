@@ -79,7 +79,10 @@ export class AccountIdentityService {
     userId: string,
     identity: AccountIdentity | null
   ): void {
-    if (!identity) {
+    if (!identity || !identity.user_id) {
+      // Never cache an empty/malformed identity (e.g. `{}` from a failed
+      // write). Caching it would clobber a good snapshot with a fresh TTL and
+      // re-trigger identity guards (phone mandate) + drop name/email/avatar.
       return;
     }
     CacheService.getInstance().set(
@@ -194,6 +197,50 @@ export class AccountIdentityService {
     const identity = response.identity ?? null;
     // Write through so guards immediately see the newly verified phone.
     this.cacheIdentity(user.uid, identity);
+    return identity;
+  }
+
+  /**
+   * Upload a user-chosen profile picture (a small square data-URL). Writes the
+   * fresh identity through to cache so every avatar surface updates at once.
+   */
+  static async uploadAvatar(
+    user: User | null | undefined,
+    imageDataUrl: string
+  ): Promise<AccountIdentity | null> {
+    if (!user?.uid) {
+      return null;
+    }
+    const idToken = await user.getIdToken(true).catch(() => undefined);
+    if (!idToken) {
+      return null;
+    }
+    const { identity } = await ApiService.uploadAvatar(imageDataUrl, idToken);
+    if (identity) {
+      this.cacheIdentity(user.uid, identity);
+    } else {
+      this.invalidateCachedIdentity(user.uid);
+    }
+    return identity;
+  }
+
+  /** Remove the custom profile picture (revert to the Firebase photo). */
+  static async removeAvatar(
+    user: User | null | undefined
+  ): Promise<AccountIdentity | null> {
+    if (!user?.uid) {
+      return null;
+    }
+    const idToken = await user.getIdToken(true).catch(() => undefined);
+    if (!idToken) {
+      return null;
+    }
+    const { identity } = await ApiService.removeAvatar(idToken);
+    if (identity) {
+      this.cacheIdentity(user.uid, identity);
+    } else {
+      this.invalidateCachedIdentity(user.uid);
+    }
     return identity;
   }
 

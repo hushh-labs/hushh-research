@@ -67,6 +67,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
+import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
 import { useVault } from "@/lib/vault/vault-context";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import {
@@ -343,6 +344,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, user } = useAuth();
+  const effectiveAvatarUrl = useEffectiveAvatarUrl();
   const { isVaultUnlocked } = useVault();
   const { activePersona, riaCapability, riaEntryRoute, switchPersona } =
     usePersonaState();
@@ -843,8 +845,8 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                           className="p-0"
                         >
                           <Avatar className="h-9 w-9">
-                            {user?.photoURL ? (
-                              <AvatarImage src={user.photoURL} alt="" />
+                            {effectiveAvatarUrl ? (
+                              <AvatarImage src={effectiveAvatarUrl} alt="" />
                             ) : null}
                             <AvatarFallback className="bg-transparent text-current">
                               {user?.displayName ? (

@@ -355,4 +355,6 @@ def test_oauth_migration_is_in_the_developer_release_lane():
     uat = json.loads((root / "db/contracts/uat_integrated_schema.json").read_text())
     assert "099_developer_oauth_pkce.sql" in manifest["ordered_migrations"]
     assert "099_developer_oauth_pkce.sql" in manifest["groups"]["developer"]
-    assert uat["expected_migration_version"] == 106
+    # Contract head advances as new migrations land; assert it still covers the
+    # oauth migration (099+) rather than pinning an exact version.
+    assert uat["expected_migration_version"] >= 99

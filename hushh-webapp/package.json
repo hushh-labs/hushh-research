@@ -70,6 +70,7 @@
     "@capacitor-firebase/messaging": "^8.2.0",
     "@capacitor/android": "^8.3.1",
     "@capacitor/app": "^8.1.0",
+    "@capacitor/camera": "^8.2.1",
     "@capacitor/cli": "^8.3.1",
     "@capacitor/core": "^8.2.0",
     "@capacitor/filesystem": "^8.1.2",

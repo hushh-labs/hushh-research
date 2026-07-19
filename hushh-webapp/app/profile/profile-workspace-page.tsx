@@ -78,7 +78,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ProfileAvatarEditor } from "@/components/profile/profile-avatar-editor";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -3959,48 +3959,7 @@ function ProfilePageContent() {
           data-slot="page-header"
           data-page-primary="true"
         >
-          <div
-            data-profile-avatar-frame="true"
-            className="h-14 w-14 shrink-0 rounded-full bg-primary/18 p-1 sm:h-16 sm:w-16"
-          >
-            {user.photoURL ? (
-              <Avatar className="h-full w-full">
-                <AvatarImage
-                  className="object-cover"
-                  src={user.photoURL}
-                  alt={user.displayName || "Profile"}
-                />
-                <AvatarFallback className="bg-muted p-2 text-base font-semibold text-muted-foreground sm:text-lg">
-                  {user.displayName ? (
-                    user.displayName
-                      .split(" ")
-                      .map((part) => part[0])
-                      .join("")
-                      .slice(0, 2)
-                      .toUpperCase()
-                  ) : (
-                    <Icon icon={User} size={32} className="sm:size-9" />
-                  )}
-                </AvatarFallback>
-              </Avatar>
-            ) : (
-              <div
-                data-profile-avatar-fallback="true"
-                className="flex h-full w-full items-center justify-center rounded-full bg-muted p-2 text-base font-semibold text-muted-foreground sm:text-lg"
-              >
-                {user.displayName ? (
-                  user.displayName
-                    .split(" ")
-                    .map((part) => part[0])
-                    .join("")
-                    .slice(0, 2)
-                    .toUpperCase()
-                ) : (
-                  <Icon icon={User} size={32} className="sm:size-9" />
-                )}
-              </div>
-            )}
-          </div>
+          <ProfileAvatarEditor />
           <div className="min-w-0 max-w-full space-y-1.5">
             <h1 className="text-[28px] font-medium leading-[1.08] tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[34px]">
               {user.displayName || "User"}
