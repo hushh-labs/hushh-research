@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+
+import { PageHeader } from "@/components/app-ui/page-sections";
 const STACK_TRANSITION_MS = 260;
 
 export type ProfileStackEntry = {
@@ -43,15 +45,16 @@ function StackHeader({
   description?: ReactNode;
 }) {
   return (
-    <div className="mx-auto flex w-full max-w-[54rem] items-start px-4 pb-2 pt-3 sm:px-6 sm:pb-3 sm:pt-4">
-      <div className="min-w-0 flex-1 space-y-0.5">
-        <div className="text-base font-semibold tracking-tight text-foreground sm:text-[1.05rem]">
-          {title}
-        </div>
-        {description ? (
-          <div className="text-sm leading-5 text-muted-foreground">{description}</div>
-        ) : null}
-      </div>
+    <div
+      className="mx-auto w-full max-w-[54rem] px-[var(--page-inline-gutter-standard)] pt-[var(--page-header-section-gap)]"
+      data-profile-stack-header="true"
+    >
+      <PageHeader
+        title={title}
+        description={description}
+        accent="neutral"
+        testId="profile-stack-page-header"
+      />
     </div>
   );
 }
@@ -179,7 +182,7 @@ export function ProfileStackNavigator({
                   data-profile-stack-scroll="true"
                   className="flex-1 overflow-y-auto overflow-x-hidden"
                 >
-                  <div className="mx-auto flex w-full max-w-[54rem] flex-col gap-4 px-4 pb-[calc(env(safe-area-inset-bottom)+2rem)] pt-4 sm:px-6 sm:pb-10 sm:pt-5">
+                  <div className="mx-auto flex w-full max-w-[54rem] flex-col gap-4 px-[var(--page-inline-gutter-standard)] pb-[calc(env(safe-area-inset-bottom)+2rem)] pt-[var(--page-header-section-gap)] sm:pb-10">
                     {entry.content}
                   </div>
                 </div>

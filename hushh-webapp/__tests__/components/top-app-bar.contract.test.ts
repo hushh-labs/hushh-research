@@ -148,7 +148,7 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain('data-testid="top-app-bar-one-brand"');
     expect(source).toContain('aria-label="One."');
     expect(source).toContain("app-accent-hero-from");
-    expect(source).toContain("text-foreground");
+    expect(source).toContain("text-current");
     expect(source).not.toContain("AgentSectionDropdown");
     expect(source).toContain("<ActivityInbox />");
     expect(source).not.toContain("<ConsentInboxDropdown");

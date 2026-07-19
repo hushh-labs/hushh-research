@@ -1306,7 +1306,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       onClick={() => setTheme(nextTheme)}
       aria-label={`Theme: ${currentThemePreference}. Switch to ${nextTheme}`}
       title={`Theme: ${currentThemePreference}. Switch to ${nextTheme}`}
-      className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-accent-strong transition-colors duration-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
+      className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-current transition-colors duration-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
     >
       {currentThemePreference === "system" ? (
         <Monitor className="h-[17px] w-[17px]" />
@@ -1376,7 +1376,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         >
           <MaterialRipple variant="gradient" effect="fill" />
         </span>
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-accent-strong">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-current">
           <X className="h-[18px] w-[18px]" />
         </span>
         <span
@@ -1396,7 +1396,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               "shrink-0 text-[12px] font-medium",
               voiceStatus === "error"
                 ? "min-w-0 max-w-[60%] flex-1 truncate text-right text-destructive/80"
-                : "tabular-nums text-foreground/60",
+                : "tabular-nums text-current/60",
             )}
             title={voiceStatus === "error" ? voiceStatusLabel : undefined}
           >
@@ -1427,11 +1427,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       >
         <span
           aria-hidden
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-accent-strong"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-current"
         >
           <AudioLines className="h-[19px] w-[19px]" />
         </span>
-        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-current/70">
           Talk to One
         </span>
         <span

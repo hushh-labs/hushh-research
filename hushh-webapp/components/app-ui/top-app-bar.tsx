@@ -657,7 +657,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                     <div
                       data-testid="top-app-bar-one-brand"
                       aria-label="One."
-                      className="top-shell-ambient-ink pointer-events-none flex h-11 min-w-[92px] items-center justify-start gap-2 overflow-visible text-foreground"
+                      className="top-shell-ambient-ink pointer-events-none flex h-11 min-w-[92px] items-center justify-start gap-2 overflow-visible text-current"
                     >
                       <span
                         aria-hidden
@@ -671,7 +671,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                       </span>
                       <span
                         aria-hidden
-                        className="whitespace-nowrap text-[20px] font-semibold leading-none tracking-[-0.035em] text-foreground"
+                        className="whitespace-nowrap text-[20px] font-semibold leading-none tracking-[-0.035em] text-current"
                       >
                         One
                         <span
@@ -846,7 +846,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                             {user?.photoURL ? (
                               <AvatarImage src={user.photoURL} alt="" />
                             ) : null}
-                            <AvatarFallback className="bg-transparent text-muted-foreground">
+                            <AvatarFallback className="bg-transparent text-current">
                               {user?.displayName ? (
                                 user.displayName
                                   .split(" ")

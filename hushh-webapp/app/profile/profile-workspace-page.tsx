@@ -2959,16 +2959,13 @@ function ProfilePageContent() {
         loading={profileManagerLoading}
         metadataReady={pkmMetadataReady}
         metadataError={pkmError}
-        sharingReady={consentCenterReady}
         sharingError={consentCenterError}
         needsVaultCreation={vaultAccess.needsVaultCreation}
         needsUnlock={vaultAccess.needsUnlock}
         summary={profileSummary}
         domains={domainPresentations}
-        manifestsByDomain={domainManifests}
         loadingManifestsByDomain={loadingDomainManifests}
         manifestErrorsByDomain={domainManifestErrors}
-        upgradeStatesByDomain={upgradeStatesByDomain}
         onOpenSharing={() =>
           updateProfileView({ panel: "access", detail: null }, "push")
         }

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Users, Search as SearchIcon } from "lucide-react";
+import { Search as SearchIcon, Sparkles, UserRound, Users } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -168,10 +168,8 @@ export default function ConnectPageClient() {
     >
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow="One"
           title="Connect"
           description="Find people on Hussh and send a connection request."
-          icon={Users}
           accent="neutral"
         />
       </AppPageHeaderRegion>
@@ -181,6 +179,8 @@ export default function ConnectPageClient() {
           <div className="space-y-4 sm:space-y-5">
           <SettingsGroup title="Private configuration" separatorInset>
             <SettingsRow
+              icon={Sparkles}
+              iconTone="purple"
               title="Gemini"
               description="Choose Hussh managed Gemini or your own Google AI Studio key."
               density="compact"
@@ -203,6 +203,8 @@ export default function ConnectPageClient() {
               connections.map((connection) => (
                 <SettingsRow
                   key={connection.connectionId}
+                  icon={Users}
+                  iconTone="blue"
                   title={connection.displayName || connection.userId}
                   density="compact"
                   trailing={
@@ -286,6 +288,8 @@ export default function ConnectPageClient() {
                   return (
                     <SettingsRow
                       key={person.userId}
+                      icon={UserRound}
+                      iconTone="blue"
                       title={title}
                       description={description}
                       density="compact"

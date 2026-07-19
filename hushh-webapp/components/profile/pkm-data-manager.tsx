@@ -31,9 +31,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { SettingsSegmentedTabs } from "@/components/app-ui/settings-ui";
+import {
+  SettingsGroup,
+  SettingsRow,
+  SettingsSegmentedTabs,
+} from "@/components/app-ui/settings-ui";
 import { Button } from "@/lib/morphy-ux/morphy";
-import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import {
   buildPkmAccessConnections,
   type PkmDomainPermissionPresentation,
@@ -46,7 +49,6 @@ import type {
   PkmSectionPreviewEntity,
   PkmSectionPreviewPresentation,
 } from "@/lib/profile/pkm-section-preview";
-import type { PkmUpgradeDomainState } from "@/lib/services/personal-knowledge-model-service";
 import type { PkmVisibilityPosture } from "@/lib/services/personal-knowledge-model-service";
 import { cn } from "@/lib/utils";
 
@@ -114,38 +116,33 @@ function DomainCard({
       : domain.sourceLabels.join(" · ") || null;
   const updatedLabel = formatDomainRowTimestamp(domain.updatedAt);
   const status = getDomainRowStatus(domain);
+  const description = [
+    sourceSummary,
+    domain.accessSummary,
+    updatedLabel,
+  ].filter(Boolean).join(" · ");
+
   return (
-    <button
-      type="button"
+    <SettingsRow
+      icon={Folder}
+      iconTone="purple"
+      title={domain.title}
+      description={description || "Saved details ready to review."}
       onClick={onOpen}
-      className={cn(
-        "group w-full rounded-none bg-transparent text-left shadow-none transition-colors duration-150",
-        "hover:bg-[color:var(--app-card-surface-compact)]/72",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/15 focus-visible:ring-inset"
-      )}
-    >
-      <div className="flex items-center gap-3 px-4 py-3.5 sm:px-5">
-        <div className="min-w-0 flex-1 space-y-1.5">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <p className="text-sm font-semibold tracking-tight text-foreground">{domain.title}</p>
-            {status ? (
-              <Badge variant="outline" className={status.className}>
-                {status.label}
-              </Badge>
-            ) : null}
-            {updatedLabel ? (
-              <span className="text-xs text-muted-foreground">{updatedLabel}</span>
-            ) : null}
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <Badge variant="secondary">{itemLabel}</Badge>
-            {sourceSummary ? <Badge variant="secondary">{sourceSummary}</Badge> : null}
-            <span className="min-w-0 truncate">{domain.accessSummary}</span>
-          </div>
-        </div>
-        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5" />
-      </div>
-    </button>
+      chevron
+      trailing={
+        status ? (
+          <Badge variant="outline" className={status.className}>
+            {status.label}
+          </Badge>
+        ) : (
+          <span className="text-xs font-medium tabular-nums text-muted-foreground">
+            {itemLabel}
+          </span>
+        )
+      }
+      testId={`memory-category-${domain.key}`}
+    />
   );
 }
 
@@ -154,16 +151,13 @@ export function PkmDataManagerPanel({
   loading,
   metadataReady,
   metadataError,
-  sharingReady,
   sharingError,
   needsVaultCreation,
   needsUnlock,
   summary,
   domains,
-  manifestsByDomain,
   loadingManifestsByDomain,
   manifestErrorsByDomain,
-  upgradeStatesByDomain,
   onOpenSharing,
   onOpenImport,
   onRefresh,
@@ -173,16 +167,13 @@ export function PkmDataManagerPanel({
   loading: boolean;
   metadataReady: boolean;
   metadataError?: string | null;
-  sharingReady: boolean;
   sharingError?: string | null;
   needsVaultCreation: boolean;
   needsUnlock: boolean;
   summary: PkmProfileSummaryPresentation | null;
   domains: PkmDomainPresentation[];
-  manifestsByDomain: Record<string, DomainManifest | null | undefined>;
   loadingManifestsByDomain: Record<string, boolean>;
   manifestErrorsByDomain: Record<string, string | null>;
-  upgradeStatesByDomain: Record<string, PkmUpgradeDomainState>;
   onOpenSharing: () => void;
   onOpenImport: () => void;
   onRefresh: () => void;
@@ -190,10 +181,8 @@ export function PkmDataManagerPanel({
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const deferredSearchQuery = useDeferredValue(searchQuery);
-  const readyDomainCount = domains.filter((domain) => manifestsByDomain[domain.key] !== undefined).length;
   const loadingDomainCount = Object.values(loadingManifestsByDomain).filter(Boolean).length;
   const domainErrorCount = Object.values(manifestErrorsByDomain).filter(Boolean).length;
-  const upgradingDomainCount = Object.keys(upgradeStatesByDomain).length;
   const shouldShowSearch = domains.length >= 6;
   const normalizedSearchQuery = deferredSearchQuery.trim().toLowerCase();
   const filteredDomains = useMemo(() => {
@@ -210,6 +199,14 @@ export function PkmDataManagerPanel({
       return haystack.includes(normalizedSearchQuery);
     });
   }, [domains, normalizedSearchQuery]);
+  const savedDetailsSummary =
+    summary && metadataReady
+      ? `${summary.totalDomains} categor${summary.totalDomains === 1 ? "y" : "ies"} · ${summary.totalAttributes} saved detail${summary.totalAttributes === 1 ? "" : "s"}`
+      : loading
+        ? "Checking your saved details."
+        : metadataError
+          ? "Saved details are temporarily unavailable."
+          : "Review the details One has saved for you.";
 
   if (!signedIn) {
     return (
@@ -250,30 +247,7 @@ export function PkmDataManagerPanel({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2">
-          {summary ? (
-            <>
-              {metadataReady ? (
-                <>
-                  <Badge variant="secondary">{summary.totalDomains} categories</Badge>
-                  <Badge variant="secondary">{summary.totalAttributes} items</Badge>
-                </>
-              ) : loading ? (
-                <Badge variant="outline">Checking information</Badge>
-              ) : metadataError ? (
-                <Badge variant="outline">Information unavailable</Badge>
-              ) : null}
-              {sharingReady ? (
-                <Badge variant="secondary">{summary.activeGrantCount} active access</Badge>
-              ) : null}
-              {upgradingDomainCount > 0 ? (
-                <Badge variant="outline">{upgradingDomainCount} updating</Badge>
-              ) : readyDomainCount > 0 && domainErrorCount === 0 && loadingDomainCount === 0 ? (
-                <Badge variant="outline">Ready to manage</Badge>
-              ) : null}
-            </>
-          ) : null}
-        </div>
+        <p className="min-w-0 text-sm text-muted-foreground">{savedDetailsSummary}</p>
         <div className="flex flex-wrap gap-2">
           {!needsUnlock ? <Button type="button" onClick={onOpenSharing}>Manage sharing</Button> : null}
           <Button type="button" variant="none" effect="fade" onClick={onRefresh}>
@@ -297,69 +271,67 @@ export function PkmDataManagerPanel({
         />
       ) : null}
 
-      {sharingError ? (
-        <SurfaceInset className="p-4 text-sm text-muted-foreground">
-          <div className="space-y-1">
-            <p className="font-medium text-foreground">Sharing status unavailable</p>
-            <p>{sharingError}</p>
-          </div>
-        </SurfaceInset>
-      ) : null}
+      <SettingsGroup
+        title="Saved details"
+        description="Review what One remembers and choose how it can be shared."
+        separatorInset
+        testId="memory-saved-details-group"
+      >
+        {sharingError ? (
+          <SettingsRow
+            icon={AlertTriangle}
+            iconTone="orange"
+            title="Sharing status unavailable"
+            description={sharingError}
+          />
+        ) : null}
 
-      {!metadataReady ? (
-        <SurfaceInset className="p-4 text-sm text-muted-foreground">
-          <div className="space-y-1">
-            <p className="font-medium text-foreground">
-              {metadataError ? "Saved details unavailable" : "Checking your saved details"}
-            </p>
-            <p>
-              {metadataError
+        {!metadataReady ? (
+          <SettingsRow
+            icon={RefreshCw}
+            iconTone={metadataError ? "orange" : "gray"}
+            title={metadataError ? "Saved details unavailable" : "Checking your saved details"}
+            description={
+              metadataError
                 ? metadataError
-                : "Saved details and sharing controls are still loading."}
-            </p>
-          </div>
-        </SurfaceInset>
-      ) : filteredDomains.length === 0 ? (
-        <SurfaceInset className="p-4 text-sm text-muted-foreground">
-          <div className="space-y-1">
-            <p className="font-medium text-foreground">
-              {domains.length === 0 ? "No saved details yet" : "No matching details"}
-            </p>
-            <p>
-              {domains.length === 0
-                ? "Once One saves your first memory or import, it will appear here for review and sharing."
-                : "Try a different search term to find saved details."}
-            </p>
-          </div>
-        </SurfaceInset>
-      ) : (
-        <div className={listShellClassName}>
-          <div className="divide-y divide-[color:var(--app-card-border-standard)]">
-            {filteredDomains.map((domain) => (
-              <DomainCard
-                key={domain.key}
-                domain={domain}
-                onOpen={() => onOpenDomain(domain)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
+                : "Saved details and sharing controls are still loading."
+            }
+          />
+        ) : filteredDomains.length === 0 ? (
+          <SettingsRow
+            icon={Folder}
+            iconTone="purple"
+            title={domains.length === 0 ? "No saved details yet" : "No matching details"}
+            description={
+              domains.length === 0
+                ? "Once One saves your first detail or import, it will appear here for review and sharing."
+                : "Try a different search term to find saved details."
+            }
+          />
+        ) : (
+          filteredDomains.map((domain) => (
+            <DomainCard
+              key={domain.key}
+              domain={domain}
+              onOpen={() => onOpenDomain(domain)}
+            />
+          ))
+        )}
+      </SettingsGroup>
 
       {loadingDomainCount > 0 || domainErrorCount > 0 ? (
-        <SurfaceInset className="flex flex-wrap items-center gap-2 p-4 text-sm text-muted-foreground">
-          {loadingDomainCount > 0 ? (
-            <>
-              <RefreshCw className="h-4 w-4 animate-spin" />
-              <span>Preparing sharing controls for {loadingDomainCount} categor{loadingDomainCount === 1 ? "y" : "ies"}.</span>
-            </>
-          ) : null}
-          {domainErrorCount > 0 ? (
-            <span>
-              Refresh needed for {domainErrorCount} categor{domainErrorCount === 1 ? "y" : "ies"}.
-            </span>
-          ) : null}
-        </SurfaceInset>
+        <SettingsGroup title="Availability" separatorInset>
+          <SettingsRow
+            icon={domainErrorCount > 0 ? AlertTriangle : RefreshCw}
+            iconTone={domainErrorCount > 0 ? "orange" : "gray"}
+            title={domainErrorCount > 0 ? "Refresh needed" : "Preparing sharing controls"}
+            description={
+              domainErrorCount > 0
+                ? `Refresh needed for ${domainErrorCount} categor${domainErrorCount === 1 ? "y" : "ies"}.`
+                : `Preparing sharing controls for ${loadingDomainCount} categor${loadingDomainCount === 1 ? "y" : "ies"}.`
+            }
+          />
+        </SettingsGroup>
       ) : null}
     </div>
   );
