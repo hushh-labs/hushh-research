@@ -130,7 +130,7 @@ export function ProfileAvatarEditor() {
           <SheetHeader>
             <SheetTitle>Profile photo</SheetTitle>
           </SheetHeader>
-          <div className="flex flex-col gap-1 px-2 pb-3">
+          <div className="flex flex-col gap-1 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             <button type="button" onClick={handleChange} className={rowClass}>
               <ImagePlus className="h-5 w-5 text-primary" />
               {isNative() ? "Take photo or choose from library" : "Upload a photo"}

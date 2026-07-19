@@ -118,6 +118,14 @@ async def upload_account_avatar(
     identity = await ActorIdentityService().set_custom_photo_url(
         firebase_uid, request.image_data_url
     )
+    if not identity:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "AVATAR_PERSISTENCE_UNAVAILABLE",
+                "message": "Avatar was accepted but could not be persisted.",
+            },
+        )
     return {"success": True, "identity": identity}
 
 
@@ -127,6 +135,14 @@ async def delete_account_avatar(
 ):
     """Clear the app-owned avatar override, reverting to the Firebase photo."""
     identity = await ActorIdentityService().set_custom_photo_url(firebase_uid, None)
+    if not identity:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "AVATAR_PERSISTENCE_UNAVAILABLE",
+                "message": "Avatar removal could not be persisted.",
+            },
+        )
     return {"success": True, "identity": identity}
 
 

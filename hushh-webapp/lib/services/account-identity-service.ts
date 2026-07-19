@@ -79,7 +79,10 @@ export class AccountIdentityService {
     userId: string,
     identity: AccountIdentity | null
   ): void {
-    if (!identity) {
+    if (!identity || !identity.user_id) {
+      // Never cache an empty/malformed identity (e.g. `{}` from a failed
+      // write). Caching it would clobber a good snapshot with a fresh TTL and
+      // re-trigger identity guards (phone mandate) + drop name/email/avatar.
       return;
     }
     CacheService.getInstance().set(

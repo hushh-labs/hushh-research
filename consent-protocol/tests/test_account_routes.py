@@ -155,6 +155,41 @@ def test_delete_account_avatar_reverts_to_firebase_photo(monkeypatch):
     assert captured == {"user_id": "firebase_uid_123", "custom_photo_url": None}
 
 
+def test_upload_account_avatar_maps_persistence_failure(monkeypatch):
+    async def _mock_set(self, user_id, custom_photo_url):
+        # Write never landed (no shadow row + Firebase sync could not create one).
+        return None
+
+    data_url = "data:image/png;base64," + base64.b64encode(
+        b"\x89PNG\r\n\x1a\n resized avatar bytes"
+    ).decode()
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+    monkeypatch.setattr(ActorIdentityService, "set_custom_photo_url", _mock_set)
+
+    client = TestClient(app)
+    response = client.post("/api/account/avatar", json={"image_data_url": data_url})
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "AVATAR_PERSISTENCE_UNAVAILABLE"
+
+
+def test_delete_account_avatar_maps_persistence_failure(monkeypatch):
+    async def _mock_set(self, user_id, custom_photo_url):
+        return None
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+    monkeypatch.setattr(ActorIdentityService, "set_custom_photo_url", _mock_set)
+
+    client = TestClient(app)
+    response = client.delete("/api/account/avatar")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "AVATAR_PERSISTENCE_UNAVAILABLE"
+
+
 def test_claim_account_phone_requires_firebase_auth():
     client = TestClient(_build_app())
     response = client.post(

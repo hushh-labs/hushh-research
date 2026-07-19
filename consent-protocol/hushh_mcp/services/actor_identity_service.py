@@ -270,6 +270,45 @@ class ActorIdentityService:
             if str(row.get("user_id") or "").strip()
         }
 
+    async def _get_many_without_custom_photo(
+        self, user_ids: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        """Pre-107 projection: drops ONLY custom_photo_url (keeps phone shadow).
+
+        Used when the 047 phone-shadow columns exist but the 107
+        custom_photo_url column does not (the migration gap). Routing that case
+        to ``_get_many_without_phone_shadow`` would wrongly zero phone_verified
+        for every read; this keeps phone-verification state intact and simply
+        falls back to the plain Firebase photo_url (no custom avatar can exist
+        yet, since ``set_custom_photo_url`` needs the column too).
+        """
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT
+                  user_id,
+                  display_name,
+                  email,
+                  phone_number,
+                  photo_url,
+                  email_verified,
+                  phone_verified,
+                  source,
+                  last_synced_at,
+                  created_at,
+                  updated_at
+                FROM actor_identity_cache
+                WHERE user_id = ANY($1::text[])
+                """,
+                user_ids,
+            )
+        return {
+            str(row["user_id"]): self._normalize_row(row)
+            for row in rows
+            if str(row.get("user_id") or "").strip()
+        }
+
     @staticmethod
     def _normalize_row(row: Any) -> dict[str, Any]:
         if not row:
@@ -340,14 +379,21 @@ class ActorIdentityService:
             return await self._get_many_fallback(normalized_ids)
         except asyncpg.UndefinedColumnError as exc:
             message = str(exc)
-            if (
-                "phone_number" not in message
-                and "phone_verified" not in message
-                and "custom_photo_url" not in message
-            ):
+            phone_missing = "phone_number" in message or "phone_verified" in message
+            custom_photo_missing = "custom_photo_url" in message
+            if not phone_missing and not custom_photo_missing:
                 raise
+            # A missing custom_photo_url (pre-107) must NOT route to the
+            # phone-less projection — that would silently zero phone_verified for
+            # EVERY read during the 107 migration gap. Drop only the column that
+            # is actually absent so phone-verification state stays intact.
+            if custom_photo_missing and not phone_missing:
+                logger.debug(
+                    "actor_identity_cache custom_photo_url missing; using pre-107 projection"
+                )
+                return await self._get_many_without_custom_photo(normalized_ids)
             logger.debug(
-                "actor_identity_cache phone shadow / custom photo missing; using pre-047 projection"
+                "actor_identity_cache phone shadow missing; using pre-047 projection"
             )
             return await self._get_many_without_phone_shadow(normalized_ids)
         return {
@@ -511,6 +557,11 @@ class ActorIdentityService:
             )
             return None
 
+        if row is None:
+            # Write never landed (no shadow row and the Firebase sync could not
+            # create one). Report failure instead of _normalize_row(None) == {},
+            # which would surface as a false success and clobber the client cache.
+            return None
         return self._normalize_row(row)
 
     async def claim_verified_phone(
@@ -527,6 +578,49 @@ class ActorIdentityService:
             return None
 
         pool = await get_pool()
+
+        def _claim_insert_sql(photo_expr: str) -> str:
+            # ``photo_expr`` is a fixed, code-controlled column expression (never
+            # user input) — no injection surface.
+            return f"""
+                INSERT INTO actor_identity_cache (
+                  user_id,
+                  phone_number,
+                  phone_verified,
+                  source,
+                  last_synced_at,
+                  created_at,
+                  updated_at
+                )
+                VALUES (
+                  $1,
+                  $2,
+                  TRUE,
+                  $3,
+                  NOW(),
+                  NOW(),
+                  NOW()
+                )
+                ON CONFLICT (user_id) DO UPDATE SET
+                  phone_number = EXCLUDED.phone_number,
+                  phone_verified = TRUE,
+                  source = $3,
+                  last_synced_at = NOW(),
+                  updated_at = NOW()
+                RETURNING
+                  user_id,
+                  display_name,
+                  email,
+                  phone_number,
+                  {photo_expr} AS photo_url,
+                  email_verified,
+                  phone_verified,
+                  source,
+                  last_synced_at,
+                  created_at,
+                  updated_at
+            """
+
         try:
             async with pool.acquire() as conn:
                 await conn.execute(
@@ -542,49 +636,26 @@ class ActorIdentityService:
                     normalized_user_id,
                     normalized_phone_number,
                 )
-                row = await conn.fetchrow(
-                    """
-                    INSERT INTO actor_identity_cache (
-                      user_id,
-                      phone_number,
-                      phone_verified,
-                      source,
-                      last_synced_at,
-                      created_at,
-                      updated_at
+                try:
+                    # Preserve a custom avatar in the returned (and client-cached)
+                    # identity, matching get_many/upsert_identity/set_custom_photo_url.
+                    row = await conn.fetchrow(
+                        _claim_insert_sql("COALESCE(custom_photo_url, photo_url)"),
+                        normalized_user_id,
+                        normalized_phone_number,
+                        normalized_source,
                     )
-                    VALUES (
-                      $1,
-                      $2,
-                      TRUE,
-                      $3,
-                      NOW(),
-                      NOW(),
-                      NOW()
+                except asyncpg.UndefinedColumnError as exc:
+                    if "custom_photo_url" not in str(exc):
+                        raise
+                    # Pre-107 gap: no custom avatar can exist yet, so the plain
+                    # photo_url is equivalent — keep the phone claim working.
+                    row = await conn.fetchrow(
+                        _claim_insert_sql("photo_url"),
+                        normalized_user_id,
+                        normalized_phone_number,
+                        normalized_source,
                     )
-                    ON CONFLICT (user_id) DO UPDATE SET
-                      phone_number = EXCLUDED.phone_number,
-                      phone_verified = TRUE,
-                      source = $3,
-                      last_synced_at = NOW(),
-                      updated_at = NOW()
-                    RETURNING
-                      user_id,
-                      display_name,
-                      email,
-                      phone_number,
-                      photo_url,
-                      email_verified,
-                      phone_verified,
-                      source,
-                      last_synced_at,
-                      created_at,
-                      updated_at
-                    """,
-                    normalized_user_id,
-                    normalized_phone_number,
-                    normalized_source,
-                )
         except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError):
             logger.debug(
                 "actor_identity_cache phone claim skipped; phone shadow schema unavailable"

@@ -57,14 +57,24 @@ function pickImageViaFileInput(): Promise<string | null> {
     input.accept = "image/*";
     input.style.cssText = "position:fixed;left:-9999px;width:1px;height:1px;";
     let settled = false;
+    let cancelTimer: number | undefined;
     const done = (value: string | null) => {
       if (settled) return;
       settled = true;
       window.removeEventListener("focus", onFocus);
+      if (cancelTimer !== undefined) window.clearTimeout(cancelTimer);
       input.remove();
       resolve(value);
     };
     input.onchange = () => {
+      // A file was chosen — disarm the focus-based cancel detection so a slow
+      // FileReader (large image on a slow device) can't lose the race to the
+      // 600ms grace timer and silently drop the user's photo.
+      window.removeEventListener("focus", onFocus);
+      if (cancelTimer !== undefined) {
+        window.clearTimeout(cancelTimer);
+        cancelTimer = undefined;
+      }
       const file = input.files?.[0];
       if (!file) {
         done(null);
@@ -79,7 +89,7 @@ function pickImageViaFileInput(): Promise<string | null> {
     // No reliable "cancel" event for a file dialog; when the window regains
     // focus without an onchange, resolve null after a short grace period.
     const onFocus = () => {
-      window.setTimeout(() => done(null), 600);
+      cancelTimer = window.setTimeout(() => done(null), 600);
     };
     window.addEventListener("focus", onFocus);
     document.body.appendChild(input);
