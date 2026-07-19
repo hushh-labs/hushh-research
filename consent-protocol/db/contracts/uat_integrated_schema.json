@@ -59,6 +59,7 @@
       "email",
       "phone_number",
       "photo_url",
+      "custom_photo_url",
       "email_verified",
       "phone_verified",
       "source",

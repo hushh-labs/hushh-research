@@ -1500,6 +1500,64 @@ export class ApiService {
     });
   }
 
+  /**
+   * Upload a user-chosen profile picture (small square data-URL, produced by
+   * the client). Persists an app-owned avatar that survives Firebase syncs;
+   * the returned identity's `photo_url` is the effective (custom) photo.
+   */
+  static async uploadAvatar(
+    imageDataUrl: string,
+    idToken?: string
+  ): Promise<{ success: boolean; identity: AccountIdentity | null }> {
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      throw new Error("Missing Firebase ID token");
+    }
+    const response = await apiFetch("/api/account/avatar", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${firebaseIdToken}` },
+      body: JSON.stringify({ image_data_url: imageDataUrl }),
+    });
+    const payload = (await response.json().catch(() => ({}))) as {
+      success?: boolean;
+      identity?: AccountIdentity | null;
+      detail?: unknown;
+      error?: unknown;
+    };
+    if (!response.ok) {
+      const message =
+        typeof payload.detail === "string"
+          ? payload.detail
+          : typeof payload.error === "string"
+            ? payload.error
+            : `Avatar upload failed with HTTP ${response.status}`;
+      throw new Error(message);
+    }
+    return { success: payload.success === true, identity: payload.identity ?? null };
+  }
+
+  /** Remove the custom profile picture and revert to the Firebase photo. */
+  static async removeAvatar(
+    idToken?: string
+  ): Promise<{ success: boolean; identity: AccountIdentity | null }> {
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      throw new Error("Missing Firebase ID token");
+    }
+    const response = await apiFetch("/api/account/avatar", {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${firebaseIdToken}` },
+    });
+    const payload = (await response.json().catch(() => ({}))) as {
+      success?: boolean;
+      identity?: AccountIdentity | null;
+    };
+    if (!response.ok) {
+      throw new Error(`Avatar removal failed with HTTP ${response.status}`);
+    }
+    return { success: payload.success === true, identity: payload.identity ?? null };
+  }
+
   static async claimAccountPhone(
     phoneIdToken: string,
     idToken?: string

@@ -197,6 +197,50 @@ export class AccountIdentityService {
     return identity;
   }
 
+  /**
+   * Upload a user-chosen profile picture (a small square data-URL). Writes the
+   * fresh identity through to cache so every avatar surface updates at once.
+   */
+  static async uploadAvatar(
+    user: User | null | undefined,
+    imageDataUrl: string
+  ): Promise<AccountIdentity | null> {
+    if (!user?.uid) {
+      return null;
+    }
+    const idToken = await user.getIdToken(true).catch(() => undefined);
+    if (!idToken) {
+      return null;
+    }
+    const { identity } = await ApiService.uploadAvatar(imageDataUrl, idToken);
+    if (identity) {
+      this.cacheIdentity(user.uid, identity);
+    } else {
+      this.invalidateCachedIdentity(user.uid);
+    }
+    return identity;
+  }
+
+  /** Remove the custom profile picture (revert to the Firebase photo). */
+  static async removeAvatar(
+    user: User | null | undefined
+  ): Promise<AccountIdentity | null> {
+    if (!user?.uid) {
+      return null;
+    }
+    const idToken = await user.getIdToken(true).catch(() => undefined);
+    if (!idToken) {
+      return null;
+    }
+    const { identity } = await ApiService.removeAvatar(idToken);
+    if (identity) {
+      this.cacheIdentity(user.uid, identity);
+    } else {
+      this.invalidateCachedIdentity(user.uid);
+    }
+    return identity;
+  }
+
   static async startUatTestPhoneVerification(
     user: User | null | undefined,
     phoneNumber: string

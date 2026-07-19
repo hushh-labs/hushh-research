@@ -84,7 +84,8 @@
     "103_demo_crm_response_contracts.sql",
     "104_crm_schema_mapping_cache.sql",
     "105_agentforce_mcp_compatibility.sql",
-    "106_agentforce_uat_profile.sql"
+    "106_agentforce_uat_profile.sql",
+    "107_actor_identity_custom_photo.sql"
   ],
   "groups": {
     "iam": [
@@ -131,7 +132,8 @@
       "101_backfill_crm_operation_endpoints.sql",
       "102_crm_operation_response_contract.sql",
       "103_demo_crm_response_contracts.sql",
-      "104_crm_schema_mapping_cache.sql"
+      "104_crm_schema_mapping_cache.sql",
+      "107_actor_identity_custom_photo.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

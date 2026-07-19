@@ -19,6 +19,7 @@ Security:
     Email aliases, delete, and export require VAULT_OWNER token.
 """
 
+import base64
 import hashlib
 import hmac
 import logging
@@ -62,6 +63,71 @@ async def refresh_account_identity(
         "user_id": firebase_uid,
         "identity": identity,
     }
+
+
+class AvatarUploadRequest(BaseModel):
+    image_data_url: str = Field(min_length=32, max_length=600_000)
+
+
+# Client uploads a small, already-resized (~256px) image as a data URL.
+_AVATAR_DATA_URL_PATTERN = re.compile(r"^data:image/(png|jpe?g|webp);base64,")
+_AVATAR_MAX_DECODED_BYTES = 300 * 1024
+
+
+@router.post("/avatar")
+async def upload_account_avatar(
+    request: AvatarUploadRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Store an app-owned avatar override for the signed-in actor.
+
+    The stored data URL takes precedence over the Firebase photo on reads and
+    survives Firebase identity syncs.
+    """
+    data_url = request.image_data_url.strip()
+    if not _AVATAR_DATA_URL_PATTERN.match(data_url):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "AVATAR_INVALID_DATA_URL",
+                "message": "Avatar must be a PNG, JPEG, or WebP image data URL.",
+            },
+        )
+
+    encoded_payload = data_url.split(",", 1)[1]
+    try:
+        decoded = base64.b64decode(encoded_payload, validate=True)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "AVATAR_INVALID_BASE64",
+                "message": "Avatar image data is not valid base64.",
+            },
+        ) from exc
+
+    if len(decoded) > _AVATAR_MAX_DECODED_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "code": "AVATAR_TOO_LARGE",
+                "message": "Avatar image exceeds the 300KB limit.",
+            },
+        )
+
+    identity = await ActorIdentityService().set_custom_photo_url(
+        firebase_uid, request.image_data_url
+    )
+    return {"success": True, "identity": identity}
+
+
+@router.delete("/avatar")
+async def delete_account_avatar(
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Clear the app-owned avatar override, reverting to the Firebase photo."""
+    identity = await ActorIdentityService().set_custom_photo_url(firebase_uid, None)
+    return {"success": True, "identity": identity}
 
 
 class DeleteAccountRequest(BaseModel):

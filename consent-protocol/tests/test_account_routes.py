@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
@@ -40,6 +42,117 @@ def test_refresh_account_identity_returns_synced_identity(monkeypatch):
     assert payload["success"] is True
     assert payload["user_id"] == "firebase_uid_123"
     assert payload["identity"]["last_active_persona"] == "investor"
+
+
+def test_upload_account_avatar_requires_firebase_auth():
+    client = TestClient(_build_app())
+    data_url = "data:image/png;base64," + base64.b64encode(b"small png bytes payload").decode()
+    response = client.post("/api/account/avatar", json={"image_data_url": data_url})
+
+    assert response.status_code == 401
+
+
+def test_upload_account_avatar_accepts_valid_image_data_url(monkeypatch):
+    captured = {}
+
+    async def _mock_set(self, user_id, custom_photo_url):
+        captured["user_id"] = user_id
+        captured["custom_photo_url"] = custom_photo_url
+        return {
+            "user_id": user_id,
+            "photo_url": custom_photo_url,
+            "source": "firebase_auth",
+        }
+
+    data_url = "data:image/png;base64," + base64.b64encode(
+        b"\x89PNG\r\n\x1a\n resized avatar bytes"
+    ).decode()
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+    monkeypatch.setattr(ActorIdentityService, "set_custom_photo_url", _mock_set)
+
+    client = TestClient(app)
+    response = client.post("/api/account/avatar", json={"image_data_url": data_url})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["identity"]["photo_url"] == data_url
+    assert captured == {"user_id": "firebase_uid_123", "custom_photo_url": data_url}
+
+
+def test_upload_account_avatar_rejects_non_image_data_url(monkeypatch):
+    called = {"value": False}
+
+    async def _mock_set(self, user_id, custom_photo_url):
+        called["value"] = True
+        return {}
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+    monkeypatch.setattr(ActorIdentityService, "set_custom_photo_url", _mock_set)
+
+    data_url = "data:text/plain;base64," + base64.b64encode(
+        b"this is definitely not an image payload"
+    ).decode()
+
+    client = TestClient(app)
+    response = client.post("/api/account/avatar", json={"image_data_url": data_url})
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "AVATAR_INVALID_DATA_URL"
+    assert called["value"] is False
+
+
+def test_upload_account_avatar_rejects_invalid_base64():
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/account/avatar",
+        json={"image_data_url": "data:image/png;base64,!!!!not-valid-base64!!!!"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "AVATAR_INVALID_BASE64"
+
+
+def test_upload_account_avatar_rejects_oversize_image():
+    oversize_payload = base64.b64encode(b"\x00" * (300 * 1024 + 1)).decode()
+    data_url = "data:image/jpeg;base64," + oversize_payload
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+
+    client = TestClient(app)
+    response = client.post("/api/account/avatar", json={"image_data_url": data_url})
+
+    assert response.status_code == 413
+    assert response.json()["detail"]["code"] == "AVATAR_TOO_LARGE"
+
+
+def test_delete_account_avatar_reverts_to_firebase_photo(monkeypatch):
+    captured = {}
+
+    async def _mock_set(self, user_id, custom_photo_url):
+        captured["user_id"] = user_id
+        captured["custom_photo_url"] = custom_photo_url
+        return {"user_id": user_id, "photo_url": "https://firebase.example/photo.png"}
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+    monkeypatch.setattr(ActorIdentityService, "set_custom_photo_url", _mock_set)
+
+    client = TestClient(app)
+    response = client.delete("/api/account/avatar")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["identity"]["photo_url"] == "https://firebase.example/photo.png"
+    assert captured == {"user_id": "firebase_uid_123", "custom_photo_url": None}
 
 
 def test_claim_account_phone_requires_firebase_auth():

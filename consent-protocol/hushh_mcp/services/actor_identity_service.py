@@ -323,7 +323,7 @@ class ActorIdentityService:
                       display_name,
                       email,
                       phone_number,
-                      photo_url,
+                      COALESCE(custom_photo_url, photo_url) AS photo_url,
                       email_verified,
                       phone_verified,
                       source,
@@ -339,9 +339,16 @@ class ActorIdentityService:
             logger.debug("actor_identity_cache missing; using legacy identity fallback")
             return await self._get_many_fallback(normalized_ids)
         except asyncpg.UndefinedColumnError as exc:
-            if "phone_number" not in str(exc) and "phone_verified" not in str(exc):
+            message = str(exc)
+            if (
+                "phone_number" not in message
+                and "phone_verified" not in message
+                and "custom_photo_url" not in message
+            ):
                 raise
-            logger.debug("actor_identity_cache phone shadow missing; using pre-047 projection")
+            logger.debug(
+                "actor_identity_cache phone shadow / custom photo missing; using pre-047 projection"
+            )
             return await self._get_many_without_phone_shadow(normalized_ids)
         return {
             str(row["user_id"]): self._normalize_row(row)
@@ -414,7 +421,7 @@ class ActorIdentityService:
                       display_name,
                       email,
                       phone_number,
-                      photo_url,
+                      COALESCE(custom_photo_url, photo_url) AS photo_url,
                       email_verified,
                       phone_verified,
                       source,
@@ -434,6 +441,71 @@ class ActorIdentityService:
         except Exception as exc:
             logger.debug(
                 "actor_identity_cache upsert skipped for %s: %s",
+                normalized_user_id,
+                exc,
+            )
+            return None
+
+        return self._normalize_row(row)
+
+    async def set_custom_photo_url(
+        self,
+        user_id: str,
+        custom_photo_url: str | None,
+    ) -> dict[str, Any] | None:
+        """Set (or clear) the app-owned avatar override for an actor.
+
+        The custom photo takes precedence over the Firebase ``photo_url`` on
+        reads (see the ``COALESCE`` projections) and is never touched by
+        ``upsert_identity``/``sync_from_firebase``, so it survives Firebase
+        identity syncs. Passing ``None`` clears the override, reverting to the
+        Firebase photo.
+        """
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            return None
+        normalized_custom_photo_url = str(custom_photo_url or "").strip() or None
+
+        update_sql = """
+            UPDATE actor_identity_cache
+            SET custom_photo_url = $2,
+                updated_at = NOW()
+            WHERE user_id = $1
+            RETURNING
+              user_id,
+              display_name,
+              email,
+              phone_number,
+              COALESCE(custom_photo_url, photo_url) AS photo_url,
+              email_verified,
+              phone_verified,
+              source,
+              last_synced_at,
+              created_at,
+              updated_at
+        """
+
+        pool = await get_pool()
+        try:
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    update_sql,
+                    normalized_user_id,
+                    normalized_custom_photo_url,
+                )
+            if row is None:
+                # No identity shadow row yet; create it from Firebase Auth,
+                # then retry the custom-photo write.
+                await self.sync_from_firebase(normalized_user_id, force=True)
+                async with pool.acquire() as conn:
+                    row = await conn.fetchrow(
+                        update_sql,
+                        normalized_user_id,
+                        normalized_custom_photo_url,
+                    )
+        except Exception as exc:
+            logger.debug(
+                "actor_identity_cache custom photo update skipped for %s: %s",
                 normalized_user_id,
                 exc,
             )
