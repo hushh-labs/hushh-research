@@ -60,7 +60,7 @@ import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 import { cn } from "@/lib/utils";
 
 export interface RiaProfileSectionProps {
-  /** RIA onboarding status (fetched by the host — e.g. the /profile workspace). */
+  /** RIA onboarding status (fetched by the host — e.g. the /one/profile workspace). */
   status: RiaOnboardingStatus | null;
   /** True while the host is (re)loading the status. */
   loading?: boolean;
@@ -263,8 +263,8 @@ function RiaRegulatoryProfileSummary({
 /**
  * The unified RIA profile management section. Re-homed verbatim from the former
  * `/ria/profile` page so the SAME view / edit / re-initiate / delete / license
- * logic renders inside the main `/profile` "Regulatory profile" panel. The host
- * owns the status fetch (so it works on `/profile` regardless of active persona)
+ * logic renders inside the main `/one/profile` "Regulatory profile" panel. The host
+ * owns the status retrieval (so it works on `/one/profile` regardless of active persona)
  * and passes it in; this component owns all the RIA mutations.
  */
 export function RiaProfileSection({
@@ -288,7 +288,7 @@ export function RiaProfileSection({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // License-refresh ("Update license data") — folded in from the old /profile
+  // License-refresh ("Update license data") — folded in from the old /one/profile
   // inline modal so the quick official-field re-sync is not lost in the merge.
   const [showLicense, setShowLicense] = useState(false);
   const [licenseNumber, setLicenseNumber] = useState("");

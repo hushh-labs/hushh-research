@@ -153,7 +153,7 @@ describe("SettingsRow", () => {
     ).toBe("red");
   });
 
-  it("uses square iOS-style icon wells and the shared inset-group radius", () => {
+  it("uses square iOS-style icon wells, shared inset-group radius, and standard card depth", () => {
     const { container } = render(
       <SettingsGroup>
         <SettingsRow icon={Phone} title="Phone number" />
@@ -164,6 +164,9 @@ describe("SettingsRow", () => {
     const icon = container.querySelector('[data-slot="settings-row-icon"]');
 
     expect(group?.className).toContain("--app-card-radius-compact");
+    expect(group?.className).toContain(
+      "shadow-[var(--app-card-shadow-standard)]",
+    );
     expect(icon?.className).toContain("rounded-[10px]");
     expect(icon?.className).not.toContain("rounded-2xl");
   });
@@ -199,7 +202,7 @@ describe("SettingsRow", () => {
         title="Open profile"
         description="Go to privacy workspace"
       >
-        <a href="/profile" data-testid="profile-link" />
+        <a href="/one/profile" data-testid="profile-link" />
       </SettingsRow>,
     );
 

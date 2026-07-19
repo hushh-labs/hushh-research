@@ -45,14 +45,14 @@ Compatibility fallback (temporary): frontend still accepts `NEXT_PUBLIC_OBSERVAB
 
 ## Route Families
 
-1. Investor routes remain under existing `/kai/*`, `/one/consent`, `/profile`.
+1. Investor routes remain under existing `/kai/*`, `/one/consent`, `/one/profile`.
 2. RIA routes:
    1. `/ria/onboarding`
    2. `/ria/clients`
    3. `/ria/workspace?clientId=<investor_user_id>`
 3. Compatibility aliases:
    1. `/ria/requests` -> `/one/consent?actor=ria&view=outgoing`
-   2. `/ria/settings` -> `/profile?section=ria`
+   2. `/ria/settings` -> `/one/profile?section=ria`
 4. Marketplace route: `/marketplace`.
 
 ## Backend API Surface

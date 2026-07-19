@@ -23,7 +23,7 @@ describe("top shell breadcrumbs", () => {
   });
 
   it("keeps a shared back affordance on the Connect root", () => {
-    expect(resolveTopShellBreadcrumb("/connect")).toEqual({
+    expect(resolveTopShellBreadcrumb("/one/connect")).toEqual({
       backHref: "/one",
       width: "profile",
       align: "center",
@@ -32,14 +32,32 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
-  it("treats consents as the profile privacy workspace by default", () => {
-    expect(resolveTopShellBreadcrumb("/one/consent")).toEqual({
-      backHref: "/profile/access",
+  it("returns a query-selected CRM detail to the static connected-systems workspace", () => {
+    expect(
+      resolveTopShellBreadcrumb(
+        "/one/connected-systems",
+        new URLSearchParams("system=customer-crm"),
+      ),
+    ).toEqual({
+      backHref: "/one/connected-systems",
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/profile/access" },
-        { label: "Privacy", href: "/profile/access" },
+        { label: "One", href: "/one" },
+        { label: "Connected Systems", href: "/one/connected-systems" },
+        { label: "System detail" },
+      ],
+    });
+  });
+
+  it("treats consents as the profile privacy workspace by default", () => {
+    expect(resolveTopShellBreadcrumb("/one/consent")).toEqual({
+      backHref: "/one/profile/access",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/one/profile/access" },
+        { label: "Privacy", href: "/one/profile/access" },
         { label: "Consent center" },
       ],
     });
@@ -54,8 +72,8 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/profile/access" },
-        { label: "Privacy", href: "/profile/access" },
+        { label: "Profile", href: "/one/profile/access" },
+        { label: "Privacy", href: "/one/profile/access" },
         { label: "Consent center" },
       ],
     });
@@ -257,13 +275,13 @@ describe("top shell breadcrumbs", () => {
   });
 
   it("treats the PKM agent lab as a profile privacy surface", () => {
-    expect(resolveTopShellBreadcrumb("/profile/pkm-agent-lab")).toEqual({
-      backHref: "/profile/access",
+    expect(resolveTopShellBreadcrumb("/one/profile/pkm-agent-lab")).toEqual({
+      backHref: "/one/profile/access",
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/profile/access" },
-        { label: "Privacy", href: "/profile/access" },
+        { label: "Profile", href: "/one/profile/access" },
+        { label: "Privacy", href: "/one/profile/access" },
         { label: "PKM Agent" },
       ],
     });
@@ -273,12 +291,12 @@ describe("top shell breadcrumbs", () => {
     const panelParams = new URLSearchParams();
     panelParams.set("panel", "my-data");
 
-    expect(resolveTopShellBreadcrumb("/profile", panelParams)).toEqual({
-      backHref: "/profile",
+    expect(resolveTopShellBreadcrumb("/one/profile", panelParams)).toEqual({
+      backHref: "/one/profile",
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/profile" },
+        { label: "Profile", href: "/one/profile" },
         { label: "Memory", href: undefined },
       ],
     });
@@ -286,12 +304,12 @@ describe("top shell breadcrumbs", () => {
     const accountParams = new URLSearchParams();
     accountParams.set("panel", "account");
 
-    expect(resolveTopShellBreadcrumb("/profile", accountParams)).toEqual({
-      backHref: "/profile",
+    expect(resolveTopShellBreadcrumb("/one/profile", accountParams)).toEqual({
+      backHref: "/one/profile",
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/profile" },
+        { label: "Profile", href: "/one/profile" },
         { label: "Account", href: undefined },
       ],
     });
@@ -300,13 +318,13 @@ describe("top shell breadcrumbs", () => {
     detailParams.set("panel", "security");
     detailParams.set("detail", "vault");
 
-    expect(resolveTopShellBreadcrumb("/profile", detailParams)).toEqual({
-      backHref: "/profile/security",
+    expect(resolveTopShellBreadcrumb("/one/profile", detailParams)).toEqual({
+      backHref: "/one/profile/security",
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/profile" },
-        { label: "Security", href: "/profile/security" },
+        { label: "Profile", href: "/one/profile" },
+        { label: "Security", href: "/one/profile/security" },
         { label: "Vault methods" },
       ],
     });
@@ -314,22 +332,22 @@ describe("top shell breadcrumbs", () => {
     const legacyTabParams = new URLSearchParams();
     legacyTabParams.set("tab", "preferences");
 
-    expect(resolveTopShellBreadcrumb("/profile", legacyTabParams)).toEqual({
-      backHref: "/profile",
+    expect(resolveTopShellBreadcrumb("/one/profile", legacyTabParams)).toEqual({
+      backHref: "/one/profile",
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/profile" },
+        { label: "Profile", href: "/one/profile" },
         { label: "Preferences", href: undefined },
       ],
     });
 
-    expect(resolveTopShellBreadcrumb("/profile/regulatory")).toEqual({
-      backHref: "/profile",
+    expect(resolveTopShellBreadcrumb("/one/profile/regulatory")).toEqual({
+      backHref: "/one/profile",
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/profile" },
+        { label: "Profile", href: "/one/profile" },
         { label: "Regulatory profile", href: undefined },
       ],
     });
@@ -337,19 +355,19 @@ describe("top shell breadcrumbs", () => {
     const regulatoryParams = new URLSearchParams();
     regulatoryParams.set("panel", "regulatory");
 
-    expect(resolveTopShellBreadcrumb("/profile", regulatoryParams)).toEqual({
-      backHref: "/profile",
+    expect(resolveTopShellBreadcrumb("/one/profile", regulatoryParams)).toEqual({
+      backHref: "/one/profile",
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/profile" },
+        { label: "Profile", href: "/one/profile" },
         { label: "Regulatory profile", href: undefined },
       ],
     });
   });
 
   it("routes legacy receipts back to canonical Gmail", () => {
-    expect(resolveTopShellBreadcrumb("/profile/receipts")).toEqual({
+    expect(resolveTopShellBreadcrumb("/one/profile/receipts")).toEqual({
       backHref: "/one/gmail",
       width: "profile",
       align: "center",
@@ -444,14 +462,14 @@ describe("top shell breadcrumbs", () => {
     // Opened from Profile: the leading crumb reflects the real origin, but back
     // still returns to the Location hub (not Profile) while the flow is open.
     const fromProfile = new URLSearchParams();
-    fromProfile.set("from", "/profile");
+    fromProfile.set("from", "/one/profile");
     fromProfile.set("action", "check-in");
     expect(resolveTopShellBreadcrumb("/one/location", fromProfile)).toEqual({
       backHref: "/one/location",
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/profile" },
+        { label: "Profile", href: "/one/profile" },
         { label: "Location", href: "/one/location" },
         { label: "Check-In" },
       ],

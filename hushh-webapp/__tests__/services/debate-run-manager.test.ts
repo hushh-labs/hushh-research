@@ -176,4 +176,47 @@ describe("DebateRunManagerService start gate", () => {
     expect(results[1]?.task.runId).toBe("fresh-run");
     expect(apiMocks.streamKaiDebateRun).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps a run active and resumes from its last cursor after a transport interruption", async () => {
+    vi.useFakeTimers();
+    try {
+      const manager = await loadManager([]);
+      apiMocks.getActiveKaiDebateRun.mockResolvedValueOnce(
+        response(200, { run: runPayload("resume-run") }),
+      );
+      apiMocks.consumeCanonicalKaiStream
+        .mockImplementationOnce(async (...args: unknown[]) => {
+          const emit = args[1] as (envelope: Record<string, unknown>) => void;
+          emit({
+            schema_version: "1.0",
+            stream_id: "run_resume-run",
+            stream_kind: "stock_analyze",
+            seq: 1,
+            event: "kai_thinking",
+            terminal: false,
+            payload: {},
+          });
+          throw new Error("Network connection lost");
+        })
+        .mockResolvedValueOnce(undefined);
+
+      const resumed = manager.resumeActiveRun({
+        userId: "user-1",
+        vaultOwnerToken: "vault-token",
+        vaultKey: "vault-key",
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await resumed;
+
+      expect(manager.getTask("resume-run")?.status).toBe("running");
+      expect(manager.getTask("resume-run")?.streamState).toBe("connected");
+      expect(apiMocks.streamKaiDebateRun).toHaveBeenCalledTimes(2);
+      expect(apiMocks.streamKaiDebateRun.mock.calls[1]?.[0]).toMatchObject({
+        runId: "resume-run",
+        resumeCursor: 1,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

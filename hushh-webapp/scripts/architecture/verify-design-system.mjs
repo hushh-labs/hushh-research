@@ -165,10 +165,10 @@ for (const filePath of appSources) {
   }
 }
 
-const profilePagePath = path.join(repoRoot, "app/profile/page.tsx");
-const profilePageSource = read(profilePagePath);
-if (profilePageSource.includes("PageSectionSwitcher")) {
-  failures.push("app/profile/page.tsx must not use PageSectionSwitcher for primary profile navigation");
+const profileWorkspacePath = path.join(repoRoot, "app/profile/profile-workspace-page.tsx");
+const profileWorkspaceSource = read(profileWorkspacePath);
+if (profileWorkspaceSource.includes("PageSectionSwitcher")) {
+  failures.push("app/profile/profile-workspace-page.tsx must not use PageSectionSwitcher for primary profile navigation");
 }
 
 const pkmManagerPath = path.join(repoRoot, "components/profile/pkm-data-manager.tsx");

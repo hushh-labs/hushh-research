@@ -22,6 +22,7 @@
  * - wait_beacon: { routeIds: string[], dataStates?: string[] }
  * - assert_url_includes: { value: string }
  * - assert_visible_testid: { testId: string }
+ * - assert_viewport_visible_testid: { testId: string }
  * - verify_ria_picks_admission: exercises the tabs for an activated advisor,
  *   or accepts the expected onboarding admission state for the shared reviewer.
  * - open_ria_workspace: {}
@@ -35,22 +36,27 @@ export const TERMINAL_DATA_STATES = [
   "error",
 ];
 
+const KAI_MARKET_ROUTE = "/one/kai";
+const KAI_PORTFOLIO_ROUTE = `${KAI_MARKET_ROUTE}?tab=portfolio`;
+const KAI_ANALYSIS_ROUTE = `${KAI_MARKET_ROUTE}?tab=analysis`;
+
 export const UI_FLOWS = [
   {
     id: "shell-investor-kai-analysis",
-    route: "/one/kai/analysis",
+    route: KAI_ANALYSIS_ROUTE,
     description: "Investor shell: Market -> Analysis",
     steps: [
       { type: "ensure_persona", persona: "investor" },
       { type: "click_bottom_nav", label: "Market" },
       { type: "click_bottom_nav", label: "Analysis" },
-      { type: "wait_beacon", routeIds: ["/one/kai/analysis"] },
+      { type: "wait_beacon", routeIds: [KAI_MARKET_ROUTE] },
+      { type: "assert_viewport_visible_testid", testId: "top-app-bar-tabs" },
       { type: "assert_visible_testid", testId: "kai-analysis-primary" },
     ],
   },
   {
     id: "native-investor-kai-debate-preview-start",
-    route: "/one/kai/analysis?ticker=AAPL&pick_source=default",
+    route: `${KAI_ANALYSIS_ROUTE}&ticker=AAPL&pick_source=default`,
     description:
       "Investor analysis preview: select list source and start debate without active-run loop",
     stepTimeoutMs: 60000,
@@ -58,11 +64,11 @@ export const UI_FLOWS = [
       { type: "ensure_persona", persona: "investor" },
       {
         type: "navigate_route",
-        route: "/one/kai/analysis?ticker=AAPL&pick_source=default",
+        route: `${KAI_ANALYSIS_ROUTE}&ticker=AAPL&pick_source=default`,
       },
       {
         type: "wait_beacon",
-        routeIds: ["/one/kai/analysis"],
+        routeIds: [KAI_MARKET_ROUTE],
         dataStates: ["loaded"],
         timeoutMs: 60000,
       },
@@ -77,12 +83,12 @@ export const UI_FLOWS = [
   },
   {
     id: "shell-investor-kai-portfolio",
-    route: "/one/kai/portfolio",
+    route: KAI_PORTFOLIO_ROUTE,
     description: "Investor shell: Portfolio tab",
     steps: [
       { type: "ensure_persona", persona: "investor" },
       { type: "click_bottom_nav", label: "Portfolio" },
-      { type: "wait_beacon", routeIds: ["/one/kai/portfolio"] },
+      { type: "wait_beacon", routeIds: [KAI_MARKET_ROUTE] },
     ],
   },
   {
@@ -92,7 +98,7 @@ export const UI_FLOWS = [
     steps: [
       { type: "ensure_persona", persona: "investor" },
       { type: "click_bottom_nav", label: "Portfolio" },
-      { type: "wait_beacon", routeIds: ["/one/kai/portfolio"] },
+      { type: "wait_beacon", routeIds: [KAI_MARKET_ROUTE] },
       { type: "navigate_route", route: "/one/kai/import" },
       { type: "wait_beacon", routeIds: ["/one/kai/import"] },
     ],
@@ -150,12 +156,12 @@ export const UI_FLOWS = [
   },
   {
     id: "shell-consents",
-    route: "/consents",
+    route: "/one/consent",
     description: "One shell: Consent tab",
     steps: [
       { type: "ensure_persona", persona: "investor" },
-      { type: "navigate_route", route: "/consents" },
-      { type: "wait_beacon", routeIds: ["/consents"] },
+      { type: "navigate_route", route: "/one/consent" },
+      { type: "wait_beacon", routeIds: ["/one/consent"] },
       { type: "assert_visible_testid", testId: "consent-manager-primary" },
     ],
   },
@@ -237,7 +243,7 @@ export const KAI_IMPORT_E2E_FLOW = {
     { type: "ensure_persona", persona: "investor" },
     { type: "assert_no_persona_mismatch_prompt", timeoutMs: 15000 },
     { type: "click_bottom_nav", label: "Portfolio" },
-    { type: "wait_beacon", routeIds: ["/one/kai/portfolio"] },
+    { type: "wait_beacon", routeIds: [KAI_MARKET_ROUTE] },
     {
       type: "click_button",
       name: "^(upload statement|import statement|import portfolio|connect portfolio)$",
@@ -278,7 +284,7 @@ export const KAI_IMPORT_E2E_FLOW = {
     },
     {
       type: "wait_beacon",
-      routeIds: ["/one/kai/portfolio"],
+      routeIds: [KAI_MARKET_ROUTE],
       dataStates: ["loaded"],
       timeoutMs: 180000,
     },

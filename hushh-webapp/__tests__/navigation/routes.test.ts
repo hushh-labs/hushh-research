@@ -4,11 +4,13 @@ import {
   buildRiaClientAccountRoute,
   buildRiaClientRequestRoute,
   buildRiaClientWorkspaceRoute,
+  buildConnectedSystemRoute,
   buildKaiMarketRoute,
   buildOneSetupKaiRoute,
   buildOneSetupCapabilityRoute,
   buildWelcomeRoute,
   isCapabilityHandoffTarget,
+  isOnboardingAdmissionExemptRoute,
   isOneSetupCapabilityRoute,
   isOneSetupSurfaceRoute,
   isOneSetupWizardRoute,
@@ -39,6 +41,15 @@ describe("navigation routes", () => {
     );
   });
 
+  it("keeps runtime-configured CRM selection on the static connected-systems route", () => {
+    expect(buildConnectedSystemRoute("customer crm")).toBe(
+      "/one/connected-systems?system=customer+crm",
+    );
+    expect(
+      buildConnectedSystemRoute("customer-crm", { agentActionId: "crm_123" }),
+    ).toBe("/one/connected-systems?system=customer-crm&agentActionId=crm_123");
+  });
+
   it("returns Login to the canonical welcome parent without accepting an external redirect", () => {
     expect(buildWelcomeRoute()).toBe(ROUTES.HOME);
     expect(buildWelcomeRoute(ROUTES.ONE_SETUP)).toBe(
@@ -55,30 +66,30 @@ describe("navigation routes", () => {
       panel: "security",
     });
 
-    expect(buildProfileRoute({ panel: "account" })).toBe("/profile/account");
+    expect(buildProfileRoute({ panel: "account" })).toBe("/one/profile/account");
     expect(buildProfileRoute({ panel: "account", detail: "phone" })).toBe(
-      "/profile/account/phone",
+      "/one/profile/account/phone",
     );
     expect(
       buildProfileRoute({ panel: "preferences", detail: "kai-preferences" }),
-    ).toBe("/profile/preferences/kai");
+    ).toBe("/one/profile/preferences/kai");
     expect(buildProfileRoute({ panel: "security", detail: "vault" })).toBe(
-      "/profile/security/vault",
+      "/one/profile/security/vault",
     );
     expect(
       buildProfileRoute({ panel: "my-data", detail: "domain:finance" }),
-    ).toBe("/profile/my-data/domain?key=finance");
+    ).toBe("/one/profile/my-data/domain?key=finance");
     expect(
       buildProfileRoute({ panel: "access", detail: "connection:abc 123" }),
-    ).toBe("/profile/access/connection?id=abc+123");
+    ).toBe("/one/profile/access/connection?id=abc+123");
     expect(
       buildProfileRoute({
         panel: "support",
         detail: "support-compose:bug_report",
       }),
-    ).toBe("/profile/support/compose?kind=bug_report");
+    ).toBe("/one/profile/support/compose?kind=bug_report");
     expect(buildProfileRoute({ panel: "regulatory" })).toBe(
-      "/profile/regulatory",
+      "/one/profile/regulatory",
     );
     expect(buildProfileRoute({ panel: "gmail" })).toBe("/one/gmail");
     expect(
@@ -93,37 +104,37 @@ describe("navigation routes", () => {
     expect(
       buildProfileRoute({ panel: "security", searchParams: transient }),
     ).toBe(
-      "/profile/security?unlock_vault=1&return_to=%2Fone%2Flocation%2Finvite%2Ftoken_123",
+      "/one/profile/security?unlock_vault=1&return_to=%2Fone%2Flocation%2Finvite%2Ftoken_123",
     );
   });
 
   it("resolves nested and legacy profile route state through the same contract", () => {
-    expect(resolveProfileRouteState("/profile/gmail/actions")).toEqual({
+    expect(resolveProfileRouteState("/one/profile/gmail/actions")).toEqual({
       panel: "gmail",
       detail: "gmail-actions",
     });
     expect(
-      resolveProfileRouteState("/profile/my-data/domain", "key=finance"),
+      resolveProfileRouteState("/one/profile/my-data/domain", "key=finance"),
     ).toEqual({ panel: "my-data", detail: "domain:finance" });
     expect(
-      resolveProfileRouteState("/profile", "tab=privacy&detail=connection:abc"),
+      resolveProfileRouteState("/one/profile", "tab=privacy&detail=connection:abc"),
     ).toEqual({ panel: "access", detail: "connection:abc" });
-    expect(resolveProfileRouteState("/profile/regulatory")).toEqual({
+    expect(resolveProfileRouteState("/one/profile/regulatory")).toEqual({
       panel: "regulatory",
       detail: null,
     });
     expect(
       buildCanonicalProfileRouteFromLegacyQuery(
-        "/profile",
+        "/one/profile",
         "panel=support&detail=support-routing",
       ),
-    ).toBe("/profile/support/routing");
+    ).toBe("/one/profile/support/routing");
     expect(
-      buildCanonicalProfileRouteFromLegacyQuery("/profile", "panel=regulatory"),
-    ).toBe("/profile/regulatory");
+      buildCanonicalProfileRouteFromLegacyQuery("/one/profile", "panel=regulatory"),
+    ).toBe("/one/profile/regulatory");
     expect(
       buildCanonicalProfileRouteFromLegacyQuery(
-        "/profile",
+        "/one/profile",
         "panel=gmail&detail=gmail-actions",
       ),
     ).toBe("/one/gmail");
@@ -158,6 +169,19 @@ describe("navigation routes", () => {
     expect(isPublicRoute("/one")).toBe(false);
     expect(isPublicRoute("/one/kai")).toBe(false);
     expect(isPublicRoute("/kai")).toBe(false);
+    expect(isPublicRoute("/one/profile")).toBe(false);
+    expect(isPublicRoute("/one/connect")).toBe(false);
+  });
+
+  it("defines profile and Connect inside the vault-protected One route family", () => {
+    expect(ROUTES.PROFILE).toBe("/one/profile");
+    expect(ROUTES.PROFILE_SECURITY).toBe("/one/profile/security");
+    expect(ROUTES.CONNECT).toBe("/one/connect");
+    expect(ROUTES.CONNECT_SETTINGS).toBe("/one/connect/settings");
+    expect(isOnboardingAdmissionExemptRoute(ROUTES.PROFILE)).toBe(true);
+    expect(isOnboardingAdmissionExemptRoute(ROUTES.PROFILE_SECURITY)).toBe(
+      true,
+    );
   });
 
   it("preserves ria route classification for nested workspace paths", () => {

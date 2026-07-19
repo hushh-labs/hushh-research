@@ -29,6 +29,7 @@ import {
   loadAgentPkmContext,
   peekAgentPkmContext,
   previewAgentPkmMemory,
+  warmAgentPkmContext,
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
 
@@ -101,6 +102,39 @@ describe("agent PKM memory helpers", () => {
     );
   });
 
+  it("warms the Agent working set only in process memory", async () => {
+    await warmAgentPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+    });
+
+    expect(pkmLoadFullBlobMock).toHaveBeenCalledTimes(1);
+    expect(peekAgentPkmContext({ userId: "user_1", message: "writing preferences" }))
+      .not.toBeNull();
+  });
+
+  it("drops an in-flight context load when the vault session clears", async () => {
+    let resolveMetadata: ((value: typeof METADATA) => void) | null = null;
+    pkmGetMetadataMock.mockReturnValueOnce(
+      new Promise<typeof METADATA>((resolve) => {
+        resolveMetadata = resolve;
+      })
+    );
+
+    const pending = loadAgentPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+    });
+    clearAgentPkmContext("user_1");
+    resolveMetadata?.(METADATA);
+
+    await expect(pending).resolves.toMatchObject({ text: "", domains: [] });
+    expect(pkmLoadFullBlobMock).not.toHaveBeenCalled();
+    expect(peekAgentPkmContext({ userId: "user_1" })).toBeNull();
+  });
+
   it("falls back to metadata PKM summaries when the vault key is unavailable", async () => {
     const context = await loadAgentPkmContext({
       userId: "user_1",
@@ -112,6 +146,35 @@ describe("agent PKM memory helpers", () => {
     expect(context.text).toContain("PKM compact context");
     expect(context.text).toContain("Preferences");
     expect(pkmLoadFullBlobMock).not.toHaveBeenCalled();
+  });
+
+  it("never projects runtime secrets into an Agent Chat PKM context", async () => {
+    pkmLoadFullBlobMock.mockResolvedValue({
+      preferences: {
+        writing: { default_style: "concise summaries" },
+      },
+      runtime_secrets: {
+        llm: {
+          gemini_api_key: "must-not-reach-agent-context",
+          credential_mode: "byok",
+        },
+      },
+    });
+
+    const context = await loadAgentPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      message: "summarize everything in my PKM",
+    });
+
+    expect(context.source).toBe("decrypted_session_pkm");
+    expect(context.domains).toContain("preferences");
+    expect(context.domains).not.toContain("runtime_secrets");
+    expect(context.text).toContain("concise summaries");
+    expect(context.text).not.toContain("runtime_secrets");
+    expect(context.text).not.toContain("gemini_api_key");
+    expect(context.text).not.toContain("must-not-reach-agent-context");
   });
 
   it("previews PKM memory through the agent-lab structure route", async () => {

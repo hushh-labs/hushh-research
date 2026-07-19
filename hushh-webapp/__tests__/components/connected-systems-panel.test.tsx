@@ -97,7 +97,9 @@ describe("ConnectedSystemsPanel", () => {
     expect(await screen.findByText("Customer CRM")).toBeTruthy();
     expect(screen.getByText("Example · CRM")).toBeTruthy();
     fireEvent.click(screen.getByText("Customer CRM"));
-    expect(routerPushMock).toHaveBeenCalledWith("/one/connected-systems/customer-crm");
+    expect(routerPushMock).toHaveBeenCalledWith(
+      "/one/connected-systems?system=customer-crm",
+    );
   });
 
   it("renders a searchable, paginated schema catalogue and blocks incomplete CRM actions", async () => {

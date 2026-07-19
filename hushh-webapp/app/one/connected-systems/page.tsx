@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Network } from "lucide-react";
 
 import {
@@ -12,13 +13,25 @@ import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
+import { ConnectedSystemDetailClient } from "@/app/one/connected-systems/[systemId]/connected-system-detail-client";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 
 export default function ConnectedSystemsPage() {
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
+  const searchParams = useSearchParams();
   const [showUnlock, setShowUnlock] = useState(false);
+  const selectedSystemId = String(searchParams.get("system") || "").trim();
+
+  if (selectedSystemId) {
+    return (
+      <ConnectedSystemDetailClient
+        systemId={selectedSystemId}
+        routeId="/one/connected-systems"
+      />
+    );
+  }
 
   return (
     <AppPageShell

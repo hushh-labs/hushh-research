@@ -40,7 +40,7 @@ describe("deriveVoiceRouteScreen", () => {
   });
 
   it("maps profile and fallback routes", () => {
-    expect(deriveVoiceRouteScreen("/profile")).toEqual({
+    expect(deriveVoiceRouteScreen("/one/profile")).toEqual({
       screen: "profile_account",
       subview: null,
     });
@@ -93,39 +93,39 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "connected_systems",
       subview: null,
     });
-    expect(deriveVoiceRouteScreen("/profile/receipts")).toEqual({
+    expect(deriveVoiceRouteScreen("/one/profile/receipts")).toEqual({
       screen: "gmail",
       subview: "legacy",
     });
-    expect(deriveVoiceRouteScreen("/profile/pkm")).toEqual({
+    expect(deriveVoiceRouteScreen("/one/profile/pkm")).toEqual({
       screen: "pkm",
       subview: "legacy",
     });
-    expect(deriveVoiceRouteScreen("/profile/pkm-agent-lab")).toEqual({
+    expect(deriveVoiceRouteScreen("/one/profile/pkm-agent-lab")).toEqual({
       screen: "profile_pkm_agent_lab",
       subview: null,
     });
-    expect(deriveVoiceRouteScreen("/profile?panel=gmail")).toEqual({
+    expect(deriveVoiceRouteScreen("/one/profile?panel=gmail")).toEqual({
       screen: "profile_gmail_panel",
       subview: null,
     });
-    expect(deriveVoiceRouteScreen("/profile/gmail/actions")).toEqual({
+    expect(deriveVoiceRouteScreen("/one/profile/gmail/actions")).toEqual({
       screen: "profile_gmail_panel",
       subview: "actions",
     });
-    expect(deriveVoiceRouteScreen("/profile?tab=account&panel=support")).toEqual({
+    expect(deriveVoiceRouteScreen("/one/profile?tab=account&panel=support")).toEqual({
       screen: "profile_support_panel",
       subview: "account",
     });
-    expect(deriveVoiceRouteScreen("/profile/support/routing")).toEqual({
+    expect(deriveVoiceRouteScreen("/one/profile/support/routing")).toEqual({
       screen: "profile_support_panel",
       subview: "routing",
     });
-    expect(deriveVoiceRouteScreen("/profile/security/vault")).toEqual({
+    expect(deriveVoiceRouteScreen("/one/profile/security/vault")).toEqual({
       screen: "profile_security_panel",
       subview: "vault",
     });
-    expect(deriveVoiceRouteScreen("/profile/regulatory")).toEqual({
+    expect(deriveVoiceRouteScreen("/one/profile/regulatory")).toEqual({
       screen: "profile_regulatory",
       subview: null,
     });
@@ -140,15 +140,15 @@ describe("deriveVoiceRouteScreen", () => {
   });
 
   it("accepts search params passed separately from the pathname", () => {
-    expect(deriveVoiceRouteScreen("/profile", "panel=gmail")).toEqual({
+    expect(deriveVoiceRouteScreen("/one/profile", "panel=gmail")).toEqual({
       screen: "profile_gmail_panel",
       subview: null,
     });
-    expect(deriveVoiceRouteScreen("/profile", "tab=privacy")).toEqual({
+    expect(deriveVoiceRouteScreen("/one/profile", "tab=privacy")).toEqual({
       screen: "profile_privacy",
       subview: null,
     });
-    expect(deriveVoiceRouteScreen("/profile", "panel=regulatory")).toEqual({
+    expect(deriveVoiceRouteScreen("/one/profile", "panel=regulatory")).toEqual({
       screen: "profile_regulatory",
       subview: null,
     });

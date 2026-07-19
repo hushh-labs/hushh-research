@@ -4,7 +4,7 @@
 "use client";
 
 import React, { useEffect, useMemo, type CSSProperties } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   BriefcaseBusiness,
   ChartSpline,
@@ -26,6 +26,7 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
@@ -179,7 +180,6 @@ export const Navbar = ({
   layout?: "fixed" | "slot";
 }) => {
   const pathname = usePathname();
-  const router = useRouter();
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
   const agentPopover = useOptionalAgentPopover();
@@ -371,7 +371,11 @@ export const Navbar = ({
       if (nextAgentContext) {
         setAgentNavigationContext(nextAgentContext);
       }
-      router.push(action.href);
+      requestInternalAppNavigation({
+        href: action.href,
+        scroll: false,
+        source: "tap",
+      });
     }
   };
 

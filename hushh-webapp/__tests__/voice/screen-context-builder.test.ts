@@ -269,7 +269,7 @@ describe("buildStructuredScreenContext", () => {
   });
 
   it("collects visible modules from DOM attributes", () => {
-    window.history.pushState({}, "", "/profile?tab=account");
+    window.history.pushState({}, "", "/one/profile?tab=account");
     document.body.innerHTML = `
       <h1>Profile Settings</h1>
       <section data-voice-module="Support Panel"></section>
@@ -278,7 +278,7 @@ describe("buildStructuredScreenContext", () => {
     `;
 
     const context = buildStructuredScreenContext({
-      appRuntimeState: makeRuntimeState("/profile", "profile"),
+      appRuntimeState: makeRuntimeState("/one/profile", "profile"),
       voiceContext: {},
     });
 
@@ -355,7 +355,7 @@ describe("buildStructuredScreenContext", () => {
   });
 
   it("prefers explicit published surface metadata and exposes available actions", () => {
-    window.history.pushState({}, "", "/profile/receipts");
+    window.history.pushState({}, "", "/one/profile/receipts");
     publishVoiceSurfaceMetadata("test_surface", {
       surfaceDefinition: {
         screenId: "profile_receipts",
@@ -408,7 +408,7 @@ describe("buildStructuredScreenContext", () => {
     });
 
     const context = buildStructuredScreenContext({
-      appRuntimeState: makeRuntimeState("/profile/receipts", "profile_receipts"),
+      appRuntimeState: makeRuntimeState("/one/profile/receipts", "profile_receipts"),
       voiceContext: {},
     });
 
@@ -445,7 +445,7 @@ describe("buildStructuredScreenContext", () => {
   });
 
   it("keeps local-only preference controls visible but not executable", () => {
-    window.history.pushState({}, "", "/profile/preferences");
+    window.history.pushState({}, "", "/one/profile/preferences");
     publishVoiceSurfaceMetadata("test_surface", {
       surfaceDefinition: {
         screenId: "profile_preferences",
@@ -491,7 +491,7 @@ describe("buildStructuredScreenContext", () => {
     });
 
     const context = buildStructuredScreenContext({
-      appRuntimeState: makeRuntimeState("/profile/preferences", "profile_preferences"),
+      appRuntimeState: makeRuntimeState("/one/profile/preferences", "profile_preferences"),
       voiceContext: {},
     });
 
@@ -523,7 +523,7 @@ describe("buildStructuredScreenContext", () => {
   });
 
   it("merges the reusable top-level surface contract into structured context", () => {
-    window.history.pushState({}, "", "/profile/receipts");
+    window.history.pushState({}, "", "/one/profile/receipts");
     publishVoiceSurfaceMetadata("test_surface", {
       screenId: "profile_receipts",
       title: "Receipts",
@@ -565,7 +565,7 @@ describe("buildStructuredScreenContext", () => {
     });
 
     const context = buildStructuredScreenContext({
-      appRuntimeState: makeRuntimeState("/profile/receipts", "profile_receipts"),
+      appRuntimeState: makeRuntimeState("/one/profile/receipts", "profile_receipts"),
       voiceContext: {},
     });
 
@@ -624,7 +624,7 @@ describe("buildStructuredScreenContext", () => {
   });
 
   it("keeps legacy surfaceDefinition publishers backward-compatible when top-level overrides are present", () => {
-    window.history.pushState({}, "", "/profile/pkm-agent-lab");
+    window.history.pushState({}, "", "/one/profile/pkm-agent-lab");
     publishVoiceSurfaceMetadata("test_surface", {
       surfaceDefinition: {
         screenId: "profile_pkm_agent_lab",
@@ -666,7 +666,7 @@ describe("buildStructuredScreenContext", () => {
     });
 
     const context = buildStructuredScreenContext({
-      appRuntimeState: makeRuntimeState("/profile/pkm-agent-lab", "profile_pkm_agent_lab"),
+      appRuntimeState: makeRuntimeState("/one/profile/pkm-agent-lab", "profile_pkm_agent_lab"),
       voiceContext: {},
     });
 
@@ -698,7 +698,7 @@ describe("buildStructuredScreenContext", () => {
   });
 
   it("carries profile control focus metadata through the structured surface context", () => {
-    window.history.pushState({}, "", "/profile?tab=account");
+    window.history.pushState({}, "", "/one/profile?tab=account");
     publishVoiceSurfaceMetadata("test_surface", {
       screenId: "profile_account",
       title: "Profile",
@@ -735,7 +735,7 @@ describe("buildStructuredScreenContext", () => {
     });
 
     const context = buildStructuredScreenContext({
-      appRuntimeState: makeRuntimeState("/profile", "profile_account"),
+      appRuntimeState: makeRuntimeState("/one/profile", "profile_account"),
       voiceContext: {},
     });
 

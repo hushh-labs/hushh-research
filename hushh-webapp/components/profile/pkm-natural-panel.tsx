@@ -716,16 +716,13 @@ export function PkmNaturalPanel({
       loading={bootstrapLoading}
       metadataReady={metadata !== null}
       metadataError={bootstrapError ? "Saved details couldn’t be loaded. Try again." : null}
-      sharingReady={sharingResolved}
       sharingError={sharingError}
       needsVaultCreation={false}
       needsUnlock={false}
       summary={summary}
       domains={domainPresentations}
-      manifestsByDomain={{}}
       loadingManifestsByDomain={{}}
       manifestErrorsByDomain={{}}
-      upgradeStatesByDomain={{}}
       onOpenSharing={() => router.push(ROUTES.CONSENTS)}
       onOpenImport={() => router.push(ROUTES.PROFILE_SECURITY_VAULT)}
       onRefresh={() => setRefreshNonce((value) => value + 1)}

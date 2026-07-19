@@ -16,6 +16,7 @@ import {
 import { KAI_MARKET_PATH } from "@/lib/navigation/routes";
 import { KaiPreviewRouter } from "@/components/kai/views/kai-preview-router";
 import { KaiAnalysisPageContent } from "@/app/one/kai/analysis/page";
+import { scheduleFinanceWorkspaceWarmup } from "@/lib/kai/finance-workspace-warmup";
 
 const FINANCE_TAB_DEFINITION = TOP_SHELL_TAB_REGISTRY.finance;
 type PortfolioTab = (typeof FINANCE_TAB_DEFINITION.tabs)[number]["value"];
@@ -23,7 +24,7 @@ type PortfolioTab = (typeof FINANCE_TAB_DEFINITION.tabs)[number]["value"];
 /** Canonical query-tabbed Finance workspace. */
 export function KaiMarketHubPage() {
   const { user, loading: authLoading } = useAuth();
-  const { vaultOwnerToken } = useVault();
+  const { vaultKey, vaultOwnerToken } = useVault();
   const { registerSteps, completeStep, reset } = useStepProgress();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -55,6 +56,16 @@ export function KaiMarketHubPage() {
   useEffect(() => {
     if (initialized && flowState !== "checking") completeStep();
   }, [completeStep, flowState, initialized]);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    return scheduleFinanceWorkspaceWarmup({
+      userId: user.uid,
+      vaultKey,
+      vaultOwnerToken,
+      activeTab,
+    });
+  }, [activeTab, user?.uid, vaultKey, vaultOwnerToken]);
 
   if (authLoading || !user) return null;
 

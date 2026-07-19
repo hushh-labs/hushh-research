@@ -28,7 +28,7 @@ describe("isPkmDeveloperHost", () => {
 
   it("loads the lab client only in a development build and then checks loopback host", () => {
     const route = readFileSync(
-      join(process.cwd(), "app/profile/pkm-agent-lab/page.tsx"),
+      join(process.cwd(), "app/one/profile/pkm-agent-lab/page.tsx"),
       "utf8"
     );
     const localGate = readFileSync(
@@ -38,7 +38,9 @@ describe("isPkmDeveloperHost", () => {
 
     expect(route).not.toMatch(/import\s+PkmAgentLabPageClient/);
     expect(route).toContain('process.env.NODE_ENV === "development"');
-    expect(route).toContain('dynamic(() => import("./local-page-client"))');
+    expect(route).toContain(
+      'dynamic(() => import("@/app/profile/pkm-agent-lab/local-page-client"))',
+    );
     expect(localGate).toContain("isPkmDeveloperHost(window.location.hostname)");
   });
 });

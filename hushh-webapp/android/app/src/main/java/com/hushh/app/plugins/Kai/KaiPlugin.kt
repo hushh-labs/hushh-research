@@ -30,6 +30,8 @@ import java.util.concurrent.TimeUnit
 class KaiPlugin : Plugin() {
     
     private val TAG = "KaiPlugin"
+    private val kaiStreamLock = Any()
+    @Volatile private var activeKaiStreamCall: Call? = null
 
     // OkHttp client with explicit timeouts (Kai analysis can take longer than typical API calls)
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
@@ -42,6 +44,24 @@ class KaiPlugin : Plugin() {
 
     private fun getBackendUrl(call: PluginCall? = null): String {
         return BackendUrl.resolve(bridge, call, "Kai")
+    }
+
+    private fun beginKaiStream(request: Request, pluginCall: PluginCall): Call? {
+        synchronized(kaiStreamLock) {
+            if (activeKaiStreamCall != null) {
+                pluginCall.reject("KAI_STREAM_BUSY")
+                return null
+            }
+            return httpClient.newCall(request).also { activeKaiStreamCall = it }
+        }
+    }
+
+    private fun finishKaiStream(nativeCall: Call) {
+        synchronized(kaiStreamLock) {
+            if (activeKaiStreamCall === nativeCall) {
+                activeKaiStreamCall = null
+            }
+        }
     }
     
     @PluginMethod
@@ -512,21 +532,23 @@ class KaiPlugin : Plugin() {
             }
 
         val pluginCall = call
+        val nativeStreamCall = beginKaiStream(request, pluginCall) ?: return
         Thread {
             try {
-                val response = httpClient.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    activity.runOnUiThread { pluginCall.reject("HTTP ${response.code}") }
-                    return@Thread
-                }
-                val body = response.body ?: run {
-                    activity.runOnUiThread { pluginCall.reject("No response body") }
-                    return@Thread
-                }
-                body.byteStream().use { stream ->
-                    BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
-                        processSseStream(reader) { eventName, eventId, dataText ->
-                            emitKaiSseBlock(eventName, eventId, dataText)
+                nativeStreamCall.execute().use { response ->
+                    if (!response.isSuccessful) {
+                        activity.runOnUiThread { pluginCall.reject("HTTP ${response.code}") }
+                        return@Thread
+                    }
+                    val body = response.body ?: run {
+                        activity.runOnUiThread { pluginCall.reject("No response body") }
+                        return@Thread
+                    }
+                    body.byteStream().use { stream ->
+                        BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
+                            processSseStream(reader) { eventName, eventId, dataText ->
+                                emitKaiSseBlock(eventName, eventId, dataText)
+                            }
                         }
                     }
                 }
@@ -534,8 +556,19 @@ class KaiPlugin : Plugin() {
             } catch (e: Exception) {
                 android.util.Log.e(TAG, "streamKaiAnalysis error", e)
                 activity.runOnUiThread { pluginCall.reject("Stream error: ${e.message}") }
+            } finally {
+                finishKaiStream(nativeStreamCall)
             }
         }.start()
+    }
+
+    @PluginMethod
+    fun cancelKaiAnalysisStream(call: PluginCall) {
+        val nativeCall = synchronized(kaiStreamLock) {
+            activeKaiStreamCall.also { activeKaiStreamCall = null }
+        }
+        nativeCall?.cancel()
+        call.resolve(JSObject().put("cancelled", nativeCall != null))
     }
 
     @PluginMethod

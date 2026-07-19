@@ -202,7 +202,7 @@ known capability gap, not a permission bypass.
   `pkm:runtime_secrets.llm.gemini_api_key` and
   `pkm:runtime_secrets.llm.credential_mode`; Vertex requires the selected
   project and location. Connections setup
-  (`/one/setup/connections`) and Connections settings (`/connect/settings`) are
+  (`/one/setup/connections`) and Connections settings (`/one/connect/settings`) are
   the only configuration surfaces; Connections the agent never receives the key.
 - Typed private-agent turns resolve the key only from an unlocked vault and pass
   it to the existing runtime-provider factory for that request. CRM mapping,
@@ -318,6 +318,23 @@ completed merely because it emitted a directive.
 This closes the live chain as:
 
 `One plan → governed directive → browser guard/execution → correlated settlement → grounded next turn`.
+
+### Public action progress
+
+The browser also publishes one bounded `ActionRun` presentation state for a
+generated action: `acknowledged`, `preparing`, `navigating`, `executing`,
+`awaiting_confirmation`, then `completed`, `blocked`, `cancelled`, or `failed`.
+Agent Bar and Agent Chat render the same short, factual status (for example,
+“Opening Analysis” or “Confirm Connect Google”). These are derived only from a
+received directive, confirmation choice, browser execution, route settlement,
+and terminal settlement. They never expose model chain-of-thought, prompt
+content, raw slots, credentials, OTPs, or a synthetic estimate of progress.
+
+The app-scoped interaction coordinator retains the first terminal directive
+settlement for its bounded session ledger. A same-id/same-fingerprint redelivery
+replays that outcome without re-executing the action; a conflicting reuse fails
+closed. Action presentation is lifecycle-only: ADK plus the generated gateway
+remain the sole semantic action-selection authority.
 
 Desktop-web provider actions may require `trusted_activation_required`. One still
 selects the exact Apple or Google generated action in its current ADK turn, but an

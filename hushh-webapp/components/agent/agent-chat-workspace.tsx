@@ -74,6 +74,7 @@ import {
   loadAgentPkmContext,
   peekAgentPkmContext,
   previewAgentPkmMemory,
+  warmAgentPkmContext,
   type AgentPkmContext,
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
@@ -117,6 +118,11 @@ import { cn } from "@/lib/utils";
 import { useConsentActions, type PendingConsent } from "@/lib/consent/use-consent-actions";
 import { useOneLocationConsentActions } from "@/lib/consent/use-one-location-consent-actions";
 import { useVault } from "@/lib/vault/vault-context";
+import {
+  appInteractionCoordinator,
+  useActiveActionRun,
+  type VoiceSessionLease,
+} from "@/lib/interaction/interaction-intent-coordinator";
 import { FCM_MESSAGE_EVENT } from "@/lib/notifications";
 import {
   ConsentCenterService,
@@ -137,6 +143,7 @@ import {
 } from "@/lib/agent/agent-chat-turn-safety";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { buildOneVoiceStructuredScreenContext } from "@/lib/voice/screen-context-builder";
 
 type AgentMessage = {
@@ -223,6 +230,8 @@ type AgentChatWorkspaceProps = {
   windowControls?: ReactNode;
   onMinimize?: () => void;
   onNavigationActionComplete?: (result: AgentActionRuntimeResult) => void;
+  /** The owning popover has started closing; preserve history, stop capture. */
+  isSurfaceClosing?: boolean;
 };
 
 const AGENT_GREETING =
@@ -503,9 +512,6 @@ const VOICE_AGENT_FIRST_EVENT_TIMEOUT_MS = 25_000;
 const VOICE_AGENT_IDLE_TIMEOUT_MS = 45_000;
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-const EXPLICIT_PKM_SAVE_PATTERN =
-  /\b(?:add|save|store|remember)\b[\s\S]{0,140}\b(?:pkm|personal knowledge|memory|memories)\b|\b(?:add|save|store|remember)\s+(?:this|that)\b/i;
 
 async function withDeadline<T>(
   promise: Promise<T>,
@@ -1111,6 +1117,7 @@ export function AgentChatWorkspace({
   windowControls,
   onMinimize,
   onNavigationActionComplete,
+  isSurfaceClosing = false,
 }: AgentChatWorkspaceProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -1155,7 +1162,7 @@ export function AgentChatWorkspace({
   const [isStreaming, setIsStreaming] = useState(false);
   // Just-in-time vault unlock: the agent prompts to unlock in place (the same
   // reusable VaultUnlockDialog used by Kai / consent / connected-systems)
-  // instead of bouncing the user to /profile. Opened only when a vault-gated
+  // instead of bouncing the user to /one/profile. Opened only when a vault-gated
   // operation is requested while the vault is locked.
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const [activeFrontendToolCount, setActiveFrontendToolCount] = useState(0);
@@ -1176,7 +1183,12 @@ export function AgentChatWorkspace({
   const [backgroundTaskState, setBackgroundTaskState] = useState(() =>
     AppBackgroundTaskService.getState()
   );
+  const activeActionRun = useActiveActionRun();
   const voiceClientRef = useRef<AgentVoiceClient | null>(null);
+  // Chat is a view/control of the app-wide voice resource. Its legacy
+  // capture/STT pipeline cannot run concurrently with One Live.
+  const voiceLeaseRef = useRef<VoiceSessionLease | null>(null);
+  const cancelChatVoiceRef = useRef<() => void>(() => {});
   const voiceTtsQueueRef = useRef<AgentTtsQueue | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1247,6 +1259,27 @@ export function AgentChatWorkspace({
     }
     clearAgentPkmContext(user?.uid);
   }, [isVaultUnlocked, user?.uid, vaultKey]);
+
+  useEffect(() => {
+    if (!user?.uid || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
+      return undefined;
+    }
+    if (peekAgentPkmContext({ userId: user.uid })?.text) {
+      return undefined;
+    }
+
+    // Keep the first conversation turn responsive. The Agent workspace warms
+    // only its redacted, session-memory working set after it is visibly open;
+    // vault unlock itself does not broadly decrypt PKM.
+    const timeoutId = window.setTimeout(() => {
+      void warmAgentPkmContext({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+      }).catch(() => undefined);
+    }, 180);
+    return () => window.clearTimeout(timeoutId);
+  }, [isVaultUnlocked, user?.uid, vaultKey, vaultOwnerToken]);
 
   const routeQuery = searchParams?.toString() || "";
   const pathnameWithQuery = routeQuery ? `${pathname || ""}?${routeQuery}` : pathname || "";
@@ -1410,6 +1443,7 @@ export function AgentChatWorkspace({
       if (authLoading) return "Checking access";
       if (!user?.uid) return "Sign in required";
       if (!isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh) return "Vault locked";
+      if (activeActionRun) return activeActionRun.message;
       if (!agentVoiceEnabled && voiceActive) return "Voice disabled";
       if (voiceState === "connecting") return "Voice connecting";
       if (voiceState === "listening") return "Listening";
@@ -1428,6 +1462,7 @@ export function AgentChatWorkspace({
     },
     [
       authLoading,
+      activeActionRun,
       agentVoiceEnabled,
       isChatLoading,
       isLoadingHistory,
@@ -2373,7 +2408,15 @@ export function AgentChatWorkspace({
       }
 
       setActiveFrontendToolCount((count) => count + 1);
+      const action = getKaiActionById(toolEvent.actionId);
+      const actionRun = appInteractionCoordinator.startActionRun({
+        actionId: toolEvent.actionId,
+        label: action?.label ?? "your request",
+        source: "search",
+        directiveId: toolEvent.callId ?? null,
+      });
       try {
+        appInteractionCoordinator.updateActionRun(actionRun.id, { phase: "executing" });
         const result = await executeAgentGatewayAction({
           actionId: toolEvent.actionId,
           slots: toolEvent.slots,
@@ -2385,6 +2428,19 @@ export function AgentChatWorkspace({
           busyOperations,
           setAnalysisParams,
           switchPersona,
+        });
+        if (result.routeAfter) {
+          appInteractionCoordinator.updateActionRun(actionRun.id, {
+            phase: "navigating",
+            message: `Opening ${action?.label ?? "your request"}`,
+          });
+        }
+        appInteractionCoordinator.finishActionRunFromSettlement(actionRun.id, {
+          status: result.status,
+          summary: result.resultSummary,
+          reason: result.reason,
+          routeAfter: result.routeAfter,
+          screenAfter: result.screenAfter,
         });
         appendDebugEvent(debugTurnId, "tool_result", result);
         upsertToolStatusMessage(result.resultSummary, toolResultStatus(result));
@@ -2399,6 +2455,10 @@ export function AgentChatWorkspace({
           error instanceof Error && error.message
             ? error.message
             : "Agent tool execution failed.";
+        appInteractionCoordinator.updateActionRun(actionRun.id, {
+          phase: "failed",
+          message,
+        });
         appendDebugEvent(debugTurnId, "tool_result", {
           status: "failed",
           message,
@@ -2586,14 +2646,6 @@ export function AgentChatWorkspace({
 
     const loadTurnPkmContext = async (): Promise<AgentPkmContext> => {
       if (!vaultKey) return EMPTY_PKM_CONTEXT;
-      if (!isVoiceTurn) {
-        return loadAgentPkmContext({
-          userId,
-          vaultOwnerToken: token,
-          vaultKey,
-          message: text,
-        });
-      }
 
       const cachedContext = peekAgentPkmContext({
         userId,
@@ -2609,26 +2661,37 @@ export function AgentChatWorkspace({
         return cachedContext;
       }
 
+      upsertPkmStatusMessage("Loading your saved context…", "streaming");
       const contextPromise = loadAgentPkmContext({
         userId,
         vaultOwnerToken: token,
         vaultKey,
         message: text,
       });
-      const result = await withDeadline(contextPromise, VOICE_PKM_CONTEXT_DEADLINE_MS);
-      if (!result.timedOut) return result.value;
+      const deadlineMs = isVoiceTurn ? VOICE_PKM_CONTEXT_DEADLINE_MS : 900;
+      const result = await withDeadline(contextPromise, deadlineMs);
+      if (!result.timedOut) {
+        upsertPkmStatusMessage("", "done");
+        return result.value;
+      }
 
-      appendDebugEvent(debugTurnId, "pkm_context_deferred_for_voice_latency", {
-        deadline_ms: VOICE_PKM_CONTEXT_DEADLINE_MS,
+      appendDebugEvent(debugTurnId, "pkm_context_deferred_for_turn_latency", {
+        deadline_ms: deadlineMs,
+        turn_source: options.source,
       });
-      void contextPromise.catch((error) => {
-        appendDebugEvent(debugTurnId, "pkm_context_deferred_load_failed", {
-          message:
-            error instanceof Error && error.message
-              ? error.message
-              : "Failed to refresh PKM context in the background.",
+      void contextPromise
+        .then(() => {
+          upsertPkmStatusMessage("Saved context is ready for your next message.", "done");
+        })
+        .catch((error) => {
+          appendDebugEvent(debugTurnId, "pkm_context_deferred_load_failed", {
+            message:
+              error instanceof Error && error.message
+                ? error.message
+                : "Failed to refresh PKM context in the background.",
+          });
+          upsertPkmStatusMessage("Saved context could not be loaded for this session.", "error");
         });
-      });
       return EMPTY_PKM_CONTEXT;
     };
 
@@ -2839,8 +2902,7 @@ export function AgentChatWorkspace({
       });
       if (
         !specialistDirectiveReceived &&
-        !pkmAddToolHandled &&
-        !EXPLICIT_PKM_SAVE_PATTERN.test(text)
+        !pkmAddToolHandled
       ) {
         const pkmAbortController = new AbortController();
         pkmAbortControllersRef.current.add(pkmAbortController);
@@ -3171,6 +3233,14 @@ export function AgentChatWorkspace({
       const callKey = toolEvent.callId || `${toolEvent.actionId}-${turnId}`;
       if (executedNavCalls.has(callKey)) return;
       executedNavCalls.add(callKey);
+      const action = getKaiActionById(toolEvent.actionId);
+      const actionRun = appInteractionCoordinator.startActionRun({
+        actionId: toolEvent.actionId,
+        label: action?.label ?? "your request",
+        source: "search",
+        directiveId: toolEvent.callId ?? null,
+      });
+      appInteractionCoordinator.updateActionRun(actionRun.id, { phase: "executing" });
       void executeAgentGatewayAction({
         actionId: toolEvent.actionId,
         slots: toolEvent.slots,
@@ -3184,11 +3254,29 @@ export function AgentChatWorkspace({
         switchPersona,
       })
         .then((result) => {
+          if (result.routeAfter) {
+            appInteractionCoordinator.updateActionRun(actionRun.id, {
+              phase: "navigating",
+              message: `Opening ${action?.label ?? "your request"}`,
+            });
+          }
+          appInteractionCoordinator.finishActionRunFromSettlement(actionRun.id, {
+            status: result.status,
+            summary: result.resultSummary,
+            reason: result.reason,
+            routeAfter: result.routeAfter,
+            screenAfter: result.screenAfter,
+          });
           if (shouldMinimizeForNavigationResult(result)) {
             onNavigationActionComplete?.(result);
           }
         })
-        .catch(() => undefined);
+        .catch(() => {
+          appInteractionCoordinator.updateActionRun(actionRun.id, {
+            phase: "failed",
+            message: "The app could not complete that action.",
+          });
+        });
     };
 
     try {
@@ -3335,6 +3423,8 @@ export function AgentChatWorkspace({
     voiceTtsSpeakingRef.current = false;
     await voiceClientRef.current?.stop();
     voiceClientRef.current = null;
+    voiceLeaseRef.current?.release("agent_chat_voice_stopped");
+    voiceLeaseRef.current = null;
     setIsVoiceConnecting(false);
     setIsChatLoading(false);
     setIsStreaming(false);
@@ -3342,6 +3432,21 @@ export function AgentChatWorkspace({
     setVoiceState("idle");
     resetGlobalVoiceState();
   }, [abortAgentTurnWork, resetGlobalVoiceState]);
+  cancelChatVoiceRef.current = () => {
+    void handleCancelVoice();
+  };
+
+  // The popover may remain mounted through its exit motion so conversation
+  // history survives a close/reopen. A hidden workspace must never retain a
+  // microphone, STT request, or TTS queue while that motion runs.
+  useEffect(() => {
+    if (!isPopover || !isSurfaceClosing) return;
+    setIsHistoryDrawerOpen(false);
+    setVoiceTranscriptReview(null);
+    if (voiceActive || isVoiceConnecting || voiceClientRef.current) {
+      void handleCancelVoice();
+    }
+  }, [handleCancelVoice, isPopover, isSurfaceClosing, isVoiceConnecting, voiceActive]);
 
   const handleVoiceTranscriptAccepted = (transcript: string) => {
     setVoiceTranscriptReview(null);
@@ -3368,6 +3473,10 @@ export function AgentChatWorkspace({
     }
     if (!hasChatAccess || !user?.uid) return;
 
+    if (voiceLeaseRef.current && isVoiceConnecting) {
+      // Coalesce native double taps while microphone setup is in flight.
+      return;
+    }
     if (voiceActive) {
       voiceClientRef.current?.toggleMuted();
       if (voiceTtsSpeakingRef.current) {
@@ -3382,6 +3491,12 @@ export function AgentChatWorkspace({
       return;
     }
 
+    const lease = appInteractionCoordinator.acquireVoiceLease({
+      owner: "agent_chat",
+      onRevoked: () => cancelChatVoiceRef.current(),
+    });
+    voiceLeaseRef.current = lease;
+
     setIsVoiceConnecting(true);
     setGlobalVoiceActive(true);
     voiceSessionEpochRef.current += 1;
@@ -3394,15 +3509,18 @@ export function AgentChatWorkspace({
       }
       await voiceClientRef.current.start({
         onStatus: (status, message) => {
+          if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) return;
           setAgentVoiceStatus(status, message);
           if (status !== "connecting") {
             setIsVoiceConnecting(false);
           }
         },
         onLevel: (level) => {
+          if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) return;
           setGlobalVoiceLevel(level);
         },
         onUtterance: async ({ audio, durationMs, nativeTranscript }) => {
+          if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) return;
           const voiceSessionEpoch = voiceSessionEpochRef.current;
           const sttAbortController = new AbortController();
           voiceSttAbortControllerRef.current?.abort();
@@ -3523,11 +3641,16 @@ export function AgentChatWorkspace({
           }
         },
         onError: (message) => {
+          if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) return;
           addErrorMessage(message);
           setIsVoiceConnecting(false);
           setAgentVoiceStatus("error", message);
         },
       });
+      if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) {
+        await voiceClientRef.current?.stop();
+        return;
+      }
       setIsVoiceConnecting(false);
     } catch (error) {
       voiceSttAbortControllerRef.current?.abort();
@@ -3543,6 +3666,10 @@ export function AgentChatWorkspace({
       resetGlobalVoiceState();
       await voiceClientRef.current?.stop();
       voiceClientRef.current = null;
+      if (voiceLeaseRef.current?.id === lease.id) {
+        lease.release("agent_chat_voice_start_failed");
+        voiceLeaseRef.current = null;
+      }
     }
   };
 
@@ -3648,7 +3775,7 @@ export function AgentChatWorkspace({
             label: "Unlock vault",
             icon: KeyRound,
             // Just-in-time unlock in place via the shared dialog, instead of
-            // navigating away to /profile and losing the agent context.
+            // navigating away to /one/profile and losing the agent context.
             onClick: () => setVaultDialogOpen(true),
           }
         : null;

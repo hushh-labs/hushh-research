@@ -23,7 +23,7 @@ const {
   getCachedBootstrapStateMock: vi.fn(),
 }));
 
-let pathnameValue = "/profile";
+let pathnameValue = "/one/profile";
 let searchValue = "";
 let hostnameValue: string | null = "localhost";
 let authValue: {
@@ -116,7 +116,7 @@ describe("PhoneMandateGuard", () => {
       phoneVerified: false,
     });
     getCachedBootstrapStateMock.mockReturnValue(null);
-    pathnameValue = "/profile";
+    pathnameValue = "/one/profile";
     searchValue = "";
     hostnameValue = "localhost";
     authValue = {

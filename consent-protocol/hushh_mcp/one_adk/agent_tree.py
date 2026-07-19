@@ -47,7 +47,11 @@ from hushh_mcp.one_adk.action_tools import (
     run_app_action,
     start_app_goal,
 )
-from hushh_mcp.services.action_gateway import get_action_gateway_action
+from hushh_mcp.services.action_gateway import (
+    get_action_gateway_action,
+    is_navigation_action,
+    list_action_gateway_actions,
+)
 from hushh_mcp.services.route_orchestration_index import is_one_delegate_admitted
 
 logger = logging.getLogger(__name__)
@@ -239,15 +243,21 @@ ONE_IDENTITY_INSTRUCTION = (
     "review). Route ALL finance, advisor, and investing requests through "
     "Finance.\n"
     "- Email: approval drafts and client request workflows.\n"
+    "- KYC: approval-gated identity and client-request work lives in the KYC "
+    "app surface. Navigate there with route.one_kyc; do not invent a direct "
+    "conversational KYC tool or claim a workflow changed before the app confirms it.\n"
     "- Location: live sharing with trusted people and local context.\n"
     "- Memory: saved knowledge the user can review (PKM).\n"
     "- Consent Center (Nav): what the user has shared and with whom, approvals, "
     "and revocations. Its Connections subagent handles the trusted-people "
     "graph itself; both surface in the Consent Center.\n"
     "- Connected Systems: CRM and external system workflows.\n\n"
+    "Gmail receipt sync is paused. It has no active One, voice, Search, or "
+    "Agent Chat action: do not claim receipt access or call a Gmail tool.\n\n"
     # Section 4: tool invocation conditions, one tool per sentence.
     "Delegate naturally: when a request belongs to a specialist's domain, call "
-    "that specialist's tool with the user's request. When the user asks to go "
+    "that specialist's tool with the user's request, except KYC which is an "
+    "in-app workflow rather than a direct conversational tool. When the user asks to go "
     "somewhere in the app ('take me to profile', 'open location'), call "
     "run_app_action with the matching navigation action id (route.profile, "
     "route.one_location, and similar route actions); navigation actions work "
@@ -727,11 +737,6 @@ async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, 
     return await _specialist_turn("agent_email", request, tool_context)
 
 
-async def ask_gmail_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Ask the Gmail specialist about synced purchase receipts, spending at merchants, or receipt sync status."""
-    return await _specialist_turn("agent_gmail", request, tool_context)
-
-
 async def ask_location_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
     """Ask the Location specialist about live location sharing with trusted people, check-ins, or SOS."""
     return await _specialist_turn("agent_location", request, tool_context)
@@ -747,6 +752,50 @@ async def ask_consent_agent(request: str, tool_context: ToolContext) -> dict[str
     return await _specialist_turn("agent_nav", request, tool_context)
 
 
+async def run_intro_navigation_action(action_id: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Offer one low-risk route action from One's anonymous, pre-vault surface.
+
+    The model still decides whether a navigation request is meant. This narrow
+    tool owns only the authority check: it can never turn an informational
+    pre-vault turn into a vault, consent, or mutation action.
+    """
+    clean_id = str(action_id or "").strip()
+    entry = get_action_gateway_action(clean_id)
+    policy = str((entry or {}).get("risk", {}).get("execution_policy") or "")
+    status = str((entry or {}).get("execution_target", {}).get("status") or "")
+    if (
+        entry is None
+        or not clean_id.startswith("route.")
+        or not is_navigation_action(entry)
+        or policy != "allow_direct"
+        or status != "wired"
+    ):
+        return {
+            "status": "unavailable",
+            "message": "That action is not available before the vault is unlocked.",
+        }
+    return await run_app_action(clean_id, {}, tool_context)
+
+
+async def list_intro_navigation_actions() -> dict[str, Any]:
+    """List the generated, directly-wired routes available before vault unlock.
+
+    This is a bounded catalog, not a classifier. One uses it only when the
+    action id is uncertain; semantic interpretation of the user's request
+    remains in the model.
+    """
+    results = [
+        {
+            "action_id": str(entry.get("action_id") or ""),
+            "label": str(entry.get("label") or ""),
+            "meaning": str(entry.get("meaning") or ""),
+        }
+        for entry in list_action_gateway_actions()
+        if is_navigation_action(entry)
+    ]
+    return {"status": "ok", "results": results[:32]}
+
+
 def _build_ria_agent() -> LlmAgent:
     """RIA subagent of Finance: advisor workspace persona."""
     return LlmAgent(
@@ -758,6 +807,34 @@ def _build_ria_agent() -> LlmAgent:
             "with advisor workflows: clients, picks, and requests. Workspace "
             "mutations are governed app actions confirmed by the app."
         ),
+    )
+
+
+def build_one_intro_text_agent(*, model: Any | None = None) -> LlmAgent:
+    """Build One's semantic but lower-privilege pre-vault text head.
+
+    This is deliberately not the full One roster. It can converse and propose
+    only generated, directly-wired route actions; it receives neither PKM nor
+    a consent token, and has no specialist, persistence, or mutation tool.
+    """
+    return LlmAgent(
+        name="one_intro",
+        model=model or _SPECIALIST_MODEL,
+        description="One's informational, pre-vault private-agent surface.",
+        instruction=(
+            "You are One, the private agent inside Hussh. This is an informational "
+            "conversation before the user's vault is unlocked. Answer general product "
+            "and setup questions warmly and concisely. Use your own semantic judgment; "
+            "do not force a workflow or interpret words with fixed keyword rules. "
+            "When the user clearly asks to open a Hussh screen, call "
+            "run_intro_navigation_action with one exact generated route.* action id. "
+            "Call list_intro_navigation_actions only when the action id is uncertain. "
+            "Never claim access to personal information, PKM, "
+            "email, location, consent records, CRM records, or any completed action. "
+            "For protected or mutating work, explain that unlocking the vault and the "
+            "relevant in-app review are required."
+        ),
+        tools=[run_intro_navigation_action, list_intro_navigation_actions],
     )
 
 

@@ -4,7 +4,7 @@ import { resolveBottomNavAction } from "@/lib/navigation/app-bottom-nav";
 
 describe("connect bottom-nav routing", () => {
   it("routes to /connect in the one scope", () => {
-    expect(resolveBottomNavAction("connect", "one")).toEqual({ type: "route", href: "/connect" });
+    expect(resolveBottomNavAction("connect", "one")).toEqual({ type: "route", href: "/one/connect" });
   });
 
   it("routes to /marketplace in the investor scope", () => {

@@ -21,7 +21,11 @@ describe("Connect page layout contract", () => {
 
   it("hard-gates Connect and the private agent on live in-memory vault state", () => {
     const connectRoute = fs.readFileSync(
-      path.join(WEBAPP_ROOT, "app/connect/page.tsx"),
+      path.join(WEBAPP_ROOT, "app/one/connect/page.tsx"),
+      "utf8",
+    );
+    const oneAuthGate = fs.readFileSync(
+      path.join(WEBAPP_ROOT, "app/one/one-auth-gate.tsx"),
       "utf8",
     );
     const agentRoute = fs.readFileSync(
@@ -33,7 +37,8 @@ describe("Connect page layout contract", () => {
       "utf8",
     );
 
-    expect(connectRoute).toContain("<VaultLockGuard>");
+    expect(connectRoute).not.toContain("<VaultLockGuard>");
+    expect(oneAuthGate).toContain("<VaultLockGuard>");
     expect(agentRoute).toContain("<VaultLockGuard>");
     expect(vaultGuard).not.toContain("isSessionUnlockedOnce");
     expect(vaultGuard).toContain("if (isVaultUnlocked)");

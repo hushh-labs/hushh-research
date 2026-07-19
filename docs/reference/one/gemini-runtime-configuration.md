@@ -10,7 +10,7 @@ This is the Connections-owned configuration boundary beneath the
 
 Connections owns private runtime configuration, not an additional One
 specialist. It appears before feature setup at `/one/setup/connections` and
-can be reopened at `/connect/settings`. It is not a `/one` dashboard tile and
+can be reopened at `/one/connect/settings`. It is not a `/one` dashboard tile and
 does not publish a voice or Search action.
 
 | Mode | User input | Storage | User-facing scope |

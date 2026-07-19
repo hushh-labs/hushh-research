@@ -30,7 +30,7 @@
       "reachability": {
         "routes": [
           "/ria/settings",
-          "/profile"
+          "/one/profile"
         ],
         "screens": [
           "ria_settings_compat"

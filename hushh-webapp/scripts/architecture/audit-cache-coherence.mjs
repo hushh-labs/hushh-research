@@ -143,13 +143,13 @@ function screenClassForRoute(route, mode, flags) {
     route === "/pkm" ||
     route === "/gmail" ||
     route === "/connected-systems" ||
-    route.startsWith("/profile/pkm") ||
-    route === "/profile/receipts"
+    route.startsWith("/one/profile/pkm") ||
+    route === "/one/profile/receipts"
   ) {
     return "PKM-secure";
   }
   if (route.startsWith("/one/kai")) return "vault-backed";
-  if (route === "/profile" || isConsentCenterRoute(route))
+  if (route === "/one/profile" || isConsentCenterRoute(route))
     return "vault-backed";
   return mode === "hidden" ? "hidden flow" : "vault-backed";
 }
@@ -179,7 +179,7 @@ function routeCacheKeys(route) {
     return ["PKM_METADATA", "KAI_PROFILE", "ANALYSIS_HISTORY"];
   if (route === "/one/kyc")
     return ["PKM_DOMAIN_RESOURCE", "KYC workflow client state"];
-  if (route === "/profile")
+  if (route === "/one/profile")
     return ["KAI_PROFILE", "PKM_METADATA", "VAULT_STATUS"];
   if (route === "/pkm")
     return ["PKM_METADATA", "PKM_DOMAIN_RESOURCE", "PKM_UPGRADE_STATUS"];
@@ -187,9 +187,9 @@ function routeCacheKeys(route) {
     return ["Gmail receipts resource cache", "PKM_DOMAIN_RESOURCE"];
   if (route === "/connected-systems")
     return ["CONNECTED_SYSTEMS", "CONNECTED_SYSTEM_INTENTS"];
-  if (route === "/profile/pkm-agent-lab")
+  if (route === "/one/profile/pkm-agent-lab")
     return ["PKM_METADATA", "PKM_DOMAIN_RESOURCE", "PKM_UPGRADE_STATUS"];
-  if (route === "/profile/receipts")
+  if (route === "/one/profile/receipts")
     return ["Gmail receipts resource cache", "PKM_DOMAIN_RESOURCE"];
   if (route === "/one/kai")
     return [
@@ -223,13 +223,13 @@ function resourceClassesFor(route, screenClass) {
   if (screenClass === "auth/pre-vault") return ["auth_state"];
   if (isConsentCenterRoute(route)) return ["consent_list"];
   if (route === "/one/kyc") return ["pkm_projection", "consent_list"];
-  if (route === "/profile") return ["vault_metadata", "pkm_metadata"];
+  if (route === "/one/profile") return ["vault_metadata", "pkm_metadata"];
   if (
     route === "/pkm" ||
     route === "/gmail" ||
     route === "/connected-systems" ||
-    route.startsWith("/profile/pkm") ||
-    route === "/profile/receipts"
+    route.startsWith("/one/profile/pkm") ||
+    route === "/one/profile/receipts"
   ) {
     return ["pkm_metadata", "pkm_projection"];
   }
@@ -300,7 +300,7 @@ function readinessKpisFor(route, screenClass, cachePolicy) {
 
   if (
     route.startsWith("/one/kai") ||
-    route === "/profile" ||
+    route === "/one/profile" ||
     route === "/one/kyc" ||
     isConsentCenterRoute(route)
   ) {
@@ -363,7 +363,7 @@ function invalidatorFor(route, screenClass) {
     route === "/pkm" ||
     route === "/gmail" ||
     route === "/connected-systems" ||
-    route === "/profile/receipts" ||
+    route === "/one/profile/receipts" ||
     route === "/one/kyc"
   ) {
     return "CacheSyncService PKM/portfolio/write-through hooks";

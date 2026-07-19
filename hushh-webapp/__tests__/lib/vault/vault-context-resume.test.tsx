@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   removeListener: vi.fn(),
   pausePkmUpgrade: vi.fn().mockResolvedValue(undefined),
   pauseConsentExport: vi.fn(),
+  clearAgentPkmContext: vi.fn(),
   invalidateVaultState: vi.fn(),
   authUser: {
     uid: "vault-owner",
@@ -39,6 +40,10 @@ vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({
     user: mocks.authUser,
   }),
+}));
+
+vi.mock("@/lib/agent/agent-pkm-memory", () => ({
+  clearAgentPkmContext: mocks.clearAgentPkmContext,
 }));
 
 vi.mock("@/lib/cache/cache-sync-service", () => ({
@@ -188,6 +193,7 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(screen.getByTestId("vault-token").textContent).toBe("none");
     expect(screen.getByTestId("vault-key").textContent).toBe("none");
     expect(mocks.invalidateVaultState).toHaveBeenCalled();
+    expect(mocks.clearAgentPkmContext).toHaveBeenCalledWith("vault-owner");
   });
 
   it("keeps a still-valid token unlocked when the web app resumes", () => {

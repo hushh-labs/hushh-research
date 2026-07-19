@@ -104,7 +104,7 @@ function resolveWarmPriority(routePath?: string | null): WarmPriority {
   ) {
     return "consents";
   }
-  if (path.startsWith("/profile")) return "profile";
+  if (path.startsWith("/one/profile")) return "profile";
   if (path.startsWith("/ria")) return "ria";
   return "default";
 }

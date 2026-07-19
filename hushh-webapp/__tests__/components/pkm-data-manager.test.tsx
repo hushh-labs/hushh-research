@@ -1,7 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { PkmDomainDetailPanel } from "@/components/profile/pkm-data-manager";
+import {
+  PkmDataManagerPanel,
+  PkmDomainDetailPanel,
+} from "@/components/profile/pkm-data-manager";
 import type { PkmSectionPreviewPresentation } from "@/lib/profile/pkm-section-preview";
 
 const previewPresentation: PkmSectionPreviewPresentation = {
@@ -96,7 +99,7 @@ describe("PkmDomainDetailPanel", () => {
         "Kai keeps a readable view of your financial details across portfolio, analytics, and documents."
       )
     ).toBeTruthy();
-    expect(screen.getByText("19 saved details")).toBeTruthy();
+    expect(screen.getByText("19 items")).toBeTruthy();
     expect(screen.getByText("Organized into Portfolio, Analytics, and Documents")).toBeTruthy();
     expect(screen.getByText("Sharing controls")).toBeTruthy();
     expect(screen.getByRole("button", { name: "View Portfolio information" })).toBeTruthy();
@@ -175,5 +178,68 @@ describe("PkmDomainDetailPanel", () => {
     const dialogContent = document.querySelector('[data-slot="dialog-content"]');
     expect(dialogContent?.className).toContain("sm:max-w-[min(42rem,calc(100vw-4rem))]");
     expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
+  });
+});
+
+describe("PkmDataManagerPanel", () => {
+  it("uses the canonical settings group and row geometry for Memory categories", () => {
+    const onOpenDomain = vi.fn();
+    render(
+      <PkmDataManagerPanel
+        signedIn
+        loading={false}
+        metadataReady
+        needsVaultCreation={false}
+        needsUnlock={false}
+        summary={{
+          metadataResolved: true,
+          sharingResolved: true,
+          totalDomains: 1,
+          totalAttributes: 19,
+          totalSourceCount: 1,
+          activeGrantCount: 0,
+          sharedDomainCount: 0,
+          staleDomainCount: 0,
+          missingDomainCount: 0,
+          density: "relaxed",
+          lastUpdated: "2026-07-19T12:00:00.000Z",
+          recentDomainTitles: ["Financial"],
+          attentionItems: [],
+        }}
+        domains={[
+          {
+            key: "financial",
+            title: "Financial",
+            summary: "Saved holdings and account details.",
+            highlights: [],
+            sections: ["Portfolio"],
+            sourceLabels: ["Portfolio import"],
+            updatedAt: "2026-07-19T12:00:00.000Z",
+            detailCount: 19,
+            status: "complete",
+            statusLabel: "Complete",
+            accessEntries: [],
+            accessSummary: "Private",
+            accessCount: 0,
+            attentionFlags: [],
+            permissionCount: 0,
+            enabledPermissionCount: 0,
+          },
+        ]}
+        loadingManifestsByDomain={{}}
+        manifestErrorsByDomain={{}}
+        onOpenSharing={vi.fn()}
+        onOpenImport={vi.fn()}
+        onRefresh={vi.fn()}
+        onOpenDomain={onOpenDomain}
+      />,
+    );
+
+    expect(screen.getByTestId("memory-saved-details-group")).toBeTruthy();
+    const row = screen.getByTestId("memory-category-financial");
+    expect(row.querySelector('[data-slot="settings-row-icon"]')).toBeTruthy();
+    expect(screen.getByText("19 items")).toBeTruthy();
+    screen.getByRole("button", { name: /Financial/i }).click();
+    expect(onOpenDomain).toHaveBeenCalledWith(expect.objectContaining({ key: "financial" }));
   });
 });

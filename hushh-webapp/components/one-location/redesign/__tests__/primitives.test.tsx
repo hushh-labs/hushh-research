@@ -9,11 +9,11 @@ describe("EmptyState", () => {
       <EmptyState
         title="Build your trusted circle"
         description="Add connections so the people you trust can receive your live location."
-        action={<a href="/connect">Add connections</a>}
+        action={<a href="/one/connect">Add connections</a>}
       />,
     );
     expect(screen.getByText("Build your trusted circle")).toBeTruthy();
     const link = screen.getByText("Add connections").closest("a");
-    expect(link?.getAttribute("href")).toBe("/connect");
+    expect(link?.getAttribute("href")).toBe("/one/connect");
   });
 });

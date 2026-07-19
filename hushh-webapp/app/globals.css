@@ -359,7 +359,7 @@ textarea {
   --app-blur-frosted: saturate(180%) blur(20px);
 
   /* Lucide defaults (see docs/reference/quality/design-system.md): change once to update all icons. */
-  --lucide-stroke-width: 1;
+  --lucide-stroke-width: 1.6;
   /* Safe area and fixed-bottom UI spacing tokens (single source of truth). */
   --app-safe-area-bottom: env(safe-area-inset-bottom, 0px);
   /* On-screen keyboard height, published by KeyboardInsetManager (native +
@@ -1830,7 +1830,7 @@ html.native-ios {
 /* ── Film grain ── fine static tooth so the canvas never looks flat CSS. */
 .one-grain {
   pointer-events: none;
-  opacity: 0.035;
+  opacity: var(--foundation-grain-opacity, 0.035);
   background-image: radial-gradient(
     rgba(0, 0, 0, 0.9) 0.5px,
     transparent 0.6px
@@ -1838,7 +1838,7 @@ html.native-ios {
   background-size: 3px 3px;
 }
 .dark .one-grain {
-  opacity: 0.08;
+  opacity: var(--foundation-grain-opacity, 0.08);
   background-image: radial-gradient(
     rgba(255, 255, 255, 0.9) 0.5px,
     transparent 0.6px
@@ -2718,10 +2718,10 @@ md-ripple.morphy-md-ripple {
      material wash and tail are deliberately light and transparent. */
   --tw-backdrop-blur: blur(0px);
   --tw-backdrop-saturate: saturate(1);
-  --ambient-chrome-wash: 52%;
+  --ambient-chrome-wash: 58%;
   --ambient-chrome-ramp-hold: 42%;
   --ambient-chrome-ramp-mid: 72%;
-  --ambient-chrome-ramp-mid-alpha: 0.38;
+  --ambient-chrome-ramp-mid-alpha: 0.44;
   will-change: background-color;
 }
 
@@ -2792,9 +2792,9 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   background-color: transparent;
   background-image: linear-gradient(
     to top,
-    color-mix(in srgb, var(--ambient-chrome-bg) 92%, transparent) 0%,
-    color-mix(in srgb, var(--ambient-chrome-bg) 86%, transparent) 22%,
-    color-mix(in srgb, var(--ambient-chrome-bg) 42%, transparent) 52%,
+    color-mix(in srgb, var(--ambient-chrome-bg) 94%, transparent) 0%,
+    color-mix(in srgb, var(--ambient-chrome-bg) 89%, transparent) 22%,
+    color-mix(in srgb, var(--ambient-chrome-bg) 48%, transparent) 52%,
     transparent 100%
   );
   -webkit-mask-image: none;
@@ -2810,6 +2810,15 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 [data-app-top-bar] .shell-action-surface,
 [data-app-top-bar] .top-shell-ambient-ink {
   color: var(--ambient-chrome-top-fg, #1d1d1f);
+}
+
+/* A chrome child must not pin its own theme foreground while the sampled edge
+ * has already selected the opposite contrast. Use currentColor so icon and
+ * text transition together with the actual painted surface. */
+[data-app-top-bar] .top-shell-ambient-ink .text-foreground,
+[data-app-top-bar] .top-shell-ambient-ink .text-muted-foreground,
+[data-app-top-bar] .shell-action-surface .text-muted-foreground {
+  color: currentColor;
 }
 
 [data-app-top-bar] .shell-action-surface:hover {
@@ -3157,18 +3166,26 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .kai-bottom-search-action {
-  color: #1d1d1f !important;
+  color: var(--ambient-chrome-bottom-base-fg, #1d1d1f) !important;
   border: 0 !important;
-  background: rgb(0 0 0 / 0.05) !important;
+  background: color-mix(
+    in srgb,
+    var(--ambient-chrome-bottom-base-fg, #1d1d1f) 6%,
+    transparent
+  ) !important;
   box-shadow: none !important;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
 
 .dark .kai-bottom-search-action {
-  color: #f5f5f7 !important;
+  color: var(--ambient-chrome-bottom-base-fg, #f5f5f7) !important;
   border: 0 !important;
-  background: rgb(255 255 255 / 0.07) !important;
+  background: color-mix(
+    in srgb,
+    var(--ambient-chrome-bottom-base-fg, #f5f5f7) 7%,
+    transparent
+  ) !important;
   box-shadow: none !important;
 }
 
@@ -3358,14 +3375,19 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
    mirrors the quiet root treatment so public, authenticated, and nested
    routes never drift into separate gradients or opaque chrome bands. */
 .foundation-public-ambient {
-  /* The same four-corner accent wash is present in both themes. Light mode
-     carries slightly more pigment because its high-value canvas otherwise
-     hides the material that remains legible in dark mode. */
-  --foundation-ambient-primary: 22%;
-  --foundation-ambient-secondary: 19%;
-  --foundation-ambient-tertiary: 18%;
-  --foundation-ambient-quaternary: 16%;
+  /* Light mode is intentionally neutral white. Accent washes make a gold
+     preference read as a pale-yellow page instead of a clean canvas. */
+  --foundation-grain-opacity: 0.07;
   background-color: var(--background);
+  background-image: none;
+}
+
+.dark .foundation-public-ambient {
+  --foundation-ambient-primary: 8%;
+  --foundation-ambient-secondary: 7%;
+  --foundation-ambient-tertiary: 6%;
+  --foundation-ambient-quaternary: 6%;
+  --foundation-grain-opacity: 0.08;
   background-image:
     radial-gradient(
       circle at 4% 4%,
@@ -3387,13 +3409,6 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
       color-mix(in oklab, var(--app-accent-bright) var(--foundation-ambient-quaternary), transparent),
       transparent 31%
     );
-}
-
-.dark .foundation-public-ambient {
-  --foundation-ambient-primary: 8%;
-  --foundation-ambient-secondary: 7%;
-  --foundation-ambient-tertiary: 6%;
-  --foundation-ambient-quaternary: 6%;
 }
 
 /* Custom Scrollbar Styles */
@@ -4015,20 +4030,22 @@ html[data-accent="gold"].dark {
   }
 }
 
-/* Shared in-page step/tab enter. The ONE sanctioned utility for content that
- * swaps within a route (wizard steps, tab panels). Uses the same motion tokens
- * as the route envelope so every transition in the app shares one frame. Do
- * NOT use ad-hoc tailwind animate-in/duration-* utilities for this. */
+/* Standard Morphy expressive content enter. Layouts and components that swap
+ * within a settled route (wizard steps, tab panels, controlled pager panels)
+ * use the same opening vector, duration, and emphasized easing as the shared
+ * GSAP route reveal: 0 -> 1 opacity, 8px -> 0 vertical settle, 450ms. This is
+ * deliberately an enter-only utility; route exit remains owned exclusively by
+ * useRouteTransition. Do NOT use ad-hoc tailwind animate-in/duration-* here. */
 .motion-step-enter {
-  animation: app-step-enter var(--motion-duration-lg)
-    var(--motion-ease-decelerate) both;
+  animation: app-step-enter var(--motion-page-enter-duration)
+    var(--motion-ease-emphasized) both;
   will-change: opacity, transform;
 }
 
 @keyframes app-step-enter {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;

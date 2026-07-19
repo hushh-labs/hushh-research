@@ -229,11 +229,11 @@ describe("UnlockWarmOrchestrator", () => {
       expect(consentRefreshEnsureRunningMock).toHaveBeenCalledTimes(1);
     });
 
-    it('resolves "/profile" to "profile" priority without duplicating vault-owned PKM work', async () => {
+    it('resolves "/one/profile" to "profile" priority without duplicating vault-owned PKM work', async () => {
       setupDefaultMocks();
       await UnlockWarmOrchestrator.run({
         ...BASE_PARAMS,
-        routePath: "/profile",
+        routePath: "/one/profile",
       });
     });
 

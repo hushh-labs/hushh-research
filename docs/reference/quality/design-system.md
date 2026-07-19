@@ -207,4 +207,19 @@ tint and feathered dissolve; the top mask keeps the shell legible through its
 tab stack before fading into content. Those edges must remain present on mobile
 and desktop wherever the signed-in top/bottom shell is present.
 
+Persistent chrome text and icons inherit the sampled ambient foreground through
+`currentColor`; do not pin descendant `text-foreground` or
+`text-muted-foreground` classes. Lucide icons use the shared
+`--lucide-stroke-width: 1.6` baseline, with a deliberate component-level
+override only when a compact control needs it.
+
+Motion has one standard content-enter expression across One and every
+specialist surface: opacity `0 → 1`, vertical settle `8px → 0`,
+`--motion-page-enter-duration`, and `--motion-ease-emphasized`. The shared
+GSAP route/async-mount hook owns automatic semantic mounts; `.motion-step-enter`
+is the matching declarative utility for controlled component and layout swaps.
+Do not create a second route-transition engine or shorten a component-local
+fallback into a separate motion language. High-churn rails and tables opt out
+of automatic enters and may animate a stable inner layout root only.
+
 `SettingsGroup` and `SettingsRow` are the standard responsive list system for Profile, agents, and Connected Systems. Groups use the compact utility radius, inset separators, text truncation, and mobile-stacked trailing controls. Do not make a desktop `DataTable` the only way to operate a narrow route.

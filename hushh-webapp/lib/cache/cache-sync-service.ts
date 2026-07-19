@@ -311,17 +311,19 @@ export class CacheSyncService {
   ): void {
     const emitDomainStoredEvent = () => {
       if (typeof window === "undefined") return;
+      const detail = {
+        userId,
+        domain,
+        dataVersion: options?.encryptedBlob?.dataVersion ?? null,
+        updatedAt:
+          options?.encryptedBlob?.updatedAt ??
+          options?.metadataTimestamp ??
+          null,
+      };
+      window.dispatchEvent(new CustomEvent("pkm-domain-stored", { detail }));
       window.dispatchEvent(
-        new CustomEvent("pkm-domain-stored", {
-          detail: {
-            userId,
-            domain,
-            dataVersion: options?.encryptedBlob?.dataVersion ?? null,
-            updatedAt:
-              options?.encryptedBlob?.updatedAt ??
-              options?.metadataTimestamp ??
-              null,
-          },
+        new CustomEvent("pkm-domain-changed", {
+          detail: { ...detail, operation: "stored" },
         }),
       );
     };
@@ -423,6 +425,13 @@ export class CacheSyncService {
       cache.invalidate(CACHE_KEYS.PORTFOLIO_DATA(userId));
       this.invalidateKaiFinancialResource(userId);
     }
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("pkm-domain-changed", {
+          detail: { userId, domain, dataVersion: null, updatedAt: null, operation: "cleared" },
+        }),
+      );
+    }
   }
 
   static onPkmDomainRestored(userId: string, domain: string): void {
@@ -450,6 +459,13 @@ export class CacheSyncService {
       cache.invalidate(CACHE_KEYS.ANALYSIS_HISTORY(userId));
       this.invalidateKaiFinancialResource(userId, { includeDevice: true });
       this.onKaiMarketContextChanged(userId);
+    }
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("pkm-domain-changed", {
+          detail: { userId, domain, dataVersion: null, updatedAt: null, operation: "restored" },
+        }),
+      );
     }
   }
 

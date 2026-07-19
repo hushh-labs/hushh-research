@@ -372,7 +372,7 @@ function shouldPrioritizeConsentHydration(pathname: string): boolean {
     .trim()
     .toLowerCase();
   if (!normalized) return false;
-  return normalized.startsWith("/profile") || normalized.startsWith("/ria");
+  return normalized.startsWith("/one/profile") || normalized.startsWith("/ria");
 }
 
 function shouldPrioritizeConsentRealtime(pathname: string): boolean {
@@ -384,7 +384,7 @@ function shouldPrioritizeConsentRealtime(pathname: string): boolean {
     normalized.startsWith("/agent") ||
     normalized.startsWith(ROUTES.CONSENTS) ||
     normalized.startsWith(ROUTES.LEGACY_CONSENTS) ||
-    normalized.startsWith("/profile") ||
+    normalized.startsWith("/one/profile") ||
     normalized.startsWith("/ria")
   );
 }

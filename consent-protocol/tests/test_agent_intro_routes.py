@@ -5,8 +5,8 @@ powers the single One agent bar before the vault is unlocked:
 
 - It works anonymously (no Authorization header required).
 - It never accepts or forwards PKM / vault context.
-- It only forwards pure ``route.*`` navigation actions; any other action plan is
-  suppressed and the turn degrades to plain text.
+- It only forwards pure ``route.*`` navigation directives; any other directive
+  is suppressed and the turn stays informational.
 """
 
 from __future__ import annotations
@@ -18,18 +18,12 @@ from slowapi.extension import _rate_limit_exceeded_handler
 
 from api.middlewares.rate_limit import limiter
 from api.routes.kai import agent_intro
-from hushh_mcp.services.agent_chat_service import (
-    AgentChatActionPlan,
-    PreparedAgentRuntime,
-)
+from hushh_mcp.one_adk.text_runtime import OneTextDirective, OneTextStreamEvent
+from hushh_mcp.services.agent_chat_service import PreparedAgentRuntime
 
 
 class _FakeIntroService:
     def __init__(self):
-        self.next_action_plan: AgentChatActionPlan | None = None
-        self.stream_tokens = ["Hi", " from One"]
-        self.plan_calls: list[dict] = []
-        self.stream_calls: list[dict] = []
         self.runtime_client = object()
 
     async def prepare_agent_runtime(
@@ -43,49 +37,12 @@ class _FakeIntroService:
             provider="gemini",
             model="gemini-2.5-flash",
             credential_ref="pkm:runtime_secrets.llm.gemini_api_key",
+            gemini_byok_transport="developer_api",
+            vertex_project=None,
+            vertex_location=None,
             client=self.runtime_client,
             evidence={},
         )
-
-    async def plan_action_with_gemini(
-        self,
-        *,
-        user_message: str,
-        history,
-        runtime_client,
-        runtime_model: str,
-        pkm_context: str | None = None,
-        screen_context: dict | None = None,
-    ):
-        # Trust-boundary assertions: no PKM, no history is ever passed here.
-        assert pkm_context is None
-        assert history == []
-        self.plan_calls.append(
-            {
-                "user_message": user_message,
-                "pkm_context": pkm_context,
-                "screen_context": screen_context,
-            }
-        )
-        return self.next_action_plan
-
-    async def stream_response(
-        self,
-        *,
-        user_message: str,
-        history,
-        runtime_client,
-        runtime_model: str,
-        action_plan: AgentChatActionPlan | None = None,
-        pkm_context: str | None = None,
-    ):
-        # The informational tier must never stream with PKM context or a plan.
-        assert pkm_context is None
-        assert action_plan is None
-        assert history == []
-        self.stream_calls.append({"user_message": user_message})
-        for token in self.stream_tokens:
-            yield token
 
 
 def _client(service: _FakeIntroService) -> TestClient:
@@ -96,9 +53,30 @@ def _client(service: _FakeIntroService) -> TestClient:
     return TestClient(app)
 
 
+def _intro_stream(events: list[OneTextStreamEvent], calls: list[dict]):
+    async def stream(**kwargs):
+        calls.append(kwargs)
+        for event in events:
+            yield event
+
+    return stream
+
+
 def test_intro_stream_works_anonymously_and_streams_tokens(monkeypatch):
     service = _FakeIntroService()
     monkeypatch.setattr(agent_intro, "get_agent_chat_service", lambda: service)
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        agent_intro,
+        "stream_one_intro_text_turn",
+        _intro_stream(
+            [
+                OneTextStreamEvent(kind="token", text="Hi"),
+                OneTextStreamEvent(kind="token", text=" from One"),
+            ],
+            calls,
+        ),
+    )
     client = _client(service)
 
     response = client.post(
@@ -114,20 +92,38 @@ def test_intro_stream_works_anonymously_and_streams_tokens(monkeypatch):
     assert 'event: token\ndata: {"token": "Hi"}' in response.text
     assert 'event: token\ndata: {"token": " from One"}' in response.text
     assert 'event: complete\ndata: {"conversation_id": null' in response.text
-    assert service.stream_calls == [{"user_message": "What is Hushh?"}]
+    assert len(calls) == 1
+    assert {key: value for key, value in calls[0].items() if key != "screen_context"} == {
+        "user_id": "anonymous",
+        "message": "What is Hushh?",
+        "runtime_provider": "gemini",
+        "runtime_model": "gemini-2.5-flash",
+        "runtime_mode": "hushh_managed_vertex",
+        "runtime_credential": None,
+    }
+    assert calls[0]["screen_context"]["route_family"] == ""
+    assert calls[0]["screen_context"]["available_action_ids"] == []
+    assert "pkm_context" not in calls[0]["screen_context"]
 
 
 def test_intro_forwards_only_navigation_actions(monkeypatch):
     service = _FakeIntroService()
-    service.next_action_plan = AgentChatActionPlan(
-        call_id="call-1",
-        action_id="route.profile",
-        label="Open profile",
-        execution="frontend",
-        slots={},
-        message="Taking you to your profile.",
-    )
     monkeypatch.setattr(agent_intro, "get_agent_chat_service", lambda: service)
+    monkeypatch.setattr(
+        agent_intro,
+        "stream_one_intro_text_turn",
+        _intro_stream(
+            [
+                OneTextStreamEvent(
+                    kind="directive",
+                    directive=OneTextDirective(
+                        kind="action", payload={"actionId": "route.profile", "slots": {}}
+                    ),
+                )
+            ],
+            [],
+        ),
+    )
     client = _client(service)
 
     response = client.post(
@@ -139,21 +135,27 @@ def test_intro_forwards_only_navigation_actions(monkeypatch):
     assert "event: tool_start" in response.text
     assert "event: tool_waiting" in response.text
     assert "route.profile" in response.text
-    # Navigation path short-circuits the free-text stream.
-    assert service.stream_calls == []
 
 
 def test_intro_suppresses_non_navigation_actions(monkeypatch):
     service = _FakeIntroService()
-    service.next_action_plan = AgentChatActionPlan(
-        call_id="call-2",
-        action_id="pkm.add",
-        label="Save to PKM",
-        execution="frontend",
-        slots={},
-        message="Saving that to your memory.",
-    )
     monkeypatch.setattr(agent_intro, "get_agent_chat_service", lambda: service)
+    monkeypatch.setattr(
+        agent_intro,
+        "stream_one_intro_text_turn",
+        _intro_stream(
+            [
+                OneTextStreamEvent(kind="token", text="Unlock your vault to save that."),
+                OneTextStreamEvent(
+                    kind="directive",
+                    directive=OneTextDirective(
+                        kind="action", payload={"actionId": "pkm.add", "slots": {}}
+                    ),
+                ),
+            ],
+            [],
+        ),
+    )
     client = _client(service)
 
     response = client.post(
@@ -165,7 +167,7 @@ def test_intro_suppresses_non_navigation_actions(monkeypatch):
     # The vault-touching action is suppressed; it degrades to a text answer.
     assert "pkm.add" not in response.text
     assert "event: tool_start" not in response.text
-    assert service.stream_calls == [{"user_message": "remember my birthday is in May"}]
+    assert "Unlock your vault to save that." in response.text
 
 
 def test_intro_rejects_empty_and_oversized_messages(monkeypatch):

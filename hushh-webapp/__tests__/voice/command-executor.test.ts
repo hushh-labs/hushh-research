@@ -24,7 +24,7 @@ function baseInput() {
     reviewDirty: false,
     busyOperations: {} as Record<string, boolean>,
     setAnalysisParams: vi.fn(),
-    currentRoute: "/profile",
+    currentRoute: "/one/profile",
     currentScreen: "profile_account",
   };
 }
@@ -55,7 +55,7 @@ describe("executeKaiCommand", () => {
       actionResult: {
         status: "started",
         actionId: "analysis.start",
-        routeBefore: "/profile",
+        routeBefore: "/one/profile",
         routeAfter: buildKaiMarketRoute("analysis", { ticker: "NVDA" }),
         screenBefore: "profile_account",
         screenAfter: "kai_analysis",

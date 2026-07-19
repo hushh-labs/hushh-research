@@ -137,7 +137,7 @@ export function SettingsGroup({
         // generic `--app-radius-lg` is for controls, and made full groups
         // read needlessly sharp next to One's app-icon surfaces.
         "relative isolate [--settings-group-radius:var(--app-card-radius-compact)] overflow-hidden rounded-[var(--app-card-radius-compact)]",
-        "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)]",
+        "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]",
         !embedded && "sm:rounded-[var(--app-card-radius-compact)]",
       )}
     >

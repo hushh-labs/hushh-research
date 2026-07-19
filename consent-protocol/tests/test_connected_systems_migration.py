@@ -59,7 +59,9 @@ def test_response_contract_migration_is_registered_and_fail_closed_by_default():
     )
 
     assert migration.exists()
-    assert manifest["ordered_migrations"][-3:] == [
+    ordered = manifest["ordered_migrations"]
+    response_contract_index = ordered.index("102_crm_operation_response_contract.sql")
+    assert ordered[response_contract_index : response_contract_index + 3] == [
         "102_crm_operation_response_contract.sql",
         "103_demo_crm_response_contracts.sql",
         "104_crm_schema_mapping_cache.sql",
@@ -71,7 +73,7 @@ def test_response_contract_migration_is_registered_and_fail_closed_by_default():
     assert "'objectPath'" in migration_text
     assert "'requireFieldAccess', true" in migration_text
     assert "response_contract" in uat_contract["required_tables"]["crm_operation_endpoints"]
-    assert uat_contract["expected_migration_version"] == 104
+    assert uat_contract["expected_migration_version"] >= 104
 
 
 def test_demo_crm_response_mappings_and_schema_mapper_cache_are_release_registered():

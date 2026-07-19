@@ -7,6 +7,7 @@
     "hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json",
     "hushh-webapp/app/one/kyc/page.voice-action-contract.json",
     "hushh-webapp/app/one/page.voice-action-contract.json",
+    "hushh-webapp/app/one/profile/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/connected-systems/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/email/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/finance/import/page.voice-action-contract.json",
@@ -14,7 +15,6 @@
     "hushh-webapp/app/one/setup/location/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/ria/page.voice-action-contract.json",
     "hushh-webapp/app/page.voice-action-contract.json",
-    "hushh-webapp/app/profile/page.voice-action-contract.json",
     "hushh-webapp/app/register-phone/page.voice-action-contract.json",
     "hushh-webapp/app/ria/clients/page.voice-action-contract.json",
     "hushh-webapp/app/ria/onboarding/page.voice-action-contract.json",
@@ -163,6 +163,29 @@
         "context_policy": null,
         "trust_boundary": "consent",
         "delegation_policy": "one_action_gate"
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "profile_account",
+      "surface_title": "Profile Workspace",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/app/one/profile/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -339,29 +362,6 @@
         "context_policy": null,
         "trust_boundary": "none",
         "delegation_policy": "no_delegation"
-      }
-    },
-    {
-      "schema_version": "kai.local_action_contract.v1",
-      "surface_id": "profile_account",
-      "surface_title": "Profile Workspace",
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md"
-      ],
-      "contract_file": "hushh-webapp/app/profile/page.voice-action-contract.json",
-      "defaults": {
-        "reachability": {
-          "active_personas": [
-            "investor",
-            "ria"
-          ]
-        }
-      },
-      "orchestration": {
-        "instruction_id": null,
-        "context_policy": null,
-        "trust_boundary": null,
-        "delegation_policy": null
       }
     },
     {
@@ -3467,6 +3467,1155 @@
       }
     },
     {
+      "action_id": "route.profile",
+      "surface_id": "profile_account",
+      "label": "Open Profile",
+      "aliases": [
+        "open profile",
+        "go to profile"
+      ],
+      "search_keywords": [
+        "profile",
+        "account"
+      ],
+      "meaning": "Navigates to profile landing route.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_preferences",
+          "profile_privacy"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "profile"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile",
+            "label": "Open Profile",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.profile_regulatory",
+      "surface_id": "profile_account",
+      "label": "Open Regulatory Profile",
+      "aliases": [
+        "open regulatory profile",
+        "open ria profile",
+        "view advisor profile",
+        "edit my advisor profile"
+      ],
+      "search_keywords": [
+        "profile",
+        "regulatory",
+        "ria",
+        "advisor",
+        "license",
+        "crd"
+      ],
+      "meaning": "Navigates to the unified Profile regulatory panel for RIA advisor profile management.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile",
+          "/one/profile/regulatory"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_regulatory"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA persona must be provisioned before the regulatory profile panel is available."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/regulatory"
+      },
+      "control_ids": [
+        "profile_ria_regulatory"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/regulatory"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_regulatory",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_regulatory",
+            "label": "Open Regulatory Profile",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/regulatory",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "ria.profile.edit_services",
+      "surface_id": "profile_account",
+      "label": "Edit RIA services and fees",
+      "aliases": [
+        "edit my services",
+        "update my fees",
+        "change my business location"
+      ],
+      "search_keywords": [
+        "edit",
+        "services",
+        "fees",
+        "bio",
+        "location"
+      ],
+      "meaning": "Opens the regulatory profile edit panel to update services, fee structure, minimum engagement, bio, and business location.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/regulatory"
+        ],
+        "screens": [
+          "profile_regulatory"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "ria_profile_edit_panel"
+      },
+      "control_ids": [
+        "ria_profile_edit_services"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/profile-workspace-page.tsx",
+        "components/ria/profile/ria-profile-section.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/regulatory"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.ria.profile.edit_services",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "ria.profile.edit_services",
+            "label": "Edit RIA services and fees",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/regulatory",
+              "screen": "profile_regulatory"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.profile_connected_systems",
+      "surface_id": "profile_account",
+      "label": "Open Connected Systems Panel",
+      "aliases": [
+        "open connected systems",
+        "open salesforce crm",
+        "open external crms"
+      ],
+      "search_keywords": [
+        "connected systems",
+        "salesforce",
+        "crm",
+        "mulesoft"
+      ],
+      "meaning": "Navigates to the Connected Systems route.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/connected-systems"
+        ],
+        "screens": [
+          "connected_systems"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Connected Systems route must be reachable"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/connected-systems"
+      },
+      "control_ids": [
+        "connected_systems",
+        "top_agent_section_connected-systems"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/connected-systems"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_connected_systems",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_connected_systems",
+            "label": "Open Connected Systems Panel",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/connected-systems",
+              "screen": "connected_systems"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.profile_support_panel",
+      "surface_id": "profile_account",
+      "label": "Open Support Panel",
+      "aliases": [
+        "open support",
+        "contact support"
+      ],
+      "search_keywords": [
+        "support"
+      ],
+      "meaning": "Navigates to hidden support panel in Profile > Account.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/support"
+        ],
+        "screens": [
+          "profile_support_panel"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "profile route must be active",
+          "query params tab=account & panel=support"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/support"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/support"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_support_panel",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_support_panel",
+            "label": "Open Support Panel",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/support",
+              "screen": "profile_support_panel"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.profile_security_panel",
+      "surface_id": "profile_account",
+      "label": "Open Vault Security Panel",
+      "aliases": [
+        "open security",
+        "vault security"
+      ],
+      "search_keywords": [
+        "security",
+        "vault"
+      ],
+      "meaning": "Navigates to hidden security panel in Profile > Privacy.",
+      "speaker_persona": "nav",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/security"
+        ],
+        "screens": [
+          "profile_security_panel"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "profile route must be active",
+          "query params tab=privacy & panel=security"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/security"
+      },
+      "control_ids": [
+        "profile_security"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/security"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_security_panel",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_security_panel",
+            "label": "Open Vault Security Panel",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/security",
+              "screen": "profile_security_panel"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.profile_pkm_agent_lab",
+      "surface_id": "profile_account",
+      "label": "Open PKM",
+      "aliases": [
+        "open pkm",
+        "open memory",
+        "open saved intelligence"
+      ],
+      "search_keywords": [
+        "pkm",
+        "memory",
+        "saved intelligence"
+      ],
+      "meaning": "Navigates to the canonical Saved Intelligence PKM workspace.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "vault must be available for encrypted PKM details"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/pkm"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/pkm/page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_pkm_agent_lab",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_pkm_agent_lab",
+            "label": "Open PKM",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/pkm",
+              "screen": "pkm"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.support.submit_message",
+      "surface_id": "profile_account",
+      "label": "Submit Support Message",
+      "aliases": [
+        "send support message",
+        "submit support message"
+      ],
+      "search_keywords": [
+        "support message",
+        "contact support"
+      ],
+      "meaning": "Sends support/bug/developer feedback email via support service.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/support"
+        ],
+        "screens": [
+          "profile_support_panel"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "submitSupportMessage is local to ProfilePage and not exported to global executor.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/support"
+        ],
+        "backend_effects": [
+          {
+            "api": "POST /api/kai/support/message (proxied)",
+            "effect": "Routes support payload to support_email_service."
+          }
+        ]
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.support.submit_message",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.support.submit_message",
+            "label": "Submit Support Message",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/support",
+              "screen": "profile_support_panel"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.marketplace_visibility.toggle",
+      "surface_id": "profile_account",
+      "label": "Toggle Marketplace Visibility",
+      "aliases": [
+        "toggle marketplace visibility",
+        "change marketplace visibility"
+      ],
+      "search_keywords": [
+        "marketplace visibility"
+      ],
+      "meaning": "Opts investor persona in/out of RIA marketplace discoverability.",
+      "speaker_persona": "nav",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/access"
+        ],
+        "screens": [
+          "profile_privacy"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Only handled by local Switch in ProfilePage.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/access"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.marketplace_visibility.toggle",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.marketplace_visibility.toggle",
+            "label": "Toggle Marketplace Visibility",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/access",
+              "screen": "profile_privacy"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.sign_out",
+      "surface_id": "profile_account",
+      "label": "Sign Out",
+      "aliases": [
+        "sign out",
+        "log out"
+      ],
+      "search_keywords": [
+        "sign out",
+        "logout"
+      ],
+      "meaning": "Ends current session and redirects to home route.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "handleSignOut exists only in ProfilePage and is not bound to voice/global executor.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.sign_out",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.sign_out",
+            "label": "Sign Out",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.delete_account",
+      "surface_id": "profile_account",
+      "label": "Delete Account",
+      "aliases": [
+        "delete my account",
+        "remove account"
+      ],
+      "search_keywords": [
+        "delete account"
+      ],
+      "meaning": "Deletes investor/ria persona or full account depending on selected target.",
+      "speaker_persona": "nav",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "vault unlock may be required before delete confirmation"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "explicit_user_confirmation",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Delete flow is intentionally local + guarded by dialogs and vault unlock.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.delete_account",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.delete_account",
+            "label": "Delete Account",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "setup.finish_connected_systems",
       "surface_id": "one_setup_connected_systems",
       "label": "Finish linking setup",
@@ -5089,1155 +6238,6 @@
             "settlement_target": {
               "route": "/",
               "screen": "one_intro"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "route.profile",
-      "surface_id": "profile_account",
-      "label": "Open Profile",
-      "aliases": [
-        "open profile",
-        "go to profile"
-      ],
-      "search_keywords": [
-        "profile",
-        "account"
-      ],
-      "meaning": "Navigates to profile landing route.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/profile"
-        ],
-        "screens": [
-          "profile_account",
-          "profile_preferences",
-          "profile_privacy"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "kai_command",
-        "target": "profile"
-      },
-      "control_ids": [],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/one/one-voice-kai-compatibility-runtime.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /profile"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.route.profile",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "route.profile",
-            "label": "Open Profile",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/profile",
-              "screen": "profile_account"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "route.profile_regulatory",
-      "surface_id": "profile_account",
-      "label": "Open Regulatory Profile",
-      "aliases": [
-        "open regulatory profile",
-        "open ria profile",
-        "view advisor profile",
-        "edit my advisor profile"
-      ],
-      "search_keywords": [
-        "profile",
-        "regulatory",
-        "ria",
-        "advisor",
-        "license",
-        "crd"
-      ],
-      "meaning": "Navigates to the unified Profile regulatory panel for RIA advisor profile management.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/profile",
-          "/profile/regulatory"
-        ],
-        "screens": [
-          "profile_account",
-          "profile_regulatory"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "RIA persona must be provisioned before the regulatory profile panel is available."
-        ],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "ria_persona_available"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/profile/regulatory"
-      },
-      "control_ids": [
-        "profile_ria_regulatory"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/profile-workspace-page.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /profile/regulatory"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.route.profile_regulatory",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "route.profile_regulatory",
-            "label": "Open Regulatory Profile",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/profile/regulatory",
-              "screen": "profile_account"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "ria.profile.edit_services",
-      "surface_id": "profile_account",
-      "label": "Edit RIA services and fees",
-      "aliases": [
-        "edit my services",
-        "update my fees",
-        "change my business location"
-      ],
-      "search_keywords": [
-        "edit",
-        "services",
-        "fees",
-        "bio",
-        "location"
-      ],
-      "meaning": "Opens the regulatory profile edit panel to update services, fee structure, minimum engagement, bio, and business location.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/profile/regulatory"
-        ],
-        "screens": [
-          "profile_regulatory"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "ria_persona_available"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "local_handler",
-        "target": "ria_profile_edit_panel"
-      },
-      "control_ids": [
-        "ria_profile_edit_services"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/profile-workspace-page.tsx",
-        "components/ria/profile/ria-profile-section.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /profile/regulatory"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.ria.profile.edit_services",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "ria.profile.edit_services",
-            "label": "Edit RIA services and fees",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/profile/regulatory",
-              "screen": "profile_regulatory"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "route.profile_connected_systems",
-      "surface_id": "profile_account",
-      "label": "Open Connected Systems Panel",
-      "aliases": [
-        "open connected systems",
-        "open salesforce crm",
-        "open external crms"
-      ],
-      "search_keywords": [
-        "connected systems",
-        "salesforce",
-        "crm",
-        "mulesoft"
-      ],
-      "meaning": "Navigates to the Connected Systems route.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/connected-systems"
-        ],
-        "screens": [
-          "connected_systems"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "Connected Systems route must be reachable"
-        ],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/connected-systems"
-      },
-      "control_ids": [
-        "connected_systems",
-        "top_agent_section_connected-systems"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/profile-workspace-page.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/connected-systems"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.route.profile_connected_systems",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "route.profile_connected_systems",
-            "label": "Open Connected Systems Panel",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/connected-systems",
-              "screen": "connected_systems"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "route.profile_support_panel",
-      "surface_id": "profile_account",
-      "label": "Open Support Panel",
-      "aliases": [
-        "open support",
-        "contact support"
-      ],
-      "search_keywords": [
-        "support"
-      ],
-      "meaning": "Navigates to hidden support panel in Profile > Account.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/profile/support"
-        ],
-        "screens": [
-          "profile_support_panel"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "profile route must be active",
-          "query params tab=account & panel=support"
-        ],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/profile/support"
-      },
-      "control_ids": [],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/profile-workspace-page.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /profile/support"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.route.profile_support_panel",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "route.profile_support_panel",
-            "label": "Open Support Panel",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/profile/support",
-              "screen": "profile_support_panel"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "route.profile_security_panel",
-      "surface_id": "profile_account",
-      "label": "Open Vault Security Panel",
-      "aliases": [
-        "open security",
-        "vault security"
-      ],
-      "search_keywords": [
-        "security",
-        "vault"
-      ],
-      "meaning": "Navigates to hidden security panel in Profile > Privacy.",
-      "speaker_persona": "nav",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/profile/security"
-        ],
-        "screens": [
-          "profile_security_panel"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "profile route must be active",
-          "query params tab=privacy & panel=security"
-        ],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/profile/security"
-      },
-      "control_ids": [
-        "profile_security"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/profile-workspace-page.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /profile/security"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.route.profile_security_panel",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "route.profile_security_panel",
-            "label": "Open Vault Security Panel",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/profile/security",
-              "screen": "profile_security_panel"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "route.profile_pkm_agent_lab",
-      "surface_id": "profile_account",
-      "label": "Open PKM",
-      "aliases": [
-        "open pkm",
-        "open memory",
-        "open saved intelligence"
-      ],
-      "search_keywords": [
-        "pkm",
-        "memory",
-        "saved intelligence"
-      ],
-      "meaning": "Navigates to the canonical Saved Intelligence PKM workspace.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/one/pkm"
-        ],
-        "screens": [
-          "pkm"
-        ],
-        "hidden_navigable": true,
-        "navigation_prerequisites": [
-          "vault must be available for encrypted PKM details"
-        ],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/pkm"
-      },
-      "control_ids": [],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/pkm/page.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/pkm"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.route.profile_pkm_agent_lab",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "route.profile_pkm_agent_lab",
-            "label": "Open PKM",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/pkm",
-              "screen": "pkm"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "profile.support.submit_message",
-      "surface_id": "profile_account",
-      "label": "Submit Support Message",
-      "aliases": [
-        "send support message",
-        "submit support message"
-      ],
-      "search_keywords": [
-        "support message",
-        "contact support"
-      ],
-      "meaning": "Sends support/bug/developer feedback email via support service.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/profile/support"
-        ],
-        "screens": [
-          "profile_support_panel"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "confirm_required",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "submitSupportMessage is local to ProfilePage and not exported to global executor.",
-        "intended_handler": "dispatchVoiceToolCall"
-      },
-      "control_ids": [],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/profile-workspace-page.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /profile/support"
-        ],
-        "backend_effects": [
-          {
-            "api": "POST /api/kai/support/message (proxied)",
-            "effect": "Routes support payload to support_email_service."
-          }
-        ]
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.profile.support.submit_message",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "profile.support.submit_message",
-            "label": "Submit Support Message",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/profile/support",
-              "screen": "profile_support_panel"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "profile.marketplace_visibility.toggle",
-      "surface_id": "profile_account",
-      "label": "Toggle Marketplace Visibility",
-      "aliases": [
-        "toggle marketplace visibility",
-        "change marketplace visibility"
-      ],
-      "search_keywords": [
-        "marketplace visibility"
-      ],
-      "meaning": "Opts investor persona in/out of RIA marketplace discoverability.",
-      "speaker_persona": "nav",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/profile/access"
-        ],
-        "screens": [
-          "profile_privacy"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "manual_user_execution"
-      ],
-      "risk_level": "high",
-      "execution_policy": "manual_only",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Only handled by local Switch in ProfilePage.",
-        "intended_handler": "dispatchVoiceToolCall"
-      },
-      "control_ids": [],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/profile-workspace-page.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /profile/access"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.profile.marketplace_visibility.toggle",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "profile.marketplace_visibility.toggle",
-            "label": "Toggle Marketplace Visibility",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/profile/access",
-              "screen": "profile_privacy"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "profile.sign_out",
-      "surface_id": "profile_account",
-      "label": "Sign Out",
-      "aliases": [
-        "sign out",
-        "log out"
-      ],
-      "search_keywords": [
-        "sign out",
-        "logout"
-      ],
-      "meaning": "Ends current session and redirects to home route.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/profile"
-        ],
-        "screens": [
-          "profile_account"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "manual_user_execution"
-      ],
-      "risk_level": "high",
-      "execution_policy": "manual_only",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "handleSignOut exists only in ProfilePage and is not bound to voice/global executor.",
-        "intended_handler": "dispatchVoiceToolCall"
-      },
-      "control_ids": [],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/profile-workspace-page.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /profile"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.profile.sign_out",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "profile.sign_out",
-            "label": "Sign Out",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/profile",
-              "screen": "profile_account"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "profile.delete_account",
-      "surface_id": "profile_account",
-      "label": "Delete Account",
-      "aliases": [
-        "delete my account",
-        "remove account"
-      ],
-      "search_keywords": [
-        "delete account"
-      ],
-      "meaning": "Deletes investor/ria persona or full account depending on selected target.",
-      "speaker_persona": "nav",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/profile"
-        ],
-        "screens": [
-          "profile_account"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "vault unlock may be required before delete confirmation"
-        ],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "explicit_user_confirmation",
-        "manual_user_execution"
-      ],
-      "risk_level": "high",
-      "execution_policy": "manual_only",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Delete flow is intentionally local + guarded by dialogs and vault unlock.",
-        "intended_handler": "dispatchVoiceToolCall"
-      },
-      "control_ids": [],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "app/profile/profile-workspace-page.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /profile"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.profile.delete_account",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "profile.delete_account",
-            "label": "Delete Account",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/profile",
-              "screen": "profile_account"
             }
           }
         ],
@@ -9247,7 +9247,7 @@
       "reachability": {
         "routes": [
           "/ria/settings",
-          "/profile"
+          "/one/profile"
         ],
         "screens": [
           "ria_settings_compat"
@@ -10804,7 +10804,7 @@
         "routes": [
           "/one/kai?tab=market",
           "/one/kai?tab=analysis",
-          "/profile"
+          "/one/profile"
         ],
         "screens": [
           "kai_market",

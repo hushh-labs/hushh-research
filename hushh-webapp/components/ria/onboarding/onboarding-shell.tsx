@@ -32,10 +32,10 @@ export function OnboardingShell({
   isFirstStep: boolean;
   isLastStep: boolean;
   advisoryAccessReady: boolean;
-  // Decorative advisor photo for the step. "hero" = full-bleed image above the
-  // eyebrow (Welcome); "accent" = smaller image tucked to the top-right,
-  // overlapping the header (all other steps). Transparent, feather-edged PNGs
-  // that blend into the canvas — purely presentational (empty alt by default).
+  // Decorative advisor photo for the step. "accent" is the shared compact
+  // top-right composition used by every current RIA setup step. "hero" stays
+  // available for a future full-bleed flow, but is not a special Welcome case.
+  // Images are purely presentational (empty alt by default).
   // `badge` renders the circular "ADVISOR" flourish over the accent photo
   // (Verification step).
   heroImage?: {

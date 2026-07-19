@@ -64,7 +64,7 @@ export function GeminiRuntimeConfigurationPage({
       width="standard"
       className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
       nativeTest={{
-        routeId: setupMode ? "/one/setup/connections" : "/connect/settings",
+        routeId: setupMode ? "/one/setup/connections" : "/one/connect/settings",
         marker: setupMode ? "native-route-one-setup-connections" : "native-route-connect-settings",
         authState: user ? "authenticated" : "pending",
         dataState: authLoading || hasVault === null ? "loading" : "loaded",

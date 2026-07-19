@@ -50,7 +50,7 @@ describe("top shell contextual tabs", () => {
   });
 
   it("does not expose contextual tabs on unrelated routes", () => {
-    expect(resolveTopShellTabSet("/profile")).toBeNull();
+    expect(resolveTopShellTabSet("/one/profile")).toBeNull();
   });
 
   it("uses the same AppTopShell tab contract for public knowledge routes", () => {
@@ -106,7 +106,7 @@ describe("top shell contextual tabs", () => {
 
   it.each([
     ["/login", "hidden"],
-    ["/profile", "bar"],
+    ["/one/profile", "bar"],
     ["/one/location?action=share", "bar"],
     ["/one/location?view=people", "bar-with-tabs"],
     ["/one/kai?tab=analysis", "bar-with-tabs"],

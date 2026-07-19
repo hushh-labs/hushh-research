@@ -6,6 +6,7 @@ export type InternalAppNavigationRequest = {
   href: string;
   replace?: boolean;
   scroll?: boolean;
+  source?: "tap" | "voice" | "search" | "native_back" | "programmatic";
 };
 
 function canUseWindow(): boolean {

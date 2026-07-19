@@ -69,7 +69,7 @@ const REQUIRED_CANONICAL_ROUTES = {
   HOME: "/",
   LOGIN: "/login",
   LOGOUT: "/logout",
-  PROFILE: "/profile",
+  PROFILE: "/one/profile",
   CONSENTS: "/one/consent",
   MARKETPLACE: "/marketplace",
   MARKETPLACE_RIA_PROFILE: "/marketplace/ria",

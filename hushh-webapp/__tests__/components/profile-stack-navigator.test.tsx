@@ -58,4 +58,17 @@ describe("ProfileStackNavigator", () => {
 
     expect(source).not.toContain('overflow-hidden bg-background');
   });
+
+  it("uses the shared PageHeader and app gutter tokens for every nested Profile screen", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/profile/profile-stack-navigator.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain('from "@/components/app-ui/page-sections"');
+    expect(source).toContain("<PageHeader");
+    expect(source).toContain('testId="profile-stack-page-header"');
+    expect(source).toContain("px-[var(--page-inline-gutter-standard)]");
+    expect(source).toContain("pt-[var(--page-header-section-gap)]");
+  });
 });

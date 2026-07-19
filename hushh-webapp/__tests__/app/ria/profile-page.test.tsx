@@ -213,7 +213,7 @@ const VERIFIED_STATUS = {
 };
 
 // The RIA advisor profile now renders as the shared RiaProfileSection inside the
-// unified /profile "Regulatory profile" panel. The host owns the status fetch and
+// unified /one/profile "Regulatory profile" panel. The host owns the status fetch and
 // passes it in; the section owns view/edit/re-initiate/delete/license logic.
 function renderSection(status: unknown = VERIFIED_STATUS) {
   return render(

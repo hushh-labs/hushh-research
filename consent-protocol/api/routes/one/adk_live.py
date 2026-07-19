@@ -438,6 +438,10 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     # on this same authenticated WebSocket. This keeps arbitrary browser
     # frames from becoming model-visible completion claims.
     issued_action_directives: dict[str, str] = {}
+    # Every directive timeout is scoped to this WebSocket. It must be cancelled
+    # on the matching browser settlement and on disconnect; otherwise an old
+    # turn can inject ui_timeout into a later/closed voice conversation.
+    issued_directive_gc_tasks: dict[str, asyncio.Task[None]] = {}
     issued_goal_directives: dict[str, str] = {}
     issued_goal_runs: dict[str, dict[str, Any]] = {}
     awaiting_goal_context: set[str] = set()
@@ -572,6 +576,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 if settlement is None:
                     logger.info("one_adk_live_invalid_action_settlement")
                     continue
+                directive_gc_task = issued_directive_gc_tasks.pop(settlement["directive_id"], None)
+                if directive_gc_task is not None:
+                    directive_gc_task.cancel()
                 logger.info(
                     "one_adk_live_action_settled action=%s directive=%s status=%s",
                     settlement["action_id"],
@@ -757,8 +764,12 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                         )
 
                         async def _gc_directive(did: str, aid: str):
-                            await asyncio.sleep(15)
-                            if did in issued_action_directives:
+                            try:
+                                # Client route settlement can legitimately take
+                                # longer than the former 15-second race window.
+                                await asyncio.sleep(20)
+                                if did not in issued_action_directives:
+                                    return
                                 issued_action_directives.pop(did, None)
                                 logger.warning(
                                     "one_adk_live_directive_timeout action=%s directive=%s",
@@ -799,8 +810,14 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                                         ],
                                     )
                                 )
+                            except asyncio.CancelledError:
+                                raise
+                            finally:
+                                issued_directive_gc_tasks.pop(did, None)
 
-                        asyncio.create_task(_gc_directive(directive_id, action_id))
+                        issued_directive_gc_tasks[directive_id] = asyncio.create_task(
+                            _gc_directive(directive_id, action_id)
+                        )
 
                 await websocket.send_text(json.dumps({"clientDirective": outgoing_directive}))
 
@@ -822,6 +839,11 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     finally:
         up.cancel()
         down.cancel()
+        for directive_gc_task in issued_directive_gc_tasks.values():
+            directive_gc_task.cancel()
+        if issued_directive_gc_tasks:
+            await asyncio.gather(*issued_directive_gc_tasks.values(), return_exceptions=True)
+        issued_directive_gc_tasks.clear()
         if greeting_task is not None:
             greeting_task.cancel()
         queue.close()

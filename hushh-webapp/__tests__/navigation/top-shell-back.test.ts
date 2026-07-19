@@ -16,7 +16,7 @@ describe("top shell back action", () => {
   it("uses replace for in-place profile and Location flows", () => {
     expect(
       resolveTopShellBackAction({
-        pathname: "/profile",
+        pathname: "/one/profile",
         searchParams: new URLSearchParams("panel=security"),
       }),
     ).toMatchObject({ mode: "replace" });

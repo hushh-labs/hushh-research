@@ -69,7 +69,7 @@ vi.mock("@/lib/morphy-ux/button", () => ({
   ),
 }));
 
-import ProfileGmailOAuthReturnPage from "@/app/profile/gmail/oauth/return/page";
+import ProfileGmailOAuthReturnPage from "@/app/one/profile/gmail/oauth/return/page";
 
 describe("ProfileGmailOAuthReturnPage", () => {
   afterEach(() => {

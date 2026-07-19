@@ -53,7 +53,7 @@ vi.mock("@/lib/morphy-ux/button", () => ({
 }));
 
 vi.mock("@/lib/navigation/routes", () => ({
-  ROUTES: { ONE_SETUP: "/one/setup", PROFILE: "/profile" },
+  ROUTES: { ONE_SETUP: "/one/setup", PROFILE: "/one/profile" },
   buildOneSetupRoute: ({ returnTo }: { returnTo: string }) =>
     `/one/setup?return_to=${encodeURIComponent(returnTo)}`,
   isCapabilityOnboardingRoute: () => false,
@@ -227,7 +227,7 @@ describe("OnboardingJourneyGuard", () => {
       screen.getByText("Unable to verify setup progress. Please retry."),
     ).toBeTruthy();
     fireEvent.click(screen.getByText("Open profile"));
-    expect(push).toHaveBeenCalledWith("/profile");
+    expect(push).toHaveBeenCalledWith("/one/profile");
     view.unmount();
     vi.useRealTimers();
   });

@@ -283,7 +283,7 @@ vi.mock("@/lib/navigation/routes", () => ({
 
 vi.mock("@/lib/navigation/profile-routes", () => ({
   buildProfileRoute: ({ panel }: { panel?: string | null } = {}) =>
-    panel === "regulatory" ? "/profile/regulatory" : "/profile",
+    panel === "regulatory" ? "/one/profile/regulatory" : "/one/profile",
 }));
 
 vi.mock("@/lib/navigation/kai-command-bar-events", () => ({
@@ -1057,7 +1057,7 @@ describe("RiaOnboardingPage", () => {
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {
-      expect(mocks.routerReplace).toHaveBeenCalledWith("/profile/regulatory");
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/profile/regulatory");
     });
   });
 
@@ -1186,7 +1186,7 @@ describe("RiaOnboardingPage", () => {
 
     // Onboarding completes → routed to the RIA profile, no error, draft cleared.
     await waitFor(() => {
-      expect(mocks.routerReplace).toHaveBeenCalledWith("/profile/regulatory");
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/profile/regulatory");
     });
     expect(mocks.toast.error).not.toHaveBeenCalled();
     expect(mocks.draftService.clear).toHaveBeenCalledWith("user-ria-1");

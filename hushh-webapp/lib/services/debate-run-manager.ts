@@ -16,9 +16,11 @@ const RUN_MANAGER_SESSION_KEY = "kai_debate_session_id_v1";
 const RETRY_DELAYS_MS = [750, 2000, 4500].map(enforceMinimumRetryDelayMs);
 const FINANCIAL_WRITE_WAIT_TIMEOUT_MS = 20_000;
 const FINANCIAL_WRITE_POLL_MS = 400;
+const STREAM_RECONNECT_MESSAGE = "Live updates paused. Reopen Analysis to reconnect.";
 
 export type DebateRunStatus = "running" | "completed" | "failed" | "canceled";
 export type DebateTaskPersistenceState = "none" | "pending" | "saved" | "failed";
+export type DebateRunStreamState = "connected" | "reconnecting" | "paused";
 
 export interface DebateRunTask {
   runId: string;
@@ -33,6 +35,8 @@ export interface DebateRunTask {
   completedAt: string | null;
   updatedAt: string;
   latestCursor: number;
+  streamState: DebateRunStreamState;
+  streamMessage: string | null;
   persistenceState: DebateTaskPersistenceState;
   persistenceError: string | null;
   dismissedAt: string | null;
@@ -301,6 +305,8 @@ class DebateRunManager {
           if (!task.runId || !task.userId || !task.ticker) continue;
           this.tasks.set(task.runId, {
             ...task,
+            streamState: task.streamState || "paused",
+            streamMessage: task.streamMessage || null,
             persistenceState: task.persistenceState || "none",
             persistenceError: task.persistenceError || null,
             dismissedAt: task.dismissedAt || null,
@@ -357,6 +363,9 @@ class DebateRunManager {
     const merged: DebateRunTask = {
       ...existing,
       ...task,
+      streamState: task.streamState || existing?.streamState || "connected",
+      streamMessage:
+        task.streamMessage !== undefined ? task.streamMessage : (existing?.streamMessage ?? null),
       persistenceState: task.persistenceState || existing?.persistenceState || "none",
       persistenceError:
         task.persistenceError !== undefined
@@ -394,6 +403,8 @@ class DebateRunManager {
           : null,
       updatedAt: String(run.updated_at || nowIso()),
       latestCursor: toFiniteNumber(run.latest_cursor, 0),
+      streamState: status === "running" ? "paused" : "connected",
+      streamMessage: status === "running" ? STREAM_RECONNECT_MESSAGE : null,
       pickSource:
         typeof run.pick_source === "string" && run.pick_source.trim().length > 0
           ? run.pick_source.trim()
@@ -805,56 +816,74 @@ class DebateRunManager {
       vaultKey: params.vaultKey,
     });
 
-    const controller = new AbortController();
-    this.streamControllers.set(runId, controller);
+    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+      const currentTask = this.tasks.get(runId);
+      if (!currentTask || currentTask.status !== "running") return;
 
-    try {
-      const response = await ApiService.streamKaiDebateRun({
-        userId: params.userId,
-        runId,
-        resumeCursor: params.cursor,
-        vaultOwnerToken: params.vaultOwnerToken,
-        signal: controller.signal,
-      });
+      const controller = new AbortController();
+      this.streamControllers.set(runId, controller);
 
-      if (!response.ok) {
-        throw new Error(`Run stream request failed: HTTP ${response.status}`);
-      }
-
-      await consumeCanonicalKaiStream(
-        response,
-        (envelope) => {
-          this.handleEnvelope(runId, envelope);
-        },
-        {
+      try {
+        this.upsertTask({
+          ...currentTask,
+          streamState: "connected",
+          streamMessage: null,
+        });
+        const response = await ApiService.streamKaiDebateRun({
+          userId: params.userId,
+          runId,
+          // Resume only after the latest canonical event already delivered to
+          // this client, even when the caller supplied an older cursor.
+          resumeCursor: Math.max(params.cursor, currentTask.latestCursor),
+          vaultOwnerToken: params.vaultOwnerToken,
           signal: controller.signal,
-          idleTimeoutMs: 360000,
-          requireTerminal: true,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Run stream request failed: HTTP ${response.status}`);
         }
-      );
-    } catch (error) {
-      if ((error as Error)?.name === "AbortError") {
+
+        await consumeCanonicalKaiStream(
+          response,
+          (envelope) => {
+            this.handleEnvelope(runId, envelope);
+          },
+          {
+            signal: controller.signal,
+            idleTimeoutMs: 360000,
+            requireTerminal: true,
+          }
+        );
         return;
+      } catch (error) {
+        if ((error as Error)?.name === "AbortError") {
+          return;
+        }
+
+        const latestTask = this.tasks.get(runId);
+        if (!latestTask || latestTask.status !== "running") return;
+        if (attempt >= RETRY_DELAYS_MS.length) {
+          this.upsertTask({
+            ...latestTask,
+            streamState: "paused",
+            streamMessage: STREAM_RECONNECT_MESSAGE,
+            updatedAt: nowIso(),
+          });
+          return;
+        }
+
+        this.upsertTask({
+          ...latestTask,
+          streamState: "reconnecting",
+          streamMessage: "Reconnecting live updates…",
+          updatedAt: nowIso(),
+        });
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+      } finally {
+        if (this.streamControllers.get(runId) === controller) {
+          this.streamControllers.delete(runId);
+        }
       }
-      const synthetic: KaiStreamEnvelope = {
-        schema_version: "1.0",
-        stream_id: `run_${runId}`,
-        stream_kind: "stock_analyze",
-        seq: Date.now(),
-        event: "error",
-        terminal: true,
-        payload: {
-          code: "ANALYZE_RUN_STREAM_FAILED",
-          message: (error as Error)?.message || "Run stream failed",
-          run_id: runId,
-          timestamp: nowIso(),
-          phase: "decision",
-          progress_pct: 100,
-        },
-      };
-      this.handleEnvelope(runId, synthetic);
-    } finally {
-      this.streamControllers.delete(runId);
     }
   }
 
@@ -874,6 +903,8 @@ class DebateRunManager {
       ...task,
       updatedAt: nowIso(),
       latestCursor: Math.max(task.latestCursor, envelope.seq),
+      streamState: "connected",
+      streamMessage: null,
     };
 
     if (envelope.terminal) {

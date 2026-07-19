@@ -125,6 +125,20 @@ mode.
   targets the app shell content node (`[data-app-shell-content="true"]`);
   timing/easing come from the `--motion-route-exit/enter-*` tokens.
 
+### Standard content enter
+
+The standard route, async-layout, and component-mount expression is opacity
+`0 → 1`, vertical settle `8px → 0`,
+`--motion-page-enter-duration`, and `--motion-ease-emphasized`.
+
+- `usePageEnterAnimation` applies it to the initial route and semantic async
+  mounts inside the shared app shell.
+- `.motion-step-enter` applies that exact same enter to intentional in-route
+  swaps, including controlled pager panels. It does not add a route exit.
+- High-churn surfaces must opt out with `data-no-auto-fade` and animate only a
+  stable inner layout root when a deliberate transition is needed. This keeps
+  pagers, live tables, and drag transforms from competing with the standard.
+
 **How uniformity is achieved (the layout-level chokepoint).** Three entry
 points feed the same envelope so no call site needs special handling:
 

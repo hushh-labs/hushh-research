@@ -31,7 +31,7 @@ describe("executeAgentGatewayAction connected systems", () => {
 
     expect(input.router.push).toHaveBeenCalledWith(
       expect.stringMatching(
-        /^\/one\/connected-systems\/salesforce-fsc-customer0\?agentActionId=crm_/
+        /^\/one\/connected-systems\?system=salesforce-fsc-customer0&agentActionId=crm_/
       )
     );
     expect(result.status).toBe("started");

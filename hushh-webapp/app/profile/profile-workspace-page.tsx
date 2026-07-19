@@ -2959,16 +2959,13 @@ function ProfilePageContent() {
         loading={profileManagerLoading}
         metadataReady={pkmMetadataReady}
         metadataError={pkmError}
-        sharingReady={consentCenterReady}
         sharingError={consentCenterError}
         needsVaultCreation={vaultAccess.needsVaultCreation}
         needsUnlock={vaultAccess.needsUnlock}
         summary={profileSummary}
         domains={domainPresentations}
-        manifestsByDomain={domainManifests}
         loadingManifestsByDomain={loadingDomainManifests}
         manifestErrorsByDomain={domainManifestErrors}
-        upgradeStatesByDomain={upgradeStatesByDomain}
         onOpenSharing={() =>
           updateProfileView({ panel: "access", detail: null }, "push")
         }
@@ -3697,7 +3694,7 @@ function ProfilePageContent() {
 
   if (activePanel === "regulatory") {
     // The full RIA advisor profile (view / edit / re-initiate / delete / license)
-    // lives here so it renders inside the unified /profile section — not a bespoke
+    // lives here so it renders inside the unified /one/profile section — not a bespoke
     // /ria/profile screen. Not vault-gated: RIA status is not behind the vault.
     profileStackEntries.push({
       key: "panel:regulatory",
@@ -3962,24 +3959,48 @@ function ProfilePageContent() {
           data-slot="page-header"
           data-page-primary="true"
         >
-          <Avatar className="h-14 w-14 shrink-0 ring-4 ring-primary/18 sm:h-16 sm:w-16">
-            <AvatarImage
-              src={user.photoURL || undefined}
-              alt={user.displayName || "Profile"}
-            />
-            <AvatarFallback className="bg-muted text-base font-semibold text-muted-foreground sm:text-lg">
-              {user.displayName ? (
-                user.displayName
-                  .split(" ")
-                  .map((part) => part[0])
-                  .join("")
-                  .slice(0, 2)
-                  .toUpperCase()
-              ) : (
-                <Icon icon={User} size={48} />
-              )}
-            </AvatarFallback>
-          </Avatar>
+          <div
+            data-profile-avatar-frame="true"
+            className="h-14 w-14 shrink-0 rounded-full bg-primary/18 p-1 sm:h-16 sm:w-16"
+          >
+            {user.photoURL ? (
+              <Avatar className="h-full w-full">
+                <AvatarImage
+                  className="object-cover"
+                  src={user.photoURL}
+                  alt={user.displayName || "Profile"}
+                />
+                <AvatarFallback className="bg-muted p-2 text-base font-semibold text-muted-foreground sm:text-lg">
+                  {user.displayName ? (
+                    user.displayName
+                      .split(" ")
+                      .map((part) => part[0])
+                      .join("")
+                      .slice(0, 2)
+                      .toUpperCase()
+                  ) : (
+                    <Icon icon={User} size={32} className="sm:size-9" />
+                  )}
+                </AvatarFallback>
+              </Avatar>
+            ) : (
+              <div
+                data-profile-avatar-fallback="true"
+                className="flex h-full w-full items-center justify-center rounded-full bg-muted p-2 text-base font-semibold text-muted-foreground sm:text-lg"
+              >
+                {user.displayName ? (
+                  user.displayName
+                    .split(" ")
+                    .map((part) => part[0])
+                    .join("")
+                    .slice(0, 2)
+                    .toUpperCase()
+                ) : (
+                  <Icon icon={User} size={32} className="sm:size-9" />
+                )}
+              </div>
+            )}
+          </div>
           <div className="min-w-0 max-w-full space-y-1.5">
             <h1 className="text-[28px] font-medium leading-[1.08] tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[34px]">
               {user.displayName || "User"}
@@ -4065,7 +4086,7 @@ function ProfilePageContent() {
                   trailing={<Badge variant="secondary">Local</Badge>}
                   chevron
                   density="compact"
-                  onClick={() => router.push("/profile/pkm-agent-lab")}
+                  onClick={() => router.push("/one/profile/pkm-agent-lab")}
                 />
               ) : null}
             </SettingsGroup>

@@ -10,14 +10,20 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { SectionHeader } from "@/components/app-ui/page-sections";
+import { PageHeader } from "@/components/app-ui/page-sections";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import type { ConnectedSystemAgentInstruction } from "@/components/profile/connected-systems-panel";
 
-export function ConnectedSystemDetailClient({ systemId }: { systemId: string }) {
+export function ConnectedSystemDetailClient({
+  systemId,
+  routeId = "/one/connected-systems/[systemId]",
+}: {
+  systemId: string;
+  routeId?: "/one/connected-systems" | "/one/connected-systems/[systemId]";
+}) {
   const { user, phoneNumber } = useAuth();
   const { vaultOwnerToken } = useVault();
   const searchParams = useSearchParams();
@@ -46,21 +52,22 @@ export function ConnectedSystemDetailClient({ systemId }: { systemId: string }) 
       width="reading"
       className="pb-[calc(var(--app-bottom-inset)+var(--kai-command-fixed-ui,82px)+1.25rem)] sm:pb-10 md:pb-8"
       nativeTest={{
-        routeId: "/one/connected-systems/[systemId]",
+        routeId,
         marker: "native-route-connected-system-detail",
         authState: user ? "authenticated" : "pending",
         dataState: "loaded",
       }}
     >
       <NativeTestBeacon
-        routeId="/one/connected-systems/[systemId]"
+        routeId={routeId}
         marker="native-route-connected-system-detail"
         authState={user ? "authenticated" : "pending"}
         dataState="loaded"
       />
       <AppPageHeaderRegion>
-        <SectionHeader
+        <PageHeader
           title="Connected system"
+          description="Review the record linked to this CRM and approve each change."
           icon={Building2}
           accent="neutral"
         />

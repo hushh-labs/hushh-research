@@ -2,14 +2,6 @@ import Foundation
 import XCTest
 
 final class AppUITests: XCTestCase {
-    private enum VaultBootstrapAction {
-        case none
-        case progressed
-        case relaunch
-    }
-
-    private var vaultCreationSubmitted = false
-    private var vaultCreationRelaunched = false
     private var vaultUnlockSubmitted = false
 
     struct RouteCase {
@@ -25,8 +17,6 @@ final class AppUITests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        vaultCreationSubmitted = false
-        vaultCreationRelaunched = false
         vaultUnlockSubmitted = false
     }
 
@@ -456,55 +446,6 @@ final class AppUITests: XCTestCase {
         field.typeText(value)
     }
 
-    private func attemptFreshVaultBootstrap(app: XCUIApplication) -> VaultBootstrapAction {
-        guard !vaultCreationRelaunched else {
-            return .none
-        }
-
-        let continueButton = app.buttons["Continue to Vault Setup"]
-        if continueButton.exists, continueButton.isHittable {
-            continueButton.tap()
-            return .progressed
-        }
-
-        if !vaultCreationSubmitted {
-            let passphraseField = app.secureTextFields["Enter your passphrase"]
-            let confirmationField = app.secureTextFields["Confirm your passphrase"]
-            if passphraseField.waitForExistence(timeout: 0.25),
-               confirmationField.waitForExistence(timeout: 0.25),
-               passphraseField.isHittable,
-               confirmationField.isHittable {
-                let passphrase = reviewerVaultPassphrase()
-                replaceText(in: passphraseField, with: passphrase)
-                replaceText(in: confirmationField, with: passphrase)
-
-                let createButton = app.buttons["Create Vault"]
-                let deadline = Date().addingTimeInterval(3)
-                while Date() < deadline, !(createButton.exists && createButton.isHittable) {
-                    RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-                }
-                if createButton.exists, createButton.isHittable {
-                    createButton.tap()
-                    vaultCreationSubmitted = true
-                    return .progressed
-                }
-            }
-        }
-
-        if vaultCreationSubmitted {
-            let recoveryContinueButton = app.buttons["I've Saved My Recovery Key"]
-            if recoveryContinueButton.waitForExistence(timeout: 0.25),
-               recoveryContinueButton.isHittable {
-                recoveryContinueButton.tap()
-                _ = recoveryContinueButton.waitForNonExistence(timeout: 15)
-                vaultCreationRelaunched = true
-                return .relaunch
-            }
-        }
-
-        return .none
-    }
-
     @discardableResult
     private func attemptVaultPassphraseUnlock(app: XCUIApplication) -> Bool {
         guard !vaultUnlockSubmitted else {
@@ -593,8 +534,12 @@ final class AppUITests: XCTestCase {
             "-UITestExpectedMarker", expectedMarker,
             "-UITestExpectedRoute", expectedRoute,
             "-UITestAutoReviewerLogin", "true",
-            "-UITestResetAppState", "true",
+            // This is a continuous, vault-unlocked journey. It must not clear
+            // the WebView/Firebase session or manufacture a new vault between
+            // actions. Cold-entry behavior has its own route tests.
+            "-UITestResetAppState", "false",
             "-UITestRunUiFlows", "true",
+            "-UITestUiFlowRunId", UUID().uuidString,
         ]
         if let reviewerUid = environment["HUSHH_UI_TEST_REVIEWER_UID"] ?? environment["REVIEWER_UID"],
            !reviewerUid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -634,29 +579,10 @@ final class AppUITests: XCTestCase {
         var lastProgressKey = ""
         var lastStatusPollAt = Date.distantPast
         var lastStatusLogAt = Date.distantPast
-        var lastVaultBootstrapAttemptAt = Date.distantPast
         var lastBootstrapState = ""
         var authenticatedBootstrapObservedAt: Date?
 
         while Date() < deadline {
-            if Date().timeIntervalSince(lastVaultBootstrapAttemptAt) >= 1 {
-                switch attemptFreshVaultBootstrap(app: app) {
-                case .none:
-                    break
-                case .progressed:
-                    lastProgressAt = Date()
-                case .relaunch:
-                    lastProgressAt = Date()
-                    lastStatus = [:]
-                    lastFlowLabel = ""
-                    lastProgressKey = ""
-                    app.terminate()
-                    app.launch()
-                    RunLoop.current.run(until: Date().addingTimeInterval(1))
-                }
-                lastVaultBootstrapAttemptAt = Date()
-            }
-
             let inLongImportWait = isLongImportWaitStatus(lastStatus)
             if !inLongImportWait && Date().timeIntervalSince(lastModalAttemptAt) >= 2 {
                 let scanAllButtons = Date().timeIntervalSince(lastFullModalScanAt) >= 10

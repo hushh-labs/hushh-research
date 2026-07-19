@@ -147,6 +147,11 @@ Do:
   and pending-page cache in the background, regardless of the route that
   opened the vault. This preserves an immediate same-session render without
   persisting consent list entries.
+- Agent Chat warms its redacted PKM working set only after the Agent workspace
+  is open and the vault is unlocked. A cold turn may begin after a bounded
+  context wait while the UI says that saved context is loading; the completed
+  working set is used by the next turn. It remains process-memory-only and is
+  cleared synchronously when the vault locks, the user changes, or PKM changes.
 - FCM consent request, resolution, and connection events must invalidate the
   canonical in-memory consent cache and trigger one retained-data background
   refresh for an open Consent Center. When push is unavailable, the visible
@@ -239,10 +244,10 @@ stale server response to admit or block a setup transition.
 
 Nested routes that render one workspace must share one cache contract and still appear as distinct route IDs in the generated screen manifest. Profile settings are the current reference case:
 
-- `/profile/account`, `/profile/preferences`, `/profile/security`, `/profile/my-data`, `/profile/access`, `/profile/connected-systems`, `/profile/gmail`, and `/profile/support` render through the shared profile workspace.
-- Identifier-bearing detail routes stay static-export-safe with query-backed detail keys, for example `/profile/my-data/domain?key=<domain_key>` and `/profile/access/connection?id=<connection_id>`.
+- `/one/profile/account`, `/one/profile/preferences`, `/one/profile/security`, `/one/profile/my-data`, `/one/profile/access`, `/one/profile/connected-systems`, `/one/profile/gmail`, and `/one/profile/support` render through the shared profile workspace.
+- Identifier-bearing detail routes stay static-export-safe with query-backed detail keys, for example `/one/profile/my-data/domain?key=<domain_key>` and `/one/profile/access/connection?id=<connection_id>`.
 - All profile nested routes inherit the profile cache posture: vault and PKM readiness gate sensitive panels; stale safe metadata may render while background refresh runs; decrypted PKM and raw cache keys never enter analytics or realtime voice context.
-- Same-session Profile transitions do not use the root generic skeleton: `app/profile/loading.tsx` preserves the route-transition envelope, and `PhoneMandateGuard` hydrates cached vault and phone-mandate hints before its first paint. A cold or unsafe mandate state still owns its explicit guard feedback.
+- Same-session Profile transitions do not use the root generic skeleton: `app/one/profile/loading.tsx` preserves the route-transition envelope, and `PhoneMandateGuard` hydrates cached vault and phone-mandate hints before its first paint. A cold or unsafe mandate state still owns its explicit guard feedback.
 - Route splits must regenerate `cache-coherence-screen-manifest.generated.json` and keep route readiness/resource classes aligned with `CacheSyncService` invalidation paths.
 
 The One setup family follows the same retained-surface rule. Its parent
@@ -279,6 +284,6 @@ The `audit:cache-coherence` script hard-fails when the screen cache manifest is 
   - first-party readers should treat `projection_mode=replace_all` as canonical for upgraded users
   - current retention stays `3` saved analyses per ticker (newest first)
 - Save compatibility policy:
-  - first-party financial/profile/portfolio/history writes must go through `PkmWriteCoordinator`
+  - first-party financial/one/profile/portfolio/history writes must go through `PkmWriteCoordinator`
   - stale manifests/domains should resume the client-side PKM upgrade before save when the vault is unlocked
   - if the vault is locked and the domain is stale, the UI should surface an upgrade-required/read-only state instead of attempting a legacy plaintext fallback

@@ -50,10 +50,19 @@ describe("tabbed ambient chrome contract", () => {
     );
     expect(styles).toContain(".ambient-chrome-mask--bottom");
     expect(styles).toContain(
-      "color-mix(in srgb, var(--ambient-chrome-bg) 86%, transparent) 22%",
+      "color-mix(in srgb, var(--ambient-chrome-bg) 89%, transparent) 22%",
     );
     expect(styles).toContain(
-      "color-mix(in srgb, var(--ambient-chrome-bg) 42%, transparent) 52%",
+      "color-mix(in srgb, var(--ambient-chrome-bg) 48%, transparent) 52%",
     );
+  });
+
+  it("keeps sampled chrome foreground authoritative for text and icons", () => {
+    const styles = read("app/globals.css");
+
+    expect(styles).toContain("[data-app-top-bar] .top-shell-ambient-ink .text-foreground");
+    expect(styles).toContain("color: currentColor;");
+    expect(styles).toContain("var(--ambient-chrome-bottom-base-fg, #1d1d1f)");
+    expect(styles).toContain("--lucide-stroke-width: 1.6");
   });
 });

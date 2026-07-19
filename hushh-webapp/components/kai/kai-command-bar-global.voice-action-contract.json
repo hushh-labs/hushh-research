@@ -29,7 +29,7 @@
         "routes": [
           "/one/kai?tab=market",
           "/one/kai?tab=analysis",
-          "/profile"
+          "/one/profile"
         ],
         "screens": [
           "kai_market",
