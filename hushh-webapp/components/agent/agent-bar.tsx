@@ -51,6 +51,8 @@ import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import {
   appInteractionCoordinator,
+  useActiveActionRun,
+  type DirectiveSettlement,
   type VoiceSessionLease,
 } from "@/lib/interaction/interaction-intent-coordinator";
 import { cn } from "@/lib/utils";
@@ -63,6 +65,10 @@ import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { useAccent, writeAccent } from "@/lib/theme/accent";
+import {
+  nextThemePreference,
+  resolveThemePreference,
+} from "@/lib/theme/theme-preference";
 import { createRealtimeVoiceTransport } from "@/lib/voice/one-voice-transport-factory";
 import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
 import type {
@@ -89,6 +95,7 @@ type PendingVoiceConfirmation = {
   route: string | null;
   leaseId: string;
   ledgerSessionId: string;
+  actionRunId: string;
   transport: RealtimeVoiceTransport | null;
 };
 
@@ -207,7 +214,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // consistently with the chat workspace, instead of recomputing locally.
   const runtime = useAgentRuntimeStateOptional();
   const { user, loading: authLoading } = useAuth();
-  const { theme, resolvedTheme, setTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
   const { vaultOwnerToken, vaultKey, isVaultUnlocked } = useVault();
   const { switchPersona } = usePersonaState();
   const busyOperations = useKaiSession((state) => state.busyOperations);
@@ -227,6 +234,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const [conversationActive, setConversationActive] = useState(false);
   const [pendingConfirmation, setPendingConfirmation] =
     useState<PendingVoiceConfirmation | null>(null);
+  const activeActionRun = useActiveActionRun();
   const pendingConfirmationRef = useRef<PendingVoiceConfirmation | null>(null);
   const voiceStatus = useAgentVoiceState((s) => s.status);
   const voiceMessage = useAgentVoiceState((s) => s.message);
@@ -296,7 +304,16 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       appInteractionCoordinator.settleDirective(
         pending.ledgerSessionId,
         pending.directiveId,
+        {
+          status: "blocked",
+          summary,
+          reason,
+        },
       );
+      appInteractionCoordinator.updateActionRun(pending.actionRunId, {
+        phase: "cancelled",
+        message: summary,
+      });
     },
     [],
   );
@@ -445,19 +462,8 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             if (!directiveLeaseId) {
               return;
             }
-            const reportDirectiveSettlement = (settlement: {
-              status:
-                | "succeeded"
-                | "started"
-                | "failed"
-                | "blocked"
-                | "invalid"
-                | "noop";
-              summary: string;
-              reason?: string | null;
-              routeAfter?: string | null;
-              screenAfter?: string | null;
-            }) => {
+            let actionRunId: string | null = null;
+            const reportDirectiveSettlement = (settlement: DirectiveSettlement) => {
               if (
                 voiceLeaseRef.current?.id !== directiveLeaseId
               ) {
@@ -471,7 +477,14 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               appInteractionCoordinator.settleDirective(
                 directiveLedgerSessionId,
                 directiveId,
+                settlement,
               );
+              if (actionRunId) {
+                appInteractionCoordinator.finishActionRunFromSettlement(
+                  actionRunId,
+                  settlement,
+                );
+              }
             };
             const directiveLease = appInteractionCoordinator.beginDirective({
               sessionId: directiveLedgerSessionId,
@@ -483,7 +496,16 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                 slots,
               }),
             });
-            if (directiveLease.state === "duplicate") return;
+            if (directiveLease.state === "duplicate") {
+              if (directiveLease.settlement) {
+                directiveTransport?.reportActionSettlement?.({
+                  directiveId,
+                  actionId,
+                  ...directiveLease.settlement,
+                });
+              }
+              return;
+            }
             if (directiveLease.state === "conflict") {
               reportDirectiveSettlement({
                 status: "blocked",
@@ -492,6 +514,15 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               });
               return;
             }
+            const action = getKaiActionById(actionId);
+            const actionRun = appInteractionCoordinator.startActionRun({
+              actionId,
+              label: action?.label ?? "your request",
+              source: "voice",
+              directiveId,
+              message: `Preparing ${action?.label ?? "your request"}`,
+            });
+            actionRunId = actionRun.id;
             if (runtime?.morphyAxEnabled && !isSettledAnalysisGoalDirective) {
               const decision = validateMorphyAxAssessment(
                 {
@@ -539,11 +570,15 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                 route: pathname,
                 leaseId: directiveLeaseId,
                 ledgerSessionId: directiveLedgerSessionId,
+                actionRunId: actionRun.id,
                 transport: directiveTransport,
               };
               pendingConfirmationRef.current = pending;
               setPendingConfirmation(pending);
               directiveTransport?.interrupt?.();
+              appInteractionCoordinator.updateActionRun(actionRun.id, {
+                phase: "awaiting_confirmation",
+              });
               setVoiceStatus("thinking", "Confirmation needed", eventOptions);
               return;
             }
@@ -560,6 +595,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             }
             void (async () => {
               try {
+                appInteractionCoordinator.updateActionRun(actionRun.id, {
+                  phase: "executing",
+                });
                 actionAbortControllerRef.current?.abort();
                 actionAbortControllerRef.current = new AbortController();
                 const executionResult = await executeAgentGatewayAction({
@@ -588,6 +626,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                       }
                     : null,
                 });
+                if (executionResult.routeAfter) {
+                  appInteractionCoordinator.updateActionRun(actionRun.id, {
+                    phase: "navigating",
+                    message: `Opening ${action?.label ?? "your request"}`,
+                  });
+                }
                 const result = await settleAgentBarAction(executionResult);
                 reportDirectiveSettlement({
                     status: result.status,
@@ -702,6 +746,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
 
   const stopConversation = useCallback(() => {
     actionAbortControllerRef.current?.abort();
+    appInteractionCoordinator.cancelActiveActionRuns("Action cancelled when the voice session ended");
     clearVoiceIdleTimer();
     erroredRef.current = false;
     abandonPendingConfirmation(
@@ -724,19 +769,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       if (!pending) return;
       pendingConfirmationRef.current = null;
       setPendingConfirmation(null);
-      const reportPendingSettlement = (settlement: {
-        status:
-          | "succeeded"
-          | "started"
-          | "failed"
-          | "blocked"
-          | "invalid"
-          | "noop";
-        summary: string;
-        reason?: string | null;
-        routeAfter?: string | null;
-        screenAfter?: string | null;
-      }) => {
+      const reportPendingSettlement = (settlement: DirectiveSettlement) => {
         if (voiceLeaseRef.current?.id !== pending.leaseId) return;
         pending.transport?.reportActionSettlement?.({
           directiveId: pending.directiveId,
@@ -746,6 +779,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         appInteractionCoordinator.settleDirective(
           pending.ledgerSessionId,
           pending.directiveId,
+          settlement,
+        );
+        appInteractionCoordinator.finishActionRunFromSettlement(
+          pending.actionRunId,
+          settlement,
         );
       };
       if (!confirmed) {
@@ -767,6 +805,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         return;
       }
       setVoiceStatus("thinking", "Confirming");
+      appInteractionCoordinator.updateActionRun(pending.actionRunId, {
+        phase: "executing",
+      });
       const action = getKaiActionById(pending.actionId);
       const execute =
         action?.activation_policy === "trusted_activation_required"
@@ -801,6 +842,15 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         signal: actionAbortControllerRef.current.signal,
       });
       void settlement
+        .then((executionResult) => {
+          if (executionResult.routeAfter) {
+            appInteractionCoordinator.updateActionRun(pending.actionRunId, {
+              phase: "navigating",
+              message: `Opening ${getKaiActionById(pending.actionId)?.label ?? "your request"}`,
+            });
+          }
+          return executionResult;
+        })
         .then(settleAgentBarAction)
         .then((result) => {
           scheduleVoiceIdleTimer();
@@ -1150,9 +1200,6 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const focusedOnboardingVoiceOnly =
     isOneSetupRoute(pathname ?? "") ||
     (pathname ?? "").startsWith(ROUTES.PHONE_MANDATE);
-  const ambientVoiceOnly =
-    (isFoundationPublic && !isHomeRoute) || focusedOnboardingVoiceOnly;
-
   // Onboarding is intentionally neutral to a returning person's appearance
   // preference. Normalize the bar once per onboarding mount so its toggle
   // starts at System, but do not fight a deliberate toggle change afterward.
@@ -1233,9 +1280,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // In the error state, prefer the specific reason (e.g. mic blocked, no device)
   // over the generic "Voice error" so the user knows how to recover.
   const voiceStatusLabel =
-    voiceStatus === "error" && voiceMessage
+    activeActionRun?.message ??
+    (voiceStatus === "error" && voiceMessage
       ? voiceMessage
-      : getAgentVoiceStatusLabel(voiceStatus);
+      : getAgentVoiceStatusLabel(voiceStatus));
   const nativeVoiceMode = !conversationActive
     ? "idle"
     : voiceStatus === "connecting"
@@ -1250,17 +1298,19 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               ? "error"
               : "opening";
 
+  const currentThemePreference = resolveThemePreference(theme) ?? "system";
+  const nextTheme = nextThemePreference(currentThemePreference);
   const themeToggleButton = (
     <button
       type="button"
-      onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-      aria-label={`Theme: ${theme ?? "system"}`}
-      title={`Theme: ${theme ?? "system"}`}
+      onClick={() => setTheme(nextTheme)}
+      aria-label={`Theme: ${currentThemePreference}. Switch to ${nextTheme}`}
+      title={`Theme: ${currentThemePreference}. Switch to ${nextTheme}`}
       className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-accent-strong transition-colors duration-200 hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
     >
-      {theme === "system" || !theme ? (
+      {currentThemePreference === "system" ? (
         <Monitor className="h-[17px] w-[17px]" />
-      ) : theme === "dark" ? (
+      ) : currentThemePreference === "dark" ? (
         <Moon className="h-[17px] w-[17px]" />
       ) : (
         <Sun className="h-[17px] w-[17px]" />
@@ -1361,47 +1411,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         </div>
       ) : null}
     </>
-  ) : onboardingGreeterMode || ambientVoiceOnly ? (
-    // Signed-out welcome ("/") + sign-in ("/login"): the bar IS the
-    // conversation starter (voice-only pre-auth) with the theme toggle
-    // infused at the right, in the same accent tone as the mic icon.
-    <>
-      <button
-        type="button"
-        data-native-voice-control-id="one_voice_agent_bar_start"
-        data-testid="one-voice-agent-bar-start-icon"
-        onClick={handleVoiceStartClick}
-        aria-label="Start conversation with One"
-        title="Start conversation"
-        className={cn(
-          "relative flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-full pl-2 text-left",
-          "transition-colors duration-200",
-        )}
-      >
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-accent-strong">
-          <AudioLines className="h-[18px] w-[18px]" />
-        </span>
-        <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-[#17130C]/80 dark:text-white/85">
-          Talk to One
-        </span>
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
-        >
-          <MaterialRipple variant="gradient" effect="fill" />
-        </span>
-      </button>
-      {/* Theme toggle, infused right-aligned, accent-toned like the mic. */}
-      {showToggles ? (
-        <div className="flex shrink-0 items-center gap-1">
-          {accentToggleButton}
-          {themeToggleButton}
-        </div>
-      ) : null}
-    </>
   ) : (
-    // Signed-in Agent Bar is voice-only. Search remains the one typed entry
-    // in the bottom navigation and opens the normal-language agent flow.
+    // One shared idle launcher across onboarding and signed-in surfaces.
+    // Onboarding adds only its appearance controls; it does not fork the
+    // interaction hierarchy, hit target, motion, or voice entry contract.
     <>
       <button
         type="button"
@@ -1409,12 +1422,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         data-testid="one-voice-agent-bar-start-icon"
         onClick={handleVoiceStartClick}
         aria-label={`Start a voice conversation. ${hint}`}
-        title="Talk to One"
+        title="Start conversation"
         className="relative flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-full px-1.5 text-left transition-colors duration-200 hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
       >
         <span
           aria-hidden
-          className="flex h-8 w-8 shrink-0 items-center justify-center text-accent-strong"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-accent-strong"
         >
           <AudioLines className="h-[19px] w-[19px]" />
         </span>

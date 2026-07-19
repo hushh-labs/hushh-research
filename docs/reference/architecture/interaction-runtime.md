@@ -26,6 +26,11 @@ settlement.
   requests are idempotent. Query-only history writes remain immediate.
 - One Live and Agent Chat controls acquire the same voice lease. A stale lease
   cannot update React state, play audio, navigate, or settle an action.
+- Agent Bar is the one shared launcher on onboarding and signed-in routes. The
+  signed-in chat popover has one close owner: it blurs an in-surface editable
+  before exit motion and stops hidden chat capture/playback while preserving
+  the conversation. Keyboard inset updates therefore settle before the sheet
+  animates on iOS; neither native platform owns a second close state.
 - Generated directives require a per-session `directiveId`; duplicate IDs do
   not execute twice and conflicting payloads fail closed. Ledgers never retain
   raw slots, credentials, OTPs, or vault material.

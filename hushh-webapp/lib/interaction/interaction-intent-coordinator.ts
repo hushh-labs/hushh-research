@@ -45,8 +45,45 @@ export type VoiceSessionLease = {
 
 export type DirectiveLeaseResult =
   | { state: "new" }
-  | { state: "duplicate" }
+  | { state: "duplicate"; settlement: DirectiveSettlement | null }
   | { state: "conflict" };
+
+/**
+ * A public, user-facing action lifecycle. This deliberately carries only
+ * product status supplied by deterministic client events. It is never a
+ * representation of a model's private reasoning or unredacted action slots.
+ */
+export type ActionRunPhase =
+  | "acknowledged"
+  | "preparing"
+  | "navigating"
+  | "executing"
+  | "awaiting_confirmation"
+  | "completed"
+  | "blocked"
+  | "cancelled"
+  | "failed";
+
+export type ActionRun = {
+  id: string;
+  actionId: string;
+  label: string;
+  source: InteractionIntentSource;
+  directiveId: string | null;
+  phase: ActionRunPhase;
+  message: string;
+  createdAtMs: number;
+  updatedAtMs: number;
+  completedAtMs: number | null;
+};
+
+export type DirectiveSettlement = {
+  status: "succeeded" | "started" | "failed" | "blocked" | "invalid" | "noop";
+  summary: string;
+  reason?: string | null;
+  routeAfter?: string | null;
+  screenAfter?: string | null;
+};
 
 type VoiceLeaseRecord = {
   id: string;
@@ -58,6 +95,7 @@ type VoiceLeaseRecord = {
 type DirectiveRecord = {
   fingerprint: string;
   settledAtMs: number | null;
+  settlement: DirectiveSettlement | null;
 };
 
 type NavigationRecord = {
@@ -87,8 +125,10 @@ export class InteractionIntentCoordinator {
   private activeVoiceLease: VoiceLeaseRecord | null = null;
   private directivesBySession = new Map<string, Map<string, DirectiveRecord>>();
   private intents: InteractionIntent[] = [];
+  private actionRuns: ActionRun[] = [];
   private listeners = new Set<() => void>();
   private snapshot: readonly InteractionIntent[] = immutableSnapshot([]);
+  private actionRunSnapshot: readonly ActionRun[] = Object.freeze([]);
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -96,6 +136,108 @@ export class InteractionIntentCoordinator {
   };
 
   getSnapshot = (): readonly InteractionIntent[] => this.snapshot;
+
+  getActionRunsSnapshot = (): readonly ActionRun[] => this.actionRunSnapshot;
+
+  getActiveActionRun = (): ActionRun | null => {
+    for (let index = this.actionRuns.length - 1; index >= 0; index -= 1) {
+      const run = this.actionRuns[index];
+      if (run && !isTerminalActionRunPhase(run.phase)) return run;
+    }
+    return null;
+  };
+
+  startActionRun(input: {
+    actionId: string;
+    label: string;
+    source: InteractionIntentSource;
+    directiveId?: string | null;
+    phase?: Extract<ActionRunPhase, "acknowledged" | "preparing">;
+    message?: string;
+  }): ActionRun {
+    const existing = input.directiveId
+      ? this.actionRuns.find(
+          (run) =>
+            run.directiveId === input.directiveId &&
+            !isTerminalActionRunPhase(run.phase),
+        )
+      : null;
+    if (existing) return existing;
+    const phase = input.phase ?? "acknowledged";
+    const now = Date.now();
+    const run: ActionRun = {
+      id: createId("action_run"),
+      actionId: input.actionId,
+      label: input.label,
+      source: input.source,
+      directiveId: input.directiveId ?? null,
+      phase,
+      message: input.message ?? actionRunMessage(phase, input.label),
+      createdAtMs: now,
+      updatedAtMs: now,
+      completedAtMs: null,
+    };
+    this.actionRuns = [...this.actionRuns, run].slice(-MAX_FINISHED_INTENTS);
+    this.publish();
+    return run;
+  }
+
+  updateActionRun(
+    runId: string,
+    input: {
+      phase: ActionRunPhase;
+      message?: string;
+    },
+  ): ActionRun | null {
+    let updated: ActionRun | null = null;
+    this.actionRuns = this.actionRuns.map((run) => {
+      if (run.id !== runId || isTerminalActionRunPhase(run.phase)) return run;
+      const terminal = isTerminalActionRunPhase(input.phase);
+      updated = {
+        ...run,
+        phase: input.phase,
+        message: input.message ?? actionRunMessage(input.phase, run.label),
+        updatedAtMs: Date.now(),
+        completedAtMs: terminal ? Date.now() : null,
+      };
+      return updated;
+    });
+    if (updated) this.publish();
+    return updated;
+  }
+
+  finishActionRunFromSettlement(
+    runId: string,
+    settlement: DirectiveSettlement,
+  ): ActionRun | null {
+    const phase: Extract<ActionRunPhase, "completed" | "blocked" | "failed"> =
+      settlement.status === "succeeded" || settlement.status === "started"
+        ? "completed"
+        : settlement.status === "blocked" || settlement.status === "noop"
+          ? "blocked"
+          : "failed";
+    return this.updateActionRun(runId, {
+      phase,
+      message: settlement.summary,
+    });
+  }
+
+  cancelActiveActionRuns(message = "Action cancelled"): void {
+    let changed = false;
+    const now = Date.now();
+    this.actionRuns = this.actionRuns.map((run) => {
+      if (isTerminalActionRunPhase(run.phase)) return run;
+      changed = true;
+      return {
+        ...run,
+        phase: "cancelled",
+        message,
+        updatedAtMs: now,
+        completedAtMs: now,
+      };
+    });
+    if (changed) this.publish();
+  }
 
   requestNavigation(input: {
     target: string;
@@ -205,6 +347,7 @@ export class InteractionIntentCoordinator {
     }
     // VaultProvider remains the security authority. Backgrounding only ends
     // active capture/playback; it never persists or clears vault material.
+    this.cancelActiveActionRuns("Action cancelled because the app was backgrounded");
     this.releaseActiveVoiceLease("app_backgrounded");
   }
 
@@ -221,10 +364,14 @@ export class InteractionIntentCoordinator {
     const existing = ledger.get(input.directiveId);
     if (existing) {
       return existing.fingerprint === input.fingerprint
-        ? { state: "duplicate" }
+        ? { state: "duplicate", settlement: existing.settlement }
         : { state: "conflict" };
     }
-    ledger.set(input.directiveId, { fingerprint: input.fingerprint, settledAtMs: null });
+    ledger.set(input.directiveId, {
+      fingerprint: input.fingerprint,
+      settledAtMs: null,
+      settlement: null,
+    });
     while (ledger.size > MAX_DIRECTIVES_PER_SESSION) {
       const oldest = ledger.keys().next().value;
       if (!oldest) break;
@@ -233,9 +380,15 @@ export class InteractionIntentCoordinator {
     return { state: "new" };
   }
 
-  settleDirective(sessionId: string, directiveId: string): void {
+  settleDirective(
+    sessionId: string,
+    directiveId: string,
+    settlement: DirectiveSettlement,
+  ): void {
     const record = this.directivesBySession.get(sessionId)?.get(directiveId);
-    if (record) record.settledAtMs = Date.now();
+    if (!record || record.settlement) return;
+    record.settledAtMs = Date.now();
+    record.settlement = Object.freeze({ ...settlement });
   }
 
   private addIntent(input: Omit<InteractionIntent, "id" | "createdAtMs" | "completedAtMs" | "reason">): InteractionIntent {
@@ -269,6 +422,9 @@ export class InteractionIntentCoordinator {
 
   private publish(): void {
     this.snapshot = immutableSnapshot(this.intents);
+    this.actionRunSnapshot = Object.freeze(
+      this.actionRuns.map((run) => Object.freeze({ ...run })),
+    );
     for (const listener of this.listeners) listener();
   }
 }
@@ -281,4 +437,53 @@ export function useInteractionIntents(): readonly InteractionIntent[] {
     appInteractionCoordinator.getSnapshot,
     appInteractionCoordinator.getSnapshot,
   );
+}
+
+export function useActionRuns(): readonly ActionRun[] {
+  return useSyncExternalStore(
+    appInteractionCoordinator.subscribe,
+    appInteractionCoordinator.getActionRunsSnapshot,
+    appInteractionCoordinator.getActionRunsSnapshot,
+  );
+}
+
+export function useActiveActionRun(): ActionRun | null {
+  const runs = useActionRuns();
+  for (let index = runs.length - 1; index >= 0; index -= 1) {
+    const run = runs[index];
+    if (run && !isTerminalActionRunPhase(run.phase)) return run;
+  }
+  return null;
+}
+
+function isTerminalActionRunPhase(phase: ActionRunPhase): boolean {
+  return (
+    phase === "completed" ||
+    phase === "blocked" ||
+    phase === "cancelled" ||
+    phase === "failed"
+  );
+}
+
+function actionRunMessage(phase: ActionRunPhase, label: string): string {
+  switch (phase) {
+    case "acknowledged":
+      return `Preparing ${label}`;
+    case "preparing":
+      return `Preparing ${label}`;
+    case "navigating":
+      return `Opening ${label}`;
+    case "executing":
+      return `Running ${label}`;
+    case "awaiting_confirmation":
+      return `Confirm ${label}`;
+    case "completed":
+      return `${label} completed`;
+    case "blocked":
+      return `${label} needs attention`;
+    case "cancelled":
+      return `${label} cancelled`;
+    case "failed":
+      return `${label} could not complete`;
+  }
 }

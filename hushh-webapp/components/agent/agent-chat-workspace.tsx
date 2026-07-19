@@ -120,6 +120,7 @@ import { useOneLocationConsentActions } from "@/lib/consent/use-one-location-con
 import { useVault } from "@/lib/vault/vault-context";
 import {
   appInteractionCoordinator,
+  useActiveActionRun,
   type VoiceSessionLease,
 } from "@/lib/interaction/interaction-intent-coordinator";
 import { FCM_MESSAGE_EVENT } from "@/lib/notifications";
@@ -142,6 +143,7 @@ import {
 } from "@/lib/agent/agent-chat-turn-safety";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { buildOneVoiceStructuredScreenContext } from "@/lib/voice/screen-context-builder";
 
 type AgentMessage = {
@@ -228,6 +230,8 @@ type AgentChatWorkspaceProps = {
   windowControls?: ReactNode;
   onMinimize?: () => void;
   onNavigationActionComplete?: (result: AgentActionRuntimeResult) => void;
+  /** The owning popover has started closing; preserve history, stop capture. */
+  isSurfaceClosing?: boolean;
 };
 
 const AGENT_GREETING =
@@ -1113,6 +1117,7 @@ export function AgentChatWorkspace({
   windowControls,
   onMinimize,
   onNavigationActionComplete,
+  isSurfaceClosing = false,
 }: AgentChatWorkspaceProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -1178,6 +1183,7 @@ export function AgentChatWorkspace({
   const [backgroundTaskState, setBackgroundTaskState] = useState(() =>
     AppBackgroundTaskService.getState()
   );
+  const activeActionRun = useActiveActionRun();
   const voiceClientRef = useRef<AgentVoiceClient | null>(null);
   // Chat is a view/control of the app-wide voice resource. Its legacy
   // capture/STT pipeline cannot run concurrently with One Live.
@@ -1437,6 +1443,7 @@ export function AgentChatWorkspace({
       if (authLoading) return "Checking access";
       if (!user?.uid) return "Sign in required";
       if (!isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh) return "Vault locked";
+      if (activeActionRun) return activeActionRun.message;
       if (!agentVoiceEnabled && voiceActive) return "Voice disabled";
       if (voiceState === "connecting") return "Voice connecting";
       if (voiceState === "listening") return "Listening";
@@ -1455,6 +1462,7 @@ export function AgentChatWorkspace({
     },
     [
       authLoading,
+      activeActionRun,
       agentVoiceEnabled,
       isChatLoading,
       isLoadingHistory,
@@ -2400,7 +2408,15 @@ export function AgentChatWorkspace({
       }
 
       setActiveFrontendToolCount((count) => count + 1);
+      const action = getKaiActionById(toolEvent.actionId);
+      const actionRun = appInteractionCoordinator.startActionRun({
+        actionId: toolEvent.actionId,
+        label: action?.label ?? "your request",
+        source: "search",
+        directiveId: toolEvent.callId ?? null,
+      });
       try {
+        appInteractionCoordinator.updateActionRun(actionRun.id, { phase: "executing" });
         const result = await executeAgentGatewayAction({
           actionId: toolEvent.actionId,
           slots: toolEvent.slots,
@@ -2412,6 +2428,19 @@ export function AgentChatWorkspace({
           busyOperations,
           setAnalysisParams,
           switchPersona,
+        });
+        if (result.routeAfter) {
+          appInteractionCoordinator.updateActionRun(actionRun.id, {
+            phase: "navigating",
+            message: `Opening ${action?.label ?? "your request"}`,
+          });
+        }
+        appInteractionCoordinator.finishActionRunFromSettlement(actionRun.id, {
+          status: result.status,
+          summary: result.resultSummary,
+          reason: result.reason,
+          routeAfter: result.routeAfter,
+          screenAfter: result.screenAfter,
         });
         appendDebugEvent(debugTurnId, "tool_result", result);
         upsertToolStatusMessage(result.resultSummary, toolResultStatus(result));
@@ -2426,6 +2455,10 @@ export function AgentChatWorkspace({
           error instanceof Error && error.message
             ? error.message
             : "Agent tool execution failed.";
+        appInteractionCoordinator.updateActionRun(actionRun.id, {
+          phase: "failed",
+          message,
+        });
         appendDebugEvent(debugTurnId, "tool_result", {
           status: "failed",
           message,
@@ -3200,6 +3233,14 @@ export function AgentChatWorkspace({
       const callKey = toolEvent.callId || `${toolEvent.actionId}-${turnId}`;
       if (executedNavCalls.has(callKey)) return;
       executedNavCalls.add(callKey);
+      const action = getKaiActionById(toolEvent.actionId);
+      const actionRun = appInteractionCoordinator.startActionRun({
+        actionId: toolEvent.actionId,
+        label: action?.label ?? "your request",
+        source: "search",
+        directiveId: toolEvent.callId ?? null,
+      });
+      appInteractionCoordinator.updateActionRun(actionRun.id, { phase: "executing" });
       void executeAgentGatewayAction({
         actionId: toolEvent.actionId,
         slots: toolEvent.slots,
@@ -3213,11 +3254,29 @@ export function AgentChatWorkspace({
         switchPersona,
       })
         .then((result) => {
+          if (result.routeAfter) {
+            appInteractionCoordinator.updateActionRun(actionRun.id, {
+              phase: "navigating",
+              message: `Opening ${action?.label ?? "your request"}`,
+            });
+          }
+          appInteractionCoordinator.finishActionRunFromSettlement(actionRun.id, {
+            status: result.status,
+            summary: result.resultSummary,
+            reason: result.reason,
+            routeAfter: result.routeAfter,
+            screenAfter: result.screenAfter,
+          });
           if (shouldMinimizeForNavigationResult(result)) {
             onNavigationActionComplete?.(result);
           }
         })
-        .catch(() => undefined);
+        .catch(() => {
+          appInteractionCoordinator.updateActionRun(actionRun.id, {
+            phase: "failed",
+            message: "The app could not complete that action.",
+          });
+        });
     };
 
     try {
@@ -3376,6 +3435,18 @@ export function AgentChatWorkspace({
   cancelChatVoiceRef.current = () => {
     void handleCancelVoice();
   };
+
+  // The popover may remain mounted through its exit motion so conversation
+  // history survives a close/reopen. A hidden workspace must never retain a
+  // microphone, STT request, or TTS queue while that motion runs.
+  useEffect(() => {
+    if (!isPopover || !isSurfaceClosing) return;
+    setIsHistoryDrawerOpen(false);
+    setVoiceTranscriptReview(null);
+    if (voiceActive || isVoiceConnecting || voiceClientRef.current) {
+      void handleCancelVoice();
+    }
+  }, [handleCancelVoice, isPopover, isSurfaceClosing, isVoiceConnecting, voiceActive]);
 
   const handleVoiceTranscriptAccepted = (transcript: string) => {
     setVoiceTranscriptReview(null);

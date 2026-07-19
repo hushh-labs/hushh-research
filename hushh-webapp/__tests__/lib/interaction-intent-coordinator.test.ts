@@ -78,7 +78,7 @@ describe("InteractionIntentCoordinator", () => {
         directiveId: "directive_1",
         fingerprint: "safe-digest",
       }),
-    ).toEqual({ state: "duplicate" });
+    ).toEqual({ state: "duplicate", settlement: null });
     expect(
       coordinator.beginDirective({
         sessionId: second.id,
@@ -86,6 +86,56 @@ describe("InteractionIntentCoordinator", () => {
         fingerprint: "different-digest",
       }),
     ).toEqual({ state: "conflict" });
+  });
+
+  it("publishes truthful action progress and replays only the first terminal directive outcome", () => {
+    const coordinator = new InteractionIntentCoordinator();
+    const run = coordinator.startActionRun({
+      actionId: "route.kai_analysis",
+      label: "Analysis",
+      source: "voice",
+      directiveId: "directive_1",
+    });
+
+    expect(coordinator.getActiveActionRun()).toMatchObject({
+      id: run.id,
+      phase: "acknowledged",
+      message: "Preparing Analysis",
+    });
+
+    coordinator.updateActionRun(run.id, { phase: "navigating" });
+    expect(coordinator.getActiveActionRun()).toMatchObject({
+      phase: "navigating",
+      message: "Opening Analysis",
+    });
+
+    expect(
+      coordinator.beginDirective({
+        sessionId: "voice_1",
+        directiveId: "directive_1",
+        fingerprint: "safe-digest",
+      }),
+    ).toEqual({ state: "new" });
+    coordinator.settleDirective("voice_1", "directive_1", {
+      status: "succeeded",
+      summary: "Analysis is ready.",
+    });
+    coordinator.finishActionRunFromSettlement(run.id, {
+      status: "succeeded",
+      summary: "Analysis is ready.",
+    });
+
+    expect(coordinator.getActiveActionRun()).toBeNull();
+    expect(
+      coordinator.beginDirective({
+        sessionId: "voice_1",
+        directiveId: "directive_1",
+        fingerprint: "safe-digest",
+      }),
+    ).toEqual({
+      state: "duplicate",
+      settlement: { status: "succeeded", summary: "Analysis is ready." },
+    });
   });
 
   it("cancels non-terminal interaction work on background without owning vault state", () => {
@@ -101,6 +151,11 @@ describe("InteractionIntentCoordinator", () => {
       owner: "one_live",
       onRevoked: stopVoice,
     });
+    const actionRun = coordinator.startActionRun({
+      actionId: "analysis.start",
+      label: "Analysis",
+      source: "voice",
+    });
 
     coordinator.handleLifecycle("background");
 
@@ -110,5 +165,13 @@ describe("InteractionIntentCoordinator", () => {
     expect(coordinator.getSnapshot().find((intent) => intent.id === navigation.id)?.status).toBe(
       "cancelled",
     );
+    expect(
+      coordinator
+        .getActionRunsSnapshot()
+        .find((run) => run.id === actionRun.id),
+    ).toMatchObject({
+      phase: "cancelled",
+      message: "Action cancelled because the app was backgrounded",
+    });
   });
 });
