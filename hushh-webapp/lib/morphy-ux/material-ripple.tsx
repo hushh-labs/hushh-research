@@ -218,6 +218,51 @@ export const MaterialRipple = ({
   }, [disabled]);
 
   useEffect(() => {
+    const control = containerRef.current?.parentElement;
+    if (!isRippleReady || !control) return;
+
+    let resetFrame: number | undefined;
+    const clearInterruptedPress = () => {
+      const ripple = rippleRef.current;
+      if (!ripple || disabled) return;
+
+      // Material Web listens for pointercancel, but iOS WKWebView may surface
+      // an interrupted long press as touchcancel only. Toggle disabled across
+      // frames so Lit commits `pressed = false` without intercepting the
+      // control's tap or shortening a normal pointerup/click ripple.
+      ripple.disabled = true;
+      if (resetFrame !== undefined) {
+        window.cancelAnimationFrame(resetFrame);
+      }
+      resetFrame = window.requestAnimationFrame(() => {
+        if (rippleRef.current === ripple && !disabled) {
+          ripple.disabled = false;
+        }
+      });
+    };
+    const clearWhenHidden = () => {
+      if (document.visibilityState !== "visible") {
+        clearInterruptedPress();
+      }
+    };
+
+    control.addEventListener("pointercancel", clearInterruptedPress, true);
+    control.addEventListener("touchcancel", clearInterruptedPress, true);
+    window.addEventListener("blur", clearInterruptedPress);
+    document.addEventListener("visibilitychange", clearWhenHidden);
+
+    return () => {
+      control.removeEventListener("pointercancel", clearInterruptedPress, true);
+      control.removeEventListener("touchcancel", clearInterruptedPress, true);
+      window.removeEventListener("blur", clearInterruptedPress);
+      document.removeEventListener("visibilitychange", clearWhenHidden);
+      if (resetFrame !== undefined) {
+        window.cancelAnimationFrame(resetFrame);
+      }
+    };
+  }, [disabled, isRippleReady]);
+
+  useEffect(() => {
     // Check for dark mode
     const isDarkMode = document.documentElement.classList.contains("dark");
 
