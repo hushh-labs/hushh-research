@@ -66,10 +66,11 @@ describe("Top app bar responsive contract", () => {
     expect(source).not.toContain("const isRiaOnboardingScope");
     expect(source).not.toContain("const isRiaScope");
     expect(source).not.toContain("useKaiBottomChromeVisibility");
-    expect(source).toContain("var(--bottom-chrome-progress, 0)");
+    expect(source).not.toContain("bottom-chrome-progress");
     expect(source).not.toContain("topChromeHideProgress");
     expect(source).not.toContain("topChromeTransform");
-    expect(source).toContain("const topShellHeaderTransform");
+    expect(source).not.toContain("topShellHeaderTransform");
+    expect(source).not.toContain("topShellTabsTransform");
     expect(source).toContain('data-testid="top-app-bar-header"');
     expect(source).toContain('data-testid="top-app-bar-tabs"');
     expect(source).toContain("export function AppTopShell");
@@ -156,6 +157,7 @@ describe("Top app bar responsive contract", () => {
 
   it("uses the shared Search Console-style mobile sheet without changing activity ownership", () => {
     const inbox = read("components/app-ui/activity-inbox.tsx");
+    const tasks = read("components/app-ui/debate-task-center.tsx");
     const sheet = read("components/ui/sheet.tsx");
 
     expect(inbox).toContain("useIsMobile");
@@ -173,6 +175,9 @@ describe("Top app bar responsive contract", () => {
     );
     expect(inbox).toContain('overlayClassName="activity-inbox-sheet-overlay"');
     expect(inbox).toContain('presentation="section"');
+    expect(inbox.match(/>Activity</g)).toHaveLength(3);
+    expect(tasks).toContain(">Notifications</p>");
+    expect(tasks).not.toContain(">Activity</p>");
     expect(sheet).toContain('data-slot="sheet-drag-handle"');
     expect(sheet).toContain("surface.scrollTop <= 0 && movedDown > 6");
     expect(sheet).toContain("distance > 96 || velocity > 0.5");

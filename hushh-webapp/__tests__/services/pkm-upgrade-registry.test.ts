@@ -113,12 +113,12 @@ describe("runDomainUpgrade", () => {
     const validation = validateLosslessDomainUpgrade(before, after, [
       {
         sourcePointer: "/old_profile/risk",
-        targetPointer: "/profile/risk",
+        targetPointer: "/one/profile/risk",
         classification: "moved",
       },
       {
         sourcePointer: "/duplicate_risk",
-        targetPointer: "/profile/risk",
+        targetPointer: "/one/profile/risk",
         classification: "equal_value_deduplicated",
       },
     ]);

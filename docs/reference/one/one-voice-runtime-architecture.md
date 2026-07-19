@@ -202,7 +202,7 @@ known capability gap, not a permission bypass.
   `pkm:runtime_secrets.llm.gemini_api_key` and
   `pkm:runtime_secrets.llm.credential_mode`; Vertex requires the selected
   project and location. Connections setup
-  (`/one/setup/connections`) and Connections settings (`/connect/settings`) are
+  (`/one/setup/connections`) and Connections settings (`/one/connect/settings`) are
   the only configuration surfaces; Connections the agent never receives the key.
 - Typed private-agent turns resolve the key only from an unlocked vault and pass
   it to the existing runtime-provider factory for that request. CRM mapping,

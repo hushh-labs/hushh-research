@@ -4019,6 +4019,9 @@ export class ApiService {
               );
             };
             const handleAbort = () => {
+              // Release only the native client attachment. The explicit
+              // debate cancel action remains the only server-side cancel path.
+              void Kai.cancelKaiAnalysisStream().catch(() => undefined);
               fail(new DOMException("Aborted", "AbortError"));
             };
 
@@ -4236,6 +4239,9 @@ export class ApiService {
               );
             };
             const handleAbort = () => {
+              // Release only the native client attachment. The explicit
+              // debate cancel action remains the only server-side cancel path.
+              void Kai.cancelKaiAnalysisStream().catch(() => undefined);
               fail(new DOMException("Aborted", "AbortError"));
             };
 

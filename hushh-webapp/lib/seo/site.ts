@@ -104,6 +104,7 @@ export const DISALLOWED_PREFIXES = [
   "/pkm",
   "/portfolio",
   "/profile",
+  "/one/profile",
   "/consents",
   "/connected-systems",
   "/gmail",

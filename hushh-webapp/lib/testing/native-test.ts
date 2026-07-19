@@ -12,6 +12,7 @@ declare global {
       expectedMarker?: string;
       initialRoute?: string;
       expectedRoute?: string;
+      uiFlowRunId?: string;
       beacon?: {
         routeId: string;
         marker: string;
@@ -135,7 +136,16 @@ export function isNativeTestVaultBootstrapManaged(
   );
 }
 
-const NATIVE_UI_FLOW_STORAGE_KEY = "__hushh_native_ui_flow_state_v1";
+const NATIVE_UI_FLOW_STORAGE_KEY_PREFIX = "__hushh_native_ui_flow_state_v1";
+
+function nativeUiFlowStorageKey(): string {
+  const runId = String(
+    window.__HUSHH_NATIVE_TEST__?.uiFlowRunId ?? "",
+  ).replace(/[^a-zA-Z0-9_-]/g, "");
+  return runId
+    ? `${NATIVE_UI_FLOW_STORAGE_KEY_PREFIX}:${runId}`
+    : NATIVE_UI_FLOW_STORAGE_KEY_PREFIX;
+}
 
 /**
  * A native UI flow can cross a full WebView document boundary before the
@@ -147,7 +157,7 @@ export function hasIncompleteNativeUiFlowSession(): boolean {
     return false;
   }
   try {
-    const raw = window.sessionStorage.getItem(NATIVE_UI_FLOW_STORAGE_KEY);
+    const raw = window.sessionStorage.getItem(nativeUiFlowStorageKey());
     if (!raw) return false;
     const state = JSON.parse(raw) as {
       started?: unknown;

@@ -517,139 +517,6 @@
       "thread_and_consent_contract": null
     },
     {
-      "route": "/connect",
-      "page_file": "app/connect/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/connect/page-client.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.connect",
-          "purpose": "Help the person understand and use the connect screen through its generated controls.",
-          "screen": "app",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "navigate",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/connect",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fconnect",
-        "expectedMarker": "native-route-connect",
-        "expectedRoute": "/connect",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded",
-          "empty-valid",
-          "unavailable-valid"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/connect/settings",
-      "page_file": "app/connect/settings/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "components/connections/gemini-runtime-configuration-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.connect.settings",
-          "purpose": "Manage private Gemini runtime configuration without exposing a credential to the agent.",
-          "screen": "app",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Saving or removing a key is an explicit encrypted-vault mutation, never a voice action.",
-          "next_route": "/connect/settings",
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/connect/settings",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fconnect%2Fsettings",
-        "expectedMarker": "native-route-connect-settings",
-        "expectedRoute": "/connect/settings",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
       "route": "/connected-systems",
       "page_file": "app/connected-systems/page.tsx",
       "physical_page_exists": true,
@@ -2315,6 +2182,139 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/connect",
+      "page_file": "app/one/connect/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/connect/page-client.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.connect",
+          "purpose": "Help the person understand and use the connect screen through its generated controls.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/connect",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fconnect",
+        "expectedMarker": "native-route-connect",
+        "expectedRoute": "/one/connect",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/connect/settings",
+      "page_file": "app/one/connect/settings/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/connections/gemini-runtime-configuration-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.connect.settings",
+          "purpose": "Manage private Gemini runtime configuration without exposing a credential to the agent.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Saving or removing a key is an explicit encrypted-vault mutation, never a voice action.",
+          "next_route": "/one/connect/settings",
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/connect/settings",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fconnect%2Fsettings",
+        "expectedMarker": "native-route-connect-settings",
+        "expectedRoute": "/one/connect/settings",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/connected-systems",
       "page_file": "app/one/connected-systems/page.tsx",
       "physical_page_exists": true,
@@ -3739,6 +3739,1642 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/profile",
+      "page_file": "app/one/profile/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile",
+          "purpose": "Help the person understand and use the profile screen through its generated controls.",
+          "screen": "profile_account",
+          "entry_cue": "You can say “Open Profile” to use the primary control on this screen.",
+          "proactivity": "on_entry",
+          "primary_action_id": "route.profile",
+          "happy_path_action_ids": [
+            "route.profile"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/one/profile/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "profile.delete_account",
+        "profile.marketplace_visibility.toggle",
+        "profile.sign_out",
+        "profile.support.submit_message",
+        "ria.profile.edit_services",
+        "route.profile",
+        "route.profile_connected_systems",
+        "route.profile_pkm_agent_lab",
+        "route.profile_regulatory",
+        "route.profile_security_panel",
+        "route.profile_support_panel"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/access",
+      "page_file": "app/one/profile/access/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.access",
+          "purpose": "Help the person understand and use the access screen through its generated controls.",
+          "screen": "profile_privacy",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/access",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Faccess",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/access",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/access/connection",
+      "page_file": "app/one/profile/access/connection/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.access.connection",
+          "purpose": "Help the person understand and use the connection screen through its generated controls.",
+          "screen": "profile_privacy",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/access/connection",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Faccess%2Fconnection%3Fid%3Ddemo_connection",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/access/connection?id=demo_connection",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/account",
+      "page_file": "app/one/profile/account/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.account",
+          "purpose": "Help the person understand and use the account screen through its generated controls.",
+          "screen": "profile_account",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/account",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Faccount",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/account",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/account/phone",
+      "page_file": "app/one/profile/account/phone/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.account.phone",
+          "purpose": "Help the person understand and use the phone screen through its generated controls.",
+          "screen": "profile_account",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/account/phone",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Faccount%2Fphone",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/account/phone",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/connected-systems",
+      "page_file": "app/one/profile/connected-systems/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.connected.systems",
+          "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
+          "screen": "connected_systems",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/connected-systems",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fconnected-systems",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/connected-systems",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/gmail",
+      "page_file": "app/one/profile/gmail/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Compatibility redirect route forwards to canonical /one/gmail.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.gmail",
+          "purpose": "Help the person understand and use the gmail screen through its generated controls.",
+          "screen": "profile_gmail_panel",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/gmail",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fgmail",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/gmail",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/gmail/actions",
+      "page_file": "app/one/profile/gmail/actions/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Compatibility redirect route forwards to canonical /one/gmail.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.gmail.actions",
+          "purpose": "Help the person understand and use the actions screen through its generated controls.",
+          "screen": "profile_gmail_panel",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/gmail/actions",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fgmail%2Factions",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/gmail/actions",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/gmail/connection",
+      "page_file": "app/one/profile/gmail/connection/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Compatibility redirect route forwards to canonical /one/gmail.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.gmail.connection",
+          "purpose": "Help the person understand and use the connection screen through its generated controls.",
+          "screen": "profile_gmail_panel",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/gmail/connection",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fgmail%2Fconnection",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/gmail/connection",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/gmail/oauth/return",
+      "page_file": "app/one/profile/gmail/oauth/return/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/gmail/oauth/return/page-client.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageContentRegion",
+          "HushhLoader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.gmail.oauth.return",
+          "purpose": "Help the person understand and use the return screen through its generated controls.",
+          "screen": "profile_account",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/gmail/oauth/return",
+        "classification": "native-required-callback",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fgmail%2Foauth%2Freturn",
+        "expectedMarker": "native-route-profile-gmail-return",
+        "expectedRoute": "/one/profile/gmail/oauth/return",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "redirect-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/my-data",
+      "page_file": "app/one/profile/my-data/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.my.data",
+          "purpose": "Help the person understand and use the personal information screen through its generated controls.",
+          "screen": "profile_my_data",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/my-data",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fmy-data",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/my-data",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/my-data/domain",
+      "page_file": "app/one/profile/my-data/domain/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.my.data.domain",
+          "purpose": "Help the person understand and use the domain screen through its generated controls.",
+          "screen": "profile_my_data",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/my-data/domain",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fmy-data%2Fdomain%3Fkey%3Dfinance",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/my-data/domain?key=finance",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/pkm",
+      "page_file": "app/one/profile/pkm/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Compatibility redirect route forwards to canonical /pkm.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.pkm",
+          "purpose": "Help the person understand and use the pkm screen through its generated controls.",
+          "screen": "pkm",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/pkm",
+        "classification": "native-required-functional",
+        "legacyAlias": true,
+        "initialRoute": "/login?redirect=%2Fprofile%2Fpkm",
+        "expectedMarker": "native-route-pkm",
+        "expectedRoute": "/one/pkm",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/pkm-agent-lab",
+      "page_file": "app/one/profile/pkm-agent-lab/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/profile/pkm-settings-shell.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.pkm.agent.lab",
+          "purpose": "Redirect non-local builds to the product Memory workspace; local developer tooling is intentionally not action-discoverable.",
+          "screen": "profile_pkm_agent_lab",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Non-local builds complete only after redirect settlement to the product Memory route.",
+          "next_route": "/one/pkm",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/pkm-agent-lab",
+        "classification": "excluded-web-only"
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/preferences",
+      "page_file": "app/one/profile/preferences/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.preferences",
+          "purpose": "Help the person understand and use the preferences screen through its generated controls.",
+          "screen": "profile_preferences",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/preferences",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fpreferences",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/preferences",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/preferences/device",
+      "page_file": "app/one/profile/preferences/device/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.preferences.device",
+          "purpose": "Help the person understand and use the device screen through its generated controls.",
+          "screen": "profile_preferences",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/preferences/device",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fpreferences%2Fdevice",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/preferences/device",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/preferences/kai",
+      "page_file": "app/one/profile/preferences/kai/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.preferences.kai",
+          "purpose": "Help the person understand and use the kai screen through its generated controls.",
+          "screen": "profile_preferences",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/preferences/kai",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fpreferences%2Fkai",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/preferences/kai",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/receipts",
+      "page_file": "app/one/profile/receipts/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Compatibility redirect route forwards to canonical /gmail.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.receipts",
+          "purpose": "Help the person understand and use the receipts screen through its generated controls.",
+          "screen": "gmail",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/receipts",
+        "classification": "native-required-functional",
+        "legacyAlias": true,
+        "initialRoute": "/login?redirect=%2Fprofile%2Freceipts",
+        "expectedMarker": "native-route-gmail",
+        "expectedRoute": "/one/gmail",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/regulatory",
+      "page_file": "app/one/profile/regulatory/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.regulatory",
+          "purpose": "Help the person view and manage the regulatory profile inside the unified Profile screen.",
+          "screen": "profile_regulatory",
+          "entry_cue": "You can say “Open Regulatory Profile” to return to this profile panel.",
+          "proactivity": "on_entry",
+          "primary_action_id": "route.profile_regulatory",
+          "happy_path_action_ids": [
+            "route.profile_regulatory",
+            "ria.profile.edit_services"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/regulatory",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fregulatory",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/regulatory",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/security",
+      "page_file": "app/one/profile/security/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.security",
+          "purpose": "Help the person understand and use the security screen through its generated controls.",
+          "screen": "profile_security_panel",
+          "entry_cue": "You can say “Open Vault Security Panel” to use the primary control on this screen.",
+          "proactivity": "on_entry",
+          "primary_action_id": "route.profile_security_panel",
+          "happy_path_action_ids": [
+            "route.profile_security_panel"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": "/one/profile/security",
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/security",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fsecurity",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/security",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/security/session",
+      "page_file": "app/one/profile/security/session/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.security.session",
+          "purpose": "Help the person understand and use the session screen through its generated controls.",
+          "screen": "profile_security_panel",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/security/session",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fsecurity%2Fsession",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/security/session",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/security/vault",
+      "page_file": "app/one/profile/security/vault/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.security.vault",
+          "purpose": "Help the person understand and use the vault screen through its generated controls.",
+          "screen": "profile_security_panel",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/security/vault",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fsecurity%2Fvault",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/security/vault",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/support",
+      "page_file": "app/one/profile/support/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.support",
+          "purpose": "Help the person understand and use the support screen through its generated controls.",
+          "screen": "profile_support_panel",
+          "entry_cue": "You can say “Open Support Panel” to use the primary control on this screen.",
+          "proactivity": "on_entry",
+          "primary_action_id": "route.profile_support_panel",
+          "happy_path_action_ids": [
+            "route.profile_support_panel"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": "/one/profile/support",
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/support",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fsupport",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/support",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/support/compose",
+      "page_file": "app/one/profile/support/compose/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.support.compose",
+          "purpose": "Help the person understand and use the compose screen through its generated controls.",
+          "screen": "profile_support_panel",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/support/compose",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fsupport%2Fcompose%3Fkind%3Dsupport_request",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/support/compose?kind=support_request",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/support/routing",
+      "page_file": "app/one/profile/support/routing/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.support.routing",
+          "purpose": "Help the person understand and use the routing screen through its generated controls.",
+          "screen": "profile_support_panel",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/support/routing",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fsupport%2Frouting",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/support/routing",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/setup",
       "page_file": "app/one/setup/page.tsx",
       "physical_page_exists": true,
@@ -4638,1642 +6274,6 @@
       "thread_and_consent_contract": null
     },
     {
-      "route": "/profile",
-      "page_file": "app/profile/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile",
-          "purpose": "Help the person understand and use the profile screen through its generated controls.",
-          "screen": "profile_account",
-          "entry_cue": "You can say “Open Profile” to use the primary control on this screen.",
-          "proactivity": "on_entry",
-          "primary_action_id": "route.profile",
-          "happy_path_action_ids": [
-            "route.profile"
-          ],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": "app/profile/page.voice-action-contract.json",
-      "voice_action_contract_ids": [
-        "profile.delete_account",
-        "profile.marketplace_visibility.toggle",
-        "profile.sign_out",
-        "profile.support.submit_message",
-        "ria.profile.edit_services",
-        "route.profile",
-        "route.profile_connected_systems",
-        "route.profile_pkm_agent_lab",
-        "route.profile_regulatory",
-        "route.profile_security_panel",
-        "route.profile_support_panel"
-      ],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/access",
-      "page_file": "app/profile/access/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.access",
-          "purpose": "Help the person understand and use the access screen through its generated controls.",
-          "screen": "profile_privacy",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/access",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Faccess",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/access",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/access/connection",
-      "page_file": "app/profile/access/connection/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.access.connection",
-          "purpose": "Help the person understand and use the connection screen through its generated controls.",
-          "screen": "profile_privacy",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/access/connection",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Faccess%2Fconnection%3Fid%3Ddemo_connection",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/access/connection?id=demo_connection",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/account",
-      "page_file": "app/profile/account/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.account",
-          "purpose": "Help the person understand and use the account screen through its generated controls.",
-          "screen": "profile_account",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/account",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Faccount",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/account",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/account/phone",
-      "page_file": "app/profile/account/phone/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.account.phone",
-          "purpose": "Help the person understand and use the phone screen through its generated controls.",
-          "screen": "profile_account",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/account/phone",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Faccount%2Fphone",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/account/phone",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/connected-systems",
-      "page_file": "app/profile/connected-systems/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.connected.systems",
-          "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
-          "screen": "connected_systems",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/connected-systems",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Fconnected-systems",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/connected-systems",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/gmail",
-      "page_file": "app/profile/gmail/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "redirect",
-        "exemption_reason": "Compatibility redirect route forwards to canonical /one/gmail.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.gmail",
-          "purpose": "Help the person understand and use the gmail screen through its generated controls.",
-          "screen": "profile_gmail_panel",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "navigate",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/gmail",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Fgmail",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/gmail",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/gmail/actions",
-      "page_file": "app/profile/gmail/actions/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "redirect",
-        "exemption_reason": "Compatibility redirect route forwards to canonical /one/gmail.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.gmail.actions",
-          "purpose": "Help the person understand and use the actions screen through its generated controls.",
-          "screen": "profile_gmail_panel",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "navigate",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/gmail/actions",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Fgmail%2Factions",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/gmail/actions",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/gmail/connection",
-      "page_file": "app/profile/gmail/connection/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "redirect",
-        "exemption_reason": "Compatibility redirect route forwards to canonical /one/gmail.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.gmail.connection",
-          "purpose": "Help the person understand and use the connection screen through its generated controls.",
-          "screen": "profile_gmail_panel",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "navigate",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/gmail/connection",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Fgmail%2Fconnection",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/gmail/connection",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/gmail/oauth/return",
-      "page_file": "app/profile/gmail/oauth/return/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/gmail/oauth/return/page-client.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageContentRegion",
-          "HushhLoader"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.gmail.oauth.return",
-          "purpose": "Help the person understand and use the return screen through its generated controls.",
-          "screen": "profile_account",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "navigate",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/gmail/oauth/return",
-        "classification": "native-required-callback",
-        "initialRoute": "/login?redirect=%2Fprofile%2Fgmail%2Foauth%2Freturn",
-        "expectedMarker": "native-route-profile-gmail-return",
-        "expectedRoute": "/profile/gmail/oauth/return",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "redirect-valid",
-          "unavailable-valid"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/my-data",
-      "page_file": "app/profile/my-data/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.my.data",
-          "purpose": "Help the person understand and use the personal information screen through its generated controls.",
-          "screen": "profile_my_data",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/my-data",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Fmy-data",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/my-data",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/my-data/domain",
-      "page_file": "app/profile/my-data/domain/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.my.data.domain",
-          "purpose": "Help the person understand and use the domain screen through its generated controls.",
-          "screen": "profile_my_data",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/my-data/domain",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Fmy-data%2Fdomain%3Fkey%3Dfinance",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/my-data/domain?key=finance",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/pkm",
-      "page_file": "app/profile/pkm/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "redirect",
-        "exemption_reason": "Compatibility redirect route forwards to canonical /pkm.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.pkm",
-          "purpose": "Help the person understand and use the pkm screen through its generated controls.",
-          "screen": "pkm",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "navigate",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/pkm",
-        "classification": "native-required-functional",
-        "legacyAlias": true,
-        "initialRoute": "/login?redirect=%2Fprofile%2Fpkm",
-        "expectedMarker": "native-route-pkm",
-        "expectedRoute": "/one/pkm",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/pkm-agent-lab",
-      "page_file": "app/profile/pkm-agent-lab/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "components/profile/pkm-settings-shell.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.pkm.agent.lab",
-          "purpose": "Redirect non-local builds to the product Memory workspace; local developer tooling is intentionally not action-discoverable.",
-          "screen": "profile_pkm_agent_lab",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Non-local builds complete only after redirect settlement to the product Memory route.",
-          "next_route": "/one/pkm",
-          "return_policy": "navigate",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/pkm-agent-lab",
-        "classification": "excluded-web-only"
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/preferences",
-      "page_file": "app/profile/preferences/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.preferences",
-          "purpose": "Help the person understand and use the preferences screen through its generated controls.",
-          "screen": "profile_preferences",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/preferences",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Fpreferences",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/preferences",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/preferences/device",
-      "page_file": "app/profile/preferences/device/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.preferences.device",
-          "purpose": "Help the person understand and use the device screen through its generated controls.",
-          "screen": "profile_preferences",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/preferences/device",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Fpreferences%2Fdevice",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/preferences/device",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/preferences/kai",
-      "page_file": "app/profile/preferences/kai/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.preferences.kai",
-          "purpose": "Help the person understand and use the kai screen through its generated controls.",
-          "screen": "profile_preferences",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/preferences/kai",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Fpreferences%2Fkai",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/preferences/kai",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/receipts",
-      "page_file": "app/profile/receipts/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "redirect",
-        "exemption_reason": "Compatibility redirect route forwards to canonical /gmail.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.receipts",
-          "purpose": "Help the person understand and use the receipts screen through its generated controls.",
-          "screen": "gmail",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "navigate",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/receipts",
-        "classification": "native-required-functional",
-        "legacyAlias": true,
-        "initialRoute": "/login?redirect=%2Fprofile%2Freceipts",
-        "expectedMarker": "native-route-gmail",
-        "expectedRoute": "/one/gmail",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded",
-          "empty-valid",
-          "unavailable-valid"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/regulatory",
-      "page_file": "app/profile/regulatory/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.regulatory",
-          "purpose": "Help the person view and manage the regulatory profile inside the unified Profile screen.",
-          "screen": "profile_regulatory",
-          "entry_cue": "You can say “Open Regulatory Profile” to return to this profile panel.",
-          "proactivity": "on_entry",
-          "primary_action_id": "route.profile_regulatory",
-          "happy_path_action_ids": [
-            "route.profile_regulatory",
-            "ria.profile.edit_services"
-          ],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/regulatory",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Fregulatory",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/regulatory",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/security",
-      "page_file": "app/profile/security/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.security",
-          "purpose": "Help the person understand and use the security screen through its generated controls.",
-          "screen": "profile_security_panel",
-          "entry_cue": "You can say “Open Vault Security Panel” to use the primary control on this screen.",
-          "proactivity": "on_entry",
-          "primary_action_id": "route.profile_security_panel",
-          "happy_path_action_ids": [
-            "route.profile_security_panel"
-          ],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": "/profile/security",
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/security",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Fsecurity",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/security",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/security/session",
-      "page_file": "app/profile/security/session/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.security.session",
-          "purpose": "Help the person understand and use the session screen through its generated controls.",
-          "screen": "profile_security_panel",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/security/session",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Fsecurity%2Fsession",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/security/session",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/security/vault",
-      "page_file": "app/profile/security/vault/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.security.vault",
-          "purpose": "Help the person understand and use the vault screen through its generated controls.",
-          "screen": "profile_security_panel",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/security/vault",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Fsecurity%2Fvault",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/security/vault",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/support",
-      "page_file": "app/profile/support/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.support",
-          "purpose": "Help the person understand and use the support screen through its generated controls.",
-          "screen": "profile_support_panel",
-          "entry_cue": "You can say “Open Support Panel” to use the primary control on this screen.",
-          "proactivity": "on_entry",
-          "primary_action_id": "route.profile_support_panel",
-          "happy_path_action_ids": [
-            "route.profile_support_panel"
-          ],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": "/profile/support",
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/support",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Fsupport",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/support",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/support/compose",
-      "page_file": "app/profile/support/compose/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.support.compose",
-          "purpose": "Help the person understand and use the compose screen through its generated controls.",
-          "screen": "profile_support_panel",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/support/compose",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Fsupport%2Fcompose%3Fkind%3Dsupport_request",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/support/compose?kind=support_request",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
-      "route": "/profile/support/routing",
-      "page_file": "app/profile/support/routing/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.support.routing",
-          "purpose": "Help the person understand and use the routing screen through its generated controls.",
-          "screen": "profile_support_panel",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/profile/support/routing",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fprofile%2Fsupport%2Frouting",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/support/routing",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
       "route": "/register-phone",
       "page_file": "app/register-phone/page.tsx",
       "physical_page_exists": true,
@@ -6918,7 +6918,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "redirect",
-        "exemption_reason": "Compatibility redirect route only launches the unified /profile/regulatory surface.",
+        "exemption_reason": "Compatibility redirect route only launches the unified /one/profile/regulatory surface.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -6942,7 +6942,7 @@
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
           "completion_boundary": "The compatibility redirect has no completion authority.",
-          "next_route": "/profile/regulatory",
+          "next_route": "/one/profile/regulatory",
           "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
@@ -6952,7 +6952,7 @@
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fria%2Fprofile",
         "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile/regulatory",
+        "expectedRoute": "/one/profile/regulatory",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -7074,7 +7074,7 @@
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fria%2Fsettings",
         "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile",
+        "expectedRoute": "/one/profile",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [

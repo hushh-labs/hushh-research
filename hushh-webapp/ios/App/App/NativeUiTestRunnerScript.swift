@@ -28,7 +28,7 @@ enum NativeUiTestRunnerScript {
     "redirect-valid",
     "error",
   ];
-  var UI_FLOW_STORAGE_KEY = "__hushh_native_ui_flow_state_v1";
+  var UI_FLOW_STORAGE_KEY_PREFIX = "__hushh_native_ui_flow_state_v1";
 
   function errorClass(value) {
     var text = "";
@@ -50,9 +50,9 @@ enum NativeUiTestRunnerScript {
 
   var NAV_ROUTE_BY_PERSONA_AND_LABEL = {
     investor: {
-      Market: "/one/kai",
-      Portfolio: "/one/kai/portfolio",
-      Analysis: "/one/kai/analysis",
+      Market: "/one/kai?tab=market",
+      Portfolio: "/one/kai?tab=portfolio",
+      Analysis: "/one/kai?tab=analysis",
       Connect: "/marketplace",
       Profile: "/profile",
     },
@@ -84,6 +84,38 @@ enum NativeUiTestRunnerScript {
       if (visible(nodes[i])) return nodes[i];
     }
     return null;
+  }
+
+  function firstViewportVisible(selector) {
+    var nodes = Array.prototype.slice.call(document.querySelectorAll(selector));
+    for (var i = 0; i < nodes.length; i += 1) {
+      var node = nodes[i];
+      if (!visible(node)) continue;
+      var rect = node.getBoundingClientRect();
+      if (
+        rect.bottom > 0 &&
+        rect.right > 0 &&
+        rect.top < window.innerHeight &&
+        rect.left < window.innerWidth
+      ) {
+        return node;
+      }
+    }
+    return null;
+  }
+
+  function viewportLayoutToken(selector) {
+    var node = firstVisible(selector);
+    if (!node) return "missing";
+    var rect = node.getBoundingClientRect();
+    return [
+      "x" + Math.round(rect.left),
+      "y" + Math.round(rect.top),
+      "w" + Math.round(rect.width),
+      "h" + Math.round(rect.height),
+      "vw" + Math.round(window.innerWidth),
+      "vh" + Math.round(window.innerHeight),
+    ].join("_");
   }
 
   function clickElement(element) {
@@ -561,6 +593,18 @@ enum NativeUiTestRunnerScript {
     return window.__HUSHH_NATIVE_TEST__ || {};
   }
 
+  // A continuous test run needs its own durable-in-page checkpoint so a
+  // client-side navigation can resume the current flow, without inheriting a
+  // completed run from a previous test launch. The id is test metadata only;
+  // it never identifies a person or carries any vault material.
+  function uiFlowStorageKey() {
+    var runId = String(nativeTestBridge().uiFlowRunId || "").replace(
+      /[^a-zA-Z0-9_-]/g,
+      "",
+    );
+    return runId ? UI_FLOW_STORAGE_KEY_PREFIX + ":" + runId : UI_FLOW_STORAGE_KEY_PREFIX;
+  }
+
   function nativeUiFlowRunState() {
     window.__HUSHH_NATIVE_UI_FLOW_STATE__ =
       window.__HUSHH_NATIVE_UI_FLOW_STATE__ || {
@@ -574,7 +618,7 @@ enum NativeUiTestRunnerScript {
 
   function readStoredUiFlowState() {
     try {
-      var raw = window.sessionStorage.getItem(UI_FLOW_STORAGE_KEY);
+      var raw = window.sessionStorage.getItem(uiFlowStorageKey());
       if (!raw) return null;
       return JSON.parse(raw);
     } catch (_) {
@@ -584,7 +628,7 @@ enum NativeUiTestRunnerScript {
 
   function writeStoredUiFlowState(state) {
     try {
-      window.sessionStorage.setItem(UI_FLOW_STORAGE_KEY, JSON.stringify(state));
+      window.sessionStorage.setItem(uiFlowStorageKey(), JSON.stringify(state));
     } catch (_) {}
   }
 
@@ -736,6 +780,17 @@ enum NativeUiTestRunnerScript {
           testId +
           " route=" + window.location.pathname,
       );
+    }
+  }
+
+  async function waitForViewportVisibleTestId(testId, timeoutMs) {
+    var selector = '[data-testid="' + testId + '"]';
+    var ready = await waitForCondition(function () {
+      return Boolean(firstViewportVisible(selector));
+    }, timeoutMs || 30000);
+    if (!ready) {
+      nativeTestBridge().uiFlowLayout = viewportLayoutToken(selector);
+      throw new Error("testid is not in viewport: " + testId);
     }
   }
 
@@ -1224,6 +1279,9 @@ enum NativeUiTestRunnerScript {
       case "assert_visible_testid":
         await waitForVisibleTestId(step.testId, step.timeoutMs);
         return;
+      case "assert_viewport_visible_testid":
+        await waitForViewportVisibleTestId(step.testId, step.timeoutMs);
+        return;
       case "open_ria_workspace":
         await openRiaWorkspace();
         return;
@@ -1247,6 +1305,7 @@ enum NativeUiTestRunnerScript {
       bridge.uiFlowStepIndex = i;
       bridge.uiFlowStepType = step.type || "";
       bridge.uiFlowStepStartedAt = new Date().toISOString();
+      bridge.uiFlowLayout = "";
       bridge.uiFlowLongWait = Number(step.timeoutMs || defaultStepTimeoutMs) >= 120000;
       try {
         await Promise.race([

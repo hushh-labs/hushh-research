@@ -14,6 +14,7 @@ describe("native test automation guards", () => {
     document.documentElement.removeAttribute("data-hushh-native-test-enabled");
     delete (window as Window & { __HUSHH_NATIVE_TEST__?: unknown }).__HUSHH_NATIVE_TEST__;
     window.sessionStorage.removeItem("__hushh_native_ui_flow_state_v1");
+    window.sessionStorage.removeItem("__hushh_native_ui_flow_state_v1:flow-1");
   });
 
   it("does not bypass biometric unlock for normal app users", () => {
@@ -50,8 +51,12 @@ describe("native test automation guards", () => {
   });
 
   it("recognizes only a structurally valid incomplete native flow resume marker", () => {
+    window.__HUSHH_NATIVE_TEST__ = {
+      enabled: true,
+      uiFlowRunId: "flow-1",
+    };
     window.sessionStorage.setItem(
-      "__hushh_native_ui_flow_state_v1",
+      "__hushh_native_ui_flow_state_v1:flow-1",
       JSON.stringify({
         started: true,
         complete: false,
@@ -62,7 +67,7 @@ describe("native test automation guards", () => {
     expect(hasIncompleteNativeUiFlowSession()).toBe(true);
 
     window.sessionStorage.setItem(
-      "__hushh_native_ui_flow_state_v1",
+      "__hushh_native_ui_flow_state_v1:flow-1",
       JSON.stringify({ started: true, complete: false }),
     );
     expect(hasIncompleteNativeUiFlowSession()).toBe(false);

@@ -114,6 +114,7 @@ struct NativeTestConfiguration {
     let expectedUserId: String?
     let resetAppState: Bool
     let runUiFlows: Bool
+    let uiFlowRunId: String?
     let showStatusOverlay: Bool
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
@@ -137,6 +138,7 @@ struct NativeTestConfiguration {
             defaultValue: true
         )
         runUiFlows = testModeEnabled && NativeTestConfiguration.boolValue(for: "-UITestRunUiFlows", in: arguments)
+        uiFlowRunId = testModeEnabled ? NativeTestConfiguration.value(for: "-UITestUiFlowRunId", in: arguments) : nil
         showStatusOverlay = testModeEnabled && NativeTestConfiguration.boolValue(for: "-UITestShowStatusOverlay", in: arguments)
     }
 
@@ -150,6 +152,7 @@ struct NativeTestConfiguration {
             "vaultPassphrase": vaultPassphrase ?? "",
             "expectedUserId": expectedUserId ?? "",
             "runUiFlows": runUiFlows,
+            "uiFlowRunId": uiFlowRunId ?? "",
         ]
 
         guard
@@ -171,6 +174,7 @@ struct NativeTestConfiguration {
           bridge.vaultPassphrase = config.vaultPassphrase || "";
           bridge.expectedUserId = config.expectedUserId || "";
           bridge.runUiFlows = bridge.runUiFlows === true || config.runUiFlows === true;
+          bridge.uiFlowRunId = config.uiFlowRunId || "";
           if (!uiFlowsOwnRouting) {
             bridge.initialRoute = config.initialRoute || null;
             bridge.expectedMarker = config.expectedMarker || null;
@@ -331,6 +335,7 @@ struct NativeTestConfiguration {
               uiFlowStepIndex: String(bridge.uiFlowStepIndex ?? ""),
               uiFlowStepType: bridge.uiFlowStepType || "",
               uiFlowStepStartedAt: bridge.uiFlowStepStartedAt || "",
+              uiFlowLayout: bridge.uiFlowLayout || "",
               uiFlowErrorClass: classifyError(bridge.uiFlowErrorClass || bridge.uiFlowError || ""),
               uiFlowsComplete: bridge.uiFlowsComplete === true,
               uiFlowsOk: bridge.uiFlowsOk === true
@@ -547,6 +552,7 @@ struct NativeTestConfiguration {
             uiFlowStepIndex: String(bridge.uiFlowStepIndex ?? ""),
             uiFlowStepType: bridge.uiFlowStepType || "",
             uiFlowStepStartedAt: bridge.uiFlowStepStartedAt || "",
+            uiFlowLayout: bridge.uiFlowLayout || "",
             uiFlowErrorClass: bridge.uiFlowErrorClass || "",
             uiFlowsComplete: bridge.uiFlowsComplete === true,
             uiFlowsOk: bridge.uiFlowsOk === true

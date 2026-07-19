@@ -71,6 +71,36 @@ describe("OneAuthGate", () => {
     expect(screen.getByText("private one surface")).toBeTruthy();
   });
 
+  it.each(["/one/profile", "/one/connect", "/one/connected-systems"])(
+    "uses the hard vault gate for %s",
+    (pathname) => {
+      mocks.pathname = pathname;
+
+      render(
+        <OneAuthGate>
+          <div>private one surface</div>
+        </OneAuthGate>,
+      );
+
+      expect(screen.getByTestId("vault-lock-guard")).toBeTruthy();
+      expect(screen.getByTestId("phone-mandate-guard")).toBeTruthy();
+    },
+  );
+
+  it("keeps the Gmail OAuth callback signed-in-gated without requiring an in-memory vault key", () => {
+    mocks.pathname = "/one/profile/gmail/oauth/return";
+
+    render(
+      <OneAuthGate>
+        <div>oauth callback</div>
+      </OneAuthGate>,
+    );
+
+    expect(screen.queryByTestId("vault-lock-guard")).toBeNull();
+    expect(screen.getByTestId("phone-mandate-guard")).toBeTruthy();
+    expect(screen.getByText("oauth callback")).toBeTruthy();
+  });
+
   it("keeps circle-invite claim links guarded because claiming needs an account", () => {
     mocks.pathname = "/one/location/invite/circle-token";
 

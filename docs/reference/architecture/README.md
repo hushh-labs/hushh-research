@@ -38,6 +38,7 @@ Brand and compatibility rules live in [../operations/brand-and-compatibility-con
 - [../one/one-agent-hierarchy.md](../one/one-agent-hierarchy.md): current One-led app agent hierarchy from product surface through A2A specialists, operons, services, and consent boundaries.
 - [one-email-kyc.md](./one-email-kyc.md): current One-led KYC mailbox, consent, draft, send, and PKM writeback contract.
 - [frontend-native-surface-map.md](./frontend-native-surface-map.md): generated route/API/native/plugin/voice mapper scaffold.
+- [interaction-runtime.md](./interaction-runtime.md): shared React, One Voice, and Capacitor interaction-ordering contract.
 - [loading-policy.md](./loading-policy.md): canonical loading and empty-state policy.
 - [cache-coherence.md](./cache-coherence.md): cache invalidation and freshness model.
 - [data-model-governance.md](./data-model-governance.md): maintainer SOP for schema, data classes, retention, deletion, and table-family changes.

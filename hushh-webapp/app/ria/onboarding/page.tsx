@@ -63,13 +63,14 @@ const SCRAPE_POLL_INTERVAL_MS = 5_000;
 const RIA_ENVIRONMENT_BYPASS_STATUS = "Environment bypass";
 
 // Decorative advisor photo per onboarding step (transparent, feather-edged
-// WebP under public/ria/onboarding). Welcome = full-bleed hero above the
-// eyebrow; every other step = smaller top-right accent overlapping the header.
+// WebP under public/ria/onboarding). Every step uses the same top-right accent
+// composition so the opening choice has the same compact, side-by-side header
+// geometry as the rest of the RIA setup flow.
 const RIA_ONBOARDING_STEP_IMAGES: Record<
   string,
   { src: string; variant: "hero" | "accent"; badge?: boolean }
 > = {
-  welcome: { src: "/ria/onboarding/adv4f.webp", variant: "hero" },
+  welcome: { src: "/ria/onboarding/adv4f.webp", variant: "accent" },
   license_number: { src: "/ria/onboarding/adv2f.webp", variant: "accent" },
   license_details: {
     src: "/ria/onboarding/adv3f.webp",

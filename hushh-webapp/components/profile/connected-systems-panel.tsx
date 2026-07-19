@@ -195,19 +195,19 @@ function ConnectedSystemLogo({
   const label = system?.customerDisplayName || system?.target || "CRM system";
   const dimensions =
     size === "hero"
-      ? "h-14 w-28 rounded-xl px-3 py-2"
-      : "h-10 w-16 rounded-xl px-2.5 py-1.5";
+      ? "h-12 w-12 rounded-[14px] p-2.5"
+      : "h-10 w-10 rounded-[12px] p-2";
 
   return (
     <span
-      className={`${dimensions} inline-flex shrink-0 items-center justify-center border border-border/60 bg-white shadow-sm`}
+      className={`${dimensions} inline-flex shrink-0 items-center justify-center border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-foreground shadow-[var(--shadow-xs)]`}
     >
       {logoSrc ? (
         <Image
           src={logoSrc}
           alt={`${label} logo`}
-          width={size === "hero" ? 112 : 64}
-          height={size === "hero" ? 56 : 40}
+          width={size === "hero" ? 48 : 40}
+          height={size === "hero" ? 48 : 40}
           className="h-full w-full object-contain"
           unoptimized
         />
@@ -1292,7 +1292,13 @@ export function ConnectedSystemsPanel({
                   title={title}
                   description={crmTypeDisplayLabel(system) || "CRM"}
                   trailing={
-                    <span className="max-w-[7.5rem] truncate text-xs text-muted-foreground sm:max-w-[10rem]">
+                    <span
+                      className={`max-w-[7.5rem] truncate text-xs font-medium sm:max-w-[10rem] ${
+                        system.status === "connected"
+                          ? "text-emerald-700 dark:text-emerald-300"
+                          : "text-muted-foreground"
+                      }`}
+                    >
                       {statusBadge(system.status)}
                     </span>
                   }

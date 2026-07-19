@@ -695,7 +695,7 @@
     }
   },
   {
-    "route": "/connect",
+    "route": "/one/connect",
     "mode": "standard",
     "shellVerification": {
       "file": "app/connect/page-client.tsx",
@@ -731,7 +731,7 @@
     }
   },
   {
-    "route": "/connect/settings",
+    "route": "/one/connect/settings",
     "mode": "standard",
     "shellVerification": {
       "file": "components/connections/gemini-runtime-configuration-page.tsx",
@@ -748,7 +748,7 @@
       "requiredInputs": [],
       "recoveries": {"blocked": "Explain the current guard and retain the goal.", "cancelled": "Respect the cancellation and retain a safe next step.", "failed": "Acknowledge the failure without claiming completion.", "timeout": "Retain the goal and offer one safe retry.", "callbackError": "Return to the verified callback recovery path without claiming success.", "routeMismatch": "Use the verified current route and its generated actions only."},
       "completionBoundary": "Saving or removing a key is an explicit encrypted-vault mutation, never a voice action.",
-      "nextRoute": "/connect/settings",
+      "nextRoute": "/one/connect/settings",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
@@ -1866,7 +1866,7 @@
     }
   },
   {
-    "route": "/profile",
+    "route": "/one/profile",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -1902,7 +1902,7 @@
     }
   },
   {
-    "route": "/profile/regulatory",
+    "route": "/one/profile/regulatory",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -1938,7 +1938,7 @@
     }
   },
   {
-    "route": "/profile/account",
+    "route": "/one/profile/account",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -1974,7 +1974,7 @@
     }
   },
   {
-    "route": "/profile/account/phone",
+    "route": "/one/profile/account/phone",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2010,7 +2010,7 @@
     }
   },
   {
-    "route": "/profile/preferences",
+    "route": "/one/profile/preferences",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2046,7 +2046,7 @@
     }
   },
   {
-    "route": "/profile/preferences/kai",
+    "route": "/one/profile/preferences/kai",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2082,7 +2082,7 @@
     }
   },
   {
-    "route": "/profile/preferences/device",
+    "route": "/one/profile/preferences/device",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2118,7 +2118,7 @@
     }
   },
   {
-    "route": "/profile/security",
+    "route": "/one/profile/security",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2148,13 +2148,13 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": "/profile/security",
+      "nextRoute": "/one/profile/security",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
-    "route": "/profile/security/vault",
+    "route": "/one/profile/security/vault",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2190,7 +2190,7 @@
     }
   },
   {
-    "route": "/profile/security/session",
+    "route": "/one/profile/security/session",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2226,7 +2226,7 @@
     }
   },
   {
-    "route": "/profile/my-data",
+    "route": "/one/profile/my-data",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2262,7 +2262,7 @@
     }
   },
   {
-    "route": "/profile/my-data/domain",
+    "route": "/one/profile/my-data/domain",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2298,7 +2298,7 @@
     }
   },
   {
-    "route": "/profile/access",
+    "route": "/one/profile/access",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2334,7 +2334,7 @@
     }
   },
   {
-    "route": "/profile/access/connection",
+    "route": "/one/profile/access/connection",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2370,7 +2370,7 @@
     }
   },
   {
-    "route": "/profile/connected-systems",
+    "route": "/one/profile/connected-systems",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2406,7 +2406,7 @@
     }
   },
   {
-    "route": "/profile/gmail",
+    "route": "/one/profile/gmail",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect route forwards to canonical /one/gmail.",
     "voicePlaybook": {
@@ -2433,7 +2433,7 @@
     }
   },
   {
-    "route": "/profile/gmail/connection",
+    "route": "/one/profile/gmail/connection",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect route forwards to canonical /one/gmail.",
     "voicePlaybook": {
@@ -2460,7 +2460,7 @@
     }
   },
   {
-    "route": "/profile/gmail/actions",
+    "route": "/one/profile/gmail/actions",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect route forwards to canonical /one/gmail.",
     "voicePlaybook": {
@@ -2487,7 +2487,7 @@
     }
   },
   {
-    "route": "/profile/support",
+    "route": "/one/profile/support",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2517,13 +2517,13 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": "/profile/support",
+      "nextRoute": "/one/profile/support",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
-    "route": "/profile/support/routing",
+    "route": "/one/profile/support/routing",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2559,7 +2559,7 @@
     }
   },
   {
-    "route": "/profile/support/compose",
+    "route": "/one/profile/support/compose",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2595,7 +2595,7 @@
     }
   },
   {
-    "route": "/profile/gmail/oauth/return",
+    "route": "/one/profile/gmail/oauth/return",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/gmail/oauth/return/page-client.tsx",
@@ -2625,7 +2625,7 @@
     }
   },
   {
-    "route": "/profile/receipts",
+    "route": "/one/profile/receipts",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect route forwards to canonical /gmail.",
     "voicePlaybook": {
@@ -2652,7 +2652,7 @@
     }
   },
   {
-    "route": "/profile/pkm",
+    "route": "/one/profile/pkm",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect route forwards to canonical /pkm.",
     "voicePlaybook": {
@@ -2679,7 +2679,7 @@
     }
   },
   {
-    "route": "/profile/pkm-agent-lab",
+    "route": "/one/profile/pkm-agent-lab",
     "mode": "standard",
     "shellVerification": {
       "file": "components/profile/pkm-settings-shell.tsx",
@@ -3147,7 +3147,7 @@
   {
     "route": "/ria/profile",
     "mode": "redirect",
-    "exemptionReason": "Compatibility redirect route only launches the unified /profile/regulatory surface.",
+    "exemptionReason": "Compatibility redirect route only launches the unified /one/profile/regulatory surface.",
     "voicePlaybook": {
       "playbookId": "route.ria.profile",
       "purpose": "Compatibility redirect only; it exposes no executable RIA profile actions.",
@@ -3166,7 +3166,7 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "The compatibility redirect has no completion authority.",
-      "nextRoute": "/profile/regulatory",
+      "nextRoute": "/one/profile/regulatory",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }

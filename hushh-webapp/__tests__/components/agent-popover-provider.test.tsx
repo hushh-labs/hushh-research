@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider";
 
 const navigationMock = vi.hoisted(() => ({
-  pathname: "/profile",
+  pathname: "/one/profile",
 }));
 
 vi.mock("next/navigation", () => ({
@@ -120,7 +120,7 @@ describe("AgentPopoverProvider surface ownership", () => {
   });
 
   it("does not render a duplicate floating trigger on Profile command-bar routes", () => {
-    navigationMock.pathname = "/profile";
+    navigationMock.pathname = "/one/profile";
 
     render(
       <div>

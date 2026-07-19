@@ -394,7 +394,7 @@ export default function ProfileGmailOAuthReturnPageClient({
         width="reading"
         className="flex min-h-[60vh] items-center justify-center"
         nativeTest={{
-          routeId: "/profile/gmail/oauth/return",
+          routeId: "/one/profile/gmail/oauth/return",
           marker: "native-route-profile-gmail-return",
           authState: user?.uid ? "authenticated" : "pending",
           dataState:
@@ -422,7 +422,7 @@ export default function ProfileGmailOAuthReturnPageClient({
       width="reading"
       className="flex min-h-[60vh] items-center justify-center"
       nativeTest={{
-        routeId: "/profile/gmail/oauth/return",
+        routeId: "/one/profile/gmail/oauth/return",
         marker: "native-route-profile-gmail-return",
         authState: user?.uid ? "authenticated" : "pending",
         dataState: "unavailable-valid",

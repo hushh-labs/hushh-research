@@ -72,6 +72,7 @@ import { NativeTestRouter } from "@/components/app-ui/native-test-router";
 import { RiaSurfaceScopeSync } from "@/components/ria/ria-surface-scope-sync";
 import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
 import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-status";
+import { InteractionRuntime } from "@/components/app-ui/interaction-runtime";
 import {
   INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
   type InternalAppNavigationRequest,
@@ -340,7 +341,7 @@ function AppShellFrame({ children }: ProvidersProps) {
           return;
         }
         router.push(href, { scroll });
-      });
+      }, customEvent.detail?.source ?? "programmatic");
     };
 
     window.addEventListener(
@@ -436,7 +437,8 @@ function AppShellFrame({ children }: ProvidersProps) {
               <NativeTestRouter />
               <NativeTestBootstrap />
               <NativeTestRouteStatus />
-              <FoundationPublicAmbient />
+      <InteractionRuntime />
+      <FoundationPublicAmbient />
               <AmbientChromeController enabled={ambientChromeEnabled} />
               {/* Voice chrome is hoisted ABOVE the page Suspense boundary so it
                 mounts exactly once and survives client-side route transitions.

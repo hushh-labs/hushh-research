@@ -43,6 +43,8 @@ import { useVault } from "@/lib/vault/vault-context";
 import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 
 function statusLabel(task: DebateRunTask): string {
+  if (task.status === "running" && task.streamState === "reconnecting") return "Reconnecting";
+  if (task.status === "running" && task.streamState === "paused") return "Updates paused";
   if (task.status === "running") return "Running";
   if (task.status === "completed") return "Completed";
   if (task.status === "failed") return "Failed";
@@ -459,6 +461,11 @@ export function DebateTaskCenter({
                 <p className="mt-1 text-xs text-muted-foreground">
                   Started {new Date(item.task.startedAt).toLocaleTimeString()}
                 </p>
+                {item.task.status === "running" && item.task.streamMessage ? (
+                  <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                    {item.task.streamMessage}
+                  </p>
+                ) : null}
                 {item.task.persistenceState === "pending" ? (
                   <p className="mt-1 text-xs text-amber-500">Saving to history…</p>
                 ) : null}
@@ -577,7 +584,7 @@ export function DebateTaskCenter({
       <section aria-label="Background activity" className="py-1">
         <div className="flex items-center justify-between gap-3 px-1 py-2.5">
           <div>
-            <p className="text-sm font-semibold text-foreground">Activity</p>
+            <p className="text-sm font-semibold text-foreground">Notifications</p>
             <p className="text-[11px] text-muted-foreground">Updates from One and Kai</p>
           </div>
           {activeCount > 0 ? (

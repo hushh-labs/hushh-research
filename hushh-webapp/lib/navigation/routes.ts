@@ -58,31 +58,31 @@ export const ROUTES = {
   GETTING_STARTED: "/getting-started",
   LOGOUT: "/logout",
   PHONE_MANDATE: "/register-phone",
-  PROFILE: "/profile",
-  PROFILE_REGULATORY: "/profile/regulatory",
-  PROFILE_ACCOUNT: "/profile/account",
-  PROFILE_ACCOUNT_PHONE: "/profile/account/phone",
-  PROFILE_PREFERENCES: "/profile/preferences",
-  PROFILE_PREFERENCES_KAI: "/profile/preferences/kai",
-  PROFILE_PREFERENCES_DEVICE: "/profile/preferences/device",
-  PROFILE_SECURITY: "/profile/security",
-  PROFILE_SECURITY_VAULT: "/profile/security/vault",
-  PROFILE_SECURITY_SESSION: "/profile/security/session",
-  PROFILE_MY_DATA: "/profile/my-data",
-  PROFILE_MY_DATA_DOMAIN: "/profile/my-data/domain",
-  PROFILE_ACCESS: "/profile/access",
-  PROFILE_ACCESS_CONNECTION: "/profile/access/connection",
-  PROFILE_CONNECTED_SYSTEMS: "/profile/connected-systems",
-  PROFILE_GMAIL: "/profile/gmail",
-  PROFILE_GMAIL_CONNECTION: "/profile/gmail/connection",
-  PROFILE_GMAIL_ACTIONS: "/profile/gmail/actions",
-  PROFILE_SUPPORT: "/profile/support",
-  PROFILE_SUPPORT_ROUTING: "/profile/support/routing",
-  PROFILE_SUPPORT_COMPOSE: "/profile/support/compose",
-  PROFILE_PKM: "/profile/pkm",
-  PROFILE_PKM_AGENT_LAB: "/profile/pkm-agent-lab",
-  PROFILE_RECEIPTS: "/profile/receipts",
-  PROFILE_GMAIL_OAUTH_RETURN: "/profile/gmail/oauth/return",
+  PROFILE: "/one/profile",
+  PROFILE_REGULATORY: "/one/profile/regulatory",
+  PROFILE_ACCOUNT: "/one/profile/account",
+  PROFILE_ACCOUNT_PHONE: "/one/profile/account/phone",
+  PROFILE_PREFERENCES: "/one/profile/preferences",
+  PROFILE_PREFERENCES_KAI: "/one/profile/preferences/kai",
+  PROFILE_PREFERENCES_DEVICE: "/one/profile/preferences/device",
+  PROFILE_SECURITY: "/one/profile/security",
+  PROFILE_SECURITY_VAULT: "/one/profile/security/vault",
+  PROFILE_SECURITY_SESSION: "/one/profile/security/session",
+  PROFILE_MY_DATA: "/one/profile/my-data",
+  PROFILE_MY_DATA_DOMAIN: "/one/profile/my-data/domain",
+  PROFILE_ACCESS: "/one/profile/access",
+  PROFILE_ACCESS_CONNECTION: "/one/profile/access/connection",
+  PROFILE_CONNECTED_SYSTEMS: "/one/profile/connected-systems",
+  PROFILE_GMAIL: "/one/profile/gmail",
+  PROFILE_GMAIL_CONNECTION: "/one/profile/gmail/connection",
+  PROFILE_GMAIL_ACTIONS: "/one/profile/gmail/actions",
+  PROFILE_SUPPORT: "/one/profile/support",
+  PROFILE_SUPPORT_ROUTING: "/one/profile/support/routing",
+  PROFILE_SUPPORT_COMPOSE: "/one/profile/support/compose",
+  PROFILE_PKM: "/one/profile/pkm",
+  PROFILE_PKM_AGENT_LAB: "/one/profile/pkm-agent-lab",
+  PROFILE_RECEIPTS: "/one/profile/receipts",
+  PROFILE_GMAIL_OAUTH_RETURN: "/one/profile/gmail/oauth/return",
   OAUTH_AUTHORIZE: "/oauth/authorize",
   ONE_SETUP: "/one/setup",
   ONE_SETUP_FINANCE: "/one/setup/finance",
@@ -103,8 +103,8 @@ export const ROUTES = {
   /** Compatibility-only access manager route. Preserve inbound partner links. */
   LEGACY_CONSENTS: "/consents",
   AGENT: "/agent",
-  CONNECT: "/connect",
-  CONNECT_SETTINGS: "/connect/settings",
+  CONNECT: "/one/connect",
+  CONNECT_SETTINGS: "/one/connect/settings",
   MARKETPLACE: "/marketplace",
   MARKETPLACE_CONNECTIONS: "/marketplace/connections",
   MARKETPLACE_RIA_PROFILE: "/marketplace/ria",
@@ -364,10 +364,19 @@ export function buildMarketplaceConnectionsRoute(entries?: {
   });
 }
 
-export function buildConnectedSystemRoute(systemId?: string | null) {
+export function buildConnectedSystemRoute(
+  systemId?: string | null,
+  entries?: { agentActionId?: string | null },
+) {
   const normalized = String(systemId ?? "").trim();
   if (!normalized) return ROUTES.CONNECTED_SYSTEMS;
-  return `${ROUTES.CONNECTED_SYSTEMS}/${encodeURIComponent(normalized)}`;
+  // Connected systems are runtime-configured. Keep their selection on the
+  // statically exported workspace route so every registered CRM works in
+  // Capacitor without a cold navigation to an unbuilt dynamic path.
+  return withQuery(ROUTES.CONNECTED_SYSTEMS, {
+    system: normalized,
+    agentActionId: entries?.agentActionId,
+  });
 }
 
 export function buildMarketplaceConnectionPortfolioRoute(
@@ -533,7 +542,6 @@ export function isPublicRoute(pathname: string): boolean {
     pathname === ROUTES.GETTING_STARTED ||
     pathname === ROUTES.PHONE_MANDATE ||
     pathname === ROUTES.LOGOUT ||
-    pathname === ROUTES.PROFILE ||
     pathname === ROUTES.RESEARCH ||
     pathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     pathname === ROUTES.BLOG ||

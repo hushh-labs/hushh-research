@@ -7,6 +7,7 @@ import {
 import {
   buildPkmMemorySnapshot,
   selectRelevantPkmMemoryCards,
+  shouldSkipPkmMemoryKey,
   type PkmMemorySnapshot,
 } from "@/lib/pkm/pkm-memory-cards";
 
@@ -39,6 +40,31 @@ const MAX_ARRAY_ITEMS = 8;
 const MAX_DEPTH = 5;
 
 const workingSets = new Map<string, AgentPkmWorkingSet>();
+const workingSetGenerations = new Map<string, number>();
+let globalWorkingSetGeneration = 0;
+let pkmChangeListenerInstalled = false;
+
+function currentGeneration(userId: string): string {
+  return `${globalWorkingSetGeneration}:${workingSetGenerations.get(userId) ?? 0}`;
+}
+
+function invalidateWorkingSet(userId: string): void {
+  workingSets.delete(userId);
+  const nextUserGeneration = (workingSetGenerations.get(userId) ?? 0) + 1;
+  workingSetGenerations.set(userId, nextUserGeneration);
+}
+
+function ensurePkmChangeListener(): void {
+  if (typeof window === "undefined" || pkmChangeListenerInstalled) return;
+  window.addEventListener("pkm-domain-changed", (event: Event) => {
+    const detail = (event as CustomEvent<{ userId?: unknown }>).detail;
+    const userId = typeof detail?.userId === "string" ? detail.userId.trim() : "";
+    if (userId) {
+      invalidateWorkingSet(userId);
+    }
+  });
+  pkmChangeListenerInstalled = true;
+}
 
 function compactWhitespace(value: unknown): string {
   return String(value ?? "").replace(/\s+/g, " ").trim();
@@ -117,7 +143,11 @@ function flattenDomain(
   depth = 0,
   lines: FlattenedPkmLine[] = []
 ): FlattenedPkmLine[] {
-  if (lines.length >= MAX_DETAIL_LINES * 2 || depth > MAX_DEPTH) {
+  if (
+    shouldSkipPkmMemoryKey(domain) ||
+    lines.length >= MAX_DETAIL_LINES * 2 ||
+    depth > MAX_DEPTH
+  ) {
     return lines;
   }
 
@@ -159,6 +189,7 @@ function flattenDomain(
 
   for (const [key, child] of Object.entries(value)) {
     if (lines.length >= MAX_DETAIL_LINES * 2) break;
+    if (shouldSkipPkmMemoryKey(key)) continue;
     flattenDomain(domain, child, promptTokens, path ? `${path}.${key}` : key, depth + 1, lines);
   }
   return lines;
@@ -184,7 +215,11 @@ function scoreLine(
 function domainSummaryLines(metadata: PersonalKnowledgeModelMetadata | null): string[] {
   if (!metadata?.domains?.length) return [];
   return metadata.domains
-    .filter((domain) => domain.attributeCount > 0 || domain.readableSummary)
+    .filter(
+      (domain) =>
+        !shouldSkipPkmMemoryKey(domain.key) &&
+        (domain.attributeCount > 0 || domain.readableSummary)
+    )
     .map((domain) => {
       const summary =
         clip(domain.readableSummary, 220) ||
@@ -209,7 +244,11 @@ function memoryDomainSummaryLines(workingSet: AgentPkmWorkingSet): string[] {
     return domainSummaryLines(workingSet.metadata);
   }
   return workingSet.memorySnapshot.domainInsights
-    .filter((domain) => domain.cardCount > 0 || domain.summary)
+    .filter(
+      (domain) =>
+        !shouldSkipPkmMemoryKey(domain.domain) &&
+        (domain.cardCount > 0 || domain.summary)
+    )
     .map((domain) =>
       [
         `- ${domain.title} (${domain.domain})`,
@@ -240,7 +279,7 @@ function buildContextText(params: {
       ...(workingSet.metadata?.domains.map((domain) => domain.key).filter(Boolean) || []),
       ...Object.keys(workingSet.fullBlob || {}),
     ])
-  );
+  ).filter((domain) => !shouldSkipPkmMemoryKey(domain));
 
   const allLines = domainKeys.flatMap((domain) =>
     flattenDomain(domain, (workingSet.fullBlob || {})[domain], promptTokens)
@@ -306,14 +345,15 @@ function buildContextText(params: {
 export class AgentPkmContextStore {
   static clear(userId?: string): void {
     if (userId) {
-      workingSets.delete(userId);
+      invalidateWorkingSet(userId);
       return;
     }
     workingSets.clear();
+    globalWorkingSetGeneration += 1;
   }
 
   static invalidateUser(userId: string): void {
-    workingSets.delete(userId);
+    invalidateWorkingSet(userId);
   }
 
   static peek(params: {
@@ -321,6 +361,7 @@ export class AgentPkmContextStore {
     message?: string;
     maxChars?: number;
   }): AgentPkmWorkingContext | null {
+    ensurePkmChangeListener();
     const cached = workingSets.get(params.userId);
     if (!cached || Date.now() - cached.loadedAt >= SESSION_TTL_MS) {
       return null;
@@ -340,12 +381,17 @@ export class AgentPkmContextStore {
     message?: string;
     forceRefresh?: boolean;
     maxChars?: number;
-  }): Promise<AgentPkmWorkingContext> {
+  }): Promise<AgentPkmWorkingContext | null> {
+    ensurePkmChangeListener();
+    const generation = currentGeneration(params.userId);
     const metadata = await PersonalKnowledgeModelService.getMetadata(
       params.userId,
       params.forceRefresh === true,
       params.vaultOwnerToken
     );
+    if (generation !== currentGeneration(params.userId)) {
+      return null;
+    }
     const cached = workingSets.get(params.userId);
     const metadataUpdatedAt = metadata.lastUpdated || null;
     const cacheFresh =
@@ -356,12 +402,15 @@ export class AgentPkmContextStore {
     const workingSet =
       !params.forceRefresh && cacheFresh
         ? cached
-        : await (async (): Promise<AgentPkmWorkingSet> => {
+        : await (async (): Promise<AgentPkmWorkingSet | null> => {
             const fullBlob = await PersonalKnowledgeModelService.loadFullBlob({
               userId: params.userId,
               vaultKey: params.vaultKey,
               vaultOwnerToken: params.vaultOwnerToken,
             });
+            if (generation !== currentGeneration(params.userId)) {
+              return null;
+            }
             return {
               userId: params.userId,
               metadata,
@@ -375,6 +424,9 @@ export class AgentPkmContextStore {
             };
           })();
 
+    if (!workingSet || generation !== currentGeneration(params.userId)) {
+      return null;
+    }
     workingSets.set(params.userId, workingSet);
 
     return buildContextText({

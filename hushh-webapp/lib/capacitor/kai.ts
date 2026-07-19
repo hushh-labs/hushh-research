@@ -212,6 +212,15 @@ export interface KaiPlugin {
   }): Promise<{ success: boolean }>;
 
   /**
+   * Detach the native SSE transport for the active Kai analysis only.
+   *
+   * This never calls the server-side run cancellation endpoint. It lets the
+   * client release a foreground-only native connection and later reattach to
+   * the same resumable run from its canonical event cursor.
+   */
+  cancelKaiAnalysisStream(): Promise<{ cancelled: boolean }>;
+
+  /**
    * Subscribe to plugin events (e.g. portfolioStreamEvent, kaiStreamEvent).
    * Event payload is canonical shape: { event, data, id }.
    */

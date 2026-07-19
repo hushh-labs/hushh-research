@@ -612,6 +612,20 @@ export function resolveTopShellBreadcrumb(
   }
 
   if (pathname === ROUTES.CONNECTED_SYSTEMS) {
+    const selectedSystemId = String(searchParams?.get("system") || "").trim();
+    if (selectedSystemId) {
+      return {
+        backHref: ROUTES.CONNECTED_SYSTEMS,
+        width: "profile",
+        align: "center",
+        items: [
+          { label: "One", href: ROUTES.ONE_HOME },
+          { label: "Connected Systems", href: ROUTES.CONNECTED_SYSTEMS },
+          { label: "System detail" },
+        ],
+      };
+    }
+
     // Origin-aware (see PKM above): setup-hub origin retraces to the hub.
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     return {

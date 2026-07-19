@@ -2,6 +2,10 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import {
+  appInteractionCoordinator,
+  type InteractionIntentSource,
+} from "@/lib/interaction/interaction-intent-coordinator";
 
 /**
  * App-wide route transition driver.
@@ -57,6 +61,8 @@ type RouteTransitionState = "idle" | "pending" | "entering";
 let clearTimer: number | null = null;
 let maxPendingTimer: number | null = null;
 let settleTimer: number | null = null;
+let commitTimer: number | null = null;
+let activeRouteIntentId: string | null = null;
 
 // True while the exit beat is playing and we are about to perform the *real*
 // history mutation. Lets the patched pushState/replaceState recognise the
@@ -76,9 +82,11 @@ function clearRouteTimers() {
   if (clearTimer) window.clearTimeout(clearTimer);
   if (maxPendingTimer) window.clearTimeout(maxPendingTimer);
   if (settleTimer) window.clearTimeout(settleTimer);
+  if (commitTimer) window.clearTimeout(commitTimer);
   clearTimer = null;
   maxPendingTimer = null;
   settleTimer = null;
+  commitTimer = null;
 }
 
 function playEnter() {
@@ -99,49 +107,80 @@ function playEnter() {
  * is now driven by the resolved pathname, not this value.
  */
 export function beginRouteTransition(
-  _targetHref: string,
+  targetHref: string,
   navigate: () => void,
+  source: InteractionIntentSource = "programmatic",
 ): void {
   if (typeof window === "undefined") {
     navigate();
     return;
   }
-  if (reducedMotion()) {
-    navigate();
-    return;
-  }
+  appInteractionCoordinator.requestNavigation({
+    target: targetHref,
+    source,
+    start: (intent) => {
+      activeRouteIntentId = intent.id;
+      clearRouteTimers();
+      if (reducedMotion()) {
+        appInteractionCoordinator.markNavigationCommitting(intent.id);
+        transitionInFlight = true;
+        try {
+          navigate();
+        } finally {
+          Promise.resolve().then(() => {
+            transitionInFlight = false;
+          });
+        }
+        return () => undefined;
+      }
 
-  clearRouteTimers();
-  setRouteState("pending");
-  // Safety net only: if the new route never resolves (the pathname effect that
-  // owns the enter beat never fires), force back to idle so the page is never
-  // left stuck faded out.
-  maxPendingTimer = window.setTimeout(
-    () => setRouteState("idle"),
-    MAX_PENDING_MS,
-  );
-  // Belt-and-suspenders: if for some reason the pathname effect does not run
-  // (e.g. a replace to the same component tree), still reveal after a short
-  // settle so we never sit on a faded-out frame.
-  settleTimer = window.setTimeout(() => {
-    if (document.documentElement.dataset.routeTransition === "pending") {
-      playEnter();
-    }
-  }, EXIT_MS + SETTLE_MS);
+      setRouteState("pending");
+      // Safety net only: if the new route never resolves (the pathname effect
+      // owns the enter beat), force the visual layer back to idle.
+      maxPendingTimer = window.setTimeout(
+        () => {
+          if (appInteractionCoordinator.isCurrentNavigation(intent.id)) {
+            setRouteState("idle");
+            appInteractionCoordinator.cancelNavigation(intent.id, "route_settlement_timeout");
+          }
+        },
+        MAX_PENDING_MS,
+      );
+      settleTimer = window.setTimeout(() => {
+        if (
+          appInteractionCoordinator.isCurrentNavigation(intent.id) &&
+          document.documentElement.dataset.routeTransition === "pending"
+        ) {
+          playEnter();
+        }
+      }, EXIT_MS + SETTLE_MS);
 
-  window.setTimeout(() => {
-    // Flag the real navigation so the patched history methods let it through
-    // instead of opening a second envelope. Cleared on a microtask so any
-    // synchronous pushState/replaceState triggered by `navigate` is covered.
-    transitionInFlight = true;
-    try {
-      navigate();
-    } finally {
-      Promise.resolve().then(() => {
-        transitionInFlight = false;
-      });
-    }
-  }, EXIT_MS);
+      // This timer is intentionally owned by the navigation intent. A newer
+      // destination clears it before it can mutate history; that is the native
+      // rapid-tap invariant the former global timer did not provide.
+      commitTimer = window.setTimeout(() => {
+        if (!appInteractionCoordinator.isCurrentNavigation(intent.id)) return;
+        appInteractionCoordinator.markNavigationCommitting(intent.id);
+        transitionInFlight = true;
+        try {
+          navigate();
+        } finally {
+          Promise.resolve().then(() => {
+            transitionInFlight = false;
+          });
+        }
+      }, EXIT_MS);
+
+      return (reason) => {
+        if (activeRouteIntentId !== intent.id) return;
+        clearRouteTimers();
+        activeRouteIntentId = null;
+        if (reason !== "superseded_by_newer_navigation") {
+          setRouteState("idle");
+        }
+      };
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -289,7 +328,7 @@ export function useRouteTransition() {
       if (!href) return;
 
       event.preventDefault();
-      beginRouteTransition(href, () => router.push(href));
+      beginRouteTransition(href, () => router.push(href), "tap");
     }
 
     function onPageShow() {
@@ -306,7 +345,15 @@ export function useRouteTransition() {
     window.addEventListener("pageshow", onPageShow);
 
     return () => {
-      clearRouteTimers();
+      if (activeRouteIntentId) {
+        appInteractionCoordinator.cancelNavigation(
+          activeRouteIntentId,
+          "route_transition_unmounted",
+        );
+        activeRouteIntentId = null;
+      } else {
+        clearRouteTimers();
+      }
       document.removeEventListener("click", onClick, true);
       window.removeEventListener("pageshow", onPageShow);
       restoreHistory();
@@ -330,7 +377,20 @@ export function useRouteTransition() {
       mounted.current = true;
       return;
     }
-    if (reducedMotion()) return;
+    if (reducedMotion()) {
+      if (activeRouteIntentId) {
+        appInteractionCoordinator.settleNavigation(
+          activeRouteIntentId,
+          "pathname_settled",
+        );
+        activeRouteIntentId = null;
+      }
+      return;
+    }
     playEnter();
+    if (activeRouteIntentId) {
+      appInteractionCoordinator.settleNavigation(activeRouteIntentId, "pathname_settled");
+      activeRouteIntentId = null;
+    }
   }, [pathname]);
 }

@@ -76,6 +76,11 @@ const INTERNAL_KEYS = new Set([
 ]);
 const SECRET_KEY_PATTERN =
   /(?:^|[_-])(secret|secrets|password|passphrase|token|api[_-]?key|private[_-]?key|encryption[_-]?key|recovery[_-]?key|vault[_-]?key|credential|credentials|authorization|mnemonic)(?:$|[_-])/i;
+const INTERNAL_PKM_DOMAINS = new Set([
+  "kyc_connector",
+  "kyc_workflow",
+  "runtime_secrets",
+]);
 
 function compact(value: unknown): string {
   return String(value ?? "").replace(/\s+/g, " ").trim();
@@ -130,11 +135,19 @@ function parseDomainSummary(metadata: PersonalKnowledgeModelMetadata | null): Ma
   return new Map((metadata?.domains || []).map((domain) => [domain.key, domain]));
 }
 
-function shouldSkipKey(key: string): boolean {
+/**
+ * Returns whether a PKM key/domain is private runtime or protocol material
+ * that must never enter a user-facing memory projection or an LLM context.
+ *
+ * Keep this as the single client-side classifier for readable PKM consumers.
+ * In particular, `runtime_secrets` may be decrypted by the vault owner only
+ * to resolve a turn-local provider credential; it is never agent memory.
+ */
+export function shouldSkipPkmMemoryKey(key: string): boolean {
   const normalized = normalizeKey(key);
   if (!normalized) return true;
   if (INTERNAL_KEYS.has(normalized)) return true;
-  if (normalized === "runtime_secrets" || SECRET_KEY_PATTERN.test(normalized)) return true;
+  if (INTERNAL_PKM_DOMAINS.has(normalized) || SECRET_KEY_PATTERN.test(normalized)) return true;
   if (normalized.startsWith("_")) return true;
   if (normalized.endsWith("_id") && normalized !== "student_id") return true;
   if (normalized.includes("cipher") || normalized.includes("token")) return true;
@@ -206,7 +219,7 @@ function cardDetail(domainTitle: string, pathSegments: readonly PkmPathSegment[]
       skipEntityIdentifier = false;
       continue;
     }
-    if (shouldSkipKey(normalized)) continue;
+    if (shouldSkipPkmMemoryKey(normalized)) continue;
     const label = titleize(segment);
     if (label) visiblePath.push(label);
     if (visiblePath.length >= 4) break;
@@ -275,7 +288,7 @@ function flattenCards(params: {
 
   if (!isRecord(params.value)) return cards;
   for (const [key, child] of Object.entries(params.value)) {
-    if (shouldSkipKey(key)) continue;
+    if (shouldSkipPkmMemoryKey(key)) continue;
     flattenCards({
       ...params,
       value: child,

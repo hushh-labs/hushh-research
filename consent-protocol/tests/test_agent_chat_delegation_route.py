@@ -35,12 +35,23 @@ class _MinimalFakeService:
         ]
         self.one_turn_calls: list[dict] = []
 
-    async def prepare_agent_runtime(self, *, runtime_credential=None, runtime_credential_mode=None):
+    async def prepare_agent_runtime(
+        self,
+        *,
+        runtime_credential=None,
+        runtime_credential_mode=None,
+        runtime_credential_transport=None,
+        runtime_vertex_project=None,
+        runtime_vertex_location=None,
+    ):
         return PreparedAgentRuntime(
             mode="hushh_managed_vertex",
             provider="gemini",
             model="gemini-2.5-flash",
             credential_ref="pkm:runtime_secrets.llm.gemini_api_key",
+            gemini_byok_transport="developer_api",
+            vertex_project=None,
+            vertex_location=None,
             client=self.runtime_client,
             evidence={},
         )

@@ -12,11 +12,12 @@ const PUBLIC_ROUTES = [
   ROUTES.LOGIN,
   ROUTES.PHONE_MANDATE,
   ROUTES.LOGOUT,
-  ROUTES.PROFILE,
 ];
 
 // API routes are handled separately
 const API_PREFIX = "/api";
+const LEGACY_PROFILE_ROOT = "/profile";
+const LEGACY_CONNECT_ROOT = "/connect";
 
 const LEGACY_ROUTE_REDIRECTS: Record<string, string> = {
   [ROUTES.LEGACY_KAI_HOME]: ROUTES.KAI_HOME,
@@ -68,6 +69,18 @@ export function proxy(request: NextRequest) {
         if (!url.searchParams.has(key)) url.searchParams.set(key, value);
       });
     }
+    return NextResponse.redirect(url);
+  }
+
+  for (const [legacyRoot, canonicalRoot] of [
+    [LEGACY_PROFILE_ROOT, ROUTES.PROFILE],
+    [LEGACY_CONNECT_ROOT, ROUTES.CONNECT],
+  ] as const) {
+    if (pathname !== legacyRoot && !pathname.startsWith(`${legacyRoot}/`)) {
+      continue;
+    }
+    const url = request.nextUrl.clone();
+    url.pathname = `${canonicalRoot}${pathname.slice(legacyRoot.length)}`;
     return NextResponse.redirect(url);
   }
 

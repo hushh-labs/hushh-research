@@ -580,33 +580,6 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     ],
   );
 
-  const topShellHeaderHeight =
-    "calc(var(--top-inset) + var(--top-systembar-row-gap) + var(--top-bar-h))";
-  // Contextual tabs remain below the native status area when the header
-  // collapses. Moving them by the full header height put the tab row at y=0
-  // on iOS, directly under the notch/status glyphs.
-  const topShellTabShiftHeight =
-    "calc(var(--top-systembar-row-gap) + var(--top-bar-h))";
-  // The shared scroll controller writes this value outside React. Keeping the
-  // fixed top shell on that compositor path avoids rerendering its inbox,
-  // profile action, and tab tree for every native scroll frame.
-  const topShellScrollProgress = "var(--bottom-chrome-progress, 0)";
-  const topShellHeaderTransform = `translate3d(0, calc(-1 * ${topShellScrollProgress} * ${topShellHeaderHeight}), 0)`;
-  const topShellTabsTransform = `translate3d(0, calc(-1 * ${topShellScrollProgress} * ${topShellTabShiftHeight}), 0)`;
-  const topShellFullTransform = `translate3d(0, calc(-1 * ${topShellScrollProgress} * var(--top-shell-reserved-height)), 0)`;
-  const topShellGlassTransform =
-    model.mode === "bar-with-tabs"
-      ? topShellTabsTransform
-      : topShellFullTransform;
-
-  const topGlassStyle = useMemo<React.CSSProperties>(
-    () =>
-      ({
-        transform: topShellGlassTransform,
-      }) as React.CSSProperties,
-    [topShellGlassTransform],
-  );
-
   if (hideChrome) return null;
 
   return (
@@ -639,7 +612,6 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
               model.mode === "bar-with-tabs" &&
                 "ambient-chrome-mask--top-with-tabs",
             )}
-            style={topGlassStyle}
           />
         </div>
 
@@ -656,10 +628,6 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
             style={{
               paddingTop:
                 "calc(var(--top-inset) + var(--top-systembar-row-gap))",
-              transform:
-                model.mode === "bar-with-tabs"
-                  ? topShellHeaderTransform
-                  : topShellFullTransform,
             }}
           >
             <div
@@ -902,8 +870,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
           {model.mode === "bar-with-tabs" ? (
             <div
               data-testid="top-app-bar-tabs"
-              className="pointer-events-auto relative h-[var(--top-tabs-h)] w-full shrink-0 transform-gpu will-change-transform"
-              style={{ transform: topShellTabsTransform }}
+              className="pointer-events-auto relative h-[var(--top-tabs-h)] w-full shrink-0"
             >
               <TopShellTabs tabSet={model.tabs} />
             </div>

@@ -73,7 +73,7 @@ let gmailView: ReturnType<typeof buildGmailView>;
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.routerPush }),
-  usePathname: () => "/profile/receipts",
+  usePathname: () => "/one/profile/receipts",
 }));
 
 vi.mock("sonner", () => ({
@@ -229,12 +229,12 @@ vi.mock("lucide-react", () => ({
 
 vi.mock("@/lib/navigation/routes", () => ({
   ROUTES: {
-    PROFILE: "/profile",
-    PROFILE_GMAIL: "/profile/gmail",
+    PROFILE: "/one/profile",
+    PROFILE_GMAIL: "/one/profile/gmail",
     GMAIL: "/one/gmail",
     ONE_SETUP: "/one/setup",
-    PROFILE_RECEIPTS: "/profile/receipts",
-    PROFILE_GMAIL_OAUTH_RETURN: "/profile/gmail/oauth/return",
+    PROFILE_RECEIPTS: "/one/profile/receipts",
+    PROFILE_GMAIL_OAUTH_RETURN: "/one/profile/gmail/oauth/return",
   },
 }));
 
@@ -564,7 +564,7 @@ describe("ProfileReceiptsPage", () => {
       configured: true,
       authorize_url: "https://accounts.google.com/o/oauth2/v2/auth",
       state: "state-123",
-      redirect_uri: "http://localhost:3000/profile/gmail/oauth/return",
+      redirect_uri: "http://localhost:3000/one/profile/gmail/oauth/return",
       expires_at: "2026-04-01T00:00:00Z",
     });
   });

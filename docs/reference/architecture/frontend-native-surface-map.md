@@ -49,6 +49,9 @@ endpoint family, native transport, plugin dependency, and voice/action contract.
 6. The route-orchestration index joins every physical route with generated
    action reachability and the One specialist-admission policy. It is
    descriptive metadata, never consent or a TrustLink input.
+7. Persistent chrome, One Voice, and Capacitor lifecycle callbacks use the
+   shared [interaction runtime](./interaction-runtime.md). They may select a
+   transport, but may not create separate native route or action state.
 
 ## Current KYC Contract
 

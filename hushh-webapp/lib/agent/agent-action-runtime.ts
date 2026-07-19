@@ -419,9 +419,9 @@ function executeConnectedSystemAgentAction(
     });
   }
   const instructionId = storeConnectedSystemInstruction(input.actionId, slots);
-  const target = instructionId
-    ? `${buildConnectedSystemRoute(systemId)}?agentActionId=${encodeURIComponent(instructionId)}`
-    : buildConnectedSystemRoute(systemId);
+  const target = buildConnectedSystemRoute(systemId, {
+    agentActionId: instructionId,
+  });
   input.router.push(target);
   return buildResult({
     status: "started",

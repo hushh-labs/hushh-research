@@ -553,11 +553,11 @@
       ]
     },
     {
-      "route": "/profile",
+      "route": "/one/profile",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile",
+      "expectedRoute": "/one/profile",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -565,11 +565,11 @@
       ]
     },
     {
-      "route": "/profile/regulatory",
+      "route": "/one/profile/regulatory",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Fregulatory",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/regulatory",
+      "expectedRoute": "/one/profile/regulatory",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -577,11 +577,11 @@
       ]
     },
     {
-      "route": "/profile/account",
+      "route": "/one/profile/account",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Faccount",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/account",
+      "expectedRoute": "/one/profile/account",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -589,11 +589,11 @@
       ]
     },
     {
-      "route": "/profile/account/phone",
+      "route": "/one/profile/account/phone",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Faccount%2Fphone",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/account/phone",
+      "expectedRoute": "/one/profile/account/phone",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -601,11 +601,11 @@
       ]
     },
     {
-      "route": "/profile/preferences",
+      "route": "/one/profile/preferences",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Fpreferences",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/preferences",
+      "expectedRoute": "/one/profile/preferences",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -613,11 +613,11 @@
       ]
     },
     {
-      "route": "/profile/preferences/kai",
+      "route": "/one/profile/preferences/kai",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Fpreferences%2Fkai",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/preferences/kai",
+      "expectedRoute": "/one/profile/preferences/kai",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -625,11 +625,11 @@
       ]
     },
     {
-      "route": "/profile/preferences/device",
+      "route": "/one/profile/preferences/device",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Fpreferences%2Fdevice",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/preferences/device",
+      "expectedRoute": "/one/profile/preferences/device",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -637,11 +637,11 @@
       ]
     },
     {
-      "route": "/profile/security",
+      "route": "/one/profile/security",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Fsecurity",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/security",
+      "expectedRoute": "/one/profile/security",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -649,11 +649,11 @@
       ]
     },
     {
-      "route": "/profile/security/vault",
+      "route": "/one/profile/security/vault",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Fsecurity%2Fvault",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/security/vault",
+      "expectedRoute": "/one/profile/security/vault",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -661,11 +661,11 @@
       ]
     },
     {
-      "route": "/profile/security/session",
+      "route": "/one/profile/security/session",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Fsecurity%2Fsession",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/security/session",
+      "expectedRoute": "/one/profile/security/session",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -673,11 +673,11 @@
       ]
     },
     {
-      "route": "/profile/my-data",
+      "route": "/one/profile/my-data",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Fmy-data",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/my-data",
+      "expectedRoute": "/one/profile/my-data",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -685,11 +685,11 @@
       ]
     },
     {
-      "route": "/profile/my-data/domain",
+      "route": "/one/profile/my-data/domain",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Fmy-data%2Fdomain%3Fkey%3Dfinance",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/my-data/domain?key=finance",
+      "expectedRoute": "/one/profile/my-data/domain?key=finance",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -697,11 +697,11 @@
       ]
     },
     {
-      "route": "/profile/access",
+      "route": "/one/profile/access",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Faccess",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/access",
+      "expectedRoute": "/one/profile/access",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -709,11 +709,11 @@
       ]
     },
     {
-      "route": "/profile/access/connection",
+      "route": "/one/profile/access/connection",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Faccess%2Fconnection%3Fid%3Ddemo_connection",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/access/connection?id=demo_connection",
+      "expectedRoute": "/one/profile/access/connection?id=demo_connection",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -721,11 +721,11 @@
       ]
     },
     {
-      "route": "/profile/connected-systems",
+      "route": "/one/profile/connected-systems",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Fconnected-systems",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/connected-systems",
+      "expectedRoute": "/one/profile/connected-systems",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -733,11 +733,11 @@
       ]
     },
     {
-      "route": "/profile/gmail",
+      "route": "/one/profile/gmail",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Fgmail",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/gmail",
+      "expectedRoute": "/one/profile/gmail",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -745,11 +745,11 @@
       ]
     },
     {
-      "route": "/profile/gmail/connection",
+      "route": "/one/profile/gmail/connection",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Fgmail%2Fconnection",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/gmail/connection",
+      "expectedRoute": "/one/profile/gmail/connection",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -757,11 +757,11 @@
       ]
     },
     {
-      "route": "/profile/gmail/actions",
+      "route": "/one/profile/gmail/actions",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Fgmail%2Factions",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/gmail/actions",
+      "expectedRoute": "/one/profile/gmail/actions",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -769,11 +769,11 @@
       ]
     },
     {
-      "route": "/profile/support",
+      "route": "/one/profile/support",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Fsupport",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/support",
+      "expectedRoute": "/one/profile/support",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -781,11 +781,11 @@
       ]
     },
     {
-      "route": "/profile/support/routing",
+      "route": "/one/profile/support/routing",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Fsupport%2Frouting",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/support/routing",
+      "expectedRoute": "/one/profile/support/routing",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -793,11 +793,11 @@
       ]
     },
     {
-      "route": "/profile/support/compose",
+      "route": "/one/profile/support/compose",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fprofile%2Fsupport%2Fcompose%3Fkind%3Dsupport_request",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/support/compose?kind=support_request",
+      "expectedRoute": "/one/profile/support/compose?kind=support_request",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -906,11 +906,11 @@
       ]
     },
     {
-      "route": "/connect",
+      "route": "/one/connect",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fconnect",
       "expectedMarker": "native-route-connect",
-      "expectedRoute": "/connect",
+      "expectedRoute": "/one/connect",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -920,11 +920,11 @@
       ]
     },
     {
-      "route": "/connect/settings",
+      "route": "/one/connect/settings",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fconnect%2Fsettings",
       "expectedMarker": "native-route-connect-settings",
-      "expectedRoute": "/connect/settings",
+      "expectedRoute": "/one/connect/settings",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -932,7 +932,7 @@
       ]
     },
     {
-      "route": "/profile/pkm",
+      "route": "/one/profile/pkm",
       "classification": "native-required-functional",
       "legacyAlias": true,
       "initialRoute": "/login?redirect=%2Fprofile%2Fpkm",
@@ -945,7 +945,7 @@
       ]
     },
     {
-      "route": "/profile/receipts",
+      "route": "/one/profile/receipts",
       "classification": "native-required-functional",
       "legacyAlias": true,
       "initialRoute": "/login?redirect=%2Fprofile%2Freceipts",
@@ -960,11 +960,11 @@
       ]
     },
     {
-      "route": "/profile/gmail/oauth/return",
+      "route": "/one/profile/gmail/oauth/return",
       "classification": "native-required-callback",
       "initialRoute": "/login?redirect=%2Fprofile%2Fgmail%2Foauth%2Freturn",
       "expectedMarker": "native-route-profile-gmail-return",
-      "expectedRoute": "/profile/gmail/oauth/return",
+      "expectedRoute": "/one/profile/gmail/oauth/return",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -1017,7 +1017,7 @@
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fria%2Fprofile",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile/regulatory",
+      "expectedRoute": "/one/profile/regulatory",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -1054,7 +1054,7 @@
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fria%2Fsettings",
       "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile",
+      "expectedRoute": "/one/profile",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -1195,7 +1195,7 @@
       "classification": "excluded-web-only"
     },
     {
-      "route": "/profile/pkm-agent-lab",
+      "route": "/one/profile/pkm-agent-lab",
       "classification": "excluded-web-only"
     }
   ]

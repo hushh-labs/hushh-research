@@ -49,6 +49,10 @@ import {
 } from "@/lib/navigation/routes";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import {
+  appInteractionCoordinator,
+  type VoiceSessionLease,
+} from "@/lib/interaction/interaction-intent-coordinator";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import {
@@ -83,6 +87,9 @@ type PendingVoiceConfirmation = {
   actionId: string;
   slots?: Record<string, unknown>;
   route: string | null;
+  leaseId: string;
+  ledgerSessionId: string;
+  transport: RealtimeVoiceTransport | null;
 };
 
 function readBrowserVoiceRoute() {
@@ -155,6 +162,31 @@ function actionableContextKey(context: OneVoiceContextSnapshot): string {
   });
 }
 
+function directiveFingerprint(input: {
+  actionId: string;
+  goalId: string | null;
+  needsConfirmation: boolean;
+  slots: Record<string, unknown> | undefined;
+}): string {
+  // Directive ledgers must never retain action inputs. Slot names/types are
+  // enough to reject conflicting reuse of an ID without retaining OTPs or
+  // other sensitive values in client memory beyond the execution itself.
+  const slots: Array<[string, string]> = Object.entries(input.slots ?? {})
+    .map(
+      ([key, value]): [string, string] => [
+        key,
+        Array.isArray(value) ? "array" : typeof value,
+      ],
+    )
+    .sort((left, right) => left[0].localeCompare(right[0]));
+  return JSON.stringify({
+    actionId: input.actionId,
+    goalId: input.goalId,
+    needsConfirmation: input.needsConfirmation,
+    slots,
+  });
+}
+
 function resolveAgentBarHint(pathname: string | null): string {
   if (!pathname) return AGENT_BAR_DEFAULT_HINT;
   for (const { prefix, hint } of AGENT_BAR_HINTS) {
@@ -203,6 +235,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const setVoiceLevel = useAgentVoiceState((s) => s.setLevel);
   const resetVoice = useAgentVoiceState((s) => s.reset);
   const liveClientRef = useRef<RealtimeVoiceTransport | null>(null);
+  // UI state updates after async credential resolution. This lease reserves
+  // microphone/transport ownership synchronously at the actual tap boundary.
+  const voiceLeaseRef = useRef<VoiceSessionLease | null>(null);
   const activeRuntimeModeRef = useRef<"hushh_managed_vertex" | "byok" | null>(null);
   const lastTranscriptRef = useRef<{ text: string; atMs: number } | null>(null);
   const prewarmedRelayRef = useRef<PrewarmedGeminiRelay | null>(null);
@@ -250,13 +285,18 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       if (!pending) return;
       pendingConfirmationRef.current = null;
       if (clearUi) setPendingConfirmation(null);
-      liveClientRef.current?.reportActionSettlement?.({
+      if (voiceLeaseRef.current?.id !== pending.leaseId) return;
+      pending.transport?.reportActionSettlement?.({
         directiveId: pending.directiveId,
         actionId: pending.actionId,
         status: "blocked",
         summary,
         reason,
       });
+      appInteractionCoordinator.settleDirective(
+        pending.ledgerSessionId,
+        pending.directiveId,
+      );
     },
     [],
   );
@@ -373,6 +413,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               ? event.directive.payload.actionId
               : null;
           if (actionId) {
+            // Capture the issuer. A later session must never receive a
+            // settlement produced by this transport's async action work.
+            const directiveTransport = liveClientRef.current;
             const directiveId =
               typeof event.directive.payload?.directiveId === "string"
                 ? event.directive.payload.directiveId
@@ -392,6 +435,63 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               goalId === "goal.analysis.start_debate" &&
               actionId === "analysis.start" &&
               runtime?.appRuntimeState.route.screen === "kai_analysis";
+            if (!directiveId) {
+              console.warn("[AgentBar] Rejected action directive without a directive ID.");
+              return;
+            }
+            const directiveLedgerSessionId =
+              eventOptions.sessionId ?? voiceLeaseRef.current?.id ?? "unknown";
+            const directiveLeaseId = voiceLeaseRef.current?.id ?? null;
+            if (!directiveLeaseId) {
+              return;
+            }
+            const reportDirectiveSettlement = (settlement: {
+              status:
+                | "succeeded"
+                | "started"
+                | "failed"
+                | "blocked"
+                | "invalid"
+                | "noop";
+              summary: string;
+              reason?: string | null;
+              routeAfter?: string | null;
+              screenAfter?: string | null;
+            }) => {
+              if (
+                voiceLeaseRef.current?.id !== directiveLeaseId
+              ) {
+                return;
+              }
+              directiveTransport?.reportActionSettlement?.({
+                directiveId,
+                actionId,
+                ...settlement,
+              });
+              appInteractionCoordinator.settleDirective(
+                directiveLedgerSessionId,
+                directiveId,
+              );
+            };
+            const directiveLease = appInteractionCoordinator.beginDirective({
+              sessionId: directiveLedgerSessionId,
+              directiveId,
+              fingerprint: directiveFingerprint({
+                actionId,
+                goalId,
+                needsConfirmation,
+                slots,
+              }),
+            });
+            if (directiveLease.state === "duplicate") return;
+            if (directiveLease.state === "conflict") {
+              reportDirectiveSettlement({
+                status: "blocked",
+                summary: "The directive did not match its original request.",
+                reason: "directive_id_conflict",
+              });
+              return;
+            }
             if (runtime?.morphyAxEnabled && !isSettledAnalysisGoalDirective) {
               const decision = validateMorphyAxAssessment(
                 {
@@ -414,10 +514,8 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                 ? decision.status === "confirmation_required"
                 : decision.status === "permitted";
               if (!admitted) {
-                if (directiveId) {
-                  liveClientRef.current?.reportActionSettlement?.({
-                    directiveId,
-                    actionId,
+                {
+                  reportDirectiveSettlement({
                     status: "blocked",
                     summary:
                       "The requested action is not available on this screen.",
@@ -428,26 +526,31 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               }
             }
             if (needsConfirmation) {
-              if (!directiveId) return;
               // Keep sensitive arguments transient in component memory. The
               // confirmation card never renders slots (including OTP values).
               abandonPendingConfirmation(
                 "confirmation_superseded",
                 "A newer confirmation replaced the pending action.",
               );
-              const pending = { directiveId, actionId, slots, route: pathname };
+              const pending = {
+                directiveId,
+                actionId,
+                slots,
+                route: pathname,
+                leaseId: directiveLeaseId,
+                ledgerSessionId: directiveLedgerSessionId,
+                transport: directiveTransport,
+              };
               pendingConfirmationRef.current = pending;
               setPendingConfirmation(pending);
-              liveClientRef.current?.interrupt?.();
+              directiveTransport?.interrupt?.();
               setVoiceStatus("thinking", "Confirmation needed", eventOptions);
               return;
             }
             const runtimeState = runtime?.appRuntimeState;
             if (!runtimeState) {
-              if (directiveId) {
-                liveClientRef.current?.reportActionSettlement?.({
-                  directiveId,
-                  actionId,
+              {
+                reportDirectiveSettlement({
                   status: "failed",
                   summary: "The app was not ready to run that action.",
                   reason: "missing_runtime_state",
@@ -486,27 +589,19 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                     : null,
                 });
                 const result = await settleAgentBarAction(executionResult);
-                if (directiveId) {
-                  liveClientRef.current?.reportActionSettlement?.({
-                    directiveId,
-                    actionId,
+                reportDirectiveSettlement({
                     status: result.status,
                     summary: result.resultSummary,
                     reason: result.reason,
                     routeAfter: result.routeAfter,
                     screenAfter: result.screenAfter,
-                  });
-                }
+                });
               } catch {
-                if (directiveId) {
-                  liveClientRef.current?.reportActionSettlement?.({
-                    directiveId,
-                    actionId,
+                reportDirectiveSettlement({
                     status: "failed",
                     summary: "The app could not complete that action.",
                     reason: "client_execution_failed",
-                  });
-                }
+                });
               }
             })();
             return;
@@ -579,6 +674,8 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           "The confirmation was cancelled when the voice session closed.",
         );
         liveClientRef.current = null;
+        voiceLeaseRef.current?.release("transport_closed");
+        voiceLeaseRef.current = null;
         activeRuntimeModeRef.current = null;
         if (erroredRef.current) return;
         setConversationActive(false);
@@ -613,6 +710,8 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     );
     liveClientRef.current?.stop();
     liveClientRef.current = null;
+    voiceLeaseRef.current?.release("voice_session_stopped");
+    voiceLeaseRef.current = null;
     activeRuntimeModeRef.current = null;
     prewarmedRelayRef.current = null;
     setConversationActive(false);
@@ -625,10 +724,32 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       if (!pending) return;
       pendingConfirmationRef.current = null;
       setPendingConfirmation(null);
-      if (!confirmed) {
-        liveClientRef.current?.reportActionSettlement?.({
+      const reportPendingSettlement = (settlement: {
+        status:
+          | "succeeded"
+          | "started"
+          | "failed"
+          | "blocked"
+          | "invalid"
+          | "noop";
+        summary: string;
+        reason?: string | null;
+        routeAfter?: string | null;
+        screenAfter?: string | null;
+      }) => {
+        if (voiceLeaseRef.current?.id !== pending.leaseId) return;
+        pending.transport?.reportActionSettlement?.({
           directiveId: pending.directiveId,
           actionId: pending.actionId,
+          ...settlement,
+        });
+        appInteractionCoordinator.settleDirective(
+          pending.ledgerSessionId,
+          pending.directiveId,
+        );
+      };
+      if (!confirmed) {
+        reportPendingSettlement({
           status: "blocked",
           summary: "The person cancelled the confirmation.",
           reason: "user_cancelled",
@@ -638,9 +759,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       }
       const runtimeState = runtime?.appRuntimeState;
       if (!runtimeState) {
-        liveClientRef.current?.reportActionSettlement?.({
-          directiveId: pending.directiveId,
-          actionId: pending.actionId,
+        reportPendingSettlement({
           status: "failed",
           summary: "The app was not ready to confirm that action.",
           reason: "missing_runtime_state",
@@ -685,9 +804,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         .then(settleAgentBarAction)
         .then((result) => {
           scheduleVoiceIdleTimer();
-          liveClientRef.current?.reportActionSettlement?.({
-            directiveId: pending.directiveId,
-            actionId: pending.actionId,
+          reportPendingSettlement({
             status: result.status,
             summary: result.resultSummary,
             reason: result.reason,
@@ -697,9 +814,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         })
         .catch(() => {
           scheduleVoiceIdleTimer();
-          liveClientRef.current?.reportActionSettlement?.({
-            directiveId: pending.directiveId,
-            actionId: pending.actionId,
+          reportPendingSettlement({
             status: "failed",
             summary: "The app could not complete the confirmed action.",
             reason: "client_execution_failed",
@@ -734,18 +849,33 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
 
   const startConversation = useCallback(async () => {
     // Toggle off when a session (live OR an error still on screen) exists.
+    if (voiceLeaseRef.current && !liveClientRef.current && !conversationActive) {
+      // A second native tap while credentials are resolving is the same start
+      // request, not a toggle. Coalesce it so one mic/socket survives.
+      return;
+    }
     if (liveClientRef.current || erroredRef.current || conversationActive) {
       stopConversation();
       return;
     }
+    const lease = appInteractionCoordinator.acquireVoiceLease({
+      owner: "one_live",
+      onRevoked: () => stopConversationRef.current(),
+    });
+    voiceLeaseRef.current = lease;
     const runtimeConnection = await resolveGeminiRuntimeConnection({
       userId: user?.uid,
       vaultKey,
       vaultOwnerToken,
     });
+    if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) {
+      return;
+    }
     if (runtimeConnection.mode === "byok" && !runtimeConnection.credential) {
       erroredRef.current = true;
       setVoiceStatus("error", "Your Gemini key is unavailable. Open Connections settings.");
+      lease.release("missing_runtime_credential");
+      voiceLeaseRef.current = null;
       return;
     }
     if (runtimeConnection.transport === "vertex_api_key") {
@@ -754,6 +884,8 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         "error",
         "Your Google Cloud Vertex key is ready for typed turns. Use managed Gemini for voice.",
       );
+      lease.release("unsupported_voice_transport");
+      voiceLeaseRef.current = null;
       return;
     }
     erroredRef.current = false;
@@ -771,7 +903,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         : null;
     prewarmedRelayRef.current = null;
     const client = createRealtimeVoiceTransport({
-      onEvent: handleTransportEvent,
+      onEvent: (event) => {
+        if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) {
+          return;
+        }
+        handleTransportEvent(event);
+      },
     });
     liveClientRef.current = client;
     activeRuntimeModeRef.current = runtimeConnection.mode;

@@ -151,7 +151,7 @@ export default function ConnectPageClient() {
       width="reading"
       className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
       nativeTest={{
-        routeId: "/connect",
+        routeId: "/one/connect",
         marker: "native-route-connect",
         authState: user ? "authenticated" : "pending",
         dataState:

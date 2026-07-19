@@ -91,7 +91,7 @@ describe("app bottom navigation", () => {
       mode: "search",
     });
     // Profile is unified across scopes — the RIA advisor profile now lives inside
-    // the global /profile section (Regulatory profile panel), so every scope opens it.
+    // the global /one/profile section (Regulatory profile panel), so every scope opens it.
     expect(resolveBottomNavHref("profile", "ria")).toBe(ROUTES.PROFILE);
     expect(resolveBottomNavHref("profile", "one")).toBe(ROUTES.PROFILE);
     expect(resolveBottomNavHref("profile", "investor")).toBe(ROUTES.PROFILE);

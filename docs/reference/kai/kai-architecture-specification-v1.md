@@ -13,7 +13,7 @@ flowchart TB
     portfolio["/one/kai/portfolio"]
     analysis["/one/kai/analysis"]
     optimize["/one/kai/optimize"]
-    profile["/profile"]
+    profile["/one/profile"]
   end
 
   subgraph frontend["Frontend runtime"]
@@ -122,7 +122,7 @@ The current Kai route map is intentional and stable unless route governance chan
 - `/one/kai/portfolio`: holdings, analytics, and dashboard views
 - `/one/kai/analysis`: debate stream and decision views
 - `/one/kai/optimize`: optimization workflow
-- `/profile`: profile and adjacent user settings surfaces that also publish Kai actionability
+- `/one/profile`: profile and adjacent user settings surfaces that also publish Kai actionability
 
 Current route invariants:
 

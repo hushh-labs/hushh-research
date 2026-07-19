@@ -131,12 +131,12 @@ export function usePageEnterAnimation(
 
       if (observeMutations) {
         // Routes that mount a loader first (profile, marketplace, any
-        // cache-cold screen) stream their REAL content in via mutations. The
-        // first substantial batch after a route change must play the SAME
-        // full staggered enter as synchronously-rendered routes (/one/kai),
-        // otherwise those tabs feel like a different, cheaper transition.
-        // Subsequent streams (pagination, live updates) keep the quick tween.
-        let firstContentBatch = true;
+        // cache-cold screen) stream their REAL content in via mutations. Every
+        // semantic layout/component mount receives the same Morphy expressive
+        // enter as synchronously-rendered route content: no cheaper second
+        // class of animation after the shell has settled. High-churn surfaces
+        // such as controlled pagers and table bodies opt out explicitly with
+        // data-no-auto-fade rather than silently changing the motion language.
         observer = new MutationObserver((records) => {
           const added: HTMLElement[] = [];
           for (const record of records) {
@@ -152,18 +152,14 @@ export function usePageEnterAnimation(
             if (added.length >= AUTO_FADE_MAX_TARGETS) break;
           }
           if (added.length === 0) return;
-          const fullEnter = firstContentBatch;
-          firstContentBatch = false;
           gsap.fromTo(
             added,
-            { opacity: 0, y: fullEnter ? 8 : 6 },
+            { opacity: 0, y: 8 },
             {
               opacity: 1,
               y: 0,
-              duration: fullEnter
-                ? pageEnterDurationMs / 1000
-                : Math.max(0.18, pageEnterDurationMs / 1400),
-              stagger: fullEnter ? 0.014 : 0.01,
+              duration: pageEnterDurationMs / 1000,
+              stagger: 0.014,
               ease: getMorphyEaseName("emphasized"),
               overwrite: "auto",
               clearProps: "opacity,transform",

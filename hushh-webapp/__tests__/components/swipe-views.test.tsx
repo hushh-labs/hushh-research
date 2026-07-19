@@ -77,6 +77,11 @@ describe("SwipeViews", () => {
     expect(
       view.container.querySelector("#top-shell-demo-panel-first"),
     ).toHaveAttribute("aria-labelledby", "top-shell-demo-tab-first");
+    expect(
+      screen
+        .getByText("first panel content")
+        .closest("[data-morphy-enter='true']"),
+    ).toBeNull();
 
     view.rerender(
       <SwipeViews tabSetId="demo" activeValue="second" options={OPTIONS}>
@@ -90,6 +95,11 @@ describe("SwipeViews", () => {
     expect(mounts).toEqual({ first: 1, second: 1 });
     expect(cleanups).toEqual({ first: 1, second: 0 });
     expect(embla.scrollTo).toHaveBeenCalledWith(1);
+    expect(
+      screen
+        .getByText("second panel content")
+        .closest("[data-morphy-enter='true']"),
+    ).toBeNull();
   });
 
   it("reports the destination after a horizontal pager swipe settles", () => {

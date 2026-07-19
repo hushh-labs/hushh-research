@@ -106,6 +106,11 @@ export type AgentPkmSaveResult = {
   }>;
 };
 
+// The Agent workspace may warm its private-memory working set after the owner
+// unlocks. This is process-memory-only and scoped to the current user; it is
+// deliberately not a device cache or a background vault-unlock prefetch.
+const agentPkmWarmups = new Map<string, Promise<void>>();
+
 function toRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -449,7 +454,7 @@ export async function loadAgentPkmContext(params: {
 }): Promise<AgentPkmContext> {
   if (params.vaultKey) {
     try {
-      return await AgentPkmContextStore.load({
+      const workingContext = await AgentPkmContextStore.load({
         userId: params.userId,
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
@@ -457,6 +462,15 @@ export async function loadAgentPkmContext(params: {
         forceRefresh: params.forceRefresh,
         maxChars: params.maxChars,
       });
+      if (workingContext) {
+        return workingContext;
+      }
+      return {
+        text: "",
+        domains: [],
+        totalAttributes: 0,
+        updatedAt: null,
+      };
     } catch {
       AgentPkmContextStore.invalidateUser(params.userId);
     }
@@ -481,7 +495,36 @@ export function peekAgentPkmContext(params: {
   return AgentPkmContextStore.peek(params);
 }
 
+export function warmAgentPkmContext(params: {
+  userId: string;
+  vaultOwnerToken: string;
+  vaultKey?: string | null;
+}): Promise<void> {
+  if (!params.vaultKey) return Promise.resolve();
+
+  const existing = agentPkmWarmups.get(params.userId);
+  if (existing) return existing;
+
+  const warmup = loadAgentPkmContext({
+    ...params,
+    message: "",
+  })
+    .then(() => undefined)
+    .finally(() => {
+      if (agentPkmWarmups.get(params.userId) === warmup) {
+        agentPkmWarmups.delete(params.userId);
+      }
+    });
+  agentPkmWarmups.set(params.userId, warmup);
+  return warmup;
+}
+
 export function clearAgentPkmContext(userId?: string): void {
+  if (userId) {
+    agentPkmWarmups.delete(userId);
+  } else {
+    agentPkmWarmups.clear();
+  }
   AgentPkmContextStore.clear(userId);
 }
 

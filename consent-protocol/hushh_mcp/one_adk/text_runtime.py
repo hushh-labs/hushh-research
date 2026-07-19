@@ -33,6 +33,7 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_TIMEZONE,
     STATE_USER_ID,
     STATE_VOICE_CONTEXT,
+    build_one_intro_text_agent,
     build_one_text_agent,
 )
 from hushh_mcp.services.action_gateway import get_action_gateway_action
@@ -251,6 +252,80 @@ async def stream_one_text_turn(
     new_message = genai_types.Content(
         role="user",
         parts=[genai_types.Part.from_text(text=str(message or "").strip()[:8000])],
+    )
+    emitted_directives: set[str] = set()
+    saw_partial_text = False
+    async for event in runner.run_async(
+        user_id=clean_user_id,
+        session_id=session.id,
+        new_message=new_message,
+        run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+    ):
+        for directive in _event_directives(event):
+            fingerprint = _directive_fingerprint(directive)
+            if fingerprint in emitted_directives:
+                continue
+            emitted_directives.add(fingerprint)
+            yield OneTextStreamEvent(kind="directive", directive=directive)
+
+        text = _event_text(event)
+        if not text:
+            continue
+        if bool(getattr(event, "partial", False)):
+            saw_partial_text = True
+            yield OneTextStreamEvent(kind="token", text=text)
+            continue
+        is_final_response = getattr(event, "is_final_response", None)
+        if not saw_partial_text and callable(is_final_response) and is_final_response():
+            yield OneTextStreamEvent(kind="token", text=text)
+
+
+async def stream_one_intro_text_turn(
+    *,
+    user_id: str,
+    message: str,
+    screen_context: dict[str, Any] | None,
+    runtime_provider: str,
+    runtime_model: str,
+    runtime_mode: str,
+    runtime_credential: str | None,
+) -> AsyncGenerator[OneTextStreamEvent, None]:
+    """Run One's anonymous informational turn through the semantic ADK head.
+
+    The lower-privilege agent has a navigation-only roster. It deliberately
+    carries no consent token, history, or PKM context, so this is not a
+    shortcut into unlocked Agent Chat.
+    """
+    if str(runtime_provider or "").strip().lower() != "gemini":
+        raise ValueError("One intro text runtime currently requires the Gemini provider")
+
+    clean_user_id = str(user_id or "").strip() or "anonymous"
+    session_service = InMemorySessionService()
+    runner = Runner(
+        app_name=ONE_APP_NAME,
+        agent=build_one_intro_text_agent(
+            model=_runtime_model(
+                runtime_model=runtime_model,
+                runtime_mode=runtime_mode,
+                runtime_credential=runtime_credential,
+            )
+        ),
+        session_service=session_service,
+    )
+    sanitized_context = dict(screen_context or {})
+    session = await session_service.create_session(
+        app_name=ONE_APP_NAME,
+        user_id=clean_user_id,
+        session_id=f"intro_{uuid.uuid4().hex}",
+        state={
+            STATE_USER_ID: clean_user_id,
+            STATE_SCREEN: str(sanitized_context.get("screen") or "").strip()[:64],
+            STATE_VOICE_CONTEXT: sanitized_context,
+        },
+    )
+    new_message = genai_types.Content(
+        role="user",
+        parts=[genai_types.Part.from_text(text=str(message or "").strip()[:4000])],
     )
     emitted_directives: set[str] = set()
     saw_partial_text = False

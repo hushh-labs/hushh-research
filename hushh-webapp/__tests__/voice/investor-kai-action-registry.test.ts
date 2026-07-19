@@ -122,8 +122,8 @@ describe("investor-kai-action-registry", () => {
 
     const pkmActions = listInvestorKaiActionsForSurface({
       screen: "profile_pkm_agent_lab",
-      href: "/profile/pkm-agent-lab",
-      pathname: "/profile/pkm-agent-lab",
+      href: "/one/profile/pkm-agent-lab",
+      pathname: "/one/profile/pkm-agent-lab",
     }).map((action) => action.id);
 
     expect(pkmActions).not.toContain("profile.pkm.preview_capture");

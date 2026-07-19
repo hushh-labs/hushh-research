@@ -8,7 +8,7 @@ import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { useAuth } from "@/hooks/use-auth";
-import { isPublicRoute } from "@/lib/navigation/routes";
+import { isPublicRoute, ROUTES } from "@/lib/navigation/routes";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 
 /**
@@ -33,21 +33,21 @@ import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppr
  * identity settles, including non-One route families.
  */
 /**
- * Routes that stay signed-in-gated but skip the hard vault wall. The CRM
- * systems overview lists registry metadata only, so it can remain available
- * before a vault is unlocked.
+ * OAuth callbacks need an authenticated Firebase identity but cannot depend on
+ * an in-memory vault key surviving the external provider round trip. Every
+ * other private One route uses the hard vault gate below.
  */
-const SOFT_VAULT_ROUTE_PREFIXES = ["/one/connected-systems"] as const;
+const AUTH_ONLY_ROUTE_PREFIXES = [ROUTES.PROFILE_GMAIL_OAUTH_RETURN] as const;
 
-function isSoftVaultRoute(pathname: string): boolean {
-  return SOFT_VAULT_ROUTE_PREFIXES.some(
+function isAuthOnlyRoute(pathname: string): boolean {
+  return AUTH_ONLY_ROUTE_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
 }
 
 /**
  * Sign-in gate without the vault wall: VaultLockGuard normally owns the
- * login redirect, so soft-vault routes need their own (PhoneMandateGuard
+ * login redirect, so external callback routes need their own (PhoneMandateGuard
  * renders children for anonymous users rather than redirecting).
  */
 function SignedInGate({ children }: { children: ReactNode }) {
@@ -82,7 +82,7 @@ export function OneAuthGate({ children }: { children: ReactNode }) {
     return <>{children}</>;
   }
 
-  if (isSoftVaultRoute(pathname ?? "")) {
+  if (isAuthOnlyRoute(pathname ?? "")) {
     return (
       <SignedInGate>
         <PhoneMandateGuard>{children}</PhoneMandateGuard>

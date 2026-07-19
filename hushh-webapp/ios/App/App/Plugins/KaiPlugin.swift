@@ -32,6 +32,7 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
         CAPPluginMethod(name: "streamPortfolioImportRun", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "streamPortfolioAnalyzeLosers", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "streamKaiAnalysis", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "cancelKaiAnalysisStream", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "chat", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getInitialChatState", returnType: CAPPluginReturnPromise)
     ]
@@ -523,6 +524,9 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
     }
     
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        // A detached stream may finish after a new attachment starts. Never let
+        // a stale URLSession emit into, or settle, the newer attachment.
+        guard let activeSession = streamSession, session === activeSession else { return }
         if let str = String(data: data, encoding: .utf8) {
             streamBuffer += str.replacingOccurrences(of: "\r\n", with: "\n")
             // The active stream decides which parser to use.
@@ -535,9 +539,13 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
     }
     
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        // See didReceive: this callback belongs to the URLSession that created
+        // it, not implicitly to whichever attachment is current now.
+        guard let activeSession = streamSession, session === activeSession else { return }
         let call = streamCall
         streamCall = nil
         streamTask = nil
+        streamSession = nil
         
         // Process any remaining buffer before clearing
         if !streamBuffer.isEmpty {
@@ -726,6 +734,28 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
         streamSession = makeStreamSession()
         streamTask = streamSession?.dataTask(with: request)
         streamTask?.resume()
+    }
+
+    @objc func cancelKaiAnalysisStream(_ call: CAPPluginCall) {
+        // This is intentionally attachment-only. The debate run remains owned
+        // by the backend and may only be canceled through its explicit API.
+        guard activeStreamKind == "kai", let activeTask = streamTask else {
+            call.resolve(["cancelled": false])
+            return
+        }
+
+        let activeCall = streamCall
+        streamCall = nil
+        streamTask = nil
+        streamBuffer = ""
+        streamSession?.invalidateAndCancel()
+        streamSession = nil
+        activeTask.cancel()
+
+        // Settle the original Capacitor promise so its JavaScript wrapper can
+        // release its listener. The aborting ReadableStream is already closed.
+        activeCall?.reject("KAI_STREAM_ATTACHMENT_CANCELLED")
+        call.resolve(["cancelled": true])
     }
     
     @objc func streamPortfolioAnalyzeLosers(_ call: CAPPluginCall) {

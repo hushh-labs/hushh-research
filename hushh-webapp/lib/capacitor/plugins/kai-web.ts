@@ -323,4 +323,10 @@ export class KaiWeb extends WebPlugin implements KaiPlugin {
   }): Promise<{ success: boolean }> {
     throw new Error("streamKaiAnalysis is native-only; use ApiService.streamKaiAnalysis on web");
   }
+
+  async cancelKaiAnalysisStream(): Promise<{ cancelled: boolean }> {
+    // Web uses fetch AbortController directly; there is no native attachment
+    // to detach here.
+    return { cancelled: false };
+  }
 }

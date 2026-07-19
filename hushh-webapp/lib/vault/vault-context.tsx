@@ -31,6 +31,7 @@ import React, {
   ReactNode,
 } from "react";
 import { useAuth } from "@/lib/firebase/auth-context";
+import { clearAgentPkmContext } from "@/lib/agent/agent-pkm-memory";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { HushhConsent } from "@/lib/capacitor";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
@@ -128,6 +129,10 @@ export function VaultProvider({ children }: VaultProviderProps) {
       });
     }
     if (lockedUserId) {
+      // The Agent's decrypted working set is strictly session-memory-only.
+      // Clear it synchronously with the vault credentials, rather than waiting
+      // for an Agent workspace to remain mounted and notice the lock.
+      clearAgentPkmContext(lockedUserId);
       ConsentExportRefreshOrchestrator.pauseForLocalAuthResume({ userId: lockedUserId });
     }
     setVaultKey(null);

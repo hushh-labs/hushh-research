@@ -37,6 +37,7 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_VOICE_CONTEXT,
     _one_runtime_instruction,
     _specialist_turn,
+    build_one_intro_text_agent,
     build_one_root_agent,
     get_one_runner,
     open_screen,
@@ -72,6 +73,17 @@ class TestAgentTreeShape:
         assert "ask_connections_agent" not in tool_names
         assert "ask_gmail_agent" not in tool_names
 
+    def test_pre_vault_head_has_only_semantic_navigation_authority(self):
+        agent = build_one_intro_text_agent()
+        tool_names = {
+            getattr(tool, "name", getattr(tool, "__name__", type(tool).__name__))
+            for tool in agent.tools
+        }
+
+        assert agent.name == "one_intro"
+        assert tool_names == {"run_intro_navigation_action", "list_intro_navigation_actions"}
+        assert "do not force a workflow" in agent.instruction
+
     def test_isolated_google_search_uses_the_text_model(self):
         agent = build_one_root_agent()
         search_tool = next(
@@ -103,6 +115,8 @@ class TestAgentTreeShape:
         assert "Use your intelligence in the current turn" in ONE_IDENTITY_INSTRUCTION
         assert "it is not semantic authority" in ONE_IDENTITY_INSTRUCTION
         assert "Deterministic policy may validate" in ONE_IDENTITY_INSTRUCTION
+        assert "KYC app surface" in ONE_IDENTITY_INSTRUCTION
+        assert "Gmail receipt sync is paused" in ONE_IDENTITY_INSTRUCTION
 
     def test_runtime_instruction_injects_only_the_active_route_playbook(self):
         instruction = _one_runtime_instruction(

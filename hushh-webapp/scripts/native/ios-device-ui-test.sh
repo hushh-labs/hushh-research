@@ -97,8 +97,8 @@ run_xcodebuild_with_log() {
     sleep 1
   done
 
-  local status=0
-  wait "$cmd_pid" 2>/dev/null || status=$?
+  local exit_code=0
+  wait "$cmd_pid" 2>/dev/null || exit_code=$?
 
   if [[ -f "$log_path" ]] && grep -q "Test Suite 'Selected tests' passed" "$log_path"; then
     return 0
@@ -112,7 +112,7 @@ run_xcodebuild_with_log() {
   if [[ -f "$log_path" ]] && grep -q '\*\* TEST BUILD FAILED \*\*' "$log_path"; then
     return 1
   fi
-  return "$status"
+  return "$exit_code"
 }
 
 echo "==> prepare UAT native build + UI flow artifacts"

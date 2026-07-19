@@ -20,17 +20,22 @@ describe("Kai native debate run stream contract", () => {
     expect(apiService).toContain("run_id: data.runId");
     expect(apiService).toContain("resume_cursor: data.resumeCursor ?? 0");
     expect(apiService).toContain("await Kai.streamKaiAnalysis({");
+    expect(apiService).toContain("Kai.cancelKaiAnalysisStream()");
 
     expect(iosPlugin).toContain("body[\"run_id\"]");
     expect(iosPlugin).toContain("/api/kai/analyze/run/");
     expect(iosPlugin).toContain("runRequest.httpMethod = \"GET\"");
     expect(iosPlugin).toContain("text/event-stream");
     expect(iosPlugin).toContain("/api/kai/analyze/stream");
+    expect(iosPlugin).toContain('CAPPluginMethod(name: "cancelKaiAnalysisStream"');
+    expect(iosPlugin).toContain("KAI_STREAM_ATTACHMENT_CANCELLED");
 
     expect(androidPlugin).toContain("bodyObj.optString(\"run_id\"");
     expect(androidPlugin).toContain("/api/kai/analyze/run/");
     expect(androidPlugin).toContain(".get()");
     expect(androidPlugin).toContain("text/event-stream");
     expect(androidPlugin).toContain("/api/kai/analyze/stream");
+    expect(androidPlugin).toContain("fun cancelKaiAnalysisStream(call: PluginCall)");
+    expect(androidPlugin).toContain("KAI_STREAM_BUSY");
   });
 });

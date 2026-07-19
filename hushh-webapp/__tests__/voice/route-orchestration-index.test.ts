@@ -96,7 +96,7 @@ describe("One route orchestration index", () => {
       (entry) => entry.route_pattern === "/one/location",
     );
     const profile = index.routes.find(
-      (entry) => entry.route_pattern === "/profile",
+      (entry) => entry.route_pattern === "/one/profile",
     );
     expect(location?.delegation_policy).toEqual({
       mode: "one_action_gate",

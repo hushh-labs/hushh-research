@@ -99,6 +99,9 @@ class _FakeAgentChatService:
         *,
         runtime_credential: str | None = None,
         runtime_credential_mode: str | None = None,
+        runtime_credential_transport: str | None = None,
+        runtime_vertex_project: str | None = None,
+        runtime_vertex_location: str | None = None,
     ):
         self.prepare_runtime_contract(
             runtime_credential=runtime_credential,
@@ -115,6 +118,9 @@ class _FakeAgentChatService:
             provider="gemini",
             model="gemini-2.5-flash",
             credential_ref="pkm:runtime_secrets.llm.gemini_api_key",
+            gemini_byok_transport="developer_api",
+            vertex_project=None,
+            vertex_location=None,
             client=self.runtime_client,
             evidence={},
         )

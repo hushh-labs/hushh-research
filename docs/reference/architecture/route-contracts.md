@@ -60,29 +60,31 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/register-phone`
 - `/logout`
 - `/agent`
-- `/profile`
-- `/profile/regulatory`
-- `/profile/account`
-- `/profile/account/phone`
-- `/profile/preferences`
-- `/profile/preferences/kai`
-- `/profile/preferences/device`
-- `/profile/security`
-- `/profile/security/vault`
-- `/profile/security/session`
-- `/profile/my-data`
-- `/profile/my-data/domain?key=<domain_key>`
-- `/profile/access`
-- `/profile/access/connection?id=<connection_id>`
-- `/profile/connected-systems`
-- `/profile/gmail`
-- `/profile/gmail/connection`
-- `/profile/gmail/actions`
-- `/profile/support`
-- `/profile/support/routing`
-- `/profile/support/compose?kind=<support_kind>`
-- `/profile/receipts`
-- `/profile/gmail/oauth/return`
+- `/one/profile`
+- `/one/profile/regulatory`
+- `/one/profile/account`
+- `/one/profile/account/phone`
+- `/one/profile/preferences`
+- `/one/profile/preferences/kai`
+- `/one/profile/preferences/device`
+- `/one/profile/security`
+- `/one/profile/security/vault`
+- `/one/profile/security/session`
+- `/one/profile/my-data`
+- `/one/profile/my-data/domain?key=<domain_key>`
+- `/one/profile/access`
+- `/one/profile/access/connection?id=<connection_id>`
+- `/one/profile/connected-systems`
+- `/one/profile/gmail`
+- `/one/profile/gmail/connection`
+- `/one/profile/gmail/actions`
+- `/one/profile/support`
+- `/one/profile/support/routing`
+- `/one/profile/support/compose?kind=<support_kind>`
+- `/one/profile/receipts`
+- `/one/profile/gmail/oauth/return`
+- `/one/connect`
+- `/one/connect/settings`
 - `/one/consent`
 - `/one/setup`
 - `/one/setup/finance`
@@ -113,15 +115,17 @@ Detail entrypoints that require an identifier use query-backed static routes so 
 
 - `/marketplace/ria?riaId=<ria_id>`
 - `/ria/workspace?clientId=<investor_user_id>`
-- `/profile/my-data/domain?key=<domain_key>`
-- `/profile/access/connection?id=<connection_id>`
-- `/profile/support/compose?kind=<support_kind>`
+- `/one/profile/my-data/domain?key=<domain_key>`
+- `/one/profile/access/connection?id=<connection_id>`
+- `/one/profile/support/compose?kind=<support_kind>`
 
 Legacy `/kai` and `/one/kai/onboarding` remain compatibility redirect surfaces only. They must not be documented as canonical navigation surfaces or reintroduced as primary routes without updating both `routes.ts` and this reference.
 
 Canonical `/one/kai?tab=<market|portfolio|analysis>` is the One-owned finance workspace, not a persona shell route. Its shared top-shell back control returns to `/one`; page-level role mismatch guards must not block it just because the active persona is RIA. Generated action contracts remain responsible for enforcing finance action guards, consent, and any required persona settlement. Legacy `/kai/*` aliases remain redirect-only.
 
-Legacy `/profile?panel=...&detail=...` URLs remain compatibility inputs only. Canonical profile navigation is nested under `/profile/<panel>` and owned by `hushh-webapp/lib/navigation/profile-routes.ts`.
+Legacy `/profile?panel=...&detail=...` URLs remain compatibility inputs only.
+They redirect into the canonical `/one/profile/<panel>` family, which is owned
+by `hushh-webapp/lib/navigation/profile-routes.ts`.
 
 The access manager is the One-owned `/one/consent` workspace. Legacy
 `/consents` links redirect there while preserving transient query state such as
@@ -190,7 +194,7 @@ The practical contract is split across:
   route-to-API/native/plugin/voice scaffold used by Codex agents and parity audits
 
 Connections-owned runtime configuration is intentionally a non-agent route pair:
-`/one/setup/connections` is the setup preface and `/connect/settings` is its
+`/one/setup/connections` is the setup preface and `/one/connect/settings` is its
 management re-entry point. They publish no voice action contract because a
 provider-secret mutation must remain a direct, vault-gated UI action.
 

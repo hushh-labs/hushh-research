@@ -136,6 +136,9 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
 32. `FoundationPublicAmbient` is the canonical Foundation canvas for every
     route, signed in or signed out. Routes may place opaque cards or fullscreen
     experiences above it, but must not introduce a competing page-level canvas.
+    Light mode is a neutral white canvas with a visible technical grain at
+    ordinary display brightness; it is a shared canvas treatment, not an
+    accent wash or route-local gradient.
 33. Finance is a single shared workspace at `/one/kai?tab=`. Its Market,
     Portfolio, and Analysis content inherits the Profile reading measure and
     one shared outer gutter. The top shell owns contextual tabs; each tab may
@@ -507,6 +510,7 @@ Use the `Subtle Apple` depth model:
 7. Do not tint outer card chrome to communicate state.
 8. If a surface needs more presence, move from `surface` to `surface-feature` or `hero`; do not invent a new route-local shadow recipe.
 9. Analysis/workspace sections should avoid duplicate summary chrome. Use one primary card for the main read and then secondary cards only when they add new information.
+10. `SettingsGroup` is the shared grouped-list card: it uses `--app-card-shadow-standard` so every settings surface receives the same depth. Route callers must not supply a local shadow replacement.
 
 ### Information Density And Evidence
 

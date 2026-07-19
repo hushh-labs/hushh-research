@@ -15,6 +15,9 @@ vault-gated chat:
 - It NEVER runs vault, finance-data, consent, or destructive operations. The
   only app actions it forwards are pure ``route.*`` navigation proposals, which
   are harmless on their own (each destination route enforces its own gates).
+- It uses One's restricted semantic ADK head, not the legacy keyword/action
+  planner. Semantic assessment stays with the model; the navigation-only tool
+  validates its authority before any client directive is emitted.
 - It uses the Hussh-managed runtime only. It does not accept a BYOK runtime
   credential.
 - It is rate limited per user/IP to bound abuse and cost on the unauthenticated
@@ -39,8 +42,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.middlewares.rate_limit import RateLimits, limiter
+from api.routes.one.live_context import sanitize_live_context
+from hushh_mcp.one_adk.text_runtime import OneTextDirective, stream_one_intro_text_turn
+from hushh_mcp.services.action_gateway import get_action_gateway_action, is_navigation_action
 from hushh_mcp.services.agent_chat_service import (
-    AgentChatActionPlan,
     AgentRuntimeContractError,
     AgentRuntimeProviderError,
     get_agent_chat_service,
@@ -50,12 +55,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Agent Chat"])
 
-# The informational tier only ever forwards pure navigation. Any other action
-# kind (PKM save, CRM, blocked/destructive) is suppressed so the pre-vault bar
-# can never propose a vault-touching operation; it just answers in text and, if
-# relevant, tells the user to unlock the vault to go further.
-_NAVIGATION_ACTION_PREFIX = "route."
-
 
 class AgentIntroStreamRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
@@ -64,6 +63,32 @@ class AgentIntroStreamRequest(BaseModel):
 
 def _event(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _navigation_tool_payload(directive: OneTextDirective) -> dict[str, Any] | None:
+    """Translate One's low-privilege route directive into the shared SSE shape."""
+    if directive.kind != "action":
+        return None
+    action_id = str(directive.payload.get("actionId") or "").strip()
+    entry = get_action_gateway_action(action_id)
+    if (
+        entry is None
+        or not action_id.startswith("route.")
+        or not is_navigation_action(entry)
+        or str((entry.get("risk") or {}).get("execution_policy") or "") != "allow_direct"
+        or str((entry.get("execution_target") or {}).get("status") or "") != "wired"
+    ):
+        return None
+    raw_slots = directive.payload.get("slots")
+    slots = raw_slots if isinstance(raw_slots, dict) else {}
+    return {
+        "call_id": f"intro:{action_id}",
+        "action_id": action_id,
+        "label": str(entry.get("label") or action_id),
+        "execution": "frontend",
+        "slots": slots,
+        "message": f"Opening {str(entry.get('label') or action_id)}.",
+    }
 
 
 async def _resolve_optional_uid(authorization: Optional[str]) -> Optional[str]:
@@ -104,16 +129,6 @@ async def stream_agent_intro(
     service = get_agent_chat_service()
     try:
         runtime = await service.prepare_agent_runtime()
-        # Navigation planning only. We pass no PKM context and ignore anything
-        # that is not a pure navigation proposal.
-        action_plan: AgentChatActionPlan | None = await service.plan_action_with_gemini(
-            user_message=body.message,
-            history=[],
-            runtime_client=runtime.client,
-            runtime_model=runtime.model,
-            pkm_context=None,
-            screen_context=body.screen_context,
-        )
     except (AgentRuntimeContractError, AgentRuntimeProviderError) as error:
         logger.warning(
             "agent_intro.runtime_failed uid=%s error_code=%s",
@@ -128,45 +143,37 @@ async def stream_agent_intro(
         logger.exception("agent_intro.prepare_failed uid=%s: %s", uid or "anon", error)
         raise HTTPException(status_code=500, detail="Agent could not be started") from error
 
-    navigation_plan: AgentChatActionPlan | None = None
-    if (
-        action_plan is not None
-        and action_plan.execution == "frontend"
-        and isinstance(action_plan.action_id, str)
-        and action_plan.action_id.startswith(_NAVIGATION_ACTION_PREFIX)
-    ):
-        navigation_plan = action_plan
+    sanitized_screen_context = sanitize_live_context(body.screen_context or {})
 
     async def generate():
         try:
             yield _event("start", {"conversation_id": None, "model": runtime.model})
-
-            if navigation_plan is not None:
-                payload = navigation_plan.to_event_payload()
-                receipt = navigation_plan.message.strip() or "Taking you there."
-                yield _event("tool_start", payload)
-                yield _event("token", {"token": receipt})
-                yield _event(
-                    "tool_waiting",
-                    {**payload, "message": receipt, "status": "waiting_for_frontend"},
-                )
-                yield _event(
-                    "complete",
-                    {"conversation_id": None, "status": "complete", "model": runtime.model},
-                )
-                return
-
-            async for token in service.stream_response(
-                user_message=body.message,
-                history=[],
-                runtime_client=runtime.client,
+            emitted_action = False
+            async for one_event in stream_one_intro_text_turn(
+                user_id=uid or "anonymous",
+                message=body.message,
+                screen_context=sanitized_screen_context,
+                runtime_provider=runtime.provider,
                 runtime_model=runtime.model,
-                action_plan=None,
-                pkm_context=None,
+                runtime_mode=runtime.mode,
+                runtime_credential=None,
             ):
                 if await request.is_disconnected():
                     return
-                yield _event("token", {"token": token})
+                if one_event.kind == "token" and one_event.text:
+                    yield _event("token", {"token": one_event.text})
+                    continue
+                if emitted_action or one_event.directive is None:
+                    continue
+                payload = _navigation_tool_payload(one_event.directive)
+                if payload is None:
+                    continue
+                emitted_action = True
+                yield _event("tool_start", payload)
+                yield _event(
+                    "tool_waiting",
+                    {**payload, "status": "waiting_for_frontend"},
+                )
 
             yield _event(
                 "complete",

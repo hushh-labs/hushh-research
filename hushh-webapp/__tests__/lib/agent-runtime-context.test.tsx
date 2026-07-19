@@ -16,7 +16,7 @@ import {
   unregisterMountedLocalActionHandler,
 } from "@/lib/agent/local-onboarding-actions";
 
-let mockPathname = "/profile";
+let mockPathname = "/one/profile";
 const cacheMocks = vi.hoisted(() => ({
   values: new Map<string, unknown>(),
   listeners: new Set<(event: { type: "set"; key: string }) => void>(),
@@ -89,8 +89,8 @@ function Probe({ onValue }: { onValue: (value: AgentRuntimeState) => void }) {
 
 describe("AgentRuntimeStateProvider", () => {
   beforeEach(() => {
-    mockPathname = "/profile";
-    window.history.replaceState({}, "", "/profile");
+    mockPathname = "/one/profile";
+    window.history.replaceState({}, "", "/one/profile");
     cacheMocks.values.clear();
     cacheMocks.listeners.clear();
     clearVoiceSurfaceMetadata("login_surface");
@@ -109,14 +109,14 @@ describe("AgentRuntimeStateProvider", () => {
     });
 
     act(() => {
-      window.history.pushState({}, "", "/profile?panel=gmail&tab=account");
+      window.history.pushState({}, "", "/one/profile?panel=gmail&tab=account");
     });
 
     await waitFor(() => {
       const latest = seen.at(-1);
       expect(latest?.screen).toBe("profile_gmail_panel");
       expect(latest?.appRuntimeState.route.pathname).toBe(
-        "/profile?panel=gmail&tab=account"
+        "/one/profile?panel=gmail&tab=account"
       );
       expect(latest?.oneVoiceContextSnapshot.revisions.route).toBeTruthy();
       expect(latest?.morphyAxSnapshot.context.screen).toBe("profile_gmail_panel");
