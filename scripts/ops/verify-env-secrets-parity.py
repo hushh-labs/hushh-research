@@ -602,6 +602,24 @@ def _classifications_from_runtime_entries(entries: list[dict[str, Any]]) -> list
     return classifications
 
 
+def _parity_targets(
+    backend_revision: str | None, frontend_revision: str | None
+) -> tuple[bool, bool]:
+    """Select only the candidate surface(s) for a scoped release.
+
+    Legacy callers do not provide candidate revisions and intentionally retain
+    full-stack parity. A scoped release does provide the no-traffic revision it
+    is about to promote, so validating an untouched service would turn stale,
+    unrelated configuration into a false pre-traffic blocker.
+    """
+
+    checks_backend = bool(str(backend_revision or "").strip())
+    checks_frontend = bool(str(frontend_revision or "").strip())
+    if checks_backend or checks_frontend:
+        return checks_backend, checks_frontend
+    return True, True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Verify required GCP Secret Manager keys for deploy parity."
@@ -676,18 +694,24 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    required = list(BACKEND_REQUIRED + FRONTEND_REQUIRED)
-    if args.require_plaid:
+    checks_backend, checks_frontend = _parity_targets(
+        args.backend_revision, args.frontend_revision
+    )
+
+    required = list(BACKEND_REQUIRED if checks_backend else ())
+    if checks_frontend:
+        required.extend(FRONTEND_REQUIRED)
+    if checks_backend and args.require_plaid:
         required.extend(BACKEND_PLAID_REQUIRED)
-    if args.require_market_data:
+    if checks_backend and args.require_market_data:
         required.extend(BACKEND_MARKET_REQUIRED)
-    if args.require_gmail:
+    if checks_backend and args.require_gmail:
         required.extend(BACKEND_GMAIL_REQUIRED)
-    if args.require_one_email:
+    if checks_backend and args.require_one_email:
         required.extend(BACKEND_ONE_EMAIL_SECRET_REQUIRED)
-    if args.require_voice:
+    if checks_backend and args.require_voice:
         required.extend(BACKEND_VOICE_REQUIRED)
-    if args.require_reviewer_smoke:
+    if checks_backend and args.require_reviewer_smoke:
         required.extend(BACKEND_REVIEWER_SMOKE_REQUIRED)
     if args.require_native_artifacts:
         required.extend(NATIVE_RELEASE_REQUIRED)
@@ -701,19 +725,28 @@ def main() -> int:
         "frontend_service": args.frontend_service,
         "backend_revision": args.backend_revision,
         "frontend_revision": args.frontend_revision,
+        "targets": {"backend": checks_backend, "frontend": checks_frontend},
         "required": {
-            "backend": list(BACKEND_REQUIRED),
-            "frontend": list(FRONTEND_REQUIRED),
-            "gmail": list(BACKEND_GMAIL_REQUIRED) if args.require_gmail else [],
+            "backend": list(BACKEND_REQUIRED) if checks_backend else [],
+            "frontend": list(FRONTEND_REQUIRED) if checks_frontend else [],
+            "gmail": list(BACKEND_GMAIL_REQUIRED)
+            if checks_backend and args.require_gmail
+            else [],
             "one_email": list(BACKEND_ONE_EMAIL_SECRET_REQUIRED)
-            if args.require_one_email
+            if checks_backend and args.require_one_email
             else [],
-            "voice": list(BACKEND_VOICE_REQUIRED) if args.require_voice else [],
+            "voice": list(BACKEND_VOICE_REQUIRED)
+            if checks_backend and args.require_voice
+            else [],
             "reviewer_smoke": list(BACKEND_REVIEWER_SMOKE_REQUIRED)
-            if args.require_reviewer_smoke
+            if checks_backend and args.require_reviewer_smoke
             else [],
-            "plaid": list(BACKEND_PLAID_REQUIRED) if args.require_plaid else [],
-            "market": list(BACKEND_MARKET_REQUIRED) if args.require_market_data else [],
+            "plaid": list(BACKEND_PLAID_REQUIRED)
+            if checks_backend and args.require_plaid
+            else [],
+            "market": list(BACKEND_MARKET_REQUIRED)
+            if checks_backend and args.require_market_data
+            else [],
             "native_release": list(NATIVE_RELEASE_REQUIRED) if args.require_native_artifacts else [],
         },
         "missing_secrets": sorted(missing),
@@ -732,38 +765,47 @@ def main() -> int:
     }
 
     print(f"Project: {args.project}")
-    print(f"Required backend secrets ({len(BACKEND_REQUIRED)}): {_format_names(BACKEND_REQUIRED)}")
-    if args.require_plaid:
+    print(f"Parity targets: backend={checks_backend}, frontend={checks_frontend}")
+    if checks_backend:
+        print(
+            f"Required backend secrets ({len(BACKEND_REQUIRED)}): "
+            f"{_format_names(BACKEND_REQUIRED)}"
+        )
+    if checks_backend and args.require_plaid:
         print(
             "Required Plaid backend secrets "
             f"({len(BACKEND_PLAID_REQUIRED)}): {_format_names(BACKEND_PLAID_REQUIRED)}"
         )
-    if args.require_market_data:
+    if checks_backend and args.require_market_data:
         print(
             "Required market backend secrets "
             f"({len(BACKEND_MARKET_REQUIRED)}): {_format_names(BACKEND_MARKET_REQUIRED)}"
         )
-    if args.require_gmail:
+    if checks_backend and args.require_gmail:
         print(
             "Required Gmail backend secrets "
             f"({len(BACKEND_GMAIL_REQUIRED)}): {_format_names(BACKEND_GMAIL_REQUIRED)}"
         )
-    if args.require_one_email:
+    if checks_backend and args.require_one_email:
         print(
             "Required One email backend keys "
             f"({len(BACKEND_ONE_EMAIL_SECRET_REQUIRED)}): {_format_names(BACKEND_ONE_EMAIL_SECRET_REQUIRED)}"
         )
-    if args.require_voice:
+    if checks_backend and args.require_voice:
         print(
             "Required voice backend secrets "
             f"({len(BACKEND_VOICE_REQUIRED)}): {_format_names(BACKEND_VOICE_REQUIRED)}"
         )
-    if args.require_reviewer_smoke:
+    if checks_backend and args.require_reviewer_smoke:
         print(
             "Required reviewer smoke backend secrets "
             f"({len(BACKEND_REVIEWER_SMOKE_REQUIRED)}): {_format_names(BACKEND_REVIEWER_SMOKE_REQUIRED)}"
         )
-    print(f"Required frontend secrets ({len(FRONTEND_REQUIRED)}): {_format_names(FRONTEND_REQUIRED)}")
+    if checks_frontend:
+        print(
+            f"Required frontend secrets ({len(FRONTEND_REQUIRED)}): "
+            f"{_format_names(FRONTEND_REQUIRED)}"
+        )
     if args.require_native_artifacts:
         print(
             "Required native release secrets "
@@ -774,64 +816,82 @@ def main() -> int:
         report["classifications"].append("secret_missing")
         print(f"Missing secrets ({len(missing)}): {_format_names(missing)}")
 
-    if args.require_gmail:
+    if checks_backend and args.require_gmail:
         gmail_redirect_contract = _gmail_redirect_contract(args.project)
         report["gmail_redirect_contract"] = gmail_redirect_contract
         print(f"Gmail OAuth redirect contract: {gmail_redirect_contract['status']}")
         if gmail_redirect_contract["status"] != "valid":
             report["classifications"].append("gmail_oauth_redirect_contract_failed")
 
-    domain_runtime_contract = _domain_runtime_contract(args.project)
-    report["domain_runtime_contract"] = domain_runtime_contract
-    print(f"Domain runtime contract: {domain_runtime_contract['status']}")
-    if domain_runtime_contract["status"] != "valid":
-        report["classifications"].append("domain_runtime_contract_failed")
+    if checks_backend:
+        domain_runtime_contract = _domain_runtime_contract(args.project)
+        report["domain_runtime_contract"] = domain_runtime_contract
+        print(f"Domain runtime contract: {domain_runtime_contract['status']}")
+        if domain_runtime_contract["status"] != "valid":
+            report["classifications"].append("domain_runtime_contract_failed")
 
-    firebase_project_contract = _firebase_project_contract(args.project)
-    report["firebase_project_contract"] = firebase_project_contract
-    print(f"Firebase project contract: {firebase_project_contract['status']}")
-    if firebase_project_contract["status"] != "valid":
-        report["classifications"].append("firebase_project_contract_failed")
+    if checks_frontend:
+        firebase_project_contract = _firebase_project_contract(args.project)
+        report["firebase_project_contract"] = firebase_project_contract
+        print(f"Firebase project contract: {firebase_project_contract['status']}")
+        if firebase_project_contract["status"] != "valid":
+            report["classifications"].append("firebase_project_contract_failed")
 
     if args.assert_runtime_env_contract:
-        frontend_json = _describe_run_service(args.project, args.region, args.frontend_service)
-        backend_json = _describe_run_service(args.project, args.region, args.backend_service)
-        frontend_env, frontend_revisions = _selected_container_env_map(
-            args.project,
-            args.region,
-            args.frontend_service,
-            frontend_json,
-            args.frontend_revision,
+        frontend_json = (
+            _describe_run_service(args.project, args.region, args.frontend_service)
+            if checks_frontend
+            else None
         )
-        backend_env, backend_revisions = _selected_container_env_map(
-            args.project,
-            args.region,
-            args.backend_service,
-            backend_json,
-            args.backend_revision,
+        backend_json = (
+            _describe_run_service(args.project, args.region, args.backend_service)
+            if checks_backend
+            else None
         )
+        frontend_env, frontend_revisions = ({}, [])
+        if checks_frontend:
+            frontend_env, frontend_revisions = _selected_container_env_map(
+                args.project,
+                args.region,
+                args.frontend_service,
+                frontend_json,
+                args.frontend_revision,
+            )
+        backend_env, backend_revisions = ({}, [])
+        if checks_backend:
+            backend_env, backend_revisions = _selected_container_env_map(
+                args.project,
+                args.region,
+                args.backend_service,
+                backend_json,
+                args.backend_revision,
+            )
 
-        frontend_entries = [
-            _classify_runtime_key(
-                frontend_env,
-                key,
-                legacy_keys=LEGACY_FRONTEND_RUNTIME_MAP.get(key, tuple()),
-            )
-            for key in FRONTEND_RUNTIME_REQUIRED
-        ]
-        backend_entries = [
-            _classify_runtime_key(
-                backend_env,
-                key,
-                legacy_keys=LEGACY_BACKEND_RUNTIME_MAP.get(key, tuple()),
-                legacy_component_keys=LEGACY_BACKEND_RUNTIME_COMPONENTS
-                if key == "BACKEND_RUNTIME_CONFIG_JSON"
-                else tuple(),
-            )
-            for key in BACKEND_RUNTIME_REQUIRED
-        ]
+        frontend_entries = []
+        if checks_frontend:
+            frontend_entries = [
+                _classify_runtime_key(
+                    frontend_env,
+                    key,
+                    legacy_keys=LEGACY_FRONTEND_RUNTIME_MAP.get(key, tuple()),
+                )
+                for key in FRONTEND_RUNTIME_REQUIRED
+            ]
+        backend_entries = []
+        if checks_backend:
+            backend_entries = [
+                _classify_runtime_key(
+                    backend_env,
+                    key,
+                    legacy_keys=LEGACY_BACKEND_RUNTIME_MAP.get(key, tuple()),
+                    legacy_component_keys=LEGACY_BACKEND_RUNTIME_COMPONENTS
+                    if key == "BACKEND_RUNTIME_CONFIG_JSON"
+                    else tuple(),
+                )
+                for key in BACKEND_RUNTIME_REQUIRED
+            ]
         backend_gmail_entries = []
-        if args.require_gmail:
+        if checks_backend and args.require_gmail:
             backend_gmail_entries = [
                 _classify_runtime_key(
                     backend_env,
@@ -841,13 +901,13 @@ def main() -> int:
                 for key in BACKEND_GMAIL_REQUIRED
             ]
         backend_one_email_entries = []
-        if args.require_one_email:
+        if checks_backend and args.require_one_email:
             backend_one_email_entries = [
                 _classify_runtime_key(backend_env, key)
                 for key in BACKEND_ONE_EMAIL_RUNTIME_REQUIRED
             ]
         backend_voice_entries = []
-        if args.require_voice:
+        if checks_backend and args.require_voice:
             backend_voice_entries = [
                 _classify_runtime_key(
                     backend_env,
@@ -859,7 +919,7 @@ def main() -> int:
                 for key in BACKEND_VOICE_REQUIRED
             ]
         backend_reviewer_smoke_entries = []
-        if args.require_reviewer_smoke:
+        if checks_backend and args.require_reviewer_smoke:
             backend_reviewer_smoke_entries = [
                 _classify_runtime_key(backend_env, key)
                 for key in BACKEND_REVIEWER_SMOKE_REQUIRED
@@ -887,20 +947,22 @@ def main() -> int:
         )
         report["classifications"].extend(runtime_classifications)
 
-        print(_render_runtime_summary("Frontend runtime env contract", frontend_entries))
-        print(_render_runtime_summary("Backend runtime env contract", backend_entries))
-        if args.require_gmail:
+        if checks_frontend:
+            print(_render_runtime_summary("Frontend runtime env contract", frontend_entries))
+        if checks_backend:
+            print(_render_runtime_summary("Backend runtime env contract", backend_entries))
+        if checks_backend and args.require_gmail:
             print(_render_runtime_summary("Backend Gmail runtime env contract", backend_gmail_entries))
-        if args.require_one_email:
+        if checks_backend and args.require_one_email:
             print(
                 _render_runtime_summary(
                     "Backend One email runtime env contract",
                     backend_one_email_entries,
                 )
             )
-        if args.require_voice:
+        if checks_backend and args.require_voice:
             print(_render_runtime_summary("Backend voice runtime env contract", backend_voice_entries))
-        if args.require_reviewer_smoke:
+        if checks_backend and args.require_reviewer_smoke:
             print(
                 _render_runtime_summary(
                     "Backend reviewer smoke runtime env contract",
