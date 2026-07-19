@@ -36,6 +36,9 @@ const allowedIosUsageDescriptionKeys = new Set([
   // Background location sharing (One Location) needs Always authorization.
   "NSLocationAlwaysAndWhenInUseUsageDescription",
   "NSContactsUsageDescription",
+  // Profile picture: choose from library / take a photo.
+  "NSPhotoLibraryUsageDescription",
+  "NSCameraUsageDescription",
 ]);
 const unexpectedIosUsageDescriptionKeys = iosUsageDescriptionKeys.filter(
   (key) => !allowedIosUsageDescriptionKeys.has(key)

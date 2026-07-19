@@ -579,47 +579,47 @@ class ActorIdentityService:
 
         pool = await get_pool()
 
-        def _claim_insert_sql(photo_expr: str) -> str:
-            # ``photo_expr`` is a fixed, code-controlled column expression (never
-            # user input) — no injection surface.
-            return f"""
-                INSERT INTO actor_identity_cache (
-                  user_id,
-                  phone_number,
-                  phone_verified,
-                  source,
-                  last_synced_at,
-                  created_at,
-                  updated_at
-                )
-                VALUES (
-                  $1,
-                  $2,
-                  TRUE,
-                  $3,
-                  NOW(),
-                  NOW(),
-                  NOW()
-                )
-                ON CONFLICT (user_id) DO UPDATE SET
-                  phone_number = EXCLUDED.phone_number,
-                  phone_verified = TRUE,
-                  source = $3,
-                  last_synced_at = NOW(),
-                  updated_at = NOW()
-                RETURNING
-                  user_id,
-                  display_name,
-                  email,
-                  phone_number,
-                  {photo_expr} AS photo_url,
-                  email_verified,
-                  phone_verified,
-                  source,
-                  last_synced_at,
-                  created_at,
-                  updated_at
-            """
+        # Two fully static SQL literals (no string interpolation/concatenation,
+        # so the query is never dynamically built). They differ only in the
+        # RETURNING photo_url projection: the COALESCE variant preserves a custom
+        # avatar (post-107); the plain-photo_url variant keeps the phone claim
+        # working during the 107 migration gap (no custom avatar can exist yet).
+        claim_insert_with_custom_photo = """
+            INSERT INTO actor_identity_cache (
+              user_id, phone_number, phone_verified, source,
+              last_synced_at, created_at, updated_at
+            )
+            VALUES ($1, $2, TRUE, $3, NOW(), NOW(), NOW())
+            ON CONFLICT (user_id) DO UPDATE SET
+              phone_number = EXCLUDED.phone_number,
+              phone_verified = TRUE,
+              source = $3,
+              last_synced_at = NOW(),
+              updated_at = NOW()
+            RETURNING
+              user_id, display_name, email, phone_number,
+              COALESCE(custom_photo_url, photo_url) AS photo_url,
+              email_verified, phone_verified, source,
+              last_synced_at, created_at, updated_at
+        """
+        claim_insert_plain_photo = """
+            INSERT INTO actor_identity_cache (
+              user_id, phone_number, phone_verified, source,
+              last_synced_at, created_at, updated_at
+            )
+            VALUES ($1, $2, TRUE, $3, NOW(), NOW(), NOW())
+            ON CONFLICT (user_id) DO UPDATE SET
+              phone_number = EXCLUDED.phone_number,
+              phone_verified = TRUE,
+              source = $3,
+              last_synced_at = NOW(),
+              updated_at = NOW()
+            RETURNING
+              user_id, display_name, email, phone_number,
+              photo_url AS photo_url,
+              email_verified, phone_verified, source,
+              last_synced_at, created_at, updated_at
+        """
 
         try:
             async with pool.acquire() as conn:
@@ -640,7 +640,7 @@ class ActorIdentityService:
                     # Preserve a custom avatar in the returned (and client-cached)
                     # identity, matching get_many/upsert_identity/set_custom_photo_url.
                     row = await conn.fetchrow(
-                        _claim_insert_sql("COALESCE(custom_photo_url, photo_url)"),
+                        claim_insert_with_custom_photo,
                         normalized_user_id,
                         normalized_phone_number,
                         normalized_source,
@@ -651,7 +651,7 @@ class ActorIdentityService:
                     # Pre-107 gap: no custom avatar can exist yet, so the plain
                     # photo_url is equivalent — keep the phone claim working.
                     row = await conn.fetchrow(
-                        _claim_insert_sql("photo_url"),
+                        claim_insert_plain_photo,
                         normalized_user_id,
                         normalized_phone_number,
                         normalized_source,
