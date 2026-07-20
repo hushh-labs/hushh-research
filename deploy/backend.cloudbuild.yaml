@@ -256,7 +256,7 @@ steps:
           --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
           --command="python" \
           --args="scripts/verify_managed_vertex_runtime.py" \
-          --set-env-vars="HUSHH_GENAI_AUTH_MODE=vertex_adc,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,HUSHH_VERTEX_LOCATIONS=global\,us\,eu,AGENT_ONE_ADK_LOCATION=us-central1" \
+          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=$PROJECT_ID|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|AGENT_ONE_ADK_LOCATION=us-central1" \
           --max-retries=0 \
           --task-timeout=30s \
           --quiet
