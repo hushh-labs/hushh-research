@@ -715,6 +715,7 @@ export function KaiFlow({
     vaultKey,
     enabled: Boolean(userId),
     backgroundRefresh: true,
+    skipEmptyFinancialProbe: mode === "import",
   });
 
   // Streaming state for real-time progress
@@ -2977,6 +2978,10 @@ export function KaiFlow({
       });
 
       if (!linkToken.configured || !linkToken.link_token) {
+        if (mode === "import") {
+          toast.info("Bank linking is not available right now. You can link it later.");
+          return;
+        }
         throw new Error("Plaid is not configured for this environment.");
       }
       if (onSetupSourceSettled) {
