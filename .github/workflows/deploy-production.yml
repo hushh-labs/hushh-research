@@ -101,7 +101,7 @@ jobs:
 
       - name: Report production deploy lane
         run: |
-          echo "Owner-only production deploy: using production environment."
+          echo "Governed production deploy: using production environment."
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2

@@ -14,6 +14,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = REPO_ROOT / "config" / "ci-governance.json"
 DEFAULT_REPO = "hushh-labs/hushh-research"
+PRODUCTION_MANUAL_DISPATCH_USERS = ["kushaltrivedi5", "ankitkumarsingh1702"]
 
 
 def _gh_json(*args: str) -> dict:
@@ -58,9 +59,10 @@ def _assert_surface(surface: str, repo: str, policy: dict) -> list[str]:
         errors.append(f"{env_name} should not use custom branch policies")
 
     allowed_users = surface_policy.get("manual_dispatch_users") or []
-    if surface == "production" and allowed_users != ["kushaltrivedi5"]:
+    if surface == "production" and allowed_users != PRODUCTION_MANUAL_DISPATCH_USERS:
         errors.append(
-            f"production manual dispatch policy drifted: expected ['kushaltrivedi5'], got {allowed_users}"
+            "production manual dispatch policy drifted: "
+            f"expected {PRODUCTION_MANUAL_DISPATCH_USERS}, got {allowed_users}"
         )
 
     # UAT dispatch authority must equal the merge cohort (main.review_bypass_users).

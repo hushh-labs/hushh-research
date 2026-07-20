@@ -446,7 +446,7 @@ flowchart TB
     main["main"]
     smoke["Main Post-Merge Smoke Gate"]
     uatWorkflow["Deploy to UAT<br/>manual exact green main SHA"]
-    prodWorkflow["Deploy to Production<br/>owner-only exact green main SHA"]
+    prodWorkflow["Deploy to Production<br/>governed exact green main SHA"]
   end
 
   subgraph uat["UAT hosted runtime"]
