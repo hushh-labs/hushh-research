@@ -52,9 +52,11 @@ steps:
         fi
         gcloud iam service-accounts describe "${_RUNTIME_SERVICE_ACCOUNT}" \
           --project="$PROJECT_ID" >/dev/null
-        vertex_api_state="$(gcloud services describe aiplatform.googleapis.com \
-          --project="$PROJECT_ID" --format='value(state)')"
-        if [[ "${vertex_api_state}" != "ENABLED" ]]; then
+        vertex_api_name="$(gcloud services list --enabled \
+          --project="$PROJECT_ID" \
+          --filter='config.name=aiplatform.googleapis.com' \
+          --format='value(config.name)' | head -n 1)"
+        if [[ "${vertex_api_name}" != "aiplatform.googleapis.com" ]]; then
           echo "Vertex AI API must be enabled in ${PROJECT_ID}." >&2
           exit 1
         fi

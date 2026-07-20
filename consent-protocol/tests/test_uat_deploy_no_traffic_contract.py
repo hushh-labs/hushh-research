@@ -43,6 +43,14 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
     assert "GOOGLE_CLOUD_LOCATION=asia-southeast1" not in backend_build
 
 
+def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None:
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+
+    assert "gcloud services list --enabled" in backend_build
+    assert "--filter='config.name=aiplatform.googleapis.com'" in backend_build
+    assert "gcloud services describe" not in backend_build
+
+
 def test_production_deploy_builds_candidates_without_serving_traffic() -> None:
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
