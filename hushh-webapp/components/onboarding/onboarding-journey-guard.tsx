@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   buildOneSetupRoute,
   isCapabilityOnboardingRoute,
+  isCompletedLocationWorkspaceRoute,
   isOnboardingAdmissionExemptRoute,
   isOneSetupRoute,
   isOneSetupSurfaceRoute,
@@ -47,7 +48,10 @@ function admissionAllowsCurrentRoute(params: {
   return (
     !hasExplicitIncompleteSetup(state) ||
     setupSurface ||
-    isCapabilityOnboardingRoute(state.onboardingActiveCapability, pathname)
+    isCapabilityOnboardingRoute(state.onboardingActiveCapability, pathname) ||
+    // Completed Location setup may open its workspace while the wider setup
+    // funnel remains unresolved. Other product routes stay gated.
+    isCompletedLocationWorkspaceRoute(state.setupCapabilityIds, pathname)
   );
 }
 

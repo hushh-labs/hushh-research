@@ -239,15 +239,8 @@ function ProgressDots({ activeIndex }: { activeIndex: number }) {
   );
 }
 
-function WelcomeRadar({ people }: { people: DirectoryPerson[] }) {
-  const connected = people
-    .filter((person) => person.relationship === "connected")
-    .slice(0, 3);
-  // Always render three avatar bubbles in an evenly-spaced triangle around the
-  // center pin. Real connected people fill first; remaining slots fall back to
-  // dummy contact avatars so the radar never looks empty and keeps consistent
-  // distancing from the middle on every device.
-  const slots = [0, 1, 2].map((index) => connected[index] ?? null);
+function WelcomeRadar() {
+  // Preview screens use sample team avatars until the user chooses contacts.
   // Three avatars sit on a single ring, spaced an exact 120° apart in a perfect
   // equilateral triangle around the center pin, so they are truly EQUIDISTANT
   // from the middle and from each other. Each avatar is centered on its ring
@@ -294,16 +287,12 @@ function WelcomeRadar({ people }: { people: DirectoryPerson[] }) {
         <MapPin className="h-8 w-8 fill-[#087cf0]/12" strokeWidth={2.25} />
       </span>
 
-      {slots.map((person, index) => (
+      {[0, 1, 2].map((index) => (
         <span
-          key={person?.userId ?? `dummy-${index}`}
+          key={`radar-dummy-${index}`}
           className={cn("absolute", positions[index])}
         >
-          {person ? (
-            <Avatar name={safeName(person.displayName)} photoUrl={person.photoUrl} size="lg" />
-          ) : (
-            <DummyContactAvatar index={index} large />
-          )}
+          <DummyContactAvatar index={index} large />
           {index === 0 ? (
             <span className="absolute -right-0.5 -top-0.5 h-5 w-5 rounded-full border-[3px] border-white bg-[#34c759]" />
           ) : null}
@@ -355,31 +344,25 @@ function DummyContactAvatar({ index = 0, large = false }: { index?: number; larg
 
 
 function FeatureAlert({
-  person,
+  name,
   action,
   detail,
   accent,
   dummyIndex,
 }: {
-  person?: DirectoryPerson;
+  name: string;
   action: string;
   detail?: string;
   accent: "violet" | "teal";
   dummyIndex: number;
 }) {
-  const name = safeName(person?.displayName, dummyIndex === 0 ? "Akshat" : "Ankit");
-
   return (
     <div className="absolute left-[6%] top-[7%] z-10 flex min-w-[192px] items-center gap-3 rounded-[16px] bg-white px-3 py-2.5 shadow-[0_12px_28px_rgba(28,42,68,0.18)]">
       <span className="absolute -left-1 -top-4 h-3 w-3">
         <span className={cn("absolute left-0 top-1 h-1 w-3 rotate-[8deg] rounded-full", accent === "teal" ? "bg-[#61d7d4]" : "bg-[#b7a4de]")} />
         <span className={cn("absolute -top-1 left-2 h-3 w-1 -rotate-[10deg] rounded-full", accent === "teal" ? "bg-[#61d7d4]" : "bg-[#b7a4de]")} />
       </span>
-      {person?.photoUrl ? (
-        <Avatar name={name} photoUrl={person.photoUrl} size="sm" />
-      ) : (
-        <DummyContactAvatar index={dummyIndex} />
-      )}
+      <DummyContactAvatar index={dummyIndex} />
       <div className="min-w-0 text-left">
         <p className="truncate text-[13px] font-bold text-[#1f2938]">
           {name} {action}
@@ -454,7 +437,7 @@ const ILLUSTRATION_CUTOUT_CLASS =
 // (`absolute inset-0`), so it grows/shrinks to fit ANY device height and never
 // forces the screen to scroll. `-left-5 -right-5` bleeds it past the screen's
 // horizontal padding for a true full-width image.
-function ArrivalIllustration({ person }: { person?: DirectoryPerson }) {
+function ArrivalIllustration() {
   return (
     <div
       className={ILLUSTRATION_WRAPPER_CLASS}
@@ -476,7 +459,7 @@ function ArrivalIllustration({ person }: { person?: DirectoryPerson }) {
       />
       <IllustrationFade topColor="#f6f1f0" bottomColor="#eae7ef" />
       <FeatureAlert
-        person={person}
+        name="Akshat"
         action="arrived"
         detail="at Office"
         accent="violet"
@@ -486,7 +469,7 @@ function ArrivalIllustration({ person }: { person?: DirectoryPerson }) {
   );
 }
 
-function CheckinIllustration({ person }: { person?: DirectoryPerson }) {
+function CheckinIllustration() {
   return (
     <div
       className={ILLUSTRATION_WRAPPER_CLASS}
@@ -508,7 +491,7 @@ function CheckinIllustration({ person }: { person?: DirectoryPerson }) {
       />
       <IllustrationFade topColor="#faf2eb" bottomColor="#f5ede9" />
       <FeatureAlert
-        person={person}
+        name="Ankit"
         action="checked in"
         accent="teal"
         dummyIndex={2}
@@ -517,8 +500,7 @@ function CheckinIllustration({ person }: { person?: DirectoryPerson }) {
   );
 }
 
-function SosIllustration({ people }: { people: DirectoryPerson[] }) {
-  const recipients = [people[0], people[1]];
+function SosIllustration() {
   return (
     <div
       className={ILLUSTRATION_WRAPPER_CLASS}
@@ -541,20 +523,10 @@ function SosIllustration({ people }: { people: DirectoryPerson[] }) {
       <IllustrationFade topColor="#f5efed" bottomColor="#eae6e8" />
 
       <span className="absolute left-[8%] top-[53%]">
-
-
-        {recipients[0]?.photoUrl ? (
-          <Avatar name={safeName(recipients[0].displayName)} photoUrl={recipients[0].photoUrl} size="lg" />
-        ) : (
-          <DummyContactAvatar index={2} large />
-        )}
+        <DummyContactAvatar index={2} large />
       </span>
       <span className="absolute right-[8%] top-[53%]">
-        {recipients[1]?.photoUrl ? (
-          <Avatar name={safeName(recipients[1].displayName)} photoUrl={recipients[1].photoUrl} size="lg" />
-        ) : (
-          <DummyContactAvatar index={3} large />
-        )}
+        <DummyContactAvatar index={3} large />
       </span>
       <span className="absolute left-[22%] top-[61%] w-[18%] -rotate-[16deg] border-t-2 border-dashed border-[#343b47]" />
       <span className="absolute right-[22%] top-[61%] w-[18%] rotate-[16deg] border-t-2 border-dashed border-[#343b47]" />
@@ -567,32 +539,24 @@ function SosIllustration({ people }: { people: DirectoryPerson[] }) {
 
 function FeatureScreen({
   screen,
-  people,
   onBack,
   onSkip,
   onContinue,
 }: {
   screen: "arrival" | "checkin" | "sos";
-  people: DirectoryPerson[];
   onBack: () => void;
   onSkip: () => void;
   onContinue: () => void;
 }) {
   const featureIndex = FEATURE_SCREENS.indexOf(screen);
-  const connectedPeople = people.filter(
-    (person) => person.relationship === "connected",
-  );
-  const arrivalName = safeName(connectedPeople[0]?.displayName, "Akshat");
-  const checkinName = safeName(
-    connectedPeople[1]?.displayName ?? connectedPeople[0]?.displayName,
-    "Ankit",
-  );
+  const arrivalName = "Akshat";
+  const checkinName = "Ankit";
 
   const content = {
     arrival: {
       title: "Know when they arrive",
       body: `"${arrivalName} arrived at Office" - get a quiet alert the moment your people reach the places that matter.`,
-      visual: <ArrivalIllustration person={connectedPeople[0]} />,
+      visual: <ArrivalIllustration />,
       // The whole screen background is set to the EXACT top/bottom backdrop
       // colors sampled from this illustration's own edges. Combined with the
       // full-bleed (edge-to-edge, no box, no rounded corner) image, the art
@@ -604,14 +568,14 @@ function FeatureScreen({
     checkin: {
       title: "Let them know you're here",
       body: `"${checkinName} checked in" - one tap tells your trusted people where you are. No call needed.`,
-      visual: <CheckinIllustration person={connectedPeople[1] ?? connectedPeople[0]} />,
+      visual: <CheckinIllustration />,
       gradient: "from-[#faf2eb] to-[#f5ede9] dark:from-[#14171d] dark:to-[#14171d]",
       cta: "Continue",
     },
     sos: {
       title: "Help when it matters most",
       body: `"Help sent" - SOS shares your live location with selected people, instantly.`,
-      visual: <SosIllustration people={connectedPeople} />,
+      visual: <SosIllustration />,
       gradient: "from-[#f5efed] to-[#eae6e8] dark:from-[#14171d] dark:to-[#14171d]",
       cta: "Create my circle",
     },
@@ -724,11 +688,11 @@ function PeopleScreen({
     <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]">
       <TopNavigation onBack={onBack} onSkip={onSkip} />
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
-        <h1 className="mt-3 text-[38px] font-bold leading-[1.05] text-[#151b26] dark:text-[#f5f7fb]">Add people</h1>
-        <p className="mt-3 text-[17px] leading-6 text-[#73777f] dark:text-[#b5bfcc]">
+        <h1 className="mt-3 text-[34px] font-bold leading-[1.06] text-[#151b26] dark:text-[#f5f7fb]">Add people</h1>
+        <p className="mt-2 text-[16px] leading-6 text-[#73777f] dark:text-[#b5bfcc]">
           Invite the people you want to keep connected with.
         </p>
-        <h2 className="mt-9 text-[13px] font-bold uppercase text-[#96999e] dark:text-[#8d99a8]">
+        <h2 className="mt-8 text-[13px] font-semibold tracking-[0.02em] text-[#96999e] dark:text-[#8d99a8]">
           Contacts
         </h2>
 
@@ -1239,7 +1203,7 @@ export function OneLocationOnboardingFlow({
                 </p>
               </div>
               <div className="flex min-h-0 flex-1 items-center justify-center py-2">
-                <WelcomeRadar people={people} />
+                <WelcomeRadar />
               </div>
               <div className="shrink-0">
                 <PrimaryButton inverse onClick={() => setScreen("arrival")}>Get started</PrimaryButton>
@@ -1252,7 +1216,6 @@ export function OneLocationOnboardingFlow({
         {screen === "arrival" || screen === "checkin" || screen === "sos" ? (
           <FeatureScreen
             screen={screen}
-            people={people}
             onBack={goBackFromFeature}
             onSkip={() => setScreen("people")}
             onContinue={() =>

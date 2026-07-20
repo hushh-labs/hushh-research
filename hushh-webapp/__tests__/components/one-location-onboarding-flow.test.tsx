@@ -72,6 +72,19 @@ function renderFlow(
 }
 
 describe("OneLocationOnboardingFlow", () => {
+  it("keeps real contact identities out of the static preview screens", () => {
+    renderFlow();
+
+    expect(screen.queryByText("Connected Person")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    expect(screen.getByText("Akshat arrived")).toBeTruthy();
+    expect(screen.queryByText("Connected Person")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.getByText("Ankit checked in")).toBeTruthy();
+    expect(screen.queryByText("Connected Person")).toBeNull();
+  });
+
   it("publishes the canonical seven-screen sequence without side effects on the skip path", () => {
     const props = renderFlow();
     const expectScreen = (testId: string) => {

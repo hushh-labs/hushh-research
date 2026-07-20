@@ -281,19 +281,16 @@ function resolveVaultGated(
 }
 
 /**
- * Resolve the location capability. "Set up" means the user has a
- * location recipient key, which lives behind the vault. Locked → we cannot read
- * it, so keep the honest vault-prerequisite `unknown` ("Unlock to view").
- * Unlocked → `completed` ("Ready") when the key exists, `not-started`
- * ("Set up location") when it doesn't, and `unknown`/"Checking…" while the
- * one-shot fetch is still in flight.
+ * A recipient key proves Location provisioning started, not that the one-time
+ * setup terminal was acknowledged. Durable completion is handled above through
+ * `setupCapabilityIds`; this resolver reports the live key as progress only.
  */
 function resolveLocation(inputs: CapabilitySetupInputs): CapabilityStatus {
   if (!inputs.isVaultUnlocked) {
     return unknown("location", "vault", true);
   }
   const ready = inputs.locationRecipientKeyReady;
-  if (ready === true) return simple("location", "completed");
+  if (ready === true) return simple("location", "in-progress");
   if (ready === false) return simple("location", "not-started");
   return unknown("location", null, false);
 }
