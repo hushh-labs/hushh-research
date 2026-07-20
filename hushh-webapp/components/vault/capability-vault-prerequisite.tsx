@@ -53,6 +53,8 @@ export function CapabilityVaultPrerequisite({
   const [retryKey, setRetryKey] = useState(0);
   const [vaultHandoffPending, setVaultHandoffPending] = useState(false);
   const autoPresentedRef = useRef(false);
+  const vaultBoundaryActive =
+    state === "create_required" || state === "unlock_required" || vaultHandoffPending;
 
   useEffect(() => {
     if (authLoading || userId) return;
@@ -111,7 +113,7 @@ export function CapabilityVaultPrerequisite({
   }, [state]);
 
   usePublishVoiceSurfaceMetadata(
-    dialogOpen
+    vaultBoundaryActive
       ? {
           screenId: "capability_vault_prerequisite",
           title: `Set up vault for ${capabilityLabel}`,
