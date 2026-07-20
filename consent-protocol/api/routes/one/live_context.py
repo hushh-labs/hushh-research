@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Any, cast
 
 from hushh_mcp.services.action_gateway import (
     get_action_gateway_action,
@@ -158,16 +158,22 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
     # merely because it used the shared builder directly.
     snapshot = payload.get("one_voice_context")
     if isinstance(snapshot, dict):
-        route = snapshot.get("route") if isinstance(snapshot.get("route"), dict) else {}
-        ui = snapshot.get("ui") if isinstance(snapshot.get("ui"), dict) else {}
-        cache = snapshot.get("cache") if isinstance(snapshot.get("cache"), dict) else {}
-        persona = snapshot.get("persona") if isinstance(snapshot.get("persona"), dict) else {}
-        voice = snapshot.get("voice") if isinstance(snapshot.get("voice"), dict) else {}
-        auth = snapshot.get("auth") if isinstance(snapshot.get("auth"), dict) else {}
-        revisions = snapshot.get("revisions") if isinstance(snapshot.get("revisions"), dict) else {}
+        snapshot_map = cast(dict[str, Any], snapshot)
+
+        def nested_map(key: str) -> dict[str, Any]:
+            value = snapshot_map.get(key)
+            return cast(dict[str, Any], value) if isinstance(value, dict) else {}
+
+        route = nested_map("route")
+        ui = nested_map("ui")
+        cache = nested_map("cache")
+        persona = nested_map("persona")
+        voice = nested_map("voice")
+        auth = nested_map("auth")
+        revisions = nested_map("revisions")
         payload = {
             **payload,
-            "context_id": payload.get("context_id") or snapshot.get("snapshot_id"),
+            "context_id": payload.get("context_id") or snapshot_map.get("snapshot_id"),
             "screen": payload.get("screen") or route.get("screen"),
             "route_family": payload.get("route_family") or route.get("route_family"),
             "context_revision": payload.get("context_revision")
@@ -176,19 +182,19 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
             "persona": payload.get("persona") or persona.get("active"),
             "voice_state": payload.get("voice_state") or voice.get("state"),
             "available_action_ids": payload.get("available_action_ids")
-            or snapshot.get("available_action_ids"),
+            or snapshot_map.get("available_action_ids"),
             "visible_modules": payload.get("visible_modules") or ui.get("visible_modules"),
             "visible_control_ids": payload.get("visible_control_ids")
             or ui.get("visible_control_ids"),
             "interaction_layer": payload.get("interaction_layer") or ui.get("interaction_layer"),
             "pending_settlement": payload.get("pending_settlement") is True
-            or snapshot.get("pending_settlement") is True,
+            or snapshot_map.get("pending_settlement") is True,
             "cache_freshness": payload.get("cache_freshness") or cache.get("freshness"),
             "vault_ready": payload.get("vault_ready") is True or cache.get("vault_ready") is True,
             "portfolio_ready": payload.get("portfolio_ready") is True
             or cache.get("portfolio_ready") is True,
             "busy_operations": payload.get("busy_operations") or cache.get("busy_operations"),
-            "onboarding": payload.get("onboarding") or snapshot.get("onboarding"),
+            "onboarding": payload.get("onboarding") or snapshot_map.get("onboarding"),
         }
     cache_freshness = bounded_text(payload.get("cache_freshness"), 32)
     route_family = bounded_text(payload.get("route_family"))

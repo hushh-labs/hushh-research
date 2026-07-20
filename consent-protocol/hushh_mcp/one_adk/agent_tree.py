@@ -216,10 +216,10 @@ def _build_one_live_model():
     )
 
 
-ONE_IDENTITY_INSTRUCTION = (
+ONE_IDENTITY_INSTRUCTION: str = (
     # Agent identity is authored in AgentManifestV2. The remainder is dynamic
     # runtime/tool policy that cannot be represented as another authored agent.
-    _ONE_MANIFEST.system_instruction.strip()
+    str(_ONE_MANIFEST.system_instruction).strip()
     + '\n\nIf anyone asks your name or who you are, answer simply: "I\'m One." '
     "Never call yourself Kai, Gemini, or any other name. Speak warmly, "
     "concisely, and in plain English.\n\n"
@@ -895,11 +895,11 @@ def _bounded_finance_context(context: Any) -> str:
 
 def _investor_runtime_instruction(context: Any) -> str:
     manifest = next(child for child in _KAI_MANIFEST.subagents if child.id == "agent_investor")
-    return manifest.system_instruction + _bounded_finance_context(context)
+    return str(manifest.system_instruction) + _bounded_finance_context(context)
 
 
 def _finance_runtime_instruction(context: Any) -> str:
-    return _KAI_MANIFEST.system_instruction + _bounded_finance_context(context)
+    return str(_KAI_MANIFEST.system_instruction) + _bounded_finance_context(context)
 
 
 def _build_finance_agent(*, model: Any | None = None) -> LlmAgent:
