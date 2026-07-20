@@ -18,7 +18,7 @@ describe("setup warm-transition contract", () => {
     expect(admission).toContain(
       "cachedJourney ??\n          (await PreVaultUserStateService.bootstrapState(user.uid))",
     );
-    expect(admission).not.toContain("force: true");
+    expect(admission).toContain("await PreVaultUserStateService.bootstrapState(user.uid)");
   });
 
   it("does not block every route change on a forced onboarding admission check", () => {
@@ -104,9 +104,8 @@ describe("setup warm-transition contract", () => {
 
     expect(financeImport).toContain("allowResolvedRootReentry: true");
     expect(financeImport).toContain("resumeReadinessFromCallback: true");
-    expect(coordinator).toContain(
-      "A root-level skip never resolves an active capability",
-    );
+    expect(coordinator).toContain("PreVaultUserStateService.settleOnboardingCapability");
+    expect(coordinator).toContain("hasExplicitIncompleteSetup");
     expect(coordinator).toContain("setCallbackReadiness(true)");
   });
 

@@ -3,9 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   nativePlatform: false,
-  appStateListener: null as ((state: { isActive: boolean }) => void) | null,
-  addListener: vi.fn(),
-  removeListener: vi.fn(),
   pausePkmUpgrade: vi.fn().mockResolvedValue(undefined),
   pauseConsentExport: vi.fn(),
   clearAgentPkmContext: vi.fn(),
@@ -27,12 +24,6 @@ vi.mock("@capacitor/core", () => ({
   Capacitor: {
     getPlatform: () => (mocks.nativePlatform ? "android" : "web"),
     isNativePlatform: () => mocks.nativePlatform,
-  },
-}));
-
-vi.mock("@capacitor/app", () => ({
-  App: {
-    addListener: mocks.addListener,
   },
 }));
 
@@ -108,6 +99,7 @@ vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
 }));
 
 import { VaultProvider, useVault } from "@/lib/vault/vault-context";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
 const NOW = 1_800_000_000_000;
 
@@ -122,9 +114,9 @@ function VaultHarness() {
       <span data-testid="vault-key">{vault.vaultKey ?? "none"}</span>
       <button
         type="button"
-        onClick={() => vault.unlockVault("vault-key", "vault-token", NOW)}
+        onClick={() => vault.unlockVault("vault-key", "vault-token", NOW + 1_000)}
       >
-        Unlock expired
+        Unlock short-lived
       </button>
       <button
         type="button"
@@ -160,17 +152,8 @@ beforeEach(() => {
     email: "owner@example.test",
     photoURL: null,
   };
-  mocks.appStateListener = null;
-  mocks.addListener.mockImplementation(
-    async (
-      _event: string,
-      listener: (state: { isActive: boolean }) => void,
-    ) => {
-      mocks.appStateListener = listener;
-      return { remove: mocks.removeListener };
-    },
-  );
   vi.spyOn(Date, "now").mockReturnValue(NOW);
+  appInteractionCoordinator.handleLifecycle("active");
   setVisibility("hidden");
 });
 
@@ -181,11 +164,14 @@ afterEach(() => {
 describe("VaultProvider app-resume expiry recovery", () => {
   it("relocks and clears memory-only credentials when an expired token resumes on web", async () => {
     renderVault();
-    fireEvent.click(screen.getByRole("button", { name: "Unlock expired" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unlock short-lived" }));
     expect(screen.getByTestId("vault-status").textContent).toBe("unlocked");
 
-    setVisibility("visible");
-    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    vi.spyOn(Date, "now").mockReturnValue(NOW + 2_000);
+    act(() => {
+      appInteractionCoordinator.handleLifecycle("background");
+      appInteractionCoordinator.handleLifecycle("active");
+    });
 
     await waitFor(() => {
       expect(screen.getByTestId("vault-status").textContent).toBe("locked");
@@ -200,8 +186,10 @@ describe("VaultProvider app-resume expiry recovery", () => {
     renderVault();
     fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
 
-    setVisibility("visible");
-    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    act(() => {
+      appInteractionCoordinator.handleLifecycle("background");
+      appInteractionCoordinator.handleLifecycle("active");
+    });
 
     expect(screen.getByTestId("vault-status").textContent).toBe("unlocked");
     expect(screen.getByTestId("vault-token").textContent).toBe("vault-token");
@@ -227,23 +215,19 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(mocks.invalidateVaultState).toHaveBeenCalled();
   });
 
-  it("relocks only when the native app becomes active and removes its listener", async () => {
+  it("relocks only when the shared native lifecycle becomes active", async () => {
     mocks.nativePlatform = true;
-    const view = renderVault();
-    await waitFor(() => expect(mocks.addListener).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: "Unlock expired" }));
-    await waitFor(() => expect(mocks.appStateListener).not.toBeNull());
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock short-lived" }));
+    vi.spyOn(Date, "now").mockReturnValue(NOW + 2_000);
 
-    act(() => mocks.appStateListener?.({ isActive: false }));
+    act(() => appInteractionCoordinator.handleLifecycle("background"));
     expect(screen.getByTestId("vault-status").textContent).toBe("unlocked");
 
-    act(() => mocks.appStateListener?.({ isActive: true }));
+    act(() => appInteractionCoordinator.handleLifecycle("active"));
     await waitFor(() => {
       expect(screen.getByTestId("vault-status").textContent).toBe("locked");
     });
-
-    view.unmount();
-    await waitFor(() => expect(mocks.removeListener).toHaveBeenCalled());
   });
 
   it("fails closed and clears memory credentials when the authenticated UID changes", async () => {

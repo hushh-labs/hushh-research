@@ -3,6 +3,10 @@ import { Mail } from "lucide-react";
 import { describe, expect, it, vi } from "vitest";
 
 import { CapabilitySetupTile } from "@/components/onboarding/setup/capability-setup-tile";
+import {
+  INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+  type InternalAppNavigationRequest,
+} from "@/lib/utils/browser-navigation";
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
@@ -14,6 +18,14 @@ vi.mock("next/navigation", () => ({
 
 describe("CapabilitySetupTile", () => {
   it("navigates the whole setup row through the Next router on tap", () => {
+    let navigationRequest: InternalAppNavigationRequest | null = null;
+    const captureNavigation = (event: Event) => {
+      navigationRequest = (event as CustomEvent<InternalAppNavigationRequest>).detail;
+    };
+    window.addEventListener(
+      INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+      captureNavigation,
+    );
     render(
       <CapabilitySetupTile
         title="Gmail"
@@ -44,9 +56,17 @@ describe("CapabilitySetupTile", () => {
     expect(row.querySelector(".morphy-ripple-host")).not.toBeNull();
     fireEvent.click(row);
 
-    expect(mocks.push).toHaveBeenCalledWith("/one/setup/gmail", {
+    expect(navigationRequest).toEqual({
+      href: "/one/setup/gmail",
       scroll: false,
+      source: "tap",
+      transitionMode: "full",
     });
+    expect(mocks.push).not.toHaveBeenCalled();
+    window.removeEventListener(
+      INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+      captureNavigation,
+    );
   });
 
   it("keeps a capability-specific action visible while vault state resolves", () => {

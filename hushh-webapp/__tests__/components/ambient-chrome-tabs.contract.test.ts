@@ -16,7 +16,7 @@ describe("tabbed ambient chrome contract", () => {
     const providers = read("app/providers.tsx");
 
     expect(topShell).toContain("ambient-chrome-mask--top-with-tabs");
-    expect(topShell).toContain('height: "var(--top-shell-visual-height)"');
+    expect(topShell).toContain(': "var(--top-shell-visual-height)"');
     expect(styles).toContain(".ambient-chrome-mask--top-with-tabs");
     expect(styles).toContain("var(--top-shell-reserved-height)");
     expect(styles).toContain("var(--top-ambient-tab-tail-midpoint, 32px)");

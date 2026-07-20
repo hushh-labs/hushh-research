@@ -2959,6 +2959,7 @@ function ProfilePageContent() {
         loading={profileManagerLoading}
         metadataReady={pkmMetadataReady}
         metadataError={pkmError}
+        sharingReady={consentCenterReady}
         sharingError={consentCenterError}
         needsVaultCreation={vaultAccess.needsVaultCreation}
         needsUnlock={vaultAccess.needsUnlock}
