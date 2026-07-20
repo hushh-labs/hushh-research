@@ -4,7 +4,7 @@ This directory contains configuration files and data lists used across the proje
 
 ## Contents
 
-- `available_models.txt` - List of available Gemini 3 models
+- `available_models.txt` - Approved Gemini 3 text models for agentic and bounded workloads
 - `ci-governance.json` - Canonical branch, merge queue, protected pipeline, and deploy-environment governance policy
 - `runtime-topology-maintenance.json` - Authored semantic-route, compatibility, retirement, and maintenance-profile metadata for the generated runtime topology index
 

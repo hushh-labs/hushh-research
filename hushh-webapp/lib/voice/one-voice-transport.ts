@@ -111,6 +111,7 @@ export type OneVoiceTransportStartOptions = {
 export type OneVoiceActionSettlement = {
   directiveId: string;
   actionId: string;
+  contextRevision: string;
   status: "succeeded" | "started" | "blocked" | "invalid" | "failed" | "noop";
   summary: string;
   reason?: string | null;
@@ -121,6 +122,13 @@ export type OneVoiceActionSettlement = {
    * snapshot on this same socket before this settlement was sent.
    */
   destinationContextId?: string | null;
+  /** Memory-only one-time receipt returned after the trusted confirmation tap. */
+  receipt?: string | null;
+};
+
+export type OneVoiceActionConfirmation = {
+  receipt: string;
+  expiresAt: string;
 };
 
 export type OneVoiceContextApplyResult =
@@ -160,6 +168,11 @@ export interface RealtimeVoiceTransport {
    * when no live session can accept the update.
    */
   updateConsentToken?(consentToken: string | null): boolean;
+  confirmActionDirective?(input: {
+    directiveId: string;
+    actionId: string;
+    contextRevision: string;
+  }): Promise<OneVoiceActionConfirmation>;
   /**
    * Return the browser-observed result of a One-issued action. The relay
    * correlates this with the directive before it becomes model context.

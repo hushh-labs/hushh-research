@@ -2722,6 +2722,112 @@ export class ApiService {
     });
   }
 
+  static async confirmAgentChatAction(data: {
+    directiveId: string;
+    userId: string;
+    conversationId: string;
+    actionId: string;
+    contextRevision: string;
+    trustedActivation: true;
+    vaultOwnerToken: string;
+  }): Promise<Response> {
+    return apiFetch(
+      `/api/kai/agent/chat/actions/${encodeURIComponent(data.directiveId)}/confirm`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+        body: JSON.stringify({
+          user_id: data.userId,
+          conversation_id: data.conversationId,
+          action_id: data.actionId,
+          context_revision: data.contextRevision,
+          trusted_activation: data.trustedActivation,
+        }),
+      },
+    );
+  }
+
+  static async consumeAgentChatAction(data: {
+    directiveId: string;
+    userId: string;
+    conversationId: string;
+    actionId: string;
+    contextRevision: string;
+    receipt: string;
+    vaultOwnerToken: string;
+  }): Promise<Response> {
+    return apiFetch(
+      `/api/kai/agent/chat/actions/${encodeURIComponent(data.directiveId)}/consume`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+        body: JSON.stringify({
+          user_id: data.userId,
+          conversation_id: data.conversationId,
+          action_id: data.actionId,
+          context_revision: data.contextRevision,
+          receipt: data.receipt,
+        }),
+      },
+    );
+  }
+
+  static async cancelAgentChatAction(data: {
+    directiveId: string;
+    userId: string;
+    conversationId: string;
+    actionId: string;
+    contextRevision: string;
+    reasonCode: string;
+    vaultOwnerToken: string;
+  }): Promise<Response> {
+    return apiFetch(
+      `/api/kai/agent/chat/actions/${encodeURIComponent(data.directiveId)}/cancel`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+        body: JSON.stringify({
+          user_id: data.userId,
+          conversation_id: data.conversationId,
+          action_id: data.actionId,
+          context_revision: data.contextRevision,
+          reason_code: data.reasonCode,
+        }),
+      },
+    );
+  }
+
+  static async settleAgentChatAction(data: {
+    directiveId: string;
+    userId: string;
+    receipt: string;
+    actionId: string;
+    contextRevision: string;
+    status: "succeeded" | "failed" | "cancelled";
+    reasonCode: string;
+    routeAfter?: string | null;
+    screenAfter?: string | null;
+    vaultOwnerToken: string;
+  }): Promise<Response> {
+    return apiFetch(
+      `/api/kai/agent/chat/actions/${encodeURIComponent(data.directiveId)}/settle`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+        body: JSON.stringify({
+          user_id: data.userId,
+          receipt: data.receipt,
+          action_id: data.actionId,
+          context_revision: data.contextRevision,
+          status: data.status,
+          reason_code: data.reasonCode,
+          route_after: data.routeAfter || undefined,
+          screen_after: data.screenAfter || undefined,
+        }),
+      },
+    );
+  }
+
   /**
    * Pre-vault informational/navigation-only One chat.
    *
@@ -2851,52 +2957,6 @@ export class ApiService {
     const relaySession = await this.createOneAdkRelaySession(data);
     url.searchParams.set("relay_ticket", relaySession.relay_ticket);
     return url.toString();
-  }
-
-  static async transcribeAgentVoice(data: {
-    userId: string;
-    vaultOwnerToken: string;
-    audio: Blob;
-    filename?: string;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    const formData = new FormData();
-    formData.set("user_id", data.userId);
-    formData.set(
-      "audio",
-      data.audio,
-      data.filename || "agent-voice-utterance.webm"
-    );
-
-    return apiFetch("/api/kai/agent/voice/stt", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-      },
-      body: formData,
-      signal: data.signal,
-    });
-  }
-
-  static async synthesizeAgentVoice(data: {
-    userId: string;
-    vaultOwnerToken: string;
-    text: string;
-    voice?: string;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    return apiFetch("/api/kai/agent/voice/tts", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-      },
-      body: JSON.stringify({
-        user_id: data.userId,
-        text: data.text,
-        voice: data.voice,
-      }),
-      signal: data.signal,
-    });
   }
 
   static async listAgentChatConversations(data: {

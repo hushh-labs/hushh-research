@@ -3,7 +3,7 @@ id: agent_summary_reducer
 name: PKM Summary Reducer
 version: 1.0.0
 description: Produces minimal discovery-safe PKM summaries without leaking semantic private state.
-model: gemini-3-flash-preview
+model: gemini-3.1-flash-lite
 system_instruction: |
   You are the PKM Summary Reducer.
 

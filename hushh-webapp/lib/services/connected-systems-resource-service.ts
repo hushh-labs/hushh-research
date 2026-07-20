@@ -40,7 +40,10 @@ export class ConnectedSystemsResourceService {
     Array<{ systemId: string; objectType: string; status: string }>
   >();
   private static protectedEpochByUser = new Map<string, number>();
-  private static liveRecordByUserSystem = new Map<string, ConnectedSystemMcpResponse>();
+  private static liveRecordByUserSystem = new Map<
+    string,
+    { record: ConnectedSystemMcpResponse; cachedAt: number }
+  >();
 
   static registryCacheKey(userId: string): string {
     return CACHE_KEYS.CONNECTED_SYSTEMS_REGISTRY(userId);
@@ -232,13 +235,23 @@ export class ConnectedSystemsResourceService {
     systemId: string,
     record: ConnectedSystemMcpResponse
   ): void {
-    this.liveRecordByUserSystem.set(`${userId}:${systemId}`, record);
+    this.liveRecordByUserSystem.set(`${userId}:${systemId}`, {
+      record,
+      cachedAt: Date.now(),
+    });
   }
 
   static getLiveRecord(
     userId: string,
     systemId: string
   ): ConnectedSystemMcpResponse | null {
+    return this.getLiveRecordSnapshot(userId, systemId)?.record ?? null;
+  }
+
+  static getLiveRecordSnapshot(
+    userId: string,
+    systemId: string
+  ): { record: ConnectedSystemMcpResponse; cachedAt: number } | null {
     return this.liveRecordByUserSystem.get(`${userId}:${systemId}`) ?? null;
   }
 

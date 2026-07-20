@@ -156,11 +156,21 @@ Do:
   and pending-page cache in the background, regardless of the route that
   opened the vault. This preserves an immediate same-session render without
   persisting consent list entries.
-- Agent Chat warms its redacted PKM working set only after the Agent workspace
-  is open and the vault is unlocked. A cold turn may begin after a bounded
-  context wait while the UI says that saved context is loading; the completed
-  working set is used by the next turn. It remains process-memory-only and is
-  cleared synchronously when the vault locks, the user changes, or PKM changes.
+- After every successful vault unlock, `UnlockWarmOrchestrator` starts Agent
+  Chat's redacted PKM working-set warmup in the background. It never blocks the
+  unlock UI; the Agent workspace joins that in-flight work or starts a fallback
+  warmup when needed. The working set remains process-memory-only and is cleared
+  synchronously when the vault locks, the user changes, or PKM changes.
+- Agent Chat treats the working-set TTL as a revalidation age, not an eviction
+  deadline. Once decrypted records are loaded in the current unlocked session,
+  the prior bounded projection answers the next turn immediately while one
+  user-scoped refresh checks metadata and reloads ciphertext only when its
+  revision changed. No decrypted working set survives vault lock or process exit.
+- A loaded Connected Systems record follows the same protected L1 rule: show the
+  current-session record immediately, then re-read it silently after binding and
+  schema authority settle. Record values, binding IDs, and staged changes never
+  enter the device cache; only safe registry and normalized schema metadata may
+  provide a cold-start render.
 - FCM consent request, resolution, and connection events must invalidate the
   canonical in-memory consent cache and trigger one retained-data background
   refresh for an open Consent Center. When push is unavailable, the visible

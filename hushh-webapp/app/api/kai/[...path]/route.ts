@@ -7,7 +7,6 @@ import {
   createUpstreamHeaders,
   resolveRequestId,
   withRequestIdJson,
-  withRequestIdResponse,
 } from "@/app/api/_utils/request-id";
 import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
@@ -27,14 +26,6 @@ const GMAIL_CONNECT_COMPLETE_TIMEOUT_MS = resolveSlowRequestTimeoutMs(30_000, {
   developmentFloorMs: 30_000,
   overrideEnvKey: "HUSHH_KAI_GMAIL_CONNECT_COMPLETE_TIMEOUT_MS",
 });
-const AGENT_VOICE_STT_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(35_000, {
-  developmentFloorMs: 35_000,
-  overrideEnvKey: "HUSHH_KAI_AGENT_VOICE_STT_TIMEOUT_MS",
-});
-const AGENT_VOICE_TTS_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
-  developmentFloorMs: 45_000,
-  overrideEnvKey: "HUSHH_KAI_AGENT_VOICE_TTS_TIMEOUT_MS",
-});
 const AGENT_CHAT_STREAM_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(120_000, {
   developmentFloorMs: 120_000,
   overrideEnvKey: "HUSHH_KAI_AGENT_CHAT_STREAM_TIMEOUT_MS",
@@ -42,10 +33,6 @@ const AGENT_CHAT_STREAM_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(120_000, 
 
 function isGmailPath(path: string): boolean {
   return path === "gmail" || path.startsWith("gmail/");
-}
-
-function isBinaryTtsPath(path: string): boolean {
-  return path === "voice/tts" || path === "agent/voice/tts";
 }
 
 function isUpstreamTimeoutError(error: unknown): boolean {
@@ -159,12 +146,6 @@ function buildUpstreamFailurePayload(path: string, error: unknown) {
 }
 
 function resolveKaiUpstreamTimeoutMs(path: string): number | null {
-  if (path === "agent/voice/stt") {
-    return AGENT_VOICE_STT_PROXY_TIMEOUT_MS;
-  }
-  if (path === "agent/voice/tts") {
-    return AGENT_VOICE_TTS_PROXY_TIMEOUT_MS;
-  }
   if (path === "agent/chat/stream") {
     return AGENT_CHAT_STREAM_PROXY_TIMEOUT_MS;
   }
@@ -325,11 +306,6 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
         status: response.status,
         headers,
       });
-    }
-
-    if (isBinaryTtsPath(path)) {
-      console.log(`[Kai API] request_id=${requestId} binary_pass_through=true path=${path}`);
-      return withRequestIdResponse(requestId, response);
     }
 
     const data = await response.json().catch(() => ({}));

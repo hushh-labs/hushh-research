@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiFetchMock = vi.fn();
 vi.mock("@/lib/services/api-service", () => ({
@@ -82,6 +82,10 @@ describe("agent PKM memory helpers", () => {
     });
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("loads decrypted session PKM when the vault key is available", async () => {
     const context = await loadAgentPkmContext({
       userId: "user_1",
@@ -102,6 +106,19 @@ describe("agent PKM memory helpers", () => {
     );
   });
 
+  it("treats the reported memory-summary wording as a broad PKM request", async () => {
+    const context = await loadAgentPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      message: "list down a summary of my memory",
+    });
+
+    expect(context.source).toBe("decrypted_session_pkm");
+    expect(context.mode).toBe("broad");
+    expect(context.text).toContain("concise summaries");
+  });
+
   it("warms the Agent working set only in process memory", async () => {
     await warmAgentPkmContext({
       userId: "user_1",
@@ -112,6 +129,46 @@ describe("agent PKM memory helpers", () => {
     expect(pkmLoadFullBlobMock).toHaveBeenCalledTimes(1);
     expect(peekAgentPkmContext({ userId: "user_1", message: "writing preferences" }))
       .not.toBeNull();
+  });
+
+  it("serves an expired session working set immediately while one refresh is shared", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-20T12:00:00Z"));
+    await loadAgentPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      message: "summarize my memory",
+    });
+
+    vi.setSystemTime(new Date("2026-07-20T12:06:00Z"));
+    expect(
+      peekAgentPkmContext({ userId: "user_1", message: "summarize my memory" })?.text,
+    ).toContain("concise summaries");
+
+    let resolveMetadata: ((value: typeof METADATA) => void) | null = null;
+    pkmGetMetadataMock.mockReturnValueOnce(
+      new Promise<typeof METADATA>((resolve) => {
+        resolveMetadata = resolve;
+      }),
+    );
+    const firstRefresh = loadAgentPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      message: "summarize my memory",
+    });
+    const secondRefresh = loadAgentPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      message: "what do you know about my writing",
+    });
+
+    expect(pkmGetMetadataMock).toHaveBeenCalledTimes(2);
+    resolveMetadata?.(METADATA);
+    await expect(Promise.all([firstRefresh, secondRefresh])).resolves.toHaveLength(2);
+    expect(pkmLoadFullBlobMock).toHaveBeenCalledTimes(1);
   });
 
   it("drops an in-flight context load when the vault session clears", async () => {

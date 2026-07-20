@@ -1632,7 +1632,7 @@ class GmailReceiptsService:
         return _clean_text(result.data[0].get("status")) in {"queued", "running"}
 
     async def _ensure_access_token(self, *, user_id: str) -> tuple[str, dict[str, Any]]:
-        row = self._fetch_connection_row(user_id=user_id)
+        row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
         if not row:
             raise GmailApiError("Gmail is not connected for this user", status_code=404)
 
@@ -1656,7 +1656,11 @@ class GmailReceiptsService:
         )
         if not refresh_token:
             message = "Stored Gmail refresh token is missing. Reconnect Gmail to continue."
-            self._mark_connection_needs_reauth(user_id=user_id, message=message)
+            await asyncio.to_thread(
+                self._mark_connection_needs_reauth,
+                user_id=user_id,
+                message=message,
+            )
             raise GmailApiError(message, status_code=401)
 
         try:
@@ -1667,7 +1671,11 @@ class GmailReceiptsService:
                     _clean_text(exc.message)
                     or "Gmail token refresh failed. Reconnect Gmail to continue."
                 )
-                self._mark_connection_needs_reauth(user_id=user_id, message=message)
+                await asyncio.to_thread(
+                    self._mark_connection_needs_reauth,
+                    user_id=user_id,
+                    message=message,
+                )
                 raise GmailApiError(message, status_code=401, payload=exc.payload) from exc
             raise
         next_access = _clean_text(refreshed.get("access_token"))
@@ -1675,14 +1683,18 @@ class GmailReceiptsService:
         next_refresh = _clean_text(refreshed.get("refresh_token")) or refresh_token
         if not next_access:
             message = "Gmail token refresh did not return an access token. Reconnect Gmail."
-            self._mark_connection_needs_reauth(user_id=user_id, message=message)
+            await asyncio.to_thread(
+                self._mark_connection_needs_reauth,
+                user_id=user_id,
+                message=message,
+            )
             raise GmailApiError(message, status_code=401)
 
         access_env = self._encrypt_token(next_access)
         refresh_env = self._encrypt_token(next_refresh)
         expires_value = _utcnow() + timedelta(seconds=max(60, next_expires))
 
-        self.db.execute_raw(
+        await self._execute_raw_async(
             """
             UPDATE kai_gmail_connections
             SET access_token_ciphertext = :access_token_ciphertext,
@@ -1709,7 +1721,8 @@ class GmailReceiptsService:
             },
         )
 
-        latest = self._fetch_connection_row(user_id=user_id) or row
+        latest = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
+        latest = latest or row
         return next_access, latest
 
     def _build_receipt_query(
@@ -2582,7 +2595,7 @@ class GmailReceiptsService:
     async def reconcile_connection(
         self, *, user_id: str, allow_queue_catchup: bool = False
     ) -> dict[str, Any]:
-        row = self._fetch_connection_row(user_id=user_id)
+        row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
         if row is None:
             return await self.get_status(user_id=user_id)
 
@@ -2598,7 +2611,8 @@ class GmailReceiptsService:
         if self._should_renew_watch(row) or watch_status in {"failed", "expired", "unknown"}:
             try:
                 watch_state = await self._register_watch(access_token=access_token)
-                self._update_watch_snapshot(
+                await asyncio.to_thread(
+                    self._update_watch_snapshot,
                     user_id=user_id,
                     watch_status=_clean_text(watch_state.get("watch_status"), "active"),
                     watch_expiration_at=_parse_iso(watch_state.get("watch_expiration_at"))
@@ -2607,7 +2621,7 @@ class GmailReceiptsService:
                 )
             except GmailApiError as exc:
                 message = _clean_text(exc.message) or "Gmail watch renewal failed."
-                self.db.execute_raw(
+                await self._execute_raw_async(
                     """
                     UPDATE kai_gmail_connections
                     SET watch_status = 'failed',
@@ -2619,7 +2633,7 @@ class GmailReceiptsService:
                     {"user_id": user_id, "message": message},
                 )
 
-        self.db.execute_raw(
+        await self._execute_raw_async(
             """
             UPDATE kai_gmail_connections
             SET status_refreshed_at = NOW(),
@@ -2630,7 +2644,11 @@ class GmailReceiptsService:
         )
 
         if allow_queue_catchup:
-            refreshed_row = self._fetch_connection_row(user_id=user_id) or row
+            refreshed_row = await asyncio.to_thread(
+                self._fetch_connection_row,
+                user_id=user_id,
+            )
+            refreshed_row = refreshed_row or row
             last_sync_at = _parse_iso(refreshed_row.get("last_sync_at"))
             last_notification_at = _parse_iso(refreshed_row.get("last_notification_at"))
             stale_threshold = _utcnow() - timedelta(hours=self._watch_notification_stale_hours())

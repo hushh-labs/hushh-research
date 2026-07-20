@@ -139,7 +139,7 @@ inbound Gmail ──> sender match ──(unknown)──> blocked
         draft (renderer wraps LLM body in Gmail-safe HTML chrome)
              │
              ▼ optional
-        redraft_full (LLM sees full values; scope-expansion → back to needs_confirm)
+        redraft_full (LLM sees approved values; scope expansion fails closed)
              │
              ▼
         approve_draft ──> send_approved_reply ──> PKM writeback
@@ -200,9 +200,9 @@ for audit purposes. The actual gate on those endpoints is a valid vault-owner
 session plus the per-field data-scope consent the user grants at the confirm
 step. Because a vault-owner token satisfies any scope check in the current
 implementation, `agent.kyc.disclose.llm` is not yet an independently-revocable
-control — a separately-revocable disclose grant is not yet independently revocable (tracked as follow-up). Only
-the approved domain's plaintext is sent to the LLM, and only after the user's
-data-scope consents are granted at the confirm step.
+control; a separately revocable disclose grant remains follow-up work. Only
+plaintext from the workflow's exact approved scopes is sent to the LLM, and
+only after the user's data-scope consents are granted at the confirm step.
 
 ### Guardrails (all fail-closed)
 
@@ -215,13 +215,17 @@ data-scope consents are granted at the confirm step.
    and `redraft-full` require the workflow to be in `waiting_on_user` state with
    `draft_status == "ready"`; calling either endpoint before the confirm gate
    completes and consent is granted fails closed.
-4. **Pass 2 subset invariant** (`ONE_KYC_EXTRACT_SUBSET_VIOLATION`) —
+4. **Redraft context binding** (`ONE_KYC_REDRAFT_SCOPE_MISMATCH`,
+   `ONE_KYC_REDRAFT_EXPORT_STALE`) — supplied scopes must exactly match the
+   workflow selection and every plaintext payload must match its current
+   workflow-bound export revision before the provider call.
+5. **Pass 2 subset invariant** (`ONE_KYC_EXTRACT_SUBSET_VIOLATION`) —
    `extracted` scopes ⊆ approved fields, enforced in code after the call;
    violation fails closed.
-5. **Draft value-provenance check** (`ONE_KYC_DRAFT_PROVENANCE_VIOLATION`) —
+6. **Draft value-provenance check** (`ONE_KYC_DRAFT_PROVENANCE_VIOLATION`) —
    every value in `draft.body` must appear in `extracted[]`; catches the LLM
    inventing or leaking a value in prose.
-6. **Malformed output guard** (`ONE_KYC_EXTRACT_MALFORMED`) — strict JSON
+7. **Malformed output guard** (`ONE_KYC_EXTRACT_MALFORMED`) — strict JSON
    schema validation with bounded retries; malformed output fails closed.
 7. **Scope-expansion block on redraft** (`ONE_KYC_LLM_SCOPE_EXPANSION_BLOCKED`)
    — a redraft requesting more data routes back to `needs_confirm`, never

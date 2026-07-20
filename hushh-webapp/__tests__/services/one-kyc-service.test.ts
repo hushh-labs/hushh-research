@@ -285,4 +285,52 @@ describe("OneKycService", () => {
       },
     );
   });
+
+  it("binds full redraft context to approved scopes and export revisions", async () => {
+    mockApiJson.mockResolvedValue({ rewritten_body: "Revised response" });
+
+    await OneKycService.redraftFull({
+      userId: "u1",
+      vaultOwnerToken: "tok",
+      workflowId: "wf 1",
+      draftBody: "Current response",
+      instruction: "Make it clearer",
+      approvedScopes: ["attr.identity.*"],
+      requestText: "Identity request",
+      domains: [
+        {
+          domain: "identity",
+          scope: "attr.identity.*",
+          exportRevision: 3,
+          domainData: { full_name: "Alice Test" },
+        },
+      ],
+    });
+
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/one/kyc/workflows/wf%201/redraft-full",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer tok",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          user_id: "u1",
+          draft_body: "Current response",
+          instruction: "Make it clearer",
+          approved_scopes: ["attr.identity.*"],
+          request_text: "Identity request",
+          domains: [
+            {
+              domain: "identity",
+              scope: "attr.identity.*",
+              export_revision: 3,
+              domain_data: { full_name: "Alice Test" },
+            },
+          ],
+        }),
+      },
+    );
+  });
 });

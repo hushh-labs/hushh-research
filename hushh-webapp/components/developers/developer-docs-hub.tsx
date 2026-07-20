@@ -26,20 +26,17 @@ import {
   buildMcpSnippets,
   buildRestSnippets,
   buildWorkspaceSnippets,
-  CORE_CONSENT_LIFECYCLE_TOOLS,
   CONSENT_FLOW_STEPS,
   DEVELOPER_ACCESS_NOTES,
   DEVELOPER_SAMPLE_PAYLOADS,
   DEVELOPER_SECTIONS,
   FAQ_ITEMS,
   MCP_PUBLIC_LINKS,
-  MCP_PROTOCOL_REVISION,
   PUBLIC_SCOPE_PATTERNS,
   PUBLIC_MCP_ENVIRONMENT,
-  PUBLIC_RESOURCE_URIS,
+  PUBLIC_MCP_TOOLS,
   PUBLIC_TOOL_NAMES,
   REST_ENDPOINTS,
-  STANDARD_CATALOG_COMPATIBILITY_TOOL,
 } from "@/lib/developers/content";
 import {
   resolveDeveloperRuntime,
@@ -110,7 +107,6 @@ import {
   InputGroupInput,
   InputGroupText,
 } from "@/components/ui/input-group";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -260,6 +256,26 @@ function CodeList({ values }: { values: readonly string[] }) {
         >
           {value}
         </code>
+      ))}
+    </div>
+  );
+}
+
+function PublicToolCatalog() {
+  return (
+    <div className="divide-y divide-border/60 rounded-[var(--app-radius-lg)] border border-border/60 bg-background/55">
+      {PUBLIC_MCP_TOOLS.map((tool) => (
+        <div
+          key={tool.name}
+          className="space-y-1 px-4 py-3"
+        >
+          <code className="block min-w-0 text-xs font-semibold text-foreground">
+            {tool.name}
+          </code>
+          <p className="text-sm leading-5 text-muted-foreground">
+            {tool.summary}
+          </p>
+        </div>
       ))}
     </div>
   );
@@ -1024,15 +1040,6 @@ export function DeveloperDocsHub({
     () => buildWorkspaceSnippets(runtime, revealedToken || "<developer-token>"),
     [revealedToken, runtime],
   );
-  const apiRootReady = Boolean(liveDocs?.apiRoot);
-  const toolCatalogReady = Boolean(liveDocs?.tools?.length);
-  const scopeCatalogReady = Boolean(liveDocs?.scopes?.length);
-  const liveContractStatus = liveDocsLoading
-    ? "Checking live contract…"
-    : apiRootReady && toolCatalogReady && scopeCatalogReady
-      ? "Live contract available"
-      : "Live contract unavailable";
-
   useEffect(() => {
     let cancelled = false;
 
@@ -1346,7 +1353,7 @@ export function DeveloperDocsHub({
     <TooltipProvider>
       <AppPageShell
         width="reading"
-        className="pb-4 pt-0 sm:pb-6"
+        className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] pt-0 sm:pb-10 md:pb-8"
         nativeTest={{
           routeId: "/developers",
           marker: "native-route-developers",
@@ -1357,8 +1364,8 @@ export function DeveloperDocsHub({
         <AppPageHeaderRegion>
           <PageHeader
             eyebrow="Developers"
-            title="Consent MCP"
-            description="Build a direct, encrypted consent lifecycle over Streamable HTTP."
+            title="Hussh Consent MCP"
+            description="A five-tool, consent-first connection for agents and product experiences."
             descriptionFullWidth
             icon={Cable}
             accent="developers"
@@ -1373,66 +1380,56 @@ export function DeveloperDocsHub({
             >
               <div className="space-y-1">
                 <h2 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">
-                  Connect your MCP host
+                  Connect in three steps
                 </h2>
                 <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-                  One endpoint, one app credential, and one explicit consent
-                  lifecycle. No resource download step is required.
+                  Add the endpoint, keep the credential in your host’s secret
+                  store, then let each person approve the scope they choose.
                 </p>
               </div>
               <div className="mt-5 space-y-4">
-                <div className="grid min-w-0 gap-4">
+                <div className="grid min-w-0 gap-4 lg:grid-cols-2">
                   <SnippetCard
-                    title="Host configuration"
-                    description="Paste this into a streamable HTTP MCP host."
+                    title="1. Add the endpoint"
+                    description="Paste this into a host that supports Streamable HTTP MCP."
                     code={mcpSnippets.remote}
                     copyLabel="Remote MCP config"
                   />
                   <SurfaceInset className="space-y-3">
-                    <p
-                      role="status"
-                      className="text-sm font-semibold text-foreground"
-                    >
-                      {liveContractStatus}
+                    <p className="text-sm font-semibold text-foreground">
+                      One connection. One lifecycle.
+                    </p>
+                    <p className="text-sm leading-6 text-muted-foreground">
+                      The endpoint always publishes the same five public tools.
+                      A login identifies your app; it never substitutes for
+                      consent.
                     </p>
                     <RuntimeValueRow
                       label="MCP"
-                      value={workspaceSnippets.remoteUrl}
+                      value={PUBLIC_MCP_ENVIRONMENT.remoteUrlTemplate}
                       copyLabel="Remote MCP URL"
                       isMobile={isMobile}
                     />
-                    <dl className="grid gap-3 border-t border-border/60 pt-3 sm:grid-cols-3">
+                    <dl className="grid gap-3 border-t border-border/60 pt-3">
                       <div className="space-y-1">
                         <dt className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                          MCP revision
+                          2. Authenticate
                         </dt>
-                        <dd className="text-sm font-medium text-foreground">
-                          {MCP_PROTOCOL_REVISION}
+                        <dd className="text-sm leading-6 text-foreground">
+                          Use a bearer token for a direct host, or OAuth through
+                          your provisioned integration.
                         </dd>
                       </div>
                       <div className="space-y-1">
                         <dt className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                          Transport
+                          3. Request consent
                         </dt>
-                        <dd className="text-sm font-medium text-foreground">
-                          Streamable HTTP
-                        </dd>
-                      </div>
-                      <div className="space-y-1">
-                        <dt className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                          Results
-                        </dt>
-                        <dd className="text-sm font-medium text-foreground">
-                          Structured JSON
+                        <dd className="text-sm leading-6 text-foreground">
+                          Discover available scopes, request one, then poll only
+                          at the returned interval.
                         </dd>
                       </div>
                     </dl>
-                    <RuntimeValueRow
-                      label="Env"
-                      value={workspaceSnippets.envVar}
-                      copyLabel="Developer env var"
-                      isMobile={isMobile}
-                    />
                   </SurfaceInset>
                 </div>
                 <Accordion
@@ -1512,10 +1509,9 @@ export function DeveloperDocsHub({
                       <SurfaceCardHeader>
                         <SurfaceCardTitle>Public MCP tools</SurfaceCardTitle>
                         <SurfaceCardDescription>
-                          The standard catalog keeps five tools for
-                          compatibility. New integrations use the four core
-                          lifecycle tools; {STANDARD_CATALOG_COMPATIBILITY_TOOL}{" "}
-                          is reserved for the Hussh campaign integration.
+                          Five clear tools cover the complete consent lifecycle.
+                          The names and schemas are identical for remote hosts,
+                          the npm bridge, and MuleSoft.
                         </SurfaceCardDescription>
                       </SurfaceCardHeader>
                       <SurfaceCardContent className="space-y-4">
@@ -1563,46 +1559,18 @@ export function DeveloperDocsHub({
                             </Link>
                           </MorphyButton>
                         </div>
-                        <SurfaceInset className="space-y-3">
-                          <div className="space-y-1">
-                            <p className="text-sm font-semibold text-foreground">
-                              Promoted environment:{" "}
-                              {PUBLIC_MCP_ENVIRONMENT.label}
-                            </p>
-                            <p className="text-sm leading-6 text-muted-foreground">
-                              Use the exact trailing-slash endpoint shape and
-                              keep the developer token machine-local.
-                            </p>
-                          </div>
-                          <div className="rounded-2xl border border-border/70 bg-slate-950/95 px-4 py-4 font-mono text-xs leading-6 text-slate-100">
-                            {PUBLIC_MCP_ENVIRONMENT.remoteUrlTemplate}
-                          </div>
+                        <PublicToolCatalog />
+                        <SurfaceInset className="space-y-2">
+                          <p className="text-sm font-semibold text-foreground">
+                            MuleSoft and Agentforce
+                          </p>
+                          <p className="text-sm leading-6 text-muted-foreground">
+                            Publish the Exchange projection in MuleSoft, then
+                            keep the Hussh credential in MuleSoft’s upstream
+                            connection. Salesforce authenticates to MuleSoft;
+                            MuleSoft authenticates to Hussh.
+                          </p>
                         </SurfaceInset>
-                        <CodeList values={CORE_CONSENT_LIFECYCLE_TOOLS} />
-                        <p className="text-xs leading-5 text-muted-foreground">
-                          Standard catalog compatibility:{" "}
-                          <code>{STANDARD_CATALOG_COMPATIBILITY_TOOL}</code>
-                        </p>
-                        <CodeList values={PUBLIC_RESOURCE_URIS} />
-                        {liveDocs?.tools?.length ? (
-                          <ScrollArea className="h-64 rounded-2xl border border-border/65 sm:h-72">
-                            <div className="space-y-3 p-4">
-                              {liveDocs.tools.map((tool) => (
-                                <SurfaceInset
-                                  key={tool.name}
-                                  className="min-w-0 space-y-2"
-                                >
-                                  <p className="text-sm font-semibold text-foreground">
-                                    {tool.name}
-                                  </p>
-                                  <p className="text-sm leading-6 text-muted-foreground">
-                                    {tool.description}
-                                  </p>
-                                </SurfaceInset>
-                              ))}
-                            </div>
-                          </ScrollArea>
-                        ) : null}
                       </SurfaceCardContent>
                     </SurfaceCard>
                   </div>
@@ -1743,14 +1711,14 @@ export function DeveloperDocsHub({
                       </SurfaceCardHeader>
                       <SurfaceCardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
                         <p>
-                          One self-serve app per Kai account, one active token,
+                          One self-serve app per Hussh account, one active token,
                           and the same contract surfaced through remote MCP, the
                           API, and the npm bridge.
                         </p>
                         <p>
                           The data path is the same everywhere: discover scopes,
                           request consent, poll status, then read approved
-                          scoped data.
+                          scoped information.
                         </p>
                       </SurfaceCardContent>
                     </SurfaceCard>
@@ -1973,7 +1941,7 @@ export function DeveloperDocsHub({
                       />
                       <SnippetCard
                         title="Request consent"
-                        description="Send a single scope request and let Kai handle approval."
+                        description="Send a single scope request and let the person approve it in Hussh."
                         code={restSnippets.requestConsent}
                         copyLabel="Request consent curl"
                       />

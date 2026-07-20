@@ -147,6 +147,7 @@ describe("One Voice realtime transports", () => {
       transport.reportActionSettlement({
         directiveId: "directive-1",
         actionId: "analysis.start",
+        contextRevision: "context-1",
         status: "blocked",
         summary: "Portfolio access is locked.",
         reason: "vault_locked",
@@ -157,6 +158,7 @@ describe("One Voice realtime transports", () => {
       actionSettlement: {
         directiveId: "directive-1",
         actionId: "analysis.start",
+        contextRevision: "context-1",
         status: "blocked",
         summary: "Portfolio access is locked.",
         reason: "vault_locked",

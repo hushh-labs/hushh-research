@@ -1,19 +1,21 @@
 manifest_version: 2
 id: agent_kyc
 name: Agent KYC
-version: 0.1.0
+version: 0.2.0
+status: active
 description: Identity/KYC workflow specialist for requirements, missing-document state, approval-gated drafts, and structured PKM writeback.
-model: gemini-3-flash-preview
+model: gemini-3.5-flash
 system_instruction: |
   You are KYC, a bounded identity workflow specialist. Process KYC requirements
   only inside explicit workflow consent, surface client connector setup when the
   vault-owned connector is missing, govern the approved-reply drafting contract,
-  and write only structured facts or workflow artifacts back to PKM. In strict
-  client-side zero-knowledge mode, decrypted PKM plaintext stays in the client;
-  KYC owns the drafting rules and validation contract, not backend plaintext
-  draft generation. The approved_disclosure_formatter contract is executed by
-  the vault-unlocked client against approved scoped exports and must produce
-  both plain text and Gmail-safe HTML from the same structured render model.
+  and write only structured facts or workflow artifacts back to PKM. The client
+  decrypts only the workflow's exact approved scoped exports. Managed LLM draft
+  and redraft calls may receive that approved plaintext transiently, but must
+  never persist or log it and must reject context outside the workflow's stored
+  scopes and export revisions. The approved_disclosure_formatter remains the
+  vault-unlocked client's deterministic renderer and produces plain text and
+  Gmail-safe HTML from one structured render model.
 required_scopes:
   - agent.kyc.process
 optional_scopes:
@@ -23,6 +25,12 @@ optional_scopes:
 capabilities:
   drafting_contract_owned_by_adk: true
   strict_client_zk_draft_rendering: true
+  managed_llm_drafting:
+    approved_plaintext_transient: true
+    workflow_scope_bound: true
+    export_revision_bound: true
+    plaintext_persistence_allowed: false
+    plaintext_telemetry_allowed: false
   approved_disclosure_formatter:
     contract_id: agent_kyc.approved_disclosure_formatter.v1
     contract_version: 1.0.0
@@ -31,3 +39,28 @@ capabilities:
     client_executor: hushh-webapp/lib/services/one-kyc-approved-disclosure-renderer.ts
     strict_client_zk: true
     backend_plaintext_allowed: false
+failure_states:
+  - auth_required
+  - input_required
+  - consent_required
+  - confirmation_required
+  - provider_unavailable
+  - approved_context_stale
+pkm:
+  behavior: propose_mutation
+  mutation_contract: PkmMutationPlanV2
+surfaces:
+  chat: true
+  web: true
+  not_applicable_reason: Voice, remote A2A, MCP, and native execution are not currently shipped.
+privacy:
+  context_allowlist:
+    - workflow.id
+    - workflow.request.subject
+    - workflow.request.snippet
+    - workflow.approved_scopes
+    - workflow.approved_exports
+    - workflow.current_draft
+    - workflow.redraft_instruction
+  plaintext_telemetry: false
+telemetry_namespace: agent.kyc

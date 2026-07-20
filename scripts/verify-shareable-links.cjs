@@ -7,7 +7,7 @@ const { CONFIG_RESOURCES, resolveWorkspaceAsset, workspaceRoot } = require("./wo
 
 const repoRoot = workspaceRoot;
 const tmpRoot = CONFIG_RESOURCES.tmpDirectory;
-const ignoredDirs = new Set(["node_modules", ".git", ".next"]);
+const ignoredDirs = new Set(["node_modules", ".git", ".next", "DerivedData"]);
 const repoLocalLinkRoots = ["docs", "consent-protocol", "hushh-webapp", "packages", ".codex"];
 const repoishPrefixes = [
   "./",

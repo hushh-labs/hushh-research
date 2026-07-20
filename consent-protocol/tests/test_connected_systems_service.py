@@ -719,6 +719,62 @@ async def test_verified_profile_create_uses_server_identity_and_never_writes_der
 
 
 @pytest.mark.asyncio
+async def test_verified_profile_create_accepts_required_derived_full_name_when_split_name_is_mapped():
+    class VerifiedIdentityService:
+        async def get_many(self, _user_ids):
+            return {
+                "user_123": {
+                    "display_name": "John Doe",
+                    "email": "john@example.test",
+                    "email_verified": True,
+                    "phone_number": "+1 (415) 555-0100",
+                    "phone_verified": True,
+                }
+            }
+
+    service, adapter = build_service()
+    service.identity_service = VerifiedIdentityService()
+
+    async def schema_with_compound_name(payload: dict) -> dict:
+        adapter.calls.append(("object-schema", payload))
+        return {
+            "isError": False,
+            "payload": {
+                "fields": [
+                    {"name": "Email", "type": "email"},
+                    {"name": "Phone", "type": "phone"},
+                    {"name": "FirstName", "label": "First Name", "type": "string"},
+                    {
+                        "name": "LastName",
+                        "label": "Last Name",
+                        "type": "string",
+                        "required": True,
+                    },
+                    {
+                        "name": "Name",
+                        "label": "Full Name",
+                        "type": "string",
+                        "required": True,
+                    },
+                ]
+            },
+        }
+
+    adapter.object_schema = schema_with_compound_name
+
+    intent = await service.create_record_intent_for_verified_user(
+        user_id="user_123",
+        system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+        object_type=None,
+    )
+
+    stored = service.store.intents[intent["intentId"]]["request_payload"]
+    assert stored["firstName"] == "John"
+    assert stored["lastName"] == "Doe"
+    assert "Name" not in stored
+
+
+@pytest.mark.asyncio
 async def test_bound_mutations_reject_other_record_ids_and_recheck_binding_on_approval():
     service, adapter = build_service()
     service.store.upsert_binding(

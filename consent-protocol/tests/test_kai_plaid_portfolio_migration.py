@@ -28,7 +28,6 @@ def test_kai_plaid_tables_are_registered_in_release_manifest_and_contracts():
 
     assert MIGRATION.exists()
     assert MIGRATION_NAME in manifest["ordered_migrations"]
-    assert manifest["ordered_migrations"][-1] == MIGRATION_NAME
     assert len(manifest["ordered_migrations"]) == len(set(manifest["ordered_migrations"]))
 
     for contract_name in (

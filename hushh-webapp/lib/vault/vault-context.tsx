@@ -32,6 +32,7 @@ import React, {
 } from "react";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { clearAgentPkmContext } from "@/lib/agent/agent-pkm-memory";
+import { clearGeminiRuntimeConnectionCache } from "@/lib/connections/gemini-runtime-configuration";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { HushhConsent } from "@/lib/capacitor";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
@@ -41,6 +42,7 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
 import { VaultService } from "@/lib/services/vault-service";
+import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
 // ============================================================================
@@ -134,6 +136,10 @@ export function VaultProvider({ children }: VaultProviderProps) {
       // Clear it synchronously with the vault credentials, rather than waiting
       // for an Agent workspace to remain mounted and notice the lock.
       clearAgentPkmContext(lockedUserId);
+      clearGeminiRuntimeConnectionCache(lockedUserId);
+      CacheService.getInstance().invalidate(
+        CACHE_KEYS.PKM_DECRYPTED_BLOB(lockedUserId),
+      );
       ConsentExportRefreshOrchestrator.pauseForLocalAuthResume({ userId: lockedUserId });
     }
     setVaultKey(null);

@@ -42,6 +42,33 @@ describe("ConnectedSystemsResourceService", () => {
     ).toEqual(stored);
   });
 
+  it("publishes cold registry metadata before the network refresh settles", async () => {
+    const stored = { registryRevision: 2, systems: [] };
+    const refreshed = { registryRevision: 3, systems: [] };
+    let resolveNetwork: ((value: typeof refreshed) => void) | null = null;
+    vi.mocked(DeviceResourceCacheService.read).mockResolvedValueOnce(stored);
+    vi.mocked(ConnectedSystemsService.getRegistry).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveNetwork = resolve;
+      }),
+    );
+
+    const pending = ConnectedSystemsResourceService.loadRegistry({
+      userId: "user-1",
+      authToken: "auth-token",
+    });
+    await vi.waitFor(() => {
+      expect(
+        CacheService.getInstance().peek(
+          ConnectedSystemsResourceService.registryCacheKey("user-1"),
+        )?.data,
+      ).toEqual(stored);
+    });
+
+    resolveNetwork?.(refreshed);
+    await expect(pending).resolves.toEqual(refreshed);
+  });
+
   it("persists only ready normalized schemas", async () => {
     vi.mocked(ConnectedSystemsService.getSchema)
       .mockResolvedValueOnce({
@@ -86,5 +113,20 @@ describe("ConnectedSystemsResourceService", () => {
 
     ConnectedSystemsResourceService.clearProtected("user-1");
     expect(ConnectedSystemsResourceService.getBindingStatuses("user-1")).toEqual([]);
+  });
+
+  it("keeps a loaded CRM record in protected L1 with refresh metadata", () => {
+    const record = { systemId: "crm-1", records: [{ Id: "record-1" }] };
+    ConnectedSystemsResourceService.rememberLiveRecord("user-1", "crm-1", record);
+
+    expect(
+      ConnectedSystemsResourceService.getLiveRecordSnapshot("user-1", "crm-1"),
+    ).toEqual({ record, cachedAt: expect.any(Number) });
+    expect(DeviceResourceCacheService.write).not.toHaveBeenCalled();
+
+    ConnectedSystemsResourceService.clearProtected("user-1");
+    expect(
+      ConnectedSystemsResourceService.getLiveRecordSnapshot("user-1", "crm-1"),
+    ).toBeNull();
   });
 });

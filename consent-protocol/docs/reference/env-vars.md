@@ -36,8 +36,8 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `HUSHH_GENAI_AUTH_MODE` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Hosted runtimes require `vertex_adc`. `developer_api_key` is an explicit local-only compatibility mode and is rejected in hosted environments. |
 | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | `hushh_mcp/runtime_providers/factory.py` | Local only | Used only when `HUSHH_GENAI_AUTH_MODE=developer_api_key`. Never mounted or used by hosted Gemini runtimes. |
 | `GOOGLE_CLOUD_PROJECT` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Vertex project for workload ADC. Cloud Run supplies credentials through its service identity. |
-| `GOOGLE_CLOUD_LOCATION` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Primary Vertex location. Hosted deploys set a model-verified regional endpoint explicitly. |
-| `HUSHH_VERTEX_LOCATIONS` | `hushh_mcp/runtime_providers/factory.py` | No | Ordered, comma-separated same-model Vertex failover locations for managed ADC calls. The primary remains `GOOGLE_CLOUD_LOCATION`; BYOK is unaffected. |
+| `GOOGLE_CLOUD_LOCATION` | `hushh_mcp/runtime_providers/factory.py` | Yes (hosted) | Primary Vertex text location. Hosted deploys use `global` because the approved text matrix includes Gemini 3.1 Flash-Lite, whose supported endpoints are `global`, `us`, and `eu`. |
+| `HUSHH_VERTEX_LOCATIONS` | `hushh_mcp/runtime_providers/factory.py` | No | Ordered, comma-separated same-model failover candidates for managed ADC calls. The approved shared set is `global,us,eu`, the supported intersection of Gemini 3.5 Flash and Gemini 3.1 Flash-Lite. BYOK is unaffected. |
 | `HUSHH_VERTEX_LOCATION_COOLDOWN_SECONDS` | `hushh_mcp/runtime_providers/factory.py` | No | Process-local cooldown after transient `429`/`500`/`503` failures. Defaults to `300`; authorization and model errors never fail over. |
 | `GOOGLE_MAPS_API_KEY` | `hushh_mcp/config.py`, `hushh_mcp/services/google_maps_service.py` | Yes | Server-side Google Maps Platform key for One Location Places New + Routes. Never expose as `NEXT_PUBLIC_*`. |
 | `ONE_EMAIL_ADDRESS` | `hushh_mcp/services/support_email_service.py`, `hushh_mcp/services/one_email_kyc_service.py` | Optional | Canonical One mailbox identity. Default: `one@hushh.ai`. |
@@ -81,14 +81,6 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `HUSHH_PROD_PHONE_TEST_CODE` | `api/routes/account.py` | Production test only | Fixed OTP for the production synthetic phone allowlist. Store in production Secret Manager and never expose as `NEXT_PUBLIC_*`. |
 | `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` | `api/routes/account.py` | Production test only | Required HMAC key for production stateless phone challenge IDs; production never falls back to `APP_SIGNING_KEY` or the OTP. |
 | `ROOT_PATH` | `server.py` | No | FastAPI root path for reverse proxy. |
-| `AGENT_GEMINI_MODEL` | `hushh_mcp/services/agent_chat_service.py` | No | Reserved / not applied. The Agent text chat model is manifest-driven (`hushh_mcp/agents/kai/agent.yaml`, currently `gemini-3.5-flash`); this env var is intentionally ignored (see `test_agent_chat_service_ignores_env_model_override`). To change the chat model, edit the manifest. |
-| `AGENT_GEMINI_VOICE_ENABLED` | `api/routes/kai/agent_voice.py` | No | Agent chained voice kill switch. Defaults enabled; set a disabled flag value to turn off Gemini STT/TTS adapters. |
-| `AGENT_GEMINI_STT_MODEL` | `hushh_mcp/services/agent_voice_service.py` | No | Optional Agent voice STT model override. Defaults to `gemini-2.5-flash`. |
-| `AGENT_GEMINI_STT_TIMEOUT_SECONDS` | `hushh_mcp/services/agent_voice_service.py` | No | Optional Agent voice STT Gemini timeout. Defaults to `30`. |
-| `AGENT_GEMINI_TTS_MODEL` | `hushh_mcp/services/agent_voice_service.py` | No | Optional Agent voice TTS model override. Defaults to `gemini-2.5-flash-preview-tts`. |
-| `AGENT_GEMINI_TTS_VOICE` | `hushh_mcp/services/agent_voice_service.py` | No | Optional backend default Agent TTS voice. Defaults to `Sulafat`. |
-| `AGENT_GEMINI_TTS_TIMEOUT_SECONDS` | `hushh_mcp/services/agent_voice_service.py` | No | Optional Agent voice TTS Gemini timeout per attempt. Defaults to `45`. |
-| `AGENT_GEMINI_TTS_MAX_ATTEMPTS` | `hushh_mcp/services/agent_voice_service.py` | No | Optional Agent voice TTS retry cap. Defaults to `2`; bounded from `1` to `4`. |
 | `HUSHH_GEMINI_BYOK_LIVE_ENABLED` | `hushh_mcp/one_adk/agent_tree.py` | No | Default disabled. Enables only a registry-approved Developer API Live model after an ADK UAT rehearsal; never carries a user key. |
 | `HUSHH_GEMINI_BYOK_LIVE_MODEL` | `hushh_mcp/one_adk/agent_tree.py` | No | Exact registry-approved Developer API Live model for optional BYOK voice. Unset or unsupported values fail closed to managed Gemini. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | Cloud Run env | Yes (hosted) | Set `true` with `HUSHH_GENAI_AUTH_MODE=vertex_adc`; API-key fallback is prohibited. |
@@ -327,14 +319,6 @@ Local runtime bootstrap:
 | `DB_PORT` | No | Cloud Run env var |
 | `DB_NAME` | No | Cloud Run env var |
 | `ENVIRONMENT` | No | Cloud Run env var |
-| `AGENT_GEMINI_MODEL` | No | Cloud Run env var |
-| `AGENT_GEMINI_VOICE_ENABLED` | No | Cloud Run env var |
-| `AGENT_GEMINI_STT_MODEL` | No | Cloud Run env var |
-| `AGENT_GEMINI_STT_TIMEOUT_SECONDS` | No | Cloud Run env var |
-| `AGENT_GEMINI_TTS_MODEL` | No | Cloud Run env var |
-| `AGENT_GEMINI_TTS_VOICE` | No | Cloud Run env var |
-| `AGENT_GEMINI_TTS_TIMEOUT_SECONDS` | No | Cloud Run env var |
-| `AGENT_GEMINI_TTS_MAX_ATTEMPTS` | No | Cloud Run env var |
 | `GOOGLE_GENAI_USE_VERTEXAI` | No | Cloud Run env var |
 
 ---

@@ -1928,24 +1928,59 @@ export async function runFullRedraft(params: {
   localDraft: KycDraftBuildResult;
   instruction: string;
   workflow: OneKycWorkflow;
+  exportPayloads: Array<{
+    scope?: string | null;
+    exportRevision?: number;
+    payload: Record<string, unknown>;
+  }>;
   input: { userId: string; vaultOwnerToken: string; workflowId: string };
 }): Promise<LlmRedraftResult> {
-  const { localDraft, instruction, workflow, input } = params;
+  const { localDraft, instruction, workflow, exportPayloads, input } = params;
+  const approvedScopes =
+    workflow.selected_scopes ??
+    workflow.requested_scopes ??
+    (workflow.requested_scope ? [workflow.requested_scope] : []);
+  if (approvedScopes.length === 0 || exportPayloads.length === 0) {
+    throw new Error("Approved KYC information is unavailable. Prepare the draft again.");
+  }
+  const requestText = [workflow.subject, workflow.snippet]
+    .filter(Boolean)
+    .join("\n\n");
 
-  const { rewritten_body } = await OneKycService.redraftFull({
+  const response = await OneKycService.redraftFull({
     ...input,
     workflowId: workflow.workflow_id,
     draftBody: localDraft.body,
     instruction,
+    approvedScopes,
+    requestText: requestText || "KYC information request",
+    domains: exportPayloads.map((entry) => {
+      const scope = String(entry.scope ?? "");
+      if (!entry.exportRevision) {
+        throw new Error("Approved KYC information is stale. Prepare the draft again.");
+      }
+      return {
+        domain:
+          scope.replace(/^attr\./, "").replace(/\.\*$/, "").split(".")[0] ||
+          "identity",
+        scope,
+        exportRevision: entry.exportRevision,
+        domainData: entry.payload,
+      };
+    }),
   });
+  const rewrittenBody = response?.rewritten_body?.trim();
+  if (!rewrittenBody) {
+    throw new Error("KYC redraft returned an empty response. Please try again.");
+  }
 
   return {
     ok: true,
     draft: {
       ...localDraft,
-      body: rewritten_body,
-      htmlBody: renderLlmRedraftHtml(rewritten_body),
-      draftHash: await sha256Hex(rewritten_body),
+      body: rewrittenBody,
+      htmlBody: renderLlmRedraftHtml(rewrittenBody),
+      draftHash: await sha256Hex(rewrittenBody),
     },
   };
 }

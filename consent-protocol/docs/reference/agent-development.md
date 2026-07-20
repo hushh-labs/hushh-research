@@ -479,9 +479,11 @@ draft{ subject, body } }`. The renderer wraps the LLM body in Gmail-safe HTML
 chrome. The subset invariant and draft value-provenance check run
 fail-closed before the draft is surfaced.
 
-**Redraft (`POST /kyc/workflows/{id}/redraft-full`):** Sends the full values
-for the approved domain again; scope-expansion attempts are blocked and route
-back to `needs_confirm`.
+**Redraft (`POST /kyc/workflows/{id}/redraft-full`):** Reuses every memory-only
+decrypted export for the workflow's exact approved scopes so the LLM can revise
+the response from the user's instruction. The backend requires exact scope and
+export-revision parity before the provider call, never persists or logs the
+plaintext, and rejects scope-expansion attempts with a typed error.
 
 Additional plumbing (unchanged):
 

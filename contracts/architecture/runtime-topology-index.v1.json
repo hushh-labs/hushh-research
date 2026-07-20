@@ -174,11 +174,13 @@
         "strategy": "off"
       },
       "runtime": {
-        "adk_mode": "single_turn",
-        "factory": null,
+        "adk_mode": "task",
+        "factory": "hushh_mcp.one_adk.agent_tree._build_finance_agent",
         "kind": "adk",
         "transport": [
-          "in_process"
+          "in_process",
+          "chat",
+          "a2a"
         ]
       },
       "status": "experimental",
@@ -214,16 +216,16 @@
           "in_process"
         ]
       },
-      "status": "experimental",
+      "status": "active",
       "surfaces": {
         "a2a": false,
         "android": false,
-        "chat": false,
+        "chat": true,
         "ios": false,
         "mcp": false,
-        "not_applicable_reason": null,
+        "not_applicable_reason": "Voice, remote A2A, MCP, and native execution are not currently shipped.",
         "voice": false,
-        "web": false
+        "web": true
       },
       "wiring": {
         "a2a_scope": "AGENT_KYC_PROCESS",
@@ -440,23 +442,26 @@
         "strategy": "off"
       },
       "runtime": {
-        "adk_mode": "single_turn",
-        "factory": null,
+        "adk_mode": "chat",
+        "factory": "hushh_mcp.one_adk.agent_tree.build_one_text_agent",
         "kind": "adk",
         "transport": [
-          "in_process"
+          "in_process",
+          "chat",
+          "voice",
+          "a2a"
         ]
       },
       "status": "active",
       "surfaces": {
-        "a2a": false,
-        "android": false,
-        "chat": false,
-        "ios": false,
+        "a2a": true,
+        "android": true,
+        "chat": true,
+        "ios": true,
         "mcp": false,
         "not_applicable_reason": null,
-        "voice": false,
-        "web": false
+        "voice": true,
+        "web": true
       },
       "wiring": {
         "a2a_scope": "CAP_ONE_INVOKE",
@@ -814,6 +819,16 @@
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
       "primary_access_path": "market/reference lookup, cache refresh, and Kai market insight services"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "one_action_directive_ledger"
+      ],
+      "id": "one_action_directive_authority",
+      "lifecycle_status": "current",
+      "owner": "backend-agents-operons",
+      "primary_access_path": "One action directive issuance, confirmation, exactly-once consumption, settlement, cancellation, and expiry"
     },
     {
       "data_class": "workflow_state",
@@ -2486,6 +2501,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "kyc.draft.request_redraft",
           "route.one_kyc"
         ],
         "delegate_agent_ids": [
@@ -4044,13 +4060,13 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "7e83cef2bf66d7fdaa4f70c9d1953f6aedef55002fa560b3fe7a7ee243a303f6",
-    "agent_registry": "22484910826ab19edb90b6808f2d4f7f2cf734d8844ff5115d79ceb0e8d80c2c",
+    "action_gateway": "aa5ea6e6f46d3dfabf79e4fddf80a987541f43d98ea136a645ba48af591dc164",
+    "agent_registry": "9d1de73f99b3cf4d18816e185434536ebc272bcad9d3058823245bdf580ea78b",
     "cache_manifest": "d23f81539d21f6d00591686d6c2dcc464c54e0168ca5a7944fe094b7baa83a12",
-    "data_plane": "6b7bbd585ee8b8ef52cc6e48269c6deab238e2b5ddaf59f61e12a4bb9dd0ab00",
+    "data_plane": "8c737de2775fb032e82a1b030e93507e12e562bd230336c61bac3c89d8386d33",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
-    "one_specialist_tools": "915ee98564845b9b657b42226df4bb529cfdcbccf38ee5171d73e24e411a729c",
-    "route_index": "7634c61bec8568589f038d372db7568231f0d08e63f5f04600a4927ca9cd4f10",
+    "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
+    "route_index": "b914e73295b83c169df10e7fb001814533f0281a813dfa055b0dc122f34bc85c",
     "route_layout": "7ea669b5a05588dacbe9bbd17f8b1fe8c698ff03b64d0c685887d1c02b0cb79b",
     "surface_map": "c10aec49af2e622f239275f847b136a40a618be818e217a931e759eb2d9f31cf",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
@@ -4066,6 +4082,6 @@
     "one_specialist_tools": 5,
     "physical_routes": 107,
     "semantic_routes": 14,
-    "table_families": 31
+    "table_families": 32
   }
 }

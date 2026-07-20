@@ -182,6 +182,12 @@ BACKEND_FRONTEND_TARGET="$(read_env_value "$BACKEND_SOURCE" "APP_FRONTEND_ORIGIN
 BACKEND_DB_HOST="$(read_env_value "$BACKEND_SOURCE" "DB_HOST")"
 BACKEND_CLOUDSQL_INSTANCE="$(read_env_value "$BACKEND_SOURCE" "CLOUDSQL_INSTANCE_CONNECTION_NAME")"
 BACKEND_FIREBASE_JSON="$(read_env_value "$BACKEND_SOURCE" "FIREBASE_ADMIN_CREDENTIALS_JSON")"
+BACKEND_GENAI_AUTH_MODE="$(read_env_value "$BACKEND_SOURCE" "HUSHH_GENAI_AUTH_MODE")"
+BACKEND_GOOGLE_GENAI_USE_VERTEXAI="$(read_env_value "$BACKEND_SOURCE" "GOOGLE_GENAI_USE_VERTEXAI")"
+BACKEND_GOOGLE_CLOUD_PROJECT="$(read_env_value "$BACKEND_SOURCE" "GOOGLE_CLOUD_PROJECT")"
+BACKEND_GOOGLE_CLOUD_LOCATION="$(read_env_value "$BACKEND_SOURCE" "GOOGLE_CLOUD_LOCATION")"
+BACKEND_GEMINI_API_KEY="$(read_env_value "$BACKEND_SOURCE" "GEMINI_API_KEY")"
+BACKEND_GOOGLE_API_KEY="$(read_env_value "$BACKEND_SOURCE" "GOOGLE_API_KEY")"
 BACKEND_GMAIL_CLIENT_ID="$(read_env_value "$BACKEND_SOURCE" "GMAIL_OAUTH_CLIENT_ID")"
 BACKEND_GMAIL_CLIENT_SECRET="$(read_env_value "$BACKEND_SOURCE" "GMAIL_OAUTH_CLIENT_SECRET")"
 BACKEND_GMAIL_REDIRECT_URI="$(read_env_value "$BACKEND_SOURCE" "GMAIL_OAUTH_REDIRECT_URI")"
@@ -306,6 +312,39 @@ case "$PROFILE" in
     else
       add_check "cloudsql_proxy_binary" "warn" "local is not configured for local DB proxying"
     fi
+
+    case "$BACKEND_GENAI_AUTH_MODE" in
+      vertex_adc)
+        missing_vertex_config=()
+        if [ "$BACKEND_GOOGLE_GENAI_USE_VERTEXAI" != "true" ]; then missing_vertex_config+=("GOOGLE_GENAI_USE_VERTEXAI=true"); fi
+        if is_placeholder "$BACKEND_GOOGLE_CLOUD_PROJECT"; then missing_vertex_config+=("GOOGLE_CLOUD_PROJECT"); fi
+        if is_placeholder "$BACKEND_GOOGLE_CLOUD_LOCATION"; then missing_vertex_config+=("GOOGLE_CLOUD_LOCATION"); fi
+        if [ "${#missing_vertex_config[@]}" -gt 0 ]; then
+          add_check "managed_vertex_adc" "fail" "Missing managed Vertex configuration: ${missing_vertex_config[*]}"
+          SOURCE_READY=false
+        elif ! command -v gcloud >/dev/null 2>&1; then
+          add_check "managed_vertex_adc" "fail" "gcloud is required to verify local Vertex ADC. Install Google Cloud CLI, then authenticate application-default credentials."
+          SOURCE_READY=false
+        elif gcloud auth application-default print-access-token >/dev/null 2>&1; then
+          add_check "managed_vertex_adc" "pass" "Vertex ADC can refresh an access token"
+        else
+          add_check "managed_vertex_adc" "fail" "Vertex ADC cannot refresh. Run: gcloud auth application-default login"
+          SOURCE_READY=false
+        fi
+        ;;
+      developer_api_key)
+        if ! is_placeholder "$BACKEND_GEMINI_API_KEY" || ! is_placeholder "$BACKEND_GOOGLE_API_KEY"; then
+          add_check "managed_vertex_adc" "warn" "Local developer API-key mode is active; Hushh managed Vertex ADC is not being exercised"
+        else
+          add_check "managed_vertex_adc" "fail" "developer_api_key mode requires GEMINI_API_KEY or GOOGLE_API_KEY"
+          SOURCE_READY=false
+        fi
+        ;;
+      *)
+        add_check "managed_vertex_adc" "fail" "HUSHH_GENAI_AUTH_MODE must be vertex_adc or developer_api_key for local runtime"
+        SOURCE_READY=false
+        ;;
+    esac
 
     missing_gmail_keys=()
     if is_placeholder "$BACKEND_GMAIL_CLIENT_ID"; then missing_gmail_keys+=("GMAIL_OAUTH_CLIENT_ID"); fi

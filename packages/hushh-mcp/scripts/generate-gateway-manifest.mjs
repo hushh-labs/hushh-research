@@ -17,6 +17,11 @@ const agentforceOutputPath = path.join(
   "gateway",
   "hushh-agentforce-mcp-manifest.json",
 );
+const mulesoftExchangeOutputPath = path.join(
+  packageDir,
+  "gateway",
+  "hushh-mulesoft-exchange-mcp-schema.json",
+);
 
 function loadCanonicalContract() {
   const python = process.env.HUSHH_MCP_PYTHON || "python3";
@@ -56,6 +61,37 @@ const manifest = {
     description,
     inputSchema,
     outputSchema,
+  })),
+};
+
+// MuleSoft Exchange validates an uploaded MCP asset before it has an
+// opportunity to authenticate to the upstream server. This projection is
+// deliberately registration-only: it contains only Exchange-supported MCP
+// fields, never a URL, authentication material, host handoff metadata, or
+// MCP annotations. The generic output schema prevents Exchange from treating
+// an intentional safe terminal error as an invalid success payload.
+//
+// It is a projection of the same five canonical tools, not another endpoint,
+// lifecycle, or application identity. MuleSoft configures Hussh OAuth client
+// credentials separately on its authenticated upstream connection.
+const mulesoftExchangeManifest = {
+  // Hussh UAT negotiates this revision and MuleSoft Exchange accepts it.
+  protocolVersion: "2025-06-18",
+  transport: {
+    kind: "streamableHttp",
+    path: "/mcp/",
+  },
+  capabilities: {
+    tools: true,
+    resources: false,
+    prompts: false,
+    logging: false,
+  },
+  tools: contract.tools.map(({ name, description, inputSchema }) => ({
+    name,
+    description,
+    inputSchema,
+    outputSchema: { type: "object" },
   })),
 };
 
@@ -123,6 +159,10 @@ const agentforceManifest = {
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.writeFileSync(outputPath, `${JSON.stringify(manifest, null, 2)}\n`);
 fs.writeFileSync(agentforceOutputPath, `${JSON.stringify(agentforceManifest, null, 2)}\n`);
+fs.writeFileSync(
+  mulesoftExchangeOutputPath,
+  `${JSON.stringify(mulesoftExchangeManifest, null, 2)}\n`,
+);
 
 if (process.argv.includes("--print")) {
   process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
@@ -130,4 +170,8 @@ if (process.argv.includes("--print")) {
 
 if (process.argv.includes("--print-agentforce")) {
   process.stdout.write(`${JSON.stringify(agentforceManifest, null, 2)}\n`);
+}
+
+if (process.argv.includes("--print-mulesoft-exchange")) {
+  process.stdout.write(`${JSON.stringify(mulesoftExchangeManifest, null, 2)}\n`);
 }
