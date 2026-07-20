@@ -17,6 +17,7 @@
     "pkm_domain_commits",
     "kai_gmail_sync_runs",
     "agent_chat_messages",
+    "one_action_directive_ledger",
     "kai_funding_webhook_events",
     "kai_funding_transfer_events",
     "kai_funding_trade_events",
@@ -123,6 +124,21 @@
       "trust_boundary": "Message titles and content persist as AES-GCM ciphertext. Backend may decrypt only with vault service key for current Agent LLM context; frontend tool debug events remain live-only and are not stored.",
       "plaintext_posture": "ciphertext_and_metadata",
       "expected_row_growth": "high_per_user_chat"
+    },
+    {
+      "id": "one_action_directive_authority",
+      "owner": "backend-agents-operons",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_action_directive_ledger"
+      ],
+      "primary_access_path": "One action directive issuance, confirmation, exactly-once consumption, settlement, cancellation, and expiry",
+      "retention_policy": "Short-lived authority metadata only; expire terminal and abandoned directives by expires_at and compact them after the replay window.",
+      "deletion_behavior": "Delete all user rows on account deletion; otherwise remove expired rows after the bounded replay and audit window.",
+      "trust_boundary": "Stores generated action identifiers, revisions, state, timing, and keyed fingerprints only; never prompts, slots, credentials, consent exports, decrypted PKM, or protected information.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_agent_session"
     },
     {
       "id": "pkm_metadata_and_scope",
