@@ -5,18 +5,23 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from pathlib import Path
 
-from google.adk.models.llm_request import LlmRequest
-from google.genai import types
+PROTOCOL_ROOT = Path(__file__).resolve().parents[1]
+if str(PROTOCOL_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROTOCOL_ROOT))
 
-from hushh_mcp.hushh_adk.manifest import ManifestLoader
-from hushh_mcp.runtime_providers import ManagedGeminiRuntimeBinding
+from google.adk.models.llm_request import LlmRequest  # noqa: E402
+from google.genai import types  # noqa: E402
+
+from hushh_mcp.hushh_adk.manifest import ManifestLoader  # noqa: E402
+from hushh_mcp.runtime_providers import ManagedGeminiRuntimeBinding  # noqa: E402
 
 
 def _managed_manifest_models() -> tuple[tuple[str, ...], str]:
     """Resolve probe targets from authored manifests, never a duplicate list."""
-    manifest_root = Path(__file__).resolve().parents[1] / "hushh_mcp" / "agents"
+    manifest_root = PROTOCOL_ROOT / "hushh_mcp" / "agents"
     text_models: set[str] = set()
     live_models: set[str] = set()
     for path in sorted(manifest_root.glob("*/agent.yaml")):
@@ -102,7 +107,7 @@ async def main() -> None:
     async def probe_live_setup() -> None:
         manager = live_client.aio.live.connect(
             model=live_model,
-            config=types.LiveConnectConfig(response_modalities=["AUDIO"]),
+            config=types.LiveConnectConfig(response_modalities=[types.Modality.AUDIO]),
         )
         await asyncio.wait_for(manager.__aenter__(), timeout=10)
         await manager.__aexit__(None, None, None)
