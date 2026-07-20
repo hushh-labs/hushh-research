@@ -250,6 +250,13 @@ export function resolveCapabilityHandoffTarget(capabilityId: string): string {
   return CAPABILITY_HANDOFF_TARGETS[capabilityId] ?? ROUTES.ONE_SETUP;
 }
 
+/** Completed Location setup is one-time and reopens its product workspace. */
+export function resolveCompletedSetupCapabilityTarget(
+  capabilityId: string,
+): string | null {
+  return capabilityId === "location" ? ROUTES.ONE_LOCATION : null;
+}
+
 /**
  * No normal product route is an unresolved-setup handoff target. This export
  * is retained for callers that need to distinguish the historical model.
@@ -316,6 +323,21 @@ export function resolveOnboardingCapabilityForRoute(
     }
   }
   return null;
+}
+
+/** True when completed Location setup owns the requested workspace route. */
+export function isCompletedLocationWorkspaceRoute(
+  completedCapabilityIds: readonly string[] | null | undefined,
+  pathname: string,
+): boolean {
+  if (!completedCapabilityIds?.includes("location")) {
+    return false;
+  }
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
+  return (
+    normalizedPathname === ROUTES.ONE_LOCATION ||
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/`)
+  );
 }
 
 /**

@@ -20,7 +20,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
-import { normalizeInternalRouteHref, ROUTES } from "@/lib/navigation/routes";
+import {
+  normalizeInternalRouteHref,
+  resolveCompletedSetupCapabilityTarget,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
 import {
   CAPABILITY_SETUP_COPY,
@@ -373,7 +377,10 @@ export function OneSetupHub() {
                   description={item.copy.setupBlurb}
                   actionLabel={item.copy.actionLabel}
                   resumeActionLabel={item.copy.resumeActionLabel}
-                  href={item.copy.href}
+                  href={
+                    resolveCompletedSetupCapabilityTarget(item.id) ??
+                    item.copy.href
+                  }
                   voiceControlId={item.voiceControlId}
                   icon={item.icon}
                   tone={item.tone}

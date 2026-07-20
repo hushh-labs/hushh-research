@@ -57,6 +57,13 @@ vi.mock("@/lib/navigation/routes", () => ({
   buildOneSetupRoute: ({ returnTo }: { returnTo: string }) =>
     `/one/setup?return_to=${encodeURIComponent(returnTo)}`,
   isCapabilityOnboardingRoute: () => false,
+  isCompletedLocationWorkspaceRoute: (
+    completedCapabilityIds: readonly string[] | null | undefined,
+    pathname: string,
+  ) =>
+    Boolean(completedCapabilityIds?.includes("location")) &&
+    pathname.replace(/\/index\.html$/i, "").replace(/\/+$/, "") ===
+      "/one/location",
   isOnboardingAdmissionExemptRoute: () => false,
   isOneSetupRoute: (pathname: string) =>
     pathname.replace(/\/index\.html$/i, "").replace(/\/+$/, "") ===
@@ -156,6 +163,25 @@ describe("OnboardingJourneyGuard", () => {
       expect(replace).toHaveBeenCalledWith("/one/setup?return_to=%2Fone");
     });
     expect(screen.getByText("Returning to setup...")).toBeTruthy();
+  });
+
+  it("admits completed Location without widening the unresolved setup gate", () => {
+    pathnameValue = "/one/location";
+    window.history.replaceState(null, "", pathnameValue);
+    getCachedBootstrapStateMock.mockReturnValue({
+      ...incompleteSetupState(),
+      setupCapabilityIds: ["location"],
+    });
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>location workspace</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    expect(screen.getByText("location workspace")).toBeTruthy();
+    expect(bootstrapStateMock).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
   });
 
   it("admits the canonical setup hub even when setup is incomplete", async () => {

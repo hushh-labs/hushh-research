@@ -5777,7 +5777,7 @@
         "finish",
         "location"
       ],
-      "meaning": "Records granted device location permission and returns to the setup hub.",
+      "meaning": "Records granted device location permission and opens the Location workspace.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
