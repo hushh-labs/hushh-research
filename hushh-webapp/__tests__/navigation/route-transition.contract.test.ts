@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("shared route transition contract", () => {
-  it("uses one provider-mounted History API transition driver for every pathname change", () => {
+  it("uses one provider-mounted synchronous History observer for every pathname change", () => {
     const driver = readFileSync(
       join(process.cwd(), "lib/morphy-ux/hooks/use-route-transition.ts"),
       "utf8",
@@ -17,7 +17,11 @@ describe("shared route transition contract", () => {
     expect(driver).toContain("window.history.pushState = wrap");
     expect(driver).toContain("window.history.replaceState = wrap");
     expect(driver).toContain("if (resolved.pathname === window.location.pathname)");
-    expect(driver).toContain("beginRouteTransition(target");
+    expect(driver).toContain('setRouteState("pending")');
+    expect(driver).toContain('return original(data, unused, url ?? "")');
+    expect(driver).not.toContain(
+      'beginRouteTransition(target, () => original(data, unused, url ?? ""))',
+    );
   });
 
   it("adds tab-body clearance through the shared shell token instead of route spacers", () => {

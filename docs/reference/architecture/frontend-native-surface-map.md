@@ -54,6 +54,20 @@ endpoint family, native transport, plugin dependency, and voice/action contract.
 7. Persistent chrome, One Voice, and Capacitor lifecycle callbacks use the
    shared [interaction runtime](./interaction-runtime.md). They may select a
    transport, but may not create separate native route or action state.
+8. Native authentication has one React publication boundary in `AuthProvider`.
+   Provider sign-in holds setup/vault rendering behind a post-auth settlement;
+   native sign-out blocks lifecycle restore and performs terminal public-route
+   replacement. Native code must not invent route or onboarding state.
+9. The `/one/setup` route family is an auth-and-phone surface, not a hard-vault
+   surface. Root setup owns its one progress bootstrap; protected capability
+   operations opt into the shared vault prerequisite at the operation boundary.
+10. Organic authentication and vault unlock enter `/one`. `/ria` is an explicit
+    subagent capability surface, not a persona-selected home; persisted persona
+    compatibility state cannot redirect login, resume, unlock, or setup.
+11. Native restoration at the public root runs the post-auth route resolver
+    exactly once before mounting a protected destination. A destructive iOS
+    reset clears Firebase plus app-owned auth Keychain records because uninstall
+    alone does not establish a fresh identity session.
 
 ## Current KYC Contract
 

@@ -1,0 +1,47 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "one_setup_connections",
+  "surface_title": "Connections Setup",
+  "defaults": {
+    "reachability": {
+      "active_personas": ["investor", "ria"]
+    },
+    "speaker_persona": "one",
+    "guard_ids": ["auth_signed_in"]
+  },
+  "actions": [
+    {
+      "action_id": "setup.finish_connections",
+      "label": "Finish Connections setup",
+      "meaning": "Keeps the person's selected Gemini runtime and returns to the One setup hub.",
+      "aliases": [
+        "finish connections setup",
+        "finish connections",
+        "keep this gemini option",
+        "continue with this runtime"
+      ],
+      "search_keywords": ["finish", "connections", "gemini", "runtime"],
+      "reachability": {
+        "routes": ["/one/setup/connections"],
+        "screens": ["one_setup_connections"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A Gemini runtime has been explicitly selected and saved."
+        ]
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.finish_connections"
+      },
+      "control_ids": ["one-setup-connections-terminal"],
+      "state_exposure": ["Gemini runtime selection state"],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    }
+  ]
+}

@@ -2391,7 +2391,7 @@ export function OneLocationAgentPageContent({
       setLocationOnboardingGate("checking");
       return;
     }
-    if (!auth.userId || loadError) {
+    if (!auth.userId) {
       setLocationOnboardingGate("hidden");
       return;
     }
@@ -2403,6 +2403,11 @@ export function OneLocationAgentPageContent({
     if (mode === "setup") {
       setLocationOnboardingStep("welcome");
       setLocationOnboardingGate("show");
+      return;
+    }
+
+    if (loadError) {
+      setLocationOnboardingGate("hidden");
       return;
     }
 
@@ -5068,7 +5073,7 @@ export function OneLocationAgentPageContent({
 
   const showLocationOnboarding =
     locationOnboardingGate === "show" &&
-    !loadError &&
+    (mode === "setup" || !loadError) &&
     Boolean(auth.userId && vaultOwnerToken);
 
   if (showLocationOnboarding) {

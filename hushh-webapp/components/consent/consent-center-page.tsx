@@ -20,7 +20,6 @@ import {
   ExternalLink,
   RefreshCcw,
   Search,
-  ShieldCheck,
   UserRound,
 } from "lucide-react";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
@@ -2169,7 +2168,6 @@ export function ConsentCenterPage() {
     setPanelCloseRequested(false);
   }, [selectedId, selectedBundleId]);
 
-  const pageEyebrow = "Access & sharing";
   const pageDescription =
     actor === "ria"
       ? "Review access requests, active access, and connections."
@@ -2185,11 +2183,9 @@ export function ConsentCenterPage() {
       <CapabilityExploreCard capabilityId="consent" />
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow={pageEyebrow}
           title="Consent Center"
           description={pageDescription}
-          icon={ShieldCheck}
-          accent="consent"
+          accent="neutral"
         />
       </AppPageHeaderRegion>
 

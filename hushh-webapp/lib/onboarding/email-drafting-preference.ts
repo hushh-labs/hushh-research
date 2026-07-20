@@ -7,15 +7,15 @@ import { OneKycService } from "@/lib/services/one-kyc-service";
  */
 export async function loadEmailDraftingEnabled({
   userId,
-  vaultOwnerToken,
+  idToken,
 }: {
   userId: string;
-  vaultOwnerToken: string;
+  idToken: string;
 }): Promise<boolean> {
-  if (!userId || !vaultOwnerToken) return false;
+  if (!userId || !idToken) return false;
   const preference = await OneKycService.getAutomaticResponsePreparationPreference({
     userId,
-    vaultOwnerToken,
+    idToken,
   });
   return preference.automatic_response_preparation_enabled === true;
 }
@@ -23,19 +23,19 @@ export async function loadEmailDraftingEnabled({
 export async function saveEmailDraftingEnabled(
   {
     userId,
-    vaultOwnerToken,
+    idToken,
     enabled,
   }: {
     userId: string;
-    vaultOwnerToken: string;
+    idToken: string;
     enabled: boolean;
   },
 ): Promise<boolean> {
-  if (!userId || !vaultOwnerToken) return false;
+  if (!userId || !idToken) return false;
   try {
     const preference = await OneKycService.setAutomaticResponsePreparationPreference({
       userId,
-      vaultOwnerToken,
+      idToken,
       enabled,
     });
     return preference.automatic_response_preparation_enabled === enabled;

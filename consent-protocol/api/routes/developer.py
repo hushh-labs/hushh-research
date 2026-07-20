@@ -741,7 +741,7 @@ def _pending_consent_response(
         "requester_label": pending.get("requesterLabel"),
         "requester_image_url": pending.get("requesterImageUrl"),
         "reason": pending.get("reason") or pending_metadata.get("reason"),
-        "approval_surface": "/consents?tab=pending",
+        "approval_surface": "/one/consent?tab=pending",
         "is_scope_upgrade": bool(
             pending.get("isScopeUpgrade") or pending_metadata.get("is_scope_upgrade")
         ),
@@ -2038,7 +2038,7 @@ async def _request_consent_impl(
         "requester_label": _optional_str(metadata.get("requester_label")),
         "requester_image_url": _optional_str(metadata.get("requester_image_url")),
         "reason": payload.reason,
-        "approval_surface": "/consents?tab=pending",
+        "approval_surface": "/one/consent?tab=pending",
         "is_scope_upgrade": scope_upgrade_fields["is_scope_upgrade"],
         "existing_granted_scopes": scope_upgrade_fields["existing_granted_scopes"],
         "additional_access_summary": scope_upgrade_fields["additional_access_summary"],

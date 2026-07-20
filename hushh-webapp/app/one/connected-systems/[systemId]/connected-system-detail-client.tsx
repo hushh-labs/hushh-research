@@ -74,6 +74,7 @@ export function ConnectedSystemDetailClient({
       </AppPageHeaderRegion>
       <AppPageContentRegion>
         <ConnectedSystemsPanel
+          cacheUserId={user?.uid}
           vaultOwnerToken={vaultOwnerToken}
           onRequestUnlock={() => setShowUnlock(true)}
           mode="detail"

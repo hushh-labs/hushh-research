@@ -161,7 +161,7 @@ describe("OnboardingJourneyGuard", () => {
   it("admits the canonical setup hub even when setup is incomplete", async () => {
     pathnameValue = "/one/setup";
     bootstrapStateMock.mockResolvedValue(incompleteSetupState());
-    getCachedBootstrapStateMock.mockReturnValue(incompleteSetupState());
+    getCachedBootstrapStateMock.mockReturnValue(null);
 
     render(
       <OnboardingJourneyGuard>
@@ -172,6 +172,8 @@ describe("OnboardingJourneyGuard", () => {
     await waitFor(() => {
       expect(screen.getByText("setup hub")).toBeTruthy();
     });
+    expect(screen.queryByText("Checking setup...")).toBeNull();
+    expect(bootstrapStateMock).not.toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
   });
 

@@ -115,7 +115,7 @@ final class AppUITests: XCTestCase {
 
     func testConsentAndProfileRoutes() throws {
         try assertRoutes([
-            reviewerRoute(name: "consents", redirect: "/consents", marker: "native-route-consents"),
+            reviewerRoute(name: "consents", redirect: "/one/consent", marker: "native-route-consents"),
             reviewerRoute(
                 name: "agent",
                 redirect: "/agent",
@@ -160,7 +160,7 @@ final class AppUITests: XCTestCase {
                 initialRoute: "/login?redirect=%2Fria%2Frequests",
                 expectedMarker: "native-route-consents",
                 expectedRoute: nil,
-                expectedRoutePrefix: "/consents",
+                expectedRoutePrefix: "/one/consent",
                 autoReviewerLogin: true,
                 expectedAuth: "authenticated",
                 allowedDataStates: ["loaded"]
@@ -195,7 +195,7 @@ final class AppUITests: XCTestCase {
                 name: "marketplace-connections",
                 initialRoute: "/login?redirect=%2Fmarketplace%2Fconnections",
                 expectedMarker: "native-route-consents",
-                expectedRoute: "/consents?tab=pending",
+                expectedRoute: "/one/consent?tab=pending",
                 expectedRoutePrefix: nil,
                 autoReviewerLogin: true,
                 expectedAuth: "authenticated",

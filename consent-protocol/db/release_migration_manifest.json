@@ -88,7 +88,9 @@
     "107_actor_identity_custom_photo.sql",
     "108_canonical_mcp_credentials.sql",
     "109_oauth_client_credentials_consent_execution.sql",
-    "110_one_email_kyc_preferences.sql"
+    "110_one_email_kyc_preferences.sql",
+    "111_macys_crm_response_contracts.sql",
+    "112_dynamic_crm_registry_cache.sql"
   ],
   "groups": {
     "iam": [
@@ -137,7 +139,9 @@
       "103_demo_crm_response_contracts.sql",
       "104_crm_schema_mapping_cache.sql",
       "107_actor_identity_custom_photo.sql",
-      "110_one_email_kyc_preferences.sql"
+      "110_one_email_kyc_preferences.sql",
+      "111_macys_crm_response_contracts.sql",
+      "112_dynamic_crm_registry_cache.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

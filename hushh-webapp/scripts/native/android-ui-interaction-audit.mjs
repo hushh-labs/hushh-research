@@ -11,7 +11,10 @@ import {
 import { filterUiFlows } from "../testing/signed-in-ui-flows.mjs";
 import { prepareNativeTestArtifacts } from "./prepare-native-test-artifacts.mjs";
 import {
+  advanceNativeUiCheckpoint,
   createNativeUiAuditPlan,
+  hasTerminalNativeUiStatus,
+  NATIVE_UI_TERMINAL_STATUS_GRACE_MS,
   nativeUiFlowStepTimeoutMs,
   validateNativeUiAuditCompletion,
 } from "./native-ui-audit-plan.mjs";
@@ -446,26 +449,9 @@ function readStatus(serial) {
 }
 
 function resolveInitialLaunchTarget() {
-  const firstFlow = uiFlows[0];
-  const firstEnsurePersona = firstFlow?.steps?.find(
-    (step) => step?.type === "ensure_persona" && step?.persona,
-  )?.persona;
-  const firstRoute = String(firstFlow?.route || "");
-  const route =
-    firstEnsurePersona === "investor"
-      ? "/one/kai"
-      : firstEnsurePersona === "ria"
-        ? "/ria"
-        : firstRoute.startsWith("/one/kai") || firstRoute.startsWith("/kai")
-          ? "/one/kai"
-          : firstRoute.startsWith("/ria")
-            ? "/ria"
-            : "/ria";
-
   return {
-    route,
-    marker:
-      route === "/one/kai" ? "native-route-kai-home" : "native-route-ria-home",
+    route: "/one",
+    marker: "native-route-one-home",
   };
 }
 
@@ -486,17 +472,34 @@ function waitForUiInteractionReport(serial) {
   let lastStatus = {};
   let lastProgressKey = "";
   let lastProgressAt = startedAt;
+  let completedReport = null;
+  let completedReportObservedAt = 0;
+  const highestCheckpointByFlow = new Map();
 
   while (Date.now() - startedAt < timeoutMs) {
     try {
       const raw = readStatus(serial).trim();
       if (raw) {
         lastStatus = parseStatus(raw);
+        const checkpoint = advanceNativeUiCheckpoint({
+          flows: uiFlows,
+          status: lastStatus,
+          highestByFlow: highestCheckpointByFlow,
+        });
+        if (!checkpoint.ok) {
+          return {
+            ok: false,
+            report: readUiReport(serial),
+            status: lastStatus,
+            error: `Android UI interaction audit ${checkpoint.reason}`,
+          };
+        }
         const progressKey = [
           lastStatus.ui_run || "",
           lastStatus.ui_flow || "",
           lastStatus.ui_step || "",
           lastStatus.ui_step_type || "",
+          lastStatus.ui_checkpoint || "",
           lastStatus.route || "",
           lastStatus.bootstrap || "",
         ].join("|");
@@ -507,8 +510,8 @@ function waitForUiInteractionReport(serial) {
           lastProgressKey = progressKey;
           lastProgressAt = Date.now();
         }
-        if ((lastStatus.ui_complete || "") === "1") {
-          const report = readUiReport(serial);
+        if (hasTerminalNativeUiStatus(lastStatus)) {
+          const report = completedReport || readUiReport(serial);
           if (report)
             return { ok: Boolean(report.ok), report, status: lastStatus };
         }
@@ -536,7 +539,20 @@ function waitForUiInteractionReport(serial) {
 
       const report = readUiReport(serial);
       if (report?.completedAt) {
-        return { ok: Boolean(report.ok), report, status: lastStatus };
+        completedReport = report;
+        completedReportObservedAt ||= Date.now();
+        if (
+          Date.now() - completedReportObservedAt >=
+          NATIVE_UI_TERMINAL_STATUS_GRACE_MS
+        ) {
+          return {
+            ok: false,
+            report: completedReport,
+            status: lastStatus,
+            error:
+              "Android UI interaction report completed before native terminal status settled",
+          };
+        }
       }
     } catch {
       // App may still be booting or the debug package may not have created files.
@@ -545,7 +561,7 @@ function waitForUiInteractionReport(serial) {
     sleep(1000);
   }
 
-  const report = readUiReport(serial);
+  const report = completedReport || readUiReport(serial);
   return {
     ok: false,
     report,

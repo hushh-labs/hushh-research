@@ -90,7 +90,7 @@ APP_ROUTES: dict[str, str] = {
     "email": "/one/kyc",
     "location": "/one/location",
     "personal_data": "/one/pkm",
-    "consent": "/consents",
+    "consent": "/one/consent",
     "connected_systems": "/one/connected-systems",
     "profile": "/profile",
 }

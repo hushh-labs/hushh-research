@@ -2,7 +2,7 @@
 
 Maps the coordinate-free DTO returned by
 ``OneLocationAgentService.list_state`` into the shared ``ConsentCenterEntry``
-shape consumed by the ``/consents`` Access Manager (Requests / Active Access /
+shape consumed by the ``/one/consent`` Consent Manager (Requests / Active Access /
 History tabs) and the notification bell summary.
 
 Design rules (see docs/future/one-location-consent-center-integration-plan.md):

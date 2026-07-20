@@ -526,6 +526,11 @@ export class CacheSyncService {
       cache.invalidate(CACHE_KEYS.VAULT_CHECK(userId));
     }
     cache.invalidate(CACHE_KEYS.VAULT_STATUS(userId));
+    void import("@/lib/services/connected-systems-resource-service")
+      .then(({ ConnectedSystemsResourceService }) => {
+        ConnectedSystemsResourceService.clearProtected(userId);
+      })
+      .catch(() => undefined);
     if (options?.hasVault === false) {
       this.invalidateKaiFinancialResource(userId);
     }
@@ -668,6 +673,11 @@ export class CacheSyncService {
     const cache = CacheService.getInstance();
     if (userId) {
       cache.invalidateUser(userId);
+      void import("@/lib/services/connected-systems-resource-service")
+        .then(({ ConnectedSystemsResourceService }) =>
+          ConnectedSystemsResourceService.purgeUser(userId)
+        )
+        .catch(() => undefined);
       return;
     }
     cache.clear();

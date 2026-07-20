@@ -15,6 +15,35 @@
   },
   "actions": [
     {
+      "action_id": "setup.open_connections",
+      "label": "Set up Connections",
+      "meaning": "Opens Connections setup so the person can choose Hushh managed Gemini or validate and save their own Gemini key.",
+      "aliases": [
+        "set up connections",
+        "choose gemini",
+        "configure one",
+        "use my gemini key"
+      ],
+      "search_keywords": ["connections", "gemini", "runtime", "key", "setup"],
+      "reachability": {
+        "routes": ["/one/setup"],
+        "screens": ["one_setup_hub", "one_setup"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/connections"
+      },
+      "control_ids": ["one_setup_tile_connections"],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
       "action_id": "setup.open_location",
       "label": "Set up location",
       "meaning": "Opens Location setup so the person can share location with trusted people they choose.",

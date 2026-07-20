@@ -5,11 +5,13 @@ import { useSearchParams } from "next/navigation";
 
 import { AuthStep } from "@/components/onboarding/AuthStep";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
-import { ROUTES } from "@/lib/navigation/routes";
 
 function LoginContent() {
   const searchParams = useSearchParams();
-  const redirectPath = searchParams.get("redirect") || ROUTES.HOME;
+  // Empty means an organic sign-in. Do not manufacture `/` as a redirect:
+  // it is the public welcome route and must never participate in private
+  // capability/persona routing after authentication.
+  const redirectPath = searchParams.get("redirect") || "";
 
   return (
     <>

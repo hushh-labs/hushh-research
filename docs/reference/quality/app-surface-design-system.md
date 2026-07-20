@@ -625,7 +625,7 @@ Rules:
 2. RIA workspace navigation lives in the top shell: `Home / Clients / Picks`. The fixed bottom utilities remain `One / Connect / Search`; Profile remains the rightmost top-bar action.
 3. `/one/consent` is the single consent/request workspace for both investor and RIA personas.
 4. `/ria/requests` remains only as a compatibility alias into `/one/consent`, not as a second consent system.
-5. The shell should contextualize `/one/consent` as `Profile > Privacy` for breadcrumb and primary-nav highlighting; legacy `/consents` preserves inbound links by redirecting to that canonical URL.
+5. The shell contextualizes `/one/consent` as `One > Consent Center`; legacy `/consents` preserves inbound links by redirecting to that canonical URL.
 6. Advanced PKM tools such as `PKM Agent Lab` should inherit the standard profile/privacy shell contract instead of introducing a separate hidden-route layout language.
 7. Relationship views should stay grouped around:
    - relationship state

@@ -83,6 +83,9 @@ export function useCapabilitySetupStates(
   const [bootstrapResolved, setBootstrapResolved] = useState(
     () => cachedPreVaultState !== null,
   );
+  const [bootstrapOwnerId, setBootstrapOwnerId] = useState<string | null>(
+    () => (cachedPreVaultState ? userId : null),
+  );
   const [kaiProfile, setKaiProfile] = useState<KaiProfileV2 | null>(null);
   const [oauthConnections, setOauthConnections] = useState<
     Partial<Record<string, boolean>>
@@ -111,6 +114,7 @@ export function useCapabilitySetupStates(
     if (!userId) {
       setPreVaultState(null);
       setBootstrapResolved(false);
+      setBootstrapOwnerId(null);
       return;
     }
     let cancelled = false;
@@ -121,13 +125,18 @@ export function useCapabilitySetupStates(
     if (cached) {
       setPreVaultState(cached);
       setBootstrapResolved(true);
+      setBootstrapOwnerId(userId);
     } else {
       setPreVaultState(null);
       setBootstrapResolved(false);
+      setBootstrapOwnerId(null);
     }
     PreVaultUserStateService.bootstrapState(userId)
       .then((state) => {
-        if (!cancelled) setPreVaultState(state);
+        if (!cancelled) {
+          setPreVaultState(state);
+          setBootstrapOwnerId(userId);
+        }
       })
       .catch(() => {
         // Leave preVaultState null → resolver yields `unknown`, never a
@@ -135,7 +144,13 @@ export function useCapabilitySetupStates(
         if (!cancelled) setPreVaultState(null);
       })
       .finally(() => {
-        if (!cancelled) setBootstrapResolved(true);
+        if (!cancelled) {
+          // The snapshot belongs to this account even when the request failed.
+          // Publishing the owner lets the resolver expose an honest `unknown`
+          // state instead of trapping the setup hub in a permanent loader.
+          setBootstrapOwnerId(userId);
+          setBootstrapResolved(true);
+        }
       });
     const unsubscribe = cache.subscribe((event) => {
       if (event.type === "set" && event.key === cacheKey) {
@@ -144,6 +159,7 @@ export function useCapabilitySetupStates(
         if (!cancelled && next) {
           setPreVaultState(next);
           setBootstrapResolved(true);
+          setBootstrapOwnerId(userId);
         }
       }
     });
@@ -403,7 +419,10 @@ export function useCapabilitySetupStates(
   return {
     statuses,
     byId,
-    isLoading: Boolean(userId) && !bootstrapResolved && !cachedPreVaultState,
+    isLoading:
+      Boolean(userId) &&
+      (bootstrapOwnerId !== userId ||
+        (!bootstrapResolved && !cachedPreVaultState)),
     isEnriching:
       enrichingVault || enrichingOauth || enrichingRia || enrichingLocation,
     markExplored,

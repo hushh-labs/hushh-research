@@ -61,6 +61,7 @@ export default function ConnectedSystemsPage() {
       </AppPageHeaderRegion>
       <AppPageContentRegion>
         <ConnectedSystemsPanel
+          cacheUserId={user?.uid}
           vaultOwnerToken={vaultOwnerToken}
           onRequestUnlock={() => setShowUnlock(true)}
           mode="list"

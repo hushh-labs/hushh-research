@@ -12,6 +12,7 @@ from hushh_mcp.services.connected_systems_service import (
     ConnectedSystemBlockedError,
     ConnectedSystemConfigurationError,
 )
+from hushh_mcp.services.crm_schema_mapping_service import CrmSchemaMappingError
 
 
 class FakeConnectedSystemsService:
@@ -22,6 +23,7 @@ class FakeConnectedSystemsService:
         self.deleted_payload = None
         self.binding_payload = None
         self.search_payload = None
+        self.schema_calls = 0
 
     def list_systems(self):
         return [
@@ -38,7 +40,26 @@ class FakeConnectedSystemsService:
             }
         ]
 
+    def registry_revision(self):
+        return 7
+
+    def get_system(self, system_id):
+        return SimpleNamespace(registry_id="crm_001", system_id=system_id)
+
+    def list_record_binding_statuses(self, **kwargs):
+        self.binding_payload = kwargs
+        return {
+            "bindings": [
+                {
+                    "systemId": "salesforce-fsc-customer0",
+                    "objectType": "Contact",
+                    "status": "unbound",
+                }
+            ]
+        }
+
     async def get_schema(self, **kwargs):
+        self.schema_calls += 1
         return {
             "systemId": kwargs["system_id"],
             "objectType": kwargs.get("object_type") or "Contact",
@@ -149,7 +170,11 @@ def _build_app() -> FastAPI:
 
 
 class FakeSchemaMappingService:
-    async def resolve(self, **_kwargs):
+    def __init__(self):
+        self.crm_ids = []
+
+    async def resolve(self, **kwargs):
+        self.crm_ids.append(kwargs["crm_id"])
         return SimpleNamespace(
             mapping={
                 "email": "Email",
@@ -161,6 +186,11 @@ class FakeSchemaMappingService:
 
     def invalidate(self, **_kwargs):
         return None
+
+
+class FakeUnavailableSchemaMappingService:
+    async def resolve(self, **_kwargs):
+        raise CrmSchemaMappingError("Schema mapping is unavailable.")
 
 
 @pytest.fixture(autouse=True)
@@ -181,6 +211,7 @@ def test_list_connected_systems_route_returns_salesforce_registry_entry(monkeypa
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["registryRevision"] == 7
     assert payload["systems"][0]["systemId"] == "salesforce-fsc-customer0"
     assert payload["systems"][0]["displayName"] == "Macy's"
     assert payload["systems"][0]["customerDisplayName"] == "Macy's"
@@ -208,6 +239,47 @@ def test_list_connected_systems_returns_typed_registry_unavailable_error(monkeyp
         "code": "CONNECTED_SYSTEM_REGISTRY_UNAVAILABLE",
         "message": "Connected Systems configuration is temporarily unavailable.",
     }
+
+
+def test_schema_mapping_failure_reuses_the_single_catalogue_fetch(monkeypatch):
+    service = FakeConnectedSystemsService()
+    monkeypatch.setattr(connected_systems, "get_connected_systems_service", lambda: service)
+    monkeypatch.setattr(
+        connected_systems,
+        "get_crm_schema_mapping_service",
+        lambda: FakeUnavailableSchemaMappingService(),
+    )
+    client = TestClient(_build_app())
+
+    response = client.get(
+        "/api/connected-systems/salesforce-fsc-customer0/schema?objectType=Contact",
+        headers={"Authorization": "Bearer HCT:test"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["schemaMappingStatus"] == "unavailable"
+    assert service.schema_calls == 1
+
+
+def test_schema_mapping_uses_internal_registry_parent_key(monkeypatch):
+    service = FakeConnectedSystemsService()
+    mapping_service = FakeSchemaMappingService()
+    monkeypatch.setattr(connected_systems, "get_connected_systems_service", lambda: service)
+    monkeypatch.setattr(
+        connected_systems,
+        "get_crm_schema_mapping_service",
+        lambda: mapping_service,
+    )
+    client = TestClient(_build_app())
+
+    response = client.get(
+        "/api/connected-systems/salesforce-fsc-customer0/schema?objectType=Contact",
+        headers={"Authorization": "Bearer HCT:test"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["schemaMappingStatus"] == "ready"
+    assert mapping_service.crm_ids == ["crm_001"]
 
 
 def test_create_intent_route_accepts_no_browser_identity_fields(monkeypatch):
@@ -274,6 +346,28 @@ def test_record_binding_route_returns_authenticated_user_binding(monkeypatch):
         "system_id": "salesforce-fsc-customer0",
         "object_type": "Contact",
     }
+
+
+def test_batch_record_binding_statuses_are_owner_scoped_and_identifier_free(monkeypatch):
+    service = FakeConnectedSystemsService()
+    monkeypatch.setattr(connected_systems, "get_connected_systems_service", lambda: service)
+    client = TestClient(_build_app())
+
+    response = client.get(
+        "/api/connected-systems/record-bindings",
+        headers={"Authorization": "Bearer HCT:test"},
+    )
+
+    assert response.status_code == 200
+    assert service.binding_payload == {"user_id": "user_123"}
+    assert response.json()["bindings"] == [
+        {
+            "systemId": "salesforce-fsc-customer0",
+            "objectType": "Contact",
+            "status": "unbound",
+        }
+    ]
+    assert "recordId" not in response.text
 
 
 def test_search_route_uses_verified_owner_identity(monkeypatch):

@@ -20,7 +20,7 @@ from hushh_mcp.operons.location.policy import (
     normalize_source_platform,
 )
 from hushh_mcp.types import AgentID, UserID
-from mcp_modules.log_redaction import redact_log_value
+from mcp_modules.log_redaction import redact_log_field, redact_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -224,14 +224,14 @@ def _submit_notification_send(
                 logger.warning(
                     "one.location.notification_token_cleanup_failed type=%s user=%s error=%s",
                     notification_type,
-                    redact_log_value(user_id),
+                    redact_log_field("user_id", user_id),
                     exc,
                 )
         except Exception as exc:
             logger.warning(
                 "one.location.notification_send_failed type=%s user=%s error=%s",
                 notification_type,
-                redact_log_value(user_id),
+                redact_log_field("user_id", user_id),
                 exc,
             )
 
@@ -241,7 +241,7 @@ def _submit_notification_send(
         logger.warning(
             "one.location.notification_submit_failed type=%s user=%s error=%s",
             notification_type,
-            redact_log_value(user_id),
+            redact_log_field("user_id", user_id),
             exc,
         )
 
@@ -570,7 +570,7 @@ class OneLocationAgentService:
                 logger.warning(
                     "one.location.notification_blocked_plaintext_keys type=%s user=%s",
                     notification_type,
-                    redact_log_value(user_id),
+                    redact_log_field("user_id", user_id),
                 )
                 return
             seen: set[str] = set()
@@ -602,7 +602,7 @@ class OneLocationAgentService:
             logger.warning(
                 "one.location.notification_skipped type=%s user=%s error=%s",
                 notification_type,
-                redact_log_value(user_id),
+                redact_log_field("user_id", user_id),
                 exc,
             )
 
@@ -642,7 +642,7 @@ class OneLocationAgentService:
         except Exception as exc:
             logger.debug(
                 "one.location.identity_lookup_failed user=%s error=%s",
-                redact_log_value(user_id),
+                redact_log_field("user_id", user_id),
                 exc,
             )
             return None
@@ -2421,7 +2421,7 @@ class OneLocationAgentService:
             ):
                 logger.warning(
                     "one_location.recipient_key_column_missing_self_heal user=%s",
-                    redact_log_value(user_id),
+                    redact_log_field("user_id", user_id),
                 )
                 self._ensure_recipient_encrypted_private_column()
                 row = self._execute_one(insert_sql, insert_params)

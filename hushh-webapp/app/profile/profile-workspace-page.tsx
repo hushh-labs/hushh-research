@@ -3238,6 +3238,7 @@ function ProfilePageContent() {
 
   const connectedSystemsContent = (
     <ConnectedSystemsPanel
+      cacheUserId={user?.uid}
       vaultOwnerToken={vaultOwnerToken}
       onRequestUnlock={() => requestVaultUnlock("profile_data")}
       profile={{

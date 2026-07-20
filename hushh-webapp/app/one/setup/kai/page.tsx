@@ -44,7 +44,6 @@ import {
 import { VaultService } from "@/lib/services/vault-service";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
-import { usePersonaState } from "@/lib/persona/persona-context";
 import {
   buildOneSetupKaiRoute,
   buildOneSetupRoute,
@@ -60,8 +59,9 @@ import { Card } from "@/lib/morphy-ux/card";
 import { Button } from "@/lib/morphy-ux/button";
 import { AlertTriangle } from "lucide-react";
 import { useNativeTestConfig } from "@/lib/testing/native-test";
+import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 
-type Stage = "loading" | "entry" | "wizard" | "persona";
+type Stage = "loading" | "vault_required" | "entry" | "wizard" | "persona";
 type OnboardingSource = "pre_vault" | "vault";
 
 type WizardAnswers = {
@@ -120,7 +120,6 @@ function KaiOnboardingPageContent({
   const nativeTestConfig = useNativeTestConfig();
   const { user, loading: authLoading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
-  const { activePersona, loading: personaLoading, riaCapability } = usePersonaState();
 
   const [source, setSource] = useState<OnboardingSource | null>(null);
   const [stage, setStage] = useState<Stage>("loading");
@@ -129,6 +128,7 @@ function KaiOnboardingPageContent({
   const [profile, setProfile] = useState<KaiProfileV2 | null>(null);
   const [preVaultState, setPreVaultState] = useState<PreVaultOnboardingState | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [vaultOpen, setVaultOpen] = useState(false);
   const onboardingStartedRef = useRef(false);
   const inviteToken = searchParams.get("invite");
   const onboardingFromHref = useMemo(
@@ -143,7 +143,7 @@ function KaiOnboardingPageContent({
     skipActionId: "setup.skip_finance",
     enabled: isStaticFinanceSetupRoute,
     screenId: "one_setup_finance",
-    allowResolvedRootReentry: true,
+    journeyMode: "auto",
   });
   // Intentional re-entry: a user who has ALREADY resolved the setup gate but
   // deliberately reopens this wizard (tapping the Finance tile, which forwards
@@ -167,7 +167,7 @@ function KaiOnboardingPageContent({
     let cancelled = false;
 
     async function load() {
-      if (authLoading || personaLoading) return;
+      if (authLoading) return;
 
       if (!user) {
         router.replace(`${ROUTES.LOGIN}?redirect=${encodeURIComponent(onboardingSelfHref)}`);
@@ -203,14 +203,6 @@ function KaiOnboardingPageContent({
           const pending = await PreVaultOnboardingService.load(user.uid);
           if (cancelled) return;
           setPreVaultState(pending);
-          if (
-            activePersona === "ria" &&
-            riaCapability !== "disabled" &&
-            !preserveOnboardingAuditRoute
-          ) {
-            router.replace(ROUTES.RIA_HOME);
-            return;
-          }
           // The investor-preferences wizard renders here when the root flow is
           // unresolved and a draft exists, OR when a resolved user intentionally
           // re-enters to review/edit their answers (finance tile / edit=1).
@@ -235,7 +227,8 @@ function KaiOnboardingPageContent({
         setSource("vault");
 
         if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
-          setStage("loading");
+          setStage("vault_required");
+          setVaultOpen(true);
           return;
         }
 
@@ -297,10 +290,7 @@ function KaiOnboardingPageContent({
     };
   }, [
     authLoading,
-    activePersona,
     inviteToken,
-    personaLoading,
-    riaCapability,
     user,
     user?.uid,
     isVaultUnlocked,
@@ -524,6 +514,40 @@ function KaiOnboardingPageContent({
             </Button>
           </div>
         </Card>
+      </SetupKaiStageRegion>
+    );
+  }
+
+  if (stage === "vault_required") {
+    return (
+      <SetupKaiStageRegion>
+        <div className="flex w-full max-w-sm flex-col items-center gap-4 text-center">
+          <p className="text-sm text-muted-foreground">
+            Open your private vault to continue Finance setup.
+          </p>
+          <Button
+            variant="blue-gradient"
+            effect="fill"
+            onClick={() => setVaultOpen(true)}
+          >
+            Open private vault
+          </Button>
+          {isStaticFinanceSetupRoute ? (
+            <SetupCapabilityTerminalFooter
+              capabilityId="finance"
+              isOperationallyReady={false}
+              coordinator={financeSetupCoordinator}
+            />
+          ) : null}
+        </div>
+        <VaultUnlockDialog
+          user={user}
+          open={vaultOpen}
+          onOpenChange={setVaultOpen}
+          title="Open your private vault"
+          description="Continue Finance setup after your private vault is ready."
+          onSuccess={() => setVaultOpen(false)}
+        />
       </SetupKaiStageRegion>
     );
   }

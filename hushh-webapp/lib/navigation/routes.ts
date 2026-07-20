@@ -297,8 +297,9 @@ export function isCapabilityOnboardingRoute(
   pathname: string,
 ): boolean {
   if (!capabilityId) return false;
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (CAPABILITY_ONBOARDING_ROUTE_PREFIXES[capabilityId] || []).some(
-    (route) => pathname === route,
+    (route) => normalizedPathname === route,
   );
 }
 
@@ -306,10 +307,11 @@ export function isCapabilityOnboardingRoute(
 export function resolveOnboardingCapabilityForRoute(
   pathname: string,
 ): string | null {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   for (const [capabilityId, prefixes] of Object.entries(
     CAPABILITY_ONBOARDING_ROUTE_PREFIXES,
   )) {
-    if (prefixes.some((route) => pathname === route)) {
+    if (prefixes.some((route) => normalizedPathname === route)) {
       return capabilityId;
     }
   }
@@ -323,21 +325,22 @@ export function resolveOnboardingCapabilityForRoute(
  * signed-in user away from sign-out or account deletion.
  */
 export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
-    pathname === ROUTES.HOME ||
-    pathname === ROUTES.WELCOME ||
-    pathname === ROUTES.DEVELOPERS ||
-    pathname === ROUTES.RESEARCH ||
-    pathname.startsWith(`${ROUTES.RESEARCH}/`) ||
-    pathname === ROUTES.BLOG ||
-    pathname.startsWith(`${ROUTES.BLOG}/`) ||
-    pathname === ROUTES.LOGIN ||
-    pathname === ROUTES.GETTING_STARTED ||
-    pathname === ROUTES.PHONE_MANDATE ||
-    pathname === ROUTES.LOGOUT ||
-    pathname === ROUTES.PROFILE ||
-    pathname.startsWith(`${ROUTES.PROFILE}/`) ||
-    pathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
+    normalizedPathname === ROUTES.HOME ||
+    normalizedPathname === ROUTES.WELCOME ||
+    normalizedPathname === ROUTES.DEVELOPERS ||
+    normalizedPathname === ROUTES.RESEARCH ||
+    normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
+    normalizedPathname === ROUTES.BLOG ||
+    normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.LOGIN ||
+    normalizedPathname === ROUTES.GETTING_STARTED ||
+    normalizedPathname === ROUTES.PHONE_MANDATE ||
+    normalizedPathname === ROUTES.LOGOUT ||
+    normalizedPathname === ROUTES.PROFILE ||
+    normalizedPathname.startsWith(`${ROUTES.PROFILE}/`) ||
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
   );
 }
 
@@ -489,7 +492,7 @@ export function isOneSetupRoute(pathname: string): boolean {
  * a WebView navigation). Route admission must compare the logical app route,
  * not that transport-specific pathname shape.
  */
-function normalizeStaticExportPathname(pathname: string): string {
+export function normalizeStaticExportPathname(pathname: string): string {
   const withoutIndexDocument = String(pathname || "/").replace(
     /\/index\.html$/i,
     "",
@@ -553,19 +556,20 @@ export function isOneSetupSurfaceRoute(pathname: string): boolean {
 }
 
 export function isPublicRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
-    pathname === ROUTES.HOME ||
-    pathname === ROUTES.WELCOME ||
-    pathname === ROUTES.DEVELOPERS ||
-    pathname === ROUTES.LOGIN ||
-    pathname === ROUTES.GETTING_STARTED ||
-    pathname === ROUTES.PHONE_MANDATE ||
-    pathname === ROUTES.LOGOUT ||
-    pathname === ROUTES.RESEARCH ||
-    pathname.startsWith(`${ROUTES.RESEARCH}/`) ||
-    pathname === ROUTES.BLOG ||
-    pathname.startsWith(`${ROUTES.BLOG}/`) ||
-    pathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
+    normalizedPathname === ROUTES.HOME ||
+    normalizedPathname === ROUTES.WELCOME ||
+    normalizedPathname === ROUTES.DEVELOPERS ||
+    normalizedPathname === ROUTES.LOGIN ||
+    normalizedPathname === ROUTES.GETTING_STARTED ||
+    normalizedPathname === ROUTES.PHONE_MANDATE ||
+    normalizedPathname === ROUTES.LOGOUT ||
+    normalizedPathname === ROUTES.RESEARCH ||
+    normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
+    normalizedPathname === ROUTES.BLOG ||
+    normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
   );
 }
 
@@ -575,27 +579,31 @@ export function isPublicRoute(pathname: string): boolean {
  * phone, and public invite routes have their own security/UI contracts.
  */
 export function isFoundationPublicRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
-    pathname === ROUTES.HOME ||
-    pathname === ROUTES.WELCOME ||
-    pathname === ROUTES.DEVELOPERS ||
-    pathname === ROUTES.RESEARCH ||
-    pathname.startsWith(`${ROUTES.RESEARCH}/`) ||
-    pathname === ROUTES.BLOG ||
-    pathname.startsWith(`${ROUTES.BLOG}/`)
+    normalizedPathname === ROUTES.HOME ||
+    normalizedPathname === ROUTES.WELCOME ||
+    normalizedPathname === ROUTES.DEVELOPERS ||
+    normalizedPathname === ROUTES.RESEARCH ||
+    normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
+    normalizedPathname === ROUTES.BLOG ||
+    normalizedPathname.startsWith(`${ROUTES.BLOG}/`)
   );
 }
 
 export function isRiaRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
-    pathname === ROUTES.RIA_HOME || pathname.startsWith(`${ROUTES.RIA_HOME}/`)
+    normalizedPathname === ROUTES.RIA_HOME ||
+    normalizedPathname.startsWith(`${ROUTES.RIA_HOME}/`)
   );
 }
 
 export function isRiaOnboardingRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
-    pathname === ROUTES.RIA_ONBOARDING ||
-    pathname.startsWith(`${ROUTES.RIA_ONBOARDING}/`)
+    normalizedPathname === ROUTES.RIA_ONBOARDING ||
+    normalizedPathname.startsWith(`${ROUTES.RIA_ONBOARDING}/`)
   );
 }
 

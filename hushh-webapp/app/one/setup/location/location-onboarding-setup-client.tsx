@@ -7,6 +7,7 @@ import {
   SetupCapabilityLoading,
   useSetupCapabilityCoordinator,
 } from "@/components/onboarding/setup/setup-capability-coordinator";
+import { CapabilityVaultPrerequisite } from "@/components/vault/capability-vault-prerequisite";
 
 export function LocationOnboardingSetupClient() {
   const [ready, setReady] = useState(false);
@@ -21,15 +22,20 @@ export function LocationOnboardingSetupClient() {
     return <SetupCapabilityLoading label="Preparing location setup…" />;
 
   return (
-    <OneLocationAgentPage
-      mode="setup"
-      onSetupReadinessChange={setReady}
-      onSetupComplete={async () => {
-        await coordinator.finish();
-      }}
-      onSetupSkip={async () => {
-        await coordinator.skip();
-      }}
-    />
+    <CapabilityVaultPrerequisite
+      capabilityLabel="Location"
+      routeKey="/one/setup/location"
+    >
+      <OneLocationAgentPage
+        mode="setup"
+        onSetupReadinessChange={setReady}
+        onSetupComplete={async () => {
+          await coordinator.finish();
+        }}
+        onSetupSkip={async () => {
+          await coordinator.skip();
+        }}
+      />
+    </CapabilityVaultPrerequisite>
   );
 }

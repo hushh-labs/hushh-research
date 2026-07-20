@@ -22,7 +22,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -156,66 +156,17 @@ function resolveOnboardingPhase(params: {
 
 export function AgentRuntimeStateProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   // This subscription is the runtime bridge between a route-local rendered
   // control and One's redacted snapshot. It carries authored metadata only;
   // no DOM inference or second action registry is involved.
   const surfaceMetadata = useVoiceSurfaceMetadata();
   const localHandlerRevision = useLocalOnboardingHandlerRevision();
-  // The query string is purely client runtime metadata (it shapes the derived
-  // voice route screen). We read it from window.location instead of
-  // useSearchParams() so this app-wide provider does not force a CSR Suspense
-  // bailout on every route (including statically-exported pages like /404).
-  const [routeQuery, setRouteQuery] = useState("");
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const originalPushState = window.history.pushState;
-    const originalReplaceState = window.history.replaceState;
-    let syncTimer: number | null = null;
-    const syncNow = () => {
-      const search = window.location.search;
-      const next = search.startsWith("?") ? search.slice(1) : search;
-      // pushState/replaceState may be invoked synchronously from another
-      // component's useInsertionEffect (styling libs, the Next router). Setting
-      // state right here would schedule an update during that phase, which React
-      // forbids ("useInsertionEffect must not schedule updates"). Defer to a
-      // microtask so the update always lands outside the insertion-effect phase,
-      // and bail out when the query is unchanged to avoid extra renders.
-      queueMicrotask(() => {
-        setRouteQuery((prev) => (prev === next ? prev : next));
-      });
-    };
-    const scheduleSync = () => {
-      if (syncTimer !== null) {
-        window.clearTimeout(syncTimer);
-      }
-      syncTimer = window.setTimeout(() => {
-        syncTimer = null;
-        syncNow();
-      }, 0);
-    };
-    window.history.pushState = ((...args) => {
-      const result = originalPushState.apply(window.history, args);
-      scheduleSync();
-      return result;
-    }) as History["pushState"];
-    window.history.replaceState = ((...args) => {
-      const result = originalReplaceState.apply(window.history, args);
-      scheduleSync();
-      return result;
-    }) as History["replaceState"];
-    syncNow();
-    window.addEventListener("popstate", scheduleSync);
-    return () => {
-      if (syncTimer !== null) {
-        window.clearTimeout(syncTimer);
-      }
-      window.history.pushState = originalPushState;
-      window.history.replaceState = originalReplaceState;
-      window.removeEventListener("popstate", scheduleSync);
-    };
-  }, [pathname]);
+  // App Router is the query-state authority. This provider already lives under
+  // the root Suspense boundary, so subscribing here does not affect static
+  // export. Never wrap History: Next owns its insertion-effect settlement and
+  // native post-auth routing must not acquire a second route publisher.
+  const routeQuery = searchParams.toString();
   const { user } = useAuth();
   const {
     isVaultUnlocked,

@@ -81,7 +81,7 @@ A single authenticated account may hold both `investor` and `ria` personas. Runt
 1. Investor route tree remains under existing Kai surfaces.
 2. RIA route tree is isolated under `/ria/*`.
 3. Shared discovery entry is `/marketplace` with dual-sided tabs.
-4. Shared workflow hub is `/consents`.
+4. Shared workflow hub is `/one/consent`; `/consents` is inbound compatibility only.
 5. `/ria/requests` is a compatibility alias into the consent center, not a first-class workflow surface.
 
 ## Consent IAM Control Plane

@@ -174,9 +174,11 @@ function buildVerifiedLicensePrefillPatch(
 export default function RiaOnboardingPage({
   setupMode = false,
   onSetupReadinessChange,
+  onSetupSkip,
 }: {
   setupMode?: boolean;
   onSetupReadinessChange?: (ready: boolean) => void;
+  onSetupSkip?: () => void | Promise<void>;
 } = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1127,6 +1129,8 @@ export default function RiaOnboardingPage({
           isFirstStep={currentStepIndex === 0}
           isLastStep={currentStep.id === "review"}
           advisoryAccessReady={advisoryAccessReady}
+          hideTerminal={setupMode && advisoryAccessReady}
+          onSkip={setupMode && !advisoryAccessReady ? onSetupSkip : undefined}
           allowInvalidPress={currentStep.id === "services"}
           heroImage={RIA_ONBOARDING_STEP_IMAGES[currentStep.id]}
           onBack={handleBack}

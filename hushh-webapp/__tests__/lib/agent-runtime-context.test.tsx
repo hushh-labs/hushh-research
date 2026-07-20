@@ -24,6 +24,7 @@ const cacheMocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   usePathname: () => mockPathname,
+  useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -98,7 +99,7 @@ describe("AgentRuntimeStateProvider", () => {
 
   it("updates shared runtime context for query-only route changes", async () => {
     const seen: AgentRuntimeState[] = [];
-    render(
+    const view = render(
       <AgentRuntimeStateProvider>
         <Probe onValue={(value) => seen.push(value)} />
       </AgentRuntimeStateProvider>
@@ -111,6 +112,11 @@ describe("AgentRuntimeStateProvider", () => {
     act(() => {
       window.history.pushState({}, "", "/one/profile?panel=gmail&tab=account");
     });
+    view.rerender(
+      <AgentRuntimeStateProvider>
+        <Probe onValue={(value) => seen.push(value)} />
+      </AgentRuntimeStateProvider>,
+    );
 
     await waitFor(() => {
       const latest = seen.at(-1);

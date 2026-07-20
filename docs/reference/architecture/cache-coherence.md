@@ -136,6 +136,15 @@ Do:
 - Use `invalidateUser(userId)` when purging a full user session.
 - Keep domain blob + metadata reconciliation aligned with PKM index semantics.
 - Keep consent-manager summary/list caches memory-only.
+- `ConnectedSystemsResourceService` owns Connected Systems caching. L1 memory
+  holds registry, normalized schema, binding status, and live record state. L2
+  device cache holds only safe registry and normalized ready-schema metadata
+  for 24 hours; schema keys include CRM, primary object, and configuration
+  revision. An unavailable mapping is memory-only for one minute. CRM bindings,
+  record IDs, values, intents, and staged edits never enter L2. Auth startup
+  hydrates registry metadata, vault unlock warms one batch of binding statuses,
+  vault lock synchronously clears protected L1 state, and sign-out/account
+  deletion purges both tiers.
 - Use `one:consents` as the canonical cache identity for the default investor
   consent view. The One dashboard, `/one/consent`, and the top-shell shield inbox
   must share that summary and pending-page cache; only the RIA persona uses its

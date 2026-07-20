@@ -36,21 +36,26 @@ describe("setup warm-transition contract", () => {
     expect(guard).not.toContain("window.location.assign(redirectTarget)");
   });
 
-  it("settles an unresolved reviewer fixture after unlocking an existing vault", () => {
+  it("fails closed instead of mutating an unresolved reviewer setup fixture", () => {
     const bootstrap = read("components/app-ui/native-test-bootstrap.tsx");
     const setupRead = bootstrap.indexOf(
       "PreVaultUserStateService.bootstrapState",
     );
-    const setupWrite = bootstrap.indexOf(
-      "PreVaultUserStateService.syncKaiSetupState",
-    );
 
     expect(setupRead).toBeGreaterThan(-1);
-    expect(setupWrite).toBeGreaterThan(setupRead);
     expect(bootstrap).toContain(
       "if (!PreVaultUserStateService.isSetupResolved(setupState))",
     );
-    expect(bootstrap).not.toContain("if (createdVault)");
+    expect(bootstrap).toContain(
+      "native audit will not mutate onboarding state",
+    );
+    expect(bootstrap).toContain(
+      "native audit will not create one",
+    );
+    expect(bootstrap).not.toContain(
+      "PreVaultUserStateService.syncKaiSetupState",
+    );
+    expect(bootstrap).not.toContain("VaultService.createVault(");
   });
 
   it("keeps the native test vault bootstrap continuous while auth context publishes", () => {
@@ -64,7 +69,11 @@ describe("setup warm-transition contract", () => {
       "nativeTestBootstrapUser ??\n      AuthService.getCurrentUser()",
     );
     expect(bootstrap).toContain("AuthService.restoreNativeSession()");
-    expect(bootstrap).toContain("VaultService.checkVault(vaultUser.uid)");
+    expect(bootstrap).toContain(
+      "PreVaultUserStateService.bootstrapState(vaultUser.uid)",
+    );
+    expect(bootstrap).toContain("if (!setupState.hasVault)");
+    expect(bootstrap).not.toContain("VaultService.checkVault(vaultUser.uid)");
   });
 
   it("keeps native flow routing in one unlocked App Router document", () => {
@@ -102,9 +111,11 @@ describe("setup warm-transition contract", () => {
       "app/one/setup/finance/import/finance-import-onboarding-setup-client.tsx",
     );
 
-    expect(financeImport).toContain("allowResolvedRootReentry: true");
+    expect(financeImport).toContain('journeyMode: "auto"');
     expect(financeImport).toContain("resumeReadinessFromCallback: true");
     expect(coordinator).toContain("PreVaultUserStateService.settleOnboardingCapability");
+    expect(coordinator).toContain("resolveSetupCapabilityJourneyMode");
+    expect(coordinator).toContain("resolveSetupCapabilityReturnTarget");
     expect(coordinator).toContain("hasExplicitIncompleteSetup");
     expect(coordinator).toContain("setCallbackReadiness(true)");
   });

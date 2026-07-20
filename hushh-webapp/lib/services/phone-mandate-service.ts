@@ -1,5 +1,8 @@
 import { resolveAppEnvironment } from "@/lib/app-env";
-import { ROUTES } from "@/lib/navigation/routes";
+import {
+  normalizeStaticExportPathname,
+  ROUTES,
+} from "@/lib/navigation/routes";
 
 const LOCAL_PHONE_MANDATE_BYPASS_HOSTS = new Set(["localhost", "127.0.0.1"]);
 
@@ -43,7 +46,7 @@ function shouldBypassPhoneMandateForNativeRouteAudit(): boolean {
 }
 
 export function shouldBypassPhoneMandateForRoute(pathname?: string | null): boolean {
-  return String(pathname ?? "").trim() === ROUTES.RIA_ONBOARDING;
+  return normalizeStaticExportPathname(String(pathname ?? "").trim()) === ROUTES.RIA_ONBOARDING;
 }
 
 export function shouldRequirePhoneMandate(params: {
@@ -93,6 +96,8 @@ export function maskPhoneNumber(phoneNumber?: string | null): string {
 }
 
 export function isPhoneMandatePath(pathname?: string | null): boolean {
-  const normalized = String(pathname ?? "").trim();
+  const normalized = normalizeStaticExportPathname(
+    String(pathname ?? "").trim(),
+  );
   return normalized === ROUTES.PHONE_MANDATE;
 }

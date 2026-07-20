@@ -353,6 +353,7 @@ struct NativeTestConfiguration {
               uiFlowCurrent: bridge.uiFlowCurrent || "",
               uiFlowStepIndex: String(bridge.uiFlowStepIndex ?? ""),
               uiFlowStepType: bridge.uiFlowStepType || "",
+              uiFlowCheckpoint: bridge.uiFlowCheckpoint || "",
               uiFlowStepStartedAt: bridge.uiFlowStepStartedAt || "",
               uiFlowAuditRunId: bridge.uiFlowAuditRunId || bridge.uiFlowRunId || "",
               uiFlowAuditPlanDigest: bridge.uiFlowAuditPlanDigest || "",
@@ -590,6 +591,7 @@ struct NativeTestConfiguration {
             uiFlowCurrent: bridge.uiFlowCurrent || "",
             uiFlowStepIndex: String(bridge.uiFlowStepIndex ?? ""),
             uiFlowStepType: bridge.uiFlowStepType || "",
+            uiFlowCheckpoint: bridge.uiFlowCheckpoint || "",
             uiFlowStepStartedAt: bridge.uiFlowStepStartedAt || "",
             uiFlowAuditRunId: bridge.uiFlowAuditRunId || bridge.uiFlowRunId || "",
             uiFlowAuditPlanDigest: bridge.uiFlowAuditPlanDigest || "",
@@ -656,6 +658,10 @@ enum NativeTestResetter {
         } catch {
             print("⚠️ [NativeTestResetter] Failed to sign out Firebase auth: \(error)")
         }
+        // Firebase owns its Keychain record; HushhAuth owns a second cached
+        // identity/token service. Both must be cleared or a destructive cold
+        // audit can silently restore the previous user after reinstall.
+        HushhAuthPlugin.clearPersistedSessionForNativeReset()
     }
 
     private static func clearUserDefaults() {

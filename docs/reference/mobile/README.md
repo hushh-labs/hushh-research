@@ -27,6 +27,40 @@ Native checks have two deliberately separate lanes:
 
 The vault key and VAULT_OWNER token remain memory-only. A normal background/resume preserves a valid in-memory session; an actual WebView/process restart requires the normal unlock path. The app shell is the single native lifecycle collector; vault, auth, and notification consumers subscribe to its lifecycle signal rather than registering competing Capacitor listeners.
 
+## Native Authentication Settlement
+
+- `AuthProvider` is the only React publication authority for native identity.
+  Native restoration and explicit provider settlement may publish a user; the
+  Firebase JS observer must not independently mutate native React auth state.
+- A completed Apple/Google provider result enters a post-auth settlement before
+  setup or vault guards can render. The provider-issued Firebase ID token is
+  reused for the authoritative pre-vault bootstrap, and the settlement ends
+  only after the destination and onboarding mirror are resolved.
+- A native cold restore landing on `/` resolves the same authoritative
+  post-auth destination once before entering `/one`, `/one/setup`, or the phone
+  mandate. It must not enter `/one` first and let vault, phone, setup, and page
+  effects compete to redirect afterward.
+- Organic sign-in and unlock resolve to `/one`. RIA is a private-agent
+  capability reached by explicit navigation; stored IAM persona fields must
+  never promote login, unlock, resume, or setup admission to `/ria`.
+- `/one/setup` and its capability setup routes are authenticated and
+  phone-gated, but never wrapped in the general hard vault gate. The setup hub
+  owns its progress bootstrap; a capability may request the shared scoped vault
+  prerequisite only when that individual operation needs protected storage.
+- Native sign-out is terminal and exactly-once for the current WebView: block
+  lifecycle restoration, attempt native and Firebase JS credential cleanup
+  independently, clear user-scoped local state, then replace the document at
+  the public route. The web-only Next.js session-cookie endpoint is not called
+  from a native static build.
+- iOS app uninstall does not clear Keychain. The explicit debug-only cold-reset
+  path therefore clears both Firebase Auth and the app-owned HushhAuth Keychain
+  service before a reinstall can be treated as fresh-user evidence.
+- Capacitor static-export paths are transport paths and may end in `/` (for
+  example, `/register-phone/`). Authentication, phone, setup, public-route, and
+  capability admission must compare the normalized logical route. A raw string
+  comparison can turn a prerequisite route into a self-redirect loop that web
+  development does not reproduce.
+
 ## Native Test Safety Contract
 
 Native verification has four distinct kinds of evidence. They must never be

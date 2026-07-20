@@ -405,7 +405,31 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     let retryTimer = 0;
 
     const updateHeaderVisibility = () => {
-      setPrimaryHeaderOutOfView(isPrimaryHeaderOutOfView(header));
+      const reservedHeight = readTopShellReservedHeight();
+      const scrollY = scrollRoot?.scrollTop ?? window.scrollY ?? 0;
+      const progress = Math.max(
+        0,
+        Math.min(
+          1,
+          model.mode === "bar-with-tabs" && header
+            ? (reservedHeight - header.getBoundingClientRect().bottom + 64) / 64
+            : scrollY / 64,
+        ),
+      );
+      const rowHeight =
+        document
+          .querySelector<HTMLElement>('[data-testid="top-app-bar-row"]')
+          ?.getBoundingClientRect().height ?? 0;
+      const root = document.documentElement;
+      root.style.setProperty("--top-chrome-progress", String(progress));
+      root.style.setProperty(
+        "--top-chrome-collapse-px",
+        `${Math.max(0, rowHeight * progress)}px`,
+      );
+      const outOfView = isPrimaryHeaderOutOfView(header);
+      setPrimaryHeaderOutOfView((current) =>
+        current === outOfView ? current : outOfView,
+      );
     };
 
     const detachListeners = () => {
@@ -470,8 +494,13 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
         window.cancelAnimationFrame(refreshFrame);
       }
       window.clearTimeout(retryTimer);
+      document.documentElement.style.setProperty("--top-chrome-progress", "0");
+      document.documentElement.style.setProperty(
+        "--top-chrome-collapse-px",
+        "0px",
+      );
     };
-  }, [pathname]);
+  }, [model.mode, pathname]);
 
   useEffect(() => {
     let cancelled = false;
@@ -649,9 +678,10 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
           aria-hidden
           className="pointer-events-none absolute inset-x-0 top-0 overflow-visible"
           style={{
-            height: tabsOnlyChrome
-              ? "calc(var(--top-inset) + var(--top-tabs-h) + var(--top-fade-active))"
-              : "var(--top-shell-visual-height)",
+            height:
+              model.mode === "bar" || model.mode === "bar-with-tabs"
+                ? "calc(var(--top-shell-visual-height) - var(--top-chrome-collapse-px, 0px))"
+                : "var(--top-shell-visual-height)",
           }}
         >
           <AmbientChromeMask
@@ -677,11 +707,13 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
             style={{
               maxHeight: tabsOnlyChrome
                 ? "0px"
-                : "calc(var(--top-inset) + var(--top-systembar-row-gap) + var(--top-bar-h))",
+                : "calc(var(--top-inset) + var(--top-systembar-row-gap) + var(--top-bar-h) - var(--top-chrome-collapse-px, 0px))",
               paddingTop: tabsOnlyChrome
                 ? "0px"
                 : "calc(var(--top-inset) + var(--top-systembar-row-gap))",
-              opacity: tabsOnlyChrome ? 0 : 1,
+              opacity: tabsOnlyChrome
+                ? 0
+                : "calc(1 - var(--top-chrome-progress, 0))",
               transform: tabsOnlyChrome
                 ? "translate3d(0, -0.5rem, 0)"
                 : "translate3d(0, 0, 0)",

@@ -19,7 +19,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
-from api.middleware import require_vault_owner_token
+from api.middleware import (
+    require_firebase_auth,
+    require_vault_owner_token,
+    verify_user_id_match,
+)
 from hushh_mcp.services.one_email_kyc_service import (
     OneEmailKycError,
     get_one_email_kyc_service,
@@ -298,9 +302,9 @@ async def one_email_sync_recent(
 @router.get("/kyc/preferences/automatic-response-preparation")
 async def one_kyc_get_automatic_response_preparation_preference(
     user_id: str,
-    token_data: dict = Depends(require_vault_owner_token),
+    firebase_uid: str = Depends(require_firebase_auth),
 ):
-    _verified_vault_user_id(token_data, user_id)
+    verify_user_id_match(firebase_uid, user_id)
     try:
         return await _service().get_automatic_response_preparation_preference(user_id=user_id)
     except Exception as exc:
@@ -311,9 +315,9 @@ async def one_kyc_get_automatic_response_preparation_preference(
 @router.patch("/kyc/preferences/automatic-response-preparation")
 async def one_kyc_set_automatic_response_preparation_preference(
     payload: AutomaticResponsePreparationPreferenceRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    firebase_uid: str = Depends(require_firebase_auth),
 ):
-    _verified_vault_user_id(token_data, payload.user_id)
+    verify_user_id_match(firebase_uid, payload.user_id)
     try:
         return await _service().set_automatic_response_preparation_preference(
             user_id=payload.user_id,

@@ -2,7 +2,7 @@
 
 Maps durable marketplace access requests (``marketplace_access_requests``,
 migration 076) into the shared ``ConsentCenterEntry`` dict shape consumed by the
-``/consents`` Access Manager, so a seller approves/denies data-slice requests in
+``/one/consent`` Consent Manager, so a seller approves/denies data-slice requests in
 the same Consent Guardian surface they use for every other grant — instead of a
 redundant marketplace inbox.
 

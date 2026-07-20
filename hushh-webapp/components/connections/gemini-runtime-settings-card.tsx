@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, KeyRound, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { SettingsGroup } from "@/components/app-ui/settings-ui";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/lib/morphy-ux/button";
@@ -33,7 +33,7 @@ type GeminiRuntimeSettingsCardProps = {
   onRequestVaultCreation: () => void;
   requiresExplicitSelection?: boolean;
   initiallyConfigured?: boolean;
-  onConfigured?: () => void | Promise<void>;
+  onSelectionReadyChange?: (ready: boolean) => void | Promise<void>;
 };
 
 type CredentialValidationState =
@@ -54,7 +54,7 @@ export function GeminiRuntimeSettingsCard({
   onRequestVaultCreation,
   requiresExplicitSelection = false,
   initiallyConfigured = true,
-  onConfigured,
+  onSelectionReadyChange,
 }: GeminiRuntimeSettingsCardProps) {
   const [mode, setMode] = useState<RuntimeCredentialMode>("hushh_managed_vertex");
   const [hasSavedKey, setHasSavedKey] = useState<boolean | null>(null);
@@ -68,6 +68,7 @@ export function GeminiRuntimeSettingsCard({
     useState<CredentialValidationState>({ status: "idle" });
   const credentialRevisionRef = useRef(0);
   const selectionRevisionRef = useRef(0);
+  const selectionPendingRef = useRef(false);
   const [hasExplicitSelection, setHasExplicitSelection] = useState(
     !requiresExplicitSelection || initiallyConfigured,
   );
@@ -166,16 +167,20 @@ export function GeminiRuntimeSettingsCard({
   };
 
   const selectManaged = async () => {
+    if (selectionPendingRef.current) return;
+    selectionPendingRef.current = true;
     selectionRevisionRef.current += 1;
     setMode("hushh_managed_vertex");
     try {
       await persistMode("hushh_managed_vertex");
-      await onConfigured?.();
       setHasExplicitSelection(true);
+      await onSelectionReadyChange?.(true);
       notifyGeminiRuntimeConfigurationChanged();
       toast.success("Hushh managed Gemini is selected.");
     } catch {
       toast.error("Your choice could not be saved. Please try again.");
+    } finally {
+      selectionPendingRef.current = false;
     }
   };
 
@@ -226,6 +231,7 @@ export function GeminiRuntimeSettingsCard({
   };
 
   const saveByok = async () => {
+    if (selectionPendingRef.current) return;
     const credential = draftKey.trim();
     const project = vertexProject.trim();
     const location = vertexLocation.trim();
@@ -243,6 +249,7 @@ export function GeminiRuntimeSettingsCard({
       return;
     }
     setIsSaving(true);
+    selectionPendingRef.current = true;
     try {
       await PersonalKnowledgeModelService.storeRuntimeSecret({
         userId,
@@ -295,17 +302,18 @@ export function GeminiRuntimeSettingsCard({
         }),
       ]);
       await persistMode("byok");
-      await onConfigured?.();
       setDraftKey("");
       invalidateCredentialValidation();
       setMode("byok");
       setHasSavedKey(true);
       setHasExplicitSelection(true);
+      await onSelectionReadyChange?.(true);
       notifyGeminiRuntimeConfigurationChanged();
       toast.success("Your Gemini configuration is saved in your encrypted vault.");
     } catch {
       toast.error("Gemini key could not be saved.");
     } finally {
+      selectionPendingRef.current = false;
       setIsSaving(false);
     }
   };
@@ -381,50 +389,50 @@ export function GeminiRuntimeSettingsCard({
       title="Gemini"
       description="Choose how your private agent runs."
       testId="connections-gemini-runtime"
+      separatorInset
     >
-      <div className="space-y-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+      <SettingsRow
+        asChild
+        icon={KeyRound}
+        iconTone="blue"
+        title="Hushh managed Gemini"
+        description="Uses Hushh-operated Vertex. No vault or personal key is needed."
+        trailing={
+          mode === "hushh_managed_vertex" && hasExplicitSelection ? (
+            <Badge variant="secondary">Selected</Badge>
+          ) : null
+        }
+        testId="connections-managed-runtime"
+      >
         <button
           type="button"
           onClick={() => void selectManaged()}
-          className="flex w-full items-start gap-3 rounded-[var(--app-card-radius-compact)] border border-border/60 bg-background/45 p-3 text-left transition-colors hover:bg-muted/35"
           aria-pressed={mode === "hushh_managed_vertex"}
-        >
-          <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-muted/65 text-muted-foreground">
-            <KeyRound className="h-4 w-4" aria-hidden />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="flex items-center justify-between gap-3 text-[14px] font-medium text-foreground">
-              Hushh managed Gemini
-              {mode === "hushh_managed_vertex" && hasExplicitSelection ? <Badge variant="secondary">Selected</Badge> : null}
-            </span>
-            <span className="mt-1 block text-[12px] leading-[1.45] text-muted-foreground">
-              Uses Hushh-operated Vertex with workload identity. No vault or key is needed.
-            </span>
-          </span>
-        </button>
+        />
+      </SettingsRow>
 
+      <SettingsRow
+        asChild
+        icon={KeyRound}
+        iconTone="purple"
+        title="Use my Gemini API key"
+        description="Validate a Google AI Studio or Vertex key, then keep it encrypted in your vault."
+        trailing={
+          mode === "byok" && hasExplicitSelection ? (
+            <Badge variant="secondary">Selected</Badge>
+          ) : null
+        }
+        testId="connections-byok-runtime"
+      >
         <button
           type="button"
           onClick={selectByok}
-          className="flex w-full items-start gap-3 rounded-[var(--app-card-radius-compact)] border border-border/60 bg-background/45 p-3 text-left transition-colors hover:bg-muted/35"
           aria-pressed={mode === "byok"}
-        >
-          <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-muted/65 text-muted-foreground">
-            <KeyRound className="h-4 w-4" aria-hidden />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="flex items-center justify-between gap-3 text-[14px] font-medium text-foreground">
-              Use my Gemini API key
-              {mode === "byok" && hasExplicitSelection ? <Badge variant="secondary">Selected</Badge> : null}
-            </span>
-            <span className="mt-1 block text-[12px] leading-[1.45] text-muted-foreground">
-              Choose Google AI Studio or a Google Cloud Vertex API key. It stays encrypted in your vault and is used only for your private-agent turns.
-            </span>
-          </span>
-        </button>
+        />
+      </SettingsRow>
 
-        {mode === "byok" ? (
-          <div className="space-y-2 rounded-[var(--app-card-radius-compact)] border border-border/50 bg-background/35 p-3">
+      {mode === "byok" ? (
+          <div className="space-y-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
             <div className="flex items-center justify-between gap-3">
               <p className="text-[13px] font-medium text-foreground">Gemini connection</p>
               <Badge variant={hasSavedKey ? "secondary" : "outline"}>
@@ -536,8 +544,7 @@ export function GeminiRuntimeSettingsCard({
               ) : null}
             </div>
           </div>
-        ) : null}
-      </div>
+      ) : null}
     </SettingsGroup>
   );
 }

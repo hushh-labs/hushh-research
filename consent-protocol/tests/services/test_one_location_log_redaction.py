@@ -7,7 +7,7 @@ appear in plaintext in production log output.
 import logging
 from unittest.mock import patch
 
-from mcp_modules.log_redaction import REDACTED, redact_log_value
+from mcp_modules.log_redaction import REDACTED, redact_log_field, redact_log_value
 
 
 class TestOneLocationLogRedaction:
@@ -56,9 +56,9 @@ class TestOneLocationLogRedaction:
         assert raw_user_id not in caplog.text
         assert any("identity_lookup_failed" in r.message for r in caplog.records)
 
-    def test_redact_log_value_masks_user_id_string(self):
-        """redact_log_value must redact a plain user_id string."""
-        result = redact_log_value("some-firebase-uid")
+    def test_redact_log_field_masks_user_id_string(self):
+        """Known user identifiers must carry their semantic field name."""
+        result = redact_log_field("user_id", "some-firebase-uid")
         assert result == REDACTED
 
     def test_redact_log_value_masks_user_id_in_dict(self):

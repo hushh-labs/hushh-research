@@ -141,6 +141,21 @@ describe("PhoneMandateGuard", () => {
     expect(refreshCurrentUserIdentityMock).not.toHaveBeenCalled();
   });
 
+  it("recognizes the Capacitor trailing-slash phone route without redirecting to itself", async () => {
+    pathnameValue = "/register-phone/";
+
+    render(
+      <PhoneMandateGuard>
+        <div>phone verification content</div>
+      </PhoneMandateGuard>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("phone verification content")).toBeTruthy();
+    });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
   it("keeps existing vault users on exempt routes even without a phone number", async () => {
     authValue = {
       user: { uid: "user-2" },

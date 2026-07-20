@@ -141,6 +141,11 @@ type AuthInput = {
   vaultOwnerToken: string;
 };
 
+type AccountAuthInput = {
+  userId: string;
+  idToken: string;
+};
+
 function authHeaders(vaultOwnerToken: string): HeadersInit {
   return {
     Authorization: `Bearer ${vaultOwnerToken}`,
@@ -148,28 +153,35 @@ function authHeaders(vaultOwnerToken: string): HeadersInit {
   };
 }
 
+function accountAuthHeaders(idToken: string): HeadersInit {
+  return {
+    Authorization: `Bearer ${idToken}`,
+    "Content-Type": "application/json",
+  };
+}
+
 export class OneKycService {
   static getAutomaticResponsePreparationPreference({
     userId,
-    vaultOwnerToken,
-  }: AuthInput): Promise<OneKycAutomaticResponsePreparationPreference> {
+    idToken,
+  }: AccountAuthInput): Promise<OneKycAutomaticResponsePreparationPreference> {
     const query = new URLSearchParams({ user_id: userId });
     return apiJson<OneKycAutomaticResponsePreparationPreference>(
       `/api/one/kyc/preferences/automatic-response-preparation?${query.toString()}`,
-      { headers: authHeaders(vaultOwnerToken) },
+      { headers: accountAuthHeaders(idToken) },
     );
   }
 
   static setAutomaticResponsePreparationPreference({
     userId,
-    vaultOwnerToken,
+    idToken,
     enabled,
-  }: AuthInput & { enabled: boolean }): Promise<OneKycAutomaticResponsePreparationPreference> {
+  }: AccountAuthInput & { enabled: boolean }): Promise<OneKycAutomaticResponsePreparationPreference> {
     return apiJson<OneKycAutomaticResponsePreparationPreference>(
       "/api/one/kyc/preferences/automatic-response-preparation",
       {
         method: "PATCH",
-        headers: authHeaders(vaultOwnerToken),
+        headers: accountAuthHeaders(idToken),
         body: JSON.stringify({ user_id: userId, enabled }),
       },
     );

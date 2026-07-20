@@ -6,7 +6,7 @@ Canonical visual owner: [Guides Index](../README.md). Local parent: [One Locatio
 
 ## Shell
 
-Open `/consents`.
+Open `/one/consent`.
 
 Expected:
 
@@ -71,4 +71,4 @@ Refresh must be idempotent and must not duplicate rows.
 
 ## Coordinate-Free Guarantee
 
-Inspect UI rows and `/consents` network responses. Consent data must not expose latitude, longitude, address, or map payloads.
+Inspect UI rows and `/one/consent` network responses. Consent data must not expose latitude, longitude, address, or map payloads.

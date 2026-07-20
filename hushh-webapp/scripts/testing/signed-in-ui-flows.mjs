@@ -1,3 +1,5 @@
+import fs from "node:fs";
+
 /**
  * Signed-in UI interaction flows shared by Playwright route verification
  * and native iOS UI interaction audit.
@@ -25,6 +27,7 @@
  * - wait_beacon: { routeIds: string[], dataStates?: string[] }
  * - assert_url_includes: { value: string }
  * - assert_visible_testid: { testId: string }
+ * - assert_not_visible_testid: { testId: string }
  * - assert_viewport_visible_testid: { testId: string }
  * - assert_ria_workspace_admission: accepts either an activated RIA workspace
  *   or the canonical reviewer’s RIA onboarding admission state.
@@ -47,8 +50,44 @@ export const TERMINAL_DATA_STATES = [
 const KAI_MARKET_ROUTE = "/one/kai";
 const KAI_PORTFOLIO_ROUTE = `${KAI_MARKET_ROUTE}?tab=portfolio`;
 const KAI_ANALYSIS_ROUTE = `${KAI_MARKET_ROUTE}?tab=analysis`;
+const locationOnboardingContract = JSON.parse(
+  fs.readFileSync(
+    new URL("../../lib/onboarding/one-location-onboarding.contract.json", import.meta.url),
+    "utf8",
+  ),
+);
+const LOCATION_ONBOARDING_CHECKPOINTS = locationOnboardingContract.screens.map(
+  (screen) => screen.testId,
+);
 
 export const UI_FLOWS = [
+  {
+    id: "native-reviewer-location-intro-fresh-session",
+    route: "/one/setup/location",
+    description: "Location setup traverses every screen once without mutating reviewer capability state",
+    watchdog: {
+      checkpoints: LOCATION_ONBOARDING_CHECKPOINTS,
+      maxCheckpointRegressions: 0,
+      maxNoProgressMs: 20_000,
+    },
+    steps: [
+      { type: "ensure_persona", persona: "investor" },
+      { type: "navigate_route", route: "/one/setup/location" },
+      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[0] },
+      { type: "click_button", name: "Get started" },
+      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[1] },
+      { type: "click_button", name: "Continue" },
+      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[2] },
+      { type: "click_button", name: "Continue" },
+      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[3] },
+      { type: "click_button", name: "Create my circle" },
+      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[4] },
+      { type: "click_button", name: "Skip" },
+      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[5] },
+      { type: "click_button", name: "Continue" },
+      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[6] },
+    ],
+  },
   {
     id: "shell-investor-kai-analysis",
     route: KAI_ANALYSIS_ROUTE,

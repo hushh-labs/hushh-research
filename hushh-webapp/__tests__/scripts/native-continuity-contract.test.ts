@@ -194,6 +194,21 @@ describe("native cold-audit and continuity contract", () => {
     expect(generatedIosRunner).toContain(runnerSource);
   });
 
+  it("never auto-dismisses product Continue or Skip actions", () => {
+    const runnerSource = source("scripts/native/native-ui-test-runner-source.js");
+    const dismissStart = runnerSource.indexOf("function dismissBlockingScreens()");
+    const dismissEnd = runnerSource.indexOf(
+      "function personaMismatchPromptVisible()",
+      dismissStart,
+    );
+    const dismissSource = runnerSource.slice(dismissStart, dismissEnd);
+
+    expect(dismissSource).not.toContain('"continue"');
+    expect(dismissSource).not.toContain('"skip"');
+    expect(dismissSource).toContain('"not now"');
+    expect(dismissSource).toContain('"skip tour"');
+  });
+
   it("keeps UI-flow routing ownership across a WebView document reload", () => {
     const nativeSupport = source("ios/App/App/NativeTestSupport.swift");
 
@@ -223,9 +238,14 @@ describe("native cold-audit and continuity contract", () => {
     for (const audit of [iosAudit, androidAudit]) {
       expect(audit).toContain("validateNativeUiAuditCompletion");
       expect(audit).toContain("nativeUiFlowStepTimeoutMs");
-      expect(audit).toContain("must build and sync the exact requested flow manifest");
       expect(audit).not.toContain('console.log("==> skipping rebuild');
     }
+    expect(androidAudit).toContain(
+      "must build and sync the exact requested flow manifest",
+    );
+    expect(iosAudit).toContain(
+      "prebuilt iOS app flow manifest does not match the requested audit plan",
+    );
     expect(artifacts).toContain("createNativeUiAuditManifest");
     expect(runner).toContain("auditPlanDigest");
     expect(runner).toContain("inFlightFlowId");
@@ -376,6 +396,9 @@ describe("native cold-audit and continuity contract", () => {
     expect(activity).toContain("NativeTestModePolicy.isEnabled(");
     expect(activity).toContain("ApplicationInfo.FLAG_DEBUGGABLE");
     expect(activity).toContain('"HUSHH_NATIVE_TEST_UI_FLOW_RUN_ID"');
+    expect(activity).toContain(
+      '"skipClass", "reasonClass", "errorClass", "checkpoint"',
+    );
     expect(activity).not.toContain("resetAppState");
     expect(uiAudit).toContain("const uiFlowRunId = `android-");
     expect(uiAudit).toContain('"HUSHH_NATIVE_TEST_UI_FLOW_RUN_ID"');

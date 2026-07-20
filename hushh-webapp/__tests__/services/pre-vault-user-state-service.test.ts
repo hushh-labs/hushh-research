@@ -87,6 +87,30 @@ describe("PreVaultUserStateService.bootstrapState", () => {
     );
   });
 
+  it("uses the settled native sign-in token without starting a second token lookup", async () => {
+    const userId = "bootstrap-native-apple-user";
+    apiJsonMock.mockResolvedValue({
+      userId,
+      hasVault: false,
+      phoneVerified: false,
+      setupCompleted: false,
+    });
+
+    await PreVaultUserStateService.bootstrapState(userId, {
+      idToken: "native-apple-id-token",
+    });
+
+    expect(getIdTokenMock).not.toHaveBeenCalled();
+    expect(apiJsonMock).toHaveBeenCalledWith(
+      "/api/vault/bootstrap-state",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer native-apple-id-token",
+        }),
+      }),
+    );
+  });
+
   it("keeps explicit force refreshes outside the session single-flight", async () => {
     const userId = "bootstrap-force-user";
     getIdTokenMock.mockResolvedValue("firebase-token");

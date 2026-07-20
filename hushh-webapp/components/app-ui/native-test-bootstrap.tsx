@@ -30,9 +30,7 @@ function updateBootstrapStatus(
     authenticated: 30,
     waiting_vault_user: 35,
     loading_vault_state: 40,
-    creating_vault: 50,
     unlocking_vault: 50,
-    completing_setup: 55,
     vault_unlocked: 60,
     auth_error: 70,
     uid_mismatch: 70,
@@ -298,98 +296,43 @@ export function NativeTestBootstrap() {
 
     void (async () => {
       try {
-        const hasVault = await withVaultBootstrapTimeout(
-          "Vault presence check",
-          VaultService.checkVault(vaultUser.uid)
+        // The authenticated bootstrap snapshot is the single admission read
+        // for vault presence, phone, and setup state. Calling the native vault
+        // plugin first duplicated the same backend lookup and could leave iOS
+        // stuck in `checking vault` while this authoritative snapshot waited.
+        const setupState = await withVaultBootstrapTimeout(
+          "Setup state load",
+          PreVaultUserStateService.bootstrapState(vaultUser.uid),
         );
-        let decryptedKey: string | null;
-
-        if (hasVault) {
-          const vaultState = await withVaultBootstrapTimeout(
-            "Vault state load",
-            VaultService.getVaultState(vaultUser.uid)
+        if (!setupState.hasVault) {
+          throw new Error(
+            "Reviewer fixture has no existing vault; native audit will not create one",
           );
-          updateBootstrapStatus("unlocking_vault", {
-            userId: vaultUser.uid,
-          });
-          decryptedKey = await withVaultBootstrapTimeout(
-            "Vault unlock",
-            VaultService.unlockWithMethod({
-              state: vaultState,
-              method: "passphrase",
-              secretMaterial: config.vaultPassphrase!,
-            })
-          );
-        } else {
-          updateBootstrapStatus("creating_vault", {
-            userId: vaultUser.uid,
-          });
-          const vaultData = await withVaultBootstrapTimeout(
-            "Vault creation",
-            VaultService.createVault(config.vaultPassphrase!)
-          );
-          const vaultKeyHash = await VaultService.hashVaultKey(
-            vaultData.vaultKeyHex,
-          );
-          await withVaultBootstrapTimeout(
-            "Vault state setup",
-            VaultService.setupVaultState(vaultUser.uid, {
-              vaultKeyHash,
-              primaryMethod: "passphrase",
-              recoveryEncryptedVaultKey: vaultData.recoveryEncryptedVaultKey,
-              recoverySalt: vaultData.recoverySalt,
-              recoveryIv: vaultData.recoveryIv,
-              wrappers: [
-                {
-                  method: "passphrase",
-                  encryptedVaultKey: vaultData.encryptedVaultKey,
-                  salt: vaultData.salt,
-                  iv: vaultData.iv,
-                },
-              ],
-            })
-          );
-          const persistedState = await withVaultBootstrapTimeout(
-            "Persisted vault state load",
-            VaultService.getVaultState(vaultUser.uid)
-          );
-          await VaultService.assertVaultKeyMatchesState(
-            persistedState,
-            vaultData.vaultKeyHex,
-          );
-          decryptedKey = await withVaultBootstrapTimeout(
-            "Persisted vault verification",
-            VaultService.unlockWithMethod({
-              state: persistedState,
-              method: "passphrase",
-              secretMaterial: config.vaultPassphrase!,
-            })
-          );
-          if (!decryptedKey) {
-            throw new Error("Persisted vault passphrase verification failed");
-          }
         }
+
+        const vaultState = await withVaultBootstrapTimeout(
+          "Vault state load",
+          VaultService.getVaultState(vaultUser.uid)
+        );
+        updateBootstrapStatus("unlocking_vault", {
+          userId: vaultUser.uid,
+        });
+        const decryptedKey = await withVaultBootstrapTimeout(
+          "Vault unlock",
+          VaultService.unlockWithMethod({
+            state: vaultState,
+            method: "passphrase",
+            secretMaterial: config.vaultPassphrase!,
+          })
+        );
 
         if (!decryptedKey) {
           throw new Error("Vault unlock returned no decrypted key");
         }
 
-        const setupState = await withVaultBootstrapTimeout(
-          "Setup state load",
-          PreVaultUserStateService.bootstrapState(vaultUser.uid)
-        );
         if (!PreVaultUserStateService.isSetupResolved(setupState)) {
-          updateBootstrapStatus("completing_setup", {
-            userId: vaultUser.uid,
-          });
-          await withVaultBootstrapTimeout(
-            "Setup state completion",
-            PreVaultUserStateService.syncKaiSetupState({
-              userId: vaultUser.uid,
-              completed: true,
-              skipped: false,
-              completedAt: Date.now(),
-            })
+          throw new Error(
+            "Reviewer fixture setup is unresolved; native audit will not mutate onboarding state",
           );
         }
 

@@ -23,8 +23,9 @@ describe("canonical workspace hierarchy", () => {
     const consent = read("components/consent/consent-center-page.tsx");
 
     expect(consent).toContain('<AppPageShell as="main" width="reading"');
-    expect(consent).toContain('eyebrow={pageEyebrow}');
     expect(consent).toContain('title="Consent Center"');
+    expect(consent).toContain('description={pageDescription}');
+    expect(consent).not.toContain("pageEyebrow");
     expect((consent.match(/<PageHeader/g) ?? [])).toHaveLength(1);
   });
 });

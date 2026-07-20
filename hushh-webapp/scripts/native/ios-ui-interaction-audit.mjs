@@ -12,7 +12,10 @@ import {
 import { filterUiFlows } from "../testing/signed-in-ui-flows.mjs";
 import { prepareNativeTestArtifacts } from "./prepare-native-test-artifacts.mjs";
 import {
+  advanceNativeUiCheckpoint,
   createNativeUiAuditPlan,
+  hasTerminalNativeUiStatus,
+  NATIVE_UI_TERMINAL_STATUS_GRACE_MS,
   nativeUiFlowStepTimeoutMs,
   validateNativeUiAuditCompletion,
 } from "./native-ui-audit-plan.mjs";
@@ -198,6 +201,25 @@ function buildApp() {
   );
 }
 
+function verifyPrebuiltApp() {
+  if (!fs.existsSync(appPath)) {
+    throw new Error(`prebuilt iOS app is missing: ${appPath}`);
+  }
+  const bundledManifestPath = path.join(appPath, "public", "native-ui-flows.json");
+  if (!fs.existsSync(bundledManifestPath)) {
+    throw new Error("prebuilt iOS app has no native UI flow manifest.");
+  }
+  const bundledManifest = JSON.parse(fs.readFileSync(bundledManifestPath, "utf8"));
+  if (bundledManifest?.audit_plan?.digest !== auditPlan.digest) {
+    throw new Error(
+      "prebuilt iOS app flow manifest does not match the requested audit plan.",
+    );
+  }
+  console.log(
+    `==> verified prebuilt iOS app (${uiFlows.length} flow(s), plan ${auditPlan.digest.slice(0, 12)})`,
+  );
+}
+
 function ensureSimulatorBooted() {
   if (!destinationDeviceId) return;
   tryRun("xcrun", ["simctl", "boot", destinationDeviceId]);
@@ -243,11 +265,11 @@ function launchUiInteractionAudit() {
     bundleId,
     "-UITestMode",
     "-UITestInitialRoute",
-    "/login?redirect=%2Fria",
+    "/login?redirect=%2Fone",
     "-UITestExpectedMarker",
-    "native-route-ria-home",
+    "native-route-one-home",
     "-UITestExpectedRoute",
-    "/ria",
+    "/one",
     "-UITestAutoReviewerLogin",
     "true",
     "-UITestResetAppState",
@@ -297,6 +319,9 @@ function waitForUiInteractionReport() {
   let lastStatus = {};
   let lastProgressKey = "";
   let lastProgressAt = startedAt;
+  let completedReport = null;
+  let completedReportObservedAt = 0;
+  const highestCheckpointByFlow = new Map();
 
   while (Date.now() - startedAt < timeoutMs) {
     try {
@@ -311,11 +336,25 @@ function waitForUiInteractionReport() {
       if (fs.existsSync(statusPath)) {
         const raw = fs.readFileSync(statusPath, "utf8").trim();
         lastStatus = parseStatus(raw);
+        const checkpoint = advanceNativeUiCheckpoint({
+          flows: uiFlows,
+          status: lastStatus,
+          highestByFlow: highestCheckpointByFlow,
+        });
+        if (!checkpoint.ok) {
+          return {
+            ok: false,
+            report: readUiReportFromContainer(),
+            status: lastStatus,
+            error: `UI interaction audit ${checkpoint.reason}`,
+          };
+        }
         const progressKey = [
           lastStatus.ui_run || "",
           lastStatus.ui_flow || "",
           lastStatus.ui_step || "",
           lastStatus.ui_step_type || "",
+          lastStatus.ui_checkpoint || "",
           lastStatus.route || "",
           lastStatus.bootstrap || "",
         ].join("|");
@@ -326,8 +365,8 @@ function waitForUiInteractionReport() {
           lastProgressKey = progressKey;
           lastProgressAt = Date.now();
         }
-        if ((lastStatus.ui_complete || "") === "1") {
-          const report = readUiReportFromContainer();
+        if (hasTerminalNativeUiStatus(lastStatus)) {
+          const report = completedReport || readUiReportFromContainer();
           if (report) return { ok: Boolean(report.ok), report, status: lastStatus };
         }
         if (
@@ -366,7 +405,20 @@ function waitForUiInteractionReport() {
 
       const report = readUiReportFromContainer();
       if (report?.completedAt) {
-        return { ok: Boolean(report.ok), report, status: lastStatus };
+        completedReport = report;
+        completedReportObservedAt ||= Date.now();
+        if (
+          Date.now() - completedReportObservedAt >=
+          NATIVE_UI_TERMINAL_STATUS_GRACE_MS
+        ) {
+          return {
+            ok: false,
+            report: completedReport,
+            status: lastStatus,
+            error:
+              "iOS UI interaction report completed before native terminal status settled",
+          };
+        }
       }
     } catch {
       // App may still be booting.
@@ -375,7 +427,7 @@ function waitForUiInteractionReport() {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
   }
 
-  const report = readUiReportFromContainer();
+  const report = completedReport || readUiReportFromContainer();
   return {
     ok: false,
     report,
@@ -398,11 +450,10 @@ function main() {
 
   try {
     if (process.env.IOS_UI_INTERACTION_SKIP_BUILD === "true") {
-      throw new Error(
-        "IOS_UI_INTERACTION_SKIP_BUILD is unsupported: a cold UI audit must build and sync the exact requested flow manifest.",
-      );
+      verifyPrebuiltApp();
+    } else {
+      buildApp();
     }
-    buildApp();
 
     ensureSimulatorBooted();
     launchUiInteractionAudit();

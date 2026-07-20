@@ -124,14 +124,14 @@ describe("OneKycService", () => {
   it("loads and saves the server-authoritative automatic response preference", async () => {
     await OneKycService.getAutomaticResponsePreparationPreference({
       userId: "user_1",
-      vaultOwnerToken: "vault-token",
+      idToken: "firebase-token",
     });
 
     expect(mockApiJson).toHaveBeenLastCalledWith(
       "/api/one/kyc/preferences/automatic-response-preparation?user_id=user_1",
       {
         headers: {
-          Authorization: "Bearer vault-token",
+          Authorization: "Bearer firebase-token",
           "Content-Type": "application/json",
         },
       },
@@ -139,7 +139,7 @@ describe("OneKycService", () => {
 
     await OneKycService.setAutomaticResponsePreparationPreference({
       userId: "user_1",
-      vaultOwnerToken: "vault-token",
+      idToken: "firebase-token",
       enabled: true,
     });
 
@@ -148,7 +148,7 @@ describe("OneKycService", () => {
       {
         method: "PATCH",
         headers: {
-          Authorization: "Bearer vault-token",
+          Authorization: "Bearer firebase-token",
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ user_id: "user_1", enabled: true }),

@@ -32,7 +32,6 @@ from api.routes.pkm_routes_shared import (
     StoreDomainRequest,
     StoreDomainResponse,
     StructureDecisionPayload,
-    UpgradeContextPayload,
     UserScopesResponse,
     WriteProjectionPayload,
 )
@@ -293,36 +292,6 @@ class TestDomainManifestPayload:
         """Upgraded at bounded to 64 chars."""
         with pytest.raises(ValidationError):
             DomainManifestPayload(upgraded_at="A" * 65)
-
-
-class TestUpgradeContextPayload:
-    """Upgrade context payload bounds (CWE-400)."""
-
-    def test_valid_upgrade_context(self):
-        """Valid upgrade context within bounds."""
-        uc = UpgradeContextPayload(run_id="run-123")
-        assert uc.run_id == "run-123"
-
-    def test_run_id_max_length(self):
-        """Run ID bounded to 256 chars."""
-        with pytest.raises(ValidationError):
-            UpgradeContextPayload(run_id="A" * 257)
-
-    def test_version_bounds(self):
-        """Version fields bounded 0-1000."""
-        with pytest.raises(ValidationError):
-            UpgradeContextPayload(
-                run_id="run-1",
-                prior_domain_contract_version=1001,
-            )
-
-    def test_retry_count_bounds(self):
-        """Retry count bounded 0-1000."""
-        with pytest.raises(ValidationError):
-            UpgradeContextPayload(
-                run_id="run-1",
-                retry_count=1001,
-            )
 
 
 class TestWriteProjectionPayload:

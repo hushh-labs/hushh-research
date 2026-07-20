@@ -36,6 +36,30 @@ export type SetupCapabilityCoordinator = {
   skip: () => Promise<Settlement>;
 };
 
+export type SetupCapabilityJourneyMode = "auto" | "root" | "individual";
+
+export function resolveSetupCapabilityJourneyMode(
+  requestedMode: SetupCapabilityJourneyMode,
+  setupResolved: boolean,
+): Exclude<SetupCapabilityJourneyMode, "auto"> {
+  if (requestedMode !== "auto") return requestedMode;
+  return setupResolved ? "individual" : "root";
+}
+
+export function resolveSetupCapabilityReturnTarget({
+  capabilityId,
+  journeyMode,
+  hasExplicitIncompleteSetup,
+}: {
+  capabilityId: OneSetupCapabilityId;
+  journeyMode: Exclude<SetupCapabilityJourneyMode, "auto">;
+  hasExplicitIncompleteSetup: boolean;
+}): string {
+  if (journeyMode === "individual") return ROUTES.ONE_HOME;
+  if (hasExplicitIncompleteSetup) return ROUTES.ONE_SETUP;
+  return resolveCapabilityHandoffTarget(capabilityId);
+}
+
 export function setupCapabilityTerminalActionId(
   kind: "finish" | "skip",
   capabilityId: OneSetupCapabilityId,
@@ -61,8 +85,12 @@ type UseSetupCapabilityCoordinatorParams = {
   settlementBlocked?: boolean;
   /** A capability may have more than one physical setup workspace. */
   screenId?: string;
-  /** Allow a resolved root setup to re-enter this capability's own workspace. */
-  allowResolvedRootReentry?: boolean;
+  /**
+   * Root setup returns to the setup hub. Individual setup is an intentional
+   * post-onboarding re-entry and returns to One. Auto derives the mode from
+   * the freshly revalidated account setup state.
+   */
+  journeyMode?: SetupCapabilityJourneyMode;
   /** Feature-owned terminals may use a stable authored control id. */
   terminalControlId?: (ready: boolean) => string;
 };
@@ -107,7 +135,7 @@ export function useSetupCapabilityCoordinator({
   enabled = true,
   settlementBlocked = false,
   screenId,
-  allowResolvedRootReentry = false,
+  journeyMode = "auto",
   terminalControlId,
 }: UseSetupCapabilityCoordinatorParams): SetupCapabilityCoordinator {
   const router = useRouter();
@@ -175,10 +203,6 @@ export function useSetupCapabilityCoordinator({
             journey.onboardingCallbackState === "succeeded";
 
           if (PreVaultUserStateService.isSetupResolved(journey)) {
-            if (!allowResolvedRootReentry) {
-              replaceRoute(resolveCapabilityHandoffTarget(capabilityId));
-              return;
-            }
             if (canResumeCallbackReadiness) setCallbackReadiness(true);
             setIsReady(true);
             return;
@@ -236,7 +260,7 @@ export function useSetupCapabilityCoordinator({
     canonicalRoute,
     capabilityId,
     enabled,
-    allowResolvedRootReentry,
+    journeyMode,
     resumeReadinessFromCallback,
     replaceRoute,
     user?.uid,
@@ -268,7 +292,15 @@ export function useSetupCapabilityCoordinator({
         const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
           force: true,
         });
-        if (journey.onboardingActiveCapability !== capabilityId) {
+        const resolvedJourneyMode = resolveSetupCapabilityJourneyMode(
+          journeyMode,
+          PreVaultUserStateService.isSetupResolved(journey),
+        );
+
+        if (
+          resolvedJourneyMode === "root" &&
+          journey.onboardingActiveCapability !== capabilityId
+        ) {
           replaceRoute(ROUTES.ONE_SETUP);
           return {
             status: "blocked",
@@ -277,7 +309,18 @@ export function useSetupCapabilityCoordinator({
           };
         }
 
-        if (kind === "finish") {
+        if (resolvedJourneyMode === "individual") {
+          if (kind === "finish") {
+            const completed = Array.from(
+              new Set([...journey.setupCapabilityIds, capabilityId]),
+            ).sort();
+            await PreVaultUserStateService.syncSetupCapabilities(
+              user.uid,
+              completed,
+            );
+            await CapabilityTourService.markExplored(user.uid, capabilityId);
+          }
+        } else if (kind === "finish") {
           const completed = Array.from(
             new Set([...journey.setupCapabilityIds, capabilityId]),
           ).sort();
@@ -307,21 +350,30 @@ export function useSetupCapabilityCoordinator({
           journey.onboardingPhase !== "root_completion";
 
         // If the user already completed onboarding, always send them to their landing target instead of the setup hub.
-        const targetRoute = PreVaultUserStateService.isSetupResolved(journey)
-          ? resolveCapabilityHandoffTarget(capabilityId)
-          : hasExplicitIncompleteSetup
-            ? ROUTES.ONE_SETUP
-            : resolveCapabilityHandoffTarget(capabilityId);
+        const targetRoute = resolveSetupCapabilityReturnTarget({
+          capabilityId,
+          journeyMode: resolvedJourneyMode,
+          hasExplicitIncompleteSetup,
+        });
 
         replaceRoute(targetRoute);
         return {
           status: "succeeded",
           summary:
             kind === "finish"
-              ? "Setup is complete. Returning to setup."
-              : "Skipped for now. Returning to setup.",
+              ? resolvedJourneyMode === "individual"
+                ? "Setup is complete. Returning to One."
+                : "Setup is complete. Returning to setup."
+              : resolvedJourneyMode === "individual"
+                ? "Skipped for now. Returning to One."
+                : "Skipped for now. Returning to setup.",
           routeAfter: targetRoute,
-          screenAfter: hasExplicitIncompleteSetup ? "one_setup_hub" : undefined,
+          screenAfter:
+            resolvedJourneyMode === "root" && hasExplicitIncompleteSetup
+              ? "one_setup_hub"
+              : resolvedJourneyMode === "individual"
+                ? "one_home"
+                : undefined,
         };
       } catch (error) {
         console.warn("[SetupCapabilityCoordinator] Failed to settle setup:", error);
@@ -348,6 +400,7 @@ export function useSetupCapabilityCoordinator({
       operationallyReady,
       replaceRoute,
       settlementBlocked,
+      journeyMode,
       user?.uid,
     ],
   );

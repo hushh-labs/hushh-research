@@ -30,6 +30,7 @@ const CONSENT_NOTIFICATION_ACTION_DENY = "CONSENT_DENY";
 
 export type FCMInitStatus =
   | "push_active"
+  | "push_not_requested"
   | "push_blocked"
   | "push_failed"
   | "unsupported";
@@ -38,6 +39,10 @@ export interface FCMInitResult {
   status: FCMInitStatus;
   detail?: string;
 }
+
+export type FCMInitOptions = {
+  requestPermission?: boolean;
+};
 
 let nativeListenersConfigured = false;
 let nativeListenersPromise: Promise<void> | null = null;
@@ -364,15 +369,16 @@ async function clearFirebaseWebPushState(
  */
 export async function initializeFCM(
   userId: string,
-  idToken: string
+  idToken: string,
+  options: FCMInitOptions = {},
 ): Promise<FCMInitResult> {
   const isNative = Capacitor.isNativePlatform();
   lastKnownSession = { userId, idToken };
 
   if (isNative) {
-    return initializeNativeFCM(userId, idToken);
+    return initializeNativeFCM(userId, idToken, options);
   }
-  return initializeWebFCM(userId, idToken);
+  return initializeWebFCM(userId, idToken, options);
 }
 
 export async function prepareFCMListeners(): Promise<void> {
@@ -432,7 +438,8 @@ function setupWebServiceWorkerBridge(): void {
  */
 async function initializeNativeFCM(
   userId: string,
-  idToken: string
+  idToken: string,
+  options: FCMInitOptions,
 ): Promise<FCMInitResult> {
   try {
     if (
@@ -453,14 +460,27 @@ async function initializeNativeFCM(
     // notification or tap cannot be lost during native startup.
     await setupNativeListeners();
 
-    // Step 1: Request notification permissions
-    const permissionResult = await FirebaseMessaging.requestPermissions();
+    // Permission prompts are product actions. Normal authentication and app
+    // startup may re-register an already-granted token, but only an explicit
+    // user action (Location permissions or notification settings) can request
+    // authorization for the first time.
+    let permissionResult = await FirebaseMessaging.checkPermissions();
+    if (
+      permissionResult.receive !== "granted" &&
+      options.requestPermission === true &&
+      permissionResult.receive !== "denied"
+    ) {
+      permissionResult = await FirebaseMessaging.requestPermissions();
+    }
     console.log("[FCM] Permission result:", permissionResult);
 
     if (permissionResult.receive !== "granted") {
       console.warn("[FCM] Notification permission not granted");
+      const notRequested =
+        permissionResult.receive === "prompt" ||
+        permissionResult.receive === "prompt-with-rationale";
       return {
-        status: "push_blocked",
+        status: notRequested ? "push_not_requested" : "push_blocked",
         detail: `native_permission_${permissionResult.receive}`,
       };
     }
@@ -517,7 +537,8 @@ async function initializeNativeFCM(
  */
 async function initializeWebFCM(
   userId: string,
-  idToken: string
+  idToken: string,
+  options: FCMInitOptions,
 ): Promise<FCMInitResult> {
   try {
     console.log("[FCM] Initializing for web platform...");
@@ -541,6 +562,12 @@ async function initializeWebFCM(
     }
 
     if (Notification.permission !== "granted") {
+      if (options.requestPermission !== true) {
+        return {
+          status: "push_not_requested",
+          detail: "permission_default",
+        };
+      }
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
         console.warn("[FCM] Notification permission not granted");

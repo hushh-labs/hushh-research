@@ -23,14 +23,13 @@ import {
  *
  *   1. Same-origin link clicks are intercepted directly (earliest possible
  *      exit start, before React re-renders).
- *   2. ALL programmatic navigation — `router.push` / `router.replace` from
- *      buttons, the bottom nav, tab bars, the top app bar, onboarding handlers,
- *      voice/agent runtimes, guards, anything — is caught by patching the
- *      History API (`history.pushState` / `history.replaceState`) ONCE. Next.js
- *      App Router routes every programmatic navigation through those two
- *      methods, so wrapping them is the one place that covers all ~185 call
- *      sites without editing a single one. The patch fades the outgoing page
- *      OUT, then defers the real history mutation by one exit beat.
+ *   2. Programmatic navigation that has not yet migrated to the interaction
+ *      coordinator is observed through the History API. Next.js requires its
+ *      `pushState` / `replaceState` writes to complete synchronously, so this
+ *      observer may start the visual envelope but MUST NOT defer, replay, or
+ *      become the authority for the history mutation. Deferring those writes
+ *      makes the App Router retry them and trips WebKit's 100-writes-per-10s
+ *      safety limit during native authentication.
  *   3. Browser back/forward (`popstate`) plays the ENTER beat once the route
  *      resolves (the outgoing frame is already gone on a real history pop).
  *
@@ -65,10 +64,9 @@ let settleTimer: number | null = null;
 let commitTimer: number | null = null;
 let activeRouteIntentId: string | null = null;
 
-// True while the exit beat is playing and we are about to perform the *real*
-// history mutation. Lets the patched pushState/replaceState recognise the
-// deferred call we issue from beginRouteTransition and pass it straight through
-// to the original method instead of starting a second envelope.
+// True while an explicitly coordinated navigation is committing. The History
+// observer recognises the router's resulting write and passes it through
+// without starting a second visual envelope.
 let transitionInFlight = false;
 
 function reducedMotion(): boolean {
@@ -187,8 +185,9 @@ export function beginRouteTransition(
 }
 
 // ---------------------------------------------------------------------------
-// History API patch — the single layout-level chokepoint that gives EVERY
-// programmatic navigation the same exit -> enter envelope as link clicks.
+// History API observer — a compatibility visual chokepoint for programmatic
+// navigation that has not yet migrated to the coordinator. It must never delay
+// or replay Next.js's synchronous history mutation.
 // ---------------------------------------------------------------------------
 
 type HistoryMethod = "pushState" | "replaceState";
@@ -245,7 +244,7 @@ function patchHistory(): () => void {
       unused: string,
       url?: string | URL | null,
     ) {
-      // Already inside the deferred real navigation, or motion is disabled,
+      // Already inside an explicitly coordinated navigation, motion is disabled,
       // or this is a same-page write — perform it immediately.
       const target = transitionInFlight
         ? null
@@ -257,11 +256,18 @@ function patchHistory(): () => void {
         return original(data, unused, url ?? "");
       }
 
-      // Run the exit beat, then perform the real history mutation. replaceState
-      // keeps replace semantics; pushState keeps push semantics.
-      beginRouteTransition(target, () => original(data, unused, url ?? ""));
-      // Return synchronously; Next.js does not rely on the return value here.
-      return undefined as unknown as void;
+      // Compatibility callers did not open a coordinator intent before Next
+      // reached the History API. Start only the visual half here and preserve
+      // the native synchronous mutation contract. Deferring or replaying this
+      // call makes Next retry the write in a tight loop on WebKit.
+      clearRouteTimers();
+      setRouteState("pending");
+      maxPendingTimer = window.setTimeout(
+        () => setRouteState("idle"),
+        MAX_PENDING_MS,
+      );
+      settleTimer = window.setTimeout(playEnter, EXIT_MS + SETTLE_MS);
+      return original(data, unused, url ?? "");
     } as History[HistoryMethod];
   };
 
@@ -343,10 +349,8 @@ export function useRouteTransition() {
     }
 
     setRouteState("idle");
-    // Patch history ONCE so every programmatic router.push/replace flows through
-    // the same exit -> enter envelope (see patchHistory). This is the layout-
-    // level chokepoint that makes the crossfade uniform without editing call
-    // sites.
+    // Observe history ONCE so compatibility router.push/replace callers receive
+    // the visual envelope without delaying or replaying Next.js's mutation.
     const restoreHistory = patchHistory();
     document.addEventListener("click", onClick, true);
     window.addEventListener("pageshow", onPageShow);

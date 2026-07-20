@@ -101,6 +101,28 @@ describe("OneAuthGate", () => {
     expect(screen.getByText("oauth callback")).toBeTruthy();
   });
 
+  it.each([
+    "/one/setup",
+    "/one/setup/connections",
+    "/one/setup/location",
+    "/one/setup/finance",
+  ])(
+    "keeps the resumable setup surface signed-in-gated without the hard vault gate for %s",
+    (pathname) => {
+      mocks.pathname = pathname;
+
+      render(
+        <OneAuthGate>
+          <div>resumable setup</div>
+        </OneAuthGate>,
+      );
+
+      expect(screen.queryByTestId("vault-lock-guard")).toBeNull();
+      expect(screen.getByTestId("phone-mandate-guard")).toBeTruthy();
+      expect(screen.getByText("resumable setup")).toBeTruthy();
+    },
+  );
+
   it("keeps circle-invite claim links guarded because claiming needs an account", () => {
     mocks.pathname = "/one/location/invite/circle-token";
 
