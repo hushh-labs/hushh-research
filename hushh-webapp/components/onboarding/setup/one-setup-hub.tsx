@@ -29,6 +29,7 @@ import {
 import {
   getOneSetupCapability,
   lucideCapabilityIcon,
+  ONE_SETUP_CAPABILITIES,
   type OneCapabilityIcon,
   type OneCapabilityTone,
 } from "@/lib/onboarding/one-capabilities";
@@ -69,9 +70,14 @@ export function OneSetupHub() {
     enrichRia: true,
   });
   const [dismissing, setDismissing] = useState(false);
-  const [runtimeChoiceState, setRuntimeChoiceState] = useState<
-    "loading" | "required" | "complete"
-  >("loading");
+  const [runtimeChoiceSnapshot, setRuntimeChoiceSnapshot] = useState<{
+    userId: string | null;
+    state: "loading" | "required" | "complete";
+  }>({ userId: null, state: "loading" });
+  const runtimeChoiceState =
+    runtimeChoiceSnapshot.userId === (user?.uid ?? null)
+      ? runtimeChoiceSnapshot.state
+      : "loading";
   const returnTo = useMemo(
     () => normalizeInternalRouteHref(searchParams.get("return_to")),
     [searchParams],
@@ -80,31 +86,35 @@ export function OneSetupHub() {
 
   useEffect(() => {
     if (!user?.uid) {
-      setRuntimeChoiceState("required");
+      setRuntimeChoiceSnapshot({ userId: null, state: "required" });
       return;
     }
     let active = true;
     const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
     if (cached) {
-      setRuntimeChoiceState(
-        PreVaultUserStateService.hasOneRuntimeChoice(cached)
+      setRuntimeChoiceSnapshot({
+        userId: user.uid,
+        state: PreVaultUserStateService.hasOneRuntimeChoice(cached)
           ? "complete"
           : "required",
-      );
+      });
       return;
     }
-    setRuntimeChoiceState("loading");
+    setRuntimeChoiceSnapshot({ userId: user.uid, state: "loading" });
     void PreVaultUserStateService.bootstrapState(user.uid)
       .then((state) => {
         if (!active) return;
-        setRuntimeChoiceState(
-          PreVaultUserStateService.hasOneRuntimeChoice(state)
+        setRuntimeChoiceSnapshot({
+          userId: user.uid,
+          state: PreVaultUserStateService.hasOneRuntimeChoice(state)
             ? "complete"
             : "required",
-        );
+        });
       })
       .catch(() => {
-        if (active) setRuntimeChoiceState("required");
+        if (active) {
+          setRuntimeChoiceSnapshot({ userId: user.uid, state: "required" });
+        }
       });
     return () => {
       active = false;
@@ -212,7 +222,7 @@ export function OneSetupHub() {
         { force: true },
       );
       if (!PreVaultUserStateService.hasOneRuntimeChoice(currentState)) {
-        setRuntimeChoiceState("required");
+        setRuntimeChoiceSnapshot({ userId: user.uid, state: "required" });
         return {
           status: "blocked" as const,
           summary: "Choose how One runs in Connections before continuing.",
@@ -312,7 +322,7 @@ export function OneSetupHub() {
                 title="Connections"
                 description="Use Hushh managed Gemini or your own Google AI Studio key."
                 href={ROUTES.ONE_SETUP_CONNECTIONS}
-                voiceControlId="one_setup_connections"
+                voiceControlId="one_setup_tile_connections"
                 icon={lucideCapabilityIcon(PlugZap)}
                 tone="connected"
                 statusLabel="Required"
@@ -348,7 +358,7 @@ export function OneSetupHub() {
                   title="Connections"
                   description="Change how One runs."
                   href={ROUTES.ONE_SETUP_CONNECTIONS}
-                  voiceControlId="one_setup_connections"
+                  voiceControlId="one_setup_tile_connections"
                   icon={lucideCapabilityIcon(PlugZap)}
                   tone="connected"
                   statusLabel="Selected"
@@ -406,6 +416,7 @@ export function OneSetupHub() {
 }
 
 function SetupHubLoadingState() {
+  const setupStepCount = ONE_SETUP_CAPABILITIES.length + 1;
   return (
     <div
       data-testid="one-setup-loading-state"
@@ -413,15 +424,19 @@ function SetupHubLoadingState() {
       aria-busy="true"
       aria-label="Checking setup progress"
     >
-      <div className="grid grid-cols-5 gap-1.5" aria-hidden="true">
-        {Array.from({ length: 5 }).map((_, index) => (
+      <div
+        className="grid gap-1.5"
+        style={{ gridTemplateColumns: `repeat(${setupStepCount}, minmax(0, 1fr))` }}
+        aria-hidden="true"
+      >
+        {Array.from({ length: setupStepCount }).map((_, index) => (
           <Skeleton key={index} className="h-1 rounded-full" />
         ))}
       </div>
       <div className="space-y-3" aria-hidden="true">
         <Skeleton className="h-3 w-24" />
-        <div className="overflow-hidden rounded-[var(--app-card-radius)] border border-border/45 bg-background/45">
-          {Array.from({ length: 5 }).map((_, index) => (
+        <div className="overflow-hidden rounded-[var(--app-card-radius-compact)] border border-border/45 bg-background/45">
+          {Array.from({ length: setupStepCount }).map((_, index) => (
             <div
               key={index}
               className="flex min-h-[72px] items-center gap-3 border-b border-border/45 px-4 last:border-b-0"

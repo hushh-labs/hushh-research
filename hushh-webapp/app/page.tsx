@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
@@ -14,6 +14,9 @@ import { OnboardingLocalService } from "@/lib/services/onboarding-local-service"
 import { IntroStep } from "@/components/onboarding/IntroStep";
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveAppEnvironment } from "@/lib/app-env";
+import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
+import { AuthService } from "@/lib/services/auth-service";
+import { Button } from "@/lib/morphy-ux/button";
 
 type HomeStep = "intro";
 
@@ -25,8 +28,11 @@ function HomeContent() {
     ? `${ROUTES.LOGIN}?redirect=${encodeURIComponent(redirectPath)}`
     : ROUTES.LOGIN;
 
-  const { user, loading } = useAuth();
+  const { user, loading, phoneNumber } = useAuth();
   const [step, setStep] = useState<HomeStep | null>(null);
+  const [routingError, setRoutingError] = useState<string | null>(null);
+  const [routingAttempt, setRoutingAttempt] = useState(0);
+  const activeResolutionRef = useRef<string | null>(null);
 
   const forceOnboardingInDev = resolveAppEnvironment() === "development";
   // Debug helper (browser console): resets Steps 1-2 visibility flag.
@@ -48,11 +54,7 @@ function HomeContent() {
   useEffect(() => {
     if (loading) return;
 
-    if (user) {
-      setStep(null);
-      router.replace(ROUTES.ONE_HOME);
-      return;
-    }
+    if (user) return;
 
     // The marketing carousel is disabled for now: every signed-out visitor
     // lands on the single welcome (intro) screen, which leads to sign-in. The
@@ -61,11 +63,66 @@ function HomeContent() {
     setStep("intro");
   }, [forceOnboardingInDev, loading, user, router]);
 
+  useEffect(() => {
+    if (loading || !user?.uid) {
+      if (!user?.uid) activeResolutionRef.current = null;
+      return;
+    }
+
+    const userId = user.uid;
+    const resolutionKey = `${userId}:${phoneNumber ?? ""}:${routingAttempt}`;
+    if (activeResolutionRef.current === resolutionKey) return;
+    activeResolutionRef.current = resolutionKey;
+    setStep(null);
+    setRoutingError(null);
+    let cancelled = false;
+
+    void (async () => {
+      const idToken = await AuthService.getIdToken();
+      if (!idToken) {
+        throw new Error("Native session did not provide an ID token.");
+      }
+      const nextPath = await PostAuthRouteService.resolveAfterLogin({
+        userId,
+        redirectPath: redirectPath || undefined,
+        idToken,
+        phoneNumber,
+        enableFirstRunSetupGate: true,
+      });
+      if (cancelled || activeResolutionRef.current !== resolutionKey) return;
+      router.replace(nextPath);
+    })().catch((error) => {
+      if (cancelled || activeResolutionRef.current !== resolutionKey) return;
+      console.warn("[Home] Failed to resolve authenticated entry:", error);
+      setRoutingError("Unable to verify setup progress. Please retry.");
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, phoneNumber, redirectPath, router, routingAttempt, user?.uid]);
+
   if (loading || (!user && step === null)) {
     return <HushhLoader variant="fullscreen" label="Preparing welcome…" />;
   }
 
   if (user) {
+    if (routingError) {
+      return (
+        <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 px-6 text-center">
+          <p className="text-sm text-muted-foreground">{routingError}</p>
+          <Button
+            variant="muted"
+            onClick={() => {
+              activeResolutionRef.current = null;
+              setRoutingAttempt((attempt) => attempt + 1);
+            }}
+          >
+            Retry
+          </Button>
+        </div>
+      );
+    }
     return <HushhLoader variant="fullscreen" label="Opening One…" />;
   }
 

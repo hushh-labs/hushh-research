@@ -505,12 +505,14 @@ export function OneKycWorkspace({
   }, [connectorReady, onSetupReadinessChange, verifiedAliases.length]);
   useEffect(() => {
     const userId = auth.userId;
-    if (!userId || !vaultOwnerToken) {
+    const user = auth.user;
+    if (!userId || !user) {
       setAutomaticResponsePreparationEnabled(null);
       return;
     }
     let cancelled = false;
-    void loadEmailDraftingEnabled({ userId, vaultOwnerToken })
+    void user.getIdToken()
+      .then((idToken) => loadEmailDraftingEnabled({ userId, idToken }))
       .then((enabled) => {
         if (!cancelled) setAutomaticResponsePreparationEnabled(enabled);
       })
@@ -520,7 +522,7 @@ export function OneKycWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [auth.userId, vaultOwnerToken]);
+  }, [auth.user, auth.userId]);
   const pendingAliases = useMemo(
     () =>
       emailAliases.filter((alias) => alias.verification_status === "pending"),

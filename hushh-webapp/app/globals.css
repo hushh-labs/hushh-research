@@ -3127,7 +3127,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
-  color: var(--app-accent) !important;
+  color: var(--ambient-chrome-bottom-fg, #1d1d1f) !important;
   font-weight: 600;
 }
 
@@ -3135,7 +3135,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   width: 21px;
   height: 21px;
   opacity: 0.9;
-  stroke-width: 1.9;
+  stroke-width: 2.2;
   transform: translateY(0);
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -3143,7 +3143,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] svg {
   opacity: 1;
-  stroke-width: 2.2;
+  stroke-width: 2.6;
   filter: drop-shadow(
     0 3px 8px color-mix(in srgb, var(--app-accent) 28%, transparent)
   );

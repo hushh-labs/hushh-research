@@ -175,7 +175,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     id: "email",
     setupActionId: "setup.open_email",
     setupControlId: "one_setup_tile_email",
-    agentId: "agent_email",
+    agentId: "agent_kyc",
     title: "KYC",
     description: "Review information requests and approve each response.",
     href: ROUTES.ONE_KYC,

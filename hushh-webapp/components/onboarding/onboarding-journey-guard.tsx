@@ -122,7 +122,7 @@ export function OnboardingJourneyGuard({
       if (
         !userId ||
         exempt ||
-        (setupSurface && pathname !== ROUTES.ONE_SETUP)
+        setupSurface
       ) {
         redirectTargetRef.current = null;
         setError(null);

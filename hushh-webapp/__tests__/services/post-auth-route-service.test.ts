@@ -4,12 +4,10 @@ const {
   bootstrapStateMock,
   updatePreVaultStateMock,
   loadPendingOnboardingMock,
-  getPersonaStateMock,
 } = vi.hoisted(() => ({
   bootstrapStateMock: vi.fn(),
   updatePreVaultStateMock: vi.fn(),
   loadPendingOnboardingMock: vi.fn(),
-  getPersonaStateMock: vi.fn(),
 }));
 
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
@@ -29,12 +27,6 @@ vi.mock("@/lib/services/pre-vault-onboarding-service", () => ({
   },
 }));
 
-vi.mock("@/lib/services/ria-service", () => ({
-  RiaService: {
-    getPersonaState: getPersonaStateMock,
-  },
-}));
-
 import {
   buildOneSetupRoute,
   buildPhoneMandateRoute,
@@ -50,8 +42,6 @@ describe("PostAuthRouteService", () => {
     bootstrapStateMock.mockReset();
     updatePreVaultStateMock.mockReset();
     loadPendingOnboardingMock.mockReset();
-    getPersonaStateMock.mockReset();
-    getPersonaStateMock.mockRejectedValue(new Error("persona not requested"));
   });
 
   it("routes vault users with unresolved onboarding to the setup hub", async () => {
@@ -64,6 +54,58 @@ describe("PostAuthRouteService", () => {
     await expect(
       PostAuthRouteService.resolveAfterLogin({ userId: "user_123" })
     ).resolves.toBe(ROUTES.ONE_SETUP);
+  });
+
+  it("keeps the provider token attached to the authoritative setup bootstrap", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: false,
+      setupCompleted: false,
+      setupCompletedAt: null,
+      phoneVerified: true,
+    });
+
+    await PostAuthRouteService.resolveAfterLogin({
+      userId: "native_apple_user",
+      idToken: "native-apple-id-token",
+    });
+
+    expect(bootstrapStateMock).toHaveBeenCalledWith("native_apple_user", {
+      idToken: "native-apple-id-token",
+    });
+  });
+
+  it("routes an existing organic-login user to One, never a stored persona", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: true,
+      setupCompleted: true,
+      setupCompletedAt: 1,
+      phoneVerified: true,
+    });
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "existing_ria_user",
+        redirectPath: ROUTES.HOME,
+        idToken: "valid-id-token",
+      }),
+    ).resolves.toBe(ROUTES.ONE_HOME);
+  });
+
+  it("preserves an explicit RIA deep link without making RIA the login authority", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: true,
+      setupCompleted: true,
+      setupCompletedAt: 1,
+      phoneVerified: true,
+    });
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "existing_user",
+        redirectPath: ROUTES.RIA_HOME,
+        idToken: "valid-id-token",
+      }),
+    ).resolves.toBe(ROUTES.RIA_HOME);
   });
 
   it("preserves a notification deep link while unresolved onboarding is completed", async () => {

@@ -32,14 +32,18 @@ import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import { buildConnectedSystemRoute } from "@/lib/navigation/routes";
+import { buildConnectedSystemRoute, ROUTES } from "@/lib/navigation/routes";
+import { useStaleResource } from "@/lib/cache/use-stale-resource";
+import { ConnectedSystemsResourceService } from "@/lib/services/connected-systems-resource-service";
 import {
   ConnectedSystemsService,
+  ConnectedSystemsRequestError,
   type ConnectedSystemMcpResponse,
   type ConnectedSystemIntent,
   type ConnectedSystemRecordBinding,
   type ConnectedSystemSchemaResponse,
   type ConnectedSystemSummary,
+  type ConnectedSystemsRegistryResponse,
 } from "@/lib/services/connected-systems-service";
 
 type BusyState =
@@ -54,6 +58,7 @@ type BusyState =
   | null;
 
 type ConnectedSystemsPanelProps = {
+  cacheUserId?: string | null;
   vaultOwnerToken?: string | null;
   onRequestUnlock?: () => void;
   mode?: "list" | "detail";
@@ -396,6 +401,7 @@ function changedFieldsFromValues(
 }
 
 export function ConnectedSystemsPanel({
+  cacheUserId,
   vaultOwnerToken,
   onRequestUnlock,
   mode = "detail",
@@ -407,10 +413,6 @@ export function ConnectedSystemsPanel({
   presentation = "workspace",
 }: ConnectedSystemsPanelProps) {
   const router = useRouter();
-  const [systems, setSystems] = useState<ConnectedSystemSummary[]>([]);
-  const [schema, setSchema] = useState<ConnectedSystemSchemaResponse | null>(
-    null,
-  );
   const [binding, setBinding] = useState<ConnectedSystemRecordBinding | null>(
     null,
   );
@@ -447,8 +449,30 @@ export function ConnectedSystemsPanel({
   // ALL available systems, not just the one currently open in detail view.
   // The step is complete once the person has linked any one of them.
   const [boundSystemIds, setBoundSystemIds] = useState<Set<string>>(new Set());
-  const [bindingResolvedSystemIds, setBindingResolvedSystemIds] = useState<Set<string>>(
-    new Set(),
+
+  const cacheScope = cacheUserId?.trim() || "pending-user";
+  const systemsCacheKey = ConnectedSystemsResourceService.registryCacheKey(cacheScope);
+  const loadSystems = useCallback(async () => {
+    let authToken = vaultOwnerToken || "";
+    if (!authToken) {
+      const { AuthService } = await import("@/lib/services/auth-service");
+      authToken = (await AuthService.getIdToken()) || "";
+    }
+    if (!authToken) throw new Error("Sign in to review connected systems.");
+    return ConnectedSystemsResourceService.loadRegistry({
+      userId: cacheScope,
+      authToken,
+    });
+  }, [cacheScope, vaultOwnerToken]);
+  const systemsResource = useStaleResource<ConnectedSystemsRegistryResponse>({
+    cacheKey: systemsCacheKey,
+    enabled: Boolean(cacheUserId),
+    load: loadSystems,
+    resourceLabel: "connected-systems-registry",
+  });
+  const systems = useMemo(
+    () => systemsResource.data?.systems || [],
+    [systemsResource.data],
   );
 
   const selectedSystem =
@@ -457,6 +481,36 @@ export function ConnectedSystemsPanel({
   const selectedSystemKey = selectedSystem
     ? `${selectedSystem.systemId}:${selectedSystem.objectTypeDefault || "Contact"}`
     : "";
+  const selectedConfigurationRevision = selectedSystem?.configurationRevision || 1;
+  const schemaCacheKey = ConnectedSystemsResourceService.schemaCacheKey({
+    userId: cacheScope,
+    systemId: selectedSystem?.systemId || "none",
+    objectType: selectedSystem?.objectTypeDefault || "Contact",
+    configurationRevision: selectedConfigurationRevision,
+  });
+  const loadSelectedSchema = useCallback(async (options?: { force?: boolean }) => {
+    if (!vaultOwnerToken || !selectedSystem) {
+      throw new Error("Unlock your vault to review CRM fields.");
+    }
+    return ConnectedSystemsResourceService.loadSchema({
+      userId: cacheScope,
+      vaultOwnerToken,
+      systemId: selectedSystem.systemId,
+      objectType: selectedSystem.objectTypeDefault || "Contact",
+      configurationRevision: selectedConfigurationRevision,
+      forceRefresh: options?.force,
+    });
+  }, [cacheScope, selectedConfigurationRevision, selectedSystem, vaultOwnerToken]);
+  const schemaResource = useStaleResource<ConnectedSystemSchemaResponse>({
+    cacheKey: schemaCacheKey,
+    enabled: Boolean(
+      cacheUserId && vaultOwnerToken && selectedSystem && mode === "detail",
+    ),
+    load: loadSelectedSchema,
+    resourceLabel: "connected-system-schema",
+  });
+  const schema = schemaResource.data;
+  const effectiveError = error || systemsResource.error || schemaResource.error;
   const canUseBackend = Boolean(vaultOwnerToken);
   const isSetupPresentation = presentation === "setup";
   const schemaReady = schema?.schemaStatus === "ready";
@@ -526,6 +580,15 @@ export function ConnectedSystemsPanel({
     [currentRecordId, readResult],
   );
   const primaryCrmRecord = currentReadRecord || crmRecords[0] || null;
+  // Schema metadata and the linked record can hydrate from different cache
+  // tiers. Reconcile the editable working copy whenever both are available so
+  // a record that arrived first does not leave later-discovered fields blank.
+  useEffect(() => {
+    if (!primaryCrmRecord || visibleProfileFields.length === 0) return;
+    const values = crmValuesFromRecord(primaryCrmRecord, visibleProfileFields);
+    setCrmFieldValues(values);
+    setCrmBaselineValues(values);
+  }, [primaryCrmRecord, visibleProfileFields]);
   const readResultHasCurrentRecord = Boolean(currentReadRecord);
   const crmRecordReadKey = useMemo(
     () =>
@@ -546,10 +609,6 @@ export function ConnectedSystemsPanel({
     : activeBinding
       ? "Record linked"
       : "No linked record";
-  const listRecordLinkLabel = (system: ConnectedSystemSummary): string | null => {
-    if (!vaultOwnerToken || !bindingResolvedSystemIds.has(system.systemId)) return null;
-    return boundSystemIds.has(system.systemId) ? "Record linked" : "No linked record";
-  };
   const boundRecordReadResolved =
     !hasBoundRecord ||
     readResultHasCurrentRecord ||
@@ -557,14 +616,14 @@ export function ConnectedSystemsPanel({
   const isBoundRecordHydrating =
     mode === "detail" &&
     canUseBackend &&
-    !error &&
+    !effectiveError &&
     hasBoundRecord &&
     schemaReady && supportsAction("read") &&
     !boundRecordReadResolved;
   const isRecordStateLoading =
     mode === "detail" &&
     canUseBackend &&
-    !error &&
+    !effectiveError &&
     (!selectedSystem ||
       !bindingResolved ||
       isBoundRecordHydrating);
@@ -594,84 +653,75 @@ export function ConnectedSystemsPanel({
 
   useEffect(() => {
     if (mode !== "detail") return;
+    const cachedRecord =
+      cacheUserId && selectedSystem
+        ? ConnectedSystemsResourceService.getLiveRecord(
+            cacheUserId,
+            selectedSystem.systemId,
+          )
+        : null;
     setReadResolvedKey(null);
-    setReadResult(null);
+    setReadResult(cachedRecord);
     setUnboundLookupState("idle");
-  }, [mode, selectedSystemKey]);
+  }, [cacheUserId, mode, selectedSystem, selectedSystemKey]);
+
+  useEffect(() => {
+    if (vaultOwnerToken) return;
+    setBinding(null);
+    setReadResult(null);
+    setPendingIntent(null);
+    setEditingField(null);
+    setEditingValue("");
+    setCrmFieldValues({});
+    setCrmBaselineValues({});
+    setUpdateId("");
+    setDeleteId("");
+    setBoundSystemIds(new Set());
+  }, [vaultOwnerToken]);
 
   const refreshSystems = useCallback(async () => {
-    // Listing needs sign-in only, not vault unlock: fall back to the Firebase
-    // ID token when the vault is locked so the CRM overview never dead-ends
-    // into an unlock prompt. Record-level actions below still require the
-    // vault owner token.
-    let authToken = vaultOwnerToken || "";
-    if (!authToken) {
-      const { AuthService } = await import("@/lib/services/auth-service");
-      authToken = (await AuthService.getIdToken()) || "";
-    }
-    if (!authToken) return;
     setBusy("systems");
     setError(null);
     try {
-      setSystems(await ConnectedSystemsService.listSystems(authToken));
-    } catch (err) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "Connected Systems could not load.";
-      setError(message);
+      await systemsResource.refresh({ force: true });
     } finally {
       setBusy(null);
     }
-  }, [vaultOwnerToken]);
+  }, [systemsResource]);
 
-  useEffect(() => {
-    void refreshSystems();
-  }, [refreshSystems]);
-
-  // Resolve record links for every list row. In detail mode the selected
-  // system is already handled by `refreshBinding`, but list mode has no
-  // selected detail and therefore must include every system. This prevents a
-  // transport-ready CRM from being misrepresented as a linked user record.
+  // Resolve every row in one vault-owner request. Binding IDs and record values
+  // remain server-side and are never placed in device storage.
   useEffect(() => {
     if (!vaultOwnerToken || systems.length === 0) return;
     let cancelled = false;
-    const systemsToCheck =
-      mode === "detail"
-        ? systems.filter((system) => system.systemId !== selectedSystem?.systemId)
-        : systems;
-    if (systemsToCheck.length === 0) return;
-    void (async () => {
-      const results = await Promise.all(
-        systemsToCheck.map(async (system) => {
-          try {
-            const response = await ConnectedSystemsService.getRecordBinding({
-              vaultOwnerToken,
-              systemId: system.systemId,
-              objectType: system.objectTypeDefault || "Contact",
-            });
-            return {
-              systemId: system.systemId,
-              active: response.binding?.status === "active",
-            };
-          } catch {
-            return null;
-          }
-        }),
-      );
-      if (cancelled) return;
-      const resolved = results.filter(
-        (result): result is { systemId: string; active: boolean } => Boolean(result),
-      );
+    const cached = ConnectedSystemsResourceService.getBindingStatuses(cacheScope);
+    if (cached.length > 0) {
       setBoundSystemIds(
-        new Set(resolved.filter((result) => result.active).map((result) => result.systemId)),
+        new Set(
+          cached
+            .filter((result) => result.status === "active")
+            .map((result) => result.systemId),
+        ),
       );
-      setBindingResolvedSystemIds(new Set(resolved.map((result) => result.systemId)));
+    }
+    void (async () => {
+      const results = await ConnectedSystemsResourceService.warmBindingStatuses({
+        userId: cacheScope,
+        vaultOwnerToken,
+      }).catch(() => []);
+      if (cancelled) return;
+      setBoundSystemIds(
+        new Set(
+          results
+            .filter((result) => result.status === "active")
+            .map((result) => result.systemId),
+        ),
+      );
     })();
     return () => {
       cancelled = true;
     };
-  }, [mode, selectedSystem?.systemId, systems, vaultOwnerToken]);
+  }, [cacheScope, systems, vaultOwnerToken]);
 
   const refreshBinding = useCallback(async () => {
     if (!vaultOwnerToken || !selectedSystem || mode !== "detail") return null;
@@ -696,6 +746,13 @@ export function ConnectedSystemsPanel({
       }
       return nextBinding || null;
     } catch (err) {
+      if (err instanceof ConnectedSystemsRequestError) {
+        if (err.code === "CONNECTED_SYSTEM_PHONE_VERIFICATION_REQUIRED") {
+          router.push(ROUTES.PROFILE_ACCOUNT_PHONE);
+        } else if (err.code === "CONNECTED_SYSTEM_EMAIL_VERIFICATION_REQUIRED") {
+          router.push(ROUTES.PROFILE_ACCOUNT);
+        }
+      }
       const message = connectedSystemsUserMessage(err);
       if (
         isWorkflowStorageNotReady(err instanceof Error ? err.message : message)
@@ -711,7 +768,7 @@ export function ConnectedSystemsPanel({
       setBindingResolvedKey(nextBindingKey);
       setBusy(null);
     }
-  }, [mode, selectedSystem, selectedSystemKey, vaultOwnerToken]);
+  }, [mode, router, selectedSystem, selectedSystemKey, vaultOwnerToken]);
 
   useEffect(() => {
     if (!vaultOwnerToken || !selectedSystem || mode !== "detail") return;
@@ -737,6 +794,13 @@ export function ConnectedSystemsPanel({
     try {
       return await action();
     } catch (err) {
+      if (err instanceof ConnectedSystemsRequestError) {
+        if (err.code === "CONNECTED_SYSTEM_PHONE_VERIFICATION_REQUIRED") {
+          router.push(ROUTES.PROFILE_ACCOUNT_PHONE);
+        } else if (err.code === "CONNECTED_SYSTEM_EMAIL_VERIFICATION_REQUIRED") {
+          router.push(ROUTES.PROFILE_ACCOUNT);
+        }
+      }
       const message = connectedSystemsUserMessage(err);
       setError(message);
       if (options.showErrorToast !== false) {
@@ -772,6 +836,13 @@ export function ConnectedSystemsPanel({
         return value;
       })
       .catch((err) => {
+        if (err instanceof ConnectedSystemsRequestError) {
+          if (err.code === "CONNECTED_SYSTEM_PHONE_VERIFICATION_REQUIRED") {
+            router.push(ROUTES.PROFILE_ACCOUNT_PHONE);
+          } else if (err.code === "CONNECTED_SYSTEM_EMAIL_VERIFICATION_REQUIRED") {
+            router.push(ROUTES.PROFILE_ACCOUNT);
+          }
+        }
         throw new Error(connectedSystemsUserMessage(err));
       });
     toast.promise(promise, {
@@ -790,15 +861,14 @@ export function ConnectedSystemsPanel({
   }
 
   const loadSchema = async (options: { silent?: boolean } = {}) => {
-    const result = await runAction("schema", () =>
-      ConnectedSystemsService.getSchema({
-        vaultOwnerToken: vaultOwnerToken || "",
-        systemId: selectedSystem?.systemId,
-        objectType: selectedSystem?.objectTypeDefault || "Contact",
-      }),
-    );
+    setBusy("schema");
+    let result: ConnectedSystemSchemaResponse | null = null;
+    try {
+      result = await schemaResource.refresh({ force: true });
+    } finally {
+      setBusy(null);
+    }
     if (result) {
-      setSchema(result);
       if (!options.silent) {
         toast.success("CRM schema loaded.");
       }
@@ -807,6 +877,13 @@ export function ConnectedSystemsPanel({
 
   const applyReadResult = (result: ConnectedSystemMcpResponse) => {
     setReadResult(result);
+    if (cacheUserId && selectedSystem) {
+      ConnectedSystemsResourceService.rememberLiveRecord(
+        cacheUserId,
+        selectedSystem.systemId,
+        result,
+      );
+    }
     const nextBinding =
       result.binding?.status === "active" ? result.binding : null;
     if (nextBinding) {
@@ -953,13 +1030,6 @@ export function ConnectedSystemsPanel({
   ]);
 
   useEffect(() => {
-    if (!vaultOwnerToken || !selectedSystem || mode !== "detail") return;
-    void loadSchema({ silent: true });
-    // loadSchema is intentionally keyed by selected system and vault state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, selectedSystem, vaultOwnerToken]);
-
-  useEffect(() => {
     if (
       !vaultOwnerToken ||
       mode !== "detail" ||
@@ -1007,42 +1077,23 @@ export function ConnectedSystemsPanel({
     return result;
   };
 
-  /**
-   * Single create-or-update entry point for the unbound state: search for an
-   * existing record first, and only create a new one if the search comes back
-   * empty. Replaces the old two-button "Find my record" / "Create my record"
-   * split so the person takes one action instead of guessing which to try
-   * first.
-   */
-  const linkThisSystem = async () => {
-    const canRead = supportsAction("read");
-    const canCreate = supportsAction("create");
-    if (canRead) {
-      setUnboundLookupState("checking");
-      const found = await readRecord({
-        silent: true,
-        bindSearch: true,
-      });
-      if (found?.binding?.status === "active") {
-        setUnboundLookupState("idle");
-        toast.success(`Found your existing ${customerName} record and linked it.`);
-        return;
-      }
-      if (!found) {
-        setUnboundLookupState("failed");
-        return;
-      }
-      setUnboundLookupState("no_match");
-      if (!canCreate) {
-        toast.info(`No matching ${customerName} record was found.`);
-        return;
-      }
-      await createRecordFromSchema();
+  const findExistingProfile = async () => {
+    if (!supportsAction("read")) return;
+    setUnboundLookupState("checking");
+    const found = await readRecord({ silent: true, bindSearch: true });
+    if (found?.binding?.status === "active") {
+      setUnboundLookupState("idle");
+      setBoundSystemIds((current) => new Set(current).add(found.systemId));
+      toast.success(`Found your existing ${customerName} profile and linked it.`);
+      if (isSetupPresentation && setupRouteBase) router.push(setupRouteBase);
       return;
     }
-    if (!canRead && canCreate) {
-      await createRecordFromSchema();
+    if (!found) {
+      setUnboundLookupState("failed");
+      return;
     }
+    setUnboundLookupState("no_match");
+    toast.info(`No matching ${customerName} profile was found.`);
   };
 
   const updateRecordFromSchema = async () => {
@@ -1144,6 +1195,11 @@ export function ConnectedSystemsPanel({
       await refreshBinding();
     }
     setCrmBaselineValues((current) => ({ ...current, ...crmFieldValues }));
+    if (isSetupPresentation && setupRouteBase && result.action === "create") {
+      setBoundSystemIds((current) => new Set(current).add(result.systemId));
+      router.push(setupRouteBase);
+      return;
+    }
     void readRecord({ silent: true });
   };
 
@@ -1342,7 +1398,7 @@ export function ConnectedSystemsPanel({
   if (mode === "list") {
     return (
       <div className="space-y-4 sm:space-y-5">
-        {systems.length === 0 && busy === "systems" ? (
+        {systems.length === 0 && (busy === "systems" || systemsResource.loading) ? (
           <SettingsGroup>
             <SettingsRow
               icon={RefreshCw}
@@ -1355,7 +1411,7 @@ export function ConnectedSystemsPanel({
             />
           </SettingsGroup>
         ) : null}
-        {systems.length === 0 && busy !== "systems" ? (
+        {systems.length === 0 && busy !== "systems" && !systemsResource.loading ? (
           <SettingsGroup>
             <SettingsRow
               icon={Database}
@@ -1383,29 +1439,28 @@ export function ConnectedSystemsPanel({
             {systems.map((system) => {
               const title =
                 system.displayName || system.customerDisplayName || "CRM system";
-              const recordLink = listRecordLinkLabel(system);
               const availability = registryAvailabilityLabel(system);
-              const description = [
-                crmTypeDisplayLabel(system) || "CRM",
-                recordLink,
-              ]
-                .filter(Boolean)
-                .join(" · ");
+              const rowState =
+                availability !== "Available"
+                  ? "Temporarily unavailable"
+                  : boundSystemIds.has(system.systemId)
+                    ? "Connected"
+                    : "Set up";
               return (
                 <SettingsRow
                   key={system.systemId}
                   leading={<ConnectedSystemLogo system={system} />}
                   title={title}
-                  description={description}
+                  description={crmTypeDisplayLabel(system) || "CRM"}
                   trailing={
                     <span
                       className={
-                        availability === "Available"
+                        rowState === "Connected"
                           ? "text-xs font-medium text-emerald-700 dark:text-emerald-300"
                           : "text-xs font-medium text-muted-foreground"
                       }
                     >
-                      {availability}
+                      {rowState}
                     </span>
                   }
                   chevron
@@ -1422,9 +1477,9 @@ export function ConnectedSystemsPanel({
           </SettingsGroup>
         ) : null}
 
-        {error ? (
+        {effectiveError ? (
           <SurfaceInset className="px-3.5 py-3.5 text-sm text-destructive sm:px-4 sm:py-4">
-            {error}
+            {effectiveError}
           </SurfaceInset>
         ) : null}
       </div>
@@ -1465,9 +1520,9 @@ export function ConnectedSystemsPanel({
         </div>
       </SurfaceInset>
 
-      {error ? (
+      {effectiveError ? (
         <SurfaceInset className="px-3.5 py-3.5 text-sm text-destructive sm:px-4 sm:py-4">
-          {error}
+          {effectiveError}
         </SurfaceInset>
       ) : null}
 
@@ -1531,11 +1586,9 @@ export function ConnectedSystemsPanel({
       {canShowUnboundRecordActions ? (
         <SettingsGroup
           title={
-            isSetupPresentation
-              ? `Find or create my ${customerName} record`
-              : shouldOfferCreate
+            shouldOfferCreate
               ? `Create a ${customerName} record`
-              : `Find my ${customerName} record`
+              : `Find my ${customerName} profile`
           }
         >
           <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
@@ -1560,11 +1613,9 @@ export function ConnectedSystemsPanel({
                   size="sm"
                   disabled={busy !== null}
                   onClick={() =>
-                    void (isSetupPresentation
-                      ? linkThisSystem()
-                      : supportsAction("read") && !shouldOfferCreate
-                        ? linkThisSystem()
-                        : createRecordFromSchema())
+                    void (supportsAction("read") && !shouldOfferCreate
+                      ? findExistingProfile()
+                      : createRecordFromSchema())
                   }
                 >
                   <Icon
@@ -1580,18 +1631,18 @@ export function ConnectedSystemsPanel({
                     ? "Checking your record..."
                     : busy === "create"
                       ? "Preparing review..."
-                      : isSetupPresentation
-                        ? "Find or create my record"
-                        : supportsAction("read") && !shouldOfferCreate
-                        ? "Find and link my record"
-                        : "Create record for review"}
+                      : supportsAction("read") && !shouldOfferCreate
+                        ? "Find existing profile"
+                        : "Create profile for review"}
                 </Button>
               </div>
             </div>
             {!isSetupPresentation ? renderCrmFieldTable() : null}
             <p className="text-xs leading-relaxed text-muted-foreground">
               {isSetupPresentation
-                ? "One checks for a record using the verified email and phone on your account. If none exists, creating one remains a reviewable request."
+                ? unboundLookupState === "no_match"
+                  ? "No profile matched your verified email and phone. Creating one remains a separate reviewable request."
+                  : "One searches only with the verified email and phone on your account. A new profile is never created automatically."
                 : unboundLookupState === "checking"
                 ? "Checking this CRM with only the verified email and phone on your Hussh account."
                 : unboundLookupState === "no_match"

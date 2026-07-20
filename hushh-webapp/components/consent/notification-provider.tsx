@@ -225,6 +225,7 @@ function deliveryModeFromInitStatus(
   status: FCMInitStatus,
 ): ConsentNotificationDeliveryMode {
   if (status === "push_active") return "push_active";
+  if (status === "push_not_requested") return "inbox_only";
   if (status === "push_blocked") return "push_blocked";
   return "push_failed_fallback_active";
 }
@@ -980,6 +981,7 @@ export function ConsentNotificationProvider({
       }
       lastAuthenticatedUidRef.current = null;
       setFcmInitStatus(null);
+      setFcmInitGeneration(0);
       setDeliveryMode("inbox_only");
       setDeliveryDetail(null);
       setPendingCount(0);
@@ -1012,7 +1014,9 @@ export function ConsentNotificationProvider({
 
       try {
         const idToken = await user.getIdToken();
-        const result = await initializeFCM(user.uid, idToken);
+        const result = await initializeFCM(user.uid, idToken, {
+          requestPermission: fcmInitGeneration > 0,
+        });
         if (cancelled) return;
 
         persistDeliveryState(user.uid, {

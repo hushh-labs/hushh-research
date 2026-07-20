@@ -356,6 +356,7 @@ class MainActivity : BridgeActivity() {
                       uiFlowCurrent: bridge.uiFlowCurrent || "",
                       uiFlowStepIndex: String(bridge.uiFlowStepIndex ?? ""),
                       uiFlowStepType: bridge.uiFlowStepType || "",
+                      uiFlowCheckpoint: bridge.uiFlowCheckpoint || "",
                       uiFlowStepStartedAt: bridge.uiFlowStepStartedAt || "",
                       uiFlowAuditRunId: bridge.uiFlowAuditRunId || bridge.uiFlowRunId || "",
                       uiFlowAuditPlanDigest: bridge.uiFlowAuditPlanDigest || "",
@@ -616,6 +617,7 @@ class MainActivity : BridgeActivity() {
                     uiFlowCurrent: bridge.uiFlowCurrent || "",
                     uiFlowStepIndex: String(bridge.uiFlowStepIndex ?? ""),
                     uiFlowStepType: bridge.uiFlowStepType || "",
+                    uiFlowCheckpoint: bridge.uiFlowCheckpoint || "",
                     uiFlowStepStartedAt: bridge.uiFlowStepStartedAt || "",
                     uiFlowAuditRunId: bridge.uiFlowAuditRunId || bridge.uiFlowRunId || "",
                     uiFlowAuditPlanDigest: bridge.uiFlowAuditPlanDigest || "",
@@ -696,6 +698,7 @@ class MainActivity : BridgeActivity() {
                 "ui_flow=${sanitizeStatusValue(payload.optString("uiFlowCurrent", ""))}",
                 "ui_step=${sanitizeStatusValue(payload.optString("uiFlowStepIndex", ""))}",
                 "ui_step_type=${sanitizeStatusValue(payload.optString("uiFlowStepType", ""))}",
+                "ui_checkpoint=${sanitizeStatusValue(payload.optString("uiFlowCheckpoint", ""))}",
                 "ui_error=${sanitizeStatusValue(payload.optString("uiFlowError", ""))}",
                 "error=${sanitizeStatusValue(errorCode)}"
             ).joinToString(";")
@@ -802,7 +805,7 @@ class MainActivity : BridgeActivity() {
                 for (resultIndex in 0 until results.length()) {
                     val result = results.optJSONObject(resultIndex) ?: continue
                     val safeResult = JSONObject()
-                    for (key in listOf("step", "type", "ok", "skipped", "skipClass", "reasonClass", "errorClass")) {
+                    for (key in listOf("step", "type", "ok", "skipped", "skipClass", "reasonClass", "errorClass", "checkpoint")) {
                         if (result.has(key)) {
                             safeResult.put(key, result.opt(key))
                         }

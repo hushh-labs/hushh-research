@@ -58,7 +58,7 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain('title="Remaining"');
     expect(source).toContain('title="Connections"');
     expect(source).toContain("<SetupNavigationTile");
-    expect(source).toContain('voiceControlId="one_setup_connections"');
+    expect(source).toContain('voiceControlId="one_setup_tile_connections"');
     expect(source).not.toContain("Private configuration");
     expect(source.indexOf('title="Connections"')).toBeLessThan(
       source.indexOf("remainingItems.map"),
@@ -123,8 +123,8 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    expect(emailSetup).toContain("pending={saving}");
-    expect(emailSetup).toContain("settlementBlocked: saving");
+    expect(emailSetup).toContain("pending={saving || enablePending}");
+    expect(emailSetup).toContain("settlementBlocked: saving || enablePending");
     expect(coordinator).toContain("if (pending) return");
     expect(coordinator).toContain("disabled={pending}");
     expect(coordinator).toContain("enabled: enabled && !settlementBlocked");

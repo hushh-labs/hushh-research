@@ -250,7 +250,7 @@ function buildModes(
       title: capability.title,
       description: capability.description,
       href:
-        setupCapability && isActionable && status?.state !== "skipped"
+        setupCapability && isActionable
           ? buildOneSetupCapabilityRoute(capability.id)
           : capability.href,
       icon: capability.icon,

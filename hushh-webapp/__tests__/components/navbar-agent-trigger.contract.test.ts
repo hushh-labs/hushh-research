@@ -64,10 +64,7 @@ describe("Navbar bottom chrome contract", () => {
       "lib/navigation/kai-bottom-chrome-visibility.ts",
     );
     expect(bottomChromeMotion).toContain(
-      "--bottom-chrome-hide-distance, var(--bottom-chrome-full-height)",
-    );
-    expect(bottomChromeMotion).toContain(
-      "Agent Bar\n * settles into its vacated bottom slot and remains entirely visible",
+      "Follow the thumb directly",
     );
     expect(agentBar).not.toContain('aria-label="Talk to your agent"');
     expect(agentBar).not.toContain("<Mic");
@@ -93,10 +90,14 @@ describe("Navbar bottom chrome contract", () => {
     expect(bottomShell).toContain("export function AppBottomShell");
     expect(bottomShell).not.toContain("AmbientChromeController");
     expect(bottomShell).toContain('<AmbientChromeMask\n          edge="bottom"');
-    expect(bottomShell).toContain("useKaiBottomChromeElementTranslation");
+    expect(bottomShell).not.toContain("useKaiBottomChromeElementTranslation");
     expect(bottomShell).toContain("snapKaiBottomChromeVisible");
     expect(bottomShell).toContain("onPointerDownCapture");
     expect(bottomShell).toContain("BOTTOM_SCROLL_TRANSFORM");
+    expect(bottomShell).toContain("data-bottom-shell-motion-stack");
+    expect(bottomShell).toContain("data-bottom-shell-agent-slot");
+    expect(bottomShell).toContain("data-bottom-shell-navigation-slot");
+    expect(bottomShell).toContain("--bottom-nav-travel");
     expect(bottomShell).toContain("data-app-bottom-shell");
     expect(bottomShell).toContain('<Navbar shellNavigationHidden={model.navigationHidden} layout="slot"');
     expect(bottomShell).toContain('<AgentBar layout="slot" />');

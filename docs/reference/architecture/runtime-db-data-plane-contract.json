@@ -484,6 +484,21 @@
       "expected_row_growth": "medium_append_only"
     },
     {
+      "id": "enterprise_crm_registry_audit",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "crm_registry_audit_events"
+      ],
+      "primary_access_path": "Operator CRM registry validation, activation, update, and deactivation audit trail.",
+      "retention_policy": "Retain configuration fingerprints, revisions, capability names, validation outcomes, and sanitized summaries for operational and security review; never retain decrypted credentials or provider response payloads.",
+      "deletion_behavior": "Operator-managed audit evidence is not user-delete scoped; redact operator linkage only when required by access-governance or legal policy.",
+      "trust_boundary": "Metadata-only evidence for registry administration. No client credentials, access tokens, CRM records, vault material, PKM information, or raw validation responses.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_append_only"
+    },
+    {
       "id": "enterprise_crm_registry",
       "owner": "iam-consent-governance",
       "data_class": "reference",
@@ -505,10 +520,11 @@
       "data_class": "provider_cache",
       "lifecycle_status": "customer0",
       "exact_tables": [
-        "crm_schema_mapping_cache"
+        "crm_schema_mapping_cache",
+        "crm_schema_catalog_cache"
       ],
-      "primary_access_path": "Connected Systems schema-mapper cache for a CRM object schema fingerprint and the tool-less field-role proposal used by verified-identity lookup and create-field selection.",
-      "retention_policy": "Retain only a ready mapping for its 24-hour TTL; invalidate it immediately when the CRM schema changes or a schema-validation retry fails. The cache is rebuilt from the active registry schema and is never durable user memory.",
+      "primary_access_path": "Connected Systems provider-schema catalogue and mapper caches for a CRM object schema fingerprint and the tool-less field-role proposal used by verified-identity lookup and create-field selection.",
+      "retention_policy": "Retain catalogue rows only through their bounded fresh/stale windows and ready mappings through their 24-hour TTL; invalidate immediately when the registry revision or CRM schema changes, or when schema validation fails. These caches rebuild from the active provider and are never durable user memory.",
       "deletion_behavior": "Not user-delete scoped. Rows cascade-delete with the provisioned CRM registry row and can be invalidated without affecting CRM records or user bindings.",
       "trust_boundary": "Public CRM schema metadata and normalized field-role keys only. Never store CRM records, verified profile values, record IDs, credentials, consent/vault material, prompts, telemetry plaintext, or unvalidated model output.",
       "plaintext_posture": "public_schema_metadata_and_normalized_field_keys_only",

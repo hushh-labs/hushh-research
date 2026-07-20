@@ -47,6 +47,9 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_SETUP) {
     return { screen: "one_setup_hub", subview: null };
   }
+  if (normalizedPath === ROUTES.ONE_SETUP_CONNECTIONS) {
+    return { screen: "one_setup_connections", subview: null };
+  }
   if (normalizedPath === ROUTES.ONE_SETUP_GMAIL) {
     return { screen: "one_setup_gmail", subview: null };
   }

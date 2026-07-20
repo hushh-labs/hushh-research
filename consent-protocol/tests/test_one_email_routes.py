@@ -14,6 +14,7 @@ def _build_app(user_id: str = "user_123") -> TestClient:
         "scope": "vault.owner",
         "token": "vault-token",
     }
+    app.dependency_overrides[one_email.require_firebase_auth] = lambda: user_id
     return TestClient(app)
 
 
@@ -147,7 +148,7 @@ def test_one_kyc_preference_rejects_user_mismatch(monkeypatch):
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"]["code"] == "ONE_KYC_USER_MISMATCH"
+    assert response.json()["detail"] == "User ID does not match authenticated user"
 
 
 def test_one_kyc_reject_route_uses_authenticated_user(monkeypatch):

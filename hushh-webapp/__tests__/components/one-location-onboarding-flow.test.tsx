@@ -72,6 +72,31 @@ function renderFlow(
 }
 
 describe("OneLocationOnboardingFlow", () => {
+  it("publishes the canonical seven-screen sequence without side effects on the skip path", () => {
+    const props = renderFlow();
+    const expectScreen = (testId: string) => {
+      expect(screen.getByTestId(testId)).toBeTruthy();
+    };
+
+    expectScreen("one-location-onboarding-welcome");
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    expectScreen("one-location-onboarding-arrival");
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expectScreen("one-location-onboarding-checkin");
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expectScreen("one-location-onboarding-sos");
+    fireEvent.click(screen.getByRole("button", { name: "Create my circle" }));
+    expectScreen("one-location-onboarding-people");
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    expectScreen("one-location-onboarding-circle");
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expectScreen("one-location-onboarding-permissions");
+
+    expect(props.onSendConnectionRequests).not.toHaveBeenCalled();
+    expect(props.onRequestLocation).not.toHaveBeenCalled();
+    expect(props.onRequestNotifications).not.toHaveBeenCalled();
+  });
+
   it("runs the complete introduction and sends only deliberate connection requests", async () => {
     const props = renderFlow();
 

@@ -365,6 +365,14 @@ export function VaultProvider({ children }: VaultProviderProps) {
   const prefetchDashboardData = useCallback(
     async (userId: string, token: string, key: string, routePath?: string) => {
       try {
+        void import("@/lib/services/connected-systems-resource-service")
+          .then(({ ConnectedSystemsResourceService }) =>
+            ConnectedSystemsResourceService.warmBindingStatuses({
+              userId,
+              vaultOwnerToken: token,
+            })
+          )
+          .catch(() => undefined);
         // The consent center warm step needs a Firebase ID token (its proxy is
         // Firebase-authenticated). Fetch it best-effort; the orchestrator
         // skips consent-center warming gracefully if it is unavailable.

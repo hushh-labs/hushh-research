@@ -291,7 +291,8 @@ RIA relationship bundle note:
 
 #### Connected Systems
 
-Connected Systems are vault-owner authenticated and registry-driven. Every
+Connected Systems are registry-driven. Safe registry listing is signed-in;
+schema, binding, and record operations are vault-owner authenticated. Every
 active CRM declares one primary object, enabled operation names, direct
 Streamable HTTP MCP tool/endpoint mappings, timeout/retry policy, and a
 validated non-secret response contract per operation. Cloud Run reaches
@@ -303,12 +304,13 @@ The schema response is normalized from its registered object and field paths
 into `objectMetadata` and `fields[]` descriptors with `name`, `label`,
 `dataType`, `required`, `readable`, `identityField`, `immutable`,
 `createable`, `updateable`, derived `writable`, and portable constraints such
-as `allowedValues` and `maxLength`. A missing response mapping or permission
-descriptor fails closed. The current MuleSoft `details[0].fields` response is
-therefore a display-only catalogue until schema v1 publishes all access flags.
+as `allowedValues` and `maxLength`. A missing operation response mapping fails
+closed. Field access flags are optional refinements: an explicit `false` is
+enforced, while an absent flag does not create a separate authorization gate.
 List responses expose only the exact active row's capabilities; schema
-responses expose `schemaStatus` and `effectiveActions`. The UI cannot expose a
-record action that those effective capabilities do not authorize.
+responses expose `schemaStatus`, `schemaFingerprint`, freshness, refresh
+guidance, and `effectiveActions`. The UI cannot expose a record action that
+those effective capabilities do not authorize.
 
 Read and search requests use generic `searchFields` and `returnFields` and
 return only normalized, requested, explicitly readable fields. Create and
@@ -319,8 +321,9 @@ intents. Only intent approval issues the registered direct MCP mutation.
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/connected-systems` | List connected systems visible to the vault owner |
-| GET | `/api/connected-systems/{system_id}/schema?objectType={primary_object}` | Fetch the registered primary-object schema and return normalized fields, `schemaStatus`, and exact `effectiveActions` |
+| GET | `/api/connected-systems` | List active registry systems with `registryRevision` and per-system `configurationRevision`; signed-in metadata only |
+| GET | `/api/connected-systems/{system_id}/schema?objectType={primary_object}&forceRefresh=false` | Return the normalized schema catalogue, fingerprint, freshness, refresh guidance, and exact `effectiveActions` |
+| GET | `/api/connected-systems/record-bindings` | Return owner-scoped binding statuses for every active CRM in one request; no CRM record IDs or values |
 | GET | `/api/connected-systems/{system_id}/record-binding?objectType=Contact` | Return the current One user binding for this external CRM record, or `unbound` |
 | POST | `/api/connected-systems/{system_id}/records/read` | Read using generic `{ objectType, searchFields, returnFields }`; returns a sanitized normalized projection only |
 | POST | `/api/connected-systems/{system_id}/records/search` | Search and bind the One user when the registered record id mapping resolves a record |
@@ -329,6 +332,13 @@ intents. Only intent approval issues the registered direct MCP mutation.
 | POST | `/api/connected-systems/{system_id}/records/delete` | Compatibility path that creates a reviewable delete intent; it never deletes immediately |
 | POST | `/api/connected-systems/{system_id}/intents/{intent_id}/approve` | Idempotently approve and execute a pending mutation through its registered MCP tool |
 | POST | `/api/connected-systems/{system_id}/intents/{intent_id}/reject` | Reject a pending intent without calling MCP |
+
+Registry activation is not an API. Operators use the local, ignored
+`crm-registry.v1` descriptor with
+`scripts/ops/configure_crm_registry.py check|probe|apply|deactivate`. A CRM is
+activated only after its declared MCP tools and operation response contracts
+pass; CRUD descriptors additionally pass an isolated create/read/update/read/
+delete/absent lifecycle with cleanup.
 
 #### Kai Chat
 

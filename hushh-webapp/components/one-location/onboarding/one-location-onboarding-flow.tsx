@@ -18,6 +18,7 @@ import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import type { ConsentNotificationDeliveryMode } from "@/components/consent/notification-provider";
 import { isWeb } from "@/lib/capacitor/platform";
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
+import locationOnboardingContract from "@/lib/onboarding/one-location-onboarding.contract.json";
 
 import type {
   ConnectionSummaryEntry,
@@ -33,6 +34,10 @@ type OnboardingScreen =
   | "people"
   | "circle"
   | "permissions";
+
+const LOCATION_SCREEN_TEST_IDS = Object.fromEntries(
+  locationOnboardingContract.screens.map(({ key, testId }) => [key, testId]),
+) as Record<OnboardingScreen, string>;
 
 export type OneLocationOnboardingStart = "welcome" | "permissions";
 
@@ -1211,9 +1216,13 @@ export function OneLocationOnboardingFlow({
       className="fixed inset-0 z-[540] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[#eef3f8] text-[#171d28] dark:bg-[#0c1017] dark:text-[#f4f7fb]"
       data-no-route-swipe
       data-testid="one-location-onboarding"
+      data-location-onboarding-screen={screen}
     >
       <NativeTestBeacon {...nativeTest} />
-      <section className="flex h-full min-h-0 w-full max-w-[480px] flex-col overflow-hidden bg-white shadow-[0_0_40px_rgba(24,57,91,0.08)] dark:bg-[#14171d] dark:shadow-[0_0_44px_rgba(0,0,0,0.48)]">
+      <section
+        className="flex h-full min-h-0 w-full max-w-[480px] flex-col overflow-hidden bg-white shadow-[0_0_40px_rgba(24,57,91,0.08)] dark:bg-[#14171d] dark:shadow-[0_0_44px_rgba(0,0,0,0.48)]"
+        data-testid={LOCATION_SCREEN_TEST_IDS[screen]}
+      >
         <div className="h-[env(safe-area-inset-top,0px)] shrink-0" />
         {screen === "welcome" ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#087cf0] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] text-white dark:bg-[#0b4c8e]">

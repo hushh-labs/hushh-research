@@ -104,10 +104,10 @@ describe("CapabilityVaultPrerequisite", () => {
     );
 
     await waitFor(() => expect(vaultMocks.checkVault).toHaveBeenCalledWith("user_1"));
-    expect(await screen.findByRole("dialog", { name: /set up your private vault for location/i })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: /^set up your private vault$/i })).toBeTruthy();
     expect(
       screen.getByRole("dialog", {
-        name: /set up your private vault for location/i,
+        name: /^set up your private vault$/i,
       }).getAttribute("data-generated-default"),
     ).toBe("true");
     expect(screen.queryByText("Location workspace")).toBeNull();
@@ -126,7 +126,7 @@ describe("CapabilityVaultPrerequisite", () => {
     );
 
     await screen.findByRole("dialog", {
-      name: /set up your private vault for location/i,
+      name: /^set up your private vault$/i,
     });
     fireEvent.click(screen.getByRole("button", { name: "Complete vault setup" }));
 
@@ -153,8 +153,8 @@ describe("CapabilityVaultPrerequisite", () => {
       </CapabilityVaultPrerequisite>,
     );
 
-    await screen.findByRole("dialog", { name: /open your private vault for location/i });
-    expect(screen.getByRole("heading", { name: /open your private vault first/i })).toBeTruthy();
+    await screen.findByRole("dialog", { name: /^open your private vault$/i });
+    expect(screen.queryByRole("heading", { name: /open your private vault first/i })).toBeNull();
   });
 
   it("retains the capability boundary when the presence check fails and supports retry", async () => {
@@ -172,7 +172,7 @@ describe("CapabilityVaultPrerequisite", () => {
       screen.getByRole("button", { name: "Try again" }).click();
     });
     await waitFor(() => expect(vaultMocks.checkVault).toHaveBeenCalledTimes(2));
-    expect(await screen.findByRole("dialog", { name: /set up your private vault for location/i })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: /^set up your private vault$/i })).toBeTruthy();
     expect(screen.queryByText("Location workspace")).toBeNull();
   });
 });

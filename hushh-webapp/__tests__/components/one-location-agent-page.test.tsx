@@ -750,6 +750,17 @@ describe("OneLocationAgentPage", () => {
     ).toBe("1");
   });
 
+  it("keeps setup onboarding available when the workspace state fetch fails", async () => {
+    mockGetState.mockRejectedValue(new Error("Workspace state unavailable"));
+
+    render(<OneLocationAgentPage mode="setup" />);
+
+    expect(
+      await screen.findByTestId("one-location-onboarding-welcome"),
+    ).toBeTruthy();
+    expect(screen.queryByText("Workspace state unavailable")).toBeNull();
+  });
+
   it("suppresses the stale-token banner while vault re-unlock is requested", async () => {
     mockGetState.mockRejectedValue(
       Object.assign(new Error("Token validation failed."), { status: 401 }),

@@ -51,7 +51,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
         onRequestVaultCreation={vi.fn()}
         requiresExplicitSelection
         initiallyConfigured={false}
-        onConfigured={vi.fn()}
+        onSelectionReadyChange={vi.fn()}
       />,
     );
 
@@ -59,7 +59,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
   });
 
   it("commits the managed choice before reporting setup completion", async () => {
-    const onConfigured = vi.fn().mockResolvedValue(undefined);
+    const onSelectionReadyChange = vi.fn().mockResolvedValue(undefined);
     render(
       <GeminiRuntimeSettingsCard
         userId="fresh-user"
@@ -71,7 +71,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
         onRequestVaultCreation={vi.fn()}
         requiresExplicitSelection
         initiallyConfigured={false}
-        onConfigured={onConfigured}
+        onSelectionReadyChange={onSelectionReadyChange}
       />,
     );
 
@@ -79,11 +79,11 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       screen.getByRole("button", { name: /Hushh managed Gemini/i }),
     );
 
-    await waitFor(() => expect(onConfigured).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onSelectionReadyChange).toHaveBeenCalledTimes(1));
   });
 
   it("requires a responding Gemini key before confirmation and encrypted storage", async () => {
-    const onConfigured = vi.fn().mockResolvedValue(undefined);
+    const onSelectionReadyChange = vi.fn().mockResolvedValue(undefined);
     render(
       <GeminiRuntimeSettingsCard
         userId="fresh-user"
@@ -95,7 +95,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
         onRequestVaultCreation={vi.fn()}
         requiresExplicitSelection
         initiallyConfigured={false}
-        onConfigured={onConfigured}
+        onSelectionReadyChange={onSelectionReadyChange}
       />,
     );
 
@@ -119,7 +119,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm and save" }));
 
-    await waitFor(() => expect(onConfigured).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onSelectionReadyChange).toHaveBeenCalledTimes(1));
     expect(storeRuntimeSecretMock).toHaveBeenCalled();
   });
 

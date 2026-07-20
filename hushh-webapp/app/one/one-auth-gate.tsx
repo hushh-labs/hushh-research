@@ -8,7 +8,11 @@ import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { useAuth } from "@/hooks/use-auth";
-import { isPublicRoute, ROUTES } from "@/lib/navigation/routes";
+import {
+  isOneSetupSurfaceRoute,
+  isPublicRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 
 /**
@@ -33,9 +37,11 @@ import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppr
  * identity settles, including non-One route families.
  */
 /**
- * OAuth callbacks need an authenticated Firebase identity but cannot depend on
- * an in-memory vault key surviving the external provider round trip. Every
- * other private One route uses the hard vault gate below.
+ * OAuth callbacks and root-setup screens need an authenticated Firebase
+ * identity but cannot depend on an in-memory vault key. Setup is where a new
+ * user may create or choose that vault; capability screens add their own
+ * scoped vault prerequisite only when the specific operation requires it.
+ * Every other private One route uses the hard vault gate below.
  */
 const AUTH_ONLY_ROUTE_PREFIXES = [ROUTES.PROFILE_GMAIL_OAUTH_RETURN] as const;
 
@@ -82,7 +88,10 @@ export function OneAuthGate({ children }: { children: ReactNode }) {
     return <>{children}</>;
   }
 
-  if (isAuthOnlyRoute(pathname ?? "")) {
+  if (
+    isAuthOnlyRoute(pathname ?? "") ||
+    isOneSetupSurfaceRoute(pathname ?? "")
+  ) {
     return (
       <SignedInGate>
         <PhoneMandateGuard>{children}</PhoneMandateGuard>

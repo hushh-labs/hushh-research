@@ -33,6 +33,14 @@ downstream CRM path is public.
 - The generic CRM adapter uses Streamable HTTP MCP. A valid session performs
   `initialize`, retains the returned `Mcp-Session-Id`, then calls `tools/list`
   or the declared tool. No CRM records are needed to prove the handshake.
+- Registry writes have one authority: the validated `crm-registry.v1` operator
+  CLI. Partner descriptors stay in ignored local files and reference credential
+  environment-variable names only. `check` is static, `probe` verifies MCP,
+  `apply --activate` transactionally replaces the exact operation set and
+  increments `configuration_revision`, and `deactivate` preserves history while
+  failing closed. The historical seed command only delegates to this CLI.
+- Future CRM partners require a descriptor, runtime credentials, and a passing
+  probe. They do not require a migration or CRM-specific application code.
 
 ## CRM schema contract v1
 
@@ -63,6 +71,30 @@ values, identifiers, credentials, consent material, or vault material. Its
 validated result is cached by schema fingerprint for 24 hours. A mapping failure
 keeps the CRM catalogue-only and cannot bypass the registered operation,
 owner-binding, intent, confirmation, or readback controls.
+
+The normalized field catalogue is also cached in Postgres by CRM, primary
+object, and configuration revision. It is fresh for 24 hours. For up to seven
+days the last catalogue may render as display-only while one refresh runs;
+record actions always require a fresh catalogue. Successful operator activation
+prewarms this cache. No CRM record, binding ID, credential, intent, or staged
+edit enters the catalogue cache.
+
+## Operator workflow
+
+```bash
+cd consent-protocol
+python scripts/ops/configure_crm_registry.py check tmp/crm-registry/partner.json
+python scripts/ops/configure_crm_registry.py probe tmp/crm-registry/partner.json
+python scripts/ops/configure_crm_registry.py apply tmp/crm-registry/partner.json \
+  --activate --operator "$USER"
+```
+
+CRUD descriptors include synthetic create/read/update/delete arguments. The
+probe must create an isolated fixture, read it by returned ID, update and read
+back, delete it, then prove an ID read is absent. Cleanup is attempted if any
+intermediate verification fails. Audit events contain only the operator,
+configuration fingerprint, capabilities, structural result, revision, and
+timestamps.
 
 ## UAT verification boundary
 

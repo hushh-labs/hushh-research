@@ -211,8 +211,12 @@ compatibility-only and redirects known old links; `?finish=1` has no meaning.
   choice. Preferences alone never finish Finance.
 - **RIA** reuses the advisor flow and becomes finishable only after a
   non-rejected profile submission.
-- **Linked Systems** reuses the CRM panel and becomes finishable only after an
-  active record binding. Merely viewing the list is not completion.
+- **Linked Systems** reuses the CRM panel and remains optional. The CRM list is
+  the only screen that shows **Finish CRM setup**, and it may finish with zero
+  or more linked profiles. Each detail first offers **Find existing profile**
+  using server-verified email and phone. Only after no match does a separate
+  reviewable **Create profile** action appear when the registry allows create.
+  Linked profiles remain manageable later from `/one/connected-systems`.
 - **Shared terminal presentation**: every verified capability finish uses
   `SetupCompletionFooter`: one full-width terminal action in normal route flow
   above the Agent Bar. The shared hidden-shell scroll root owns

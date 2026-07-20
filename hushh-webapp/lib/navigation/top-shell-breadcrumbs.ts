@@ -517,17 +517,15 @@ export function resolveTopShellBreadcrumb(
 
   if (pathname === ROUTES.CONSENTS || pathname === ROUTES.LEGACY_CONSENTS) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
-    const privacyHref = profilePanelHref("access");
     const backHref =
-      resolveCapabilitySetupBackHref(pathname, originHref) || privacyHref;
+      resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME;
     return {
       backHref,
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: privacyHref },
-        { label: "Privacy", href: privacyHref },
-        { label: "Consent center" },
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Consent Center" },
       ],
     };
   }

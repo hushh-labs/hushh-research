@@ -264,12 +264,15 @@ class GeminiCrmSchemaMapper:
                 "CRM schema mapper is unavailable in this environment."
             ) from error
 
-        allowed_keys = [field["key"] for field in schema_projection["fields"]]
         slot_schema = {
             "type": "OBJECT",
             "nullable": True,
             "properties": {
-                "fieldKey": {"type": "STRING", "enum": allowed_keys, "nullable": True},
+                # Keep the provider response schema bounded. Repeating a 139-field
+                # enum across all semantic slots exceeds Vertex's structured-output
+                # schema limit and returns INVALID_ARGUMENT. `_validate_mapping`
+                # remains the fail-closed authority for accepted field keys.
+                "fieldKey": {"type": "STRING", "nullable": True},
                 "confidence": {"type": "NUMBER"},
                 "reason": {"type": "STRING"},
             },
@@ -297,6 +300,7 @@ class GeminiCrmSchemaMapper:
             response_mime_type="application/json",
             response_schema=response_schema,
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
         )
         try:
             response = await asyncio.wait_for(

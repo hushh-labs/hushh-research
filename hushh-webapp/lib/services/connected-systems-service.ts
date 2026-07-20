@@ -33,6 +33,12 @@ export type ConnectedSystemSummary = {
     version?: string;
   };
   fieldAllowlist?: string[];
+  configurationRevision?: number;
+};
+
+export type ConnectedSystemsRegistryResponse = {
+  registryRevision: number;
+  systems: ConnectedSystemSummary[];
 };
 
 export type ConnectedSystemSchemaResponse = {
@@ -80,6 +86,11 @@ export type ConnectedSystemSchemaResponse = {
     delete?: boolean;
   };
   configurationMessage?: string | null;
+  configurationRevision?: number;
+  schemaFingerprint?: string;
+  freshness?: "fresh" | "stale_display_only" | string;
+  refreshedAt?: string | null;
+  refreshGuidance?: string | null;
 };
 
 export type ConnectedSystemRecord = {
@@ -169,6 +180,17 @@ function authHeaders(vaultOwnerToken: string): HeadersInit {
   return ApiService.getAuthHeaders(vaultOwnerToken);
 }
 
+export class ConnectedSystemsRequestError extends Error {
+  constructor(
+    message: string,
+    readonly code: string | null,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = "ConnectedSystemsRequestError";
+  }
+}
+
 async function readJsonOrThrow<T>(response: Response): Promise<T> {
   const payload = (await response.json().catch(() => null)) as unknown;
   if (response.ok) {
@@ -184,7 +206,11 @@ async function readJsonOrThrow<T>(response: Response): Promise<T> {
       : typeof record.message === "string"
         ? record.message
         : `Connected Systems request failed (${response.status}).`;
-  throw new Error(message);
+  throw new ConnectedSystemsRequestError(
+    message,
+    typeof detail.code === "string" ? detail.code : null,
+    response.status
+  );
 }
 
 function systemPath(systemId?: string): string {
@@ -203,21 +229,30 @@ export class ConnectedSystemsService {
    * lanes), otherwise the caller's Firebase ID token. The backend accepts both.
    */
   static async listSystems(authToken: string): Promise<ConnectedSystemSummary[]> {
+    return (await this.getRegistry(authToken)).systems;
+  }
+
+  static async getRegistry(authToken: string): Promise<ConnectedSystemsRegistryResponse> {
     const response = await ApiService.apiFetch("/api/connected-systems", {
       method: "GET",
       headers: authHeaders(authToken),
     });
-    const payload = await readJsonOrThrow<{ systems?: ConnectedSystemSummary[] }>(response);
-    return Array.isArray(payload.systems) ? payload.systems : [];
+    const payload = await readJsonOrThrow<Partial<ConnectedSystemsRegistryResponse>>(response);
+    return {
+      registryRevision: Number(payload.registryRevision || 0),
+      systems: Array.isArray(payload.systems) ? payload.systems : [],
+    };
   }
 
   static async getSchema(input: {
     vaultOwnerToken: string;
     systemId?: string;
     objectType?: string;
+    forceRefresh?: boolean;
   }): Promise<ConnectedSystemSchemaResponse> {
     const query = new URLSearchParams();
     if (input.objectType) query.set("objectType", input.objectType);
+    if (input.forceRefresh) query.set("forceRefresh", "true");
     const suffix = query.toString() ? `?${query.toString()}` : "";
     const response = await ApiService.apiFetch(
       `/api/connected-systems/${systemPath(input.systemId)}/schema${suffix}`,
@@ -263,6 +298,19 @@ export class ConnectedSystemsService {
       }
     );
     return readJsonOrThrow<ConnectedSystemBindingResponse>(response);
+  }
+
+  static async listRecordBindingStatuses(
+    vaultOwnerToken: string
+  ): Promise<{ bindings: Array<{ systemId: string; objectType: string; status: string }> }> {
+    const response = await ApiService.apiFetch("/api/connected-systems/record-bindings", {
+      method: "GET",
+      headers: authHeaders(vaultOwnerToken),
+    });
+    const payload = await readJsonOrThrow<{
+      bindings?: Array<{ systemId: string; objectType: string; status: string }>;
+    }>(response);
+    return { bindings: Array.isArray(payload.bindings) ? payload.bindings : [] };
   }
 
   static async searchRecord(

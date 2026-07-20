@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import time
 from typing import Any
 from urllib.parse import urljoin
 
@@ -49,6 +51,10 @@ _AUTH_HEADER_STYLES: dict[str, tuple[str, str]] = {
 }
 _CANONICAL_CUSTOMER0_CRM_ID = "salesforce-fsc-customer0"
 _CUSTOMER0_ENTERPRISE_NAMES = ("macys", "macy's")
+_SNAPSHOT_TTL_SECONDS = 30.0
+_snapshot_lock = threading.Lock()
+_snapshot_expires_at = 0.0
+_snapshot_definitions: tuple[ConnectedSystemDefinition, ...] = ()
 
 
 def _resolve_endpoint(row: dict[str, Any]) -> str:
@@ -174,6 +180,8 @@ def _definition_from_row(
 ) -> ConnectedSystemDefinition:
     return ConnectedSystemDefinition(
         system_id=requested_crm_id,
+        registry_id=str(row.get("crm_id") or requested_crm_id),
+        configuration_revision=max(1, int(row.get("configuration_revision") or 1)),
         display_name=str(row.get("crm_enterprise_name") or ""),
         customer_display_name=str(row.get("crm_enterprise_name") or ""),
         system_type=str(row.get("crm_type") or ""),
@@ -415,6 +423,13 @@ def load_active_definition(
 
 def load_active_definitions(*, db: Any | None = None) -> tuple[ConnectedSystemDefinition, ...]:
     """Return all active CRM definitions without decrypting CRM credentials."""
+    global _snapshot_definitions, _snapshot_expires_at
+    use_snapshot = db is None
+    now = time.monotonic()
+    if use_snapshot:
+        with _snapshot_lock:
+            if _snapshot_definitions and now < _snapshot_expires_at:
+                return _snapshot_definitions
     database = db if db is not None else get_db()
     definitions: list[ConnectedSystemDefinition] = []
     for row in _load_active_rows(database):
@@ -428,4 +443,21 @@ def load_active_definitions(*, db: Any | None = None) -> tuple[ConnectedSystemDe
                 database=database,
             )
         )
-    return tuple(definitions)
+    resolved = tuple(definitions)
+    if use_snapshot:
+        with _snapshot_lock:
+            _snapshot_definitions = resolved
+            _snapshot_expires_at = time.monotonic() + _SNAPSHOT_TTL_SECONDS
+    return resolved
+
+
+def invalidate_registry_snapshot() -> None:
+    """Invalidate this process' short registry projection cache.
+
+    Operator activation invokes this directly. Other instances converge within
+    the bounded TTL; the Postgres revision remains the source of truth.
+    """
+    global _snapshot_definitions, _snapshot_expires_at
+    with _snapshot_lock:
+        _snapshot_definitions = ()
+        _snapshot_expires_at = 0.0

@@ -98,3 +98,35 @@ def test_demo_crm_response_mappings_and_schema_mapper_cache_are_release_register
         "mapping_json",
         "expires_at",
     } <= set(uat_contract["required_tables"]["crm_schema_mapping_cache"])
+
+
+def test_active_macys_registry_row_has_verified_response_contract_backfill():
+    migration = ROOT / "db" / "migrations" / "111_macys_crm_response_contracts.sql"
+    manifest = json.loads((ROOT / "db" / "release_migration_manifest.json").read_text())
+
+    assert migration.exists()
+    assert manifest["ordered_migrations"][-2] == "111_macys_crm_response_contracts.sql"
+    assert "111_macys_crm_response_contracts.sql" in manifest["groups"]["iam"]
+    sql = migration.read_text()
+    assert "crm_id = 'crm_001'" in sql
+    assert "crm-record-collection.v1" in sql
+    assert "crm-mutation-result.v1" in sql
+    assert "mcp_is_error_false" in sql
+
+
+def test_dynamic_crm_registry_cache_is_platform_migration():
+    migration = ROOT / "db" / "migrations" / "112_dynamic_crm_registry_cache.sql"
+    manifest = json.loads((ROOT / "db" / "release_migration_manifest.json").read_text())
+    uat_contract = json.loads(
+        (ROOT / "db" / "contracts" / "uat_integrated_schema.json").read_text()
+    )
+
+    sql = migration.read_text()
+    assert manifest["ordered_migrations"][-1] == migration.name
+    assert migration.name in manifest["groups"]["iam"]
+    assert "configuration_revision BIGINT NOT NULL DEFAULT 1" in sql
+    assert "CREATE TABLE IF NOT EXISTS crm_schema_catalog_cache" in sql
+    assert "CREATE TABLE IF NOT EXISTS crm_registry_audit_events" in sql
+    assert "credential" not in " ".join(
+        uat_contract["required_tables"]["crm_registry_audit_events"]
+    )

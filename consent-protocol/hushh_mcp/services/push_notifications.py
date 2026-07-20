@@ -125,7 +125,7 @@ def send_connection_request_push(addressee_user_id: str, requester_user_id: str)
         notification_type="connection_request",
         title="New connection request",
         body="Someone wants to connect with you on hushh.",
-        deep_link="/consents?mode=connections",
+        deep_link="/one/consent?tab=connections",
         notification_tag=f"connection-request:{addressee_user_id}",
         notification_category="ONE_CONNECTIONS",
         data={"requester_user_id": requester_user_id},

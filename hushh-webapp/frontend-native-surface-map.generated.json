@@ -5474,8 +5474,9 @@
           "screen": "one_setup_hub",
           "entry_cue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
           "proactivity": "on_entry",
-          "primary_action_id": "setup.open_location",
+          "primary_action_id": "setup.open_connections",
           "happy_path_action_ids": [
+            "setup.open_connections",
             "setup.open_location",
             "setup.open_email",
             "setup.open_finance",
@@ -5664,11 +5665,13 @@
         "voice_playbook": {
           "playbook_id": "route.one.setup.connections",
           "purpose": "Choose private Gemini runtime configuration before feature-specific setup without exposing an API key to the agent.",
-          "screen": "app",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
+          "screen": "one_setup_connections",
+          "entry_cue": "Choose Hushh managed Gemini or your own validated Gemini key, then finish Connections setup.",
+          "proactivity": "on_entry",
+          "primary_action_id": "setup.finish_connections",
+          "happy_path_action_ids": [
+            "setup.finish_connections"
+          ],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -5703,8 +5706,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/setup/connections/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "setup.finish_connections"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -7292,5 +7297,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "b5bc2e8631757344e325a71175fa1b53b344a93bf8a8e1f237e44c156636a25f"
+  "content_sha256": "250364442b13ed150e4158a2ffc3a50e8b96acf5ef404d7a84a612fabe4e7957"
 }

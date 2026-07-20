@@ -49,6 +49,7 @@ export function ConnectedSystemsOnboardingSetupClient() {
       <AppPageContentRegion>
         <VaultStatusInline className="mb-3 px-1" />
         <ConnectedSystemsPanel
+          cacheUserId={user?.uid}
           vaultOwnerToken={vaultOwnerToken}
           onRequestUnlock={() => setShowUnlock(true)}
           mode={systemId ? "detail" : "list"}
@@ -58,11 +59,13 @@ export function ConnectedSystemsOnboardingSetupClient() {
           presentation="setup"
         />
       </AppPageContentRegion>
-      <SetupCapabilityTerminalFooter
-        capabilityId="connected-systems"
-        isOperationallyReady={ready}
-        coordinator={coordinator}
-      />
+      {!systemId ? (
+        <SetupCapabilityTerminalFooter
+          capabilityId="connected-systems"
+          isOperationallyReady={ready}
+          coordinator={coordinator}
+        />
+      ) : null}
       {user ? (
         <VaultUnlockDialog
           user={user}

@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 110,
+  "expected_migration_version": 112,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -830,7 +830,9 @@
       "crm_client_secret_blob",
       "kdf_salt",
       "kdf_iterations",
-      "crm_delete_endpoint"
+      "crm_delete_endpoint",
+      "configuration_revision",
+      "validated_at"
     ],
     "crm_operation_endpoints": [
       "crm_id",
@@ -852,6 +854,28 @@
       "failure_code",
       "refreshed_at",
       "expires_at"
+    ],
+    "crm_schema_catalog_cache": [
+      "crm_id",
+      "object_type",
+      "configuration_revision",
+      "schema_fingerprint",
+      "schema_json",
+      "refreshed_at",
+      "fresh_until",
+      "stale_until"
+    ],
+    "crm_registry_audit_events": [
+      "event_id",
+      "crm_id",
+      "action",
+      "operator_identity",
+      "configuration_fingerprint",
+      "configuration_revision",
+      "capabilities_json",
+      "validation_result",
+      "validation_summary_json",
+      "created_at"
     ],
     "trusted_connections": [
       "id",

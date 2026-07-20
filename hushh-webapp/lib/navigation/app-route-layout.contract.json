@@ -80,8 +80,9 @@
       "screen": "one_setup_hub",
       "entryCue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
       "proactivity": "on_entry",
-      "primaryActionId": "setup.open_location",
+      "primaryActionId": "setup.open_connections",
       "happyPathActionIds": [
+        "setup.open_connections",
         "setup.open_location",
         "setup.open_email",
         "setup.open_finance",
@@ -1470,7 +1471,7 @@
     "mode": "standard",
     "shellVerification": {"file": "components/connections/gemini-runtime-configuration-page.tsx", "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader"]},
     "voicePlaybook": {
-      "playbookId": "route.one.setup.connections", "purpose": "Choose private Gemini runtime configuration before feature-specific setup without exposing an API key to the agent.", "screen": "app", "entryCue": "", "proactivity": "ambient", "primaryActionId": null, "happyPathActionIds": [], "requiredInputs": [],
+      "playbookId": "route.one.setup.connections", "purpose": "Choose private Gemini runtime configuration before feature-specific setup without exposing an API key to the agent.", "screen": "one_setup_connections", "entryCue": "Choose Hushh managed Gemini or your own validated Gemini key, then finish Connections setup.", "proactivity": "on_entry", "primaryActionId": "setup.finish_connections", "happyPathActionIds": ["setup.finish_connections"], "requiredInputs": [],
       "recoveries": {"blocked": "Explain the current guard and retain the goal.", "cancelled": "Respect the cancellation and retain a safe next step.", "failed": "Acknowledge the failure without claiming completion.", "timeout": "Retain the goal and offer one safe retry.", "callbackError": "Return to the verified callback recovery path without claiming success.", "routeMismatch": "Use the verified current route and its generated actions only."},
       "completionBoundary": "The selected runtime is applied only after the vault-backed configuration mutation succeeds.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }

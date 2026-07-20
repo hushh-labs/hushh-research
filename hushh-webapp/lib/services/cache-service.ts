@@ -189,6 +189,7 @@ class CacheService {
       CACHE_KEYS.RIA_HOME(userId),
       CACHE_KEYS.RIA_PICKS(userId),
       CACHE_KEYS.ONE_LOCATION_STATE(userId),
+      CACHE_KEYS.CONNECTED_SYSTEMS_REGISTRY(userId),
     ]);
 
     for (const key of this.cache.keys()) {
@@ -208,7 +209,8 @@ class CacheService {
         key.startsWith(`ria_client_detail_${userId}_`) ||
         key.startsWith(`ria_workspace_${userId}_`) ||
         key.startsWith(`marketplace_rias_`) ||
-        key.startsWith(`marketplace_investors_`)
+        key.startsWith(`marketplace_investors_`) ||
+        key.startsWith(`connected_systems_${userId}_`)
       ) {
         keysToDelete.add(key);
       }
@@ -324,6 +326,9 @@ export const CACHE_KEYS = {
   KAI_PROFILE: (userId: string) => `kai_profile_${userId}`,
   ANALYSIS_HISTORY: (userId: string) => `analysis_history_${userId}`,
   ONE_LOCATION_STATE: (userId: string) => `one_location_state_${userId}`,
+  CONNECTED_SYSTEMS_REGISTRY: (userId: string) => `connected_systems_${userId}_registry`,
+  CONNECTED_SYSTEM_SCHEMA: (userId: string, systemId: string, objectType: string) =>
+    `connected_systems_${userId}_schema_${systemId}_${objectType}`,
   PKM_UPGRADE_STATUS: (userId: string) => `pkm_upgrade_status_${userId}`,
   STOCK_CONTEXT: (userId: string, ticker: string) => `stock_context_${userId}_${ticker}`,
   KAI_MARKET_HOME: (

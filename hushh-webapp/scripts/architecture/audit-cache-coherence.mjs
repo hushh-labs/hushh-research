@@ -75,6 +75,28 @@ function sourceForRoute(route, contractEntry) {
       sources.push(read(absolute));
     }
   }
+  let joined = sources.join("\n\n");
+  if (joined.includes("ConnectedSystemDetailClient")) {
+    sources.push(
+      read(
+        path.join(
+          appRoot,
+          "app/one/connected-systems/[systemId]/connected-system-detail-client.tsx",
+        ),
+      ),
+    );
+    joined = sources.join("\n\n");
+  }
+  if (joined.includes("ConnectedSystemsPanel")) {
+    sources.push(
+      read(
+        path.join(
+          appRoot,
+          "components/profile/connected-systems-panel.tsx",
+        ),
+      ),
+    );
+  }
   return sources.join("\n\n");
 }
 
@@ -112,6 +134,15 @@ function isConsentCenterRoute(route) {
   return route === "/consents" || route === "/one/consent";
 }
 
+function isConnectedSystemsRoute(route) {
+  return (
+    route === "/one/connected-systems" ||
+    route.startsWith("/one/connected-systems/") ||
+    route === "/one/profile/connected-systems" ||
+    route === "/one/setup/connected-systems"
+  );
+}
+
 function screenClassForRoute(route, mode, flags) {
   if (mode === "redirect") return "redirect/alias";
   if (
@@ -143,7 +174,7 @@ function screenClassForRoute(route, mode, flags) {
     route === "/one/kyc" ||
     route === "/pkm" ||
     route === "/gmail" ||
-    route === "/connected-systems" ||
+    isConnectedSystemsRoute(route) ||
     route.startsWith("/one/profile/pkm") ||
     route === "/one/profile/receipts"
   ) {
@@ -163,6 +194,9 @@ function cachePolicyFor(route, screenClass, flags) {
     return "secure-resource";
   if (route === "/one/kai") return "device-resource";
   if (route === "/one/kai/news") return "device-resource";
+  if (isConnectedSystemsRoute(route)) {
+    return "memory-only";
+  }
   if (screenClass === "PKM-secure") return "secure-resource";
   if (screenClass === "realtime/SSE")
     return flags.secure_cache
@@ -187,8 +221,9 @@ function routeCacheKeys(route) {
     return ["PKM_METADATA", "PKM_DOMAIN_RESOURCE", "PKM_UPGRADE_STATUS"];
   if (route === "/gmail")
     return ["Gmail receipts resource cache", "PKM_DOMAIN_RESOURCE"];
-  if (route === "/connected-systems")
-    return ["CONNECTED_SYSTEMS", "CONNECTED_SYSTEM_INTENTS"];
+  if (isConnectedSystemsRoute(route)) {
+    return ["CONNECTED_SYSTEMS_REGISTRY", "CONNECTED_SYSTEM_SCHEMA"];
+  }
   if (route === "/one/profile/pkm-agent-lab")
     return ["PKM_METADATA", "PKM_DOMAIN_RESOURCE", "PKM_UPGRADE_STATUS"];
   if (route === "/one/profile/receipts")
@@ -227,10 +262,12 @@ function resourceClassesFor(route, screenClass) {
   if (isConsentCenterRoute(route)) return ["consent_list"];
   if (route === "/one/kyc") return ["pkm_projection", "consent_list"];
   if (route === "/one/profile") return ["vault_metadata", "pkm_metadata"];
+  if (isConnectedSystemsRoute(route)) {
+    return ["crm_registry_metadata", "crm_schema_metadata"];
+  }
   if (
     route === "/pkm" ||
     route === "/gmail" ||
-    route === "/connected-systems" ||
     route.startsWith("/one/profile/pkm") ||
     route === "/one/profile/receipts"
   ) {
@@ -325,6 +362,9 @@ function ttlClassFor(route, screenClass) {
     return "single-use";
   if (screenClass === "realtime/SSE")
     return "CACHE_TTL.SHORT with active stream patching";
+  if (isConnectedSystemsRoute(route)) {
+    return "CACHE_TTL.MEDIUM when mapping is ready; CACHE_TTL.SHORT when unavailable";
+  }
   if (screenClass === "RIA/provider" || route.startsWith("/one/kai"))
     return "CACHE_TTL.MEDIUM";
   if (screenClass === "PKM-secure")
@@ -344,6 +384,9 @@ function warmSourceFor(route, screenClass) {
     return "RIA service memory/device cache";
   if (isConsentCenterRoute(route))
     return "UnlockWarmOrchestrator plus ConsentCenterService memory cache";
+  if (isConnectedSystemsRoute(route)) {
+    return "ConnectedSystemsPanel user-scoped memory cache with stale-aware background refresh";
+  }
   if (screenClass === "PKM-secure")
     return "Vault unlock plus secure resource cache";
   return "Route-local resource loader";
@@ -365,11 +408,13 @@ function invalidatorFor(route, screenClass) {
     return "none";
   if (isConsentCenterRoute(route) || route.includes("/requests"))
     return "CacheSyncService.onConsentMutated";
+  if (isConnectedSystemsRoute(route)) {
+    return "explicit refresh plus CacheService user/session invalidation";
+  }
   if (
     route.startsWith("/one/kai") ||
     route === "/pkm" ||
     route === "/gmail" ||
-    route === "/connected-systems" ||
     route === "/one/profile/receipts" ||
     route === "/one/kyc"
   ) {

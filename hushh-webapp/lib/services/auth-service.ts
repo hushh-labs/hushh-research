@@ -863,19 +863,26 @@ export class AuthService {
   static async signOut(): Promise<void> {
     this.debugLog("🚪 [AuthService] Signing out...");
 
-    try {
-      // Sign out using Custom HushhAuth plugin
-      await HushhAuth.signOut();
-
-      // Also sign out from Firebase JS SDK for web consistency
-      await firebaseSignOut(auth);
-
-      this.debugLog("✅ [AuthService] Sign-out complete");
-    } catch (error) {
+    // Native and Firebase JS auth are independent persistence owners in a
+    // Capacitor WebView. Always attempt both; a failure in one must never
+    // short-circuit cleanup of the other.
+    const results = await Promise.allSettled([
+      HushhAuth.signOut(),
+      firebaseSignOut(auth),
+    ]);
+    const failures = results.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failures.length > 0) {
+      const error = new AggregateError(
+        failures.map((failure) => failure.reason),
+        "One or more authentication stores failed to sign out",
+      );
       this.debugError("❌ [AuthService] Sign-out error", error);
-      toast.error("SignOut Failed: " + error);
       throw error;
     }
+
+    this.debugLog("✅ [AuthService] Sign-out complete");
   }
 
   static async startPhoneLinkVerification(

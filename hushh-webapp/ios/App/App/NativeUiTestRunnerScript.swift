@@ -123,12 +123,10 @@ enum NativeUiTestRunnerScript {
     var exactLabels = [
       "not now, continue with passphrase",
       "not now",
-      "skip",
       "skip tour",
       "got it",
       "maybe later",
       "dismiss",
-      "continue",
     ];
     var buttons = Array.prototype.slice.call(
       document.querySelectorAll("button, [role='button']"),
@@ -764,6 +762,16 @@ enum NativeUiTestRunnerScript {
     }
   }
 
+  async function waitForHiddenTestId(testId, timeoutMs) {
+    var selector = '[data-testid="' + testId + '"]';
+    var hidden = await waitForCondition(function () {
+      return !firstVisible(selector);
+    }, timeoutMs || 30000);
+    if (!hidden) {
+      throw new Error("expected hidden testid: " + testId);
+    }
+  }
+
   async function waitForViewportVisibleTestId(testId, timeoutMs) {
     var selector = '[data-testid="' + testId + '"]';
     var ready = await waitForCondition(function () {
@@ -1251,6 +1259,10 @@ enum NativeUiTestRunnerScript {
         return;
       case "assert_visible_testid":
         await waitForVisibleTestId(step.testId, step.timeoutMs);
+        nativeTestBridge().uiFlowCheckpoint = step.testId || "";
+        return;
+      case "assert_not_visible_testid":
+        await waitForHiddenTestId(step.testId, step.timeoutMs);
         return;
       case "assert_viewport_visible_testid":
         await waitForViewportVisibleTestId(step.testId, step.timeoutMs);
@@ -1300,6 +1312,9 @@ enum NativeUiTestRunnerScript {
           }),
         ]);
         var successfulStep = { step: i, type: step.type, ok: true };
+        if (step.type === "assert_visible_testid" && step.testId) {
+          successfulStep.checkpoint = step.testId;
+        }
         results.push(successfulStep);
         if (
           flow.requiresRiaWorkspace === true &&

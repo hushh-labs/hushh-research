@@ -98,7 +98,7 @@ gcloud is used for **GCP resources** that support the FCM-based flow:
 2. **Notification worker** (in consent-protocol) **LISTEN**s; on NOTIFY it:
    - Sends FCM to the user’s registered tokens (Firebase Admin SDK),
    - Pushes the event into a per-user in-app queue for SSE.
-3. **Web client**: Requests permission, gets FCM token (`getToken` with VAPID key), registers token via `POST /api/notifications/register`; handles **onMessage** (foreground) and **notificationclick** (service worker) to open `/consents?tab=pending`.
+3. **Web client**: Requests permission, gets FCM token (`getToken` with VAPID key), registers token via `POST /api/notifications/register`; handles **onMessage** (foreground) and **notificationclick** (service worker) to open `/one/consent?tab=pending`.
 
 See the plan in `.cursor/plans/` and [consent-protocol.md](./consent-protocol.md) for full flow.
 

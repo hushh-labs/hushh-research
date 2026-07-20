@@ -1,6 +1,23 @@
 import { createHash } from "node:crypto";
 
 export const NATIVE_UI_AUDIT_PLAN_VERSION = 1;
+export const NATIVE_UI_TERMINAL_STATUS_GRACE_MS = 10_000;
+
+const TERMINAL_NATIVE_STATUS = {
+  ui_complete: "1",
+  ui_ok: "1",
+  uirunner: "1",
+  runui: "1",
+  uistarted: "1",
+  bootstrap: "vault_unlocked",
+  bootstrap_uid_ok: "1",
+};
+
+export function hasTerminalNativeUiStatus(status = {}) {
+  return Object.entries(TERMINAL_NATIVE_STATUS).every(
+    ([key, expected]) => String(status?.[key] || "") === expected,
+  );
+}
 
 function cloneSerializable(value) {
   return JSON.parse(JSON.stringify(value));
@@ -58,6 +75,10 @@ export function createNativeUiAuditPlan(flows) {
     required_flow_ids: flowIds.filter((id) => !optionalFlowIds.includes(id)),
     optional_flow_ids: optionalFlowIds,
     conditional_ria_workspace_flow_ids: conditionalFlowIds,
+    flows: source.flows.map((flow) => ({
+      id: flow.id,
+      watchdog: flow.watchdog || null,
+    })),
   };
 }
 
@@ -139,18 +160,23 @@ export function validateNativeUiAuditCompletion({ report, status = {}, plan, run
     ) {
       return validationFailure(`required UI flow was skipped: ${flow.id}`);
     }
+    const authoredFlow = (plan.flows || []).find(
+      (candidate) => candidate?.id === flow.id,
+    );
+    const checkpoints = authoredFlow?.watchdog?.checkpoints || [];
+    if (checkpoints.length > 0) {
+      const observed = (flow.results || [])
+        .map((result) => result?.checkpoint)
+        .filter(Boolean);
+      if (!sameArray(observed, checkpoints)) {
+        return validationFailure(
+          `terminal UI flow checkpoints are incomplete or out of order: ${flow.id}`,
+        );
+      }
+    }
   }
 
-  const requiredStatus = {
-    ui_complete: "1",
-    ui_ok: "1",
-    uirunner: "1",
-    runui: "1",
-    uistarted: "1",
-    bootstrap: "vault_unlocked",
-    bootstrap_uid_ok: "1",
-  };
-  for (const [key, expected] of Object.entries(requiredStatus)) {
+  for (const [key, expected] of Object.entries(TERMINAL_NATIVE_STATUS)) {
     if (String(status?.[key] || "") !== expected) {
       return validationFailure(`terminal native status is missing ${key}`);
     }
@@ -192,5 +218,32 @@ export function nativeUiFlowStepTimeoutMs(flows, status = {}) {
     return 45_000;
   }
   const step = flow.steps?.[stepIndex];
-  return Number(step?.timeoutMs || flow.stepTimeoutMs || 30_000);
+  return Number(
+    step?.timeoutMs ||
+      flow.watchdog?.maxNoProgressMs ||
+      flow.stepTimeoutMs ||
+      30_000,
+  );
+}
+
+export function advanceNativeUiCheckpoint({ flows, status, highestByFlow }) {
+  const flowId = String(status?.ui_flow || "");
+  const checkpoint = String(status?.ui_checkpoint || "");
+  if (!flowId || !checkpoint) return { ok: true, advanced: false };
+  const flow = (flows || []).find((candidate) => candidate?.id === flowId);
+  const checkpoints = flow?.watchdog?.checkpoints || [];
+  if (checkpoints.length === 0) return { ok: true, advanced: false };
+  const index = checkpoints.indexOf(checkpoint);
+  if (index < 0) {
+    return { ok: false, advanced: false, reason: "unknown checkpoint" };
+  }
+  const previous = highestByFlow.get(flowId) ?? -1;
+  if (index < previous) {
+    return { ok: false, advanced: false, reason: "checkpoint regression" };
+  }
+  if (index > previous) {
+    highestByFlow.set(flowId, index);
+    return { ok: true, advanced: true };
+  }
+  return { ok: true, advanced: false };
 }

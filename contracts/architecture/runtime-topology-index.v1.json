@@ -681,12 +681,13 @@
     {
       "data_class": "provider_cache",
       "exact_tables": [
-        "crm_schema_mapping_cache"
+        "crm_schema_mapping_cache",
+        "crm_schema_catalog_cache"
       ],
       "id": "crm_schema_mapping_cache",
       "lifecycle_status": "customer0",
       "owner": "backend-agents-operons",
-      "primary_access_path": "Connected Systems schema-mapper cache for a CRM object schema fingerprint and the tool-less field-role proposal used by verified-identity lookup and create-field selection."
+      "primary_access_path": "Connected Systems provider-schema catalogue and mapper caches for a CRM object schema fingerprint and the tool-less field-role proposal used by verified-identity lookup and create-field selection."
     },
     {
       "data_class": "audit_regulated",
@@ -716,6 +717,16 @@
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
       "primary_access_path": "DB-backed Connected Systems resolution: gateway URL + per-operation MCP tool catalog for enterprise CRM integrations (replaces hardcoded ConnectedSystemDefinition)"
+    },
+    {
+      "data_class": "audit_regulated",
+      "exact_tables": [
+        "crm_registry_audit_events"
+      ],
+      "id": "enterprise_crm_registry_audit",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Operator CRM registry validation, activation, update, and deactivation audit trail."
     },
     {
       "data_class": "audit_regulated",
@@ -1223,8 +1234,7 @@
         "policy": "none",
         "refresh_trigger": "none",
         "resource_classes": [
-          "pkm_metadata",
-          "pkm_projection"
+          "unknown"
         ]
       },
       "implementation_override": null,
@@ -1926,7 +1936,8 @@
         "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
-          "unknown"
+          "crm_registry_metadata",
+          "crm_schema_metadata"
         ]
       },
       "implementation_override": null,
@@ -1951,7 +1962,8 @@
         "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
-          "unknown"
+          "crm_registry_metadata",
+          "crm_schema_metadata"
         ]
       },
       "implementation_override": null,
@@ -2779,7 +2791,8 @@
         "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
-          "unknown"
+          "crm_registry_metadata",
+          "crm_schema_metadata"
         ]
       },
       "implementation_override": null,
@@ -3268,6 +3281,7 @@
         "action_ids": [
           "setup.hub_master_ack",
           "setup.open_connected_systems",
+          "setup.open_connections",
           "setup.open_email",
           "setup.open_finance",
           "setup.open_location",
@@ -3307,7 +3321,8 @@
         "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
-          "unknown"
+          "crm_registry_metadata",
+          "crm_schema_metadata"
         ]
       },
       "implementation_override": null,
@@ -3344,7 +3359,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "setup.finish_connections"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.setup.connections"
       }
@@ -4027,21 +4044,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "3b982f93d40af2824d12b24b1dd5f8801baac0753f727fd4f5bec9a53588e757",
+    "action_gateway": "f8e28a0777bdb70ad7932a10219a60135b5929bb8998ae554850c35c97dbc5ee",
     "agent_registry": "22484910826ab19edb90b6808f2d4f7f2cf734d8844ff5115d79ceb0e8d80c2c",
-    "cache_manifest": "d8d6e006f58035a66785ffb729dad7bf663b8be9522986d81d88abcec32d4777",
-    "data_plane": "d7f4ea048c6d197179b384ddbd02d7d6355331e3cd849b1be76dc4ca1e1a954a",
+    "cache_manifest": "d23f81539d21f6d00591686d6c2dcc464c54e0168ca5a7944fe094b7baa83a12",
+    "data_plane": "6b7bbd585ee8b8ef52cc6e48269c6deab238e2b5ddaf59f61e12a4bb9dd0ab00",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "915ee98564845b9b657b42226df4bb529cfdcbccf38ee5171d73e24e411a729c",
-    "route_index": "0a7d0f6617cfda37bc8aaa81d31d178d260c1fba372b4581c6aa3502fb660eea",
-    "route_layout": "13449a91dc72b39d26e828c61ee80a1963f79766f2f16e5405f471a796cedd09",
-    "surface_map": "f4fe004e70825b4b75a37b98d1443ab1b3f21b52628300b24556aa2cd065aa95",
+    "route_index": "7634c61bec8568589f038d372db7568231f0d08e63f5f04600a4927ca9cd4f10",
+    "route_layout": "7ea669b5a05588dacbe9bbd17f8b1fe8c698ff03b64d0c685887d1c02b0cb79b",
+    "surface_map": "c10aec49af2e622f239275f847b136a40a618be818e217a931e759eb2d9f31cf",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 115,
+    "actions": 117,
     "agents": 18,
     "aliases": 3,
     "decision_required": 2,
@@ -4049,6 +4066,6 @@
     "one_specialist_tools": 5,
     "physical_routes": 107,
     "semantic_routes": 14,
-    "table_families": 30
+    "table_families": 31
   }
 }

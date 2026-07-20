@@ -1,11 +1,28 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  advanceNativeUiCheckpoint,
   createNativeUiAuditManifest,
   createNativeUiAuditPlan,
+  hasTerminalNativeUiStatus,
   nativeUiFlowStepTimeoutMs,
   validateNativeUiAuditCompletion,
 } from "../../scripts/native/native-ui-audit-plan.mjs";
+
+const WATCHDOG_FLOW = {
+  id: "ordered-onboarding",
+  route: "/one/location",
+  watchdog: {
+    checkpoints: ["welcome", "arrival", "permissions"],
+    maxCheckpointRegressions: 0,
+    maxNoProgressMs: 20_000,
+  },
+  steps: [
+    { type: "assert_visible_testid", testId: "welcome" },
+    { type: "assert_visible_testid", testId: "arrival" },
+    { type: "assert_visible_testid", testId: "permissions" },
+  ],
+};
 
 const FLOWS = [
   {
@@ -64,6 +81,22 @@ function completeStatus(plan: ReturnType<typeof createNativeUiAuditPlan>) {
 }
 
 describe("native UI audit plan", () => {
+  it("recognizes only fully settled native terminal status", () => {
+    const plan = createNativeUiAuditPlan(FLOWS);
+    const terminalStatus = completeStatus(plan);
+
+    expect(hasTerminalNativeUiStatus(terminalStatus)).toBe(true);
+    expect(
+      hasTerminalNativeUiStatus({ ...terminalStatus, ui_complete: "0" }),
+    ).toBe(false);
+    expect(
+      hasTerminalNativeUiStatus({
+        ...terminalStatus,
+        bootstrap: "waiting_vault_user",
+      }),
+    ).toBe(false);
+  });
+
   it("generates a deterministic manifest that binds executable flow content", () => {
     const first = createNativeUiAuditPlan(FLOWS);
     const second = createNativeUiAuditPlan(FLOWS);
@@ -127,5 +160,104 @@ describe("native UI audit plan", () => {
     expect(nativeUiFlowStepTimeoutMs(FLOWS, { ui_flow: "required-route", ui_step: "0" })).toBe(30_000);
     expect(nativeUiFlowStepTimeoutMs(FLOWS, { ui_flow: "optional-card", ui_step: "0" })).toBe(60_000);
     expect(nativeUiFlowStepTimeoutMs(FLOWS, { ui_flow: "missing", ui_step: "0" })).toBe(45_000);
+    expect(
+      nativeUiFlowStepTimeoutMs([WATCHDOG_FLOW], {
+        ui_flow: WATCHDOG_FLOW.id,
+        ui_step: "0",
+      }),
+    ).toBe(20_000);
+  });
+
+  it("allows checkpoint polling but fails closed on unknown or regressive screens", () => {
+    const highestByFlow = new Map<string, number>();
+    const status = (checkpoint: string) => ({
+      ui_flow: WATCHDOG_FLOW.id,
+      ui_checkpoint: checkpoint,
+    });
+
+    expect(
+      advanceNativeUiCheckpoint({
+        flows: [WATCHDOG_FLOW],
+        status: status("welcome"),
+        highestByFlow,
+      }),
+    ).toEqual({ ok: true, advanced: true });
+    expect(
+      advanceNativeUiCheckpoint({
+        flows: [WATCHDOG_FLOW],
+        status: status("welcome"),
+        highestByFlow,
+      }),
+    ).toEqual({ ok: true, advanced: false });
+    expect(
+      advanceNativeUiCheckpoint({
+        flows: [WATCHDOG_FLOW],
+        status: status("arrival"),
+        highestByFlow,
+      }),
+    ).toEqual({ ok: true, advanced: true });
+    expect(
+      advanceNativeUiCheckpoint({
+        flows: [WATCHDOG_FLOW],
+        status: status("welcome"),
+        highestByFlow,
+      }),
+    ).toEqual({ ok: false, advanced: false, reason: "checkpoint regression" });
+    expect(
+      advanceNativeUiCheckpoint({
+        flows: [WATCHDOG_FLOW],
+        status: status("unknown"),
+        highestByFlow: new Map(),
+      }),
+    ).toEqual({ ok: false, advanced: false, reason: "unknown checkpoint" });
+  });
+
+  it("requires every authored watchdog checkpoint in the terminal report", () => {
+    const plan = createNativeUiAuditPlan([WATCHDOG_FLOW]);
+    const baseReport = {
+      ok: true,
+      auditRunId: "ios-test-run",
+      auditPlanVersion: plan.version,
+      auditPlanDigest: plan.digest,
+      startedAt: "2026-07-19T00:00:00.000Z",
+      completedAt: "2026-07-19T00:00:01.000Z",
+      flows: [
+        {
+          id: WATCHDOG_FLOW.id,
+          ok: true,
+          results: WATCHDOG_FLOW.watchdog.checkpoints.map((checkpoint, step) => ({
+            step,
+            type: "assert_visible_testid",
+            ok: true,
+            checkpoint,
+          })),
+        },
+      ],
+    };
+
+    expect(
+      validateNativeUiAuditCompletion({
+        report: baseReport,
+        status: completeStatus(plan),
+        plan,
+        runId: "ios-test-run",
+      }).ok,
+    ).toBe(true);
+    expect(
+      validateNativeUiAuditCompletion({
+        report: {
+          ...baseReport,
+          flows: [
+            {
+              ...baseReport.flows[0],
+              results: baseReport.flows[0].results.slice(0, 2),
+            },
+          ],
+        },
+        status: completeStatus(plan),
+        plan,
+        runId: "ios-test-run",
+      }).ok,
+    ).toBe(false);
   });
 });

@@ -75,7 +75,7 @@ const SAME_SESSION_SHELL_ROUTES = new Set([
   "/ria/clients/[userId]/accounts/[accountId]",
   "/ria/picks",
   "/marketplace",
-  "/consents",
+  "/one/consent",
   "/one/kai",
   "/one/kai/portfolio",
   "/one/kai/import",
@@ -270,8 +270,8 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/marketplace/connections": {
     path: "/marketplace/connections",
-    expectedPathname: "/consents",
-    allowedRouteIds: ["/consents"],
+    expectedPathname: "/one/consent",
+    allowedRouteIds: ["/one/consent"],
   },
   "/marketplace/connections/portfolio": {
     path: "/marketplace/connections/portfolio",
@@ -280,8 +280,8 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/ria/requests": {
     path: "/ria/requests",
-    expectedPathname: "/consents",
-    allowedRouteIds: ["/consents"],
+    expectedPathname: "/one/consent",
+    allowedRouteIds: ["/one/consent"],
   },
   "/ria/settings": {
     path: "/ria/settings",
@@ -1044,8 +1044,8 @@ async function navigateViaShell(page, spec) {
     case "/one/kyc":
       await requestAppNavigation(page, "/one/kyc");
       return true;
-    case "/consents":
-      await requestAppNavigation(page, "/consents?tab=pending");
+    case "/one/consent":
+      await requestAppNavigation(page, "/one/consent?tab=pending");
       return true;
     case "/ria/clients/[userId]":
       await requestNativeTestRoute(page, spec.path, spec.allowedRouteIds);
@@ -1393,7 +1393,7 @@ async function verifyRiaWorkspaceFlow(page, viewport) {
     await waitForRouteBeacon(page, ["/ria/clients/[userId]"]);
     await page.getByTestId("ria-client-workspace-access").waitFor({ state: "visible", timeout: 15000 });
     await page.getByRole("link", { name: /open access/i }).first().click();
-    await waitForRouteBeacon(page, ["/consents"]);
+    await waitForRouteBeacon(page, ["/one/consent"]);
 
     await assertClientNavigationContextPreserved(page, contextProbe, "ria-workspace-flow", viewport);
     assertNoIssues("ria-workspace-flow", viewport, issues);

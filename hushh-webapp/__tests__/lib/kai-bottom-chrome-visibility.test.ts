@@ -6,7 +6,6 @@ import {
   resetKaiBottomChromeVisibility,
   snapKaiBottomChromeVisible,
   syncKaiBottomChromeVisibilityToScroll,
-  useKaiBottomChromeElementTranslation,
   useKaiBottomChromeVisibility,
 } from "@/lib/navigation/kai-bottom-chrome-visibility";
 
@@ -82,22 +81,6 @@ describe("kai bottom chrome visibility singleton", () => {
 
     act(() => snapKaiBottomChromeVisible());
     expect(result.current.progress).toBe(0);
-  });
-
-  it("settles a fixed sibling into the bottom-nav slot through shared CSS motion", () => {
-    const probe = document.createElement("div");
-    document.body.append(probe);
-    const elementRef = { current: probe };
-    const { unmount } = renderHook(() =>
-      useKaiBottomChromeElementTranslation(elementRef, true),
-    );
-
-    expect(probe.style.transform).toBe(
-      "translate3d(0, calc((var(--kb-height, 0px) * -1) + (var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height)))), 0)",
-    );
-
-    unmount();
-    probe.remove();
   });
 
   it("returns to mean position when a transient consumer remounts at the top after the singleton was left stuck hidden", () => {

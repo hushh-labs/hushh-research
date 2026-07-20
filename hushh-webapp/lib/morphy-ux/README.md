@@ -145,16 +145,15 @@ points feed the same envelope so no call site needs special handling:
 1. **Link clicks** — a capture-phase click interceptor catches same-origin `<a>`
    navigations and starts the exit beat at the earliest possible moment (before
    React re-renders), then pushes the route.
-2. **All programmatic navigation** — `useRouteTransition` patches the History
-   API (`history.pushState` / `history.replaceState`) **once**. Next.js App
-   Router routes every `router.push` / `router.replace` through those two
-   methods, so this single patch gives all programmatic navigations (bottom nav,
-   tab bars, top app bar, buttons, onboarding handlers, voice/agent runtimes,
-   auth guards/redirects — ~185 call sites) the same exit→enter crossfade
-   without editing any of them. The patch runs the exit beat, then defers the
-   real history mutation by one exit beat. A `transitionInFlight` re-entrancy
-   flag ensures the deferred real call (and the click interceptor's own
-   `router.push`) passes straight through instead of opening a second envelope.
+2. **Programmatic navigation** — persistent controls and generated actions use
+   the interaction coordinator and receive the full exit→enter envelope.
+   Compatibility `router.push` / `router.replace` callers are observed through
+   one History API wrapper so their incoming screen still receives the shared
+   visual treatment. The wrapper always calls the native History method
+   synchronously: Next.js owns that mutation, and delaying or replaying it can
+   make the App Router retry until WebKit rejects the page for excessive
+   `replaceState` calls. A `transitionInFlight` flag prevents an explicitly
+   coordinated commit from opening a second visual envelope.
 3. **Browser back/forward** — the resolved-pathname effect plays the **enter**
    beat once the route settles (the outgoing frame is already gone on a real
    history pop).

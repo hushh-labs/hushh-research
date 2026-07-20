@@ -128,6 +128,19 @@ def redact_log_value(value: Any) -> Any:
     return _safe_scalar(value)
 
 
+def redact_log_field(key: str, value: Any) -> Any:
+    """Redact a scalar using its semantic field name.
+
+    A standalone string cannot be classified as a user identifier without
+    also destroying useful non-sensitive log messages. Callers logging a
+    known field therefore supply the field name so the same key policy used
+    for structured mappings is applied deterministically.
+    """
+    if _is_sensitive_key(key):
+        return REDACTED
+    return redact_log_value(value)
+
+
 def redact_mcp_arguments(value: Any) -> Any:
     """Return a log-safe copy of MCP tool arguments.
 

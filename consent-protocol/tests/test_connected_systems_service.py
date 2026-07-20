@@ -630,6 +630,34 @@ async def test_search_found_record_creates_active_binding_without_raw_lookup_sto
 
 
 @pytest.mark.asyncio
+async def test_search_never_binds_an_ambiguous_verified_identity_match():
+    service, adapter = build_service()
+    adapter.readback_records = [
+        {"Id": "record-1", "Email": "person@example.test"},
+        {"Id": "record-2", "Email": "person@example.test"},
+    ]
+
+    with pytest.raises(ConnectedSystemBlockedError) as captured:
+        await service.search_record(
+            user_id="user_123",
+            system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+            object_type=None,
+            email="person@example.test",
+            phone="4155550100",
+        )
+
+    assert captured.value.code == "CONNECTED_SYSTEM_RECORD_MATCH_AMBIGUOUS"
+    assert (
+        service.store.get_binding(
+            user_id="user_123",
+            system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+            object_type="Contact",
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
 async def test_bound_read_skips_redundant_mcp_search():
     """Once a binding exists, a second search serves the bound id without an MCP call."""
     service, adapter = build_service()
@@ -760,7 +788,9 @@ async def test_force_refresh_bypasses_binding_and_researches():
     )
     assert refreshed["servedFromBinding"] is False
     # A fresh schema validation and read-crm-record call were made.
-    assert len(adapter.calls) == calls_after_first + 2
+    # The normalized schema is reused; forceRefresh applies to the record
+    # lookup and does not spend another provider schema call.
+    assert len(adapter.calls) == calls_after_first + 1
     assert adapter.calls[-1][0] == "read-crm-record"
 
 
