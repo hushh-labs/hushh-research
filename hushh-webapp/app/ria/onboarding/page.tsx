@@ -43,6 +43,7 @@ import {
   buildRiaScrapePrefillPatch,
 } from "@/lib/ria/ria-onboarding-prefill";
 import { RiaOnboardingDraftLocalService } from "@/lib/services/ria-onboarding-draft-local-service";
+import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import { seedRiaDraftFromStatus } from "@/lib/ria/ria-profile-view-model";
 import {
   isIAMSchemaNotReadyError,
@@ -186,6 +187,7 @@ export default function RiaOnboardingPage({
   const {
     refresh: refreshPersonaState,
     riaCapability,
+    riaOnboardingStatus: personaRiaOnboardingStatus,
     loading: personaLoading,
     refreshing: personaRefreshing,
   } = usePersonaState();
@@ -227,6 +229,26 @@ export default function RiaOnboardingPage({
   // required field (services / fees) is empty. The services step reacts by
   // scrolling to the first missing field and surfacing an inline hint.
   const [servicesValidateTick, setServicesValidateTick] = useState(0);
+
+  // Entry-mode gate — decide onboarding-vs-profile from synchronously-available
+  // signals BEFORE painting the wizard, so an established advisor never sees the
+  // "2/5" onboarding flash. Latches once decided, so a fresh advisor whose
+  // capability flips to "switch" after submitting is NOT yanked out mid-review.
+  //   "wizard"      → render the onboarding wizard (fresh setup / edit / setup hub)
+  //   "established" → redirect to the regulatory profile (skeleton meanwhile)
+  //   null          → undecided (cold cache, persona still loading) → skeleton
+  const [entryMode, setEntryMode] = useState<"wizard" | "established" | null>(
+    () => {
+      if (hasEditIntent || setupMode || setupOrigin) return "wizard";
+      if (
+        riaCapability === "switch" ||
+        personaRiaOnboardingStatus?.exists === true
+      ) {
+        return "established";
+      }
+      return null;
+    },
+  );
 
   const verificationAbortRef = useRef<AbortController | null>(null);
   const scrapePollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -407,16 +429,63 @@ export default function RiaOnboardingPage({
   // finishes onboarding in-session (capability flips to "switch" after submit) is
   // not hijacked out of the review step. Skipped for an explicit edit intent
   // (e.g. re-verifying a licence from the profile).
+  // Resolve the entry mode once (cold-cache path): if the synchronous lazy-init
+  // couldn't decide, wait for persona to settle, then latch. Force flows
+  // (edit / reinitiate / setup) always resolve to the wizard.
   useEffect(() => {
-    if (personaLoading || personaRefreshing) return;
+    if (entryMode !== null) return;
+    if (hasEditIntent || setupMode || setupOrigin) {
+      setEntryMode("wizard");
+      return;
+    }
+    if (
+      riaCapability === "switch" ||
+      personaRiaOnboardingStatus?.exists === true
+    ) {
+      setEntryMode("established");
+      return;
+    }
+    if (!personaLoading && !personaRefreshing) {
+      setEntryMode("wizard");
+      return;
+    }
+    // Persona still resolving (cold start). Consult the native persistent hint
+    // so an established advisor is redirected without waiting for the network.
+    // Only a positive "exists" acts (never forces the wizard); if the hint is
+    // cross-device stale the profile page's own guard self-corrects.
+    if (user?.uid) {
+      let active = true;
+      void RiaOnboardingStatusLocalService.load(user.uid).then((hint) => {
+        if (active && hint?.exists === true) {
+          setEntryMode("established");
+        }
+      });
+      return () => {
+        active = false;
+      };
+    }
+    return undefined;
+  }, [
+    entryMode,
+    hasEditIntent,
+    setupMode,
+    setupOrigin,
+    riaCapability,
+    personaRiaOnboardingStatus,
+    personaLoading,
+    personaRefreshing,
+    user,
+  ]);
+
+  // Established advisors don't belong in the wizard — send them to their RIA
+  // regulatory profile. Fires once; the skeleton renders meanwhile so the
+  // onboarding chrome never paints.
+  useEffect(() => {
+    if (entryMode !== "established") return;
     if (onboardingEntryHandledRef.current) return;
     onboardingEntryHandledRef.current = true;
-    if (setupMode) return;
-    if (hasEditIntent) return;
-    if (riaCapability === "switch") {
-      router.replace(buildProfileRoute({ panel: "regulatory" }));
-    }
-  }, [hasEditIntent, personaLoading, personaRefreshing, riaCapability, router, setupMode]);
+    router.replace(buildProfileRoute({ panel: "regulatory" }));
+  }, [entryMode, router]);
 
   useEffect(() => {
     if (!user || !draftReady || iamUnavailable || !shouldPersistDraft) return;
@@ -589,7 +658,9 @@ export default function RiaOnboardingPage({
             license_number: licenseNumber,
             regulator: regulator || undefined,
           },
-          { signal: controller.signal },
+          // Cache-aware (force omitted → false): a fresh cached "found" returns
+          // instantly, so a reopen no longer re-scrapes the regulator.
+          { signal: controller.signal, userId: currentUser.uid },
         );
 
         if (cancelled || controller.signal.aborted) return;
@@ -655,7 +726,9 @@ export default function RiaOnboardingPage({
             license_number: draft.licenseNumber.trim(),
             regulator: draft.regulator || undefined,
           },
-          { signal: controller.signal },
+          // Explicit user tap → force:true bypasses the client verify cache and
+          // writes the fresh result through for later reopens.
+          { signal: controller.signal, userId: user.uid, force: true },
         );
 
       clearTimeout(timeoutId);
@@ -1096,6 +1169,42 @@ export default function RiaOnboardingPage({
       default:
         return null;
     }
+  }
+
+  // No-flash gate: while the entry decision is pending (cold cache) or the user
+  // is an established advisor being redirected to their profile, render a neutral
+  // skeleton — NEVER the onboarding wizard — so an advisor with an existing
+  // profile sees no "2/5 Enter your licence" flash.
+  if (entryMode !== "wizard") {
+    return (
+      <>
+        <NativeTestBeacon
+          routeId="/ria/onboarding"
+          marker="native-route-ria-onboarding"
+          authState={user ? "authenticated" : "anonymous"}
+          dataState={nativeTestDataState}
+          errorCode={null}
+          errorMessage={null}
+        />
+        <FullscreenFlowShell
+          width="reading"
+          className="px-0"
+          style={
+            {
+              "--app-fullscreen-flow-content-offset":
+                "var(--top-shell-reserved-height)",
+            } as CSSProperties
+          }
+        >
+          <div
+            className="flex min-h-[40vh] items-center justify-center"
+            data-ria-onboarding-gate="pending"
+          >
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        </FullscreenFlowShell>
+      </>
+    );
   }
 
   return (

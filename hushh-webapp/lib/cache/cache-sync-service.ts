@@ -4,6 +4,8 @@ import {
   CACHE_KEYS,
   CACHE_TTL,
 } from "@/lib/services/cache-service";
+import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
+import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 
 type DomainSummaryPatch = Record<string, unknown>;
@@ -580,6 +582,22 @@ export class CacheSyncService {
     this.onKaiMarketContextChanged(userId);
   }
 
+  /**
+   * Clear the persistent RIA tiers (IndexedDB device cache + native Preferences
+   * hint) alongside the in-memory invalidations. Required now that the RIA
+   * onboarding status is cached with SESSION (30m) TTL — otherwise a persona
+   * switch / marketplace toggle / RIA delete could keep serving a stale
+   * `exists`/profile from a persistent tier for up to 30 minutes. Fire-and-forget
+   * so callers stay synchronous.
+   */
+  private static invalidateRiaPersistentCaches(userId: string): void {
+    if (!userId) return;
+    void DeviceResourceCacheService.invalidateResourcePrefix(userId, "ria:").catch(
+      () => undefined,
+    );
+    void RiaOnboardingStatusLocalService.clear(userId).catch(() => undefined);
+  }
+
   static onPersonaStateChanged(
     userId: string,
     options?: {
@@ -604,6 +622,7 @@ export class CacheSyncService {
     cache.invalidatePattern(`ria_clients_${userId}_`);
     cache.invalidatePattern(`ria_client_detail_${userId}_`);
     cache.invalidatePattern(`ria_workspace_${userId}_`);
+    this.invalidateRiaPersistentCaches(userId);
     this.onKaiMarketContextChanged(userId);
   }
 
@@ -614,6 +633,7 @@ export class CacheSyncService {
     cache.invalidate(CACHE_KEYS.RIA_HOME(userId));
     cache.invalidatePattern("marketplace_rias_");
     cache.invalidatePattern("marketplace_investors_");
+    this.invalidateRiaPersistentCaches(userId);
   }
 
   /**

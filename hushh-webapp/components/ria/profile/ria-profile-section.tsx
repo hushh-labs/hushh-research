@@ -524,7 +524,15 @@ export function RiaProfileSection({
 
   const isBooting = (personaLoading || personaRefreshing || loading) && !status;
 
-  if (isBooting) {
+  // When the profile resolves to "setup / no profile", the effect above redirects
+  // to onboarding. Render the neutral skeleton (not the empty profile body) until
+  // that navigation lands, so the profile never flashes empty before redirecting.
+  const pendingOnboardingRedirect =
+    !deleting &&
+    riaCapability !== "disabled" &&
+    (riaCapability === "setup" || status?.exists === false);
+
+  if (isBooting || pendingOnboardingRedirect) {
     return (
       <div className="flex min-h-56 items-center justify-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />

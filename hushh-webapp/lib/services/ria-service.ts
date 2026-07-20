@@ -6,6 +6,7 @@ import {
   CACHE_TTL,
 } from "@/lib/services/cache-service";
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
+import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import {
   trackEvent,
   toEventResult,
@@ -1099,6 +1100,21 @@ export class RiaService {
         });
         return snapshot.data;
       }
+      if (snapshot) {
+        // Stale-but-present memory: serve instantly and revalidate in the
+        // background (SWR), mirroring the device tier below. Avoids a blocking
+        // refetch on warm-but-expired reads (e.g. the regulatory profile once
+        // its TTL lapses) while still refreshing for the next read. `force`
+        // short-circuits `snapshot` to null above, so it still bypasses.
+        this.logRequest("cache_stale", {
+          label: params.resourceLabel,
+          tier: "memory",
+          cacheKey: params.cacheKey,
+          userId: params.userId || null,
+        });
+        void this.refreshCachedResource(params).catch(() => undefined);
+        return snapshot.data;
+      }
     }
 
     if (!params.force && params.userId && params.deviceResourceKey) {
@@ -1451,15 +1467,56 @@ export class RiaService {
       regulator?: string;
       force_live_verification?: boolean;
     },
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; userId?: string; force?: boolean },
   ): Promise<RiaLicenseVerificationResult> {
+    const normalizedLicense = payload.license_number.trim().toUpperCase();
+    const licenseKey = `${(payload.regulator || "").trim().toUpperCase()}:${normalizedLicense}`;
+    const cacheKey =
+      options?.userId && normalizedLicense
+        ? CACHE_KEYS.RIA_LICENSE_VERIFY(options.userId, licenseKey)
+        : null;
+
+    // Serve a fresh cached "found" result instantly (reopen / stale-prefill
+    // repair) unless the caller explicitly forces a live check — e.g. the user
+    // tapping "Verify licence", which passes force:true.
+    if (cacheKey && !options?.force && !payload.force_live_verification) {
+      const snapshot =
+        CacheService.getInstance().peek<RiaLicenseVerificationResult>(cacheKey);
+      if (snapshot?.isFresh && snapshot.data.status === "found") {
+        this.logRequest("cache_hit", {
+          label: "license_verify",
+          tier: "memory",
+          cacheKey,
+          userId: options?.userId ?? null,
+        });
+        return snapshot.data;
+      }
+    }
+
     const response = await authFetch("/api/ria/onboarding/verify-license", {
       method: "POST",
       idToken,
       body: payload,
       signal: options?.signal,
     });
-    return toJsonOrThrow<RiaLicenseVerificationResult>(response);
+    const result = await toJsonOrThrow<RiaLicenseVerificationResult>(response);
+
+    // Cache successful lookups honoring the server-provided TTL; short-cache
+    // not_found/pending (transient); never cache an error.
+    if (cacheKey && result.status !== "error") {
+      const serverTtlMs =
+        typeof result.cache_ttl_seconds === "number" &&
+        result.cache_ttl_seconds > 0
+          ? result.cache_ttl_seconds * 1000
+          : null;
+      const ttl =
+        result.status === "found"
+          ? (serverTtlMs ?? CACHE_TTL.MEDIUM)
+          : CACHE_TTL.SHORT;
+      CacheService.getInstance().set(cacheKey, result, ttl);
+    }
+
+    return result;
   }
 
   static async refreshLicenseProfile(
@@ -1505,7 +1562,11 @@ export class RiaService {
         ? `ria:onboarding_status:${options.userId}`
         : undefined,
       force: options?.force,
-      ttl: CACHE_TTL.SHORT,
+      // SESSION (30m) to match persona-context's write of the same key; the
+      // regulatory profile changes rarely and SWR (readCachedOrFetch) keeps it
+      // fresh in the background. Paired with device/native invalidation in
+      // cache-sync-service so a delete/switch can't serve a stale profile.
+      ttl: CACHE_TTL.SESSION,
       inflightKey: cacheKey || "ria_onboarding_status",
       resourceLabel: "onboarding_status",
       loader: async () => {
@@ -1513,7 +1574,13 @@ export class RiaService {
           method: "GET",
           idToken,
         });
-        return toJsonOrThrow<RiaOnboardingStatus>(response);
+        const status = await toJsonOrThrow<RiaOnboardingStatus>(response);
+        // Write-through to native persistent storage for instant cold-start
+        // paint on the app (stale hint only; revalidated via SWR).
+        if (options?.userId) {
+          void RiaOnboardingStatusLocalService.save(options.userId, status);
+        }
+        return status;
       },
     });
   }

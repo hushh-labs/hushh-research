@@ -128,6 +128,7 @@ import {
   resolveProfileRiaRegulatoryRow,
 } from "@/lib/profile/profile-ria-regulatory-row";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
@@ -551,7 +552,11 @@ function ProfilePageContent() {
     startPhoneReplacement,
     confirmPhoneReplacement,
   } = useAuth();
-  const { personaState, refresh: refreshPersonaState } = usePersonaState();
+  const {
+    personaState,
+    refresh: refreshPersonaState,
+    riaOnboardingStatus: personaRiaOnboardingStatus,
+  } = usePersonaState();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const pendingConsents = useConsentPendingSummaryCount();
   const { registerSteps, completeStep, reset } = useStepProgress();
@@ -644,8 +649,13 @@ function ProfilePageContent() {
   const [marketplaceOptIn, setMarketplaceOptIn] = useState(false);
   const [loadingMarketplaceOptIn, setLoadingMarketplaceOptIn] = useState(true);
   const [savingMarketplaceOptIn, setSavingMarketplaceOptIn] = useState(false);
+  // Seed synchronously from the persona context (itself warm-seeded from cache)
+  // so the regulatory row paints "Update" instantly instead of flashing
+  // "Checking" on every open. SWR keeps it fresh in the background.
   const [riaOnboardingStatus, setRiaOnboardingStatus] =
-    useState<RiaOnboardingStatus | null>(null);
+    useState<RiaOnboardingStatus | null>(
+      () => personaRiaOnboardingStatus ?? null,
+    );
   const [loadingRiaOnboardingStatus, setLoadingRiaOnboardingStatus] =
     useState(false);
   const [riaOnboardingStatusError, setRiaOnboardingStatusError] = useState<
@@ -1031,7 +1041,19 @@ function ProfilePageContent() {
         return null;
       }
 
-      setLoadingRiaOnboardingStatus(true);
+      // Only show the "Checking" spinner on a genuine cold cache. A warm value
+      // (fresh or stale) is served instantly by getOnboardingStatus' SWR, so
+      // flipping the row to loading would just flash "Checking" needlessly.
+      const hasCachedStatus =
+        !force &&
+        Boolean(
+          CacheService.getInstance().peek<RiaOnboardingStatus>(
+            CACHE_KEYS.RIA_ONBOARDING_STATUS(user.uid),
+          ),
+        );
+      if (!hasCachedStatus) {
+        setLoadingRiaOnboardingStatus(true);
+      }
       setRiaOnboardingStatusError(null);
       try {
         const idToken = await user.getIdToken();
