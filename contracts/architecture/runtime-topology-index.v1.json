@@ -808,13 +808,14 @@
       "data_class": "workflow_state",
       "exact_tables": [
         "one_email_mailbox_state",
+        "one_email_kyc_preferences",
         "one_kyc_workflows",
         "one_kyc_client_connectors"
       ],
       "id": "one_email_kyc_workflow",
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "One mailbox intake, KYC workflow status, per-user public client connector metadata, consent continuation, transient approved Gmail send, and encrypted PKM writeback receipt"
+      "primary_access_path": "One mailbox intake, account-scoped automatic-preparation preference, KYC workflow status, per-user public client connector metadata, consent continuation, transient approved Gmail send, and encrypted PKM writeback receipt"
     },
     {
       "data_class": "workflow_state",
@@ -2280,6 +2281,42 @@
     },
     {
       "alias": null,
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/api/kai/market/news/*",
+          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch on native",
+          "nextjs_api_route": "/api/kai/{path*}",
+          "nextjs_proxy_file": "app/api/kai/[...path]/route.ts",
+          "service_file": "lib/kai/kai-market-news-resource.ts",
+          "service_methods": [
+            "getStaleFirst",
+            "refresh",
+            "invalidateUser"
+          ]
+        }
+      ],
+      "cache": {
+        "policy": "device-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "market_data"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-kai-news",
+      "page_file": "app/one/kai/news/page.tsx",
+      "pathname": "/one/kai/news",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.kai.news"
+      }
+    },
+    {
+      "alias": null,
       "api_dependencies": [],
       "cache": {
         "policy": "none",
@@ -3379,7 +3416,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-one-setup-kai",
+      "native_surface_id": "native-route-one-setup-finance-import",
       "page_file": "app/one/setup/finance/import/page.tsx",
       "pathname": "/one/setup/finance/import",
       "route_mode": "flow",
@@ -3405,7 +3442,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-gmail",
+      "native_surface_id": "native-route-one-setup",
       "page_file": "app/one/setup/gmail/page.tsx",
       "pathname": "/one/setup/gmail",
       "route_mode": "standard",
@@ -3990,15 +4027,15 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "a1574bf94973740d3bde3ce6f6920a3be9e74fc82b21abd1462d05592747be13",
+    "action_gateway": "3b982f93d40af2824d12b24b1dd5f8801baac0753f727fd4f5bec9a53588e757",
     "agent_registry": "22484910826ab19edb90b6808f2d4f7f2cf734d8844ff5115d79ceb0e8d80c2c",
-    "cache_manifest": "de30c5f1c5ef2ea5707704a118337ec83b7f299f42187188124f699bb4cf72fd",
-    "data_plane": "33f424aa9c927d2b49a37b3e05c1154f77abe2a0e13acbe186ef2d39cb503030",
+    "cache_manifest": "d8d6e006f58035a66785ffb729dad7bf663b8be9522986d81d88abcec32d4777",
+    "data_plane": "d7f4ea048c6d197179b384ddbd02d7d6355331e3cd849b1be76dc4ca1e1a954a",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
-    "one_specialist_tools": "2963a5b42addb3798def02a9b8c71f38e6013a0f01bf0e388eb9bc9e0149fc71",
-    "route_index": "ad6e78ab00e749e7d68a14ae33d4c5a70b629df2fb9590544c440b2fb0d4ce35",
-    "route_layout": "8552a83a10ab14a362d67bce56c7f90f7dc997a455971d94723ee3594227fc68",
-    "surface_map": "570d80cbc3f196672cd05cd5b10dbca32712e252f5f47bebcd975d1a9b5358f4",
+    "one_specialist_tools": "915ee98564845b9b657b42226df4bb529cfdcbccf38ee5171d73e24e411a729c",
+    "route_index": "ec828a60f344b9fde0cc87936b94e3370f224a17afaf006b6230fb8a8fb3209e",
+    "route_layout": "13449a91dc72b39d26e828c61ee80a1963f79766f2f16e5405f471a796cedd09",
+    "surface_map": "f4fe004e70825b4b75a37b98d1443ab1b3f21b52628300b24556aa2cd065aa95",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -4010,7 +4047,7 @@
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 5,
-    "physical_routes": 106,
+    "physical_routes": 107,
     "semantic_routes": 14,
     "table_families": 30
   }
