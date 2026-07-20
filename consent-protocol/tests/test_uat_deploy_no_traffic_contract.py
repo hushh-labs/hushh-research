@@ -39,7 +39,9 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
     # candidate-image readiness job must prove the same configuration.
     assert backend_build.count("GOOGLE_CLOUD_LOCATION=global") == 2
     assert '"HUSHH_VERTEX_LOCATIONS=global,us,eu"' in backend_build
-    assert "HUSHH_VERTEX_LOCATIONS=global\\,us\\,eu" in backend_build
+    assert '--set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|' in backend_build
+    assert "|HUSHH_VERTEX_LOCATIONS=global,us,eu|" in backend_build
+    assert "HUSHH_VERTEX_LOCATIONS=global\\,us\\,eu" not in backend_build
     assert "GOOGLE_CLOUD_LOCATION=asia-southeast1" not in backend_build
 
 
