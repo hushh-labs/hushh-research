@@ -31,9 +31,7 @@ import {
   Calendar,
   Car,
   ChevronRight,
-  Clock,
   Hand,
-  Heart,
   Link as LinkIcon,
   Lock,
   MapPin,
@@ -96,6 +94,7 @@ import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { DriveToFlow } from "./drive-to-flow";
 import { PickMeUpFlow } from "./pick-me-up-flow";
 import { SafeArrivalFlow } from "./safe-arrival-flow";
+import { LocalEmergencyDialerRow } from "./local-emergency-dialer-row";
 import { deriveEnRouteHelpers } from "./pickup-enroute";
 import { PickupEnRouteCardLive } from "./pickup-enroute-card-live";
 import { OneLocationService } from "@/lib/one-location/service";
@@ -111,8 +110,7 @@ import {
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 
 const LOCATION_TAB_DEFINITION = TOP_SHELL_TAB_REGISTRY.location;
-type LocationHubTab =
-  (typeof LOCATION_TAB_DEFINITION.tabs)[number]["value"];
+type LocationHubTab = (typeof LOCATION_TAB_DEFINITION.tabs)[number]["value"];
 const LOCATION_HUB_TAB_PARAM = LOCATION_TAB_DEFINITION.queryParam;
 const LOCATION_SWIPE_OPTIONS = LOCATION_TAB_DEFINITION.tabs;
 
@@ -526,7 +524,11 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   /* ----------------------------------------------------------------- */
   if (flow !== "none") {
     return (
-      <div className="space-y-6">
+      <div
+        className="space-y-6"
+        data-ambient-chrome-ignore
+        data-testid="one-location-action-flow"
+      >
         {flow === "share" ? (
           <ShareFlow
             vm={vm}
@@ -589,10 +591,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             className="gap-2"
           >
             <RefreshCw
-              className={cn(
-                "h-4 w-4",
-                BUSY(vm, "load") && "animate-spin",
-              )}
+              className={cn("h-4 w-4", BUSY(vm, "load") && "animate-spin")}
               aria-hidden="true"
             />
             Refresh
@@ -1669,63 +1668,6 @@ function SosQuickCard({
   );
 }
 
-/** Row inside the "Reach out for help" list. */
-function SosHelpRow({
-  icon: Icon,
-  badge,
-  title,
-  subtitle,
-  actionLabel,
-  actionIcon: ActionIcon,
-  isLast,
-  onClick,
-}: {
-  icon?: typeof Phone;
-  badge?: string;
-  title: string;
-  subtitle: string;
-  actionLabel: string;
-  actionIcon?: typeof Phone;
-  isLast?: boolean;
-  onClick?: () => void;
-}) {
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-3 py-3",
-        !isLast && "border-b border-black/[0.05] dark:border-white/[0.06]",
-      )}
-    >
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#fdeeec] dark:bg-[#e0342c]/15">
-        {badge ? (
-          <span className="text-[13px] font-bold text-[#e0342c]">{badge}</span>
-        ) : Icon ? (
-          <Icon
-            className="h-[18px] w-[18px] text-[#e0342c]"
-            strokeWidth={1.5}
-          />
-        ) : null}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="text-[15px] font-bold text-foreground">{title}</div>
-        <div className="mt-px truncate text-[13px] text-black/45 dark:text-white/45">
-          {subtitle}
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={onClick}
-        className="flex shrink-0 items-center gap-1.5 rounded-full bg-[#fdeeec] px-[15px] py-[9px] text-[14px] font-semibold text-[#d92c24] dark:bg-[#e0342c]/15 dark:text-[#ff6f66]"
-      >
-        {ActionIcon ? (
-          <ActionIcon className="h-3.5 w-3.5" strokeWidth={2} />
-        ) : null}
-        {actionLabel}
-      </button>
-    </div>
-  );
-}
-
 function SosFlow({ vm }: { vm: LocationHubViewModel }) {
   const recipients = vm.sosRecipients;
   const sharedCount = recipients.length;
@@ -1801,35 +1743,8 @@ function SosFlow({ vm }: { vm: LocationHubViewModel }) {
         <div className="text-[16px] font-bold text-foreground">
           Reach out for help
         </div>
-        <div className="mt-3 rounded-[14px] bg-[#f5f6f8] px-3 dark:bg-white/[0.04]">
-          <SosHelpRow
-            icon={Shield}
-            title="Emergency Contact"
-            subtitle="Contact your emergency contact"
-            actionLabel="Call"
-            actionIcon={Phone}
-          />
-          <SosHelpRow
-            badge="911"
-            title="Local Emergency"
-            subtitle="Call local emergency services"
-            actionLabel="Call"
-            actionIcon={Phone}
-          />
-          <SosHelpRow
-            icon={Heart}
-            title="Crisis Support"
-            subtitle="Connect with 24/7 support"
-            actionLabel="Chat"
-            actionIcon={MessageCircle}
-          />
-          <SosHelpRow
-            icon={Clock}
-            title="Safety Check"
-            subtitle="Set a timer and get a check-in"
-            actionLabel="Start"
-            isLast
-          />
+        <div className="mt-3 rounded-[14px] bg-[#f5f6f8] dark:bg-white/[0.04]">
+          <LocalEmergencyDialerRow />
         </div>
       </div>
 
