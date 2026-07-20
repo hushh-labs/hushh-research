@@ -15,7 +15,16 @@
 "use strict";
 
 const path = require("path");
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, Menu } = require("electron");
+
+// Electron's default File/Edit/View/Window menu bar is a developer-tooling
+// leftover, not something end users of a consumer app expect to see (no
+// custom menu was ever built here -- this is purely Electron's auto-
+// generated template). Removing it entirely, on every platform: setting it
+// per-window would still leave the OS-level menu bar rendered before the
+// first BrowserWindow exists. DevTools access (the one item worth keeping)
+// moves to a direct accelerator below instead of a visible menu item.
+Menu.setApplicationMenu(null);
 
 // Windows groups taskbar icons/jump-lists/notifications by this ID. Without
 // it, Windows falls back to grouping by the executable path, which breaks
@@ -108,6 +117,18 @@ function createWindow(frontendURL) {
       }
     });
   }
+
+  // Menu.setApplicationMenu(null) above removes the View > Toggle Developer
+  // Tools item along with the rest of the bar -- rebind its accelerator
+  // directly so DevTools stays reachable without a visible menu.
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    const isDevToolsToggle =
+      input.type === "keyDown" &&
+      (input.key === "F12" || (input.key.toLowerCase() === "i" && input.control && input.shift));
+    if (isDevToolsToggle) {
+      mainWindow.webContents.toggleDevTools();
+    }
+  });
 
   // Show the window smoothly once the page finishes loading
   mainWindow.once("ready-to-show", () => {
