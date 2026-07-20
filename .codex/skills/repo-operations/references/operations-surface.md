@@ -51,4 +51,4 @@ Use this reference to orient DevOps work in `hushh-research`.
 3. A bypass-listed actor may still waive the review gate when the live branch protection allows it.
 4. The sanctioned `main` owner-bypass cohort is intentional policy, not a finding, when it exactly matches `config/ci-governance.json` and includes `kushaltrivedi5`.
 5. Merge-queue rules remain separate from review bypass and are satisfied through the dedicated `main-bypass-queue` owner team.
-6. The privileged `main` bypass cohort may dispatch UAT manually; only `kushaltrivedi5` may dispatch Production.
+6. The privileged `main` bypass cohort may dispatch UAT manually; only `production.manual_dispatch_users` may dispatch Production.
