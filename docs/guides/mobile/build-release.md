@@ -68,8 +68,8 @@ Local checks:
 ```bash
 cd hushh-webapp
 npm run typecheck
-npm run ios:test
-npm run ios:device:ui:test
+npm run ios:cold:audit
+HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true npm run ios:device:ui:test
 ```
 
 Before archiving:

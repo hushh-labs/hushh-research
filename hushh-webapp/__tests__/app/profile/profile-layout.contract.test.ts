@@ -18,19 +18,18 @@ describe("Profile canonical page layout", () => {
 
   it("keeps the profile avatar fallback inset from its visible frame", () => {
     const source = readFileSync(
-      join(process.cwd(), "app/profile/profile-workspace-page.tsx"),
+      join(process.cwd(), "components/profile/profile-avatar-editor.tsx"),
       "utf8",
     );
 
     expect(source).toContain('data-profile-avatar-frame="true"');
-    expect(source).toContain('data-profile-avatar-fallback="true"');
     expect(source).toContain('className="h-full w-full"');
-    expect(source).toContain('className="object-cover"');
+    expect(source).toContain('<AvatarImage src={photo} alt={displayName || "Profile"} />');
     expect(source).toContain('bg-primary/18 p-1');
-    expect(source).toContain('<Icon icon={User} size={32} className="sm:size-9" />');
+    expect(source).toContain('<UserIcon className="h-8 w-8 sm:h-9 sm:w-9" />');
     expect(source).not.toContain(
       'h-14 w-14 shrink-0 ring-4 ring-primary/18 sm:h-16 sm:w-16',
     );
-    expect(source).not.toContain('<Icon icon={User} size={48} />');
+    expect(source).not.toContain('<UserIcon className="h-12 w-12" />');
   });
 });

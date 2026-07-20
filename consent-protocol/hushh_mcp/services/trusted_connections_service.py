@@ -4,9 +4,10 @@ Directional edges (owner_user_id -> trusted_user_id). Written ONLY through the
 Hushh One agent path; read in-process by any agent. Identity is resolved through
 the broad discovery directory `list_directory_candidates`, read-only.
 
-This is now the single source of truth for the One Location trust graph: the
-legacy one_location_network_connections (SOS) table was migrated in (079) and
-dropped in (080).
+This is now the single source of truth for the One Location trust graph.
+Migration 079 copied the legacy one_location_network_connections (SOS) graph;
+the legacy table has no runtime service owner and remains pending a separately
+preflighted forward-only schema retirement.
 """
 
 from __future__ import annotations

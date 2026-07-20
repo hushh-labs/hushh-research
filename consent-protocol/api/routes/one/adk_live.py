@@ -41,6 +41,7 @@ import json
 import logging
 import re
 import secrets
+import time
 import uuid
 from typing import Any, Literal, Optional
 
@@ -444,11 +445,14 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     issued_directive_gc_tasks: dict[str, asyncio.Task[None]] = {}
     issued_goal_directives: dict[str, str] = {}
     issued_goal_runs: dict[str, dict[str, Any]] = {}
+    issued_journey_started_at: dict[str, float] = {}
     awaiting_goal_context: set[str] = set()
     initial_context_ready = asyncio.Event()
+    latest_context: dict[str, Any] = {}
+    latest_context_id = ""
 
     async def pump_browser_to_queue() -> None:
-        nonlocal last_injected_route_key, first_app_context_seen
+        nonlocal last_injected_route_key, first_app_context_seen, latest_context, latest_context_id
         while True:
             raw = await websocket.receive_text()
             try:
@@ -466,6 +470,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 context_payload = message.get("appContext")
                 if not isinstance(context_payload, dict):
                     context_payload = {}
+                context_id = _bounded_text(
+                    message.get("contextId") or context_payload.get("context_id"), 128
+                )
                 # Governed credentials ride in session state for tools only.
                 # The session object here is a service-returned copy, so state
                 # must be persisted through append_event (state_delta), never
@@ -481,6 +488,8 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # read this bounded redacted state when deciding what can be
                 # proposed or executed on the current screen.
                 sanitized_context = _sanitize_live_context(context_payload)
+                latest_context = sanitized_context
+                latest_context_id = context_id
                 state_delta[STATE_VOICE_CONTEXT] = sanitized_context
                 canonical_screen = sanitized_context.get("screen")
                 if isinstance(canonical_screen, str) and canonical_screen:
@@ -493,6 +502,13 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                             invocation_id="app_context",
                             actions=EventActions(state_delta=state_delta),
                         ),
+                    )
+                if context_id:
+                    # An acknowledgement is a control-plane barrier only. It
+                    # confirms this bounded context has been persisted on this
+                    # authenticated socket; it never becomes model context.
+                    await websocket.send_text(
+                        json.dumps({"appContextAccepted": {"contextId": context_id}})
                     )
                 initial_context_ready.set()
                 clean_screen = canonical_screen if isinstance(canonical_screen, str) else ""
@@ -531,7 +547,18 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     )
                     changed = route_key != last_injected_route_key
                     last_injected_route_key = route_key
-                    if changed and not is_first:
+                    journey_waiting_for_settlement = any(
+                        isinstance(run, dict)
+                        and run.get("schema_version") == "one.settled_action_journey.v1"
+                        and run.get("status") == "awaiting_destination_context"
+                        for run in issued_goal_runs.values()
+                    )
+                    # A route-context note normally keeps One informed of a
+                    # user navigation. During an authored journey it would be
+                    # an out-of-order model turn: the originating action has
+                    # not settled yet. The correlated settlement below is the
+                    # only event allowed to make its next choice eligible.
+                    if changed and not is_first and not journey_waiting_for_settlement:
                         note_text = _compose_route_context_note(sanitized_context)
                         if note_text:
                             queue.send_content(
@@ -576,6 +603,41 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 if settlement is None:
                     logger.info("one_adk_live_invalid_action_settlement")
                     continue
+                goal_run_for_settlement = issued_goal_runs.get(settlement["directive_id"])
+                journey_started_at = issued_journey_started_at.pop(settlement["directive_id"], None)
+                journey_destination_rejected = False
+                if (
+                    isinstance(goal_run_for_settlement, dict)
+                    and goal_run_for_settlement.get("schema_version")
+                    == "one.settled_action_journey.v1"
+                ):
+                    expected = goal_run_for_settlement.get("settlement_target")
+                    expected = expected if isinstance(expected, dict) else {}
+                    expected_route = str(expected.get("route") or "")
+                    expected_screen = str(expected.get("screen") or "")
+                    context_matches = (
+                        bool(settlement.get("destination_context_id"))
+                        and settlement.get("destination_context_id") == latest_context_id
+                        and (
+                            not expected_route
+                            or latest_context.get("route_pattern") == expected_route
+                        )
+                        and (not expected_screen or latest_context.get("screen") == expected_screen)
+                    )
+                    if not context_matches:
+                        journey_destination_rejected = True
+                        settlement = {
+                            **settlement,
+                            "status": "blocked",
+                            "summary": "The destination screen did not finish settling.",
+                            "reason": "destination_context_unacknowledged",
+                        }
+                        issued_goal_runs.pop(settlement["directive_id"], None)
+                        logger.info(
+                            "one_adk_live_journey_destination_rejected action=%s directive=%s",
+                            settlement["action_id"],
+                            settlement["directive_id"],
+                        )
                 directive_gc_task = issued_directive_gc_tasks.pop(settlement["directive_id"], None)
                 if directive_gc_task is not None:
                     directive_gc_task.cancel()
@@ -596,7 +658,36 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     "hussh:last_action_settlement": settlement
                 }
                 goal_run = issued_goal_runs.get(settlement["directive_id"])
-                if goal_run is not None and settlement["action_id"] == "analysis.start":
+                journey_continuation_note = ""
+                if journey_destination_rejected:
+                    settlement_state_delta["hussh:goal_run"] = None
+                if (
+                    isinstance(goal_run, dict)
+                    and goal_run.get("schema_version") == "one.settled_action_journey.v1"
+                ):
+                    issued_goal_runs.pop(settlement["directive_id"], None)
+                    if settlement["status"] in {"succeeded", "started"}:
+                        settled_run = {
+                            **goal_run,
+                            "status": "destination_context_accepted",
+                            "destination_context_id": settlement.get("destination_context_id"),
+                        }
+                        settlement_state_delta["hussh:goal_run"] = settled_run
+                        if str(goal_run.get("deferred_action_id") or "").strip():
+                            journey_continuation_note = (
+                                "[Settled action journey - not user speech] The authored destination "
+                                "context is accepted. Call continue_app_goal now. It may issue only the "
+                                "already-authorized destination action; do not describe it first."
+                            )
+                        else:
+                            journey_continuation_note = (
+                                "[Settled action journey - not user speech] The authored destination "
+                                "context is accepted. Call continue_app_goal now, then ask one concise "
+                                "question using only the returned available choices."
+                            )
+                    else:
+                        settlement_state_delta["hussh:goal_run"] = None
+                elif goal_run is not None and settlement["action_id"] == "analysis.start":
                     issued_goal_runs.pop(settlement["directive_id"], None)
                     settlement_state_delta["hussh:goal_run"] = {
                         **goal_run,
@@ -607,6 +698,25 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                             else "blocked"
                         ),
                     }
+                if (
+                    isinstance(goal_run_for_settlement, dict)
+                    and goal_run_for_settlement.get("schema_version")
+                    == "one.settled_action_journey.v1"
+                ):
+                    logger.info(
+                        "one_adk_live_journey_settlement journey=%s action=%s directive=%s "
+                        "status=%s route=%s screen=%s revision=%s elapsed_ms=%s",
+                        _bounded_text(goal_run_for_settlement.get("journey_id"), 128),
+                        settlement["action_id"],
+                        settlement["directive_id"],
+                        settlement["status"],
+                        _bounded_text(latest_context.get("route_pattern"), 128),
+                        _bounded_text(latest_context.get("screen"), 64),
+                        _bounded_text(latest_context.get("context_revision"), 128),
+                        round((time.perf_counter() - journey_started_at) * 1000, 3)
+                        if journey_started_at is not None
+                        else None,
+                    )
                 await runner.session_service.append_event(
                     session,
                     AdkEvent(
@@ -618,6 +728,11 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # This is an app execution report, never user speech. The
                 # wording forces a grounded follow-up rather than a fabricated
                 # success claim and provides the next link in a chained turn.
+                settlement_follow_up = (
+                    " A settled journey continuation follows this report; obey it before responding."
+                    if journey_continuation_note
+                    else ""
+                )
                 queue.send_content(
                     genai_types.Content(
                         role="user",
@@ -630,7 +745,12 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                                     f"{settlement['summary']}. "
                                     "Acknowledge only this reported outcome. If it "
                                     "was blocked or failed, explain the next safe "
-                                    "step; do not claim the action succeeded."
+                                    f"step; do not claim the action succeeded.{settlement_follow_up}"
+                                    + (
+                                        f"\n{journey_continuation_note}"
+                                        if journey_continuation_note
+                                        else ""
+                                    )
                                 )
                             )
                         ],
@@ -753,6 +873,8 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                         goal_run = payload.get("goalRun")
                         if isinstance(goal_run, dict):
                             issued_goal_runs[directive_id] = goal_run
+                            if goal_run.get("schema_version") == "one.settled_action_journey.v1":
+                                issued_journey_started_at[directive_id] = time.perf_counter()
                         outgoing_directive = {
                             **directive,
                             "payload": {**payload, "directiveId": directive_id},
@@ -771,6 +893,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                                 if did not in issued_action_directives:
                                     return
                                 issued_action_directives.pop(did, None)
+                                issued_goal_directives.pop(did, None)
+                                expired_goal_run = issued_goal_runs.pop(did, None)
+                                issued_journey_started_at.pop(did, None)
                                 logger.warning(
                                     "one_adk_live_directive_timeout action=%s directive=%s",
                                     aid,
@@ -788,7 +913,16 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                                         author="system",
                                         invocation_id="action_settled",
                                         actions=EventActions(
-                                            state_delta={"hussh:last_action_settlement": settlement}
+                                            state_delta={
+                                                "hussh:last_action_settlement": settlement,
+                                                **(
+                                                    {"hussh:goal_run": None}
+                                                    if isinstance(expired_goal_run, dict)
+                                                    and expired_goal_run.get("schema_version")
+                                                    == "one.settled_action_journey.v1"
+                                                    else {}
+                                                ),
+                                            }
                                         ),
                                     ),
                                 )

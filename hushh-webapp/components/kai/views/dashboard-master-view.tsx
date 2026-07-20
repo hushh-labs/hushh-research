@@ -14,10 +14,12 @@ import {
   TrendingUp,
   Loader2,
   Share2,
+  FileUp,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppPageContentRegion } from "@/components/app-ui/app-page-shell";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
 import {
   ChartSurfaceCard,
@@ -2650,7 +2652,7 @@ export function DashboardMasterView({
         <KaiWorkspaceHeader
           workspace="portfolio"
           title="Portfolio"
-          description="Your holdings, sources, and investing context in one place."
+          description="Preparing your portfolio sources."
         />
         <AppPageContentRegion>
           <SurfaceCard className="w-full">
@@ -2670,64 +2672,50 @@ export function DashboardMasterView({
         <KaiWorkspaceHeader
           workspace="portfolio"
           title="Portfolio"
-          description="Your holdings, sources, and investing context in one place."
+          description="Choose how you want to begin."
         />
-        <AppPageContentRegion className="space-y-6">
-          <PortfolioSourceSwitcher
-          activeSource={activeSource}
-          availableSources={availableSources}
-          freshness={freshness}
-          onSourceChange={handleSourceChange}
-          statementSnapshots={statementSnapshots}
-          activeStatementSnapshotId={activeStatementSnapshotId}
-          onStatementSnapshotChange={handleStatementSnapshotChange}
-          onDeleteStatementSnapshot={(snapshotId) => setStatementSnapshotDeleteId(snapshotId)}
-          onRefreshPlaid={hasPlaidConnections ? () => handleRefreshPlaid() : undefined}
-          onCancelRefreshPlaid={isPlaidRefreshing ? () => handleCancelPlaidRefresh() : undefined}
-          onManageConnections={plaidConfigured !== false ? () => void openPlaidLinkFlow() : undefined}
-          onImportStatement={onReupload}
-          onDeletePortfolio={
-            canDeletePortfolio ? () => setDeleteImportedDialogOpen(true) : undefined
-          }
-          isRefreshing={isPlaidRefreshing || isLinkingPlaid}
-          isDeletingPortfolio={isDeletingImportedData}
-          isDeletingStatementSnapshot={isDeletingStatementSnapshot}
-        />
-          <SurfaceCard>
-          <SurfaceCardContent className="flex min-h-[13rem] flex-col items-center justify-center gap-3 p-6 text-center">
-            <p className="text-sm font-semibold">No active portfolio source is ready yet.</p>
-            <p className="max-w-md text-sm text-muted-foreground">
-              Import a statement for an editable source, or connect Plaid for read-only brokerage data.
-            </p>
-            {plaidConfigured !== false ? (
-              <div className="flex flex-wrap justify-center gap-2">
-                <MorphyButton
-                  variant="blue-gradient"
-                  effect="fill"
-                  onClick={() => void openPlaidLinkFlow(undefined, plaidLocalDualEnvironmentEnabled ? "sandbox" : undefined)}
-                  disabled={isLinkingPlaid}
-                >
-                  {isLinkingPlaid ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Building2 className="mr-2 h-4 w-4" />}
-                  {plaidLocalDualEnvironmentEnabled ? "Connect Test Brokerage (Sandbox)" : "Connect Plaid"}
-                </MorphyButton>
-                {plaidLocalDualEnvironmentEnabled ? (
-                  <MorphyButton
-                    variant="metallic"
-                    effect="fill"
-                    onClick={() => void openPlaidLinkFlow(undefined, "production")}
-                    disabled={isLinkingPlaid}
-                  >
-                    {isLinkingPlaid ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Building2 className="mr-2 h-4 w-4" />}
-                    Connect Real Brokerage (Production)
-                  </MorphyButton>
-                ) : null}
-                <MorphyButton variant="none" effect="fade" onClick={onReupload}>
-                  Upload Statement
-                </MorphyButton>
-              </div>
-            ) : null}
-          </SurfaceCardContent>
-          </SurfaceCard>
+        <AppPageContentRegion className="space-y-3">
+          <SettingsGroup embedded separatorInset testId="portfolio-source-options">
+            <SettingsRow
+              icon={Building2}
+              iconTone="blue"
+              title={
+                plaidConfigured === false
+                  ? "Bank connection unavailable"
+                  : isLinkingPlaid
+                    ? "Opening Plaid connection"
+                    : "Bank account (via Plaid)"
+              }
+              description={
+                plaidConfigured === false
+                  ? "Use a statement instead"
+                  : "Read-only account sync"
+              }
+              onClick={() =>
+                void openPlaidLinkFlow(
+                  undefined,
+                  plaidLocalDualEnvironmentEnabled ? "sandbox" : undefined,
+                )
+              }
+              disabled={plaidConfigured === false || isLinkingPlaid}
+              chevron={!isLinkingPlaid && plaidConfigured !== false}
+              trailing={
+                isLinkingPlaid ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                ) : undefined
+              }
+              testId="portfolio-source-connect-plaid"
+            />
+            <SettingsRow
+              icon={FileUp}
+              iconTone="accent"
+              title="Upload a statement"
+              description="PDF or CSV from your brokerage"
+              onClick={onReupload}
+              chevron
+              testId="portfolio-source-upload-statement"
+            />
+          </SettingsGroup>
           {deletePortfolioDialog}
           {deleteStatementSnapshotDialog}
         </AppPageContentRegion>
@@ -2740,7 +2728,7 @@ export function DashboardMasterView({
       <KaiWorkspaceHeader
         workspace="portfolio"
         title="Portfolio"
-        description="Your active source, holdings, and investing context in one place."
+        description="Your holdings and investing context."
         actions={
           <MorphyButton
             variant="none"
@@ -2761,7 +2749,7 @@ export function DashboardMasterView({
           </MorphyButton>
         }
       />
-      <AppPageContentRegion className="space-y-6">
+      <AppPageContentRegion className="space-y-4">
         <PortfolioSourceSwitcher
         activeSource={activeSource}
         availableSources={availableSources}
@@ -2792,27 +2780,11 @@ export function DashboardMasterView({
       ) : null}
 
       <SurfaceCard tone="feature">
-        <SurfaceCardContent className="space-y-5 p-5 sm:p-7">
+        <SurfaceCardContent className="space-y-4 p-5 sm:p-6">
           <div className="flex flex-col items-center gap-3 text-center">
             <p className="text-[13px] font-medium text-muted-foreground sm:text-sm">
               {sourceDisplayLabel} portfolio value
             </p>
-            <div className="flex flex-wrap justify-center gap-2">
-              <span className={cn(portfolioChipClassName, portfolioChipTones.blue)}>
-                Source: {sourceDisplayLabel}
-              </span>
-              <span className={cn(portfolioChipClassName, portfolioChipTones.orange)}>
-                Risk: {model.hero.portfolioConcentrationLabel.replace(" Concentration", "")}
-              </span>
-              <span className={cn(portfolioChipClassName, portfolioChipTones.purple)}>
-                Holdings: {model.hero.investableHoldingsCount}
-              </span>
-              {model.hero.cashPositionsCount > 0 ? (
-                <span className={cn(portfolioChipClassName, portfolioChipTones.green)}>
-                  Cash Positions: {model.hero.cashPositionsCount}
-                </span>
-              ) : null}
-            </div>
             <p className="text-[2rem] font-medium leading-none tracking-normal text-foreground sm:text-[2.5rem]">
               {formatCurrency(model.hero.totalValue)}
             </p>
@@ -2836,6 +2808,9 @@ export function DashboardMasterView({
                 </>
               ) : null}
             </div>
+            <p className="text-xs text-muted-foreground">
+              {model.hero.investableHoldingsCount} holdings · {model.hero.portfolioConcentrationLabel.replace(" Concentration", "")}
+            </p>
           </div>
 
           <SurfaceInset className="px-4 py-3 text-center">

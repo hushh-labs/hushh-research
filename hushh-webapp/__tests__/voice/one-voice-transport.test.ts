@@ -164,6 +164,96 @@ describe("One Voice realtime transports", () => {
     });
   });
 
+  it("acknowledges destination context before a settled journey may report", async () => {
+    const transport = new GeminiLiveTransport();
+    const send = vi.fn();
+    const testTransport = transport as unknown as {
+      ws: { readyState: number; send: (message: string) => void };
+      setupComplete: boolean;
+      handleSocketMessage: (data: string) => Promise<void>;
+    };
+    testTransport.ws = { readyState: WebSocket.OPEN, send };
+    testTransport.setupComplete = true;
+    const destination = {
+      snapshot_id: "ctx-login-2",
+      route: { screen: "login", route_family: "/login", playbook_id: "route.login" },
+      revisions: { route: 2, ui: 2 },
+      auth: { signed_in: false },
+      persona: { active: "default" },
+      voice: { state: "listening" },
+      available_action_ids: ["auth.sign_in_google", "auth.sign_in_apple"],
+      ui: { visible_modules: [], visible_control_ids: [] },
+      pending_settlement: false,
+      cache: { freshness: "fresh", vault_ready: false, portfolio_ready: false },
+      onboarding: { phase: "anonymous_auth" },
+    };
+
+    const waiting = transport.applyContextAndWait?.(destination as never, { timeoutMs: 50 });
+    expect(JSON.parse(send.mock.calls[0][0])).toMatchObject({
+      type: "app_context",
+      contextId: "ctx-login-2:settled",
+    });
+    await testTransport.handleSocketMessage(
+      JSON.stringify({ appContextAccepted: { contextId: "ctx-login-2:settled" } }),
+    );
+
+    await expect(waiting).resolves.toEqual({
+      status: "acknowledged",
+      contextId: "ctx-login-2:settled",
+    });
+  });
+
+  it("does not accept the first spoken turn until the initial route context is acknowledged", async () => {
+    const onEvent = vi.fn();
+    const transport = new GeminiLiveTransport({ onEvent });
+    const send = vi.fn();
+    const initialContext = {
+      snapshot_id: "ctx-intro-1",
+      route: { screen: "one_intro", route_family: "/", playbook_id: "route.home" },
+      revisions: { route: 1, ui: 1 },
+      auth: { signed_in: false },
+      persona: { active: "investor" },
+      voice: { state: "idle" },
+      available_action_ids: ["onboarding.claim_one"],
+      ui: { visible_modules: [], visible_control_ids: [] },
+      pending_settlement: false,
+      cache: { freshness: "fresh_or_stale_safe", vault_ready: false, portfolio_ready: false },
+      onboarding: { phase: "anonymous_auth" },
+    };
+    const testTransport = transport as unknown as {
+      ws: { readyState: number; send: (message: string) => void };
+      startContext: typeof initialContext;
+      setupComplete: boolean;
+      initialContextReady: boolean;
+      handleSocketMessage: (data: string) => Promise<void>;
+    };
+    testTransport.ws = { readyState: WebSocket.OPEN, send };
+    testTransport.startContext = initialContext;
+
+    await testTransport.handleSocketMessage(JSON.stringify({ setupComplete: {} }));
+
+    expect(testTransport.setupComplete).toBe(true);
+    expect(testTransport.initialContextReady).toBe(false);
+    expect(onEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "state", state: "listening" }),
+    );
+    expect(JSON.parse(send.mock.calls[0]?.[0] as string)).toMatchObject({
+      type: "app_context",
+      contextId: "ctx-intro-1:settled",
+      appContext: { available_action_ids: ["onboarding.claim_one"] },
+    });
+
+    await testTransport.handleSocketMessage(
+      JSON.stringify({ appContextAccepted: { contextId: "ctx-intro-1:settled" } }),
+    );
+    await Promise.resolve();
+
+    expect(testTransport.initialContextReady).toBe(true);
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "state", state: "listening" }),
+    );
+  });
+
   it("emits one transcript-free visitor activity frame after sustained speech", () => {
     const transport = new GeminiLiveTransport();
     const send = vi.fn();

@@ -193,31 +193,36 @@ class TestPartnerPrincipal:
 
 
 class TestMuleSoftAgentforceProvisioning:
-    def test_named_integration_selects_agentforce_uat_profile_and_client_credentials(self):
+    def test_named_integration_selects_executable_client_credentials(self):
         module = _partner_provisioning_module()
         parser = argparse.ArgumentParser()
         args = argparse.Namespace(
             integration_target="mulesoft-agentforce",
             schema_profile="standard",
             enable_client_credentials=False,
+            client_credentials_execution_mode="execute",
         )
 
         module._apply_integration_defaults(parser, args)
 
-        assert args.schema_profile == "agentforce"
+        assert args.schema_profile == "standard"
         assert args.enable_client_credentials is True
+        assert args.client_credentials_execution_mode == "execute"
 
-    def test_named_integration_rejects_an_incompatible_catalog(self):
+    def test_named_integration_uses_the_same_catalog_from_any_legacy_profile(self):
         module = _partner_provisioning_module()
         parser = argparse.ArgumentParser()
         args = argparse.Namespace(
             integration_target="mulesoft-agentforce",
             schema_profile="flat",
             enable_client_credentials=False,
+            client_credentials_execution_mode="execute",
         )
 
-        with pytest.raises(SystemExit):
-            module._apply_integration_defaults(parser, args)
+        module._apply_integration_defaults(parser, args)
+
+        assert args.schema_profile == "flat"
+        assert args.client_credentials_execution_mode == "execute"
 
 
 class TestPartnerMigrationContract:
@@ -265,5 +270,16 @@ class TestPartnerMigrationContract:
         # the agentforce migration (106+) rather than pinning an exact version.
         assert contract["expected_migration_version"] >= 106
         assert "schema_profile" in contract["required_tables"]["developer_apps"]
+        consent_execution = (
+            ROOT / "db" / "migrations" / "109_oauth_client_credentials_consent_execution.sql"
+        )
+        assert consent_execution.exists()
+        assert "mcp_execution_mode = 'execute'" in consent_execution.read_text()
+        assert (
+            "109_oauth_client_credentials_consent_execution.sql" in manifest["ordered_migrations"]
+        )
+        assert (
+            "109_oauth_client_credentials_consent_execution.sql" in manifest["groups"]["developer"]
+        )
         assert "developer_connector_keys" in contract["required_tables"]
         assert "developer_oauth_tokens" in contract["required_tables"]

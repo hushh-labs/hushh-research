@@ -14,11 +14,16 @@ Canonical visual owner: [Kai Index](README.md). Use that map for the top-down sy
   - L1 memory cache + L2 Postgres cache for generalized modules
   - stale-on-error behavior before provider retry storms
   - provider cooldown metadata exposed in `meta.provider_cooldowns`
+- `/api/kai/market/news/{user_id}` and `/api/kai/market/news/baseline/{user_id}`
+  - one bounded snapshot for at most three symbols; opaque cursors only slice that cached snapshot
+  - provider order is priority fallback, not all-provider aggregation
+  - PMP/FMP news is counted against the shared FMP request budget and skipped when that budget is critical
 - Fetcher cooldown short-circuit for PMP/FMP after repeated `401/402/403/429/404`.
 
 ## Cache Policy
 - Fresh window: `180s` for Kai home modules.
 - Stale window: `900s` for graceful degraded serving.
+- Market News snapshot window: `600s` fresh, `1800s` stale.
 - Background refresh loop runs periodically but cache-first and lock-guarded.
 
 ## Operational Guidance

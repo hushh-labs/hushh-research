@@ -19,12 +19,6 @@ describe("ambient chrome", () => {
     document.documentElement.style.removeProperty("--ambient-chrome-top-fg");
     document.documentElement.style.removeProperty("--ambient-chrome-bottom-bg");
     document.documentElement.style.removeProperty("--ambient-chrome-bottom-fg");
-    document.documentElement.style.removeProperty(
-      "--ambient-chrome-bottom-base-bg",
-    );
-    document.documentElement.style.removeProperty(
-      "--ambient-chrome-bottom-base-fg",
-    );
     vi.restoreAllMocks();
   });
 
@@ -128,17 +122,12 @@ describe("ambient chrome", () => {
     stop();
   });
 
-  it("keeps the bottom dock material on the Foundation canvas, not a transient surface", () => {
+  it("uses the live painted surface and matching contrast for the bottom dock", () => {
     const mask = document.createElement("div");
     mask.setAttribute(AMBIENT_CHROME_MASK_ATTR, "bottom");
     mask.getBoundingClientRect = () =>
       ({ top: 700, bottom: 800, height: 100, width: 2000 }) as DOMRect;
     document.body.append(mask);
-
-    const foundation = document.createElement("div");
-    foundation.setAttribute("data-foundation-canvas", "true");
-    foundation.style.backgroundColor = "rgb(18, 24, 36)";
-    document.body.append(foundation);
 
     const fullBleedSurface = document.createElement("main");
     fullBleedSurface.setAttribute(AMBIENT_CHROME_FULL_BLEED_ATTR, "");
@@ -162,9 +151,9 @@ describe("ambient chrome", () => {
     ).toBe("rgb(80, 90, 100)");
     expect(
       document.documentElement.style.getPropertyValue(
-        "--ambient-chrome-bottom-base-bg",
+        "--ambient-chrome-bottom-fg",
       ),
-    ).toBe("rgb(18, 24, 36)");
+    ).toBe("#f5f5f7");
     stop();
   });
 

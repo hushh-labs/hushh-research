@@ -52,7 +52,7 @@ echo ""
 # 5. iOS Native Tests
 echo "▶ [5/6] iOS Native Tests..."
 cd hushh-webapp
-npm run ios:test || { FAIL=1; echo "❌ iOS native tests failed"; }
+npm run ios:cold:audit || { FAIL=1; echo "❌ iOS native cold audit failed"; }
 cd "$REPO_ROOT"
 echo ""
 

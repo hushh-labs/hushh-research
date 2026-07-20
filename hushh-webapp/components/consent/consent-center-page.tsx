@@ -2169,7 +2169,7 @@ export function ConsentCenterPage() {
     setPanelCloseRequested(false);
   }, [selectedId, selectedBundleId]);
 
-  const pageEyebrow = "Access / Consent";
+  const pageEyebrow = "Access & sharing";
   const pageDescription =
     actor === "ria"
       ? "Review access requests, active access, and connections."
@@ -2181,7 +2181,7 @@ export function ConsentCenterPage() {
       ? "Search connections by name, email, scope, or status"
       : `Search ${tab} by name, email, scope, or reason`;
   return (
-    <AppPageShell as="main" width="expanded" className="pb-24 sm:pb-28">
+    <AppPageShell as="main" width="reading" className="pb-24 sm:pb-28">
       <CapabilityExploreCard capabilityId="consent" />
       <AppPageHeaderRegion>
         <PageHeader

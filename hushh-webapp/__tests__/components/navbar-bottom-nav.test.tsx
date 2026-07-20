@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Navbar } from "@/components/navbar";
 import { ROUTES } from "@/lib/navigation/routes";
+import { INTERNAL_APP_NAVIGATION_REQUEST_EVENT } from "@/lib/utils/browser-navigation";
 
 const navigationMock = vi.hoisted(() => ({
   pathname: "/one",
@@ -79,12 +80,37 @@ describe("Navbar bottom utilities", () => {
   it("keeps One selected inside Profile and routes the primary utilities", () => {
     navigationMock.pathname = ROUTES.PROFILE;
     render(<Navbar />);
+    const onNavigationRequest = vi.fn();
+    window.addEventListener(
+      INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+      onNavigationRequest,
+    );
 
     expect(
       screen.getByRole("radio", { name: "One" }).getAttribute("aria-checked"),
     ).toBe("true");
+    expect(
+      screen
+        .getByRole("radio", { name: "One" })
+        .querySelector('[data-segment-icon-variant="active"]'),
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole("radio", { name: "Connect" })
+        .querySelector('[data-segment-icon-variant="default"]'),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("radio", { name: "One" }));
-    expect(navigationMock.push).toHaveBeenLastCalledWith(ROUTES.ONE_HOME);
+    expect(onNavigationRequest).toHaveBeenCalledTimes(1);
+    expect(
+      (onNavigationRequest.mock.calls[0][0] as CustomEvent).detail,
+    ).toMatchObject({
+      href: ROUTES.ONE_HOME,
+      source: "tap",
+    });
+    window.removeEventListener(
+      INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
+      onNavigationRequest,
+    );
   });
 
   it("keeps Finance workspace navigation out of the bottom bar", () => {
@@ -103,9 +129,9 @@ describe("Navbar bottom utilities", () => {
         .getByRole("radiogroup", { name: "Route navigation" })
         .getAttribute("style"),
     ).toContain("grid-template-columns: repeat(3, minmax(0, 1fr))");
-    expect(screen.getByTestId("app-bottom-nav-frame").getAttribute("style")).toContain(
-      "var(--app-bottom-shell-max-width)",
-    );
+    expect(
+      screen.getByTestId("app-bottom-nav-frame").getAttribute("style"),
+    ).toContain("var(--app-bottom-shell-max-width)");
     expect(screen.getByTestId("app-bottom-nav-frame").className).toContain(
       "justify-center",
     );

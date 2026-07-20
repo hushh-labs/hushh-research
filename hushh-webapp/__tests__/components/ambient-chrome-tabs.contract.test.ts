@@ -16,7 +16,7 @@ describe("tabbed ambient chrome contract", () => {
     const providers = read("app/providers.tsx");
 
     expect(topShell).toContain("ambient-chrome-mask--top-with-tabs");
-    expect(topShell).toContain('height: "var(--top-shell-visual-height)"');
+    expect(topShell).toContain(': "var(--top-shell-visual-height)"');
     expect(styles).toContain(".ambient-chrome-mask--top-with-tabs");
     expect(styles).toContain("var(--top-shell-reserved-height)");
     expect(styles).toContain("var(--top-ambient-tab-tail-midpoint, 32px)");
@@ -62,7 +62,17 @@ describe("tabbed ambient chrome contract", () => {
 
     expect(styles).toContain("[data-app-top-bar] .top-shell-ambient-ink .text-foreground");
     expect(styles).toContain("color: currentColor;");
-    expect(styles).toContain("var(--ambient-chrome-bottom-base-fg, #1d1d1f)");
+    expect(styles).toContain("var(--ambient-chrome-bottom-fg, #1d1d1f)");
+    expect(styles).not.toContain("ambient-chrome-bottom-base");
     expect(styles).toContain("--lucide-stroke-width: 1.6");
+  });
+
+  it("keeps both chrome edges on the one live token contract", () => {
+    const ambient = read("lib/morphy-ux/ambient-chrome.ts");
+
+    expect(ambient).not.toContain("baseBackground");
+    expect(ambient).not.toContain("writeBottomBase");
+    expect(ambient).toContain('background: "--ambient-chrome-bottom-bg"');
+    expect(ambient).toContain('foreground: "--ambient-chrome-bottom-fg"');
   });
 });

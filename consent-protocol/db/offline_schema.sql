@@ -479,4 +479,60 @@ CREATE TABLE IF NOT EXISTS "developer_tokens" (
   "last_used_user_agent" TEXT
 );
 
+CREATE TABLE IF NOT EXISTS "developer_oauth_clients" (
+  "app_id" TEXT PRIMARY KEY,
+  "client_id" TEXT NOT NULL UNIQUE,
+  "client_secret_hash" TEXT NOT NULL,
+  "client_secret_prefix" TEXT NOT NULL,
+  "redirect_uris" TEXT NOT NULL DEFAULT '[]',
+  "created_at" INTEGER NOT NULL,
+  "secret_rotated_at" INTEGER NOT NULL,
+  "revoked_at" INTEGER,
+  "allowed_grant_types" TEXT NOT NULL DEFAULT '["authorization_code","refresh_token"]',
+  "mcp_execution_mode" TEXT NOT NULL DEFAULT 'execute'
+);
+
+CREATE TABLE IF NOT EXISTS "developer_oauth_authorizations" (
+  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+  "transaction_ref" TEXT NOT NULL UNIQUE,
+  "code_hash" TEXT UNIQUE,
+  "app_id" TEXT NOT NULL,
+  "client_id" TEXT NOT NULL,
+  "redirect_uri" TEXT NOT NULL,
+  "code_challenge" TEXT NOT NULL,
+  "subject_firebase_uid" TEXT,
+  "requested_scope" TEXT NOT NULL,
+  "state" TEXT,
+  "status" TEXT NOT NULL,
+  "expires_at" INTEGER NOT NULL,
+  "created_at" INTEGER NOT NULL,
+  "consumed_at" INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS "developer_oauth_tokens" (
+  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+  "token_hash" TEXT NOT NULL UNIQUE,
+  "token_prefix" TEXT NOT NULL,
+  "token_kind" TEXT NOT NULL,
+  "app_id" TEXT NOT NULL,
+  "subject_firebase_uid" TEXT,
+  "authorization_id" INTEGER,
+  "scopes" TEXT NOT NULL,
+  "created_at" INTEGER NOT NULL,
+  "expires_at" INTEGER NOT NULL,
+  "revoked_at" INTEGER,
+  "last_used_at" INTEGER,
+  "grant_type" TEXT NOT NULL DEFAULT 'authorization_code',
+  "mcp_execution_mode" TEXT NOT NULL DEFAULT 'execute'
+);
+
+CREATE TABLE IF NOT EXISTS "developer_oauth_audit_events" (
+  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+  "app_id" TEXT NOT NULL,
+  "client_id" TEXT,
+  "subject_firebase_uid" TEXT,
+  "event_type" TEXT NOT NULL,
+  "created_at" INTEGER NOT NULL
+);
+
 -- WARNING: table users not found in live schema, skipped

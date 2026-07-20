@@ -716,6 +716,7 @@ export function PkmNaturalPanel({
       loading={bootstrapLoading}
       metadataReady={metadata !== null}
       metadataError={bootstrapError ? "Saved details couldn’t be loaded. Try again." : null}
+      sharingReady={sharingResolved}
       sharingError={sharingError}
       needsVaultCreation={false}
       needsUnlock={false}

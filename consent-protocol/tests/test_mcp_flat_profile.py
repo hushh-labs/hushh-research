@@ -14,11 +14,17 @@ from mcp_modules.agentforce_contract import (
     get_agentforce_tool_names,
     get_mulesoft_agentforce_handoff,
 )
+from mcp_modules.canonical_contract import get_published_tool_names
 from mcp_modules.developer_context import (
     reset_current_developer_principal,
     set_current_developer_principal,
 )
-from mcp_modules.flat_contract import get_flat_contract, get_flat_tool_names, validate_flat_output
+from mcp_modules.flat_contract import (
+    LOCAL_INFORMATION_JSON_MAX_CHARS,
+    get_flat_contract,
+    get_flat_tool_names,
+    validate_flat_output,
+)
 from mcp_modules.flat_projection import project_flat_result
 from mcp_modules.tools.definitions import get_tool_definitions
 
@@ -33,7 +39,7 @@ def _walk_schema(schema: object):
             yield from _walk_schema(value)
 
 
-def test_flat_profile_has_only_four_described_shallow_tools() -> None:
+def test_canonical_catalog_has_five_described_shallow_tools() -> None:
     contract = get_flat_contract()
     assert tuple(tool["name"] for tool in contract["tools"]) == get_flat_tool_names()
     assert (
@@ -43,7 +49,7 @@ def test_flat_profile_has_only_four_described_shallow_tools() -> None:
                 allowed_tool_names=set(get_flat_tool_names()), schema_profile="flat"
             )
         )
-        == get_flat_tool_names()
+        == get_published_tool_names()
     )
 
     forbidden = {"$ref", "$defs", "oneOf", "anyOf", "allOf"}
@@ -74,10 +80,13 @@ def test_agentforce_uat_contract_is_strict_and_keeps_canonical_field_ids() -> No
     assert agentforce_contract_errors(contract) == []
     assert tuple(tool["name"] for tool in contract["tools"]) == get_agentforce_tool_names()
     assert tuple(tool["name"] for tool in flat["tools"]) == get_flat_tool_names()
-    assert len(contract["tools"]) == 4
+    assert len(contract["tools"]) == 5
 
     for agentforce_tool, flat_tool in zip(contract["tools"], flat["tools"], strict=True):
-        assert agentforce_tool["name"] != flat_tool["name"]
+        assert (
+            agentforce_tool["name"]
+            == get_published_tool_names()[get_flat_tool_names().index(flat_tool["name"])]
+        )
         assert set(agentforce_tool["inputSchema"]["properties"]) == set(
             flat_tool["inputSchema"]["properties"]
         )
@@ -87,6 +96,9 @@ def test_agentforce_uat_contract_is_strict_and_keeps_canonical_field_ids() -> No
         assert agentforce_tool["title"].strip()
         assert agentforce_tool["description"].strip()
         assert agentforce_tool["annotations"]["title"] == agentforce_tool["title"]
+        assert agentforce_tool["annotations"]["idempotentHint"] is True
+        assert agentforce_tool["inputSchema"]["title"] == f"{agentforce_tool['title']} input"
+        assert agentforce_tool["outputSchema"]["title"] == f"{agentforce_tool['title']} output"
 
 
 def test_mulesoft_agentforce_handoff_preserves_the_narrow_catalog_and_boundary() -> None:
@@ -96,7 +108,7 @@ def test_mulesoft_agentforce_handoff_preserves_the_narrow_catalog_and_boundary()
     assert handoff["upstream"] == {
         "transport": "streamable-http",
         "path": "/mcp/",
-        "authentication": "oauth2-client-credentials",
+        "authentication": "bearer-or-oauth2-client-credentials",
         "requestTimeoutSeconds": 55.0,
     }
     assert handoff["agentforce"]["toolsOnly"] is True
@@ -109,9 +121,10 @@ def test_mulesoft_agentforce_handoff_preserves_the_narrow_catalog_and_boundary()
         "expandNestedFields": False,
     }
     assert handoff["executionBoundary"] == {
-        "personalizedToolExecution": "unsupported",
-        "handlerCalls": "fail-closed",
-        "errorCode": "AGENTFORCE_PERSONALIZED_WORKFLOW_UNSUPPORTED",
+        "consentLifecycleExecution": "enabled",
+        "applicationAuthentication": "oauth2-client-credentials",
+        "userAuthority": "explicit-consent-and-scoped-grant",
+        "informationDelivery": "encrypted-export-after-approval",
     }
 
 
@@ -161,27 +174,70 @@ def test_flat_projection_preserves_lifecycle_references_and_export_envelope() ->
     assert "information" not in export
     assert json.loads(export["export_envelope_json"]) == {"export_id": "export_1", "version": 2}
 
+    local_export = project_flat_result(
+        "get_encrypted_scoped_export",
+        {
+            "status": "success",
+            "delivery": "decrypted_local",
+            "expected_scope": "attr.financial.portfolio.*",
+            "granted_scope": "attr.financial.portfolio.*",
+            "expires_at": 123,
+            "export_revision": 2,
+            "information": {"portfolio": {"content": "x" * 30_000}},
+        },
+    )
+    assert len(local_export["information_json"]) < LOCAL_INFORMATION_JSON_MAX_CHARS
+    assert validate_flat_output("get_encrypted_scoped_export", local_export)
 
-def test_schema_profile_is_explicit_principal_configuration() -> None:
+
+def test_execution_mode_is_explicit_principal_configuration() -> None:
     standard = DeveloperPrincipal(
         app_id="app_standard",
         agent_id="developer:app_standard",
         display_name="Standard",
         allowed_tool_groups=("core_consent",),
     )
-    flat = DeveloperPrincipal(
-        app_id="app_flat",
-        agent_id="developer:app_flat",
-        display_name="Flat",
+    catalog_only = DeveloperPrincipal(
+        app_id="app_catalog_only",
+        agent_id="developer:app_catalog_only",
+        display_name="Catalog only",
         allowed_tool_groups=("core_consent",),
-        schema_profile="flat",
+        mcp_execution_mode="catalog_only",
     )
     assert standard.schema_profile == "standard"
-    assert flat.schema_profile == "flat"
+    assert catalog_only.mcp_execution_mode == "catalog_only"
+
+
+def test_local_developer_context_resolves_oauth_access_token(monkeypatch) -> None:
+    from hushh_mcp.services.developer_oauth_service import DeveloperOAuthService
+    from mcp_modules import developer_context
+
+    principal = DeveloperPrincipal(
+        app_id="app_catalog_only",
+        agent_id="developer:app_catalog_only",
+        display_name="Catalog only",
+        allowed_tool_groups=("core_consent",),
+        mcp_execution_mode="catalog_only",
+    )
+    monkeypatch.setenv("HUSHH_DEVELOPER_TOKEN", "hdo_at_fixture")
+    monkeypatch.setattr(
+        developer_context.DeveloperRegistryService,
+        "authenticate_token",
+        lambda _self, _token: None,
+    )
+    monkeypatch.setattr(
+        DeveloperOAuthService,
+        "authenticate_access_token",
+        lambda _self, _token: principal,
+    )
+
+    assert developer_context.get_current_developer_principal() == principal
 
 
 @pytest.mark.asyncio
-async def test_flat_mcp_boundary_lists_four_tools_and_mirrors_projected_json(monkeypatch) -> None:
+async def test_canonical_mcp_boundary_lists_five_tools_and_mirrors_projected_json(
+    monkeypatch,
+) -> None:
     import mcp_server
     from mcp_modules import resources
 
@@ -207,10 +263,9 @@ async def test_flat_mcp_boundary_lists_four_tools_and_mirrors_projected_json(mon
     )
     try:
         tools = await mcp_server.list_tools()
-        assert tuple(tool.name for tool in tools) == get_flat_tool_names()
+        assert tuple(tool.name for tool in tools) == get_published_tool_names()
         connector_resource = json.loads(await resources.read_resource("hushh://info/connector"))
-        assert connector_resource["tools"] == list(get_flat_tool_names())
-        assert "compatibility_tool" not in connector_resource
+        assert connector_resource["tools"] == list(get_published_tool_names())
         content, structured = await mcp_server.call_tool(
             "search_user_scopes", {"user_identifier": "user@example.test"}
         )
@@ -226,7 +281,9 @@ async def test_flat_mcp_boundary_lists_four_tools_and_mirrors_projected_json(mon
 
 
 @pytest.mark.asyncio
-async def test_agentforce_uat_boundary_lists_schema_but_rejects_personalized_calls() -> None:
+async def test_catalog_only_agentforce_boundary_lists_schema_but_rejects_personalized_calls() -> (
+    None
+):
     import mcp_server
     from mcp_modules import resources
 
@@ -236,7 +293,7 @@ async def test_agentforce_uat_boundary_lists_schema_but_rejects_personalized_cal
             agent_id="developer:app_agentforce",
             display_name="Agentforce UAT",
             allowed_tool_groups=("core_consent",),
-            schema_profile=AGENTFORCE_PROFILE,
+            mcp_execution_mode="catalog_only",
         ),
         token="hdo_at_agentforce_fixture",  # noqa: S106 - opaque test access-token fixture
     )
@@ -256,5 +313,5 @@ async def test_agentforce_uat_boundary_lists_schema_but_rejects_personalized_cal
         assert dumped["outputSchema"]
         assert all(field["title"] for field in dumped["outputSchema"]["properties"].values())
     assert result.isError is True
-    assert result.structuredContent["error_code"] == "AGENTFORCE_PERSONALIZED_WORKFLOW_UNSUPPORTED"
+    assert result.structuredContent["error_code"] == "REQUIRES_SECURE_CONSENT_FLOW"
     assert resources_list == []

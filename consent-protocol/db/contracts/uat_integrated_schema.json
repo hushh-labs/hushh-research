@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 107,
+  "expected_migration_version": 110,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -535,6 +535,12 @@
       "rotated_at",
       "revoked_at"
     ],
+    "one_email_kyc_preferences": [
+      "user_id",
+      "automatic_response_preparation_enabled",
+      "created_at",
+      "updated_at"
+    ],
     "one_kyc_workflows": [
       "workflow_id",
       "user_id",
@@ -759,7 +765,9 @@
       "redirect_uris",
       "created_at",
       "secret_rotated_at",
-      "revoked_at"
+      "revoked_at",
+      "allowed_grant_types",
+      "mcp_execution_mode"
     ],
     "developer_oauth_tokens": [
       "id",
@@ -774,7 +782,8 @@
       "expires_at",
       "revoked_at",
       "last_used_at",
-      "grant_type"
+      "grant_type",
+      "mcp_execution_mode"
     ],
     "developer_connector_keys": [
       "app_id",

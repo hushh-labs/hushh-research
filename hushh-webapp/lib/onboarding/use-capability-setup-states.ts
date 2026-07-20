@@ -87,8 +87,13 @@ export function useCapabilitySetupStates(
   const [oauthConnections, setOauthConnections] = useState<
     Partial<Record<string, boolean>>
   >({});
-  const [enrichingVault, setEnrichingVault] = useState(false);
-  const [enrichingOauth, setEnrichingOauth] = useState(false);
+  // Opted-in enrichment starts unresolved. Initializing these to `false`
+  // briefly published coarse statuses as final, which made completed setup
+  // tiles jump from Remaining to Complete after the first effects ran.
+  const [enrichingVault, setEnrichingVault] = useState(enrichVault);
+  const [enrichingOauth, setEnrichingOauth] = useState(enrichOauth);
+  const [enrichingRia, setEnrichingRia] = useState(enrichRia);
+  const [enrichingLocation, setEnrichingLocation] = useState(false);
   const [exploredIds, setExploredIds] = useState<ReadonlySet<string>>(
     () => new Set<string>()
   );
@@ -197,11 +202,13 @@ export function useCapabilitySetupStates(
   useEffect(() => {
     if (!enrichVault || !userId || !isVaultUnlocked) {
       setKaiProfile(null);
+      setEnrichingVault(false);
       return;
     }
     const vaultKey = getVaultKey();
     if (!vaultKey) {
       setKaiProfile(null);
+      setEnrichingVault(false);
       return;
     }
     let cancelled = false;
@@ -230,6 +237,7 @@ export function useCapabilitySetupStates(
   useEffect(() => {
     if (!enrichOauth || !userId) {
       setOauthConnections({});
+      setEnrichingOauth(false);
       return;
     }
     let cancelled = false;
@@ -262,14 +270,17 @@ export function useCapabilitySetupStates(
   useEffect(() => {
     if (!userId || !isVaultUnlocked) {
       setLocationRecipientKeyReady(undefined);
+      setEnrichingLocation(false);
       return;
     }
     const token = getVaultOwnerToken();
     if (!token) {
       setLocationRecipientKeyReady(undefined);
+      setEnrichingLocation(false);
       return;
     }
     let cancelled = false;
+    setEnrichingLocation(true);
     OneLocationService.getState(token)
       .then((state) => {
         if (!cancelled) {
@@ -279,6 +290,9 @@ export function useCapabilitySetupStates(
       .catch(() => {
         // Leave undefined → resolver yields "Checking…", never a fabricated state.
         if (!cancelled) setLocationRecipientKeyReady(undefined);
+      })
+      .finally(() => {
+        if (!cancelled) setEnrichingLocation(false);
       });
     return () => {
       cancelled = true;
@@ -294,9 +308,11 @@ export function useCapabilitySetupStates(
   useEffect(() => {
     if (!enrichRia || !userId) {
       setRiaOnboarded(undefined);
+      setEnrichingRia(false);
       return;
     }
     let cancelled = false;
+    setEnrichingRia(true);
     (async () => {
       try {
         const idToken = await AuthService.getIdToken();
@@ -312,6 +328,8 @@ export function useCapabilitySetupStates(
         }
       } catch {
         if (!cancelled) setRiaOnboarded(undefined);
+      } finally {
+        if (!cancelled) setEnrichingRia(false);
       }
     })();
     return () => {
@@ -386,7 +404,8 @@ export function useCapabilitySetupStates(
     statuses,
     byId,
     isLoading: Boolean(userId) && !bootstrapResolved && !cachedPreVaultState,
-    isEnriching: enrichingVault || enrichingOauth,
+    isEnriching:
+      enrichingVault || enrichingOauth || enrichingRia || enrichingLocation,
     markExplored,
   };
 }

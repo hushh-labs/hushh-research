@@ -46,6 +46,7 @@ type BusyState =
   | "systems"
   | "schema"
   | "binding"
+  | "lookup"
   | "read"
   | "create"
   | "update"
@@ -67,6 +68,8 @@ type ConnectedSystemsPanelProps = {
   onSetupReadinessChange?: (ready: boolean) => void;
   /** Keeps a setup list inside its static setup workspace. */
   setupRouteBase?: string | null;
+  /** Removes post-setup administration while preserving secure CRM contracts. */
+  presentation?: "workspace" | "setup";
 };
 
 export type ConnectedSystemAgentInstruction = {
@@ -113,6 +116,17 @@ function statusBadge(status: string | undefined | null): string {
     .filter(Boolean)
     .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
     .join(" ");
+}
+
+function registryAvailabilityLabel(system?: ConnectedSystemSummary | null): string {
+  // `status: connected` is a legacy registry transport label. It says the
+  // configured CRM endpoint is reachable, not that this person has a CRM
+  // record linked to One. Keep that distinction explicit in every surface.
+  if (system?.endpointConfigured || system?.status === "connected") {
+    return "Available";
+  }
+  if (system?.status === "needs_configuration") return "Needs setup";
+  return statusBadge(system?.status);
 }
 
 const MACYS_LOGO_SRC = "/brand/macys-logo.svg";
@@ -348,14 +362,22 @@ function crmRecordFieldValue(
   record: Record<string, unknown>,
   field: CrmProfileField,
 ): string {
+  const key = crmRecordFieldKey(record, field);
+  return key ? cleanFieldValue(record[key]) : "";
+}
+
+function crmRecordFieldKey(
+  record: Record<string, unknown>,
+  field: CrmProfileField,
+): string | null {
   for (const candidate of [field.rawName, field.key]) {
-    if (candidate && candidate in record) return cleanFieldValue(record[candidate]);
+    if (candidate && candidate in record) return candidate;
     const matchedKey = Object.keys(record).find(
       (key) => key.toLowerCase() === candidate?.toLowerCase(),
     );
-    if (matchedKey) return cleanFieldValue(record[matchedKey]);
+    if (matchedKey) return matchedKey;
   }
-  return "";
+  return null;
 }
 
 function changedFieldsFromValues(
@@ -382,6 +404,7 @@ export function ConnectedSystemsPanel({
   profile: _profile,
   onSetupReadinessChange,
   setupRouteBase,
+  presentation = "workspace",
 }: ConnectedSystemsPanelProps) {
   const router = useRouter();
   const [systems, setSystems] = useState<ConnectedSystemSummary[]>([]);
@@ -416,11 +439,17 @@ export function ConnectedSystemsPanel({
     null,
   );
   const [readResolvedKey, setReadResolvedKey] = useState<string | null>(null);
+  const [unboundLookupState, setUnboundLookupState] = useState<
+    "idle" | "checking" | "no_match" | "failed"
+  >("idle");
   const consumedAgentInstructionRef = useRef<string | null>(null);
   // Tracks which systems (by systemId) have an active record binding, across
   // ALL available systems, not just the one currently open in detail view.
   // The step is complete once the person has linked any one of them.
   const [boundSystemIds, setBoundSystemIds] = useState<Set<string>>(new Set());
+  const [bindingResolvedSystemIds, setBindingResolvedSystemIds] = useState<Set<string>>(
+    new Set(),
+  );
 
   const selectedSystem =
     systems.find((system) => system.systemId === systemId) ||
@@ -429,6 +458,7 @@ export function ConnectedSystemsPanel({
     ? `${selectedSystem.systemId}:${selectedSystem.objectTypeDefault || "Contact"}`
     : "";
   const canUseBackend = Boolean(vaultOwnerToken);
+  const isSetupPresentation = presentation === "setup";
   const schemaReady = schema?.schemaStatus === "ready";
   const supportsAction = (action: "schema" | "read" | "create" | "update" | "delete") =>
     action === "schema"
@@ -511,6 +541,15 @@ export function ConnectedSystemsPanel({
   const bindingResolved = Boolean(
     selectedSystemKey && bindingResolvedKey === selectedSystemKey,
   );
+  const selectedRecordLinkLabel = !bindingResolved
+    ? "Checking record link"
+    : activeBinding
+      ? "Record linked"
+      : "No linked record";
+  const listRecordLinkLabel = (system: ConnectedSystemSummary): string | null => {
+    if (!vaultOwnerToken || !bindingResolvedSystemIds.has(system.systemId)) return null;
+    return boundSystemIds.has(system.systemId) ? "Record linked" : "No linked record";
+  };
   const boundRecordReadResolved =
     !hasBoundRecord ||
     readResultHasCurrentRecord ||
@@ -535,19 +574,30 @@ export function ConnectedSystemsPanel({
     schemaReady &&
     visibleProfileFields.length > 0 &&
     (supportsAction("read") || supportsAction("create"));
+  const hasCompletedUnboundLookup = unboundLookupState === "no_match";
+  const canCreateUnboundRecord = supportsAction("create");
+  const shouldOfferCreate =
+    canCreateUnboundRecord &&
+    (!supportsAction("read") || hasCompletedUnboundLookup);
   const canShowBoundRecordActions =
-    hasBoundRecord && !isRecordStateLoading && schemaReady && supportsAction("update");
+    !isSetupPresentation &&
+    hasBoundRecord &&
+    !isRecordStateLoading &&
+    schemaReady &&
+    supportsAction("update");
   const showCatalogueOnly = Boolean(
     schema &&
       (!schemaReady ||
-        (hasBoundRecord ? !canShowBoundRecordActions : !canShowUnboundRecordActions)),
+        (!isSetupPresentation &&
+          (hasBoundRecord ? !canShowBoundRecordActions : !canShowUnboundRecordActions))),
   );
 
   useEffect(() => {
     if (mode !== "detail") return;
     setReadResolvedKey(null);
     setReadResult(null);
-  }, [crmRecordReadKey, mode]);
+    setUnboundLookupState("idle");
+  }, [mode, selectedSystemKey]);
 
   const refreshSystems = useCallback(async () => {
     // Listing needs sign-in only, not vault unlock: fall back to the Firebase
@@ -579,45 +629,49 @@ export function ConnectedSystemsPanel({
     void refreshSystems();
   }, [refreshSystems]);
 
-  // Aggregate binding status across every OTHER listed system (the
-  // currently selected one is already tracked live via `activeBinding`/
-  // `refreshBinding`, so it is excluded here to avoid a redundant duplicate
-  // fetch) so completion can fire on ANY connected CRM, not only the one
-  // currently open in detail view. Best-effort and silent: a single
-  // system's lookup failing (e.g. one CRM briefly unavailable) must not
-  // block detecting completion from the others. Skipped entirely when there
-  // is only one system, since that system's own binding already covers it.
+  // Resolve record links for every list row. In detail mode the selected
+  // system is already handled by `refreshBinding`, but list mode has no
+  // selected detail and therefore must include every system. This prevents a
+  // transport-ready CRM from being misrepresented as a linked user record.
   useEffect(() => {
-    if (!vaultOwnerToken || systems.length < 2) return;
+    if (!vaultOwnerToken || systems.length === 0) return;
     let cancelled = false;
-    const otherSystems = systems.filter(
-      (system) => system.systemId !== selectedSystem?.systemId,
-    );
-    if (otherSystems.length === 0) return;
+    const systemsToCheck =
+      mode === "detail"
+        ? systems.filter((system) => system.systemId !== selectedSystem?.systemId)
+        : systems;
+    if (systemsToCheck.length === 0) return;
     void (async () => {
       const results = await Promise.all(
-        otherSystems.map(async (system) => {
+        systemsToCheck.map(async (system) => {
           try {
             const response = await ConnectedSystemsService.getRecordBinding({
               vaultOwnerToken,
               systemId: system.systemId,
               objectType: system.objectTypeDefault || "Contact",
             });
-            return response.binding?.status === "active"
-              ? system.systemId
-              : null;
+            return {
+              systemId: system.systemId,
+              active: response.binding?.status === "active",
+            };
           } catch {
             return null;
           }
         }),
       );
       if (cancelled) return;
-      setBoundSystemIds(new Set(results.filter((id): id is string => Boolean(id))));
+      const resolved = results.filter(
+        (result): result is { systemId: string; active: boolean } => Boolean(result),
+      );
+      setBoundSystemIds(
+        new Set(resolved.filter((result) => result.active).map((result) => result.systemId)),
+      );
+      setBindingResolvedSystemIds(new Set(resolved.map((result) => result.systemId)));
     })();
     return () => {
       cancelled = true;
     };
-  }, [selectedSystem?.systemId, systems, vaultOwnerToken]);
+  }, [mode, selectedSystem?.systemId, systems, vaultOwnerToken]);
 
   const refreshBinding = useCallback(async () => {
     if (!vaultOwnerToken || !selectedSystem || mode !== "detail") return null;
@@ -770,6 +824,18 @@ export function ConnectedSystemsPanel({
       const values = crmValuesFromRecord(record, visibleProfileFields);
       setCrmFieldValues(values);
       setCrmBaselineValues(values);
+      const resolvedRecordId = cleanFieldValue(
+        nextBinding?.recordId || currentRecordId || result.recordId || extractFirstRecordId(result),
+      );
+      if (selectedSystem && resolvedRecordId) {
+        setReadResolvedKey(
+          [
+            selectedSystem.systemId,
+            selectedSystem.objectTypeDefault || "Contact",
+            resolvedRecordId,
+          ].join(":"),
+        );
+      }
     }
     const recordId = result.recordId || extractFirstRecordId(result);
     if (recordId && (nextBinding || currentRecordId)) {
@@ -785,7 +851,7 @@ export function ConnectedSystemsPanel({
     } = {},
   ) => {
     const result = await runAction(
-      "read",
+      options.bindSearch ? "lookup" : "read",
       async () => {
         const returnFields = visibleProfileFields
           .filter((field) => field.readable !== false)
@@ -901,7 +967,7 @@ export function ConnectedSystemsPanel({
       !currentRecordId ||
       !schemaReady ||
       !supportsAction("read") ||
-      readResultHasCurrentRecord
+      boundRecordReadResolved
     ) {
       return;
     }
@@ -910,9 +976,9 @@ export function ConnectedSystemsPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     activeBinding,
+    boundRecordReadResolved,
     currentRecordId,
     mode,
-    readResultHasCurrentRecord,
     vaultOwnerToken,
     schemaReady,
   ]);
@@ -952,21 +1018,31 @@ export function ConnectedSystemsPanel({
     const canRead = supportsAction("read");
     const canCreate = supportsAction("create");
     if (canRead) {
+      setUnboundLookupState("checking");
       const found = await readRecord({
         silent: true,
         bindSearch: true,
       });
       if (found?.binding?.status === "active") {
+        setUnboundLookupState("idle");
         toast.success(`Found your existing ${customerName} record and linked it.`);
         return;
       }
+      if (!found) {
+        setUnboundLookupState("failed");
+        return;
+      }
+      setUnboundLookupState("no_match");
       if (!canCreate) {
         toast.info(`No matching ${customerName} record was found.`);
         return;
       }
+      await createRecordFromSchema();
+      return;
     }
-    if (!canCreate) return;
-    await createRecordFromSchema();
+    if (!canRead && canCreate) {
+      await createRecordFromSchema();
+    }
   };
 
   const updateRecordFromSchema = async () => {
@@ -1087,18 +1163,29 @@ export function ConnectedSystemsPanel({
     options: { showPendingChanges?: boolean } = {},
   ) => {
     const pendingChanges = Object.keys(changedProfileFields).length;
+    const recordState = !bindingResolved
+      ? "Checking record link"
+      : !hasBoundRecord
+        ? unboundLookupState === "checking"
+          ? "Checking verified account information"
+          : unboundLookupState === "no_match"
+            ? "No matching CRM record"
+            : unboundLookupState === "failed"
+              ? "Record lookup needs a retry"
+              : "Ready to find a CRM record"
+        : primaryCrmRecord
+          ? `${crmRecords.length} record${crmRecords.length === 1 ? "" : "s"} loaded`
+          : hasReadback
+            ? "Record linked, no fields returned"
+            : supportsAction("read")
+              ? "Loading linked record"
+              : "Record linked";
     const parts = [
       schema ? `${visibleProfileFields.length} fields discovered` : "Waiting for CRM schema",
       schema?.schemaStatus === "capability_metadata_missing"
         ? "Configuration update required"
         : null,
-      primaryCrmRecord
-        ? `${crmRecords.length} record${crmRecords.length === 1 ? "" : "s"} loaded`
-        : hasReadback && currentRecordId
-          ? "Record linked"
-          : hasReadback
-            ? "No record returned"
-            : "Profile values ready",
+      recordState,
       currentRecordId ? `Record ${currentRecordId}` : null,
       options.showPendingChanges
         ? `${pendingChanges} pending change${pendingChanges === 1 ? "" : "s"}`
@@ -1116,13 +1203,24 @@ export function ConnectedSystemsPanel({
       field.immutable ? "immutable" : null,
       field.identityField ? "identity" : null,
     ].filter(Boolean).join(" · ") || "not declared";
+    const currentValue = !hasBoundRecord
+      ? "No linked record"
+      : !readResult
+        ? supportsAction("read")
+          ? "Loading record"
+          : "Record values unavailable"
+        : !primaryCrmRecord
+          ? "No record returned"
+          : !crmRecordFieldKey(primaryCrmRecord, field)
+            ? "Not returned by CRM"
+            : displayRecordValue(crmFieldValues[field.key]);
     return {
       key: field.key,
       label: field.label,
       dataType: field.dataType || "string",
       access,
       required: field.required ? "Required" : "Optional",
-      currentValue: displayRecordValue(crmFieldValues[field.key]),
+      currentValue,
       field,
     };
   });
@@ -1281,29 +1379,36 @@ export function ConnectedSystemsPanel({
           </SettingsGroup>
         ) : null}
         {systems.length > 0 ? (
-          <SettingsGroup title="Available systems" separatorInset>
+          <SettingsGroup separatorInset>
             {systems.map((system) => {
               const title =
                 system.displayName || system.customerDisplayName || "CRM system";
+              const recordLink = listRecordLinkLabel(system);
+              const availability = registryAvailabilityLabel(system);
+              const description = [
+                crmTypeDisplayLabel(system) || "CRM",
+                recordLink,
+              ]
+                .filter(Boolean)
+                .join(" · ");
               return (
                 <SettingsRow
                   key={system.systemId}
                   leading={<ConnectedSystemLogo system={system} />}
                   title={title}
-                  description={crmTypeDisplayLabel(system) || "CRM"}
+                  description={description}
                   trailing={
                     <span
-                      className={`max-w-[7.5rem] truncate text-xs font-medium sm:max-w-[10rem] ${
-                        system.status === "connected"
-                          ? "text-emerald-700 dark:text-emerald-300"
-                          : "text-muted-foreground"
-                      }`}
+                      className={
+                        availability === "Available"
+                          ? "text-xs font-medium text-emerald-700 dark:text-emerald-300"
+                          : "text-xs font-medium text-muted-foreground"
+                      }
                     >
-                      {statusBadge(system.status)}
+                      {availability}
                     </span>
                   }
                   chevron
-                  stackTrailingOnMobile
                   onClick={() =>
                     router.push(
                       setupRouteBase
@@ -1346,8 +1451,16 @@ export function ConnectedSystemsPanel({
             </div>
           </div>
           <div className="text-left text-xs text-muted-foreground sm:text-right">
-            {statusBadge(selectedSystem?.status || "connected")} through{" "}
-            {selectedSystem?.transportLabel || "External CRM MCP"}
+            <p>{registryAvailabilityLabel(selectedSystem)} through {selectedSystem?.transportLabel || "External CRM MCP"}</p>
+            <p
+              className={
+                selectedRecordLinkLabel === "Record linked"
+                  ? "mt-1 font-medium text-emerald-700 dark:text-emerald-300"
+                  : "mt-1"
+              }
+            >
+              {selectedRecordLinkLabel}
+            </p>
           </div>
         </div>
       </SurfaceInset>
@@ -1416,70 +1529,99 @@ export function ConnectedSystemsPanel({
       ) : null}
 
       {canShowUnboundRecordActions ? (
-        <SettingsGroup title={`Link my ${customerName} record`}>
+        <SettingsGroup
+          title={
+            isSetupPresentation
+              ? `Find or create my ${customerName} record`
+              : shouldOfferCreate
+              ? `Create a ${customerName} record`
+              : `Find my ${customerName} record`
+          }
+        >
           <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
             <div className="flex flex-wrap items-center justify-between gap-2">
               {renderSchemaStatus()}
               <div className="flex flex-wrap gap-2">
+                {!isSetupPresentation ? (
+                  <Button
+                    type="button"
+                    variant="none"
+                    effect="fade"
+                    size="sm"
+                    disabled={busy !== null}
+                    onClick={() => void loadSchema()}
+                  >
+                    <Icon icon={ListChecks} size="sm" className="mr-2" />
+                    {schema ? "Refresh fields" : "Discover fields"}
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
-                  variant="none"
-                  effect="fade"
                   size="sm"
                   disabled={busy !== null}
-                  onClick={resetWorkingCopy}
+                  onClick={() =>
+                    void (isSetupPresentation
+                      ? linkThisSystem()
+                      : supportsAction("read") && !shouldOfferCreate
+                        ? linkThisSystem()
+                        : createRecordFromSchema())
+                  }
                 >
-                  Reset
-                </Button>
-                <Button
-                  type="button"
-                  variant="none"
-                  effect="fade"
-                  size="sm"
-                  disabled={busy !== null}
-                  onClick={() => void loadSchema()}
-                >
-                  <Icon icon={ListChecks} size="sm" className="mr-2" />
-                  {schema ? "Refresh fields" : "Discover fields"}
+                  <Icon
+                    icon={SendHorizontal}
+                    size="sm"
+                    className={
+                      busy === "lookup" || busy === "create"
+                        ? "mr-2 animate-pulse"
+                        : "mr-2"
+                    }
+                  />
+                  {busy === "lookup"
+                    ? "Checking your record..."
+                    : busy === "create"
+                      ? "Preparing review..."
+                      : isSetupPresentation
+                        ? "Find or create my record"
+                        : supportsAction("read") && !shouldOfferCreate
+                        ? "Find and link my record"
+                        : "Create record for review"}
                 </Button>
               </div>
             </div>
-            {renderCrmFieldTable()}
+            {!isSetupPresentation ? renderCrmFieldTable() : null}
             <p className="text-xs leading-relaxed text-muted-foreground">
-              {supportsAction("read") && supportsAction("create")
-                ? "We’ll look up only the verified email and phone on your Hussh account, then create a basic record only when no match exists."
+              {isSetupPresentation
+                ? "One checks for a record using the verified email and phone on your account. If none exists, creating one remains a reviewable request."
+                : unboundLookupState === "checking"
+                ? "Checking this CRM with only the verified email and phone on your Hussh account."
+                : unboundLookupState === "no_match"
+                  ? canCreateUnboundRecord
+                    ? `No matching ${customerName} record was found. Create remains a reviewable request until you confirm it.`
+                    : `No matching ${customerName} record was found. This CRM does not currently support record creation.`
+                  : unboundLookupState === "failed"
+                    ? "We could not complete the record lookup. Try again before creating a record."
+                : supportsAction("read") && supportsAction("create")
+                ? "Find and link uses only your verified email and phone. If no record exists, you can prepare a basic record for review."
                 : supportsAction("read")
-                  ? "We’ll look only for an existing CRM record."
+                  ? "Find and link uses only your verified email and phone."
                   : "This CRM allows a new record to be prepared for review."}
             </p>
-            <div className="flex justify-end">
-              <Button
-                type="button"
-                size="sm"
-                disabled={busy !== null}
-                onClick={() => void linkThisSystem()}
-              >
-                <Icon
-                  icon={SendHorizontal}
-                  size="sm"
-                  className={
-                    busy === "read" || busy === "create"
-                      ? "mr-2 animate-pulse"
-                      : "mr-2"
-                  }
-                />
-                {busy === "read"
-                  ? "Looking for your record..."
-                  : busy === "create"
-                    ? "Creating your record..."
-                    : supportsAction("read") && supportsAction("create")
-                      ? "Link this system"
-                      : supportsAction("read")
-                        ? "Find record"
-                        : "Create record"}
-              </Button>
-            </div>
           </div>
+        </SettingsGroup>
+      ) : null}
+
+      {isSetupPresentation && hasBoundRecord && !isRecordStateLoading ? (
+        <SettingsGroup title="CRM ready">
+          <SettingsRow
+            icon={Database}
+            title={`${customerName} record connected`}
+            description="Your verified CRM record is ready for approved reads and writes."
+            trailing={
+              <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                Connected
+              </span>
+            }
+          />
         </SettingsGroup>
       ) : null}
 
@@ -1548,7 +1690,7 @@ export function ConnectedSystemsPanel({
         </SettingsGroup>
       ) : null}
 
-      {hasBoundRecord && !isRecordStateLoading && supportsAction("delete") ? (
+      {!isSetupPresentation && hasBoundRecord && !isRecordStateLoading && supportsAction("delete") ? (
         <SettingsGroup title="Delete record">
           <SettingsRow
             icon={Trash2}
@@ -1606,7 +1748,7 @@ export function ConnectedSystemsPanel({
           {statusBadge(String(deleteResult.resultClass || "completed"))}.
         </SurfaceInset>
       ) : null}
-      <SettingsDetailPanel
+      {!isSetupPresentation ? <SettingsDetailPanel
         open={Boolean(editingField)}
         onOpenChange={(open) => {
           if (!open) setEditingField(null);
@@ -1655,7 +1797,7 @@ export function ConnectedSystemsPanel({
             </div>
           </div>
         ) : null}
-      </SettingsDetailPanel>
+      </SettingsDetailPanel> : null}
       <AlertDialog
         open={Boolean(pendingIntent)}
         onOpenChange={(open) => {

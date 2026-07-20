@@ -6,6 +6,48 @@
   },
   "cases": [
     {
+      "id": "claim-one-home-starts-settled-journey",
+      "category": "goal",
+      "utterance": "Claim my One",
+      "context": {"route": "/", "screen": "one_intro", "available_action_ids": ["onboarding.claim_one"], "context_revision": "intro-1"},
+      "expected_action_id": "onboarding.claim_one",
+      "expected_goal_id": "goal.onboarding.claim_one",
+      "allowed_slots": [],
+      "forbidden_directives": ["auth.sign_in_google", "auth.sign_in_apple"],
+      "settlement": ["onboarding.claim_one", "login_context_acknowledged", "provider_choice"]
+    },
+    {
+      "id": "claim-one-google-defers-provider-until-login",
+      "category": "goal",
+      "utterance": "Claim my One with Google",
+      "context": {"route": "/", "screen": "one_intro", "available_action_ids": ["onboarding.claim_one"], "context_revision": "intro-1"},
+      "expected_action_id": "onboarding.claim_one",
+      "expected_goal_id": "goal.onboarding.claim_one",
+      "allowed_slots": ["deferred_action_id"],
+      "forbidden_directives": ["auth.sign_in_google", "auth.sign_in_apple"],
+      "settlement": ["onboarding.claim_one", "login_context_acknowledged", "auth.sign_in_google_confirmation"]
+    },
+    {
+      "id": "provider-is-blocked-on-stale-home-context",
+      "category": "blocked",
+      "utterance": "Continue with Google",
+      "context": {"route": "/", "screen": "one_intro", "available_action_ids": ["onboarding.claim_one"]},
+      "expected_action_id": null,
+      "allowed_slots": [],
+      "forbidden_directives": ["auth.sign_in_google", "auth.sign_in_apple"],
+      "settlement": ["no_directive"]
+    },
+    {
+      "id": "home-next-step-is-guidance-not-navigation",
+      "category": "conversation",
+      "utterance": "What should I do first?",
+      "context": {"route": "/", "screen": "one_intro", "available_action_ids": ["onboarding.claim_one"], "context_revision": "intro-1"},
+      "expected_action_id": null,
+      "allowed_slots": [],
+      "forbidden_directives": ["onboarding.claim_one", "auth.sign_in_google", "auth.sign_in_apple"],
+      "settlement": ["no_directive"]
+    },
+    {
       "id": "route-profile",
       "category": "action",
       "utterance": "Open my profile",

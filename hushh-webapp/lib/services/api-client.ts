@@ -20,6 +20,22 @@ export class ApiError extends Error {
   }
 }
 
+function nestedApiErrorCode(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+  const record = payload as Record<string, unknown>;
+  if (typeof record.code === "string" && record.code.trim()) {
+    return record.code.trim();
+  }
+  return nestedApiErrorCode(record.detail) ?? nestedApiErrorCode(record.error);
+}
+
+/** Read a stable server error code across direct-native and Next-proxied JSON. */
+export function apiErrorCode(error: unknown): string | null {
+  return error instanceof ApiError ? nestedApiErrorCode(error.payload) : null;
+}
+
 /**
  * Maximum response body size enforced via Content-Length header (CWE-400).
  * Applied before any JSON parsing to prevent memory exhaustion from
@@ -33,6 +49,10 @@ function extractApiErrorMessage(payload: unknown, fallback: string): string {
   const record = payload as Record<string, unknown>;
   for (const value of [record.error, record.message]) {
     if (typeof value === "string" && value.trim()) return value;
+  }
+  if (record.error && typeof record.error === "object") {
+    const nested = extractApiErrorMessage(record.error, "");
+    if (nested) return nested;
   }
   const detail = record.detail;
   if (typeof detail === "string" && detail.trim()) return detail;

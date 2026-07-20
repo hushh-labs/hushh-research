@@ -108,6 +108,7 @@ import {
   resolveRegisteredTopShellTabValue,
   TOP_SHELL_TAB_REGISTRY,
 } from "@/lib/navigation/top-shell-tabs";
+import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 
 const LOCATION_TAB_DEFINITION = TOP_SHELL_TAB_REGISTRY.location;
 type LocationHubTab =
@@ -340,6 +341,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
 
   const setTab = useCallback(
     (next: LocationHubTab) => {
+      if (next === tab) return;
       setTabState(next);
       const params = new URLSearchParams(searchParams.toString());
       if (next === "now") {
@@ -348,11 +350,15 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         params.set(LOCATION_HUB_TAB_PARAM, next);
       }
       const query = params.toString();
-      router.replace(query ? `${pathname}?${query}` : pathname, {
-        scroll: false,
-      });
+      const href = query ? `${pathname}?${query}` : pathname;
+      beginRouteTransition(
+        href,
+        () => router.replace(href, { scroll: false }),
+        "tap",
+        "contextual",
+      );
     },
-    [pathname, router, searchParams],
+    [pathname, router, searchParams, tab],
   );
 
   useEffect(() => {
@@ -599,7 +605,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           tabSetId={LOCATION_TAB_DEFINITION.id}
           activeValue={tab}
           options={LOCATION_SWIPE_OPTIONS}
-          onChildSwiped={(value) => setTab(value as LocationHubTab)}
+          onSelectionChange={(value) => setTab(value as LocationHubTab)}
         >
           <div className="px-[var(--page-inline-gutter-standard)]">
             <NowHub

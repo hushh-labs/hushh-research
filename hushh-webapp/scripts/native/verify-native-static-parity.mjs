@@ -36,6 +36,10 @@ const allowedIosUsageDescriptionKeys = new Set([
   // Background location sharing (One Location) needs Always authorization.
   "NSLocationAlwaysAndWhenInUseUsageDescription",
   "NSContactsUsageDescription",
+  // The shared vault bridge uses Face ID for a locally authorized unlock.
+  // Keep this aligned with verify-native-plugin-contracts.mjs, which requires
+  // the same non-empty declaration when the vault/keychain plugins are present.
+  "NSFaceIDUsageDescription",
   // Profile picture: choose from library / take a photo.
   "NSPhotoLibraryUsageDescription",
   "NSCameraUsageDescription",
@@ -160,6 +164,24 @@ const markerlessRequiredRoutes = inventoryRoutes
   .map((route) => route.route);
 if (markerlessRequiredRoutes.length > 0) {
   fail(`native-required routes need expectedMarker: ${markerlessRequiredRoutes.join(", ")}`);
+}
+
+const nonCanonicalProfileLaunches = inventoryRoutes
+  .filter((route) => String(route.route || "").startsWith("/one/profile"))
+  .filter((route) => String(route.initialRoute || "").startsWith("/login?"))
+  .filter((route) => {
+    try {
+      const redirect = new URL(route.initialRoute, "https://native-test.local").searchParams.get("redirect");
+      return !redirect?.startsWith("/one/profile");
+    } catch {
+      return true;
+    }
+  })
+  .map((route) => route.route);
+if (nonCanonicalProfileLaunches.length > 0) {
+  fail(
+    `canonical /one/profile inventory entries must launch through /one/profile redirects: ${nonCanonicalProfileLaunches.join(", ")}`,
+  );
 }
 
 if (!process.exitCode) {

@@ -83,6 +83,9 @@ export function deriveVoiceRouteScreen(
   ) {
     return { screen: "kai_alpaca_oauth_return", subview: null };
   }
+  if (normalizedPath === ROUTES.KAI_NEWS) {
+    return { screen: "kai_market_news", subview: null };
+  }
   if (normalizedPath === KAI_MARKET_PATH) {
     const tab = query.get("tab") || "market";
     if (tab === "analysis") {

@@ -1385,7 +1385,7 @@ function ProfilePageContent() {
           })(),
           {
             loading: "Deleting your account...",
-            success: "Account deleted. Redirecting...",
+            success: "Account deleted.",
             error: "Failed to delete account. Please try again.",
             variant: "destructive",
           },
@@ -2959,6 +2959,7 @@ function ProfilePageContent() {
         loading={profileManagerLoading}
         metadataReady={pkmMetadataReady}
         metadataError={pkmError}
+        sharingReady={consentCenterReady}
         sharingError={consentCenterError}
         needsVaultCreation={vaultAccess.needsVaultCreation}
         needsUnlock={vaultAccess.needsUnlock}
@@ -3071,23 +3072,20 @@ function ProfilePageContent() {
           icon={Mail}
           title="Email"
           description={user.email || "Not available"}
-          trailing={
-            <Badge variant="secondary">
-              {emailVerified ? "Verified" : "Unverified"}
-            </Badge>
-          }
-          stackTrailingOnMobile
         />
         <SettingsRow
           icon={Phone}
           title="Phone number"
           description={phoneSummaryText}
           trailing={
-            <Badge variant="secondary">
-              {phoneNumber ? "Verified" : "Required"}
-            </Badge>
+            <span className="text-xs font-medium text-accent-strong">
+              {phoneNumber ? "Change" : "Add"}
+            </span>
           }
-          stackTrailingOnMobile
+          chevron
+          onClick={() =>
+            updateProfileView({ panel: "account", detail: "phone" }, "push")
+          }
         />
         <SettingsRow
           icon={Fingerprint}
@@ -3096,19 +3094,6 @@ function ProfilePageContent() {
         />
       </SettingsGroup>
       <SettingsGroup title="Account actions">
-        <SettingsRow
-          icon={Phone}
-          title={phoneNumber ? "Change phone number" : "Add phone number"}
-          description={
-            phoneNumber
-              ? "Verify a new number to replace the current one."
-              : "Add a verified phone number to this account."
-          }
-          chevron
-          onClick={() =>
-            updateProfileView({ panel: "account", detail: "phone" }, "push")
-          }
-        />
         <SettingsRow
           icon={RefreshCw}
           title="Reset account"

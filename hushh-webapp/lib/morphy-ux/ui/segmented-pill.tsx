@@ -1,16 +1,20 @@
 "use client";
 
 import * as React from "react";
-import type { LucideIcon } from "lucide-react";
 
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { cn } from "@/lib/utils";
-import { Icon } from "@/lib/morphy-ux/ui/icon";
+
+export type SegmentedPillIcon = React.ElementType<
+  React.SVGProps<SVGSVGElement> & { size?: number | string }
+>;
 
 export type SegmentedPillOption = {
   value: string;
   label: string;
-  icon?: LucideIcon;
+  icon?: SegmentedPillIcon;
+  /** Optional selected-state counterpart for libraries with filled icons. */
+  activeIcon?: SegmentedPillIcon;
   badge?: number;
   tone?: "default" | "accent";
   disabled?: boolean;
@@ -156,6 +160,8 @@ export const SegmentedPill = React.forwardRef<
           const isDisabled = !!option.disabled;
           const isAccent = option.tone === "accent";
           const needsWrapper = hitArea === "content" || hitArea === "segment";
+          const OptionIcon =
+            isActive && option.activeIcon ? option.activeIcon : option.icon;
           const button = (
             <button
               key={option.value}
@@ -186,14 +192,18 @@ export const SegmentedPill = React.forwardRef<
                 isDisabled && "opacity-45",
               )}
             >
-              {option.icon ||
+              {OptionIcon ||
               (typeof option.badge === "number" && option.badge > 0) ? (
                 <span className="relative flex shrink-0 items-center justify-center">
-                  {option.icon ? (
-                    <Icon
-                      icon={option.icon}
-                      size={styles.icon}
+                  {OptionIcon ? (
+                    <OptionIcon
+                      data-segment-icon
+                      data-segment-icon-variant={
+                        isActive && option.activeIcon ? "active" : "default"
+                      }
+                      size={{ xs: 14, sm: 16, md: 20 }[styles.icon]}
                       className="shrink-0"
+                      aria-hidden
                     />
                   ) : null}
                   {typeof option.badge === "number" && option.badge > 0 ? (

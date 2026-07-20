@@ -6,18 +6,21 @@
 import React, { useEffect, useMemo, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import {
+  Compass as PhosphorCompass,
+  MagnifyingGlass,
+  SquaresFour,
+  type IconProps as PhosphorIconProps,
+} from "@phosphor-icons/react";
+import {
   BriefcaseBusiness,
   ChartSpline,
   ChartCandlestick,
   CircleUserRound,
-  Compass,
   Database,
   FileSpreadsheet,
   FolderSearch,
-  LayoutDashboard,
   Mail,
   MapPin,
-  Search as SearchIcon,
   ShieldCheck,
   Store,
   Users,
@@ -46,6 +49,19 @@ import {
 } from "@/lib/navigation/app-bottom-nav";
 import { resolveAgentNavigationContextForPath } from "@/lib/navigation/agent-sections";
 import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
+import { useInteractionIntents } from "@/lib/interaction/interaction-intent-coordinator";
+
+function FilledSquaresFourIcon(props: PhosphorIconProps) {
+  return <SquaresFour {...props} weight="fill" />;
+}
+
+function FilledCompassIcon(props: PhosphorIconProps) {
+  return <PhosphorCompass {...props} weight="fill" />;
+}
+
+function FilledMagnifyingGlassIcon(props: PhosphorIconProps) {
+  return <MagnifyingGlass {...props} weight="fill" />;
+}
 
 const BOTTOM_NAV_OPTION_META: Record<
   AppBottomNavKey,
@@ -54,7 +70,8 @@ const BOTTOM_NAV_OPTION_META: Record<
   dashboard: {
     value: "dashboard",
     label: "One",
-    icon: LayoutDashboard,
+    icon: SquaresFour,
+    activeIcon: FilledSquaresFourIcon,
     dataTourId: "nav-one-dashboard",
   },
   finance: {
@@ -78,7 +95,8 @@ const BOTTOM_NAV_OPTION_META: Record<
   connect: {
     value: "connect",
     label: "Connect",
-    icon: Compass,
+    icon: PhosphorCompass,
+    activeIcon: FilledCompassIcon,
     dataTourId: "nav-connect",
   },
   "ria-home": {
@@ -144,7 +162,8 @@ const BOTTOM_NAV_OPTION_META: Record<
   search: {
     value: "search",
     label: "Search",
-    icon: SearchIcon,
+    icon: MagnifyingGlass,
+    activeIcon: FilledMagnifyingGlassIcon,
     dataTourId: "nav-search",
   },
   profile: {
@@ -180,6 +199,7 @@ export const Navbar = ({
   layout?: "fixed" | "slot";
 }) => {
   const pathname = usePathname();
+  const interactionIntents = useInteractionIntents();
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
   const agentPopover = useOptionalAgentPopover();
@@ -310,6 +330,36 @@ export const Navbar = ({
     navOptions.length > 0
       ? "min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))"
       : "0px";
+  const routeActiveNav = resolveBottomNavActiveKey(
+    normalizedPathname,
+    bottomNavScope,
+  );
+  const optimisticNav = useMemo(() => {
+    const pendingTarget = [...interactionIntents]
+      .reverse()
+      .find(
+        (intent) =>
+          intent.kind === "navigation" &&
+          (intent.status === "accepted" || intent.status === "committing") &&
+          intent.target,
+      )?.target;
+    if (!pendingTarget) return null;
+    return (
+      navOptions.find((option) => {
+        const action = resolveBottomNavAction(
+          option.value as AppBottomNavKey,
+          resolveBottomNavSpecialistOptionKeys(bottomNavScope).includes(
+            option.value as AppBottomNavKey,
+          )
+            ? bottomNavScope
+            : "one",
+        );
+        return action.type === "route" && action.href === pendingTarget;
+      })?.value ?? null
+    );
+  }, [bottomNavScope, interactionIntents, navOptions]);
+  const activeNav = (optimisticNav ?? routeActiveNav) as AppBottomNavKey;
+
   if (shellNavigationHidden || hideNavbar) {
     return null;
   }
@@ -328,11 +378,6 @@ export const Navbar = ({
   if (navOptions.length === 0) {
     return null;
   }
-
-  const activeNav = resolveBottomNavActiveKey(
-    normalizedPathname,
-    bottomNavScope,
-  );
 
   const navigateTo = (value: string) => {
     if (busyOperations["portfolio_save"]) {
@@ -402,7 +447,10 @@ export const Navbar = ({
       <div
         data-testid="app-bottom-nav-frame"
         className="pointer-events-none mx-auto flex w-full justify-center"
-        style={{ maxWidth: "min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))" }}
+        style={{
+          maxWidth:
+            "min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))",
+        }}
       >
         <div
           className={cn(

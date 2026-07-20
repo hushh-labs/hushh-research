@@ -15,6 +15,18 @@ describe("AuthStep layout contract", () => {
     expect(source).not.toContain("router.back()");
   });
 
+  it("keeps the reviewer fixture out of normal sign-in UI", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/onboarding/AuthStep.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      "const showReviewer = nativeTestConfig.enabled && nativeReviewerVisible;",
+    );
+    expect(source).not.toContain("isLocalReviewerSurface");
+  });
+
   it("sizes the page to exactly one viewport (minus the fixed Agent Bar's reserved clearance) so it never scrolls, and anchors content to the bottom for one-thumb reach", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/AuthStep.tsx"),

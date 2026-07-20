@@ -41,6 +41,7 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
 import { VaultService } from "@/lib/services/vault-service";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
 // ============================================================================
 // Types
@@ -183,14 +184,11 @@ export function VaultProvider({ children }: VaultProviderProps) {
     vaultUserId,
   ]);
 
-  // App-resume expiry guard (iOS/Android + web). Proactively lock when the
-  // memory-only VAULT_OWNER token has reached its known expiry. Other backend
-  // validation failures are handled by ApiService's shared web/native response
-  // path, which requests the same fail-closed re-unlock flow.
+  // InteractionRuntime owns native/browser lifecycle collection. VaultProvider
+  // remains the security authority and only reacts to its active transition.
+  // This avoids competing Capacitor listeners while preserving the memory-only
+  // expiry rule on iOS, Android, and web.
   useEffect(() => {
-    let removeListener: (() => void) | null = null;
-    let cancelled = false;
-
     const relockIfTokenExpired = () => {
       const expiresAt = tokenExpiresAtRef.current;
       // Only act when a token exists AND is actually past expiry. A missing
@@ -203,34 +201,12 @@ export function VaultProvider({ children }: VaultProviderProps) {
       }
     };
 
-    if (Capacitor.isNativePlatform()) {
-      void import("@capacitor/app")
-        .then(({ App }) => App.addListener("appStateChange", ({ isActive }) => {
-          if (isActive) relockIfTokenExpired();
-        }))
-        .then((handle) => {
-          if (cancelled) {
-            void handle.remove();
-            return;
-          }
-          removeListener = () => void handle.remove();
-        })
-        .catch((error) => {
-          console.warn("[VaultProvider] Failed to register app-resume expiry guard:", error);
-        });
-    } else if (typeof document !== "undefined") {
-      const onVisible = () => {
-        if (document.visibilityState === "visible") relockIfTokenExpired();
-      };
-      document.addEventListener("visibilitychange", onVisible);
-      removeListener = () =>
-        document.removeEventListener("visibilitychange", onVisible);
-    }
-
-    return () => {
-      cancelled = true;
-      if (removeListener) removeListener();
-    };
+    relockIfTokenExpired();
+    return appInteractionCoordinator.subscribeLifecycle(() => {
+      if (appInteractionCoordinator.getLifecycleSnapshot().state === "active") {
+        relockIfTokenExpired();
+      }
+    });
   }, [lockVault]);
 
   // Listen for vault-lock-requested events (e.g., when VAULT_OWNER token is revoked)

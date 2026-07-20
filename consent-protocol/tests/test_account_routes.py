@@ -64,9 +64,10 @@ def test_upload_account_avatar_accepts_valid_image_data_url(monkeypatch):
             "source": "firebase_auth",
         }
 
-    data_url = "data:image/png;base64," + base64.b64encode(
-        b"\x89PNG\r\n\x1a\n resized avatar bytes"
-    ).decode()
+    data_url = (
+        "data:image/png;base64,"
+        + base64.b64encode(b"\x89PNG\r\n\x1a\n resized avatar bytes").decode()
+    )
 
     app = _build_app()
     app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
@@ -93,9 +94,10 @@ def test_upload_account_avatar_rejects_non_image_data_url(monkeypatch):
     app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
     monkeypatch.setattr(ActorIdentityService, "set_custom_photo_url", _mock_set)
 
-    data_url = "data:text/plain;base64," + base64.b64encode(
-        b"this is definitely not an image payload"
-    ).decode()
+    data_url = (
+        "data:text/plain;base64,"
+        + base64.b64encode(b"this is definitely not an image payload").decode()
+    )
 
     client = TestClient(app)
     response = client.post("/api/account/avatar", json={"image_data_url": data_url})
@@ -160,9 +162,10 @@ def test_upload_account_avatar_maps_persistence_failure(monkeypatch):
         # Write never landed (no shadow row + Firebase sync could not create one).
         return None
 
-    data_url = "data:image/png;base64," + base64.b64encode(
-        b"\x89PNG\r\n\x1a\n resized avatar bytes"
-    ).decode()
+    data_url = (
+        "data:image/png;base64,"
+        + base64.b64encode(b"\x89PNG\r\n\x1a\n resized avatar bytes").decode()
+    )
 
     app = _build_app()
     app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"

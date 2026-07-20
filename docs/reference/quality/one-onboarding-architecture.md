@@ -33,18 +33,20 @@ to One, or changes the global `VaultLockGuard` behavior for ordinary routes.
 ```mermaid
 flowchart TD
   Hub["/one/setup (hub)\ntiles + live status\nmaster Skip setup / Finish setup"]
+  Connections["/one/setup/connections\nrequired explicit managed or BYOK choice"]
   Gmail["/one/setup/gmail (workspace)\nConnect, review receipt signals, Finish Gmail setup"]
   Static["/one/setup/location | email | ria | connected-systems\nreused feature workspace + terminal footer"]
   Wizard["/one/setup/finance (wizard)\nquestionnaire -> persona"]
   Import["/one/setup/finance/import\nPlaid, statement, or set up later"]
 
+  Hub -->|choose how One runs| Connections -->|durable choice marker| Hub
   Hub -->|Connect Gmail| Gmail
   Gmail -->|verified connection + Finish Gmail setup| Hub
   Hub -->|choose capability| Static
   Hub -->|Finance| Wizard --> Import
   Static -->|verified Finish or Skip| Hub
   Import -->|verified Finish or Skip| Hub
-  Hub -->|Skip setup 0 done / Finish setup 1..n done| Dash
+  Hub -->|after Connections: Skip setup 0 done / Finish setup 1..n done| Dash
 ```
 
 The setup catalog is a deliberate subset of the broader One capability catalog
@@ -107,13 +109,16 @@ registry — add or extend an `OnboardingDefinition` instead.**
 
 | Flow                        | Tier   | Route                     | Reset scope | Resumable | Skippable |
 | --------------------------- | ------ | ------------------------- | ----------- | --------- | --------- |
-| One (setup hub)             | `root` | `/one/setup`              | `account`   | yes       | yes       |
+| One (setup hub)             | `root` | `/one/setup`              | `account`   | yes       | yes, after Connections choice |
 | Finance preferences         | `sub`  | `/one/setup/finance`      | `surface`   | yes       | yes       |
 | Static capability setup     | `sub`  | `/one/setup/<capability>` | `surface`   | yes       | yes       |
 
 Note on routes: `/one/setup` is the hub and resolves the **master** account
 gate via its own Skip setup (when 0 capabilities are set up) / Finish setup (when 1..n are
-set up) buttons. `/one/setup/finance` is the Finance preferences wizard and
+set up) buttons. Both remain disabled until the person explicitly selects
+Hussh-managed Gemini or BYOK at `/one/setup/connections`. Connections is a
+root prerequisite, not an agent capability: it does not change the capability
+count or publish a generated voice action. `/one/setup/finance` is the Finance preferences wizard and
 `/one/setup/finance/import` selects its source. Every other first-run
 capability has its own static setup route. The legacy `/one/setup/[capability]`
 and `/one/setup/kai` routes are redirect-only compatibility paths with no
@@ -170,7 +175,9 @@ See the note in
 The master account gate is resolved on the **hub**
 [`components/onboarding/setup/one-setup-hub.tsx`](../../../hushh-webapp/components/onboarding/setup/one-setup-hub.tsx)
 via its own shared bottom action: **Skip setup** when 0 capabilities are set up, **Finish setup**
-when 1..n are. Both write the authoritative store first and **await** the
+when 1..n are. Neither action is available until the durable Connections-choice
+marker exists. The click/voice handler force-revalidates that marker immediately
+before root settlement, so stale React state cannot bypass it. Both write the authoritative store first and **await** the
 server pre‑vault sync before navigating (so the gate is server‑authoritative
 the instant the user leaves — this closed a prior fire‑and‑forget race), then
 redirect. The shared top-bar Back action never acknowledges root setup. Skip marks the flow "satisfied for now": the user is not bounced
@@ -178,6 +185,9 @@ back, but the flow can be re-run. Static setup adapters at
 `app/one/setup/{gmail,location,email,finance,ria,connected-systems}` record
 only their own capability signal; none can write the master account gate.
 Root acknowledgement never writes Finance completion into the Kai profile.
+The Connections setup preface writes only the bounded `connections` marker in
+the existing pre-vault setup-state set. BYOK material remains encrypted in the
+vault and is never present in that marker.
 
 ### Static capability workspaces
 

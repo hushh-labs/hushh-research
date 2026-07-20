@@ -4,50 +4,65 @@
 Canonical visual owner: [Operations index](README.md).
 <!-- pdf:omit-end -->
 
-## Partner integration guide · UAT
+## Integration contract at a glance
 
-Hussh Consent MCP lets an external agent request narrowly scoped information
-only after the person has approved the stated purpose. The public integration
-surface is deliberately small: four core lifecycle tools and one compatibility
-tool retained for the Hussh ADK campaign agent.
+Hussh Consent MCP gives an external agent a consent-first way to discover the
+narrowest available information scope, request approval, follow that approval
+to a terminal state, and retrieve only an encrypted scoped export. The public
+surface is one Streamable HTTP endpoint and one five-tool catalog. It does not
+expose internal agent names, developer application identifiers, access tokens,
+connector private keys, or raw backend payloads.
 
-> **Current UAT contract.** Use `https://api.uat.hushh.ai/mcp/` with `Authorization: Bearer <developer-token>`. Keep the trailing slash. Never put credentials in a URL.
+> **Release status · July 20, 2026.** This guide and the accompanying manifest describe package version `0.4.0` and MCP protocol revision `2025-11-25`. Confirm the live UAT `tools/list` response before registration; a package contract and a deployed catalog are separate proofs.
 
-## The public tools
+| Contract | Value |
+| --- | --- |
+| UAT endpoint | `https://api.uat.hushh.ai/mcp/` |
+| Transport | MCP Streamable HTTP; keep the trailing slash |
+| Protocol revision | `2025-11-25` |
+| Public catalog | Five tools, in lifecycle order |
+| Canonical result | `structuredContent`; `content[0].text` is its compatibility mirror |
+| Export delivery | Inline encrypted MCP result; no `ResourceLink` download |
 
-| Tool | Use it for | Integration note |
+## One canonical five-tool catalog
+
+The accompanying `hushh-mcp-gateway.json` is the single partner handoff. Its
+tool definitions are generated from the same public contract used by
+`tools/list`. Hosts may apply a narrower registration policy, but must not
+rename tools, expand schemas, or change consent meaning.
+
+| Tool | When an agent should use it | Expected outcome |
 | --- | --- | --- |
-| `search_user_scopes` | Find the narrowest available scope for a person and purpose. | An empty query can page through available scopes. |
-| `request_consent` | Present a specific scope and purpose for approval. | Idempotent for an equivalent active grant or pending request. |
-| `check_consent_status` | Check the status of a pending consent request. | Poll only at the returned interval and stop at a terminal state. |
-| `get_encrypted_scoped_export` | Retrieve an approved scoped export. | Fails closed after revocation or expiry. |
-| `prepare_campaign_context` | Compatibility one-shot for the Hussh ADK campaign agent. | New partner integrations should use the four core lifecycle tools directly. |
+| `search-user-scopes` | Discover the least-privilege scope available for one user and purpose. | Flat scope values plus pagination state. |
+| `prepare-campaign-context` | Prepare a consent-backed offer or campaign context for an external agent or frontend. | Safe lifecycle, approval, scope, offer, and export-readiness fields. |
+| `request-consent` | Create or reuse a consent request for one exact scope and stated purpose. | A pending `request_ref` or approved `grant_ref`. |
+| `check-consent-status` | Poll one pending request at the returned cadence. | Current lifecycle state and, after approval, a `grant_ref`. |
+| `get-encrypted-scoped-export` | Retrieve information only after the grant is approved. | Ciphertext and a flat cryptographic envelope over the MCP result. |
 
-The prior MCP tools `discover_user_domains`, `list_scopes`, and `validate_token`
-are not part of this catalog. Discovery is performed through
-`search_user_scopes`; token handling is internal to Hussh.
+Version `0.4.0` publishes only the hyphenated names above. The earlier
+underscore names remain accepted as inbound aliases until **October 20, 2026**,
+but are not returned by `tools/list`. New integrations must use the published
+hyphenated names.
 
-## The consent lifecycle
+## Authentication and execution authority
 
-1. Call `search_user_scopes` with the caller-supplied `user_identifier`, a query when useful, and optional domain or country hints. Hussh resolves the identity internally; it never returns the identifier or a Firebase UID.
-2. Call `request_consent` with the selected scope and a clear, specific purpose.
-3. If the request is still awaiting approval, retain the returned `request_ref` and call `check_consent_status` at the supplied interval.
-4. After approval, Hussh returns a `grant_ref`. Call `get_encrypted_scoped_export` with that reference and the expected scope.
+All credential types identify the same provisioned developer application; they
+do not create alternate MCP products or endpoints. The application owns tool
+entitlements, consent authority, connector public-key binding, status, and
+audit attribution. Credential rotation and revocation remain independently
+auditable.
 
-| Reference | Meaning | Retain until |
+| Method | Intended host | Personalized lifecycle execution |
 | --- | --- | --- |
-| `request_ref` | The pending approval lifecycle request. | It reaches a terminal status. |
-| `grant_ref` | The approved, scoped authority used for one encrypted export. | It expires, is revoked, or the export is no longer needed. |
+| Bearer credential | Hosted MCP clients and approved MuleSoft upstream calls | Supported according to the developer application's entitlements. |
+| OAuth 2.0 authorization code with PKCE and refresh | Claude and other user-authorized remote clients | Supported after the person completes the authorization flow. |
+| OAuth 2.0 client credentials | Operations-provisioned service clients, MuleSoft, and Agentforce registration | Executes the same consent lifecycle; user approval and a scoped grant still gate information delivery. |
 
-## Connector setup
+Never place credentials in URLs, query parameters, a manifest, screenshots, or
+support messages. Partner secrets are delivered once through the approved
+secret manager. The connector private key never leaves partner custody.
 
-Use one transport mode per connector. The hosted connector is a Streamable HTTP
-MCP client; it does not download a second resource after a tool call.
-
-| Mode | Connector responsibility | Hussh responsibility |
-| --- | --- | --- |
-| Local stdio | Keep its private key locally and decrypt bounded approved information locally. | Return only the approved result to the local connector process. |
-| Hosted Streamable HTTP | Send the developer Bearer header and its X25519 public-key bundle; decrypt ciphertext in its connector process. | Authenticate the tool call and return the encrypted inline envelope. |
+### Hosted bearer example
 
 ```json
 {
@@ -62,30 +77,145 @@ MCP client; it does not download a second resource after a tool call.
 }
 ```
 
-## Export transport
+### OAuth discovery and token exchange
 
-The approved export stays entirely on MCP transport. Hosted connectors receive
-`delivery: encrypted_inline`, `resource: null`, ciphertext, and its
-X25519-AES256-GCM envelope in the tool result; decryption happens in the
-connector process with its private key. Local stdio connectors receive `delivery: decrypted_local` with bounded
-approved information after local decryption.
-
-No `ResourceLink`, plaintext fallback, query-token authentication, or
-server-held connector private key is part of the MCP contract. A ciphertext
-result that exceeds the bounded MCP response limit fails closed; request a
-narrower discovered scope.
-
-## Decrypting an encrypted-inline export
-
-Use `structuredContent` as the canonical tool result. The text item in
-`content[0].text` is only its JSON-string mirror for MCP clients that do not
-surface structured content. The connector private key and `connector_key_id`
-must be the exact pair supplied when consent was requested.
-
-The protocol is standard X25519 plus AES-256-GCM; there is no proprietary KDF:
+Use the OAuth metadata published by the environment rather than copying an
+authorization URL into application code. A client-credentials token request is
+form encoded and contains no user identity:
 
 ```text
-shared_secret = X25519(connector_private_key, wrapped_key_bundle.sender_public_key)
+POST https://api.uat.hushh.ai/oauth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials
+&client_id=${HUSHH_OAUTH_CLIENT_ID}
+&client_secret=${HUSHH_OAUTH_CLIENT_SECRET}
+&scope=mcp:tools
+```
+
+The returned access token belongs in `Authorization: Bearer <access-token>`.
+No refresh token is issued for the client-credentials grant.
+
+## Agentforce-first registration through MuleSoft
+
+Agentforce is a tools-only MCP host. MuleSoft should register exactly the five
+definitions from the canonical manifest into Salesforce API Catalog and keep
+the schemas shallow and unchanged. The integration boundary is:
+
+```text
+Agentforce planner
+  -> MuleSoft MCP registration: OAuth 2.0 client credentials, tools only
+  -> Hussh MCP upstream: Streamable HTTP, registered partner credential
+  -> Hussh consent lifecycle: approval, grant, encrypted export
+  -> partner connector: decrypt outside the LLM
+```
+
+MuleSoft must preserve the published tool names, descriptions, input schemas,
+output schemas, and lifecycle order. Do not register resources or prompts,
+expand nested fields, or pass both result representations into the planner.
+Map `structuredContent` as the canonical action result. Treat
+`content[0].text` only as a fallback when structured content is unavailable.
+The upstream request timeout is 55 seconds; polling follows the
+`poll_after_seconds` returned by Hussh.
+
+Client credentials authenticate Hussh Technologies as the partner application;
+they do not authenticate the person identified in a tool request. The person
+must still review and approve the exact scope and purpose before a scoped grant
+can return encrypted information. A pending request is therefore a successful
+lifecycle state, not an authorization failure:
+
+```json
+{
+  "status": "pending",
+  "scope": "attr.financial.sources.*",
+  "request_ref": "req_example",
+  "grant_ref": "",
+  "poll_after_seconds": 5
+}
+```
+
+Salesforce still documents that Agentforce MCP lacks user-level authentication
+and does not support use cases requiring individualized responses. Hussh keeps
+the actor model explicit: application authentication starts the workflow;
+consent approval authorizes the scoped encrypted export. Partners must validate
+this Salesforce host boundary separately from the Hussh lifecycle.
+
+## Consent lifecycle
+
+1. Call `search-user-scopes` with the supplied `user_identifier`. An empty
+   query lists available scopes with pagination. Choose the narrowest returned
+   value that satisfies the purpose.
+2. Call `request-consent` with that exact scope and a clear purpose. Retain the
+   returned `request_ref` while approval is pending.
+3. Call `check-consent-status` only at the returned interval. Stop polling at a
+   terminal state.
+4. After approval, retain the returned `grant_ref` and call
+   `get-encrypted-scoped-export` with the original scope as `expected_scope`.
+5. Decrypt outside the language model. Stop using the grant after expiry or
+   revocation.
+
+`prepare-campaign-context` offers the same consent meaning as a one-shot
+frontend-oriented preparation flow. It may carry a bounded offer amount,
+currency, summary, and settlement reference, then returns only safe flat state
+for rendering. It is a first-class public tool, not an internal compatibility
+hook.
+
+### Scope discovery request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "discover-1",
+  "method": "tools/call",
+  "params": {
+    "name": "search-user-scopes",
+    "arguments": {
+      "user_identifier": "person@example.com",
+      "query": "investment accounts",
+      "limit": 20
+    }
+  }
+}
+```
+
+### Consent request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "consent-1",
+  "method": "tools/call",
+  "params": {
+    "name": "request-consent",
+    "arguments": {
+      "user_identifier": "person@example.com",
+      "scope": "attr.financial.sources.*",
+      "purpose": "Prepare a reviewed financial planning proposal",
+      "expiry_hours": 24,
+      "refresh_policy": "continuous_until_expiry"
+    }
+  }
+}
+```
+
+## Encrypted export over pure MCP transport
+
+Hosted connectors receive `delivery: encrypted_inline`, ciphertext, and the
+flat X25519-AES256-GCM envelope directly in the tool result. Local stdio
+connectors may return `delivery: decrypted_local` after decryption inside the
+local connector process. Neither mode requires a `ResourceLink`, secondary
+download URL, plaintext fallback, query-token authentication, or server-held
+connector private key.
+
+`structuredContent` is authoritative. Its JSON-string representation in
+`content[0].text` is a backwards-compatible mirror recommended for clients
+that do not surface structured content; it is not a second result and must not
+be independently sent to an agent planner.
+
+The protocol uses standard X25519 and AES-256-GCM:
+
+```text
+shared_secret = X25519(connector_private_key, sender_public_key)
 wrapping_key  = SHA-256(shared_secret)
 
 export_key = AES-256-GCM.decrypt(
@@ -97,110 +227,51 @@ export_key = AES-256-GCM.decrypt(
 
 plaintext = AES-256-GCM.decrypt(
   key=export_key,
-  ciphertext=ciphertext || tag,
-  iv=iv,
+  ciphertext=ciphertext || payload_tag,
+  iv=payload_iv,
   aad=canonical_json(export_envelope.aad)
 )
 ```
 
-`canonical_json` means recursively lexicographically key-sorted JSON, compact
-separators (no whitespace), UTF-8 encoded. Both AES-GCM steps authenticate
-their AAD; `aad_sha256` is an integrity diagnostic, not the AAD value. Do not
-use the full MCP response as AAD, omit AAD, derive a replacement key pair, or
-try alternate KDFs.
+`canonical_json` is recursively key-sorted JSON with compact separators,
+encoded as UTF-8. Both AES-GCM operations authenticate their Additional
+Authenticated Data. The `aad_sha256` field is a diagnostic digest, not the AAD
+value. Rotate an exposed or lost key pair and request a fresh export; never
+send a private key in a request, chat, log, ticket, or attachment.
 
-The complete browser reference is in the
+The complete reference implementation is in the
 [Developer API decryption guide](https://github.com/hushh-labs/hushh-research/blob/main/consent-protocol/docs/reference/developer-api.md#decrypt-an-encrypted-export-locally).
-If a private key is exposed or lost, rotate the key pair and request a fresh
-encrypted export for the replacement public key; never put a private key in a
-request, ticket, chat, log, or support attachment.
 
-## Connected CRM systems
+## CRM transport is a separate plane
 
-Hussh calls MuleSoft-backed CRM systems directly over registered Streamable HTTP
-MCP transport. The private agent may propose a typed change, but does not select
-arbitrary tools or execute CRM writes. Each registry entry declares its primary
-object, supported operations, operation tool names/endpoints, timeout, and retry
-policy. Create, update, and delete are reviewable intents; explicit user
-confirmation approves one direct MCP call. Mutation retries are disabled to
-avoid duplicate records.
+MuleSoft-backed Customer Relationship Management operations are private
+backend integrations, not additions to the five-tool Consent MCP catalog.
+Hussh routes each enabled CRM operation through its registered Streamable HTTP
+tool and binds record authority to the authenticated user's server-owned CRM
+record ID. The private agent may propose a typed change, but cannot authorize
+or execute it. Create, update, and delete remain explicit, idempotent,
+reviewable intents with post-operation readback.
 
-CRM records hold only narrow CRM-native workflow fields. Hussh PKM, vault keys,
-KYC documents, email bodies, and broad personal memory are not CRM replication
-payloads.
+The CRM plane and Consent MCP plane may share MuleSoft infrastructure, but
+they do not share credentials, schemas, authorization, or payload meaning.
 
-### CRM lifecycle and owner binding
+## Troubleshooting by observable result
 
-The CRM lifecycle is bounded per person and primary object:
+Diagnose the layer that actually failed before changing schemas or
+credentials. A successful connection is not the same proof as a successful
+catalog load, and a successful catalog load is not authorization for a
+person-specific tool call.
 
-```text
-registered CRM list
-  -> verified email + phone lookup
-  -> create only when no record is found
-  -> persist one active user–CRM record ID binding
-  -> bound-ID read / update / delete
-  -> post-delete ID read confirms absence, then clears the binding
-```
+| What the host shows | Likely boundary | Correct next check |
+| --- | --- | --- |
+| No tools found | Catalog response was rejected or transformed. | Inspect the raw `tools/list` result and validate all five schemas without MuleSoft field expansion. |
+| `Invalid method: initialize` | The client and endpoint are not completing the MCP handshake. | Use Streamable HTTP at `/mcp/`, include the trailing slash, and negotiate revision `2025-11-25`. |
+| HTTP 401 or 403 | Credential exchange, expiry, revocation, or app entitlement. | Re-run the approved OAuth exchange or rotate the bearer credential; never move the secret into a URL. |
+| Generic `Tool execution failed` after tools load | The host hid the MCP structured error or the lifecycle handler rejected the call. | Inspect `structuredContent`, the correlation reference, and backend metadata-only logs; do not infer failure from the host summary alone. |
+| HTTP 200 followed by `INVALID_TOOL_RESULT` | The tool completed, but its result did not satisfy the published output schema. | Refresh the v0.4 manifest and compare the live result shape with its `outputSchema`; local decrypted `information_json` supports up to 120,000 characters. This is not a `ResourceLink` or download fallback. |
+| Planner sees duplicate information | Both MCP result representations were forwarded. | Send `structuredContent` once and ignore the text mirror unless structured content is absent. |
+| Consent remains pending | The person has not approved or the caller is polling incorrectly. | Respect `poll_after_seconds` and stop at the returned terminal state. |
+| Decryption authentication fails | Wrong private key, wrong canonical AAD, changed envelope, or mixed ciphertext/tag ordering. | Verify the registered key ID and fingerprint, then follow the reference algorithm exactly. |
+| Manifest and live tools differ | Package/deployment drift. | Treat the live `tools/list` response as runtime evidence and stop registration until the intended v0.4 deployment is confirmed. |
 
-- Lookup and initial create use only the authenticated person's server-verified
-  email, phone, and display name. Browser input and chat text cannot select a
-  different person.
-- Read, update, delete, and approval-time rechecks resolve the binding on the
-  server. A client-supplied CRM record ID is not an authority.
-- Every create, update, and delete is an idempotent intent with an audit event,
-  explicit review, confirmation, and readback. Delete clears the binding only
-  after the registered read tool no longer returns the ID.
-
-### CRM schema mapping and field UI
-
-Hussh sends only normalized public schema metadata—object name plus field key,
-label, type, required state, and constraints—to the manifest-owned
-`crm_schema_mapper` child of the Connected Systems private agent. It uses
-Hussh-managed Vertex `gemini-3.5-flash` to map `email`, `phone`, split or full
-name, and optional address fields. It never receives CRM records, verified
-profile values, record IDs, credentials, consent material, or vault material;
-it has no tools and cannot execute a CRM operation.
-
-The mapping is validated against the exact current schema and cached in
-Postgres by CRM, object, schema fingerprint, and model version for at most 24
-hours. A schema change or one field-validation failure forces one schema
-refetch and remap. If that still fails, Hussh shows the searchable catalogue
-only and keeps CRM record actions unavailable. There is no field-name alias or
-deterministic mapping fallback for a partner CRM.
-
-The interface starts with the mapped Basic fields and offers an All fields
-selector. All fields render in a paginated, searchable table with Field, Type,
-Access, Required, and Current value columns. Only non-identity, non-immutable,
-not-explicitly-update-disabled fields can be staged for the existing review and
-confirmation lifecycle.
-
-### CRM operation contracts
-
-CRM integration is a separate backend-to-MuleSoft plane. Each active operation
-has a registry-owned response contract; a missing or invalid mapping is
-unavailable before Hussh opens an MCP call. The current schema tool response
-maps its primary object metadata from `details[0]` and field catalogue from
-`details[0].fields`. Each descriptor supplies `name`, `label`, `type`, and
-`required`; normalized constraints such as `allowedValues` and `maxLength` are
-recommended. `readable`, `identityField`, `immutable`, `createable`, and
-`updateable` are optional refinements. Explicit `false` is enforced; an absent
-field flag is never treated as a new permission decision.
-
-For the verified demo CRM tools, the registry maps create success and returned
-ID from `success` and `id`; it maps reads from `records[]` and `Id`. Update and
-delete intentionally return an empty successful MCP tool result, so their
-registered success policy is `isError: false` plus a post-mutation state read.
-This is a declared transport contract, not a Salesforce-specific heuristic.
-
-Adding a future CRM requires only its registry row, schema contract, operation
-tool names/endpoints, request style, and response paths. Its field catalogue
-may be visible first, but no action is enabled until the complete contract and
-isolated lifecycle check pass.
-
-## Partner checklist
-
-- Use the UAT endpoint with its trailing slash and a Bearer header.
-- Discover a narrow scope before requesting consent; do not guess scope names.
-- Store `request_ref` while polling and use `grant_ref` only after approval.
-- Expect encrypted-inline delivery with `resource: null`; do not implement a ResourceLink download step.
-- Treat CRM MCP operations as a private Hussh backend integration, not as additions to the public Consent MCP tool catalog. MuleSoft Streamable HTTP is direct backend transport; Hussh Consent MCP is the separate encrypted information-exchange transport.
+> **Acceptance gate.** Approve the integration only after token exchange, protocol initialization, the exact five-tool catalog, and schema loading pass independently. Then test the intended execution credential through consent, polling, encrypted retrieval, and partner-side decryption. Confirm that no secret, private key, supplied user identifier, plaintext information, or internal reference enters logs or planner context.

@@ -227,7 +227,12 @@ export function NativeTestRouter() {
 
     const timer = window.setInterval(() => {
       const shouldStop = maybeRoute();
-      if (shouldStop && !getNativeTestConfig().enabled) {
+      const bridge = window.__HUSHH_NATIVE_TEST__;
+      const uiFlowOwnsRouting =
+        bridge?.runUiFlows === true &&
+        bridge?._uiFlowsRoutingOwned === true &&
+        !getNativeTestConfig().initialRoute;
+      if (shouldStop && (!getNativeTestConfig().enabled || uiFlowOwnsRouting)) {
         window.clearInterval(timer);
       }
     }, 500);

@@ -9,7 +9,10 @@ import {
   CACHE_KEYS,
   CACHE_TTL,
 } from "@/lib/services/cache-service";
-import { normalizeOneSetupCapabilityId } from "@/lib/onboarding/setup-capability-ids";
+import {
+  normalizeOneSetupCapabilityId,
+  ONE_RUNTIME_SETUP_PREREQUISITE_ID,
+} from "@/lib/onboarding/setup-capability-ids";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 
 export type VaultStatus = "placeholder" | "active";
@@ -348,6 +351,30 @@ export class PreVaultUserStateService {
     return this.updatePreVaultState(userId, {
       setupCapabilityIds: toStringArray([...setupCapabilityIds]),
     });
+  }
+
+  static hasOneRuntimeChoice(
+    state: PreVaultUserState | null | undefined,
+  ): boolean {
+    return Boolean(
+      state?.setupCapabilityIds.includes(ONE_RUNTIME_SETUP_PREREQUISITE_ID),
+    );
+  }
+
+  /**
+   * Persist the explicit, non-secret choice that makes Connections a satisfied
+   * root-setup prerequisite. The selected BYOK credential remains encrypted in
+   * the vault; this marker only records that the person made a choice.
+   */
+  static async markOneRuntimeChoice(userId: string): Promise<PreVaultUserState> {
+    const current =
+      this.getCachedBootstrapState(userId) ??
+      (await this.bootstrapState(userId));
+    if (this.hasOneRuntimeChoice(current)) return current;
+    return this.syncSetupCapabilities(userId, [
+      ...current.setupCapabilityIds,
+      ONE_RUNTIME_SETUP_PREREQUISITE_ID,
+    ]);
   }
 
   /** Persist the minimal resumable goal; never a transcript or private content. */

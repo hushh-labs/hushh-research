@@ -237,24 +237,6 @@ export function AuthStep({
     };
   }, [updateProviderAttemptPhase, user]);
 
-  const localReviewerCredentialsAvailable = useMemo(() => {
-    return Boolean(
-      resolveLocalReviewerCredentials(
-        typeof window !== "undefined" ? window.location.hostname : null,
-      ),
-    );
-  }, []);
-  const isLocalReviewerSurface = useMemo(() => {
-    if (typeof window === "undefined") {
-      return process.env.NODE_ENV !== "production";
-    }
-    const hostname = window.location.hostname.toLowerCase();
-    return (
-      process.env.NODE_ENV !== "production" ||
-      hostname === "localhost" ||
-      hostname === "127.0.0.1"
-    );
-  }, []);
   const openLegalDoc = useCallback(async (docType: KaiLegalDocumentType) => {
     // Defer open so the originating tap does not get interpreted as outside-interact.
     await new Promise<void>((resolve) => {
@@ -974,11 +956,11 @@ export function AuthStep({
         },
       ];
 
-  const showReviewer =
-    reviewModeConfig.enabled ||
-    nativeReviewerVisible ||
-    localReviewerCredentialsAvailable ||
-    isLocalReviewerSurface;
+  // Reviewer credentials are a governed native-test fixture, never a normal
+  // sign-in choice. Keeping this control behind the explicit test bridge
+  // prevents local/UAT configuration from leaking a fixture account into the
+  // product UI while preserving the native runner's observable test mode.
+  const showReviewer = nativeTestConfig.enabled && nativeReviewerVisible;
 
   return (
     <main

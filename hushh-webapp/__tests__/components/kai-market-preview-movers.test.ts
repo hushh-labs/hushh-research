@@ -58,6 +58,17 @@ describe("shouldShowNewsCompanyLogo", () => {
 });
 
 describe("market route overlays", () => {
+  it("routes the Market News preview to the full news workspace, never Analysis", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/kai/views/kai-market-preview-view.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain('actionLabel="All news"');
+    expect(source).toContain("actionHref={ROUTES.KAI_NEWS}");
+    expect(source).not.toContain('actionHref={buildKaiMarketRoute("analysis")}');
+  });
+
   it("does not mount a hidden notification sheet on route load", () => {
     const source = readFileSync(
       join(process.cwd(), "components/kai/views/kai-market-preview-view.tsx"),

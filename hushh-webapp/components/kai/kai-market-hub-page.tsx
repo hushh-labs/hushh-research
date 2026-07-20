@@ -17,6 +17,7 @@ import { KAI_MARKET_PATH } from "@/lib/navigation/routes";
 import { KaiPreviewRouter } from "@/components/kai/views/kai-preview-router";
 import { KaiAnalysisPageContent } from "@/app/one/kai/analysis/page";
 import { scheduleFinanceWorkspaceWarmup } from "@/lib/kai/finance-workspace-warmup";
+import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 
 const FINANCE_TAB_DEFINITION = TOP_SHELL_TAB_REGISTRY.finance;
 type PortfolioTab = (typeof FINANCE_TAB_DEFINITION.tabs)[number]["value"];
@@ -40,7 +41,13 @@ export function KaiMarketHubPage() {
     const destination = FINANCE_TAB_DEFINITION.tabs.find(
       (candidate) => candidate.value === tab,
     );
-    if (destination) router.replace(destination.href, { scroll: false });
+    if (!destination || destination.href === `${KAI_MARKET_PATH}?tab=${activeTab}`) return;
+    beginRouteTransition(
+      destination.href,
+      () => router.replace(destination.href, { scroll: false }),
+      "tap",
+      "contextual",
+    );
   };
 
   useEffect(() => {
@@ -63,9 +70,11 @@ export function KaiMarketHubPage() {
       userId: user.uid,
       vaultKey,
       vaultOwnerToken,
-      activeTab,
+      // The warmup primes every Finance panel. Do not cancel it merely because
+      // a swipe changed the query selection before the browser became idle.
+      activeTab: "market",
     });
-  }, [activeTab, user?.uid, vaultKey, vaultOwnerToken]);
+  }, [user?.uid, vaultKey, vaultOwnerToken]);
 
   if (authLoading || !user) return null;
 
@@ -89,7 +98,7 @@ export function KaiMarketHubPage() {
         tabSetId={FINANCE_TAB_DEFINITION.id}
         activeValue={activeTab}
         options={FINANCE_TAB_DEFINITION.tabs}
-        onChildSwiped={(value) => setActiveTab(value as PortfolioTab)}
+        onSelectionChange={(value) => setActiveTab(value as PortfolioTab)}
       >
         <div className="h-full w-full">
           <AppPageContentRegion><KaiPreviewRouter /></AppPageContentRegion>

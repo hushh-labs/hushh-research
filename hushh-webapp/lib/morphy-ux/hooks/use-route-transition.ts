@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   appInteractionCoordinator,
   type InteractionIntentSource,
+  type NavigationTransitionMode,
 } from "@/lib/interaction/interaction-intent-coordinator";
 
 /**
@@ -47,8 +48,8 @@ import {
 // Kept in sync with the route-transition motion tokens in globals.css
 // (--motion-route-exit-duration / --motion-route-enter-duration). Longer,
 // gentler beats so navigation glides instead of feeling abrupt.
-const EXIT_MS = 500;
-const ENTER_MS = 600;
+const EXIT_MS = 300;
+const ENTER_MS = 360;
 const MAX_PENDING_MS = 9_000;
 const SETTLE_MS = 200;
 
@@ -110,6 +111,7 @@ export function beginRouteTransition(
   targetHref: string,
   navigate: () => void,
   source: InteractionIntentSource = "programmatic",
+  transitionMode: NavigationTransitionMode = "full",
 ): void {
   if (typeof window === "undefined") {
     navigate();
@@ -118,10 +120,11 @@ export function beginRouteTransition(
   appInteractionCoordinator.requestNavigation({
     target: targetHref,
     source,
+    transitionMode,
     start: (intent) => {
       activeRouteIntentId = intent.id;
       clearRouteTimers();
-      if (reducedMotion()) {
+      if (transitionMode === "contextual" || reducedMotion()) {
         appInteractionCoordinator.markNavigationCommitting(intent.id);
         transitionInFlight = true;
         try {
@@ -309,8 +312,12 @@ function setRouteState(state: RouteTransitionState) {
 
 export function useRouteTransition() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const mounted = useRef(false);
+  const routeKey = searchParams.size
+    ? `${pathname}?${searchParams.toString()}`
+    : pathname;
 
   useEffect(() => {
     function onClick(event: MouseEvent) {
@@ -362,7 +369,7 @@ export function useRouteTransition() {
     };
   }, [router]);
 
-  // The resolved pathname change is the single, authoritative signal that the
+  // The resolved route key is the single, authoritative signal that the
   // NEW route has mounted — so this effect OWNS the enter beat for every
   // navigation path:
   //   • full envelope (link/programmatic): exit set "pending"; we now flip it to
@@ -370,27 +377,47 @@ export function useRouteTransition() {
   //     guess and no double-fire — the settle timer is now only a fallback).
   //   • browser back/forward + reduced-motion-skipped nav: state is "idle"; we
   //     still reveal the incoming frame.
-  // Reserving on pathname (not search) means shallow query/hash writes never
-  // re-trigger the enter beat, which is what made other routes feel abnormal.
   useEffect(() => {
     if (!mounted.current) {
       mounted.current = true;
       return;
     }
-    if (reducedMotion()) {
-      if (activeRouteIntentId) {
+    const activeIntent = appInteractionCoordinator
+      .getSnapshot()
+      .find((intent) => intent.id === activeRouteIntentId);
+    const activeTarget = activeIntent?.target
+      ? new URL(activeIntent.target, window.location.origin)
+      : null;
+    const targetRouteKey = activeTarget
+      ? `${activeTarget.pathname}${activeTarget.search}`
+      : null;
+    const isContextualIntent = activeIntent?.transitionMode === "contextual";
+
+    if (isContextualIntent) {
+      if (targetRouteKey === routeKey && activeRouteIntentId) {
         appInteractionCoordinator.settleNavigation(
           activeRouteIntentId,
-          "pathname_settled",
+          "contextual_route_key_settled",
+        );
+        activeRouteIntentId = null;
+      }
+      return;
+    }
+
+    if (reducedMotion()) {
+      if (activeRouteIntentId && targetRouteKey === routeKey) {
+        appInteractionCoordinator.settleNavigation(
+          activeRouteIntentId,
+          "route_key_settled",
         );
         activeRouteIntentId = null;
       }
       return;
     }
     playEnter();
-    if (activeRouteIntentId) {
-      appInteractionCoordinator.settleNavigation(activeRouteIntentId, "pathname_settled");
+    if (activeRouteIntentId && targetRouteKey === routeKey) {
+      appInteractionCoordinator.settleNavigation(activeRouteIntentId, "route_key_settled");
       activeRouteIntentId = null;
     }
-  }, [pathname]);
+  }, [pathname, routeKey]);
 }

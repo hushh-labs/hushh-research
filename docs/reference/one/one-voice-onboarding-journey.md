@@ -71,6 +71,16 @@ low-risk visible control, One uses the generated action search and exact
 action runner immediately, without reintroducing itself or asking for a
 redundant confirmation. It reports only the browser-observed settlement.
 
+**Claim your One** is the canonical settled journey. One executes
+`onboarding.claim_one` while `one_intro` is current. The browser navigates to
+`/login`, publishes Login's redacted action inventory, and receives a relay
+acknowledgement before it reports the claim settlement. Only after that exact
+destination context is accepted may One ask “Google or Apple?” If the person
+said “Claim my One with Google” (or Apple), the live session carries only the
+already-authored `auth.sign_in_google` (or Apple) ID; it becomes eligible only
+after Login settles. A route change, back navigation, cancellation, timeout,
+sign-out, or session close discards it.
+
 On Login, tapping a visible provider button calls its Firebase popup synchronously.
 One's semantic assessment maps an explicit voice request to that same exact generated
 provider action, but an asynchronous voice directive cannot manufacture browser

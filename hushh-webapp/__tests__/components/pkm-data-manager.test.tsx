@@ -189,6 +189,7 @@ describe("PkmDataManagerPanel", () => {
         signedIn
         loading={false}
         metadataReady
+        sharingReady
         needsVaultCreation={false}
         needsUnlock={false}
         summary={{

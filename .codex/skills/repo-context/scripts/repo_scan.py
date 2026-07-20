@@ -95,6 +95,7 @@ REQUIRED_WORKFLOWS = [
     "hushh-consent-mcp-ops",
     "mcp-surface-change",
     "morphy-ax-governance",
+    "runtime-topology-maintenance",
     "security-posture-maintenance",
 ]
 PATH_PREFIXES = (

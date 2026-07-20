@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from mcp.types import Tool
 
-from mcp_modules.agentforce_contract import AGENTFORCE_PROFILE, get_agentforce_contract
-from mcp_modules.flat_contract import FLAT_PROFILE, get_flat_contract
+from mcp_modules.canonical_contract import canonical_tool_name
 from mcp_modules.public_contract import get_public_contract
 
 
@@ -132,34 +131,13 @@ def get_tool_definitions(
 ) -> list[Tool]:
     """Return the default public contract or an explicitly entitled subset."""
 
-    if schema_profile == FLAT_PROFILE:
-        allowed = (
-            allowed_tool_names
-            if allowed_tool_names is not None
-            else {str(tool["name"]) for tool in get_flat_contract()["tools"]}
-        )
-        return [
-            Tool.model_validate(definition)
-            for definition in get_flat_contract()["tools"]
-            if str(definition["name"]) in allowed
-        ]
-
-    if schema_profile == AGENTFORCE_PROFILE:
-        allowed = (
-            allowed_tool_names
-            if allowed_tool_names is not None
-            else {str(tool["name"]) for tool in get_agentforce_contract()["tools"]}
-        )
-        return [
-            Tool.model_validate(definition)
-            for definition in get_agentforce_contract()["tools"]
-            if str(definition["name"]) in allowed
-        ]
-
+    # Catalog presentation is no longer app-profile-dependent.  Entitlements
+    # remain internal underscore identifiers while tools/list publishes the
+    # one v0.4 hyphenated contract to every external host.
     tools: list[Tool] = []
     for definition in get_public_contract()["tools"]:
-        name = str(definition["name"])
-        if allowed_tool_names is not None and name not in allowed_tool_names:
+        internal_name = canonical_tool_name(str(definition["name"]))
+        if allowed_tool_names is not None and internal_name not in allowed_tool_names:
             continue
         tools.append(Tool.model_validate(definition))
     if allowed_tool_names is None:

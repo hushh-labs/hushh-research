@@ -122,8 +122,8 @@
     },
     {
       "action_id": "setup.open_connected_systems",
-      "label": "Link your record to external systems",
-      "meaning": "Opens external-system setup so the person can choose where One may find or create their record.",
+      "label": "CRM",
+      "meaning": "Opens CRM setup so the person can find an existing record or review creating one.",
       "aliases": [
         "link my record to external systems",
         "link my record",

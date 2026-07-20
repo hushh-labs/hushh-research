@@ -9,18 +9,6 @@ enum NativeUiTestRunnerScript {
 (function installNativeUiTestRunner() {
   if (typeof window === "undefined") return;
 
-  var NAV_TOUR_IDS_BY_LABEL = {
-    Agent: ["nav-agent"],
-    Analysis: ["nav-analysis"],
-    Clients: ["nav-ria-clients"],
-    Connect: ["nav-connect", "nav-ria-connect"],
-    Home: ["nav-ria-home"],
-    Market: ["nav-market"],
-    Picks: ["nav-ria-picks"],
-    Portfolio: ["nav-portfolio"],
-    Profile: ["nav-profile"],
-  };
-
   var TERMINAL_DATA_STATES = [
     "loaded",
     "empty-valid",
@@ -29,6 +17,10 @@ enum NativeUiTestRunnerScript {
     "error",
   ];
   var UI_FLOW_STORAGE_KEY_PREFIX = "__hushh_native_ui_flow_state_v1";
+  // Keep this below the host audit timeout. A bootstrap that never reaches an
+  // authenticated, vault-ready surface must settle as a failure rather than
+  // retain an interval that keeps driving a simulator after its host exits.
+  var UI_FLOW_BOOTSTRAP_TIMEOUT_MS = 45000;
 
   function errorClass(value) {
     var text = "";
@@ -47,23 +39,6 @@ enum NativeUiTestRunnerScript {
     if (/syntaxerror/.test(text)) return "syntax_error";
     return "other";
   }
-
-  var NAV_ROUTE_BY_PERSONA_AND_LABEL = {
-    investor: {
-      Market: "/one/kai?tab=market",
-      Portfolio: "/one/kai?tab=portfolio",
-      Analysis: "/one/kai?tab=analysis",
-      Connect: "/marketplace",
-      Profile: "/profile",
-    },
-    ria: {
-      Home: "/ria",
-      Clients: "/ria/clients",
-      Picks: "/ria/picks",
-      Connect: "/marketplace",
-      Profile: "/profile",
-    },
-  };
 
   function sleep(ms) {
     return new Promise(function (resolve) {
@@ -339,103 +314,56 @@ enum NativeUiTestRunnerScript {
     );
   }
 
-  async function clickBottomNav(label) {
-    var beforeRoute = normalizeRoute(
-      window.location.pathname + window.location.search,
-    );
-    var tourIds = NAV_TOUR_IDS_BY_LABEL[label] || [];
-    for (var i = 0; i < tourIds.length; i += 1) {
-      var target = firstVisible('[data-tour-id="' + tourIds[i] + '"]');
-      if (target) {
-        clickElement(target);
-        await sleep(400);
-        await ensureBottomNavRoute(label, beforeRoute);
-        return;
+  function findVisibleExactControl(scope, selector, label) {
+    var pattern = new RegExp("^" + escapeRegExp(label) + "$", "i");
+    var controls = Array.prototype.slice.call(scope.querySelectorAll(selector));
+    for (var i = 0; i < controls.length; i += 1) {
+      var control = controls[i];
+      if (visible(control) && pattern.test((control.textContent || "").trim())) {
+        return control;
       }
     }
-
-    var buttons = Array.prototype.slice.call(
-      document.querySelectorAll("button"),
-    );
-    var pattern = new RegExp("^" + label + "$", "i");
-    for (var j = 0; j < buttons.length; j += 1) {
-      var text = (buttons[j].textContent || "").trim();
-      if (pattern.test(text) && visible(buttons[j])) {
-        clickElement(buttons[j]);
-        await sleep(400);
-        await ensureBottomNavRoute(label, beforeRoute);
-        return;
-      }
-    }
-
-    var bridge = nativeTestBridge();
-    var personas = [bridge.primaryNavPersona, bridge.activePersona];
-    for (var k = 0; k < personas.length; k += 1) {
-      var persona = personas[k];
-      var expectedRoute =
-        persona &&
-        NAV_ROUTE_BY_PERSONA_AND_LABEL[persona] &&
-        NAV_ROUTE_BY_PERSONA_AND_LABEL[persona][label];
-      if (
-        expectedRoute &&
-        bridge.enabled === true &&
-        typeof bridge.navigateToRoute === "function"
-      ) {
-        await navigateWithNativeRouter(expectedRoute);
-        return;
-      }
-    }
-
-    throw new Error(
-      'bottom nav item not found: "' + label + '" on ' + window.location.href,
-    );
+    return null;
   }
 
-  async function ensureBottomNavRoute(label, beforeRoute) {
-    var bridge = nativeTestBridge();
-    var candidates = [bridge.primaryNavPersona, bridge.activePersona];
-    var persona = "";
-    for (var i = 0; i < candidates.length; i += 1) {
-      var candidate = candidates[i];
-      if (
-        candidate &&
-        NAV_ROUTE_BY_PERSONA_AND_LABEL[candidate] &&
-        NAV_ROUTE_BY_PERSONA_AND_LABEL[candidate][label]
-      ) {
-        persona = candidate;
-        break;
-      }
+  // Bottom navigation is intentionally limited to its three visible controls.
+  // A missing control is a failed interaction—not permission to route through
+  // the test bridge and claim a user tap happened.
+  async function clickBottomNav(label) {
+    var bottomNav = firstVisible("[data-app-bottom-nav]");
+    if (!bottomNav) {
+      throw new Error("bottom navigation is not visible");
     }
-    if (!persona) {
-      persona =
-        (window.location.pathname || "").indexOf("/ria") === 0 &&
-        NAV_ROUTE_BY_PERSONA_AND_LABEL.ria[label]
-          ? "ria"
-          : "investor";
+    var target = findVisibleExactControl(bottomNav, '[role="radio"]', label);
+    if (!target) {
+      throw new Error(
+        'bottom nav item not found: "' + label + '" on ' + window.location.href,
+      );
     }
-    var expectedRoute = NAV_ROUTE_BY_PERSONA_AND_LABEL[persona]
-      ? NAV_ROUTE_BY_PERSONA_AND_LABEL[persona][label]
-      : "";
-    if (!expectedRoute) return;
+    clickElement(target);
+    await sleep(400);
+  }
 
-    var currentRoute = normalizeRoute(
-      window.location.pathname + window.location.search,
-    );
-    var normalizedExpected = normalizeRoute(expectedRoute);
-    if (
-      currentRoute === normalizedExpected ||
-      (normalizedExpected !== "/" &&
-        currentRoute.indexOf(normalizedExpected + "/") === 0)
-    ) {
-      return;
+  async function clickTopTab(label) {
+    var tabRoot = firstVisible('[data-testid="top-app-bar-tabs"]');
+    if (!tabRoot) {
+      throw new Error("top app-bar tabs are not visible");
     }
+    var target = findVisibleExactControl(tabRoot, '[role="tab"]', label);
+    if (!target) {
+      throw new Error('top app-bar tab not found: "' + label + '"');
+    }
+    clickElement(target);
+    await sleep(250);
+  }
 
-    if (
-      bridge.enabled === true &&
-      typeof bridge.navigateToRoute === "function"
-    ) {
-      await navigateWithNativeRouter(expectedRoute);
+  async function clickShellAction(ariaLabel) {
+    var target = firstVisible('[aria-label="' + ariaLabel.replace(/"/g, '\\"') + '"]');
+    if (!target) {
+      throw new Error('shell action not found: "' + ariaLabel + '"');
     }
+    clickElement(target);
+    await sleep(250);
   }
 
   async function clickButton(name, regex) {
@@ -630,6 +558,59 @@ enum NativeUiTestRunnerScript {
     try {
       window.sessionStorage.setItem(uiFlowStorageKey(), JSON.stringify(state));
     } catch (_) {}
+  }
+
+  function clearUiFlowBootstrapTimer(bridge) {
+    if (!bridge || !bridge._uiFlowBootstrapTimer) return;
+    window.clearInterval(bridge._uiFlowBootstrapTimer);
+    bridge._uiFlowBootstrapTimer = null;
+  }
+
+  // This only terminates automation timers. Final state is deliberately kept
+  // for the native host to collect and sanitize before it terminates the app.
+  function stopUiFlowAutomation() {
+    clearUiFlowBootstrapTimer(nativeTestBridge());
+  }
+
+  function uiFlowRunId(bridge) {
+    return String(bridge && bridge.uiFlowRunId || "").replace(
+      /[^a-zA-Z0-9_-]/g,
+      "",
+    );
+  }
+
+  function publishUiFlowReport(bridge, report) {
+    bridge.uiFlowReport = report;
+    bridge.uiFlowErrorClass = report.errorClass || "";
+    bridge.uiFlowsComplete = true;
+    bridge.uiFlowsOk = report.ok === true;
+    bridge.uiFlowsFailed = report.ok !== true;
+    try {
+      window.webkit.messageHandlers.hushhNativeTest.postMessage({
+        uiFlowReport: report,
+        uiFlowErrorClass: bridge.uiFlowErrorClass,
+        uiFlowsComplete: true,
+        uiFlowsOk: report.ok === true,
+        uiFlowAuditRunId: bridge.uiFlowAuditRunId || uiFlowRunId(bridge),
+        uiFlowAuditPlanDigest: bridge.uiFlowAuditPlanDigest || "",
+      });
+    } catch (_) {}
+  }
+
+  function completeUiFlowBootstrapTimeout(bridge, runState) {
+    var report = {
+      ok: false,
+      errorClass: "timeout",
+      auditRunId: uiFlowRunId(bridge),
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      flows: [],
+    };
+    runState.complete = true;
+    runState.report = report;
+    runState.promise = null;
+    clearUiFlowBootstrapTimer(bridge);
+    publishUiFlowReport(bridge, report);
   }
 
   async function waitForNativeAutomationBridge(timeoutMs) {
@@ -1137,7 +1118,7 @@ enum NativeUiTestRunnerScript {
 
   async function openRiaWorkspace() {
     await ensurePersona("ria");
-    await clickBottomNav("Clients");
+    await clickTopTab("Clients");
     await waitForBeacon(["/ria/clients"]);
     var testProfile = firstVisible('[data-testid="ria-client-test-profile"]');
     if (testProfile) {
@@ -1160,33 +1141,16 @@ enum NativeUiTestRunnerScript {
     await waitForBeacon(["/ria/clients/[userId]"]);
   }
 
-  async function verifyRiaPicksAdmission() {
-    var deadline = Date.now() + 30000;
-    while (Date.now() < deadline) {
-      if (window.location.pathname.indexOf("/ria/onboarding") === 0) {
-        // The shared reviewer intentionally has no advisor entitlement. Its
-        // protected-route proof is the onboarding redirect, not a mutation of
-        // the fixture solely to expose advisor-only controls.
-        return;
-      }
+  function riaOnboardingAdmissionActive() {
+    return window.location.pathname.indexOf("/ria/onboarding") === 0;
+  }
 
-      if (firstVisible('[data-testid="ria-picks-primary"]')) {
-        await clickButton("^my list", true);
-        await waitForUrlIncludes("source=my");
-        await clickButton("^kai list", true);
-        await waitForUrlIncludes("source=kai");
-        await clickButton("avoid", false);
-        await waitForUrlIncludes("category=avoid");
-        await clickButton("top picks", false);
-        await waitForUrlIncludes("category=top-picks");
-        await clickButton("screening", false);
-        await waitForUrlIncludes("category=screening");
-        return;
-      }
-
-      await sleep(250);
-    }
-    throw new Error("RIA picks did not resolve to controls or onboarding admission");
+  async function assertRiaWorkspaceAdmission() {
+    if (riaOnboardingAdmissionActive()) return;
+    var tabRoot = firstVisible('[data-testid="top-app-bar-tabs"]');
+    var clients = tabRoot && findVisibleExactControl(tabRoot, '[role="tab"]', "Clients");
+    if (clients) return;
+    throw new Error("RIA workspace did not resolve to tabs or onboarding admission");
   }
 
   async function runStep(step) {
@@ -1195,8 +1159,17 @@ enum NativeUiTestRunnerScript {
       case "ensure_persona":
         await ensurePersona(step.persona);
         return;
+      case "ensure_ria_workspace":
+        await ensurePersona("ria");
+        return;
       case "click_bottom_nav":
         await clickBottomNav(step.label);
+        return;
+      case "click_top_tab":
+        await clickTopTab(step.label);
+        return;
+      case "click_shell_action":
+        await clickShellAction(step.ariaLabel);
         return;
       case "click_button":
         try {
@@ -1282,11 +1255,11 @@ enum NativeUiTestRunnerScript {
       case "assert_viewport_visible_testid":
         await waitForViewportVisibleTestId(step.testId, step.timeoutMs);
         return;
+      case "assert_ria_workspace_admission":
+        await assertRiaWorkspaceAdmission();
+        return;
       case "open_ria_workspace":
         await openRiaWorkspace();
-        return;
-      case "verify_ria_picks_admission":
-        await verifyRiaPicksAdmission();
         return;
       default:
         throw new Error("unknown step type: " + step.type);
@@ -1307,11 +1280,12 @@ enum NativeUiTestRunnerScript {
       bridge.uiFlowStepStartedAt = new Date().toISOString();
       bridge.uiFlowLayout = "";
       bridge.uiFlowLongWait = Number(step.timeoutMs || defaultStepTimeoutMs) >= 120000;
+      var stepTimer = null;
       try {
         await Promise.race([
           runStep(step),
           new Promise(function (_, reject) {
-            window.setTimeout(function () {
+            stepTimer = window.setTimeout(function () {
               reject(
                 new Error(
                   "step timeout (" +
@@ -1325,7 +1299,22 @@ enum NativeUiTestRunnerScript {
             }, stepTimeoutMs);
           }),
         ]);
-        results.push({ step: i, type: step.type, ok: true });
+        var successfulStep = { step: i, type: step.type, ok: true };
+        results.push(successfulStep);
+        if (
+          flow.requiresRiaWorkspace === true &&
+          step.type === "ensure_ria_workspace" &&
+          riaOnboardingAdmissionActive()
+        ) {
+          successfulStep.skipped = true;
+          successfulStep.skipClass = "onboarding_admission";
+          return {
+            ok: true,
+            skipped: true,
+            skipClass: "onboarding_admission",
+            results: results,
+          };
+        }
       } catch (error) {
         if (flow.optional || step.optional) {
           results.push({
@@ -1349,6 +1338,10 @@ enum NativeUiTestRunnerScript {
           failedStep: step,
           errorClass: errorClass(error),
         };
+      } finally {
+        if (stepTimer) {
+          window.clearTimeout(stepTimer);
+        }
       }
     }
     return { ok: true, results: results };
@@ -1373,21 +1366,6 @@ enum NativeUiTestRunnerScript {
   async function runAllUiFlowsOnce() {
     var bridge = window.__HUSHH_NATIVE_TEST__ || {};
     var runState = nativeUiFlowRunState();
-    if (bridge.uiFlowsComplete) {
-      return bridge.uiFlowReport || { ok: true, flows: [] };
-    }
-    var storedState = readStoredUiFlowState();
-    if (storedState && storedState.complete && storedState.report) {
-      bridge.uiFlowReport = storedState.report;
-      bridge.uiFlowErrorClass = storedState.report.errorClass || "";
-      bridge.uiFlowsComplete = true;
-      bridge.uiFlowsOk = storedState.report.ok === true;
-      bridge.uiFlowsFailed = !storedState.report.ok;
-      runState.complete = true;
-      runState.report = storedState.report;
-      return storedState.report;
-    }
-
     var response = await fetch("/native-ui-flows.json", { cache: "no-store" });
     if (!response.ok) {
       throw new Error(
@@ -1396,14 +1374,92 @@ enum NativeUiTestRunnerScript {
     }
     var payload = await response.json();
     var flows = payload.flows || [];
+    var plan = payload.audit_plan || {};
+    var runId = uiFlowRunId(bridge);
+    var manifestIds = flows.map(function (flow) {
+      return String(flow && flow.id || "");
+    });
+    if (!runId) {
+      throw new Error("native UI audit run id missing");
+    }
+    if (
+      plan.version !== 1 ||
+      !/^[a-f0-9]{64}$/i.test(String(plan.digest || "")) ||
+      !Array.isArray(plan.flow_ids) ||
+      plan.flow_count !== flows.length ||
+      plan.flow_ids.length !== manifestIds.length ||
+      plan.flow_ids.some(function (id, index) { return id !== manifestIds[index]; })
+    ) {
+      throw new Error("native UI flow manifest audit plan is invalid");
+    }
+    bridge.uiFlowAuditRunId = runId;
+    bridge.uiFlowAuditPlanDigest = plan.digest;
+
+    var storedState = readStoredUiFlowState();
+    if (bridge.uiFlowsComplete) {
+      return bridge.uiFlowReport || {
+        ok: false,
+        errorClass: "other",
+        auditRunId: runId,
+        auditPlanVersion: plan.version,
+        auditPlanDigest: plan.digest,
+        flows: [],
+      };
+    }
+    if (storedState && storedState.complete && storedState.report) {
+      var storedReport = storedState.report;
+      if (
+        storedReport.auditRunId !== runId ||
+        storedReport.auditPlanVersion !== plan.version ||
+        storedReport.auditPlanDigest !== plan.digest
+      ) {
+        throw new Error("stored native UI flow report does not match this audit plan");
+      }
+      publishUiFlowReport(bridge, storedReport);
+      runState.complete = true;
+      runState.report = storedReport;
+      return storedReport;
+    }
+    if (storedState && storedState.inFlightFlowId) {
+      var interruptedReport = {
+        ok: false,
+        errorClass: "other",
+        auditRunId: runId,
+        auditPlanVersion: plan.version,
+        auditPlanDigest: plan.digest,
+        startedAt: storedState.report && storedState.report.startedAt || new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        flows: storedState.report && storedState.report.flows || [],
+      };
+      writeStoredUiFlowState({
+        started: true,
+        complete: true,
+        nextIndex: Number(storedState.nextIndex) || 0,
+        report: interruptedReport,
+      });
+      publishUiFlowReport(bridge, interruptedReport);
+      runState.complete = true;
+      runState.report = interruptedReport;
+      return interruptedReport;
+    }
     var report =
       storedState && storedState.report
         ? storedState.report
         : {
             ok: true,
+            auditRunId: runId,
+            auditPlanVersion: plan.version,
+            auditPlanDigest: plan.digest,
             startedAt: new Date().toISOString(),
             flows: [],
           };
+    if (
+      report.auditRunId !== runId ||
+      report.auditPlanVersion !== plan.version ||
+      report.auditPlanDigest !== plan.digest
+    ) {
+      throw new Error("native UI flow checkpoint does not match this audit plan");
+    }
     var startIndex = Math.max(
       0,
       Math.min(
@@ -1420,6 +1476,8 @@ enum NativeUiTestRunnerScript {
         started: true,
         complete: false,
         nextIndex: i,
+        inFlightFlowId: flow.id,
+        inFlightFlowIndex: i,
         report: report,
       });
       dismissBlockingScreens();
@@ -1430,6 +1488,13 @@ enum NativeUiTestRunnerScript {
         description: flow.description,
         ok: result.ok,
         optional: flow.optional === true,
+        conditionalRiaWorkspace: flow.requiresRiaWorkspace === true,
+        skipped: result.skipped === true || result.results.some(function (stepResult) {
+          return stepResult && stepResult.skipped === true;
+        }),
+        skipClass: result.skipClass || result.results.find(function (stepResult) {
+          return stepResult && stepResult.skipClass;
+        })?.skipClass || null,
         results: result.results,
         failedStep: result.failedStep || null,
       });
@@ -1454,11 +1519,7 @@ enum NativeUiTestRunnerScript {
 
     report.completedAt = new Date().toISOString();
     bridge.uiFlowReport = report;
-    bridge.uiFlowErrorClass = report.errorClass || "";
     bridge.uiFlowLongWait = false;
-    bridge.uiFlowsComplete = true;
-    bridge.uiFlowsOk = report.ok === true;
-    bridge.uiFlowsFailed = !report.ok;
     runState.complete = true;
     runState.report = report;
     writeStoredUiFlowState({
@@ -1467,14 +1528,7 @@ enum NativeUiTestRunnerScript {
       nextIndex: flows.length,
       report: report,
     });
-    try {
-      window.webkit.messageHandlers.hushhNativeTest.postMessage({
-        uiFlowReport: report,
-        uiFlowErrorClass: bridge.uiFlowErrorClass,
-        uiFlowsComplete: true,
-        uiFlowsOk: report.ok === true,
-      });
-    } catch (_) {}
+    publishUiFlowReport(bridge, report);
     return report;
   }
 
@@ -1492,7 +1546,12 @@ enum NativeUiTestRunnerScript {
       return;
     }
 
+    var bootstrapStartedAt = Date.now();
     bridge._uiFlowBootstrapTimer = window.setInterval(function () {
+      if (Date.now() - bootstrapStartedAt >= UI_FLOW_BOOTSTRAP_TIMEOUT_MS) {
+        completeUiFlowBootstrapTimeout(bridge, runState);
+        return;
+      }
       var bootstrap = bridge.bootstrapState || "";
       var auth = "";
       var route = window.location.pathname || "";
@@ -1504,8 +1563,7 @@ enum NativeUiTestRunnerScript {
           route = status.route || route;
           dataState = status.dataState || "";
           if (status.uiFlowsComplete === true) {
-            window.clearInterval(bridge._uiFlowBootstrapTimer);
-            bridge._uiFlowBootstrapTimer = null;
+            clearUiFlowBootstrapTimer(bridge);
             return;
           }
         } catch (_) {}
@@ -1530,8 +1588,7 @@ enum NativeUiTestRunnerScript {
       runState.started = true;
       bridge._uiFlowsStarted = true;
       clearNativeTestRouteLock();
-      window.clearInterval(bridge._uiFlowBootstrapTimer);
-      bridge._uiFlowBootstrapTimer = null;
+      clearUiFlowBootstrapTimer(bridge);
       runAllUiFlows().catch(function (error) {
         bridge.uiFlowErrorClass = errorClass(error);
         bridge.uiFlowReport = {
@@ -1562,10 +1619,12 @@ enum NativeUiTestRunnerScript {
     runFlow: runFlow,
     runStep: runStep,
     startUiFlowBootstrap: startUiFlowBootstrap,
+    stopUiFlowAutomation: stopUiFlowAutomation,
   };
 
   var bridge = window.__HUSHH_NATIVE_TEST__ || {};
   bridge.runAllUiFlows = runAllUiFlows;
+  bridge.stopUiFlowAutomation = stopUiFlowAutomation;
   window.__HUSHH_NATIVE_TEST__ = bridge;
 
   window.addEventListener(

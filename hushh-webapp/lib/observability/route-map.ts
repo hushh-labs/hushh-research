@@ -63,6 +63,7 @@ export const ROUTE_ID_VALUES = [
   "ria_settings",
   "ria_workspace",
   "kai_home",
+  "kai_market_news",
   "one_setup",
   "kai_import",
   "kai_plaid_oauth_return",
@@ -189,6 +190,7 @@ export function resolveRouteId(pathname: string): RouteId {
   ) {
     return "kai_home";
   }
+  if (pathname === ROUTES.KAI_NEWS) return "kai_market_news";
   if (
     pathname === ROUTES.ONE_SETUP ||
     pathname.startsWith(`${ROUTES.ONE_SETUP}/`) ||
@@ -344,6 +346,14 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
   {
     regex: /^\/api\/kai\/market\/insights\/[^/?]+(?:\?.*)?$/i,
     template: "/api/kai/market/insights/{user_id}",
+  },
+  {
+    regex: /^\/api\/kai\/market\/news\/baseline\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/kai/market/news/baseline/{user_id}",
+  },
+  {
+    regex: /^\/api\/kai\/market\/news\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/kai/market/news/{user_id}",
   },
   {
     regex: /^\/api\/kai\/dashboard\/profile-picks\/[^/?]+(?:\?.*)?$/i,

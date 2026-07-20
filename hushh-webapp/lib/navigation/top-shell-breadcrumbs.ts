@@ -6,6 +6,7 @@ import {
   resolveOnboardingCapabilityForRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
+import { getOneSetupCapability } from "@/lib/onboarding/one-capabilities";
 import { resolvePublicKnowledgeTopShellTabSet } from "@/lib/navigation/top-shell-tabs";
 import {
   buildProfileRoute,
@@ -273,6 +274,19 @@ export function resolveTopShellBreadcrumb(
     };
   }
 
+  if (pathname === ROUTES.KAI_NEWS) {
+    return {
+      backHref: ROUTES.KAI_HOME,
+      width: "content",
+      align: "center",
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Market", href: ROUTES.KAI_HOME },
+        { label: "News" },
+      ],
+    };
+  }
+
   // Kai finance subroutes (level 3): back returns to the Kai home (level 2),
   // which in turn returns to /one (level 1). Keeps the One -> agent -> subtab
   // hierarchy consistent instead of relying on browser history. The setup
@@ -415,7 +429,13 @@ export function resolveTopShellBreadcrumb(
         { label: "One", href: ROUTES.ONE_HOME },
         { label: "Setup", href: ROUTES.ONE_SETUP },
         ...(capabilitySegment
-          ? [{ label: titleizeSegment(capabilitySegment) }]
+          ? [
+              {
+                label:
+                  getOneSetupCapability(capabilitySegment)?.title ??
+                  titleizeSegment(capabilitySegment),
+              },
+            ]
           : []),
       ],
     };

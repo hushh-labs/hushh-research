@@ -46,28 +46,42 @@ client-encrypted; `draft_body` is never persisted server-side.
 
 ## Invariants
 
-1. `one@hushh.ai` is the Workspace user mailbox for One-led KYC intake.
-2. Gmail Pub/Sub intake stores message IDs, thread IDs, sender metadata,
+1. `one@hushh.ai` is the Workspace user mailbox for One-led KYC intake. The
+   Pub/Sub notification mailbox and the message's `To`, `Cc`, `Delivered-To`,
+   or `X-Original-To` recipients must match the configured canonical mailbox.
+   Alias, forwarded, and unrelated mailbox deliveries fail closed before any
+   user lookup, classification, workflow creation, or agent call.
+2. Automatic response preparation is explicit opt-in and account-scoped. The
+   backend preference is authoritative across web, iOS, Android, catch-up sync,
+   and asynchronous Gmail intake. A missing row or lookup failure means
+   disabled; disabled users produce no workflow and trigger no LLM work. The
+   final workflow insert conditionally rechecks the enabled preference in the
+   same database statement, so disabling while classification is running wins
+   the race and creates no workflow.
+3. Gmail Pub/Sub intake stores message IDs, thread IDs, sender metadata,
    required-field labels, candidate scopes, hashes, and workflow state.
-   If Gmail watch history state is missing or the app user explicitly refreshes
+   An accepted Pub/Sub delivery is not the same as a handled request: top-level
+   `handled` is true only when at least one message actually creates or advances
+   work. If Gmail watch history state is missing or the app user explicitly refreshes
    Email Helper, One performs a bounded recent-mail catch-up scan and reuses the
-   same sender-authority and duplicate-protection rules.
-3. Raw email bodies, consent tokens, connector private keys, decrypted exports,
+   same sender-authority and duplicate-protection rules. Explicit catch-up exits
+   before Gmail access when the authenticated account preference is disabled.
+4. Raw email bodies, consent tokens, connector private keys, decrypted exports,
    final approved bodies, and draft plaintext are not durable backend state.
-4. Pass 1 LLM routing proposes domain(s) and fields from the inbound request
+5. Pass 1 LLM routing proposes domain(s) and fields from the inbound request
    text and the sanitized PKM index (no raw values). The vault owner must
    confirm or narrow the LLM proposal in `/one/kyc` before consent requests
    are created (`needs_confirm` → confirm gate). The resolved vault owner is
    the verified sender only; copied recipients and distribution-list members
    are reply context, not authority.
-5. Each selected workflow scope becomes its own consent request under one bundle
+6. Each selected workflow scope becomes its own consent request under one bundle
    id. Draft generation may use all selected and granted workflow scopes, not
    just identity scope, but must not read every globally available user scope.
    Client drafts must render selected scopes as clear sections and must not
    expose raw PKM structure such as entity ids, manifests, hashes, provenance,
    or parser metadata.
-6. If any selected scope is denied or stale, One blocks the external reply.
-7. The canonical approved-reply renderer is
+7. If any selected scope is denied or stale, One blocks the external reply.
+8. The canonical approved-reply renderer is
    `hushh-webapp/lib/services/one-kyc-approved-disclosure-renderer.ts`, called
    only by the strict-ZK client service after local decrypt. Route code must not
    create parallel email HTML templates. Plain text and Gmail-safe HTML must
@@ -75,16 +89,16 @@ client-encrypted; `draft_body` is never persisted server-side.
    and other dense dynamic-scope drafts must preserve all useful approved values
    and use Gmail-safe horizontal table scrolling instead of overlapping mobile
    columns.
-8. Approved KYC sends must reply in the original Gmail thread and preserve reply
+9. Approved KYC sends must reply in the original Gmail thread and preserve reply
    headers. The backend uses the approved body only transiently for Gmail send.
    The send contract requires plain text and may include sanitized HTML for
    Gmail multipart/alternative rendering; the plain-text part remains the
    fallback and hash anchor.
-9. Local decrypted exports and local drafts are cleared after approve/writeback
+10. Local decrypted exports and local drafts are cleared after approve/writeback
    success, reject, or refresh into a non-ready state.
-10. Durable KYC memory is an encrypted PKM writeback artifact plus workflow
+11. Durable KYC memory is an encrypted PKM writeback artifact plus workflow
    metadata and hashes, not raw mailbox content.
-11. The Email Helper list uses stale-while-refresh semantics: cached visible
+12. The Email Helper list uses stale-while-refresh semantics: cached visible
     requests remain visible while One checks recent mail, refreshes workflow
     status, and merges newer rows into the paginated list.
 

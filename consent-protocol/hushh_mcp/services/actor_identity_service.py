@@ -392,9 +392,7 @@ class ActorIdentityService:
                     "actor_identity_cache custom_photo_url missing; using pre-107 projection"
                 )
                 return await self._get_many_without_custom_photo(normalized_ids)
-            logger.debug(
-                "actor_identity_cache phone shadow missing; using pre-047 projection"
-            )
+            logger.debug("actor_identity_cache phone shadow missing; using pre-047 projection")
             return await self._get_many_without_phone_shadow(normalized_ids)
         return {
             str(row["user_id"]): self._normalize_row(row)

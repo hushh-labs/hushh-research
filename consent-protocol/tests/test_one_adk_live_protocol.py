@@ -294,6 +294,7 @@ def test_action_settlement_requires_matching_issued_directive_and_can_retry_afte
             "reason": "vault_locked",
             "routeAfter": "/one/kai",
             "screenAfter": "finance",
+            "destinationContextId": "ctx-2",
         },
         issued,
     )
@@ -301,4 +302,5 @@ def test_action_settlement_requires_matching_issued_directive_and_can_retry_afte
     assert settlement is not None
     assert settlement["status"] == "blocked"
     assert settlement["summary"] == "Portfolio access is locked."
+    assert settlement["destination_context_id"] == "ctx-2"
     assert issued == {}

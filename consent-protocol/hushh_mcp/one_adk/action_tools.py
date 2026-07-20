@@ -311,20 +311,150 @@ def _context_revision(tool_context: ToolContext) -> str:
     return str(context.get("context_revision") or "").strip()[:128]
 
 
+def _settled_journey_definition(entry: dict[str, Any], action_id: str) -> dict[str, Any] | None:
+    """Return a validated, authored two-stage journey for ``action_id``.
+
+    Generated contracts may describe many goal shapes.  This runtime only
+    treats the deliberately small ``action -> destination choice`` form as a
+    deferred journey.  Everything else stays on the legacy direct-action path
+    until it has an equally explicit runtime contract.
+    """
+    goal = entry.get("goal")
+    if not isinstance(goal, dict):
+        return None
+    goal_id = str(goal.get("goal_id") or "").strip()
+    steps = goal.get("workflow_steps")
+    if not goal_id or not isinstance(steps, list) or len(steps) < 2:
+        return None
+    initial = steps[0] if isinstance(steps[0], dict) else {}
+    choice = steps[1] if isinstance(steps[1], dict) else {}
+    settlement_target = initial.get("settlement_target")
+    choice_action_ids = choice.get("action_ids")
+    if (
+        initial.get("type") != "action"
+        or str(initial.get("action_id") or "") != action_id
+        or not isinstance(settlement_target, dict)
+        or not str(settlement_target.get("route") or "").strip()
+        or not str(settlement_target.get("screen") or "").strip()
+        or choice.get("type") != "choice"
+        or not isinstance(choice_action_ids, list)
+    ):
+        return None
+    choices = [
+        str(value).strip()
+        for value in choice_action_ids
+        if isinstance(value, str) and str(value).strip()
+    ]
+    if not choices:
+        return None
+    return {
+        "goal_id": goal_id,
+        "settlement_target": {
+            "route": str(settlement_target["route"]).strip(),
+            "screen": str(settlement_target["screen"]).strip(),
+        },
+        "choice_action_ids": choices,
+        "carry_explicit_choice": choice.get("carry_explicit_choice") is True,
+    }
+
+
+def _deferred_choice(
+    slots: dict[str, Any], journey: dict[str, Any]
+) -> tuple[dict[str, Any], str | None]:
+    """Separate the volatile next-screen choice from normal action slots."""
+    clean_slots = {
+        key: value for key, value in (slots or {}).items() if key != "deferred_action_id"
+    }
+    raw = (slots or {}).get("deferred_action_id")
+    deferred_action_id = str(raw or "").strip() or None
+    if deferred_action_id and deferred_action_id not in journey["choice_action_ids"]:
+        return clean_slots, ""
+    return clean_slots, deferred_action_id
+
+
+async def _start_settled_journey(
+    action_id: str,
+    slots: dict[str, Any],
+    tool_context: ToolContext,
+    entry: dict[str, Any],
+    journey: dict[str, Any],
+) -> dict[str, Any]:
+    """Execute one current action and park only an eligible destination choice."""
+    action_slots, deferred_action_id = _deferred_choice(slots, journey)
+    if deferred_action_id == "":
+        return {
+            "status": "invalid_choice",
+            "message": "That next-screen choice is not authorized by this journey.",
+        }
+    if deferred_action_id and not journey["carry_explicit_choice"]:
+        return {
+            "status": "invalid_choice",
+            "message": "This journey does not carry a choice between screens.",
+        }
+
+    result = await run_app_action(action_id, action_slots, tool_context)
+    if result.get("status") not in {"ok", "confirm_pending"}:
+        return result
+
+    pending_key = f"{_STATE_PENDING_DIRECTIVE}:{action_id}"
+    pending = tool_context.state.get(pending_key)
+    if not isinstance(pending, dict) or not isinstance(pending.get("payload"), dict):
+        # A direct action must create the same generated directive it would
+        # outside a journey.  Never invent a second browser transport path.
+        return {
+            "status": "settling",
+            "message": "The current action is preparing. Wait for its browser directive.",
+        }
+
+    run = {
+        "schema_version": "one.settled_action_journey.v1",
+        "journey_id": journey["goal_id"],
+        "goal_id": journey["goal_id"],
+        "source_action_id": action_id,
+        "settlement_target": journey["settlement_target"],
+        "choice_action_ids": journey["choice_action_ids"],
+        # This is the sole carried user intent. It is an already-authored id,
+        # never speech, slots, a credential, or a durable workflow record.
+        "deferred_action_id": deferred_action_id,
+        "source_context_revision": _context_revision(tool_context),
+        "status": "awaiting_destination_context",
+    }
+    tool_context.state[_STATE_GOAL_RUN] = run
+    tool_context.state[pending_key] = {
+        **pending,
+        "payload": {
+            **pending["payload"],
+            "goalId": journey["goal_id"],
+            "goalRun": run,
+        },
+    }
+    return {
+        "status": "journey_started",
+        "message": "Opening the next screen before continuing.",
+        "goal_id": journey["goal_id"],
+        "deferred_choice": bool(deferred_action_id),
+    }
+
+
 async def start_app_goal(
     action_id: str, slots: dict[str, Any], tool_context: ToolContext
 ) -> dict[str, Any]:
     """Start a generated cross-surface app goal.
 
-    This is intentionally narrower than ``run_app_action``: direct actions
-    remain bound to mounted controls. Today the only cross-surface goal is
-    stock analysis, which must navigate to Analysis, receive a fresh bounded
-    context, and then open its preview (never start a debate automatically).
+    Direct actions remain bound to mounted controls.  Explicit generated
+    journeys add exactly one safe continuation: execute a current-screen
+    action, wait for its authored destination context, then make a named
+    destination action eligible.  No planner or alternate browser executor is
+    introduced here.
     """
     clean_id = str(action_id or "").strip()
+    entry = get_action_gateway_action(clean_id)
+    if entry is not None:
+        journey = _settled_journey_definition(entry, clean_id)
+        if journey is not None:
+            return await _start_settled_journey(clean_id, slots, tool_context, entry, journey)
     if clean_id != "analysis.start":
         return await run_app_action(clean_id, slots, tool_context)
-    entry = get_action_gateway_action(clean_id)
     if entry is None or str((entry.get("goal") or {}).get("goal_id") or "") != _ANALYSIS_GOAL_ID:
         return {"status": "unknown_action", "message": "Stock analysis is not available."}
     symbol = str((slots or {}).get("symbol") or "").strip().upper()
@@ -381,9 +511,60 @@ async def start_app_goal(
     }
 
 
+async def _continue_settled_journey(
+    run: dict[str, Any], tool_context: ToolContext
+) -> dict[str, Any]:
+    """Make an authored choice eligible only on its accepted destination."""
+    context = tool_context.state.get(_STATE_VOICE_CONTEXT)
+    if not isinstance(context, dict) or context.get("context_pending") is True:
+        return {"status": "settling", "message": "Waiting for the destination screen."}
+    expected = run.get("settlement_target")
+    expected = expected if isinstance(expected, dict) else {}
+    if (
+        context.get("pending_settlement") is True
+        or str(context.get("route_pattern") or "") != str(expected.get("route") or "")
+        or str(context.get("screen") or "") != str(expected.get("screen") or "")
+    ):
+        tool_context.state[_STATE_GOAL_RUN] = None
+        return {
+            "status": "journey_interrupted",
+            "message": "The destination changed, so the pending choice was cleared.",
+        }
+    source_revision = str(run.get("source_context_revision") or "")
+    current_revision = _context_revision(tool_context)
+    if source_revision and source_revision == current_revision:
+        return {"status": "settling", "message": "Waiting for fresh destination context."}
+    available = _available_action_ids(tool_context) or set()
+    allowed_choices = {
+        str(value).strip()
+        for value in (run.get("choice_action_ids") or [])
+        if isinstance(value, str) and str(value).strip()
+    }
+    if not allowed_choices or not allowed_choices.issubset(available):
+        tool_context.state[_STATE_GOAL_RUN] = None
+        return {
+            "status": "journey_interrupted",
+            "message": "The destination does not expose this journey's authorized choices.",
+        }
+    deferred_action_id = str(run.get("deferred_action_id") or "").strip()
+    if not deferred_action_id:
+        tool_context.state[_STATE_GOAL_RUN] = None
+        return {
+            "status": "choice_needed",
+            "message": "The destination is ready. Ask the person to choose one available option.",
+            "action_ids": sorted(allowed_choices),
+        }
+    # Clear before issuing the confirmation directive. The action itself still
+    # performs current-surface and trusted-activation validation.
+    tool_context.state[_STATE_GOAL_RUN] = None
+    return await run_app_action(deferred_action_id, {}, tool_context)
+
+
 async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
-    """Continue the single generated goal after route settlement/context refresh."""
+    """Continue an authored goal only after fresh route context has settled."""
     run = tool_context.state.get(_STATE_GOAL_RUN)
+    if isinstance(run, dict) and run.get("schema_version") == "one.settled_action_journey.v1":
+        return await _continue_settled_journey(run, tool_context)
     if not isinstance(run, dict) or run.get("goal_id") != _ANALYSIS_GOAL_ID:
         return {"status": "no_active_goal", "message": "There is no app goal waiting to continue."}
     context = tool_context.state.get(_STATE_VOICE_CONTEXT)

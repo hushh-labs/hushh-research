@@ -2,15 +2,16 @@
 
 ## Unreleased
 
-- Added the generated four-tool `agentforce` MCP schema-registration UAT
-  catalog, including client-facing titles/descriptions, bounded flat fields,
-  complete output schemas, and `hushh-mcp --print-agentforce-manifest`.
-- Added an explicit fail-closed production boundary for personalized Agentforce
-  calls while Salesforce documents that user-level authentication and
-  personalized MCP responses are unsupported.
-- Added a versioned, non-secret `mulesoft-agentforce` relay handoff that
-  locks API Catalog allowlisting, flat schema preservation, tools-only
-  capabilities, client-credential hops, and the UAT-only execution boundary.
+## 0.4.0 - 2026-07-20
+
+- Published one generated five-tool v0.4 catalog for bearer, PKCE, client
+  credentials, Codex, Claude, MuleSoft, and Agentforce.
+- Promoted `prepare-campaign-context` to a first-class external tool and added
+  shallow safe offer/lifecycle fields for frontend rendering.
+- Added a hyphenated-name migration: v0.3 underscore calls remain accepted
+  until 2026-10-20 but are not listed from `tools/list`.
+- Added direct-Agentforce safe Consent Center handoff behavior without calling
+  a personalized consent or export handler.
 
 ## 0.3.0 - 2026-07-15
 

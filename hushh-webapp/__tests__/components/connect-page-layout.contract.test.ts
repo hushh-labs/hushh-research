@@ -16,7 +16,7 @@ describe("Connect page layout contract", () => {
     expect(source).toContain("<SettingsGroup");
     expect(source).toContain("<SettingsRow");
     expect(source).not.toContain("<SectionHeader");
-    expect(source).toContain('eyebrow="One"');
+    expect(source).not.toContain('eyebrow="One"');
   });
 
   it("hard-gates Connect and the private agent on live in-memory vault state", () => {

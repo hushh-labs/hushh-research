@@ -61,7 +61,8 @@ vi.mock("@/lib/navigation/routes", () => ({
   isOneSetupRoute: (pathname: string) =>
     pathname.replace(/\/index\.html$/i, "").replace(/\/+$/, "") ===
     "/one/setup",
-  isOneSetupSurfaceRoute: (pathname: string) => pathname === "/one/setup",
+  isOneSetupSurfaceRoute: (pathname: string) =>
+    pathname === "/one/setup" || pathname === "/one/setup/connections",
 }));
 
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
@@ -171,6 +172,22 @@ describe("OnboardingJourneyGuard", () => {
     await waitFor(() => {
       expect(screen.getByText("setup hub")).toBeTruthy();
     });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("admits Connections as a root-setup navigation surface", async () => {
+    pathnameValue = "/one/setup/connections";
+    window.history.replaceState(null, "", pathnameValue);
+    getCachedBootstrapStateMock.mockReturnValue(incompleteSetupState());
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>connections choice</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    expect(screen.getByText("connections choice")).toBeTruthy();
+    expect(bootstrapStateMock).not.toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
   });
 

@@ -16,6 +16,12 @@ import {
   sanitizeRawStatusForReport,
   sanitizeStatusForReport,
 } from "./native-report-sanitizer.mjs";
+import {
+  isCompleteNativeRouteAuditStatus,
+  isSettledNativeRouteAuditSurface,
+  nativeRouteAuditProgressKey,
+  parseNativeRouteAuditStatus,
+} from "./native-route-status.mjs";
 
 const repoRoot = process.cwd();
 const webDir = repoRoot;
@@ -40,9 +46,24 @@ const destinationDeviceId = destination.match(/(?:^|,)id=([^,]+)/)?.[1] || "";
 const simulatorDevice = destinationDeviceId || "booted";
 const bundleId = "com.hushh.app";
 const timeoutMs = Number(process.env.IOS_ROUTE_AUDIT_TIMEOUT_MS || "60000");
+const noProgressTimeoutMs = Math.min(
+  timeoutMs,
+  Math.max(
+    1_000,
+    Number(process.env.IOS_ROUTE_AUDIT_NO_PROGRESS_TIMEOUT_MS || "20000"),
+  ),
+);
 const routeFilter = (process.env.IOS_ROUTE_FILTER || "").trim();
+const maxConsecutiveFailures = Math.max(
+  1,
+  Number(process.env.IOS_ROUTE_AUDIT_MAX_CONSECUTIVE_FAILURES || "3"),
+);
 const resetStateRoutes = new Set(
-  (process.env.IOS_ROUTE_AUDIT_RESET_ROUTES || "/logout,/login")
+  // Simulator uninstall does not clear Firebase's credential material. The
+  // anonymous root must therefore launch with the same explicit reset as the
+  // anonymous login/logout routes; otherwise it restores the reviewer and
+  // deterministically redirects to /one while this audit waits for "/".
+  (process.env.IOS_ROUTE_AUDIT_RESET_ROUTES || "/,/logout,/login")
     .split(",")
     .map((route) => route.trim())
     .filter(Boolean)
@@ -52,11 +73,20 @@ const reinstallResetRoutes =
 const xcodeProject = "ios/App/App.xcodeproj";
 const xcodeScheme = "App";
 
+assertDestructiveNativeAuditAllowed();
+
 const reviewerIdentity = resolveReviewerTestIdentity({
   envFiles: defaultReviewerIdentityEnvFiles({ repoRoot: monorepoRoot, webDir }),
 });
 const reviewerVaultPassphrase = reviewerIdentity.reviewerVaultPassphrase;
 const reviewerUid = reviewerIdentity.reviewerUid;
+
+function assertDestructiveNativeAuditAllowed() {
+  if (process.env.HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT === "true") return;
+  throw new Error(
+    "This is a destructive cold-start route audit: it resets simulator app state and may reinstall the app. It cannot prove vault or route continuity. Use npm run ios:continuity:local for a normal-session check, or set HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true only for an intentional cold audit.",
+  );
+}
 
 function resolveSimulatorDestination(deviceName) {
   try {
@@ -98,6 +128,17 @@ function tryRun(cmd, args) {
   }
 }
 
+function terminateAuditApp() {
+  tryRun("xcrun", ["simctl", "terminate", simulatorDevice, bundleId]);
+}
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.once(signal, () => {
+    terminateAuditApp();
+    process.exit(signal === "SIGINT" ? 130 : 143);
+  });
+}
+
 function ensureSimulatorBooted() {
   if (!destinationDeviceId) {
     return;
@@ -106,19 +147,6 @@ function ensureSimulatorBooted() {
   run("xcrun", ["simctl", "bootstatus", destinationDeviceId, "-b"], {
     stdio: ["ignore", "pipe", "pipe"],
   });
-}
-
-function parseStatus(raw) {
-  return Object.fromEntries(
-    raw
-      .trim()
-      .split(";")
-      .filter(Boolean)
-      .map((part) => {
-        const [key, ...rest] = part.split("=");
-        return [key, rest.join("=")];
-      })
-  );
 }
 
 function sanitizeRawForReport(raw) {
@@ -182,7 +210,7 @@ function detectVisible404(status = {}) {
 }
 
 function launchRoute(route) {
-  tryRun("xcrun", ["simctl", "terminate", simulatorDevice, bundleId]);
+  terminateAuditApp();
   if (reinstallResetRoutes && resetStateRoutes.has(route.route)) {
     tryRun("xcrun", ["simctl", "uninstall", simulatorDevice, bundleId]);
     run("xcrun", ["simctl", "install", simulatorDevice, appPath]);
@@ -305,6 +333,10 @@ function waitForStatus(route) {
   let lastRaw = "";
   let lastParsed = {};
   let lastHeartbeatAt = startedAt;
+  let lastProgressKey = "";
+  let lastProgressAt = startedAt;
+  let settledMismatchKey = "";
+  let settledMismatchAt = 0;
 
   while (Date.now() - startedAt < timeoutMs) {
     if (Date.now() - lastHeartbeatAt >= 15000) {
@@ -318,9 +350,20 @@ function waitForStatus(route) {
       const container = run("xcrun", ["simctl", "get_app_container", simulatorDevice, bundleId, "data"]);
       const statusPath = path.join(container, "Library", "Caches", "native-test-status.txt");
       if (fs.existsSync(statusPath)) {
-        lastRaw = fs.readFileSync(statusPath, "utf8").trim();
-        if (lastRaw) {
-          lastParsed = parseStatus(lastRaw);
+        const rawStatus = fs.readFileSync(statusPath, "utf8").trim();
+        const parsedStatus = parseNativeRouteAuditStatus(rawStatus);
+        if (
+          isCompleteNativeRouteAuditStatus(parsedStatus, {
+            requiresVaultBootstrap: route.expectedAuth === "authenticated",
+          })
+        ) {
+          lastRaw = rawStatus;
+          lastParsed = parsedStatus;
+          const progressKey = nativeRouteAuditProgressKey(lastParsed);
+          if (progressKey !== lastProgressKey) {
+            lastProgressKey = progressKey;
+            lastProgressAt = Date.now();
+          }
           const readyOk = (lastParsed.ready || "") === "1";
           const markerOk = (lastParsed.marker || "") === route.expectedMarker;
           const routeOk = matchesRoute(lastParsed.route || "", route);
@@ -333,10 +376,42 @@ function waitForStatus(route) {
               raw: lastRaw,
             };
           }
+
+          if (
+            isSettledNativeRouteAuditSurface(lastParsed, route) &&
+            (!markerOk || !routeOk)
+          ) {
+            const mismatchKey = `${lastParsed.route}|${lastParsed.marker}|${lastParsed.routeok}`;
+            if (
+              mismatchKey === settledMismatchKey &&
+              Date.now() - settledMismatchAt >= 1_000
+            ) {
+              return {
+                ok: false,
+                status: lastParsed,
+                raw: lastRaw,
+                errorClass: "route_mismatch",
+              };
+            }
+            settledMismatchKey = mismatchKey;
+            settledMismatchAt = Date.now();
+          } else {
+            settledMismatchKey = "";
+            settledMismatchAt = 0;
+          }
         }
       }
     } catch {
       // App may still be booting; keep polling.
+    }
+
+    if (Date.now() - lastProgressAt >= noProgressTimeoutMs) {
+      return {
+        ok: false,
+        status: lastParsed,
+        raw: lastRaw,
+        errorClass: "stalled",
+      };
     }
 
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
@@ -349,7 +424,7 @@ function waitForStatus(route) {
   };
 }
 
-function main() {
+function runAudit() {
   const inventory = JSON.parse(fs.readFileSync(inventoryPath, "utf8"));
   const auditedRoutes = inventory.routes
     .filter((route) => route.classification.startsWith("native-required"))
@@ -357,6 +432,11 @@ function main() {
 
   console.log(`==> native iOS route audit (${auditedRoutes.length} routes)`);
   console.log(`==> destination: ${destination}`);
+  console.log(`==> failure circuit breaker: ${maxConsecutiveFailures} consecutive route failures`);
+  // A prior report is evidence of a prior run, never evidence for this one.
+  // Remove it before launch so an interruption cannot be mistaken for a fresh
+  // route-audit completion by a developer or a downstream check.
+  fs.rmSync(reportPath, { force: true });
 
   if (process.env.IOS_ROUTE_AUDIT_SKIP_BUILD !== "true") {
     buildApp();
@@ -375,6 +455,8 @@ function main() {
   run("xcrun", ["simctl", "install", simulatorDevice, appPath]);
 
   const results = [];
+  let consecutiveFailures = 0;
+  let auditComplete = true;
 
   for (const route of auditedRoutes) {
     process.stdout.write(`   - ${route.route} ... `);
@@ -383,7 +465,7 @@ function main() {
       const result = waitForStatus(route);
       const screenshotPath = captureScreenshot(route);
       const visible404 = detectVisible404(result.status);
-      tryRun("xcrun", ["simctl", "terminate", simulatorDevice, bundleId]);
+      terminateAuditApp();
 
       if (!result.ok) {
         console.log("FAIL");
@@ -395,11 +477,10 @@ function main() {
           expected: route,
           observed: sanitizeStatusForReport(result.status),
           raw: sanitizeRawForReport(result.raw),
+          errorClass: result.errorClass || undefined,
         });
-        continue;
-      }
-
-      if (visible404) {
+        consecutiveFailures += 1;
+      } else if (visible404) {
         console.log("FAIL(404 visible)");
         results.push({
           route: route.route,
@@ -411,19 +492,20 @@ function main() {
           raw: sanitizeRawForReport(result.raw),
           error: "visible_404",
         });
-        continue;
+        consecutiveFailures += 1;
+      } else {
+        console.log("OK");
+        results.push({
+          route: route.route,
+          ok: true,
+          visible404,
+          screenshotPath,
+          expected: route,
+          observed: sanitizeStatusForReport(result.status),
+          raw: sanitizeRawForReport(result.raw),
+        });
+        consecutiveFailures = 0;
       }
-
-      console.log("OK");
-      results.push({
-        route: route.route,
-        ok: true,
-        visible404,
-        screenshotPath,
-        expected: route,
-        observed: sanitizeStatusForReport(result.status),
-        raw: sanitizeRawForReport(result.raw),
-      });
     } catch (error) {
       console.log("FAIL");
       results.push({
@@ -434,6 +516,15 @@ function main() {
         raw: "",
         errorClass: errorClass(error),
       });
+      consecutiveFailures += 1;
+    }
+
+    if (consecutiveFailures >= maxConsecutiveFailures) {
+      auditComplete = false;
+      console.log(
+        `==> stopping after ${consecutiveFailures} consecutive route failures`,
+      );
+      break;
     }
   }
 
@@ -442,6 +533,9 @@ function main() {
     destination,
     screenshot_dir: path.relative(repoRoot, screenshotDir),
     audited_routes: auditedRoutes.length,
+    completed_routes: results.length,
+    audit_complete: auditComplete && results.length === auditedRoutes.length,
+    max_consecutive_failures: maxConsecutiveFailures,
     passed_routes: results.filter((result) => result.ok).length,
     failed_routes: results.filter((result) => !result.ok).length,
     visible404_routes: results.filter((result) => result.visible404).length,
@@ -459,8 +553,19 @@ function main() {
     );
   }
 
-  if (summary.failed_routes > 0) {
-    process.exit(1);
+  if (!summary.audit_complete || summary.failed_routes > 0) {
+    process.exitCode = 1;
+  }
+}
+
+function main() {
+  try {
+    runAudit();
+  } finally {
+    // A host interruption must not leave the test-mode WebView alive. This
+    // route audit is explicitly cold/destructive; normal continuity runners
+    // never invoke this cleanup path.
+    terminateAuditApp();
   }
 }
 

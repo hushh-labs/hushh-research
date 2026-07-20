@@ -29,8 +29,6 @@ export const AMBIENT_CHROME_VARS = {
   bottom: {
     background: "--ambient-chrome-bottom-bg",
     foreground: "--ambient-chrome-bottom-fg",
-    baseBackground: "--ambient-chrome-bottom-base-bg",
-    baseForeground: "--ambient-chrome-bottom-base-fg",
   },
 } as const;
 
@@ -416,22 +414,6 @@ function sampleSurfaceAtDepth(
 }
 
 /**
- * The Foundation canvas is the canonical app paint below the bottom dock.
- * Search Console uses that stable canvas for the dock material while the live
- * sample remains available for edge-aware transitions. This avoids turning a
- * temporary card/background sample into a persistent grey slab.
- */
-function foundationCanvasSurface(): Rgb | null {
-  const foundation = document.querySelector("[data-foundation-canvas='true']");
-  if (!foundation) return null;
-  const style = getComputedStyle(foundation);
-  return (
-    parseCssColor(style.backgroundColor) ??
-    parseGradientSurface(style.backgroundImage)
-  );
-}
-
-/**
  * Search Console's position-aware rule: sample from the opaque part of the
  * mask toward its content edge and take the first actual surface. This avoids
  * muddy averages and prevents a card, gap, or tab fade from deciding the tint.
@@ -525,22 +507,7 @@ export function createAmbientChromeEngine(enabled = true): () => void {
     }
     root.dataset.ambientChromePrimed = "true";
   };
-  const writeBottomBase = () => {
-    const color = foundationCanvasSurface();
-    if (!color) return;
-    const lightness = rgbToOklch(color)[0];
-    const tone = resolveAmbientChromeSurfaceTone(lightness);
-    setRootVariable(
-      AMBIENT_CHROME_VARS.bottom.baseBackground,
-      `rgb(${color.join(", ")})`,
-    );
-    setRootVariable(
-      AMBIENT_CHROME_VARS.bottom.baseForeground,
-      tone === "dark" ? "#f5f5f7" : "#1d1d1f",
-    );
-  };
   const sampleTargets = (snap = false) => {
-    writeBottomBase();
     const masks = Array.from(
       document.querySelectorAll(`[${AMBIENT_CHROME_MASK_ATTR}]`),
     );

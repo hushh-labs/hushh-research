@@ -121,6 +121,41 @@ describe("OneKycService", () => {
     });
   });
 
+  it("loads and saves the server-authoritative automatic response preference", async () => {
+    await OneKycService.getAutomaticResponsePreparationPreference({
+      userId: "user_1",
+      vaultOwnerToken: "vault-token",
+    });
+
+    expect(mockApiJson).toHaveBeenLastCalledWith(
+      "/api/one/kyc/preferences/automatic-response-preparation?user_id=user_1",
+      {
+        headers: {
+          Authorization: "Bearer vault-token",
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    await OneKycService.setAutomaticResponsePreparationPreference({
+      userId: "user_1",
+      vaultOwnerToken: "vault-token",
+      enabled: true,
+    });
+
+    expect(mockApiJson).toHaveBeenLastCalledWith(
+      "/api/one/kyc/preferences/automatic-response-preparation",
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: "Bearer vault-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ user_id: "user_1", enabled: true }),
+      },
+    );
+  });
+
   it("archives a workflow through the request-list delete endpoint", async () => {
     await OneKycService.archiveWorkflow({
       userId: "user_1",

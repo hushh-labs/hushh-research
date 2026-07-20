@@ -31,7 +31,7 @@ Relationships) renders only what `ConsentCenterService.get_center`,
 tables (`one_location_share_grants`, `one_location_access_requests`,
 `one_location_events`, `one_location_public_invites`,
 `one_location_circle_invites`,
-`one_location_referrals`) and sends its own metadata-only FCM pushes. (Network connections have been unified into the shared `trusted_connections` table; `one_location_network_connections` was dropped in migration 080.) It only
+`one_location_referrals`) and sends its own metadata-only FCM pushes. (Network connections have been unified into the shared `trusted_connections` table; the legacy `one_location_network_connections` schema table is pending a separately preflighted forward-only retirement.) It only
 *reads* `consent_audit` as a recommendation signal.
 
 So location data does NOT appear in `/consents` yet. The frontend is ready

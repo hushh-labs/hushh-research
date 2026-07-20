@@ -61,6 +61,7 @@ REQUIRED_WORKFLOW_KEYS = [
 ]
 EXPECTED_WORKFLOW_IDS = [
     "agent-orchestration-governance",
+    "runtime-topology-maintenance",
     "repo-orientation",
     "new-feature-tri-flow",
     "frontend-native-surface-map",

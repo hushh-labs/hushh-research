@@ -136,4 +136,31 @@ describe("PreVaultUserStateService.bootstrapState", () => {
     ).toBe(false);
     expect(OneSetupCompletionHintService.isResolved(unknownUserId)).toBe(true);
   });
+
+  it("persists the explicit Connections choice without replacing capability markers", async () => {
+    const userId = "bootstrap-runtime-choice-user";
+    getIdTokenMock.mockResolvedValue("firebase-token");
+    apiJsonMock
+      .mockResolvedValueOnce({
+        userId,
+        setupCompleted: false,
+        setupCapabilityIds: ["finance"],
+      })
+      .mockResolvedValueOnce({
+        userId,
+        setupCompleted: false,
+        setupCapabilityIds: ["connections", "finance"],
+      });
+
+    const state = await PreVaultUserStateService.markOneRuntimeChoice(userId);
+
+    expect(PreVaultUserStateService.hasOneRuntimeChoice(state)).toBe(true);
+    expect(state.setupCapabilityIds).toEqual(["connections", "finance"]);
+    expect(apiJsonMock).toHaveBeenCalledTimes(2);
+    const updateOptions = apiJsonMock.mock.calls[1]?.[1] as RequestInit;
+    expect(JSON.parse(String(updateOptions.body))).toEqual({
+      userId,
+      setupCapabilityIds: ["connections", "finance"],
+    });
+  });
 });

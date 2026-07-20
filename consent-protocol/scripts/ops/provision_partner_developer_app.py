@@ -18,7 +18,7 @@ Usage (local/UAT via the running Cloud SQL proxy env):
       --contact-email partners@hushh.ai \
       [--crm-id salesforce-fsc-hushh] \
       [--tool-groups core_consent] \
-      [--schema-profile flat --enable-client-credentials \
+      [--enable-client-credentials \
        --connector-key-id partner-key-2026-07 \
        --connector-public-key "$PARTNER_X25519_PUBLIC_KEY"] \
       [--rotate] \
@@ -45,20 +45,17 @@ INTEGRATION_TARGET_MULESOFT_AGENTFORCE = "mulesoft-agentforce"
 def _apply_integration_defaults(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     """Apply a named partner integration without changing the global default.
 
-    Existing MCP applications keep the standard profile. The named MuleSoft →
-    Agentforce target always receives the narrow Agentforce UAT catalog and an
-    app-bound OAuth client credential. It never authorizes personalized tool
-    execution.
+    Every application receives the same canonical five-tool catalog. The named
+    MuleSoft → Agentforce target issues an app-bound OAuth credential that can
+    execute the same consent lifecycle as bearer and PKCE. Client credentials
+    authenticate the partner application; user approval and the scoped grant
+    remain the authority for any information release.
     """
 
     if args.integration_target != INTEGRATION_TARGET_MULESOFT_AGENTFORCE:
         return
-    if args.schema_profile not in {"standard", "agentforce"}:
-        parser.error(
-            "--integration-target mulesoft-agentforce requires the agentforce schema profile"
-        )
-    args.schema_profile = "agentforce"
     args.enable_client_credentials = True
+    args.client_credentials_execution_mode = "execute"
 
 
 def main() -> int:
@@ -86,8 +83,7 @@ def main() -> int:
         choices=("standard", "flat", "agentforce"),
         default="standard",
         help=(
-            "Authenticated MCP catalog profile. agentforce is schema-registration UAT only; "
-            "user-specific calls fail closed until Salesforce supports them."
+            "Deprecated compatibility setting. All new applications publish the canonical v0.4 catalog."
         ),
     )
     parser.add_argument(
@@ -95,15 +91,20 @@ def main() -> int:
         choices=(INTEGRATION_TARGET_GENERIC, INTEGRATION_TARGET_MULESOFT_AGENTFORCE),
         default=INTEGRATION_TARGET_GENERIC,
         help=(
-            "Named partner integration. mulesoft-agentforce selects the strict Agentforce "
-            "UAT catalog and app-bound OAuth client credentials; it does not enable "
-            "personalized Agentforce execution."
+            "Named partner integration. mulesoft-agentforce provisions an executable "
+            "client-credentials credential; consent approval still gates information release."
         ),
     )
     parser.add_argument(
         "--enable-client-credentials",
         action="store_true",
-        help="Explicitly permit OAuth client_credentials for a constrained-profile partner app.",
+        help="Explicitly permit OAuth client_credentials for this partner app.",
+    )
+    parser.add_argument(
+        "--client-credentials-execution-mode",
+        choices=("execute", "catalog_only"),
+        default="execute",
+        help="Use catalog_only only for direct constrained-host registration credentials.",
     )
     parser.add_argument(
         "--connector-public-key",
@@ -149,8 +150,6 @@ def main() -> int:
 
     _apply_integration_defaults(parser, args)
 
-    if args.enable_client_credentials and args.schema_profile not in {"flat", "agentforce"}:
-        parser.error("--enable-client-credentials requires a constrained schema profile")
     supplied_key_values = (args.connector_public_key, args.connector_key_id)
     if any(value for value in supplied_key_values) and not all(supplied_key_values):
         parser.error("--connector-public-key and --connector-key-id must be supplied together")
@@ -195,10 +194,10 @@ def main() -> int:
         parser.error(
             "--enable-client-credentials requires an active registered connector public key"
         )
-    if args.schema_profile != "standard" or args.enable_client_credentials:
+    if args.enable_client_credentials:
         app = service.configure_partner_mcp_profile(
             app_id=str(app["app_id"]),
-            schema_profile=args.schema_profile,
+            schema_profile="standard",
             enable_client_credentials=args.enable_client_credentials,
         )
 
@@ -209,7 +208,9 @@ def main() -> int:
         oauth_client = oauth.get_client_for_app(str(app["app_id"]))
         if oauth_client is None or args.rotate_oauth_client:
             oauth_client, raw_client_secret = oauth.create_or_rotate_client(
-                app_id=str(app["app_id"])
+                app_id=str(app["app_id"]),
+                allowed_grant_types=("authorization_code", "refresh_token", "client_credentials"),
+                mcp_execution_mode=args.client_credentials_execution_mode,
             )
 
     token = result["active_token"] or {}
@@ -219,7 +220,7 @@ def main() -> int:
     print(f"crm_id:        {app.get('crm_id') or '(none)'}")
     print(f"tool_groups:   {app.get('allowed_tool_groups')}")
     print(f"integration_target: {args.integration_target}")
-    print(f"schema_profile:{app.get('schema_profile') or 'standard'}")
+    print("catalog_version: v0.4")
     print(f"client_credentials_enabled: {bool(app.get('oauth_client_credentials_enabled'))}")
     print(f"created_app:   {result['created_app']}")
     print(f"issued_token:  {result['issued_token']}")

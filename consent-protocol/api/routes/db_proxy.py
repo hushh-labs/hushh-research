@@ -174,10 +174,9 @@ class VaultBootstrapStateResponse(BaseModel):
     setupCompletedAt: int | None = None
     navSetupCompletedAt: int | None = None
     navSetupSkippedAt: int | None = None
-    # Setup capability mirror: ids the user has set up / explored at least once
-    # (e.g. ["email", "location"]). Empty list means nothing set up yet. The
-    # client local store is the source of truth; this is the durable,
-    # cross-device echo.
+    # Root-setup marker set. It contains completed capability ids plus bounded
+    # non-capability prerequisites such as the explicit Connections choice.
+    # Empty means no setup marker has settled yet.
     setupCapabilityIds: list[str] = []
     setupCapabilitiesUpdatedAt: int | None = None
     setupStateUpdatedAt: int | None = None
@@ -356,7 +355,12 @@ async def vault_bootstrap_state(
     try:
         service = VaultKeysService()
         state = await service.get_pre_vault_state(user_id)
-        has_vault = await service.check_vault_exists(user_id, ensure_entry=False)
+        # `update_pre_vault_state` already returns the serialized vault row,
+        # including its authoritative status. A second vault/wrapper lookup
+        # added avoidable latency to every setup transition and could make the
+        # native request appear hung. The frontend's bootstrap contract already
+        # defines an active status as a present vault.
+        has_vault = state.get("vaultStatus") == "active"
 
         # Fold the verified-phone claim in from the cached actor-identity shadow
         # (a pure DB read, no Firebase round-trip) so the client can resolve the

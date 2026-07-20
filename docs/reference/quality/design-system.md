@@ -213,6 +213,11 @@ Persistent chrome text and icons inherit the sampled ambient foreground through
 `--lucide-stroke-width: 1.6` baseline, with a deliberate component-level
 override only when a compact control needs it.
 
+The top shell’s Finance, Location, Consent Center, and public Explore tab sets
+use equal fixed tracks from the central registry. They remain visible and
+interactive above the ambient mask on every responsive surface; route bodies
+may supply only the paired pager, never another tab row.
+
 Motion has one standard content-enter expression across One and every
 specialist surface: opacity `0 → 1`, vertical settle `8px → 0`,
 `--motion-page-enter-duration`, and `--motion-ease-emphasized`. The shared

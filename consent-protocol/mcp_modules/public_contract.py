@@ -4,25 +4,40 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
 
-_CONTRACT_PATH = Path(__file__).parent / "tools" / "public_contract.json"
+from mcp_modules.canonical_contract import (
+    get_published_contract_tools,
+    get_published_tool_names,
+    published_tool_name,
+)
 
 
 @lru_cache(maxsize=1)
 def get_public_contract() -> dict[str, Any]:
-    with _CONTRACT_PATH.open(encoding="utf-8") as handle:
-        contract = json.load(handle)
-    if contract.get("contractVersion") != "0.3.0":
-        raise RuntimeError("Unsupported Hussh MCP public contract version")
-    return contract
+    return {
+        "contractVersion": "0.4.0",
+        "server": {
+            "name": "Hushh Consent MCP Server",
+            "version": "0.4.0",
+            "instructions": {
+                "consent_flow": [
+                    "Search for the narrowest available scope.",
+                    "Request consent or prepare consent-backed offer context.",
+                    "Wait for a terminal lifecycle state before export retrieval.",
+                    "Decrypt hosted ciphertext only in the connector, outside the model.",
+                ]
+            },
+        },
+        "resources": [],
+        "tools": get_published_contract_tools(),
+    }
 
 
 def get_public_tool_names() -> tuple[str, ...]:
-    return tuple(str(item["name"]) for item in get_public_contract()["tools"])
+    return get_published_tool_names()
 
 
 def get_server_instructions() -> str:
@@ -44,10 +59,10 @@ def _contract_validators() -> dict[str, tuple[Draft202012Validator, Draft202012V
 
 
 def validate_public_tool_input(name: str, payload: object) -> bool:
-    validators = _contract_validators().get(name)
+    validators = _contract_validators().get(published_tool_name(name) or str(name))
     return bool(validators) and not any(validators[0].iter_errors(payload))
 
 
 def validate_public_tool_output(name: str, payload: object) -> bool:
-    validators = _contract_validators().get(name)
+    validators = _contract_validators().get(published_tool_name(name) or str(name))
     return bool(validators) and not any(validators[1].iter_errors(payload))

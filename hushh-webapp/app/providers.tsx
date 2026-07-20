@@ -18,7 +18,6 @@ import {
   Suspense,
   useEffect,
   useMemo,
-  useRef,
 } from "react";
 import { AuthProvider } from "@/lib/firebase";
 import { VaultProvider } from "@/lib/vault/vault-context";
@@ -42,8 +41,6 @@ import { Toaster } from "@/components/ui/sonner";
 import { StatusBarManager } from "@/components/status-bar-manager";
 import { KeyboardInsetManager } from "@/components/keyboard-inset-manager";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ensureMorphyGsapReady } from "@/lib/morphy-ux/gsap-init";
-import { usePageEnterAnimation } from "@/lib/morphy-ux/hooks/use-page-enter";
 import {
   beginRouteTransition,
   useRouteTransition,
@@ -59,12 +56,7 @@ import {
   useKaiBottomChromeProgressCssVar,
 } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import {
-  KAI_MARKET_PATH,
-  ROUTES,
-  isFoundationPublicRoute,
-  isRiaRoute,
-} from "@/lib/navigation/routes";
+import { ROUTES, isFoundationPublicRoute, isRiaRoute } from "@/lib/navigation/routes";
 import { useAuth } from "@/hooks/use-auth";
 import { PersonaProvider } from "@/lib/persona/persona-context";
 import { resolveSignedInShellContentOffset } from "@/components/app-ui/signed-in-shell-content-offset";
@@ -261,35 +253,6 @@ function AppShellFrame({ children }: ProvidersProps) {
   useKaiBottomChromeProgressCssVar(
     !chromeState.useOnboardingChrome && !riaPinnedChrome,
   );
-  const pageRef = useRef<HTMLDivElement | null>(null);
-  const isKaiRoute = useMemo(
-    () =>
-      pathname === KAI_MARKET_PATH ||
-      pathname.startsWith(`${KAI_MARKET_PATH}/`) ||
-      pathname === ROUTES.LEGACY_KAI_HOME ||
-      pathname.startsWith(`${ROUTES.LEGACY_KAI_HOME}/`),
-    [pathname],
-  );
-  const pageAnimationKey = useMemo(
-    () => (isKaiRoute ? `${KAI_MARKET_PATH}-stable-shell` : pathname),
-    [isKaiRoute, pathname],
-  );
-  const shouldObservePageMutations = useMemo(
-    () =>
-      !(
-        pathname.startsWith(ROUTES.KAI_ANALYSIS) ||
-        pathname.startsWith(`${KAI_MARKET_PATH}/dashboard/analysis`) ||
-        pathname.startsWith("/kai/analysis") ||
-        pathname.startsWith("/kai/dashboard/analysis")
-      ),
-    [pathname],
-  );
-
-  // One-time GSAP init (non-blocking).
-  useEffect(() => {
-    void ensureMorphyGsapReady();
-  }, []);
-
   // Add a root platform class for native-iOS specific CSS hooks.
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -300,15 +263,9 @@ function AppShellFrame({ children }: ProvidersProps) {
     return () => root.classList.remove("native-ios");
   }, []);
 
-  // App-wide page enter fade.
-  usePageEnterAnimation(pageRef, {
-    enabled: true,
-    key: pageAnimationKey,
-    observeMutations: shouldObservePageMutations,
-  });
-  // App-wide route crossfade: fades the outgoing page out before navigating so
-  // route loads feel continuous instead of a hard cut (pairs with the GSAP
-  // enter animation above). See globals.css → "UNIFORM ROUTE TRANSITION".
+  // The shared route envelope is the only page-transition owner. In
+  // particular, onboarding must not receive a second per-element entrance
+  // after the canonical exit → enter motion has settled.
   useRouteTransition();
   // Query-backed workspace tabs share one pathname, so pathname-only reset
   // leaves the next tab at the previous panel's scroll depth. The resolved
@@ -341,7 +298,7 @@ function AppShellFrame({ children }: ProvidersProps) {
           return;
         }
         router.push(href, { scroll });
-      }, customEvent.detail?.source ?? "programmatic");
+      }, customEvent.detail?.source ?? "programmatic", customEvent.detail?.transitionMode ?? "full");
     };
 
     window.addEventListener(
@@ -493,7 +450,6 @@ function AppShellFrame({ children }: ProvidersProps) {
                           <div data-app-shell-top-spacer="true" aria-hidden />
                         ) : null}
                         <div
-                          ref={pageRef}
                           data-app-shell-content="true"
                           className={
                             shouldLockFullscreenRoot
@@ -554,7 +510,6 @@ function AppShellFrame({ children }: ProvidersProps) {
                           <div data-app-shell-top-spacer="true" aria-hidden />
                         ) : null}
                         <div
-                          ref={pageRef}
                           data-app-shell-content="true"
                           className={
                             shouldLockFullscreenRoot

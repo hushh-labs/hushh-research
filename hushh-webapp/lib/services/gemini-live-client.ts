@@ -2,7 +2,10 @@
 
 import { ApiService } from "@/lib/services/api-service";
 import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
-import type { OneVoiceActionSettlement } from "@/lib/voice/one-voice-transport";
+import type {
+  OneVoiceActionSettlement,
+  OneVoiceContextApplyResult,
+} from "@/lib/voice/one-voice-transport";
 import type {
   OneVoiceTransportHandlers,
   OneVoiceTransportStartOptions,
@@ -205,6 +208,14 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private sourceSeq = 0;
   /** Snapshot captured at start(), pushed as app_context after setup. */
   private startContext: OneVoiceContextSnapshot | null = null;
+  /**
+   * Audio must not reach One until the relay has accepted the initial redacted
+   * route and action inventory. Without this barrier a fast first utterance
+   * can be evaluated against `context_pending`, which looks like an action is
+   * unavailable even though its onboarding control is mounted.
+   */
+  private initialContextReady = false;
+  private initialContextInFlight = false;
   /** Consent token for One's specialist tools; rides only in app_context frames. */
   private consentToken: string | null = null;
   private visitorActivitySent = false;
@@ -230,6 +241,11 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private playbackDrainResolvers = new Set<() => void>();
   /** Timestamp of the most recent enqueued audio chunk (drain heuristics). */
   private lastAudioEnqueueAt = 0;
+  private acknowledgedContextIds = new Set<string>();
+  private contextAckWaiters = new Map<
+    string,
+    (result: OneVoiceContextApplyResult) => void
+  >();
 
   constructor(handlers: GeminiLiveHandlers = {}) {
     this.handlers = handlers;
@@ -271,6 +287,8 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.visitorActivitySent = false;
     this.consecutiveSpeechFrames = 0;
     this.bufferedVisitorSpeechFrames = [];
+    this.initialContextReady = false;
+    this.initialContextInFlight = false;
     this.setState("connecting");
 
     const context = options?.context ?? null;
@@ -366,6 +384,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       const frame = event.data as Float32Array;
       if (
         !this.setupComplete ||
+        !this.initialContextReady ||
         !this.ws ||
         this.ws.readyState !== WebSocket.OPEN
       ) {
@@ -518,15 +537,26 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       this.setupComplete = true;
       // Push the initial app context (screen + governed consent token) now
       // that the session is live; the relay never accepts these in the URL.
+      // Do not expose a listening mic until the relay acknowledges it. The
+      // server deliberately rejects action tools while that context is pending.
       if (this.startContext) {
-        this.updateContext(this.startContext);
+        this.beginInitialContextHandshake(this.startContext);
         this.startContext = null;
       } else {
-        // Even a context-free/legacy start publishes one bounded frame so the
-        // relay can settle its initial-context gate without guessing.
-        this.sendAppContext({});
+        this.fail("Voice is waiting for the current screen. Please try again.");
       }
-      this.setState("listening");
+      return;
+    }
+
+    const contextAck = readRecord(message.appContextAccepted);
+    const contextId = readString(contextAck?.contextId);
+    if (contextId) {
+      this.acknowledgedContextIds.add(contextId);
+      const resolve = this.contextAckWaiters.get(contextId);
+      if (resolve) {
+        this.contextAckWaiters.delete(contextId);
+        resolve({ status: "acknowledged", contextId });
+      }
       return;
     }
 
@@ -789,14 +819,26 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     });
   }
 
-  updateContext(context: OneVoiceContextSnapshot): boolean {
-    if (!this.setupComplete) {
-      // Keep the newest route snapshot while the socket is opening. Otherwise
-      // setupComplete would publish the stale screen captured by start().
-      this.startContext = context;
-      return true;
+  private beginInitialContextHandshake(context: OneVoiceContextSnapshot): void {
+    if (this.initialContextReady || this.initialContextInFlight || this.closed) {
+      return;
     }
+    this.initialContextInFlight = true;
+    void this.applyContextAndWait(context, { timeoutMs: 1500 }).then((result) => {
+      this.initialContextInFlight = false;
+      if (this.closed || !this.setupComplete) return;
+      if (result.status !== "acknowledged") {
+        this.fail("Voice could not confirm the current screen. Please try again.");
+        return;
+      }
+      this.initialContextReady = true;
+      this.setState("listening");
+    });
+  }
+
+  private sendSnapshotContext(context: OneVoiceContextSnapshot): boolean {
     return this.sendAppContext({
+      context_id: context.snapshot_id,
       screen: context.route.screen,
       route_family: context.route.route_family,
       route_playbook_id: context.route.playbook_id,
@@ -813,6 +855,74 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       vault_ready: context.cache.vault_ready,
       portfolio_ready: context.cache.portfolio_ready,
       onboarding: context.onboarding,
+    });
+  }
+
+  updateContext(context: OneVoiceContextSnapshot): boolean {
+    if (!this.setupComplete) {
+      // Keep the newest route snapshot while the socket is opening. Otherwise
+      // setupComplete would publish the stale screen captured by start().
+      this.startContext = context;
+      return true;
+    }
+    if (!this.initialContextReady && !this.initialContextInFlight) {
+      this.beginInitialContextHandshake(context);
+      return true;
+    }
+    return this.sendSnapshotContext(context);
+  }
+
+  async applyContextAndWait(
+    context: OneVoiceContextSnapshot,
+    options: { signal?: AbortSignal; timeoutMs?: number } = {},
+  ): Promise<OneVoiceContextApplyResult> {
+    // `settleAgentGatewayAction` has already observed the destination route
+    // and its mounted publisher. Give that exact stable snapshot a distinct
+    // control-plane id and clear only the presentation-level pending marker;
+    // otherwise the next eligible journey step can deadlock behind the source
+    // action that it is about to report as settled.
+    const settledSnapshotId = context.snapshot_id.endsWith(":settled")
+      ? context.snapshot_id
+      : `${context.snapshot_id}:settled`;
+    const settledContext: OneVoiceContextSnapshot = {
+      ...context,
+      snapshot_id: settledSnapshotId,
+      pending_settlement: false,
+    };
+    const contextId = settledContext.snapshot_id;
+    if (!contextId || options.signal?.aborted) {
+      return { status: "cancelled", contextId: contextId || null };
+    }
+    if (this.acknowledgedContextIds.has(contextId)) {
+      return { status: "acknowledged", contextId };
+    }
+    if (!this.updateContext(settledContext)) {
+      return { status: this.closed ? "closed" : "cancelled", contextId };
+    }
+
+    return new Promise<OneVoiceContextApplyResult>((resolve) => {
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      let settled = false;
+      let abort: () => void = () => {};
+      const finish = (result: OneVoiceContextApplyResult) => {
+        if (settled) return;
+        settled = true;
+        if (timeout !== null) clearTimeout(timeout);
+        options.signal?.removeEventListener("abort", abort);
+        if (this.contextAckWaiters.get(contextId) === finish) {
+          this.contextAckWaiters.delete(contextId);
+        }
+        resolve(result);
+      };
+      abort = () => finish({ status: "cancelled", contextId });
+      timeout = setTimeout(() => {
+        finish({ status: "timeout", contextId });
+      }, options.timeoutMs ?? 1200);
+      this.contextAckWaiters.set(contextId, finish);
+      options.signal?.addEventListener("abort", abort, { once: true });
+      if (this.acknowledgedContextIds.has(contextId)) {
+        finish({ status: "acknowledged", contextId });
+      }
     });
   }
 
@@ -866,6 +976,9 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.ws.send(
       JSON.stringify({
         type: "app_context",
+        ...(typeof appContext.context_id === "string"
+          ? { contextId: appContext.context_id }
+          : {}),
         appContext: {
           ...appContext,
           // Explicit null clears authority server-side when the vault locks or
@@ -978,9 +1091,16 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     if (this.closed) return;
     this.closed = true;
     this.setupComplete = false;
+    this.initialContextReady = false;
+    this.initialContextInFlight = false;
     this.runtimeCredential = null;
     this.runtimeVertexProject = null;
     this.runtimeVertexLocation = null;
+    for (const [contextId, resolve] of this.contextAckWaiters) {
+      resolve({ status: "closed", contextId });
+    }
+    this.contextAckWaiters.clear();
+    this.acknowledgedContextIds.clear();
     this.resolvePlaybackDrain();
 
     if (this.outputLevelTimer) {

@@ -110,6 +110,35 @@ function readBrowserVoiceRoute() {
   };
 }
 
+function routeMatchesVoiceContext(
+  context: OneVoiceContextSnapshot,
+  result: AgentActionRuntimeResult,
+): boolean {
+  const expectedRoute = String(result.routeAfter || "").split("?")[0];
+  const expectedScreen = String(result.screenAfter || "").trim();
+  return (
+    (!expectedRoute || context.route.route_family === expectedRoute) &&
+    (!expectedScreen || context.route.screen === expectedScreen)
+  );
+}
+
+async function waitForDestinationVoiceContext(input: {
+  readContext: () => OneVoiceContextSnapshot | null;
+  result: AgentActionRuntimeResult;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}): Promise<OneVoiceContextSnapshot | null> {
+  const deadline = Date.now() + (input.timeoutMs ?? 1800);
+  while (Date.now() <= deadline && !input.signal?.aborted) {
+    const context = input.readContext();
+    if (context && routeMatchesVoiceContext(context, input.result)) {
+      return context;
+    }
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 25));
+  }
+  return null;
+}
+
 async function settleAgentBarAction(
   result: AgentActionRuntimeResult,
 ): Promise<AgentActionRuntimeResult> {
@@ -243,6 +272,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const setVoiceLevel = useAgentVoiceState((s) => s.setLevel);
   const resetVoice = useAgentVoiceState((s) => s.reset);
   const liveClientRef = useRef<RealtimeVoiceTransport | null>(null);
+  const latestVoiceContextRef = useRef<OneVoiceContextSnapshot | null>(
+    runtime?.oneVoiceContextSnapshot ?? null,
+  );
   // UI state updates after async credential resolution. This lease reserves
   // microphone/transport ownership synchronously at the actual tap boundary.
   const voiceLeaseRef = useRef<VoiceSessionLease | null>(null);
@@ -265,6 +297,13 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // stopConversation without needing it in handleTransportEvent's deps
   // (stopConversation is declared further down, after handleTransportEvent).
   const stopConversationRef = useRef<() => void>(() => {});
+  const handleTransportEventRef = useRef<(event: OneVoiceSessionEvent) => void>(
+    () => {},
+  );
+
+  useEffect(() => {
+    latestVoiceContextRef.current = runtime?.oneVoiceContextSnapshot ?? null;
+  }, [runtime?.oneVoiceContextSnapshot]);
 
   const clearVoiceIdleTimer = useCallback(() => {
     if (idleTimeoutRef.current) {
@@ -633,12 +672,31 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                   });
                 }
                 const result = await settleAgentBarAction(executionResult);
+                let destinationContextId: string | null = null;
+                if (result.routeAfter) {
+                  const destinationContext = await waitForDestinationVoiceContext({
+                    readContext: () => latestVoiceContextRef.current,
+                    result,
+                    signal: actionAbortControllerRef.current?.signal,
+                  });
+                  if (destinationContext) {
+                    const applied =
+                      await directiveTransport?.applyContextAndWait?.(
+                        destinationContext,
+                        { signal: actionAbortControllerRef.current?.signal },
+                      );
+                    if (applied?.status === "acknowledged") {
+                      destinationContextId = applied.contextId;
+                    }
+                  }
+                }
                 reportDirectiveSettlement({
                     status: result.status,
                     summary: result.resultSummary,
                     reason: result.reason,
                     routeAfter: result.routeAfter,
                     screenAfter: result.screenAfter,
+                    destinationContextId,
                 });
               } catch {
                 reportDirectiveSettlement({
@@ -743,6 +801,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       user?.uid,
     ],
   );
+
+  useEffect(() => {
+    handleTransportEventRef.current = handleTransportEvent;
+  }, [handleTransportEvent]);
 
   const stopConversation = useCallback(() => {
     actionAbortControllerRef.current?.abort();
@@ -957,7 +1019,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) {
           return;
         }
-        handleTransportEvent(event);
+        handleTransportEventRef.current(event);
       },
     });
     liveClientRef.current = client;
@@ -984,7 +1046,6 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     runtime?.oneVoiceContextSnapshot,
     runtime?.tier,
     mirrorSessionId,
-    handleTransportEvent,
     scheduleVoiceIdleTimer,
     stopConversation,
     vaultOwnerToken,

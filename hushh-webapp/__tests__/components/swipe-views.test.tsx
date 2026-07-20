@@ -8,16 +8,21 @@ import { SwipeViews } from "@/components/app-ui/swipe-views";
 
 const embla = vi.hoisted(() => ({
   selectedIndex: 0,
+  scrollProgress: 0,
   scrollTo: vi.fn<(index: number) => void>(),
   listeners: new Map<string, () => void>(),
   ref: vi.fn(),
+  options: null as Record<string, unknown> | null,
 }));
 
 vi.mock("embla-carousel-react", () => ({
-  default: () => [
+  default: (options: Record<string, unknown>) => {
+    embla.options = options;
+    return [
     embla.ref,
     {
       selectedScrollSnap: () => embla.selectedIndex,
+      scrollProgress: () => embla.scrollProgress,
       scrollTo: embla.scrollTo,
       on: (event: string, listener: () => void) => {
         embla.listeners.set(event, listener);
@@ -26,7 +31,8 @@ vi.mock("embla-carousel-react", () => ({
         embla.listeners.delete(event);
       },
     },
-  ],
+    ];
+  },
 }));
 
 const OPTIONS = [
@@ -37,8 +43,10 @@ const OPTIONS = [
 describe("SwipeViews", () => {
   beforeEach(() => {
     embla.selectedIndex = 0;
+    embla.scrollProgress = 0;
     embla.scrollTo.mockClear();
     embla.listeners.clear();
+    embla.options = null;
   });
 
   it("mounts only the route-selected panel and keeps semantic panel targets", () => {
@@ -102,15 +110,15 @@ describe("SwipeViews", () => {
     ).toBeNull();
   });
 
-  it("reports the destination after a horizontal pager swipe settles", () => {
-    const onChildSwiped = vi.fn();
+  it("reports the destination as soon as a horizontal pager selects it", () => {
+    const onSelectionChange = vi.fn();
 
     render(
       <SwipeViews
         tabSetId="demo"
         activeValue="first"
         options={OPTIONS}
-        onChildSwiped={onChildSwiped}
+        onSelectionChange={onSelectionChange}
       >
         <div>first panel content</div>
         <div>second panel content</div>
@@ -120,10 +128,39 @@ describe("SwipeViews", () => {
     embla.selectedIndex = 1;
     embla.listeners.get("select")?.();
 
-    expect(onChildSwiped).not.toHaveBeenCalled();
+    expect(onSelectionChange).toHaveBeenCalledWith("second");
 
     embla.listeners.get("settle")?.();
 
-    expect(onChildSwiped).toHaveBeenCalledWith("second");
+    expect(onSelectionChange).toHaveBeenCalledTimes(1);
+    expect(embla.options).toMatchObject({ duration: 20 });
+  });
+
+  it("keeps the shared tab progress attached to the pane through snap settle", () => {
+    const view = render(
+      <SwipeViews tabSetId="continuous" activeValue="first" options={OPTIONS}>
+        <div>first panel content</div>
+        <div>second panel content</div>
+      </SwipeViews>,
+    );
+
+    embla.listeners.get("pointerDown")?.();
+    embla.scrollProgress = 0.45;
+    embla.listeners.get("scroll")?.();
+    embla.listeners.get("pointerUp")?.();
+
+    const progressVariable = "--top-shell-tab-swipe-continuous-position";
+    expect(document.documentElement.style.getPropertyValue(progressVariable)).toBe(
+      "0.45",
+    );
+
+    embla.selectedIndex = 1;
+    embla.scrollProgress = 1;
+    embla.listeners.get("settle")?.();
+
+    expect(document.documentElement.style.getPropertyValue(progressVariable)).toBe(
+      "1",
+    );
+    expect(view.container.querySelector(".will-change-transform")).toBeTruthy();
   });
 });

@@ -109,6 +109,12 @@ export interface OneKycRecentMailboxSyncResponse {
   workflows: OneKycWorkflow[];
 }
 
+export interface OneKycAutomaticResponsePreparationPreference {
+  user_id: string;
+  automatic_response_preparation_enabled: boolean;
+  updated_at?: string | null;
+}
+
 export interface OneKycClientConnectorResponse {
   configured: boolean;
   connector: {
@@ -143,6 +149,32 @@ function authHeaders(vaultOwnerToken: string): HeadersInit {
 }
 
 export class OneKycService {
+  static getAutomaticResponsePreparationPreference({
+    userId,
+    vaultOwnerToken,
+  }: AuthInput): Promise<OneKycAutomaticResponsePreparationPreference> {
+    const query = new URLSearchParams({ user_id: userId });
+    return apiJson<OneKycAutomaticResponsePreparationPreference>(
+      `/api/one/kyc/preferences/automatic-response-preparation?${query.toString()}`,
+      { headers: authHeaders(vaultOwnerToken) },
+    );
+  }
+
+  static setAutomaticResponsePreparationPreference({
+    userId,
+    vaultOwnerToken,
+    enabled,
+  }: AuthInput & { enabled: boolean }): Promise<OneKycAutomaticResponsePreparationPreference> {
+    return apiJson<OneKycAutomaticResponsePreparationPreference>(
+      "/api/one/kyc/preferences/automatic-response-preparation",
+      {
+        method: "PATCH",
+        headers: authHeaders(vaultOwnerToken),
+        body: JSON.stringify({ user_id: userId, enabled }),
+      },
+    );
+  }
+
   static syncRecentEmails({
     userId,
     vaultOwnerToken,

@@ -40,7 +40,7 @@ describe("setup completion footer contract", () => {
     expect(source).toContain('effect = "fill"');
     expect(source).toContain('variant === "none" && effect === "fade"');
     expect(source).toContain('const visualVariant = isQuietSetupAction ? "blue" : variant');
-    expect(source).toContain("text-accent-strong");
+    expect(source).toContain("!text-[var(--app-accent)]");
     expect(source).toContain("data-voice-action-id={actionId}");
   });
 

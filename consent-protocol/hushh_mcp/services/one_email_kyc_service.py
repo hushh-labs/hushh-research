@@ -1359,6 +1359,92 @@ class OneEmailKycService:
         connector = self._get_active_client_connector(user_id)
         return {"configured": connector is not None, "connector": connector}
 
+    def _automatic_response_preparation_enabled(self, user_id: str | None) -> bool:
+        """Return the account-scoped mailbox automation preference.
+
+        Missing users, missing preference rows, and storage failures all remain
+        disabled. Mailbox intake is asynchronous and cannot rely on a WebView's
+        device-local preference as its authority.
+        """
+        user = _clean_text(user_id)
+        if not user:
+            return False
+        try:
+            rows = (
+                self.db.execute_raw(
+                    """
+                SELECT automatic_response_preparation_enabled
+                FROM one_email_kyc_preferences
+                WHERE user_id = :user_id
+                LIMIT 1
+                """,
+                    {"user_id": user},
+                ).data
+                or []
+            )
+        except Exception as exc:
+            logger.warning(
+                "one_email_kyc.preference_read_failed user_id=%s reason=%s",
+                user,
+                exc.__class__.__name__,
+            )
+            return False
+        if not rows:
+            return False
+        return dict(rows[0]).get("automatic_response_preparation_enabled") is True
+
+    async def get_automatic_response_preparation_preference(
+        self,
+        *,
+        user_id: str,
+    ) -> dict[str, Any]:
+        return {
+            "user_id": _clean_text(user_id),
+            "automatic_response_preparation_enabled": (
+                self._automatic_response_preparation_enabled(user_id)
+            ),
+        }
+
+    async def set_automatic_response_preparation_preference(
+        self,
+        *,
+        user_id: str,
+        enabled: bool,
+    ) -> dict[str, Any]:
+        user = _clean_text(user_id)
+        if not user:
+            raise OneEmailKycError(
+                "KYC preference user id is required.",
+                status_code=400,
+                code="ONE_KYC_PREFERENCE_USER_REQUIRED",
+            )
+        rows = (
+            self.db.execute_raw(
+                """
+            INSERT INTO one_email_kyc_preferences (
+              user_id,
+              automatic_response_preparation_enabled,
+              updated_at
+            )
+            VALUES (:user_id, :enabled, NOW())
+            ON CONFLICT (user_id) DO UPDATE SET
+              automatic_response_preparation_enabled = EXCLUDED.automatic_response_preparation_enabled,
+              updated_at = NOW()
+            RETURNING user_id, automatic_response_preparation_enabled, updated_at
+            """,
+                {"user_id": user, "enabled": bool(enabled)},
+            ).data
+            or []
+        )
+        row = dict(rows[0]) if rows else {}
+        return {
+            "user_id": user,
+            "automatic_response_preparation_enabled": (
+                row.get("automatic_response_preparation_enabled") is True
+            ),
+            "updated_at": _iso(row.get("updated_at")),
+        }
+
     async def register_client_connector(
         self,
         *,
@@ -1583,6 +1669,14 @@ class OneEmailKycService:
     ) -> dict[str, Any]:
         await self.verify_webhook_ingress(headers=headers)
         notification = self._decode_pubsub_notification(payload)
+        notified_mailbox = _clean_text(notification.get("emailAddress")).lower()
+        configured_mailbox = _clean_text(self.config.mailbox_email).lower()
+        if notified_mailbox and notified_mailbox != configured_mailbox:
+            raise OneEmailKycError(
+                "One email notification mailbox does not match the configured mailbox.",
+                status_code=403,
+                code="ONE_EMAIL_WEBHOOK_MAILBOX_MISMATCH",
+            )
         message_id = _clean_text(notification.get("message_id")) or _clean_text(
             notification.get("messageId")
         )
@@ -1590,7 +1684,12 @@ class OneEmailKycService:
             result = await self.process_message_id(
                 message_id, history_id=notification.get("historyId")
             )
-            return {"accepted": True, "handled": True, "mode": "message_id", "result": result}
+            return {
+                "accepted": True,
+                "handled": result.get("handled") is True,
+                "mode": "message_id",
+                "result": result,
+            }
 
         history_id = _clean_text(notification.get("historyId"))
         if not history_id:
@@ -1611,7 +1710,7 @@ class OneEmailKycService:
             results = await self._process_message_ids(ids, history_id=history_id)
             return {
                 "accepted": True,
-                "handled": bool(results),
+                "handled": any(result.get("handled") is True for result in results),
                 "reason": "history_primed_recent_catchup",
                 "message_count": len(ids),
                 "results": results,
@@ -1625,7 +1724,7 @@ class OneEmailKycService:
         self._upsert_mailbox_state(history_id=history_id, last_notification=True)
         return {
             "accepted": True,
-            "handled": bool(results),
+            "handled": any(result.get("handled") is True for result in results),
             "message_count": len(results),
             "results": results,
         }
@@ -1663,6 +1762,12 @@ class OneEmailKycService:
     ) -> dict[str, Any]:
         existing = self._workflow_by_message_id(message_id)
         if existing:
+            if not self._automatic_response_preparation_enabled(existing.get("user_id")):
+                return {
+                    "handled": False,
+                    "reason": "automatic_response_preparation_disabled",
+                    "message_id": message_id,
+                }
             has_stale_consent_url = _is_legacy_consent_request_url(
                 (existing.get("metadata") or {}).get("consent_request_url")
             )
@@ -1794,6 +1899,15 @@ class OneEmailKycService:
         user_id: str,
         max_results: int = _DEFAULT_RECENT_MAIL_SYNC_LIMIT,
     ) -> dict[str, Any]:
+        if not self._automatic_response_preparation_enabled(user_id):
+            return {
+                "accepted": True,
+                "reason": "automatic_response_preparation_disabled",
+                "scanned_count": 0,
+                "processed_count": 0,
+                "matched_count": 0,
+                "workflows": [],
+            }
         ids = await asyncio.to_thread(
             self._list_recent_message_ids,
             max_results=max_results,
@@ -2031,6 +2145,20 @@ class OneEmailKycService:
         )
         snippet = None
         mailbox = (self.config.mailbox_email or "").lower()
+        addressed_mailboxes = set(
+            _extract_addresses(
+                headers.get("to"),
+                headers.get("cc"),
+                headers.get("delivered-to"),
+                headers.get("x-original-to"),
+            )
+        )
+        if not mailbox or mailbox not in addressed_mailboxes:
+            return {
+                "handled": False,
+                "reason": "canonical_mailbox_not_addressed",
+                "message_id": gmail_message_id,
+            }
         participants = [
             item
             for item in _extract_addresses(
@@ -2050,6 +2178,19 @@ class OneEmailKycService:
             **sender_user_match,
             "matched_from": "sender",
         }
+        matched_user_id = _clean_text(user_match.get("user_id"))
+        if not matched_user_id:
+            return {
+                "handled": False,
+                "reason": user_match.get("error_code") or "verified_sender_not_found",
+                "message_id": gmail_message_id,
+            }
+        if not self._automatic_response_preparation_enabled(matched_user_id):
+            return {
+                "handled": False,
+                "reason": "automatic_response_preparation_disabled",
+                "message_id": gmail_message_id,
+            }
         common = {
             "workflow_id": uuid.uuid4().hex,
             "user_id": user_match.get("user_id"),
@@ -2091,18 +2232,6 @@ class OneEmailKycService:
             sender_email=sender_email,
             matched_user_emails=user_match.get("matched_emails") or [],
         )
-
-        if not user_match.get("user_id"):
-            workflow = self._insert_workflow(
-                **common,
-                status="blocked",
-                required_fields=[],
-                requested_scope=None,
-                last_error_code=user_match.get("error_code") or "user_not_found",
-                last_error_message=user_match.get("message")
-                or "No unique verified Hussh user matched the email sender.",
-            )
-            return {"handled": True, "workflow": workflow, "blocked": True}
 
         # Pass 1: LLM routing — runs after sender match so we have user_id for PKM index.
         pkm_index = await self._load_pkm_index_for_user(user_match["user_id"])
@@ -2171,7 +2300,7 @@ class OneEmailKycService:
 
         # Fallback or unsupported → block immediately; operator must review manually.
         if proposal.get("fallback") or classification == "unsupported":
-            workflow = self._insert_workflow(
+            workflow = self._insert_workflow_if_enabled(
                 **common,
                 status="blocked",
                 required_fields=[],
@@ -2181,6 +2310,8 @@ class OneEmailKycService:
                     "One could not determine what this request needs. Review manually."
                 ),
             )
+            if workflow is None:
+                return self._preference_disabled_result(gmail_message_id)
             return {"handled": True, "workflow": workflow, "blocked": True}
 
         # Low confidence → flag but still route to needs_confirm for human review.
@@ -2198,7 +2329,7 @@ class OneEmailKycService:
         # can advance to needs_confirm once the connector is registered.
         connector = self._get_active_client_connector(user_match.get("user_id"))
         if not connector:
-            workflow = self._insert_workflow(
+            workflow = self._insert_workflow_if_enabled(
                 **common,
                 status="needs_client_connector",
                 required_fields=[],
@@ -2208,6 +2339,8 @@ class OneEmailKycService:
                     "Unlock the KYC workspace once so One can register a client-held connector key."
                 ),
             )
+            if workflow is None:
+                return self._preference_disabled_result(gmail_message_id)
             return {"handled": True, "workflow": workflow, "blocked": False}
 
         workflow_common = {
@@ -2219,7 +2352,7 @@ class OneEmailKycService:
                 "strict_client_zk": True,
             },
         }
-        workflow = self._insert_workflow(
+        workflow = self._insert_workflow_if_enabled(
             **workflow_common,
             status="needs_confirm",
             required_fields=[],
@@ -2227,6 +2360,8 @@ class OneEmailKycService:
             last_error_code=None,
             last_error_message=None,
         )
+        if workflow is None:
+            return self._preference_disabled_result(gmail_message_id)
         return {"handled": True, "workflow": workflow, "blocked": False}
 
     # ------------------------------------------------------------------
@@ -5121,7 +5256,21 @@ class OneEmailKycService:
         rows = self.db.execute_raw(sql, {"user_id": user_id, "workflow_id": workflow_id}).data
         return self._public_workflow(dict(rows[0])) if rows else None
 
-    def _insert_workflow(self, **values: Any) -> dict[str, Any]:
+    @staticmethod
+    def _preference_disabled_result(message_id: str) -> dict[str, Any]:
+        return {
+            "handled": False,
+            "reason": "automatic_response_preparation_disabled",
+            "message_id": message_id,
+        }
+
+    def _insert_workflow_if_enabled(self, **values: Any) -> dict[str, Any] | None:
+        """Atomically create an intake workflow only while account opt-in is enabled.
+
+        Classification performs network and PKM-index work. This conditional
+        insert is the final authority so a preference disabled during that work
+        cannot race into a new workflow.
+        """
         status = _clean_text(values.get("status"))
         if status not in _KYC_WORKFLOW_STATES:
             raise OneEmailKycError(
@@ -5151,7 +5300,7 @@ class OneEmailKycService:
               metadata,
               updated_at
             )
-            VALUES (
+            SELECT
               :workflow_id,
               :user_id,
               :status,
@@ -5171,7 +5320,9 @@ class OneEmailKycService:
               :last_error_message,
               CAST(:metadata AS jsonb),
               NOW()
-            )
+            FROM one_email_kyc_preferences AS preference
+            WHERE preference.user_id = :user_id
+              AND preference.automatic_response_preparation_enabled IS TRUE
             RETURNING *
         """
         params = {
@@ -5182,11 +5333,7 @@ class OneEmailKycService:
         }
         result = self.db.execute_raw(sql, params).data
         if not result:
-            raise OneEmailKycError(
-                "KYC workflow insert returned no row.",
-                status_code=500,
-                code="ONE_KYC_WORKFLOW_INSERT_FAILED",
-            )
+            return None
         return self._public_workflow(dict(result[0]))
 
     def _update_workflow(self, workflow_id: str, **values: Any) -> dict[str, Any]:

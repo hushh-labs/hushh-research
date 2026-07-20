@@ -138,26 +138,29 @@ public class HushhKeystorePlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         
-        // Store with biometric protection
-        let accessControl = SecAccessControlCreateWithFlags(
+        // Store with biometric protection. Replacement must first delete by
+        // stable item identity only: including the old value or access-control
+        // attributes makes SecItemDelete fail to match a prior enrollment.
+        let itemIdentity: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: serviceName,
+            kSecAttrAccount as String: "bio_\(key)"
+        ]
+        SecItemDelete(itemIdentity as CFDictionary)
+
+        guard let accessControl = SecAccessControlCreateWithFlags(
             nil,
             kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
             .biometryCurrentSet,
             nil
-        )
-        
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: serviceName,
-            kSecAttrAccount as String: "bio_\(key)",
-            kSecValueData as String: value.data(using: .utf8)!
-        ]
-        
-        if let ac = accessControl {
-            query[kSecAttrAccessControl as String] = ac
+        ) else {
+            call.reject("Biometric protection is unavailable on this device")
+            return
         }
         
-        SecItemDelete(query as CFDictionary)
+        var query = itemIdentity
+        query[kSecValueData as String] = value.data(using: .utf8)!
+        query[kSecAttrAccessControl as String] = accessControl
         
         let status = SecItemAdd(query as CFDictionary, nil)
         

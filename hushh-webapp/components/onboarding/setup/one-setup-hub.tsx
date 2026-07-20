@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { PlugZap } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -9,9 +10,13 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
-import { CapabilitySetupTile } from "@/components/onboarding/setup/capability-setup-tile";
+import {
+  CapabilitySetupTile,
+  SetupNavigationTile,
+} from "@/components/onboarding/setup/capability-setup-tile";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
-import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { SettingsGroup } from "@/components/app-ui/settings-ui";
+import { Skeleton } from "@/components/ui/skeleton";
 import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
@@ -23,6 +28,7 @@ import {
 } from "@/lib/onboarding/capability-setup-copy";
 import {
   getOneSetupCapability,
+  lucideCapabilityIcon,
   type OneCapabilityIcon,
   type OneCapabilityTone,
 } from "@/lib/onboarding/one-capabilities";
@@ -35,6 +41,7 @@ import {
   type CapabilityStatus,
 } from "@/lib/services/capability-setup-state-service";
 import { getCapabilityStatusDisplay } from "@/lib/onboarding/capability-status-display";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 
 /**
  * OneSetupHub: the `/one/setup` hub screen.
@@ -56,17 +63,53 @@ export function OneSetupHub() {
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
-  const { byId, isLoading } = useCapabilitySetupStates({
+  const { byId, isLoading, isEnriching } = useCapabilitySetupStates({
     enrichVault: true,
     enrichOauth: true,
     enrichRia: true,
   });
   const [dismissing, setDismissing] = useState(false);
+  const [runtimeChoiceState, setRuntimeChoiceState] = useState<
+    "loading" | "required" | "complete"
+  >("loading");
   const returnTo = useMemo(
     () => normalizeInternalRouteHref(searchParams.get("return_to")),
     [searchParams],
   );
   const completionTarget = returnTo || ROUTES.ONE_HOME;
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setRuntimeChoiceState("required");
+      return;
+    }
+    let active = true;
+    const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
+    if (cached) {
+      setRuntimeChoiceState(
+        PreVaultUserStateService.hasOneRuntimeChoice(cached)
+          ? "complete"
+          : "required",
+      );
+      return;
+    }
+    setRuntimeChoiceState("loading");
+    void PreVaultUserStateService.bootstrapState(user.uid)
+      .then((state) => {
+        if (!active) return;
+        setRuntimeChoiceState(
+          PreVaultUserStateService.hasOneRuntimeChoice(state)
+            ? "complete"
+            : "required",
+        );
+      })
+      .catch(() => {
+        if (active) setRuntimeChoiceState("required");
+      });
+    return () => {
+      active = false;
+    };
+  }, [user?.uid]);
 
   const items = useMemo(() => buildSetupItems(byId), [byId]);
   const groupedItems = groupSetupCapabilities(items, (item) =>
@@ -76,14 +119,25 @@ export function OneSetupHub() {
   const completeItems = groupedItems.complete;
   const visibleItems = groupedItems.visible;
 
-  const total = items.length;
+  const runtimeChoiceComplete = runtimeChoiceState === "complete";
   // "Ready" counts only GENUINELY set-up capabilities (completed/skipped). A
   // tile that still needs a connection or an unlock (blocked/unknown) is NOT
   // ready, even though it is not directly tappable-into-setup — so we never
-  // count it as done. Everything that is not complete is "left to set up".
-  const done = items.filter((item) =>
+  // count it as done. Connections is also a real, mandatory setup step and is
+  // rendered alongside these capability rows, so it must participate in the
+  // same progress projection instead of being omitted from the denominator.
+  const completedCapabilityCount = items.filter((item) =>
     isCapabilitySetupComplete(item.status),
   ).length;
+  const progressSteps = [
+    { id: "connections", complete: runtimeChoiceComplete },
+    ...items.map((item) => ({
+      id: item.id,
+      complete: isCapabilitySetupComplete(item.status),
+    })),
+  ];
+  const total = progressSteps.length;
+  const done = progressSteps.filter((step) => step.complete).length;
   const remaining = total - done;
   const allReady = total > 0 && remaining === 0;
   // The MASTER setup acknowledgement is owned by this single hub control:
@@ -91,8 +145,13 @@ export function OneSetupHub() {
   //   - 1..n capabilities done -> "Finish setup" (master completed, not skipped)
   // Computed here (ahead of the voice metadata publish below, which needs the
   // label) rather than only near `handleMasterAck`.
-  const masterSkipped = done === 0;
+  // Connections is required before leaving the hub, but choosing a runtime is
+  // not the same as completing an optional capability. Preserve the explicit
+  // Skip outcome until at least one capability itself has been completed.
+  const masterSkipped = completedCapabilityCount === 0;
   const masterActionLabel = masterSkipped ? "Skip setup" : "Finish setup";
+  const hubStateLoading =
+    isLoading || isEnriching || runtimeChoiceState === "loading";
 
   // Publish screen context so the onboarding guide can describe the hub and
   // navigate the person to any capability they ask for.
@@ -101,7 +160,7 @@ export function OneSetupHub() {
     title: "Set up One",
     purpose:
       "This is your setup home. Each tile is one thing One can do for you. Set up the ones you want and skip the rest.",
-    actions: [
+    actions: hubStateLoading ? [] : [
       ...visibleItems.map((item) => ({
         id: item.id,
         actionId: getOneSetupCapability(item.id)?.setupActionId,
@@ -112,7 +171,7 @@ export function OneSetupHub() {
             : "This setup is still remaining."
         }`,
       })),
-      ...(dismissing
+      ...(dismissing || !runtimeChoiceComplete
         ? []
         : [
             {
@@ -148,6 +207,17 @@ export function OneSetupHub() {
     }
     setDismissing(true);
     try {
+      const currentState = await PreVaultUserStateService.bootstrapState(
+        user.uid,
+        { force: true },
+      );
+      if (!PreVaultUserStateService.hasOneRuntimeChoice(currentState)) {
+        setRuntimeChoiceState("required");
+        return {
+          status: "blocked" as const,
+          summary: "Choose how One runs in Connections before continuing.",
+        };
+      }
       await acknowledgeOneSetupExit({
         userId: user.uid,
         skipped: masterSkipped,
@@ -181,7 +251,7 @@ export function OneSetupHub() {
     return handleMasterAck();
   });
 
-  const summary = isLoading
+  const summary = hubStateLoading
     ? "Checking what's set up…"
     : allReady
       ? "Everything's set up. You're good to go."
@@ -196,12 +266,12 @@ export function OneSetupHub() {
         routeId: "/one/setup",
         marker: "native-route-one-setup",
         authState: "authenticated",
-        dataState: isLoading ? "loading" : "loaded",
+        dataState: hubStateLoading ? "loading" : "loaded",
       }}
     >
       <AppPageHeaderRegion>
         <PageHeader
-          title={allReady ? "You're all set" : "Finish setting up One"}
+          title={!hubStateLoading && allReady ? "You're all set" : "Finish setting up One"}
           description={summary}
           accent="neutral"
           className={styles.setupHeader}
@@ -209,6 +279,10 @@ export function OneSetupHub() {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
+        {hubStateLoading ? (
+          <SetupHubLoadingState />
+        ) : (
+          <>
         {total > 0 ? (
           <div
             className={styles.segmentedProgress}
@@ -228,50 +302,59 @@ export function OneSetupHub() {
         ) : null}
         <div className={styles.flatChecklist}>
           <SettingsGroup
-            title="Private configuration"
-            description="Choose how One runs before setting up individual features."
-            testId="one-setup-connections"
+            title="Remaining"
+            testId="one-setup-capabilities-remaining"
             separatorInset
           >
-            <SettingsRow
-              title="Connections"
-              description="Use Hushh managed Gemini or your own Google AI Studio key."
-              density="compact"
-              chevron
-              onClick={() => router.push(ROUTES.ONE_SETUP_CONNECTIONS)}
-            />
+            {!runtimeChoiceComplete ? (
+              <SetupNavigationTile
+                id="connections"
+                title="Connections"
+                description="Use Hushh managed Gemini or your own Google AI Studio key."
+                href={ROUTES.ONE_SETUP_CONNECTIONS}
+                voiceControlId="one_setup_connections"
+                icon={lucideCapabilityIcon(PlugZap)}
+                tone="connected"
+                statusLabel="Required"
+              />
+            ) : null}
+            {remainingItems.map((item) => (
+              <CapabilitySetupTile
+                key={item.id}
+                capabilityId={item.id}
+                title={item.copy.setupTitle}
+                description={item.copy.setupBlurb}
+                actionLabel={item.copy.actionLabel}
+                resumeActionLabel={item.copy.resumeActionLabel}
+                href={item.copy.href}
+                voiceControlId={item.voiceControlId}
+                icon={item.icon}
+                tone={item.tone}
+                status={item.status}
+                isExploreOnly={item.isExploreOnly}
+                isCurrent={item.isCurrent}
+              />
+            ))}
           </SettingsGroup>
-          {remainingItems.length > 0 ? (
-            <SettingsGroup
-              title="Remaining"
-              testId="one-setup-capabilities-remaining"
-              separatorInset
-            >
-              {remainingItems.map((item) => (
-                <CapabilitySetupTile
-                  key={item.id}
-                  capabilityId={item.id}
-                  title={item.copy.setupTitle}
-                  description={item.copy.setupBlurb}
-                  actionLabel={item.copy.actionLabel}
-                  resumeActionLabel={item.copy.resumeActionLabel}
-                  href={item.copy.href}
-                  voiceControlId={item.voiceControlId}
-                  icon={item.icon}
-                  tone={item.tone}
-                  status={item.status}
-                  isExploreOnly={item.isExploreOnly}
-                  isCurrent={item.isCurrent}
-                />
-              ))}
-            </SettingsGroup>
-          ) : null}
-          {completeItems.length > 0 ? (
+          {completeItems.length > 0 || runtimeChoiceComplete ? (
             <SettingsGroup
               title="Complete"
               testId="one-setup-capabilities-complete"
               separatorInset
             >
+              {runtimeChoiceComplete ? (
+                <SetupNavigationTile
+                  id="connections"
+                  title="Connections"
+                  description="Change how One runs."
+                  href={ROUTES.ONE_SETUP_CONNECTIONS}
+                  voiceControlId="one_setup_connections"
+                  icon={lucideCapabilityIcon(PlugZap)}
+                  tone="connected"
+                  statusLabel="Selected"
+                  isComplete
+                />
+              ) : null}
               {completeItems.map((item) => (
                 <CapabilitySetupTile
                   key={item.id}
@@ -296,6 +379,7 @@ export function OneSetupHub() {
           label={masterActionLabel}
           onComplete={() => void handleMasterAck()}
           busy={dismissing}
+          disabled={!runtimeChoiceComplete}
           controlId="one-setup-master-ack"
           actionId="setup.hub_master_ack"
           testId="one-setup-master-ack"
@@ -305,15 +389,53 @@ export function OneSetupHub() {
               : "Finish setup for now and go home."
           }
           supportingText={
-            masterSkipped
+            !runtimeChoiceComplete
+              ? "Choose a Connections option before continuing."
+              : masterSkipped
               ? "You can set up these capabilities any time."
               : "Your completed setup stays in place. You can add more any time."
           }
           variant={masterSkipped ? "none" : "blue-gradient"}
           effect={masterSkipped ? "fade" : "fill"}
         />
+          </>
+        )}
       </AppPageContentRegion>
     </AppPageShell>
+  );
+}
+
+function SetupHubLoadingState() {
+  return (
+    <div
+      data-testid="one-setup-loading-state"
+      className="space-y-5"
+      aria-busy="true"
+      aria-label="Checking setup progress"
+    >
+      <div className="grid grid-cols-5 gap-1.5" aria-hidden="true">
+        {Array.from({ length: 5 }).map((_, index) => (
+          <Skeleton key={index} className="h-1 rounded-full" />
+        ))}
+      </div>
+      <div className="space-y-3" aria-hidden="true">
+        <Skeleton className="h-3 w-24" />
+        <div className="overflow-hidden rounded-[var(--app-card-radius)] border border-border/45 bg-background/45">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div
+              key={index}
+              className="flex min-h-[72px] items-center gap-3 border-b border-border/45 px-4 last:border-b-0"
+            >
+              <Skeleton className="h-10 w-10 shrink-0 rounded-2xl" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-3.5 w-2/5" />
+                <Skeleton className="h-3 w-4/5" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 

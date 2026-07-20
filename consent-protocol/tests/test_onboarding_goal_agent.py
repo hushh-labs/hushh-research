@@ -62,6 +62,26 @@ def test_root_claim_is_selected_before_provider_choice() -> None:
     assert goal.missing_input is None
 
 
+def test_root_claim_with_google_carries_only_the_authored_destination_choice() -> None:
+    goal = resolve_onboarding_goal(
+        OnboardingJourneyContext(
+            phase="anonymous_auth",
+            screen="one_intro",
+            assessment=OnboardingAssessmentV1(
+                intent="execute_visible_action",
+                candidate_action_id="onboarding.claim_one",
+                provider="google",
+            ),
+            available_action_ids=["onboarding.claim_one"],
+        )
+    )
+
+    assert goal.selected_action_id == "onboarding.claim_one"
+    assert goal.deferred_action_id == "auth.sign_in_google"
+    assert goal.expected_settlement == "route"
+    assert goal.assessment_status == "admitted"
+
+
 def test_unavailable_explicit_provider_keeps_safe_provider_recovery() -> None:
     goal = resolve_onboarding_goal(
         OnboardingJourneyContext(

@@ -123,6 +123,10 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     chrome and transient overlays, and keeps theme-derived fallback tokens
     until the first valid sample. Do not set global
     `--background` from a chrome sample or add a route-local blur/tint recipe.
+    The only edge variables are `--ambient-chrome-{top,bottom}-{bg,fg}`;
+    a bottom-specific Foundation/base tint is prohibited. Every chrome child
+    inherits the matching sampled foreground through `currentColor`, so dark
+    tint yields light ink and light tint yields dark ink on both platforms.
     The top mask height is the resolved shell height plus a mode-specific tail:
     `bar-with-tabs` must dissolve farther below its tab underline than `bar`.
     The engine also publishes the top surface tone for native system-bar icon
@@ -144,6 +148,11 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
     one shared outer gutter. The top shell owns contextual tabs; each tab may
     have one primary `PageHeader`, never another fixed header or wider
     route-local dashboard shell.
+34. A query-owned tab selection is a `contextual` interaction intent: it
+    commits immediately, settles against `pathname + search`, and never plays
+    the full screen route crossfade. Full pathname changes use the shared
+    `300ms` exit and `360ms` enter envelope. `SwipeViews` publishes selection
+    on Embla `select`; `settle` may only reconcile a different final snap.
 
 ## Pixel Grid And Symmetry Contract
 

@@ -116,7 +116,16 @@ export type OneVoiceActionSettlement = {
   reason?: string | null;
   routeAfter?: string | null;
   screenAfter?: string | null;
+  /**
+   * Present only when the relay has acknowledged the redacted destination
+   * snapshot on this same socket before this settlement was sent.
+   */
+  destinationContextId?: string | null;
 };
+
+export type OneVoiceContextApplyResult =
+  | { status: "acknowledged"; contextId: string }
+  | { status: "timeout" | "cancelled" | "closed"; contextId: string | null };
 
 export interface RealtimeVoiceTransport {
   readonly provider: OneVoiceProvider;
@@ -133,6 +142,15 @@ export interface RealtimeVoiceTransport {
    * navigation. Returns false when no live session can accept the update.
    */
   updateContext?(context: OneVoiceContextSnapshot): boolean;
+  /**
+   * Publish one redacted snapshot and wait until the relay has persisted it.
+   * Journey settlements use this barrier so destination actions never run on
+   * an outgoing screen inventory.
+   */
+  applyContextAndWait?(
+    context: OneVoiceContextSnapshot,
+    options?: { signal?: AbortSignal; timeoutMs?: number },
+  ): Promise<OneVoiceContextApplyResult>;
   /**
    * Refresh the vault owner consent token inside an already-open session
    * (e.g. the user signs in or unlocks the vault mid-call). Without this,

@@ -18,6 +18,7 @@ import {
 import { SettingsRow } from "@/components/app-ui/settings-ui";
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { cn } from "@/lib/utils";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 /**
  * CapabilitySetupTile: the shared setup row used by the `/one/setup` hub.
@@ -53,6 +54,105 @@ export interface CapabilitySetupTileProps {
   className?: string;
 }
 
+/**
+ * A setup row that opens a route but does not represent a tracked capability.
+ *
+ * Connections configures how One's private agent runs; it must therefore not
+ * fabricate a capability completion state. It still uses the exact same row,
+ * icon well, prefetch, press feedback, and native-safe navigation mechanics as
+ * a tracked setup capability.
+ */
+export interface SetupNavigationTileProps {
+  id: string;
+  title: string;
+  description: string;
+  href: string;
+  voiceControlId: string;
+  icon: OneCapabilityIcon;
+  tone: OneCapabilityTone;
+  statusLabel?: string;
+  isComplete?: boolean;
+  className?: string;
+}
+
+export function SetupNavigationTile({
+  id,
+  title,
+  description,
+  href,
+  voiceControlId,
+  icon,
+  tone,
+  statusLabel,
+  isComplete = false,
+  className,
+}: SetupNavigationTileProps) {
+  const router = useRouter();
+  const didPrefetch = useRef(false);
+  const prefetchRoute = useCallback(() => {
+    if (didPrefetch.current) return;
+    didPrefetch.current = true;
+    router.prefetch(href);
+  }, [href, router]);
+  const handleOpen = useCallback(() => {
+    const requested = requestInternalAppNavigation({
+      href,
+      scroll: false,
+      source: "tap",
+      transitionMode: "full",
+    });
+    if (!requested) router.push(href, { scroll: false });
+  }, [href, router]);
+
+  return (
+    <SettingsRow
+      asChild
+      leading={
+        <AgentSectionIcon
+          id={id}
+          icon={icon}
+          tone={tone}
+          isActive={isComplete}
+          size="menu"
+        />
+      }
+      title={title}
+      description={
+        <div className="line-clamp-2 md:line-clamp-none">{description}</div>
+      }
+      trailing={
+        statusLabel ? (
+          <span
+            className={cn(
+              "text-xs font-medium",
+              isComplete ? "text-[var(--tone-green)]" : "text-muted-foreground",
+            )}
+          >
+            {statusLabel}
+          </span>
+        ) : undefined
+      }
+      chevron
+      className={className}
+    >
+      <button
+        type="button"
+        onClick={handleOpen}
+        onPointerEnter={prefetchRoute}
+        onFocus={prefetchRoute}
+        onTouchStart={prefetchRoute}
+        aria-label={title}
+        data-href={href}
+        data-voice-control-id={voiceControlId}
+        className={cn(
+          "[&]:focus-visible:ring-2 [&]:focus-visible:ring-ring [&]:focus-visible:ring-inset",
+          className,
+        )}
+      />
+    </SettingsRow>
+  );
+}
+
 export function CapabilitySetupTile({
   capabilityId,
   title,
@@ -82,7 +182,13 @@ export function CapabilitySetupTile({
     router.prefetch(href);
   }, [href, router]);
   const handleOpen = useCallback(() => {
-    router.push(href, { scroll: false });
+    const requested = requestInternalAppNavigation({
+      href,
+      scroll: false,
+      source: "tap",
+      transitionMode: "full",
+    });
+    if (!requested) router.push(href, { scroll: false });
   }, [href, router]);
 
   return (

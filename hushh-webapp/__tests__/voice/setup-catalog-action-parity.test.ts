@@ -36,7 +36,7 @@ describe("setup catalog voice parity", () => {
       "KYC",
       "Set up your finances",
       "Set up RIA",
-      "Link your record to external systems",
+      "CRM",
     ]);
     expect(
       hubContract.actions
