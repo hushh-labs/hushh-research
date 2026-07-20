@@ -337,6 +337,45 @@ describe("ApiService.apiFetch", () => {
     }
   });
 
+  it("sends native Plaid status requests to the configured backend URL", async () => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue("ios");
+    capacitorMocks.request.mockResolvedValueOnce({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      data: { ok: true },
+      url: "https://api.hushh.ai/api/kai/plaid/status/user-123",
+    });
+    const previousBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+    const previousServerBackendUrl = process.env.BACKEND_URL;
+    delete process.env.BACKEND_URL;
+    process.env.NEXT_PUBLIC_BACKEND_URL = "https://api.hushh.ai";
+
+    try {
+      const response = await ApiService.apiFetch("/api/kai/plaid/status/user-123", {
+        headers: { Authorization: "Bearer HCT:vault-owner-token" },
+      });
+
+      expect(response.status).toBe(200);
+      expect(capacitorMocks.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: "https://api.hushh.ai/api/kai/plaid/status/user-123",
+        })
+      );
+    } finally {
+      if (previousBackendUrl === undefined) {
+        delete process.env.NEXT_PUBLIC_BACKEND_URL;
+      } else {
+        process.env.NEXT_PUBLIC_BACKEND_URL = previousBackendUrl;
+      }
+      if (previousServerBackendUrl === undefined) {
+        delete process.env.BACKEND_URL;
+      } else {
+        process.env.BACKEND_URL = previousServerBackendUrl;
+      }
+    }
+  });
+
   it("fetches baseline market insights with Firebase auth", async () => {
     (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValueOnce("firebase-id-token");
     mockFetch.mockResolvedValueOnce(
