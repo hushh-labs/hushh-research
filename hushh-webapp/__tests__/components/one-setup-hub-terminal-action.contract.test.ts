@@ -4,6 +4,15 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("One setup hub terminal action contract", () => {
+  it("opens completed Location directly instead of replaying one-time setup", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("resolveCompletedSetupCapabilityTarget(item.id)");
+  });
+
   it("changes its explicit outcome from skip to finish after a verified capability completes", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),

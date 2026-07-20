@@ -27,7 +27,8 @@ _DEFAULT_LANGUAGE = "en"
 _DEFAULT_CLIENT_NAME = "Hushh Kai"
 _DEFAULT_MANUAL_ENTRY_ENABLED = False
 _DEFAULT_CRYPTO_WALLET_ENABLED = False
-_DEFAULT_REDIRECT_PATH = "/kai/plaid/oauth/return"
+_DEFAULT_REDIRECT_PATH = "/one/kai/plaid/oauth/return"
+_LEGACY_REDIRECT_PATH = "/kai/plaid/oauth/return"
 _DEFAULT_WEBHOOK_PATH = "/api/kai/plaid/webhook"
 
 
@@ -231,6 +232,33 @@ class PlaidRuntimeConfig:
             "webhook_url": self.webhook_url,
         }
 
+    def resolve_redirect_uri(self, requested_redirect_uri: str | None = None) -> str | None:
+        default_redirect_uri = self.redirect_uri
+        requested = _normalize_redirect_uri(requested_redirect_uri)
+        if requested is None:
+            return default_redirect_uri
+
+        requested_parts = urlsplit(requested)
+        allowed_paths = {
+            self.redirect_path,
+            _DEFAULT_REDIRECT_PATH,
+            _LEGACY_REDIRECT_PATH,
+        }
+        if requested_parts.path not in allowed_paths:
+            raise RuntimeError("Plaid redirect URI must use the configured One callback path.")
+
+        allowed = _normalize_redirect_uri(default_redirect_uri)
+        if allowed is None:
+            raise RuntimeError("Plaid redirect URI requires a configured frontend origin.")
+        allowed_parts = urlsplit(allowed)
+        if (
+            requested_parts.scheme != allowed_parts.scheme
+            or requested_parts.netloc != allowed_parts.netloc
+        ):
+            raise RuntimeError("Plaid redirect URI does not match the configured frontend origin.")
+
+        return requested
+
 
 def local_plaid_environment_choices() -> list[str]:
     """Environments the local backend can offer as separate connect buttons.
@@ -256,28 +284,3 @@ def local_plaid_environment_choices() -> list[str]:
     ):
         choices.append("production")
     return choices
-
-    def resolve_redirect_uri(self, requested_redirect_uri: str | None = None) -> str | None:
-        default_redirect_uri = self.redirect_uri
-        requested = _normalize_redirect_uri(requested_redirect_uri)
-        if requested is None:
-            return default_redirect_uri
-
-        requested_parts = urlsplit(requested)
-        if requested_parts.path != self.redirect_path:
-            raise RuntimeError(
-                f"Plaid redirect URI must use the configured callback path {self.redirect_path}."
-            )
-
-        allowed = _normalize_redirect_uri(default_redirect_uri)
-        if allowed is not None:
-            allowed_parts = urlsplit(allowed)
-            if (
-                requested_parts.scheme != allowed_parts.scheme
-                or requested_parts.netloc != allowed_parts.netloc
-            ):
-                raise RuntimeError(
-                    "Plaid redirect URI does not match the configured frontend origin."
-                )
-
-        return requested

@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 113,
+  "expected_migration_version": 114,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -938,6 +938,72 @@
       "created_at",
       "updated_at",
       "revoked_at"
+    ],
+    "kai_plaid_items": [
+      "item_id",
+      "user_id",
+      "access_token_ciphertext",
+      "access_token_iv",
+      "access_token_tag",
+      "access_token_algorithm",
+      "institution_id",
+      "institution_name",
+      "plaid_env",
+      "status",
+      "sync_status",
+      "last_sync_at",
+      "last_refresh_requested_at",
+      "last_webhook_type",
+      "last_webhook_code",
+      "last_error_code",
+      "last_error_message",
+      "latest_accounts_json",
+      "latest_holdings_json",
+      "latest_securities_json",
+      "latest_transactions_json",
+      "latest_summary_json",
+      "latest_portfolio_json",
+      "latest_metadata_json",
+      "created_at",
+      "updated_at"
+    ],
+    "kai_plaid_refresh_runs": [
+      "run_id",
+      "user_id",
+      "item_id",
+      "status",
+      "trigger_source",
+      "refresh_method",
+      "fallback_reason",
+      "webhook_type",
+      "webhook_code",
+      "requested_at",
+      "started_at",
+      "completed_at",
+      "error_code",
+      "error_message",
+      "result_summary_json",
+      "created_at",
+      "updated_at"
+    ],
+    "kai_plaid_link_sessions": [
+      "resume_session_id",
+      "user_id",
+      "item_id",
+      "mode",
+      "status",
+      "redirect_uri",
+      "link_token",
+      "expires_at",
+      "completed_at",
+      "created_at",
+      "updated_at"
+    ],
+    "kai_portfolio_source_preferences": [
+      "user_id",
+      "active_source",
+      "created_at",
+      "updated_at"
     ]
   }
 }

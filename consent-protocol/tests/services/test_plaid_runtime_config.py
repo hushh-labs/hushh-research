@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from hushh_mcp.integrations.plaid.config import PlaidRuntimeConfig
 
 
@@ -78,8 +80,47 @@ def test_from_env_http_frontend_does_not_derive_redirect_uri(monkeypatch):
 def test_from_env_https_frontend_derives_redirect_uri(monkeypatch):
     _clear_plaid_env(monkeypatch)
     monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://one.hushh.ai")
-    monkeypatch.setenv("PLAID_REDIRECT_PATH", "/kai/plaid/oauth/return")
 
     config = PlaidRuntimeConfig.from_env()
 
-    assert config.redirect_uri == "https://one.hushh.ai/kai/plaid/oauth/return"
+    assert config.redirect_path == "/one/kai/plaid/oauth/return"
+    assert config.redirect_uri == "https://one.hushh.ai/one/kai/plaid/oauth/return"
+
+
+def test_resolve_redirect_uri_accepts_default_and_legacy_paths(monkeypatch):
+    _clear_plaid_env(monkeypatch)
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://one.hushh.ai")
+
+    config = PlaidRuntimeConfig.from_env()
+
+    assert config.resolve_redirect_uri(None) == "https://one.hushh.ai/one/kai/plaid/oauth/return"
+    assert (
+        config.resolve_redirect_uri(
+            "https://one.hushh.ai/one/kai/plaid/oauth/return?oauth_state=abc#fragment"
+        )
+        == "https://one.hushh.ai/one/kai/plaid/oauth/return"
+    )
+    assert (
+        config.resolve_redirect_uri("https://one.hushh.ai/kai/plaid/oauth/return")
+        == "https://one.hushh.ai/kai/plaid/oauth/return"
+    )
+
+
+def test_resolve_redirect_uri_rejects_wrong_path(monkeypatch):
+    _clear_plaid_env(monkeypatch)
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://one.hushh.ai")
+
+    config = PlaidRuntimeConfig.from_env()
+
+    with pytest.raises(RuntimeError, match="callback path"):
+        config.resolve_redirect_uri("https://one.hushh.ai/not-plaid")
+
+
+def test_resolve_redirect_uri_rejects_wrong_origin(monkeypatch):
+    _clear_plaid_env(monkeypatch)
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://one.hushh.ai")
+
+    config = PlaidRuntimeConfig.from_env()
+
+    with pytest.raises(RuntimeError, match="frontend origin"):
+        config.resolve_redirect_uri("https://uat.one.hushh.ai/one/kai/plaid/oauth/return")

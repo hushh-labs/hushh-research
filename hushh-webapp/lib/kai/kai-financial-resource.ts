@@ -44,6 +44,7 @@ interface KaiFinancialResourceRequest {
   vaultOwnerToken?: string | null;
   vaultKey?: string | null;
   initialStatementPortfolio?: PortfolioData | null;
+  skipEmptyFinancialProbe?: boolean;
 }
 
 interface KaiFinancialResourceAuditMeta {
@@ -170,6 +171,14 @@ function buildResource(params: {
   };
 }
 
+function hasPlaidSource(status: PlaidPortfolioStatusResponse | null): boolean {
+  return (
+    Number(status?.aggregate?.item_count || 0) > 0 ||
+    Number(status?.aggregate?.account_count || 0) > 0 ||
+    hasPortfolioHoldings(status?.aggregate?.portfolio_data)
+  );
+}
+
 function primePortfolioCaches(resource: KaiFinancialResource): void {
   const cache = CacheService.getInstance();
   if (resource.statementPortfolio) {
@@ -228,15 +237,23 @@ async function refreshDerivedMarketCaches(params: KaiFinancialResourceRequest): 
 async function loadNetworkResource(
   params: KaiFinancialResourceRequest
 ): Promise<KaiFinancialResource | null> {
-  const [financialContext, loadedPlaidStatus] = await Promise.all([
-    loadFinancialContext(params),
-    params.vaultOwnerToken
-      ? PlaidPortfolioService.getStatus({
-          userId: params.userId,
-          vaultOwnerToken: params.vaultOwnerToken,
-        }).catch(() => null)
-      : Promise.resolve(null),
-  ]);
+  const loadedPlaidStatus = params.vaultOwnerToken
+    ? await PlaidPortfolioService.getStatus({
+        userId: params.userId,
+        vaultOwnerToken: params.vaultOwnerToken,
+      }).catch(() => null)
+    : null;
+  const canUseSetupEmptyState =
+    Boolean(params.skipEmptyFinancialProbe) &&
+    !hasPortfolioHoldings(params.initialStatementPortfolio) &&
+    !hasPlaidSource(loadedPlaidStatus);
+  const financialContext = canUseSetupEmptyState
+    ? {
+        fullBlob: {},
+        financial: null,
+        expectedDataVersion: undefined,
+      }
+    : await loadFinancialContext(params);
 
   let nextFinancial = financialContext.financial;
   const storedActiveSource =
@@ -552,10 +569,12 @@ export function useKaiFinancialResource(
         params.vaultOwnerToken ? "vault-owner-token" : "no-vault-owner-token",
         params.backgroundRefresh === false ? "no-background-refresh" : "background-refresh",
         params.initialStatementPortfolio ? "has-initial-statement-snapshot" : "no-initial-statement-snapshot",
+        params.skipEmptyFinancialProbe ? "skip-empty-financial-probe" : "probe-financial-domain",
       ].join(":"),
     [
       params.backgroundRefresh,
       params.initialStatementPortfolio,
+      params.skipEmptyFinancialProbe,
       params.userId,
       params.vaultKey,
       params.vaultOwnerToken,

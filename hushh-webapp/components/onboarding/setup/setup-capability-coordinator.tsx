@@ -12,12 +12,14 @@ import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import {
   buildOneSetupCapabilityRoute,
   resolveCapabilityHandoffTarget,
+  resolveCompletedSetupCapabilityTarget,
   ROUTES,
 } from "@/lib/navigation/routes";
 import { type OneSetupCapabilityId } from "@/lib/onboarding/setup-capability-ids";
 import { CapabilityTourService } from "@/lib/services/capability-tour-service";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 type Settlement = {
@@ -58,6 +60,40 @@ export function resolveSetupCapabilityReturnTarget({
   if (journeyMode === "individual") return ROUTES.ONE_HOME;
   if (hasExplicitIncompleteSetup) return ROUTES.ONE_SETUP;
   return resolveCapabilityHandoffTarget(capabilityId);
+}
+
+const LAND_ON_WORKSPACE_AFTER_FINISH: ReadonlySet<OneSetupCapabilityId> =
+  new Set<OneSetupCapabilityId>(["location"]);
+
+export function resolveSetupCapabilityTerminalTarget({
+  capabilityId,
+  journeyMode,
+  hasExplicitIncompleteSetup,
+  kind,
+}: {
+  capabilityId: OneSetupCapabilityId;
+  journeyMode: Exclude<SetupCapabilityJourneyMode, "auto">;
+  hasExplicitIncompleteSetup: boolean;
+  kind: "finish" | "skip";
+}): string {
+  if (
+    kind === "finish" &&
+    journeyMode !== "individual" &&
+    LAND_ON_WORKSPACE_AFTER_FINISH.has(capabilityId)
+  ) {
+    return resolveCapabilityHandoffTarget(capabilityId);
+  }
+
+  return resolveSetupCapabilityReturnTarget({
+    capabilityId,
+    journeyMode,
+    hasExplicitIncompleteSetup,
+  });
+}
+
+export function resolveSetupCapabilityTerminalScreen(targetRoute: string) {
+  const screen = deriveVoiceRouteScreen(targetRoute).screen;
+  return screen === "unknown" ? undefined : screen;
 }
 
 export function setupCapabilityTerminalActionId(
@@ -151,9 +187,14 @@ export function useSetupCapabilityCoordinator({
   const cachedJourney = user?.uid
     ? PreVaultUserStateService.getCachedBootstrapState?.(user.uid) ?? null
     : null;
+  const cachedCompletedTarget =
+    cachedJourney?.setupCapabilityIds.includes(capabilityId) === true
+      ? resolveCompletedSetupCapabilityTarget(capabilityId)
+      : null;
   const hasUsableCachedJourney = Boolean(
     enabled &&
       cachedJourney &&
+      !cachedCompletedTarget &&
       !PreVaultUserStateService.isSetupResolved(cachedJourney),
   );
   const routeReady = isReady || hasUsableCachedJourney;
@@ -192,6 +233,15 @@ export function useSetupCapabilityCoordinator({
         const initialJourney =
           cachedJourney ??
           (await PreVaultUserStateService.bootstrapState(user.uid));
+        const completedTarget = initialJourney.setupCapabilityIds.includes(
+          capabilityId,
+        )
+          ? resolveCompletedSetupCapabilityTarget(capabilityId)
+          : null;
+        if (completedTarget) {
+          replaceRoute(completedTarget);
+          return;
+        }
         const prepare = async (
           journey: typeof initialJourney,
           retryConflict: boolean,
@@ -257,6 +307,7 @@ export function useSetupCapabilityCoordinator({
   }, [
     authLoading,
     cachedJourney,
+    cachedCompletedTarget,
     canonicalRoute,
     capabilityId,
     enabled,
@@ -350,17 +401,20 @@ export function useSetupCapabilityCoordinator({
           journey.onboardingPhase !== "root_completion";
 
         // If the user already completed onboarding, always send them to their landing target instead of the setup hub.
-        const targetRoute = resolveSetupCapabilityReturnTarget({
+        const targetRoute = resolveSetupCapabilityTerminalTarget({
           capabilityId,
           journeyMode: resolvedJourneyMode,
           hasExplicitIncompleteSetup,
+          kind,
         });
 
         replaceRoute(targetRoute);
         return {
           status: "succeeded",
           summary:
-            kind === "finish"
+            kind === "finish" && targetRoute === ROUTES.ONE_LOCATION
+              ? "Setup is complete. Opening Location."
+              : kind === "finish"
               ? resolvedJourneyMode === "individual"
                 ? "Setup is complete. Returning to One."
                 : "Setup is complete. Returning to setup."
@@ -368,12 +422,7 @@ export function useSetupCapabilityCoordinator({
                 ? "Skipped for now. Returning to One."
                 : "Skipped for now. Returning to setup.",
           routeAfter: targetRoute,
-          screenAfter:
-            resolvedJourneyMode === "root" && hasExplicitIncompleteSetup
-              ? "one_setup_hub"
-              : resolvedJourneyMode === "individual"
-                ? "one_home"
-                : undefined,
+          screenAfter: resolveSetupCapabilityTerminalScreen(targetRoute),
         };
       } catch (error) {
         console.warn("[SetupCapabilityCoordinator] Failed to settle setup:", error);

@@ -43,7 +43,10 @@ import {
   buildKaiAnalysisPreviewRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
-import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import {
+  PreVaultUserStateService,
+  type PreVaultUserState,
+} from "@/lib/services/pre-vault-user-state-service";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { KAI_PORTFOLIO_IMPORT_IDLE_TIMEOUT_MS } from "@/lib/services/kai-import-stream-config";
 import type { LiveHoldingPreview } from "@/lib/kai/import/live-holdings-preview";
@@ -149,6 +152,16 @@ interface QualityReport {
   diagnostics?: Record<string, unknown>;
   dropped_reasons?: Record<string, number>;
   quality_gate?: Record<string, unknown>;
+}
+
+function isActiveFinanceSetupJourney(
+  journey: PreVaultUserState | null | undefined,
+): journey is PreVaultUserState {
+  return Boolean(
+    journey &&
+      !PreVaultUserStateService.isSetupResolved(journey) &&
+      journey.onboardingActiveCapability === "finance",
+  );
 }
 
 // Streaming state
@@ -693,11 +706,7 @@ export function KaiFlow({
     const journey = await PreVaultUserStateService.bootstrapState(userId, {
       force: true,
     }).catch(() => null);
-    if (
-      !journey ||
-      PreVaultUserStateService.isSetupResolved(journey) ||
-      journey.onboardingActiveCapability !== "finance"
-    ) {
+    if (!isActiveFinanceSetupJourney(journey)) {
       return false;
     }
     setOnboardingFlowActiveCookie(false);
@@ -715,6 +724,7 @@ export function KaiFlow({
     vaultKey,
     enabled: Boolean(userId),
     backgroundRefresh: true,
+    skipEmptyFinancialProbe: mode === "import",
   });
 
   // Streaming state for real-time progress
@@ -2968,6 +2978,7 @@ export function KaiFlow({
     }
     setIsConnectingPlaid(true);
     try {
+      let shouldSettleSetupSource = false;
       const redirectUri = resolvePlaidRedirectUri();
       const linkToken = await PlaidPortfolioService.createLinkToken({
         userId,
@@ -2977,41 +2988,47 @@ export function KaiFlow({
       });
 
       if (!linkToken.configured || !linkToken.link_token) {
+        if (mode === "import") {
+          toast.info("Bank linking is not available right now. You can link it later.");
+          return;
+        }
         throw new Error("Plaid is not configured for this environment.");
       }
       if (onSetupSourceSettled) {
         const journey = await PreVaultUserStateService.bootstrapState(userId, {
           force: true,
         });
-        if (
-          journey.onboardingActiveCapability !== "finance" ||
-          PreVaultUserStateService.isSetupResolved(journey)
-        ) {
+        if (isActiveFinanceSetupJourney(journey)) {
+          shouldSettleSetupSource = true;
+          onboardingAttemptId =
+            typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+              ? crypto.randomUUID()
+              : `plaid_${Date.now().toString(36)}`;
+          await PreVaultUserStateService.syncOnboardingJourney({
+            userId,
+            phase: "external_connector",
+            activeCapability: "finance",
+            callbackState: "pending",
+            callbackAttemptId: onboardingAttemptId,
+            expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
+          });
+        } else if (!PreVaultUserStateService.isSetupResolved(journey)) {
           throw new Error("Finance setup is no longer active. Return to setup and try again.");
+        } else {
+          // Resolved-root re-entry is explicit user intent from the Finance
+          // workspace. Do not mutate setup journey state, but do allow Plaid.
         }
-        onboardingAttemptId =
-          typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-            ? crypto.randomUUID()
-            : `plaid_${Date.now().toString(36)}`;
-        await PreVaultUserStateService.syncOnboardingJourney({
-          userId,
-          phase: "external_connector",
-          activeCapability: "finance",
-          callbackState: "pending",
-          callbackAttemptId: onboardingAttemptId,
-          expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
-        });
       }
       if (linkToken.resume_session_id) {
         savePlaidOAuthResumeSession({
           version: 1,
           userId,
           resumeSessionId: linkToken.resume_session_id,
-          returnPath: onSetupSourceSettled
+          returnPath: shouldSettleSetupSource
             ? ROUTES.ONE_SETUP_FINANCE_IMPORT
             : ROUTES.KAI_DASHBOARD,
           startedAt: new Date().toISOString(),
-          onboardingAttemptId,
+          ...(onboardingAttemptId ? { onboardingAttemptId } : {}),
         });
       }
 
@@ -3058,11 +3075,16 @@ export function KaiFlow({
                   setVaultDialogOpen(true);
                   toast.info("Set up or open your private vault to save Plaid details.");
                 } else if (mode === "import") {
-                  void finishFinanceSetupIfActive("plaid", onboardingAttemptId).then((handled) => {
-                    if (handled) return;
+                  if (onSetupSourceSettled && !shouldSettleSetupSource) {
                     setOnboardingFlowActiveCookie(false);
                     router.push(ROUTES.KAI_DASHBOARD);
-                  });
+                  } else {
+                    void finishFinanceSetupIfActive("plaid", onboardingAttemptId).then((handled) => {
+                      if (handled) return;
+                      setOnboardingFlowActiveCookie(false);
+                      router.push(ROUTES.KAI_DASHBOARD);
+                    });
+                  }
                 } else {
                   setState("dashboard");
                 }

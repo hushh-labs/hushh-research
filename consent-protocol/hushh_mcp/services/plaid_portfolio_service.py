@@ -41,6 +41,43 @@ _ACTIVE_ITEM_STATUSES = {"active", "error", "relink_required"}
 _ITEM_PURPOSE_INVESTMENTS = "investments"
 _ITEM_PURPOSE_FUNDING = "funding"
 _FUNDING_TRANSFER_REFS_LIMIT = 30
+_PLAID_PRIMARY_PRODUCT_ALLOWLIST = {
+    "assets",
+    "auth",
+    "identity",
+    "investments",
+    "liabilities",
+    "signal",
+    "transactions",
+    "transfer",
+}
+_PLAID_REQUIRED_IF_SUPPORTED_ALLOWLIST = {
+    "auth",
+    "identity",
+    "investments",
+    "liabilities",
+    "signal",
+    "transactions",
+}
+_PLAID_ADDITIONAL_CONSENTED_ALLOWLIST = {
+    "auth",
+    "balance_plus",
+    "identity",
+    "investments",
+    "investments_auth",
+    "liabilities",
+    "signal",
+    "transactions",
+}
+_PLAID_DEFAULT_PRIMARY_PRODUCTS = ("transactions",)
+_PLAID_DEFAULT_REQUIRED_IF_SUPPORTED_PRODUCTS = ("investments",)
+_PLAID_DEFAULT_ADDITIONAL_CONSENTED_PRODUCTS = ("identity",)
+_PLAID_NEVER_REQUIRED_PRODUCTS = {"investments", "liabilities"}
+_PLAID_INVESTMENTS_UNSUPPORTED_CODES = {
+    "ITEM_PRODUCT_NOT_READY",
+    "PRODUCT_NOT_READY",
+    "PRODUCT_NOT_SUPPORTED",
+}
 
 
 def _utcnow() -> datetime:
@@ -143,6 +180,71 @@ def _as_list_of_dicts(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
     return [entry for entry in value if isinstance(entry, dict)]
+
+
+def _csv_products(
+    env_name: str,
+    *,
+    default: tuple[str, ...],
+    allowlist: set[str],
+) -> list[str]:
+    raw = _clean_text(os.getenv(env_name))
+    requested = raw.split(",") if raw else list(default)
+    accepted: list[str] = []
+    rejected: list[str] = []
+    for product in requested:
+        normalized = _clean_text(product).lower()
+        if not normalized:
+            continue
+        if normalized in allowlist:
+            accepted.append(normalized)
+        else:
+            rejected.append(normalized)
+    if rejected:
+        logger.warning("plaid.products_ignored env=%s products=%s", env_name, rejected)
+    unique = list(dict.fromkeys(accepted))
+    return unique or list(default)
+
+
+def _link_token_product_sets() -> tuple[list[str], list[str], list[str]]:
+    primary_products = _csv_products(
+        "PLAID_PRIMARY_PRODUCTS",
+        default=_PLAID_DEFAULT_PRIMARY_PRODUCTS,
+        allowlist=_PLAID_PRIMARY_PRODUCT_ALLOWLIST,
+    )
+    forced_if_supported = [
+        product for product in primary_products if product in _PLAID_NEVER_REQUIRED_PRODUCTS
+    ]
+    primary_products = [
+        product for product in primary_products if product not in _PLAID_NEVER_REQUIRED_PRODUCTS
+    ]
+    if not primary_products:
+        primary_products = list(_PLAID_DEFAULT_PRIMARY_PRODUCTS)
+
+    required_if_supported = _csv_products(
+        "PLAID_REQUIRED_IF_SUPPORTED_PRODUCTS",
+        default=_PLAID_DEFAULT_REQUIRED_IF_SUPPORTED_PRODUCTS,
+        allowlist=_PLAID_REQUIRED_IF_SUPPORTED_ALLOWLIST,
+    )
+    required_if_supported = [
+        product
+        for product in [*required_if_supported, *forced_if_supported]
+        if product not in primary_products
+    ]
+    required_if_supported = list(dict.fromkeys(required_if_supported))
+
+    additional_consented = _csv_products(
+        "PLAID_ADDITIONAL_CONSENTED_PRODUCTS",
+        default=_PLAID_DEFAULT_ADDITIONAL_CONSENTED_PRODUCTS,
+        allowlist=_PLAID_ADDITIONAL_CONSENTED_ALLOWLIST,
+    )
+    additional_consented = [
+        product
+        for product in additional_consented
+        if product not in primary_products and product not in required_if_supported
+    ]
+    additional_consented = list(dict.fromkeys(additional_consented))
+    return primary_products, required_if_supported, additional_consented
 
 
 class PlaidPortfolioService:
@@ -1399,24 +1501,48 @@ class PlaidPortfolioService:
         environment: str | None = None,
         plaid_env: str | None = None,
     ) -> dict[str, Any]:
-        holdings_payload = await self._post(
-            "/investments/holdings/get",
-            {"access_token": access_token},
-            environment=environment,
-        )
+        investment_sync_unavailable = False
+        investment_error_code = None
+        investment_error_message = None
         try:
-            transactions = await self._fetch_all_investment_transactions(
-                access_token, environment=environment
+            holdings_payload = await self._post(
+                "/investments/holdings/get",
+                {"access_token": access_token},
+                environment=environment,
             )
         except PlaidApiError as exc:
-            logger.warning(
-                "plaid.transactions_sync_failed user_id=%s item_id=%s error_code=%s status=%s",
+            if exc.error_code not in _PLAID_INVESTMENTS_UNSUPPORTED_CODES:
+                raise
+            investment_sync_unavailable = True
+            investment_error_code = exc.error_code or "PLAID_INVESTMENTS_UNAVAILABLE"
+            investment_error_message = str(exc)
+            logger.info(
+                "plaid.holdings_sync_unavailable_account_fallback user_id=%s item_id=%s error_code=%s status=%s",
                 user_id,
                 item_id,
                 exc.error_code,
                 exc.status_code,
             )
-            transactions = []
+            holdings_payload = await self._post(
+                "/accounts/get",
+                {"access_token": access_token},
+                environment=environment,
+            )
+
+        transactions: list[dict[str, Any]] = []
+        if not investment_sync_unavailable:
+            try:
+                transactions = await self._fetch_all_investment_transactions(
+                    access_token, environment=environment
+                )
+            except PlaidApiError as exc:
+                logger.warning(
+                    "plaid.transactions_sync_failed user_id=%s item_id=%s error_code=%s status=%s",
+                    user_id,
+                    item_id,
+                    exc.error_code,
+                    exc.status_code,
+                )
 
         accounts_raw = holdings_payload.get("accounts")
         holdings_raw = holdings_payload.get("holdings")
@@ -1529,8 +1655,8 @@ class PlaidPortfolioService:
                 :status,
                 :sync_status,
                 NOW(),
-                NULL,
-                NULL,
+                :last_error_code,
+                :last_error_message,
                 CAST(:latest_accounts_json AS JSONB),
                 CAST(:latest_holdings_json AS JSONB),
                 CAST(:latest_securities_json AS JSONB),
@@ -1553,8 +1679,8 @@ class PlaidPortfolioService:
                 status = EXCLUDED.status,
                 sync_status = EXCLUDED.sync_status,
                 last_sync_at = NOW(),
-                last_error_code = NULL,
-                last_error_message = NULL,
+                last_error_code = EXCLUDED.last_error_code,
+                last_error_message = EXCLUDED.last_error_message,
                 latest_accounts_json = EXCLUDED.latest_accounts_json,
                 latest_holdings_json = EXCLUDED.latest_holdings_json,
                 latest_securities_json = EXCLUDED.latest_securities_json,
@@ -1576,6 +1702,8 @@ class PlaidPortfolioService:
                 "plaid_env": plaid_env or self._plaid_env(),
                 "status": status,
                 "sync_status": sync_status,
+                "last_error_code": investment_error_code,
+                "last_error_message": investment_error_message,
                 "latest_accounts_json": json.dumps(normalized_accounts),
                 "latest_holdings_json": json.dumps(normalized_holdings),
                 "latest_securities_json": json.dumps(securities),
@@ -1589,6 +1717,8 @@ class PlaidPortfolioService:
                         "user_id": user_id,
                         "institution_id": institution_id,
                         "institution_name": institution_name,
+                        "investment_sync_unavailable": investment_sync_unavailable,
+                        "investment_error_code": investment_error_code,
                         "last_synced_at": last_synced_at,
                     }
                 ),
@@ -1756,11 +1886,6 @@ class PlaidPortfolioService:
             "user": {"client_user_id": user_id},
             "country_codes": self._country_codes(),
             "language": self._language(),
-            "account_filters": {
-                "investment": {
-                    "account_subtypes": ["all"],
-                }
-            },
         }
         if self._manual_entry_enabled():
             payload["investments"] = {"allow_manual_entry": True}
@@ -1785,7 +1910,22 @@ class PlaidPortfolioService:
             environment = _clean_text(existing.get("plaid_env")) or environment
             config = self._config_for(environment)
         else:
-            payload["products"] = ["investments"]
+            (
+                primary_products,
+                required_if_supported_products,
+                additional_consented_products,
+            ) = _link_token_product_sets()
+            payload["products"] = primary_products
+            if required_if_supported_products:
+                payload["required_if_supported_products"] = required_if_supported_products
+            if additional_consented_products:
+                payload["additional_consented_products"] = additional_consented_products
+            if "investments" in primary_products:
+                payload["account_filters"] = {
+                    "investment": {
+                        "account_subtypes": ["all"],
+                    }
+                }
 
         response = await self._post("/link/token/create", payload, environment=environment)
         link_token = _clean_text(response.get("link_token")) or None

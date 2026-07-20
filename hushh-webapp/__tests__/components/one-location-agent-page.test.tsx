@@ -750,6 +750,27 @@ describe("OneLocationAgentPage", () => {
     ).toBe("1");
   });
 
+  it("does not finish web Location setup while permission is denied", async () => {
+    const onSetupComplete = vi.fn();
+    mockGetPermissionState.mockResolvedValue({
+      state: "denied",
+      precise: false,
+      background: "restricted",
+      locationServicesEnabled: true,
+    });
+
+    render(
+      <OneLocationAgentPage
+        mode="setup"
+        onSetupComplete={onSetupComplete}
+      />,
+    );
+
+    await openLocationPermissionsStep();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(onSetupComplete).not.toHaveBeenCalled();
+  });
+
   it("keeps setup onboarding available when the workspace state fetch fails", async () => {
     mockGetState.mockRejectedValue(new Error("Workspace state unavailable"));
 

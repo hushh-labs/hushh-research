@@ -11,15 +11,15 @@ def test_action_directive_ledger_is_in_release_and_schema_contracts():
     uat = json.loads((ROOT / "db/contracts/uat_integrated_schema.json").read_text())
     dev = json.loads((ROOT / "db/contracts/dev_minimum_schema.json").read_text())
 
-    assert manifest["ordered_migrations"][-1] == "113_one_action_directive_ledger.sql"
-    assert uat["expected_migration_version"] == 113
-    assert dev["expected_migration_version"] == 113
+    assert manifest["ordered_migrations"][-1] == "114_one_action_directive_ledger.sql"
+    assert uat["expected_migration_version"] == 114
+    assert dev["expected_migration_version"] == 114
     assert "one_action_directive_ledger" in uat["required_tables"]
     assert "one_action_directive_ledger" in dev["required_tables"]
 
 
 def test_action_directive_ledger_stores_metadata_not_protected_payloads():
-    migration = (ROOT / "db/migrations/113_one_action_directive_ledger.sql").read_text()
+    migration = (ROOT / "db/migrations/114_one_action_directive_ledger.sql").read_text()
     lowered = migration.lower()
 
     for prohibited_column_declaration in (
