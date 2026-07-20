@@ -40,6 +40,9 @@ const allowedIosUsageDescriptionKeys = new Set([
   // Keep this aligned with verify-native-plugin-contracts.mjs, which requires
   // the same non-empty declaration when the vault/keychain plugins are present.
   "NSFaceIDUsageDescription",
+  // Profile picture: choose from library / take a photo.
+  "NSPhotoLibraryUsageDescription",
+  "NSCameraUsageDescription",
 ]);
 const unexpectedIosUsageDescriptionKeys = iosUsageDescriptionKeys.filter(
   (key) => !allowedIosUsageDescriptionKeys.has(key)

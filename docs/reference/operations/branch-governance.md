@@ -131,7 +131,7 @@ Before deleting a local backup branch, classify its unique commits as:
 2. Production deploys only through a manual workflow dispatch with an explicit green `main` SHA.
 3. The workflow validates that the SHA is reachable from `origin/main`.
 4. The workflow also validates that `Main Post-Merge Smoke Gate` succeeded for that SHA before deployment starts.
-5. Only `kushaltrivedi5` may dispatch the production workflow after the SHA preflight passes.
+5. Only actors listed in `production.manual_dispatch_users` may dispatch the production workflow after the SHA preflight passes.
 6. The canonical GitHub deployment environment for this lane is `production`.
 
 ## Protected Surfaces & Trust Model
@@ -179,15 +179,16 @@ outside it, and the boundaries are enforced, not informal:
 |---|---|---|---|
 | Merge cohort | `allowed-maintainers-to-approve` team | bypass review + queue, edit pipeline | `main.review_bypass_users` / `merge_queue_bypass_users` / `protected_pipeline_edit_users` |
 | UAT deploy cohort | same as merge cohort | dispatch UAT deploy of a green `main` SHA | `uat.manual_dispatch_users` (held == merge cohort) |
-| Production deploy cohort | `kushaltrivedi5` only | dispatch production deploy | `production.manual_dispatch_users` |
+| Production deploy cohort | `kushaltrivedi5`, `ankitkumarsingh1702` | dispatch production deploy | `production.manual_dispatch_users` |
 
 Invariants enforced in CI by `verify-deployment-environment-governance.py`:
 
 - **UAT == merge cohort.** Anyone trusted to land code on `main` may validate it
   in the UAT sandbox — no more, no less. The two lists are held equal and any
   independent drift fails the check.
-- **Production == owner only.** `production.manual_dispatch_users` must be exactly
-  `["kushaltrivedi5"]`; any widening fails the check.
+- **Production == approved dispatch cohort.** `production.manual_dispatch_users`
+  must be exactly `["kushaltrivedi5", "ankitkumarsingh1702"]`; any independent
+  widening or narrowing fails the check.
 
 ### Rule: deploy-actor lists are governance, not routine config
 
@@ -208,7 +209,7 @@ cannot actually approve on `main`).
 #      main.review_bypass_users
 #      main.merge_queue_bypass_users
 #      uat.manual_dispatch_users        (held equal to the merge cohort)
-#    Leave production.manual_dispatch_users = ["kushaltrivedi5"] unless the owner says otherwise.
+#    Leave production.manual_dispatch_users unchanged unless the owner says otherwise.
 
 # 2. Push intent to GitHub (idempotent). Dry-run first, then apply:
 python3 scripts/ci/apply-governance.py
@@ -299,7 +300,7 @@ The production workflow uses one active GitHub environment name:
 
 | Environment | Intended use |
 |---|---|
-| `production` | Owner-only production deploy lane for `kushaltrivedi5` |
+| `production` | Governed production deploy lane for `kushaltrivedi5` and `ankitkumarsingh1702` |
 
 The UAT workflow uses one active GitHub environment name:
 
@@ -309,8 +310,8 @@ The UAT workflow uses one active GitHub environment name:
 
 Operational rules:
 
-1. Only `kushaltrivedi5` may dispatch the production workflow.
-2. Other developers may still merge to `main` through PR flow, but production dispatch remains owner-only.
+1. Only actors listed in `production.manual_dispatch_users` may dispatch the production workflow.
+2. Other developers may still merge to `main` through PR flow, but production dispatch remains restricted to the production dispatch cohort.
 3. `production` should not require reviewers and should not allow admin bypass.
 4. Verify the live setup with `../../../scripts/ci/verify-production-environment-governance.sh`.
 5. Verify both deploy lanes together with `../../../scripts/ci/verify-deployment-environment-governance.py`.

@@ -1,4 +1,4 @@
--- Migration 109: server-authoritative One Email KYC preferences
+-- Migration 110: server-authoritative One Email KYC preferences
 -- ============================================================================
 -- Automatic mailbox processing is explicit opt-in. The preference is account-
 -- scoped so web, iOS, Android, and the asynchronous Gmail webhook all enforce

@@ -62,6 +62,10 @@
 	<string>Hussh One keeps sharing your live location with people you choose even when the app is in the background, until you stop sharing.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Hussh One uses contacts only when you choose to find people already on Hussh.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Hussh One uses your photo library only when you choose a picture for your profile.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Hussh One uses the camera only when you take a picture for your profile.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

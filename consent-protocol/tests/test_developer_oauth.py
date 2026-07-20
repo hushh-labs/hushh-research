@@ -415,6 +415,8 @@ def test_oauth_migration_is_in_the_developer_release_lane():
     uat = json.loads((root / "db/contracts/uat_integrated_schema.json").read_text())
     assert "099_developer_oauth_pkce.sql" in manifest["ordered_migrations"]
     assert "099_developer_oauth_pkce.sql" in manifest["groups"]["developer"]
-    assert uat["expected_migration_version"] == 108
-    assert "108_oauth_client_credentials_consent_execution.sql" in manifest["ordered_migrations"]
-    assert "108_oauth_client_credentials_consent_execution.sql" in manifest["groups"]["developer"]
+    # Contract head advances as new migrations land; assert it still covers the
+    # executable client-credentials migration rather than pinning an exact version.
+    assert uat["expected_migration_version"] >= 109
+    assert "109_oauth_client_credentials_consent_execution.sql" in manifest["ordered_migrations"]
+    assert "109_oauth_client_credentials_consent_execution.sql" in manifest["groups"]["developer"]

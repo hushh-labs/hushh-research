@@ -119,7 +119,8 @@
   "production": {
     "required_post_merge_check": "Main Post-Merge Smoke Gate",
     "manual_dispatch_users": [
-      "kushaltrivedi5"
+      "kushaltrivedi5",
+      "ankitkumarsingh1702"
     ],
     "owner_environment": "production"
   }
