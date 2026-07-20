@@ -6,6 +6,7 @@ import {
   CACHE_TTL,
 } from "@/lib/services/cache-service";
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
+import { currentRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
 import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import {
   trackEvent,
@@ -1006,6 +1007,7 @@ export class RiaService {
   private static inflight = new Map<string, Promise<unknown>>();
   private static readonly DEVICE_TTL_MS = CACHE_TTL.MEDIUM;
 
+
   private static logRequest(
     stage: string,
     detail: Record<string, unknown>,
@@ -1053,7 +1055,11 @@ export class RiaService {
     inflightKey: string;
     resourceLabel: string;
     loader: () => Promise<T>;
+    // Optional persistence hook (e.g. native Preferences) run through the SAME
+    // invalidation-epoch guard as the memory/device writes.
+    onPersist?: (value: T) => void;
   }): Promise<T> {
+    const epochAtStart = currentRiaInvalidationEpoch(params.userId);
     const payload = await this.runDeduped(params.inflightKey, async () => {
       this.logRequest("network_fetch", {
         label: params.resourceLabel,
@@ -1063,6 +1069,17 @@ export class RiaService {
       });
       return await params.loader();
     });
+    // Drop the write-back if this user's RIA caches were invalidated (delete /
+    // switch / marketplace) after this fetch was dispatched — otherwise a stale
+    // in-flight response repopulates a just-cleared profile across all tiers.
+    if (params.userId && currentRiaInvalidationEpoch(params.userId) !== epochAtStart) {
+      this.logRequest("write_skipped_stale_epoch", {
+        label: params.resourceLabel,
+        cacheKey: params.cacheKey,
+        userId: params.userId,
+      });
+      return payload;
+    }
     if (params.cacheKey) {
       this.writeCached(params.cacheKey, payload, params.ttl);
     }
@@ -1074,6 +1091,7 @@ export class RiaService {
         ttlMs: params.ttl ?? this.DEVICE_TTL_MS,
       });
     }
+    params.onPersist?.(payload);
     return payload;
   }
 
@@ -1086,6 +1104,7 @@ export class RiaService {
     inflightKey: string;
     resourceLabel: string;
     loader: () => Promise<T>;
+    onPersist?: (value: T) => void;
   }): Promise<T> {
     if (params.cacheKey) {
       const snapshot = params.force
@@ -1574,14 +1593,16 @@ export class RiaService {
           method: "GET",
           idToken,
         });
-        const status = await toJsonOrThrow<RiaOnboardingStatus>(response);
-        // Write-through to native persistent storage for instant cold-start
-        // paint on the app (stale hint only; revalidated via SWR).
-        if (options?.userId) {
-          void RiaOnboardingStatusLocalService.save(options.userId, status);
-        }
-        return status;
+        return toJsonOrThrow<RiaOnboardingStatus>(response);
       },
+      // Native persistent write-through for instant cold-start paint (stale hint
+      // only). Runs via refreshCachedResource's epoch guard, so an in-flight
+      // fetch that resolves after a delete/switch can't re-persist exists:true.
+      onPersist: options?.userId
+        ? (status) => {
+            void RiaOnboardingStatusLocalService.save(options.userId!, status);
+          }
+        : undefined,
     });
   }
 

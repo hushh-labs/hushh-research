@@ -6,6 +6,7 @@ import {
 } from "@/lib/services/cache-service";
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
 import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
+import { bumpRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 
 type DomainSummaryPatch = Record<string, unknown>;
@@ -592,6 +593,10 @@ export class CacheSyncService {
    */
   private static invalidateRiaPersistentCaches(userId: string): void {
     if (!userId) return;
+    // Bump the RIA invalidation epoch FIRST so any in-flight status/persona
+    // fetch dispatched before this clear has its write-back dropped (prevents a
+    // stale exists:true from repopulating the persistent tiers after a delete).
+    bumpRiaInvalidationEpoch(userId);
     void DeviceResourceCacheService.invalidateResourcePrefix(userId, "ria:").catch(
       () => undefined,
     );

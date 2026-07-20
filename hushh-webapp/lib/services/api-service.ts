@@ -503,7 +503,10 @@ async function apiFetch(
       const isLongRunningRoute =
         path.includes("/ria/onboarding/") ||
         path.includes("/ria/profile/refresh-license");
-      const readTimeoutMs = isLongRunningRoute ? 90_000 : 15_000;
+      // 90s ceiling for the RIA scrape routes; a generous 60s otherwise so we
+      // only ever bound a genuinely hung request (native calls were previously
+      // unbounded — keep legitimately-slow uploads/downloads working).
+      const readTimeoutMs = isLongRunningRoute ? 90_000 : 60_000;
       const request: {
         url: string;
         method: string;
@@ -573,23 +576,34 @@ async function apiFetch(
       // Race the native request against the caller's AbortSignal so a client
       // timeout (e.g. the 90s licence-verify abort) actually returns control —
       // CapacitorHttp can't cancel, so the in-flight native request is abandoned.
+      // The abort listener is removed on completion (finally) so a request that
+      // wins the race doesn't leak a listener + closure on the signal.
       const signal = options.signal;
-      const nativeResponse = signal
-        ? await Promise.race([
+      let nativeResponse: Awaited<ReturnType<typeof CapacitorHttp.request>>;
+      if (signal) {
+        let onAbort: (() => void) | undefined;
+        const abortPromise = new Promise<never>((_, reject) => {
+          onAbort = () =>
+            reject(new DOMException("The operation was aborted.", "AbortError"));
+          if (signal.aborted) {
+            onAbort();
+            return;
+          }
+          signal.addEventListener("abort", onAbort, { once: true });
+        });
+        try {
+          nativeResponse = await Promise.race([
             CapacitorHttp.request(request),
-            new Promise<never>((_, reject) => {
-              const onAbort = () =>
-                reject(
-                  new DOMException("The operation was aborted.", "AbortError"),
-                );
-              if (signal.aborted) {
-                onAbort();
-                return;
-              }
-              signal.addEventListener("abort", onAbort, { once: true });
-            }),
-          ])
-        : await CapacitorHttp.request(request);
+            abortPromise,
+          ]);
+        } finally {
+          if (onAbort) {
+            signal.removeEventListener("abort", onAbort);
+          }
+        }
+      } else {
+        nativeResponse = await CapacitorHttp.request(request);
+      }
       const response = toResponse(nativeResponse);
       await handleVaultOwnerAuthFailure(response);
       recordApiRequestMetric(response.status);

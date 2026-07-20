@@ -1041,25 +1041,31 @@ function ProfilePageContent() {
         return null;
       }
 
-      // Only show the "Checking" spinner on a genuine cold cache. A warm value
-      // (fresh or stale) is served instantly by getOnboardingStatus' SWR, so
-      // flipping the row to loading would just flash "Checking" needlessly.
-      const hasCachedStatus =
-        !force &&
-        Boolean(
-          CacheService.getInstance().peek<RiaOnboardingStatus>(
-            CACHE_KEYS.RIA_ONBOARDING_STATUS(user.uid),
-          ),
-        );
-      if (!hasCachedStatus) {
+      // Only show the "Checking" spinner on a genuine cold cache — a warm value
+      // (the synchronously-seeded snapshot) already paints, so we revalidate
+      // silently. Independent of `force` so an explicit refresh with a value
+      // shown doesn't flash the row either.
+      const hasDisplayable = Boolean(
+        CacheService.getInstance().peek<RiaOnboardingStatus>(
+          CACHE_KEYS.RIA_ONBOARDING_STATUS(user.uid),
+        ),
+      );
+      // Show the spinner on a cold cache, or on an explicit user-triggered
+      // refresh (force) where feedback is expected; stay silent on a warm open.
+      if (!hasDisplayable || force) {
         setLoadingRiaOnboardingStatus(true);
       }
       setRiaOnboardingStatusError(null);
       try {
         const idToken = await user.getIdToken();
+        // Always revalidate against the server on open/refresh (force) so a warm
+        // SESSION-cached snapshot can't leave a compliance-meaningful status
+        // (e.g. verification_status) stale for up to 30 min; the seed already
+        // painted instantly, and setState below repaints when the fresh value
+        // lands (no spinner on a warm cache).
         const nextStatus = await RiaService.getOnboardingStatus(idToken, {
           userId: user.uid,
-          force,
+          force: true,
         });
         setRiaOnboardingStatus(nextStatus);
         return nextStatus;
