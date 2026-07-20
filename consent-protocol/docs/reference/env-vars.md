@@ -76,6 +76,10 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `HUSHH_UAT_PHONE_TEST_NUMBERS` | `api/routes/account.py` | UAT test only | Comma-separated E.164 allowlist for fixed-code phone verification; only honored when `ENVIRONMENT=uat`. Store in UAT Secret Manager. |
 | `HUSHH_UAT_PHONE_TEST_CODE` | `api/routes/account.py` | UAT test only | Fixed OTP for the UAT phone allowlist. Store in UAT Secret Manager and never expose as `NEXT_PUBLIC_*`. |
 | `HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET` | `api/routes/account.py` | Optional | Optional HMAC key for stateless UAT phone challenge IDs; falls back to `APP_SIGNING_KEY`. |
+| `HUSHH_PROD_PHONE_TEST_ENABLED` | `api/routes/account.py` | Production test only | Required non-secret Cloud Run flag before production fixed-code phone verification is honored. |
+| `HUSHH_PROD_PHONE_TEST_NUMBERS` | `api/routes/account.py` | Production test only | Synthetic-only E.164 allowlist for production fixed-code phone verification. Store in production Secret Manager. |
+| `HUSHH_PROD_PHONE_TEST_CODE` | `api/routes/account.py` | Production test only | Fixed OTP for the production synthetic phone allowlist. Store in production Secret Manager and never expose as `NEXT_PUBLIC_*`. |
+| `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` | `api/routes/account.py` | Production test only | Required HMAC key for production stateless phone challenge IDs; production never falls back to `APP_SIGNING_KEY` or the OTP. |
 | `ROOT_PATH` | `server.py` | No | FastAPI root path for reverse proxy. |
 | `AGENT_GEMINI_MODEL` | `hushh_mcp/services/agent_chat_service.py` | No | Reserved / not applied. The Agent text chat model is manifest-driven (`hushh_mcp/agents/kai/agent.yaml`, currently `gemini-3.5-flash`); this env var is intentionally ignored (see `test_agent_chat_service_ignores_env_model_override`). To change the chat model, edit the manifest. |
 | `AGENT_GEMINI_VOICE_ENABLED` | `api/routes/kai/agent_voice.py` | No | Agent chained voice kill switch. Defaults enabled; set a disabled flag value to turn off Gemini STT/TTS adapters. |
@@ -316,6 +320,9 @@ Local runtime bootstrap:
 | `OPENAI_API_KEY` | Yes | GCP Secret Manager |
 | `BACKEND_RUNTIME_CONFIG_JSON` | Yes | GCP Secret Manager |
 | `VOICE_RUNTIME_CONFIG_JSON` | Yes | GCP Secret Manager |
+| `HUSHH_PROD_PHONE_TEST_NUMBERS` | Production test only | GCP Secret Manager |
+| `HUSHH_PROD_PHONE_TEST_CODE` | Production test only | GCP Secret Manager |
+| `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` | Production test only | GCP Secret Manager |
 | `DB_HOST` | No | Cloud Run env var |
 | `DB_PORT` | No | Cloud Run env var |
 | `DB_NAME` | No | Cloud Run env var |

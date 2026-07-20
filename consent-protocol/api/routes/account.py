@@ -180,9 +180,16 @@ def _clean_env(name: str) -> str:
     return str(os.getenv(name) or "").strip()
 
 
+def _runtime_environment() -> str:
+    return (_clean_env("ENVIRONMENT") or _clean_env("HUSHH_DEPLOY_ENV")).lower()
+
+
+def _is_truthy_env(name: str) -> bool:
+    return _clean_env(name).lower() in {"1", "true", "yes", "on", "enabled"}
+
+
 def _is_uat_environment() -> bool:
-    environment = (_clean_env("ENVIRONMENT") or _clean_env("HUSHH_DEPLOY_ENV")).lower()
-    return environment == "uat"
+    return _runtime_environment() == "uat"
 
 
 def _normalize_phone_number(raw_phone: str) -> str:
@@ -196,8 +203,7 @@ def _normalize_phone_number(raw_phone: str) -> str:
     return cleaned
 
 
-def _configured_uat_phone_test_numbers() -> set[str]:
-    raw = _clean_env("HUSHH_UAT_PHONE_TEST_NUMBERS") or _clean_env("UAT_PHONE_TEST_NUMBERS")
+def _parse_phone_test_numbers(raw: str) -> set[str]:
     if not raw:
         return set()
     return {
@@ -207,17 +213,60 @@ def _configured_uat_phone_test_numbers() -> set[str]:
     }
 
 
+def _configured_uat_phone_test_numbers() -> set[str]:
+    raw = _clean_env("HUSHH_UAT_PHONE_TEST_NUMBERS") or _clean_env("UAT_PHONE_TEST_NUMBERS")
+    return _parse_phone_test_numbers(raw)
+
+
+def _configured_prod_phone_test_numbers() -> set[str]:
+    return _parse_phone_test_numbers(_clean_env("HUSHH_PROD_PHONE_TEST_NUMBERS"))
+
+
+def _configured_phone_test_numbers() -> set[str]:
+    environment = _runtime_environment()
+    if environment == "uat":
+        return _configured_uat_phone_test_numbers()
+    if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
+        return _configured_prod_phone_test_numbers()
+    return set()
+
+
 def _configured_uat_phone_test_code() -> str:
     return _clean_env("HUSHH_UAT_PHONE_TEST_CODE") or _clean_env("UAT_PHONE_TEST_CODE")
 
 
-def _uat_phone_test_enabled() -> bool:
-    return _is_uat_environment() and bool(
-        _configured_uat_phone_test_numbers() and _configured_uat_phone_test_code()
-    )
+def _configured_prod_phone_test_code() -> str:
+    return _clean_env("HUSHH_PROD_PHONE_TEST_CODE")
 
 
-def _uat_phone_test_challenge_key() -> str:
+def _configured_prod_phone_test_challenge_secret() -> str:
+    return _clean_env("HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET")
+
+
+def _configured_phone_test_code() -> str:
+    environment = _runtime_environment()
+    if environment == "uat":
+        return _configured_uat_phone_test_code()
+    if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
+        return _configured_prod_phone_test_code()
+    return ""
+
+
+def _phone_test_enabled() -> bool:
+    if _runtime_environment() == "production":
+        return bool(
+            _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED")
+            and _configured_prod_phone_test_numbers()
+            and _configured_prod_phone_test_code()
+            and _configured_prod_phone_test_challenge_secret()
+        )
+    return bool(_configured_phone_test_numbers() and _configured_phone_test_code())
+
+
+def _phone_test_challenge_key() -> str:
+    environment = _runtime_environment()
+    if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
+        return _configured_prod_phone_test_challenge_secret()
     return (
         _clean_env("HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET")
         or _clean_env("APP_SIGNING_KEY")
@@ -227,7 +276,7 @@ def _uat_phone_test_challenge_key() -> str:
 
 def _create_uat_phone_test_verification_id(phone_number: str) -> str:
     digest = hmac.new(
-        _uat_phone_test_challenge_key().encode("utf-8"),
+        _phone_test_challenge_key().encode("utf-8"),
         phone_number.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
@@ -509,11 +558,11 @@ async def start_uat_test_phone_verification(
     payload: UatPhoneTestStartRequest,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    """Start a UAT-only fixed-code phone verification challenge for allowlisted numbers."""
+    """Start an environment-gated fixed-code phone verification challenge."""
     del firebase_uid
     phone_number = _normalize_phone_number(payload.phone_number)
-    enabled = _uat_phone_test_enabled()
-    eligible = enabled and phone_number in _configured_uat_phone_test_numbers()
+    enabled = _phone_test_enabled()
+    eligible = enabled and phone_number in _configured_phone_test_numbers()
 
     if not eligible:
         return {
@@ -534,11 +583,11 @@ async def confirm_uat_test_phone_verification(
     payload: UatPhoneTestConfirmRequest,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    """Persist a UAT-only fixed-code phone verification claim for an allowlisted number."""
+    """Persist an environment-gated fixed-code phone verification claim."""
     phone_number = _normalize_phone_number(payload.phone_number)
-    configured_code = _configured_uat_phone_test_code()
+    configured_code = _configured_phone_test_code()
 
-    if not _uat_phone_test_enabled() or phone_number not in _configured_uat_phone_test_numbers():
+    if not _phone_test_enabled() or phone_number not in _configured_phone_test_numbers():
         raise HTTPException(
             status_code=403,
             detail={

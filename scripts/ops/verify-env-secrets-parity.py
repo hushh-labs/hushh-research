@@ -66,6 +66,12 @@ BACKEND_REVIEWER_SMOKE_REQUIRED = (
     "REVIEWER_VAULT_PASSPHRASE",
 )
 
+BACKEND_PROD_PHONE_TEST_REQUIRED = (
+    "HUSHH_PROD_PHONE_TEST_NUMBERS",
+    "HUSHH_PROD_PHONE_TEST_CODE",
+    "HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET",
+)
+
 GMAIL_OAUTH_RETURN_PATH = "/profile/gmail/oauth/return"
 
 FRONTEND_REQUIRED = (
@@ -747,6 +753,11 @@ def main() -> int:
         help="Also require non-production reviewer smoke secrets on the backend runtime.",
     )
     parser.add_argument(
+        "--require-prod-phone-test",
+        action="store_true",
+        help="Also require production fixed-code phone-test secrets on the backend runtime.",
+    )
+    parser.add_argument(
         "--assert-runtime-env-contract",
         action="store_true",
         help="Also verify Cloud Run runtime env injection for hosted frontend/backend parity.",
@@ -780,6 +791,8 @@ def main() -> int:
         required.extend(BACKEND_VOICE_REQUIRED)
     if checks_backend and args.require_reviewer_smoke:
         required.extend(BACKEND_REVIEWER_SMOKE_REQUIRED)
+    if checks_backend and args.require_prod_phone_test:
+        required.extend(BACKEND_PROD_PHONE_TEST_REQUIRED)
     if args.require_native_artifacts:
         required.extend(NATIVE_RELEASE_REQUIRED)
     required = tuple(dict.fromkeys(required))
@@ -807,6 +820,9 @@ def main() -> int:
             else [],
             "reviewer_smoke": list(BACKEND_REVIEWER_SMOKE_REQUIRED)
             if checks_backend and args.require_reviewer_smoke
+            else [],
+            "prod_phone_test": list(BACKEND_PROD_PHONE_TEST_REQUIRED)
+            if checks_backend and args.require_prod_phone_test
             else [],
             "plaid": list(BACKEND_PLAID_REQUIRED)
             if checks_backend and args.require_plaid
@@ -868,6 +884,11 @@ def main() -> int:
         print(
             "Required reviewer smoke backend secrets "
             f"({len(BACKEND_REVIEWER_SMOKE_REQUIRED)}): {_format_names(BACKEND_REVIEWER_SMOKE_REQUIRED)}"
+        )
+    if checks_backend and args.require_prod_phone_test:
+        print(
+            "Required production phone-test backend secrets "
+            f"({len(BACKEND_PROD_PHONE_TEST_REQUIRED)}): {_format_names(BACKEND_PROD_PHONE_TEST_REQUIRED)}"
         )
     if checks_frontend:
         print(
