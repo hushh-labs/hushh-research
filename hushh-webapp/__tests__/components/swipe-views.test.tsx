@@ -8,6 +8,7 @@ import { SwipeViews } from "@/components/app-ui/swipe-views";
 
 const embla = vi.hoisted(() => ({
   selectedIndex: 0,
+  scrollProgress: 0,
   scrollTo: vi.fn<(index: number) => void>(),
   listeners: new Map<string, () => void>(),
   ref: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock("embla-carousel-react", () => ({
     embla.ref,
     {
       selectedScrollSnap: () => embla.selectedIndex,
+      scrollProgress: () => embla.scrollProgress,
       scrollTo: embla.scrollTo,
       on: (event: string, listener: () => void) => {
         embla.listeners.set(event, listener);
@@ -37,6 +39,7 @@ const OPTIONS = [
 describe("SwipeViews", () => {
   beforeEach(() => {
     embla.selectedIndex = 0;
+    embla.scrollProgress = 0;
     embla.scrollTo.mockClear();
     embla.listeners.clear();
   });
@@ -125,5 +128,33 @@ describe("SwipeViews", () => {
     embla.listeners.get("settle")?.();
 
     expect(onChildSwiped).toHaveBeenCalledWith("second");
+  });
+
+  it("keeps the shared tab progress attached to the pane through snap settle", () => {
+    const view = render(
+      <SwipeViews tabSetId="continuous" activeValue="first" options={OPTIONS}>
+        <div>first panel content</div>
+        <div>second panel content</div>
+      </SwipeViews>,
+    );
+
+    embla.listeners.get("pointerDown")?.();
+    embla.scrollProgress = 0.45;
+    embla.listeners.get("scroll")?.();
+    embla.listeners.get("pointerUp")?.();
+
+    const progressVariable = "--top-shell-tab-swipe-continuous-position";
+    expect(document.documentElement.style.getPropertyValue(progressVariable)).toBe(
+      "0.45",
+    );
+
+    embla.selectedIndex = 1;
+    embla.scrollProgress = 1;
+    embla.listeners.get("settle")?.();
+
+    expect(document.documentElement.style.getPropertyValue(progressVariable)).toBe(
+      "1",
+    );
+    expect(view.container.querySelector(".will-change-transform")).toBeTruthy();
   });
 });

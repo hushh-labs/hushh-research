@@ -60,10 +60,11 @@ export function SwipeViews({
     options.findIndex((option) => option.value === activeValue),
   );
   const isDraggingRef = useRef(false);
+  const hasMovedSincePointerDownRef = useRef(false);
 
   const syncTabIndicator = useCallback(
     (isDragging?: boolean) => {
-      if (!emblaApi) return;
+      if (!emblaApi) return null;
       const scrollProgress = emblaApi.scrollProgress?.();
       const position =
         typeof scrollProgress === "number" && Number.isFinite(scrollProgress)
@@ -74,6 +75,7 @@ export function SwipeViews({
         position,
         isDragging ?? isDraggingRef.current,
       );
+      return position;
     },
     [emblaApi, options.length, tabSetId],
   );
@@ -95,11 +97,17 @@ export function SwipeViews({
   const onSettle = useCallback(() => {
     if (!emblaApi) return;
     const currentIdx = emblaApi.selectedScrollSnap();
+    // Embla continues its snap after the finger lifts. Keep the tab indicator
+    // bound to the same compositor progress through that settle phase instead
+    // of letting it jump back to the route-selected index mid-pane motion.
+    isDraggingRef.current = false;
+    hasMovedSincePointerDownRef.current = false;
+    setTopShellTabSwipeState(tabSetId, currentIdx, false);
     const newValue = options[currentIdx]?.value;
     if (newValue && newValue !== activeValue) {
       onChildSwiped?.(newValue);
     }
-  }, [emblaApi, options, activeValue, onChildSwiped]);
+  }, [emblaApi, options, activeValue, onChildSwiped, tabSetId]);
 
   useEffect(() => {
     if (!emblaApi) return;
@@ -112,12 +120,28 @@ export function SwipeViews({
 
   useEffect(() => {
     if (!emblaApi) return;
-    const onScroll = () => syncTabIndicator();
+    const onScroll = () => {
+      const position = syncTabIndicator();
+      if (
+        typeof position === "number" &&
+        Math.abs(position - activeIndex) > 0.001
+      ) {
+        hasMovedSincePointerDownRef.current = true;
+      }
+    };
     const onPointerDown = () => {
       isDraggingRef.current = true;
+      hasMovedSincePointerDownRef.current = false;
       syncTabIndicator(true);
     };
     const onPointerUp = () => {
+      // Preserve the progress-driven indicator until Embla settles after a
+      // real horizontal move. A tap or vertical intent has no settle motion,
+      // so it can return to route-driven state immediately.
+      if (hasMovedSincePointerDownRef.current) {
+        syncTabIndicator(true);
+        return;
+      }
       isDraggingRef.current = false;
       syncTabIndicator(false);
     };
@@ -132,8 +156,9 @@ export function SwipeViews({
       emblaApi.off("pointerDown", onPointerDown);
       emblaApi.off("pointerUp", onPointerUp);
       isDraggingRef.current = false;
+      hasMovedSincePointerDownRef.current = false;
     };
-  }, [emblaApi, syncTabIndicator]);
+  }, [activeIndex, emblaApi, syncTabIndicator]);
 
   return (
     <div
@@ -144,7 +169,7 @@ export function SwipeViews({
       style={{ minHeight: SWIPE_VIEWPORT_MIN_HEIGHT }}
     >
       <div
-        className="flex w-full min-h-0 touch-pan-y"
+        className="flex w-full min-h-0 touch-pan-y transform-gpu will-change-transform"
         style={{ minHeight: "inherit" }}
       >
         {options.map((option, index) => {

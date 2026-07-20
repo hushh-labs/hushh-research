@@ -12,9 +12,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Icon } from "@/lib/morphy-ux/ui";
+import {
+  resolveThemePreference,
+  type ThemePreference,
+} from "@/lib/theme/theme-preference";
 import { cn } from "@/lib/utils";
 
-type ThemeOption = "light" | "dark" | "system";
+type ThemeOption = ThemePreference;
 const THEME_STORAGE_KEY = "theme";
 
 const THEME_OPTIONS: Array<{
@@ -27,18 +31,10 @@ const THEME_OPTIONS: Array<{
   { value: "system", label: "System", icon: Monitor },
 ];
 
-function resolveThemeOption(theme: string | null | undefined): ThemeOption | null {
-  const normalized = (theme ?? "").trim().toLowerCase();
-  if (normalized === "light" || normalized === "dark" || normalized === "system") {
-    return normalized as ThemeOption;
-  }
-  return null;
-}
-
 function readPersistedThemeOption(): ThemeOption | null {
   if (typeof window === "undefined") return null;
   try {
-    return resolveThemeOption(window.localStorage.getItem(THEME_STORAGE_KEY));
+    return resolveThemePreference(window.localStorage.getItem(THEME_STORAGE_KEY));
   } catch {
     return null;
   }
@@ -55,7 +51,7 @@ function useStableThemeSelection() {
   const [activeTheme, setActiveTheme] = useState<ThemeOption | null>(null);
 
   useEffect(() => {
-    setActiveTheme(readPersistedThemeOption() ?? resolveThemeOption(theme));
+    setActiveTheme(readPersistedThemeOption() ?? resolveThemePreference(theme));
   }, [theme]);
 
   const selectTheme = useCallback(
