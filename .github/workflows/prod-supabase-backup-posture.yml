@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 env:
   GCP_PROJECT_ID: hushh-pda
@@ -25,10 +26,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Validate Google Cloud workload identity configuration
+        shell: bash
+        env:
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          BACKUP_SERVICE_ACCOUNT: ${{ vars.GCP_BACKUP_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test -n "$WIF_PROVIDER" || { echo "Missing repository variable GCP_WORKLOAD_IDENTITY_PROVIDER" >&2; exit 1; }
+          test -n "$BACKUP_SERVICE_ACCOUNT" || { echo "Missing repository variable GCP_BACKUP_SERVICE_ACCOUNT" >&2; exit 1; }
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_BACKUP_SERVICE_ACCOUNT }}
 
       - name: Set up Python
         uses: actions/setup-python@v6

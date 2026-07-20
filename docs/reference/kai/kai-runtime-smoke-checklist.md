@@ -44,7 +44,6 @@ Runtime truth note:
    - `/api/kai/voice/realtime/session`
    - `/api/kai/voice/plan`
    - `/api/kai/voice/compose`
-   - `/api/kai/voice/tts`
 
 ## 0a) Voice Runtime Sanity
 1. Open a signed-in Kai route where voice is eligible.

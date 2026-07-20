@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Building2 } from "lucide-react";
-
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
@@ -67,8 +65,7 @@ export function ConnectedSystemDetailClient({
       <AppPageHeaderRegion>
         <PageHeader
           title="Connected system"
-          description="Review the record linked to this CRM and approve each change."
-          icon={Building2}
+          description="Find, create, and manage the profile linked to this CRM."
           accent="neutral"
         />
       </AppPageHeaderRegion>

@@ -426,7 +426,7 @@ describe("kai-action-gateway", () => {
           path: "route",
           target: "/one/kyc",
         },
-        guard_ids: ["auth_required"],
+        guard_ids: ["auth_required", "vault_unlocked"],
       })
     );
     expect(getKaiActionById("kyc.draft.approve_send")).toEqual(
@@ -442,9 +442,12 @@ describe("kai-action-gateway", () => {
     expect(getKaiActionById("kyc.draft.request_redraft")).toEqual(
       expect.objectContaining({
         execution_policy: "confirm_required",
-        execution_target: expect.objectContaining({
-          status: "unwired",
-        }),
+        guard_ids: ["auth_required", "vault_unlocked"],
+        execution_target: {
+          status: "wired",
+          path: "local_handler",
+          target: "one_kyc_redraft",
+        },
       })
     );
     expect(getKaiActionById("kyc.draft.reject")).toEqual(

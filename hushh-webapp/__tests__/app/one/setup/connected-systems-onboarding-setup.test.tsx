@@ -4,15 +4,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectedSystemsOnboardingSetupClient } from "@/app/one/setup/connected-systems/connected-systems-onboarding-setup-client";
 
 const params = { system: null as string | null };
+let setupResolved = false;
+const routerReplaceMock = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => ({ get: (key: string) => (key === "system" ? params.system : null) }),
+  useRouter: () => ({ replace: routerReplaceMock }),
 }));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { uid: "user-1" } }),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ vaultOwnerToken: "owner-token" }),
+}));
+vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
+  PreVaultUserStateService: {
+    getCachedBootstrapState: () => (setupResolved ? { setupCompleted: true } : null),
+    isSetupResolved: () => setupResolved,
+  },
 }));
 vi.mock("@/components/profile/connected-systems-panel", () => ({
   ConnectedSystemsPanel: ({
@@ -50,6 +59,8 @@ vi.mock("@/components/app-ui/vault-status-inline", () => ({
 describe("Connected Systems onboarding", () => {
   beforeEach(() => {
     params.system = null;
+    setupResolved = false;
+    routerReplaceMock.mockReset();
   });
 
   it("requires a real linked profile before finishing from the list", () => {
@@ -65,5 +76,17 @@ describe("Connected Systems onboarding", () => {
     render(<ConnectedSystemsOnboardingSetupClient />);
     expect(screen.getByText("CRM panel detail")).toBeTruthy();
     expect(screen.queryByText(/Finish CRM setup/)).toBeNull();
+  });
+
+  it("returns completed accounts to the canonical CRM workspace", () => {
+    setupResolved = true;
+    params.system = "crm-1";
+
+    render(<ConnectedSystemsOnboardingSetupClient />);
+
+    expect(routerReplaceMock).toHaveBeenCalledWith(
+      "/one/connected-systems?system=crm-1",
+    );
+    expect(screen.getByText("loading")).toBeTruthy();
   });
 });

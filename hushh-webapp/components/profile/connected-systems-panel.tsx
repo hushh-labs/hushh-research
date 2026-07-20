@@ -33,6 +33,7 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { buildConnectedSystemRoute, ROUTES } from "@/lib/navigation/routes";
+import { cn } from "@/lib/utils";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { ConnectedSystemsResourceService } from "@/lib/services/connected-systems-resource-service";
 import {
@@ -107,9 +108,6 @@ type CrmProfileField = {
 type CrmFieldTableRow = {
   key: string;
   label: string;
-  dataType: string;
-  access: string;
-  required: string;
   currentValue: string;
   field: CrmProfileField;
 };
@@ -280,6 +278,48 @@ function displayRecordValue(value: unknown): string {
   return String(value);
 }
 
+function VerifiedProfileSummary({
+  profile,
+  action,
+}: {
+  profile?: ConnectedSystemsPanelProps["profile"];
+  action: "find" | "create";
+}) {
+  const entries = [
+    { label: "Name", value: cleanFieldValue(profile?.displayName) },
+    { label: "Email", value: cleanFieldValue(profile?.email) },
+    { label: "Phone", value: cleanFieldValue(profile?.phone) },
+  ].filter((entry) => entry.value);
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm leading-6 text-muted-foreground">
+        {action === "find"
+          ? "We’ll look for a profile using the verified details on your account."
+          : "We’ll prepare a new profile using the verified details on your account."}
+      </p>
+      {entries.length > 0 ? (
+        <dl className="overflow-hidden rounded-[var(--app-card-radius-compact)] border border-border/70 bg-muted/20">
+          {entries.map((entry, index) => (
+            <div
+              key={entry.label}
+              className={cn(
+                "flex min-h-11 items-center justify-between gap-4 px-3 py-2.5 text-sm",
+                index > 0 && "border-t border-border/70",
+              )}
+            >
+              <dt className="shrink-0 text-muted-foreground">{entry.label}</dt>
+              <dd className="min-w-0 truncate text-right font-medium text-foreground">
+                {entry.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+    </div>
+  );
+}
+
 function cleanFieldValue(value: unknown): string {
   return String(value ?? "").trim();
 }
@@ -407,7 +447,7 @@ export function ConnectedSystemsPanel({
   mode = "detail",
   systemId,
   agentInstruction,
-  profile: _profile,
+  profile,
   onSetupReadinessChange,
   setupRouteBase,
   presentation = "workspace",
@@ -441,6 +481,7 @@ export function ConnectedSystemsPanel({
     null,
   );
   const [readResolvedKey, setReadResolvedKey] = useState<string | null>(null);
+  const [cachedRecordRefreshPending, setCachedRecordRefreshPending] = useState(false);
   const [unboundLookupState, setUnboundLookupState] = useState<
     "idle" | "checking" | "no_match" | "failed"
   >("idle");
@@ -519,9 +560,6 @@ export function ConnectedSystemsPanel({
       ? selectedSystem?.supportedActions?.schema === true
       : schemaReady && schema?.effectiveActions?.[action] === true;
   const customerName = selectedSystem?.customerDisplayName || "Connected CRM";
-  const systemType = selectedSystem?.systemType || "CRM";
-  const systemName = selectedSystem?.systemName || "FSC";
-  const systemLabel = crmTypeDisplayLabel({ systemType, systemName });
   const primaryObjectLabel =
     schema?.objectMetadata?.label ||
     schema?.objectType ||
@@ -529,7 +567,6 @@ export function ConnectedSystemsPanel({
     selectedSystem?.objectTypeDefault ||
     "record";
   const crmRecords = useMemo(() => extractRecords(readResult), [readResult]);
-  const hasReadback = Boolean(readResult);
   const activeBinding = binding?.status === "active" ? binding : null;
   // Complete when ANY system has an active binding: the currently open one
   // (instant, from local state) OR any other system already linked
@@ -604,11 +641,6 @@ export function ConnectedSystemsPanel({
   const bindingResolved = Boolean(
     selectedSystemKey && bindingResolvedKey === selectedSystemKey,
   );
-  const selectedRecordLinkLabel = !bindingResolved
-    ? "Checking record link"
-    : activeBinding
-      ? "Record linked"
-      : "No linked record";
   const boundRecordReadResolved =
     !hasBoundRecord ||
     readResultHasCurrentRecord ||
@@ -646,22 +678,22 @@ export function ConnectedSystemsPanel({
     supportsAction("update");
   const showCatalogueOnly = Boolean(
     schema &&
-      (!schemaReady ||
-        (!isSetupPresentation &&
-          (hasBoundRecord ? !canShowBoundRecordActions : !canShowUnboundRecordActions))),
+      hasBoundRecord &&
+      (!schemaReady || (!isSetupPresentation && !canShowBoundRecordActions)),
   );
 
   useEffect(() => {
     if (mode !== "detail") return;
-    const cachedRecord =
+    const cachedRecordSnapshot =
       cacheUserId && selectedSystem
-        ? ConnectedSystemsResourceService.getLiveRecord(
+        ? ConnectedSystemsResourceService.getLiveRecordSnapshot(
             cacheUserId,
             selectedSystem.systemId,
           )
         : null;
     setReadResolvedKey(null);
-    setReadResult(cachedRecord);
+    setReadResult(cachedRecordSnapshot?.record ?? null);
+    setCachedRecordRefreshPending(Boolean(cachedRecordSnapshot));
     setUnboundLookupState("idle");
   }, [cacheUserId, mode, selectedSystem, selectedSystemKey]);
 
@@ -669,6 +701,7 @@ export function ConnectedSystemsPanel({
     if (vaultOwnerToken) return;
     setBinding(null);
     setReadResult(null);
+    setCachedRecordRefreshPending(false);
     setPendingIntent(null);
     setEditingField(null);
     setEditingValue("");
@@ -783,14 +816,16 @@ export function ConnectedSystemsPanel({
   async function runAction<T>(
     state: BusyState,
     action: () => Promise<T>,
-    options: { showErrorToast?: boolean } = {},
+    options: { showErrorToast?: boolean; background?: boolean } = {},
   ): Promise<T | null> {
     if (!vaultOwnerToken) {
       onRequestUnlock?.();
       return null;
     }
-    setBusy(state);
-    setError(null);
+    if (!options.background) {
+      setBusy(state);
+      setError(null);
+    }
     try {
       return await action();
     } catch (err) {
@@ -802,13 +837,13 @@ export function ConnectedSystemsPanel({
         }
       }
       const message = connectedSystemsUserMessage(err);
-      setError(message);
+      if (!options.background) setError(message);
       if (options.showErrorToast !== false) {
         toast.error(message);
       }
       return null;
     } finally {
-      setBusy(null);
+      if (!options.background) setBusy(null);
     }
   }
 
@@ -877,6 +912,7 @@ export function ConnectedSystemsPanel({
 
   const applyReadResult = (result: ConnectedSystemMcpResponse) => {
     setReadResult(result);
+    setCachedRecordRefreshPending(false);
     if (cacheUserId && selectedSystem) {
       ConnectedSystemsResourceService.rememberLiveRecord(
         cacheUserId,
@@ -925,6 +961,7 @@ export function ConnectedSystemsPanel({
     options: {
       silent?: boolean;
       bindSearch?: boolean;
+      background?: boolean;
     } = {},
   ) => {
     const result = await runAction(
@@ -958,7 +995,7 @@ export function ConnectedSystemsPanel({
         if (completedReadKey) setReadResolvedKey(completedReadKey);
         return nextResult;
       },
-      { showErrorToast: !options.silent },
+      { showErrorToast: !options.silent, background: options.background },
     );
     if (result) {
       applyReadResult(result);
@@ -980,6 +1017,7 @@ export function ConnectedSystemsPanel({
         }
       }
     }
+    if (options.background) setCachedRecordRefreshPending(false);
     return result || null;
   };
 
@@ -1037,16 +1075,20 @@ export function ConnectedSystemsPanel({
       !currentRecordId ||
       !schemaReady ||
       !supportsAction("read") ||
-      boundRecordReadResolved
+      (boundRecordReadResolved && !cachedRecordRefreshPending)
     ) {
       return;
     }
-    void readRecord({ silent: true });
+    void readRecord({
+      silent: true,
+      background: cachedRecordRefreshPending,
+    });
     // readRecord is intentionally keyed by the active binding and lookup state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     activeBinding,
     boundRecordReadResolved,
+    cachedRecordRefreshPending,
     currentRecordId,
     mode,
     vaultOwnerToken,
@@ -1215,50 +1257,7 @@ export function ConnectedSystemsPanel({
     });
   };
 
-  const renderSchemaStatus = (
-    options: { showPendingChanges?: boolean } = {},
-  ) => {
-    const pendingChanges = Object.keys(changedProfileFields).length;
-    const recordState = !bindingResolved
-      ? "Checking record link"
-      : !hasBoundRecord
-        ? unboundLookupState === "checking"
-          ? "Checking verified account information"
-          : unboundLookupState === "no_match"
-            ? "No matching CRM record"
-            : unboundLookupState === "failed"
-              ? "Record lookup needs a retry"
-              : "Ready to find a CRM record"
-        : primaryCrmRecord
-          ? `${crmRecords.length} record${crmRecords.length === 1 ? "" : "s"} loaded`
-          : hasReadback
-            ? "Record linked, no fields returned"
-            : supportsAction("read")
-              ? "Loading linked record"
-              : "Record linked";
-    const parts = [
-      schema ? `${visibleProfileFields.length} fields discovered` : "Waiting for CRM schema",
-      schema?.schemaStatus === "capability_metadata_missing"
-        ? "Configuration update required"
-        : null,
-      recordState,
-      currentRecordId ? `Record ${currentRecordId}` : null,
-      options.showPendingChanges
-        ? `${pendingChanges} pending change${pendingChanges === 1 ? "" : "s"}`
-        : null,
-    ].filter(Boolean);
-
-    return <p className="text-xs text-muted-foreground">{parts.join(" / ")}</p>;
-  };
-
   const crmFieldRows: CrmFieldTableRow[] = displayedProfileFields.map((field) => {
-    const access = [
-      field.readable ? "read" : null,
-      field.createable ? "create" : null,
-      field.updateable ? "update" : null,
-      field.immutable ? "immutable" : null,
-      field.identityField ? "identity" : null,
-    ].filter(Boolean).join(" · ") || "not declared";
     const currentValue = !hasBoundRecord
       ? "No linked record"
       : !readResult
@@ -1273,9 +1272,6 @@ export function ConnectedSystemsPanel({
     return {
       key: field.key,
       label: field.label,
-      dataType: field.dataType || "string",
-      access,
-      required: field.required ? "Required" : "Optional",
       currentValue,
       field,
     };
@@ -1283,17 +1279,10 @@ export function ConnectedSystemsPanel({
 
   const crmFieldColumns: ColumnDef<CrmFieldTableRow>[] = [
     { accessorKey: "label", header: "Field" },
-    { accessorKey: "dataType", header: "Type" },
-    {
-      accessorKey: "access",
-      header: "Access",
-      cell: ({ row }) => <span className="text-xs text-muted-foreground">{row.original.access}</span>,
-    },
-    { accessorKey: "required", header: "Required" },
     {
       accessorKey: "currentValue",
       header: "Current value",
-      cell: ({ row }) => <span className="block max-w-56 truncate">{row.original.currentValue}</span>,
+      cell: ({ row }) => <span className="block max-w-48 truncate sm:max-w-64">{row.original.currentValue}</span>,
     },
     {
       id: "actions",
@@ -1331,31 +1320,30 @@ export function ConnectedSystemsPanel({
 
   const renderCrmFieldTable = (configurationMessage?: string | null) => (
     <div className="space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">
-          {fieldView === "all" ? "All CRM fields" : "Basic profile fields"}
-        </p>
-        <select
-          aria-label="Field view"
-          className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground"
-          value={fieldView}
-          onChange={(event) => setFieldView(event.target.value as "basic" | "all")}
-        >
-          <option value="basic">Basic fields</option>
-          <option value="all">All fields</option>
-        </select>
-      </div>
+      {visibleProfileFields.length > displayedProfileFields.length || fieldView === "all" ? (
+        <div className="flex items-center justify-end">
+          <select
+            aria-label="Field view"
+            className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground"
+            value={fieldView}
+            onChange={(event) => setFieldView(event.target.value as "basic" | "all")}
+          >
+            <option value="basic">Basic fields</option>
+            <option value="all">All fields</option>
+          </select>
+        </div>
+      ) : null}
       <DataTable
         columns={crmFieldColumns}
         data={crmFieldRows}
-        globalSearchKeys={["label", "dataType", "access", "required", "currentValue"]}
+        globalSearchKeys={["label", "currentValue"]}
         searchPlaceholder="Search fields"
-        initialPageSize={16}
-        pageSizeOptions={[16, 32, 64]}
+        initialPageSize={10}
+        pageSizeOptions={[10, 20, 50]}
         density="compact"
         stickyHeader
         tableContainerClassName="max-w-full"
-        tableClassName="min-w-[920px]"
+        tableClassName="min-w-[520px]"
       />
       {configurationMessage ? (
         <SurfaceInset className="px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
@@ -1488,38 +1476,6 @@ export function ConnectedSystemsPanel({
 
   return (
     <div className="space-y-4 sm:space-y-5">
-      <SurfaceInset className="space-y-4 px-4 py-4 sm:px-5 sm:py-5">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <ConnectedSystemLogo system={selectedSystem} size="hero" />
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                CRM system
-              </p>
-              <h2 className="text-lg font-semibold tracking-normal text-foreground">
-                {customerName}
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                {systemLabel || selectedSystem?.displayName || "CRM"} /{" "}
-                {primaryObjectLabel}.
-              </p>
-            </div>
-          </div>
-          <div className="text-left text-xs text-muted-foreground sm:text-right">
-            <p>{registryAvailabilityLabel(selectedSystem)} through {selectedSystem?.transportLabel || "External CRM MCP"}</p>
-            <p
-              className={
-                selectedRecordLinkLabel === "Record linked"
-                  ? "mt-1 font-medium text-emerald-700 dark:text-emerald-300"
-                  : "mt-1"
-              }
-            >
-              {selectedRecordLinkLabel}
-            </p>
-          </div>
-        </div>
-      </SurfaceInset>
-
       {effectiveError ? (
         <SurfaceInset className="px-3.5 py-3.5 text-sm text-destructive sm:px-4 sm:py-4">
           {effectiveError}
@@ -1541,36 +1497,20 @@ export function ConnectedSystemsPanel({
       ) : null}
 
       {showCatalogueOnly ? (
-        <SettingsGroup title={`${customerName} field catalogue`}>
+        <SettingsGroup title={`${customerName} profile`}>
           <div className="space-y-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              {renderSchemaStatus()}
-              <div className="flex flex-wrap gap-2">
-                {schemaReady && hasBoundRecord && supportsAction("read") ? (
-                  <Button
-                    type="button"
-                    variant="none"
-                    effect="fade"
-                    size="sm"
-                    disabled={busy !== null}
-                    onClick={() => void readRecord()}
-                  >
-                    <Icon icon={RefreshCw} size="sm" className="mr-2" />
-                    Refresh record
-                  </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="none"
-                  effect="fade"
-                  size="sm"
-                  disabled={busy !== null}
-                  onClick={() => void loadSchema()}
-                >
-                  <Icon icon={ListChecks} size="sm" className="mr-2" />
-                  Refresh fields
-                </Button>
-              </div>
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="none"
+                effect="fade"
+                size="sm"
+                disabled={busy !== null}
+                onClick={() => void loadSchema()}
+              >
+                <Icon icon={ListChecks} size="sm" className="mr-2" />
+                Refresh fields
+              </Button>
             </div>
             {renderCrmFieldTable(
               !schemaReady
@@ -1587,77 +1527,75 @@ export function ConnectedSystemsPanel({
         <SettingsGroup
           title={
             shouldOfferCreate
-              ? `Create a ${customerName} record`
+              ? `Create a ${customerName} profile`
               : `Find my ${customerName} profile`
           }
         >
           <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+            <VerifiedProfileSummary
+              profile={profile}
+              action={shouldOfferCreate ? "create" : "find"}
+            />
             <div className="flex flex-wrap items-center justify-between gap-2">
-              {renderSchemaStatus()}
-              <div className="flex flex-wrap gap-2">
-                {!isSetupPresentation ? (
-                  <Button
-                    type="button"
-                    variant="none"
-                    effect="fade"
-                    size="sm"
-                    disabled={busy !== null}
-                    onClick={() => void loadSchema()}
-                  >
-                    <Icon icon={ListChecks} size="sm" className="mr-2" />
-                    {schema ? "Refresh fields" : "Discover fields"}
-                  </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={busy !== null}
-                  onClick={() =>
-                    void (supportsAction("read") && !shouldOfferCreate
-                      ? findExistingProfile()
-                      : createRecordFromSchema())
-                  }
-                >
-                  <Icon
-                    icon={SendHorizontal}
-                    size="sm"
-                    className={
-                      busy === "lookup" || busy === "create"
-                        ? "mr-2 animate-pulse"
-                        : "mr-2"
-                    }
-                  />
-                  {busy === "lookup"
-                    ? "Checking your record..."
-                    : busy === "create"
-                      ? "Preparing review..."
-                      : supportsAction("read") && !shouldOfferCreate
-                        ? "Find existing profile"
-                        : "Create profile for review"}
-                </Button>
-              </div>
-            </div>
-            {!isSetupPresentation ? renderCrmFieldTable() : null}
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {isSetupPresentation
-                ? unboundLookupState === "no_match"
-                  ? "No profile matched your verified email and phone. Creating one remains a separate reviewable request."
-                  : "One searches only with the verified email and phone on your account. A new profile is never created automatically."
-                : unboundLookupState === "checking"
-                ? "Checking this CRM with only the verified email and phone on your Hussh account."
-                : unboundLookupState === "no_match"
-                  ? canCreateUnboundRecord
-                    ? `No matching ${customerName} record was found. Create remains a reviewable request until you confirm it.`
-                    : `No matching ${customerName} record was found. This CRM does not currently support record creation.`
+              <p className="text-xs text-muted-foreground">
+                {unboundLookupState === "no_match"
+                  ? "No matching profile was found."
                   : unboundLookupState === "failed"
-                    ? "We could not complete the record lookup. Try again before creating a record."
-                : supportsAction("read") && supportsAction("create")
-                ? "Find and link uses only your verified email and phone. If no record exists, you can prepare a basic record for review."
-                : supportsAction("read")
-                  ? "Find and link uses only your verified email and phone."
-                  : "This CRM allows a new record to be prepared for review."}
-            </p>
+                    ? "We couldn’t complete that search. Try again."
+                    : "You’ll review any new profile before it is created."}
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                disabled={busy !== null}
+                onClick={() =>
+                  void (supportsAction("read") && !shouldOfferCreate
+                    ? findExistingProfile()
+                    : createRecordFromSchema())
+                }
+              >
+                <Icon
+                  icon={SendHorizontal}
+                  size="sm"
+                  className={
+                    busy === "lookup" || busy === "create"
+                      ? "mr-2 animate-pulse"
+                      : "mr-2"
+                  }
+                />
+                {busy === "lookup"
+                  ? "Finding your record..."
+                  : busy === "create"
+                    ? "Preparing review..."
+                    : supportsAction("read") && !shouldOfferCreate
+                      ? "Find my record"
+                      : "Create profile"}
+              </Button>
+            </div>
           </div>
+        </SettingsGroup>
+      ) : null}
+
+      {!hasBoundRecord && !isRecordStateLoading && schema && !canShowUnboundRecordActions ? (
+        <SettingsGroup title={`${customerName} profile`}>
+          <SettingsRow
+            icon={Database}
+            title="Profile setup is temporarily unavailable"
+            description={schema.configurationMessage || "This CRM is preparing its profile setup. Try again shortly."}
+            trailing={
+              <Button
+                type="button"
+                variant="none"
+                effect="fade"
+                size="sm"
+                disabled={busy !== null}
+                onClick={() => void loadSchema()}
+              >
+                Refresh
+              </Button>
+            }
+            stackTrailingOnMobile
+          />
         </SettingsGroup>
       ) : null}
 
@@ -1680,7 +1618,11 @@ export function ConnectedSystemsPanel({
         <SettingsGroup title={`Update my ${customerName} information`}>
           <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              {renderSchemaStatus({ showPendingChanges: true })}
+              <p className="text-xs text-muted-foreground">
+                {Object.keys(changedProfileFields).length > 0
+                  ? `${Object.keys(changedProfileFields).length} change${Object.keys(changedProfileFields).length === 1 ? "" : "s"} ready to review`
+                  : "Choose a field to update."}
+              </p>
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"

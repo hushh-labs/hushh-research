@@ -61,6 +61,11 @@ vi.mock("@/lib/services/consent-export-refresh-orchestrator", () => ({
   },
 }));
 
+const agentPkmWarmMock = vi.fn();
+vi.mock("@/lib/agent/agent-pkm-memory", () => ({
+  warmAgentPkmContext: (...a: unknown[]) => agentPkmWarmMock(...a),
+}));
+
 vi.mock("@/lib/services/cache-service", () => {
   const store = new Map<string, unknown>();
   return {
@@ -161,6 +166,7 @@ function setupDefaultMocks() {
   apiGetPendingConsentsMock.mockResolvedValue(okJsonResponse({ pending: [] }));
   apiGetConsentHistoryMock.mockResolvedValue(okJsonResponse({ items: [] }));
   consentRefreshEnsureRunningMock.mockResolvedValue(undefined);
+  agentPkmWarmMock.mockResolvedValue(undefined);
 }
 
 /* ---------- tests ---------- */
@@ -192,8 +198,15 @@ describe("UnlockWarmOrchestrator", () => {
           duration_ms: expect.any(Number),
           duration_ms_bucket: expect.any(String),
           kai_market_warmed: expect.any(Boolean),
+          agent_context_warmed: true,
         })
       );
+      expect(agentPkmWarmMock).toHaveBeenCalledWith({
+        userId: BASE_PARAMS.userId,
+        vaultKey: BASE_PARAMS.vaultKey,
+        vaultOwnerToken: BASE_PARAMS.vaultOwnerToken,
+      });
+      expect(result.agentContextWarmed).toBe(true);
       expect(result).toBeDefined();
     });
 

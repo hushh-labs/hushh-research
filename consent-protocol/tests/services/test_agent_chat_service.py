@@ -13,6 +13,7 @@ from hushh_mcp.services.agent_chat_service import (
     RuntimeSecretSession,
     _current_screen_from_context,
     _enrich_plan_with_manifest,
+    _runtime_provider_error_from_exception,
     create_managed_runtime_client,
     create_runtime_client,
 )
@@ -187,6 +188,20 @@ def test_create_managed_runtime_client_uses_vertex_adc(monkeypatch):
     assert calls == [{"vertexai": True, "project": "hushh-test", "location": "global"}]
 
 
+def test_agent_chat_classifies_adc_refresh_failure_as_managed_credentials_unavailable():
+    from google.auth.exceptions import RefreshError
+
+    error = _runtime_provider_error_from_exception(RefreshError("reauthentication required"))
+
+    assert error.error_code == "AGENT_RUNTIME_MANAGED_CREDENTIALS_UNAVAILABLE"
+    assert error.message == "Hushh managed Gemini is not available in this environment."
+    assert error.detail == {
+        "error_type": "RefreshError",
+        "likely_issue": "managed_google_credentials_unavailable",
+        "operator_hint": "Check Hushh managed Gemini credentials for this runtime.",
+    }
+
+
 @pytest.mark.anyio
 async def test_prepare_runtime_credentials_resolves_pkm_credential_without_raw_value_in_evidence():
     sample_runtime_key = "USER_KEY_SHOULD_NOT_LEAK"
@@ -194,7 +209,7 @@ async def test_prepare_runtime_credentials_resolves_pkm_credential_without_raw_v
         "google_adk",
         model=ModelConfig(
             provider="gemini",
-            model="gemini-2.5-flash",
+            model="gemini-3.1-flash-lite",
             mode="byok",
             credential_ref="pkm:runtime_secrets.llm.gemini_api_key",
         ),
@@ -221,7 +236,7 @@ async def test_prepare_runtime_credentials_fails_on_credential_ref_mismatch():
         "google_adk",
         model=ModelConfig(
             provider="gemini",
-            model="gemini-2.5-flash",
+            model="gemini-3.1-flash-lite",
             mode="byok",
             credential_ref="pkm:runtime_secrets.llm.gemini_api_key",
         ),
@@ -243,7 +258,7 @@ async def test_prepare_runtime_credentials_fails_on_credential_ref_mismatch():
 
 
 def test_agent_chat_service_decrypts_encrypted_conversation_and_message(test_vault_key):
-    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+    service = AgentChatService(model="gemini-3.5-flash", vault_key_hex=test_vault_key)
     title = service._encrypt_text("Plan the product launch")
     content = service._encrypt_text("Hello from encrypted history")
 
@@ -254,7 +269,7 @@ def test_agent_chat_service_decrypts_encrypted_conversation_and_message(test_vau
             "title_ciphertext": title.ciphertext,
             "title_iv": title.iv,
             "title_tag": title.tag,
-            "model": "gemini-2.5-pro",
+            "model": "gemini-3.5-flash",
             "message_count": 2,
         }
     )
@@ -268,7 +283,7 @@ def test_agent_chat_service_decrypts_encrypted_conversation_and_message(test_vau
             "content_ciphertext": content.ciphertext,
             "content_iv": content.iv,
             "content_tag": content.tag,
-            "model": "gemini-2.5-pro",
+            "model": "gemini-3.5-flash",
         }
     )
 
@@ -278,10 +293,77 @@ def test_agent_chat_service_decrypts_encrypted_conversation_and_message(test_vau
     assert message.role == "assistant"
 
 
+@pytest.mark.anyio
+async def test_prepare_turn_is_one_transaction_and_history_precedes_current_message(
+    test_vault_key,
+):
+    calls: list[tuple[str, dict]] = []
+
+    class _TransactionalDb:
+        def execute_raw(self, sql, params):  # noqa: ANN001
+            calls.append((sql, dict(params)))
+            return SimpleNamespace(
+                data=[
+                    {
+                        "conversation": {
+                            "id": "conversation-1",
+                            "user_id": "user-1",
+                            "title_ciphertext": params["title_ciphertext"],
+                            "title_iv": params["title_iv"],
+                            "title_tag": params["title_tag"],
+                            "model": params["model"],
+                            "message_count": 3,
+                        },
+                        "history": [
+                            {
+                                "id": "prior-message-1",
+                                "conversation_id": "conversation-1",
+                                "user_id": "user-1",
+                                "role": "assistant",
+                                "status": "complete",
+                                "content_ciphertext": prior.ciphertext,
+                                "content_iv": prior.iv,
+                                "content_tag": prior.tag,
+                            }
+                        ],
+                        "user_message": {
+                            "id": params["user_message_id"],
+                            "conversation_id": "conversation-1",
+                            "user_id": "user-1",
+                            "role": "user",
+                            "status": "complete",
+                            "content_ciphertext": params["content_ciphertext"],
+                            "content_iv": params["content_iv"],
+                            "content_tag": params["content_tag"],
+                        },
+                    }
+                ]
+            )
+
+    service = AgentChatService(
+        db=_TransactionalDb(), model="gemini-3.5-flash", vault_key_hex=test_vault_key
+    )
+    prior = service._encrypt_text("Prior assistant answer")
+
+    turn = await service.prepare_turn(
+        user_id="user-1",
+        conversation_id="conversation-1",
+        message="Current user request",
+    )
+
+    assert len(calls) == 1
+    sql, params = calls[0]
+    assert sql.index("recent_rows AS MATERIALIZED") < sql.index("inserted_message AS")
+    assert params["requested_conversation_id"] == "conversation-1"
+    assert turn.conversation_id == "conversation-1"
+    assert turn.history[0].content == "Prior assistant answer"
+    assert all(item.content != "Current user request" for item in turn.history)
+
+
 def test_agent_chat_contents_use_system_instruction_boundary_and_planned_action(
     test_vault_key,
 ):
-    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+    service = AgentChatService(model="gemini-3.5-flash", vault_key_hex=test_vault_key)
     action_plan = service.plan_action("Start analysis of Nvidia")
     assert action_plan is not None
     assert action_plan.action_id == "analysis.start"
@@ -309,7 +391,7 @@ def test_agent_chat_contents_use_system_instruction_boundary_and_planned_action(
                 role="assistant",
                 status="complete",
                 content="Yes, I can help with Kai market workflows.",
-                model="gemini-2.5-pro",
+                model="gemini-3.5-flash",
                 created_at=None,
                 completed_at=None,
             ),
@@ -336,7 +418,7 @@ def test_agent_chat_contents_use_system_instruction_boundary_and_planned_action(
 def test_agent_chat_translates_gemini_function_call_to_frontend_analysis(
     test_vault_key,
 ):
-    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+    service = AgentChatService(model="gemini-3.5-flash", vault_key_hex=test_vault_key)
 
     action_plan = service._action_plan_from_function_call(
         SimpleNamespace(
@@ -356,7 +438,7 @@ def test_agent_chat_translates_gemini_function_call_to_frontend_analysis(
 def test_agent_chat_translates_gemini_function_call_to_frontend_navigation(
     test_vault_key,
 ):
-    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+    service = AgentChatService(model="gemini-3.5-flash", vault_key_hex=test_vault_key)
 
     action_plan = service._action_plan_from_function_call(
         SimpleNamespace(
@@ -374,7 +456,7 @@ def test_agent_chat_translates_gemini_function_call_to_frontend_navigation(
 
 
 def test_agent_chat_translates_gemini_function_call_to_pkm_add(test_vault_key):
-    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+    service = AgentChatService(model="gemini-3.5-flash", vault_key_hex=test_vault_key)
 
     action_plan = service._action_plan_from_function_call(
         SimpleNamespace(
@@ -397,7 +479,7 @@ def test_agent_chat_translates_gemini_function_call_to_pkm_add(test_vault_key):
 
 
 def test_agent_chat_translates_gemini_crm_update_scope_and_fields(test_vault_key):
-    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+    service = AgentChatService(model="gemini-3.5-flash", vault_key_hex=test_vault_key)
 
     action_plan = service._action_plan_from_function_call(
         SimpleNamespace(
@@ -422,7 +504,7 @@ def test_agent_chat_translates_gemini_crm_update_scope_and_fields(test_vault_key
 
 
 def test_agent_chat_translates_gemini_crm_read_scope(test_vault_key):
-    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+    service = AgentChatService(model="gemini-3.5-flash", vault_key_hex=test_vault_key)
 
     action_plan = service._action_plan_from_function_call(
         SimpleNamespace(
@@ -444,7 +526,7 @@ def test_agent_chat_translates_gemini_crm_read_scope(test_vault_key):
 
 
 def test_agent_chat_plans_safe_navigation_actions(test_vault_key):
-    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+    service = AgentChatService(model="gemini-3.5-flash", vault_key_hex=test_vault_key)
 
     action_plan = service.plan_action("Can you open the consent center?")
 
@@ -455,7 +537,7 @@ def test_agent_chat_plans_safe_navigation_actions(test_vault_key):
 
 
 def test_agent_chat_plans_explicit_pkm_add(test_vault_key):
-    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+    service = AgentChatService(model="gemini-3.5-flash", vault_key_hex=test_vault_key)
 
     action_plan = service.plan_action(
         "Can you add this information in my PKM: my name is Akshat Kumar."
@@ -468,7 +550,7 @@ def test_agent_chat_plans_explicit_pkm_add(test_vault_key):
 
 
 def test_agent_chat_plans_pkm_navigation(test_vault_key):
-    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+    service = AgentChatService(model="gemini-3.5-flash", vault_key_hex=test_vault_key)
 
     action_plan = service.plan_action("Please open my PKM memory lab")
 
@@ -479,7 +561,7 @@ def test_agent_chat_plans_pkm_navigation(test_vault_key):
 
 
 def test_agent_chat_prefers_import_over_dashboard_for_portfolio_import(test_vault_key):
-    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+    service = AgentChatService(model="gemini-3.5-flash", vault_key_hex=test_vault_key)
 
     action_plan = service.plan_action("Please open portfolio import")
 
@@ -490,7 +572,7 @@ def test_agent_chat_prefers_import_over_dashboard_for_portfolio_import(test_vaul
 
 
 def test_agent_chat_blocks_destructive_actions(test_vault_key):
-    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+    service = AgentChatService(model="gemini-3.5-flash", vault_key_hex=test_vault_key)
 
     action_plan = service.plan_action("Delete my account and all vault data")
 

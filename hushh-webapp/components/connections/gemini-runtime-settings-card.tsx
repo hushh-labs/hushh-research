@@ -195,14 +195,14 @@ export function GeminiRuntimeSettingsCard({
 
   const validateByok = async () => {
     const credential = draftKey.trim();
-    const project = vertexProject.trim();
-    const location = vertexLocation.trim();
     if (!credential) {
       toast.error("Enter your Gemini API key.");
       return;
     }
-    if (transport === "vertex_api_key" && (!project || !location)) {
-      toast.error("Enter the Google Cloud project ID and Vertex location.");
+    if (transport === "vertex_api_key") {
+      toast.error(
+        "Vertex API-key transport is unavailable. Use Hushh managed Vertex or a Google AI Studio key.",
+      );
       return;
     }
     if (!vaultReady || !userId || !vaultKey || !vaultOwnerToken) {
@@ -215,8 +215,8 @@ export function GeminiRuntimeSettingsCard({
       await ApiService.validateGeminiRuntimeCredential({
         credential,
         transport,
-        vertexProject: transport === "vertex_api_key" ? project : null,
-        vertexLocation: transport === "vertex_api_key" ? location : null,
+        vertexProject: null,
+        vertexLocation: null,
       });
       if (credentialRevisionRef.current !== revision) return;
       setCredentialValidation({ status: "ready", revision, validatedAt: Date.now() });
@@ -232,9 +232,13 @@ export function GeminiRuntimeSettingsCard({
 
   const saveByok = async () => {
     if (selectionPendingRef.current) return;
+    if (transport === "vertex_api_key") {
+      toast.error(
+        "Vertex API-key transport is unavailable. Choose Google AI Studio or Hushh managed Gemini.",
+      );
+      return;
+    }
     const credential = draftKey.trim();
-    const project = vertexProject.trim();
-    const location = vertexLocation.trim();
     const validationIsFresh =
       credentialValidation.status === "ready" &&
       credentialValidation.revision === credentialRevisionRef.current &&
@@ -281,7 +285,7 @@ export function GeminiRuntimeSettingsCard({
           vaultKey,
           vaultOwnerToken,
           credentialRef: GEMINI_VERTEX_PROJECT_REF,
-          secret: transport === "vertex_api_key" ? project : "",
+          secret: "",
           confirmation: {
             confirmedByUser: true,
             surface: "web",
@@ -293,7 +297,7 @@ export function GeminiRuntimeSettingsCard({
           vaultKey,
           vaultOwnerToken,
           credentialRef: GEMINI_VERTEX_LOCATION_REF,
-          secret: transport === "vertex_api_key" ? location : "",
+          secret: "",
           confirmation: {
             confirmedByUser: true,
             surface: "web",
@@ -451,9 +455,17 @@ export function GeminiRuntimeSettingsCard({
                 className="h-10 w-full rounded-[var(--app-card-radius-compact)] border border-input bg-background px-3 text-[14px] text-foreground"
               >
                 <option value="developer_api">Google AI Studio</option>
-                <option value="vertex_api_key">Google Cloud Vertex</option>
+                <option value="vertex_api_key" disabled>
+                  Google Cloud Vertex API key (unavailable)
+                </option>
               </select>
             </label>
+            {transport === "vertex_api_key" ? (
+              <p className="text-[12px] leading-5 text-amber-700 dark:text-amber-300">
+                This saved transport is disabled. Select Google AI Studio for BYOK, or use
+                Hushh managed Gemini for Vertex workload identity.
+              </p>
+            ) : null}
             {transport === "vertex_api_key" ? (
               <div className="grid gap-2 sm:grid-cols-2">
                 <Input

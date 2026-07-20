@@ -42,6 +42,30 @@ steps:
       - "-c"
       - |
         set -euo pipefail
+        if [[ -z "${_RUNTIME_SERVICE_ACCOUNT}" ]]; then
+          echo "_RUNTIME_SERVICE_ACCOUNT is required." >&2
+          exit 1
+        fi
+        if [[ "${_RUNTIME_SERVICE_ACCOUNT}" != *"@${PROJECT_ID}.iam.gserviceaccount.com" ]]; then
+          echo "Runtime service account must belong to ${PROJECT_ID}; got '${_RUNTIME_SERVICE_ACCOUNT}'." >&2
+          exit 1
+        fi
+        gcloud iam service-accounts describe "${_RUNTIME_SERVICE_ACCOUNT}" \
+          --project="$PROJECT_ID" >/dev/null
+        vertex_api_state="$(gcloud services describe aiplatform.googleapis.com \
+          --project="$PROJECT_ID" --format='value(state)')"
+        if [[ "${vertex_api_state}" != "ENABLED" ]]; then
+          echo "Vertex AI API must be enabled in ${PROJECT_ID}." >&2
+          exit 1
+        fi
+        runtime_vertex_role="$(gcloud projects get-iam-policy "$PROJECT_ID" \
+          --flatten='bindings[].members' \
+          --filter="bindings.role=roles/aiplatform.user AND bindings.members=serviceAccount:${_RUNTIME_SERVICE_ACCOUNT}" \
+          --format='value(bindings.role)' | head -n 1)"
+        if [[ "${runtime_vertex_role}" != "roles/aiplatform.user" ]]; then
+          echo "${_RUNTIME_SERVICE_ACCOUNT} must have roles/aiplatform.user in ${PROJECT_ID}." >&2
+          exit 1
+        fi
         append_optional_secret() {
           local secret_name="$1"
           local env_name="$2"
@@ -138,8 +162,8 @@ steps:
           "HUSHH_GENAI_AUTH_MODE=vertex_adc"
           "GOOGLE_GENAI_USE_VERTEXAI=true"
           "GOOGLE_CLOUD_PROJECT=$PROJECT_ID"
-          "GOOGLE_CLOUD_LOCATION=asia-southeast1"
-          "HUSHH_VERTEX_LOCATIONS=asia-southeast1,asia-northeast1,asia-south1,europe-west2,global"
+          "GOOGLE_CLOUD_LOCATION=global"
+          "HUSHH_VERTEX_LOCATIONS=global,us,eu"
           "CONSENT_API_PUBLIC_ORIGIN=${_CONSENT_API_PUBLIC_ORIGIN}"
           "DB_POOL_MIN_SIZE=${_DB_POOL_MIN_SIZE}"
           "DB_POOL_MAX_SIZE=${_DB_POOL_MAX_SIZE}"
@@ -184,6 +208,7 @@ steps:
           "--image=gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
           "--region=${_REGION}"
           "--platform=managed"
+          "--service-account=${_RUNTIME_SERVICE_ACCOUNT}"
           "--allow-unauthenticated"
           "--port=8080"
           "--memory=1Gi"
@@ -213,6 +238,33 @@ steps:
         "${cmd[@]}"
     id: "deploy-backend"
 
+  # Candidate-image GenAI probe under the exact runtime identity. This runs
+  # before the calling workflow can promote a no-traffic revision.
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        job_name="${_BACKEND_SERVICE}-genai-readiness"
+        gcloud run jobs deploy "${job_name}" \
+          --project="$PROJECT_ID" \
+          --region="${_REGION}" \
+          --image="gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}" \
+          --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
+          --command="python" \
+          --args="scripts/verify_managed_vertex_runtime.py" \
+          --set-env-vars="HUSHH_GENAI_AUTH_MODE=vertex_adc,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=global,HUSHH_VERTEX_LOCATIONS=global\,us\,eu,AGENT_ONE_ADK_LOCATION=us-central1" \
+          --max-retries=0 \
+          --task-timeout=30s \
+          --quiet
+        gcloud run jobs execute "${job_name}" \
+          --project="$PROJECT_ID" \
+          --region="${_REGION}" \
+          --wait \
+          --quiet
+    id: "verify-managed-vertex-runtime"
+
 # NOTE: no top-level `images:` block — `docker buildx build --push` (Step 1) already
 # pushes every tag. Listing images here would make Cloud Build try to re-push them from
 # the local daemon, which is empty under the buildx docker-container driver, and fail.
@@ -222,6 +274,7 @@ timeout: "1800s"
 
 substitutions:
   _BACKEND_SERVICE: consent-protocol
+  _RUNTIME_SERVICE_ACCOUNT: ""
   _REGION: us-central1
   _CLOUDSQL_INSTANCES: ""
   _PLAID_CLIENT_ID_SECRET: ""

@@ -224,6 +224,12 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("getScrolledRouteTitle(pathname)");
     expect(source).toContain('label: "Agents"');
     expect(source).toContain("const tabsOnlyChrome");
+    expect(source).toContain("topChromeFullyCollapsed");
+    expect(source).toContain("resolveTopChromeScrollProgress({");
+    expect(source).toContain("previousY: lastScrollY");
+    expect(source).not.toContain(
+      'model.mode === "bar-with-tabs" && primaryHeaderOutOfView;',
+    );
     expect(source).toContain('data-top-app-bar-tabs-only={tabsOnlyChrome || undefined}');
     expect(source).toContain('"calc(var(--top-inset) + var(--top-tabs-h))"');
     expect(source).toContain('paddingTop: tabsOnlyChrome ? "var(--top-inset)" : "0px"');

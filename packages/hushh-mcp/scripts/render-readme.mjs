@@ -123,20 +123,21 @@ The same \`/mcp/\` endpoint publishes one generated v0.4 five-tool catalog to Co
 
 Every tool uses shallow, fully described JSON Schema and returns \`structuredContent\` as the canonical result. \`content[0].text\` mirrors the same safe JSON only for MCP clients that cannot consume structured content.
 
-### Agentforce schema-registration UAT
+### MuleSoft Exchange and Agentforce registration
 
-Use \`hushh-mcp --print-agentforce-manifest\` to inspect the exact canonical five-tool catalog. It is generated from the same runtime contract returned by \`tools/list\`; it is a preflight artifact, not a replacement endpoint or a deployable Salesforce registration.
+When MuleSoft publishes Hussh into Agentforce, use **Upload MCP file** and upload the generated Exchange projection:
 
-For MuleSoft → Agentforce, use the generated \`hushh-mcp --print-mulesoft-agentforce-handoff\` baseline. MuleSoft maps \`structuredContent\` into Agentforce actions and does not pass its text mirror as a second planner result. Keep the API Catalog allowlist to the five generated tools, tools only, and preserve the schemas exactly. The handoff is not a deployable Mule flow and does not turn an app credential into a Hussh user identity.
+\`\`\`bash
+hushh-mcp --print-mulesoft-exchange-manifest
+\`\`\`
 
-Each tool includes a semantic machine name, client-facing title and description, strictly typed flat input fields, explicit \`required\` entries, and a complete \`outputSchema\`. Preserve the published machine field names. Salesforce currently has a Builder label-rendering defect for some data types, so an administrator must verify and, if necessary, replace input/output display labels in the Asset Library after registration. JSON Schema titles improve inspection metadata but do not claim to fix that Salesforce UI defect.
+The saved artifact is \`gateway/hushh-mulesoft-exchange-mcp-schema.json\`. It contains only Exchange-supported MCP fields, the same five canonical tools, and an open object output schema. It deliberately has no endpoint URL, OAuth material, host metadata, or annotations because Exchange rejects those fields before it can authenticate to Hussh.
 
-The current UAT boundary is intentionally narrow:
+Configure the Hussh Technologies OAuth client ID and secret separately in MuleSoft's upstream connection to \`${contract.promotedEnvironment.remoteUrlTemplate}\`. MuleSoft is then the registered Agentforce boundary. Agentforce does not receive the Hussh secret.
 
-- register the Streamable HTTP endpoint with OAuth client credentials;
-- allowlist only the five printed tool names;
-- verify names, descriptions, field counts, labels, and output mappings from \`tools/list\`;
-- do not invoke the personalized consent/export lifecycle from Agentforce. The server returns a documented fail-closed error instead.
+\`hushh-mcp --print-agentforce-manifest\` remains a diagnostic preflight view of the canonical five-tool catalog. It is not the file to upload to Exchange.
+
+MuleSoft maps \`structuredContent\` into Agentforce actions and does not pass its text mirror as a second planner result. Keep the API Catalog allowlist to the five generated tools and tools only. The separate \`hushh-mcp --print-mulesoft-agentforce-handoff\` output is relay guidance, not a deployable Mule flow and not an application credential.
 
 Salesforce references: [MCP considerations](https://help.salesforce.com/s/articleView?id=ai.agent_mcp_considerations.htm&language=en_US&type=5), [MCP response schemas](https://help.salesforce.com/s/articleView?id=ai.agent_mcp_tool_action_design.htm&language=en_US&type=5), and [MuleSoft MCP servers in API Catalog](https://help.salesforce.com/s/articleView?id=platform.api_catalog_manage_mulesoft_mcp_servers.htm&language=en_US&type=5).
 

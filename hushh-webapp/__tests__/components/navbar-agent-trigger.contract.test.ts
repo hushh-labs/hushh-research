@@ -38,9 +38,11 @@ describe("Navbar bottom chrome contract", () => {
     expect(searchBar).not.toContain("kai-bottom-agent-action");
     expect(searchBar).not.toContain('aria-label="Open Agent"');
 
-    // The Agent Bar is voice-only. Bottom navigation Search remains the one
-    // typed entry and owns the normal-language command surface.
-    expect(agentBar).not.toContain('data-testid="one-agent-search-chat-open"');
+    // The command bar remains the global typed-search surface, while the
+    // persistent Agent Bar also exposes a direct Agent Chat entry point.
+    expect(agentBar).toContain('data-testid="one-agent-chat-open"');
+    expect(agentBar).toContain("onClick={openAgentChat}");
+    expect(agentBar).toContain('aria-label={`Open Agent Chat. ${hint}`}');
     expect(agentBar).not.toContain("openSearchAndChat");
     expect(agentBar).not.toContain("openKaiCommandBar");
     expect(agentBar).toContain("Talk to One");
@@ -49,7 +51,7 @@ describe("Navbar bottom chrome contract", () => {
     );
     expect(agentBar).toContain("onClick={handleVoiceStartClick}");
     expect(agentBar).toContain("aria-label={`Start a voice conversation. ${hint}`}");
-    expect(agentBar).not.toContain("MessageCircle");
+    expect(agentBar).toContain("MessageCircle");
     expect(agentBar).toContain("loading: authLoading");
     expect(agentBar).toContain("!agentPopover ||\n    authLoading ||");
     expect(agentBar).not.toContain("isRiaChrome");

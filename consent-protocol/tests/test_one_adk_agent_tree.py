@@ -42,6 +42,7 @@ from hushh_mcp.one_adk.agent_tree import (
     _specialist_turn,
     build_one_intro_text_agent,
     build_one_root_agent,
+    build_one_text_agent,
     get_one_runner,
     open_screen,
 )
@@ -94,7 +95,26 @@ class TestAgentTreeShape:
         )
         # ADK executes bypassed Google Search in a nested text GenerateContent
         # turn. It must never inherit One's native-audio Live model.
-        assert search_tool.model == _tree._SPECIALIST_MODEL
+        assert search_tool.agent.model.model == _tree._SPECIALIST_MODEL
+        assert search_tool.propagate_grounding_metadata is True
+
+    def test_text_runtime_propagates_turn_model_to_finance_and_investor(self):
+        from google.adk.models import Gemini
+
+        turn_model = Gemini(
+            model="gemini-turn-local",
+            client_kwargs={"api_key": "turn-local-test-key"},
+        )
+
+        agent = build_one_text_agent(model=turn_model)
+        finance_tool = next(tool for tool in agent.tools if getattr(tool, "name", "") == "finance")
+        investor_tool = next(
+            tool for tool in finance_tool.agent.tools if getattr(tool, "name", "") == "investor"
+        )
+
+        assert agent.model is turn_model
+        assert finance_tool.agent.model is turn_model
+        assert investor_tool.agent.model is turn_model
 
     def test_byok_live_registry_rejects_models_without_mid_session_content(
         self, monkeypatch: pytest.MonkeyPatch
@@ -467,7 +487,7 @@ class TestRunAppAction:
         assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
 
     @pytest.mark.asyncio
-    async def test_navigation_action_executes_even_when_not_in_screen_inventory(self):
+    async def test_navigation_action_waits_for_confirmation_even_when_not_in_screen_inventory(self):
         # Cross-screen navigation ("go to profile") must work from any
         # screen; the per-screen inventory does not bound route.* actions.
         state = {
@@ -476,7 +496,7 @@ class TestRunAppAction:
             }
         }
         result = await run_app_action("route.profile", {}, _tool_context(state))
-        assert result["status"] == "ok"
+        assert result["status"] == "confirm_pending"
         assert (
             state[f"{_STATE_PENDING_DIRECTIVE}:route.profile"]["payload"]["actionId"]
             == "route.profile"
@@ -512,7 +532,7 @@ class TestRunAppAction:
             },
         }
         result = await run_app_action("onboarding.claim_one", {}, _tool_context(state))
-        assert result["status"] == "ok"
+        assert result["status"] == "confirm_pending"
         assert (
             state[f"{_STATE_PENDING_DIRECTIVE}:onboarding.claim_one"]["payload"]["actionId"]
             == "onboarding.claim_one"
@@ -532,18 +552,23 @@ class TestRunAppAction:
     async def test_allow_direct_with_slots_parks_action_directive(self):
         state: dict = {}
         result = await run_app_action("analysis.start", {"symbol": "NVDA"}, _tool_context(state))
-        assert result["status"] == "ok"
+        assert result["status"] == "confirm_pending"
         directive = state[f"{_STATE_PENDING_DIRECTIVE}:analysis.start"]
         assert directive == {
             "kind": "action",
-            "payload": {"actionId": "analysis.start", "slots": {"symbol": "NVDA"}},
+            "payload": {
+                "actionId": "analysis.start",
+                "slots": {"symbol": "NVDA"},
+                "needsConfirmation": True,
+                "trustedActivationRequired": True,
+            },
         }
 
     @pytest.mark.asyncio
-    async def test_route_action_is_direct(self):
+    async def test_route_action_requires_confirmation(self):
         state: dict = {}
         result = await run_app_action("route.consents", {}, _tool_context(state))
-        assert result["status"] == "ok"
+        assert result["status"] == "confirm_pending"
         assert (
             state[f"{_STATE_PENDING_DIRECTIVE}:route.consents"]["payload"]["actionId"]
             == "route.consents"

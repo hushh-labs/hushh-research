@@ -9,8 +9,6 @@ import asyncio
 import json
 import logging
 import os
-import subprocess
-from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 # Gemini SDK (google-genai only).
@@ -36,7 +34,7 @@ from hushh_mcp.constants import (
     KAI_SYNTHESIS_MAX_OUTPUT_TOKENS,
     ConsentScope,
 )
-from hushh_mcp.runtime_providers import build_managed_runtime_client
+from hushh_mcp.runtime_providers import ManagedGeminiRuntimeBinding
 from hushh_mcp.types import UserID
 
 logger = logging.getLogger(__name__)
@@ -79,87 +77,6 @@ def _resolve_vertex_mode() -> bool:
     return _is_truthy(raw_value)
 
 
-def _resolve_project_from_credentials_file() -> tuple[str, Optional[str]]:
-    credentials_path = (os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
-    if not credentials_path:
-        return "", None
-
-    try:
-        payload = json.loads(Path(credentials_path).read_text(encoding="utf-8"))
-        project_id = payload.get("project_id")
-        if isinstance(project_id, str) and project_id.strip():
-            return project_id.strip(), "GOOGLE_APPLICATION_CREDENTIALS.project_id"
-    except Exception as creds_err:
-        logger.debug("[Kai LLM] Unable to parse GOOGLE_APPLICATION_CREDENTIALS: %s", creds_err)
-
-    return "", None
-
-
-def _resolve_project_from_gcloud() -> tuple[str, Optional[str]]:
-    try:
-        result = subprocess.run(
-            ["gcloud", "config", "get-value", "project"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=2.0,
-        )
-    except Exception as gcloud_err:
-        logger.debug("[Kai LLM] Unable to resolve project via gcloud CLI: %s", gcloud_err)
-        return "", None
-
-    if result.returncode != 0:
-        return "", None
-
-    project_id = (result.stdout or "").strip()
-    if project_id and project_id.lower() != "(unset)":
-        return project_id, "gcloud config"
-    return "", None
-
-
-def _resolve_vertex_project() -> tuple[str, Optional[str]]:
-    """Resolve Vertex project from env aliases first, then ADC/credentials metadata."""
-    env_project_keys = (
-        "GOOGLE_CLOUD_PROJECT",
-        "GCP_PROJECT",
-        "GOOGLE_PROJECT",
-        "GCLOUD_PROJECT",
-        "VERTEX_PROJECT_ID",
-    )
-    for key in env_project_keys:
-        value = (os.getenv(key) or "").strip()
-        if value:
-            return value, key
-
-    try:
-        import google.auth  # type: ignore
-
-        _, detected_project = google.auth.default()
-        if isinstance(detected_project, str) and detected_project.strip():
-            return detected_project.strip(), "google.auth.default()"
-    except Exception as adc_err:
-        logger.debug("[Kai LLM] Unable to resolve project from ADC: %s", adc_err)
-
-    file_project, file_source = _resolve_project_from_credentials_file()
-    if file_project:
-        return file_project, file_source
-
-    gcloud_project, gcloud_source = _resolve_project_from_gcloud()
-    if gcloud_project:
-        return gcloud_project, gcloud_source
-
-    return "", None
-
-
-def _resolve_vertex_location() -> str:
-    return (
-        os.getenv("GOOGLE_CLOUD_LOCATION")
-        or os.getenv("GCP_LOCATION")
-        or os.getenv("VERTEX_LOCATION")
-        or "global"
-    ).strip()
-
-
 def _initialize_gemini_client(force: bool = False) -> None:
     """Initialize or refresh the shared Gemini Vertex client."""
     global _gemini_client
@@ -177,10 +94,21 @@ def _initialize_gemini_client(force: bool = False) -> None:
     _gemini_unavailable_reason = None
     _gemini_model_name = (os.getenv("GEMINI_MODEL") or GEMINI_MODEL).strip()
     _gemini_use_vertex = _resolve_vertex_mode()
-    _gemini_project, _gemini_project_source = _resolve_vertex_project()
-    _gemini_location = _resolve_vertex_location()
+    binding = None
+    try:
+        binding = ManagedGeminiRuntimeBinding.from_environment()
+        _gemini_project = binding.project
+        _gemini_project_source = "managed_runtime_binding"
+        _gemini_location = binding.primary_location
+    except Exception as binding_err:
+        _gemini_project = ""
+        _gemini_project_source = None
+        _gemini_location = ""
+        _gemini_unavailable_reason = f"LLM_VERTEX_BINDING_INVALID: {binding_err}"
 
-    if not GEMINI_AVAILABLE:
+    if _gemini_unavailable_reason:
+        pass
+    elif not GEMINI_AVAILABLE:
         _gemini_unavailable_reason = "LLM_SDK_MISSING: install google-genai"
     elif not _gemini_model_name:
         _gemini_unavailable_reason = "LLM_MODEL_MISSING: GEMINI_MODEL is empty"
@@ -190,18 +118,15 @@ def _initialize_gemini_client(force: bool = False) -> None:
         )
     elif not _gemini_project:
         _gemini_unavailable_reason = (
-            "LLM_VERTEX_PROJECT_MISSING: set GOOGLE_CLOUD_PROJECT (or configure ADC/gcloud project)"
+            "LLM_VERTEX_PROJECT_MISSING: set GOOGLE_CLOUD_PROJECT for workload ADC"
         )
     elif not _gemini_location:
         _gemini_unavailable_reason = "LLM_VERTEX_LOCATION_MISSING: set GOOGLE_CLOUD_LOCATION"
     else:
         try:
-            # Keep env aligned for downstream libs/components that rely on canonical names.
-            os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "true")
-            os.environ.setdefault("GOOGLE_CLOUD_PROJECT", _gemini_project)
-            os.environ.setdefault("GCP_PROJECT", _gemini_project)
-            os.environ.setdefault("GOOGLE_CLOUD_LOCATION", _gemini_location)
-            _gemini_client = build_managed_runtime_client("gemini")
+            if binding is None:
+                raise RuntimeError("Managed Gemini runtime binding is unavailable")
+            _gemini_client = binding.build_direct_client()
             logger.info(
                 "[Kai LLM] Vertex client initialized (project=%s, location=%s, model=%s, source=%s)",
                 _gemini_project,

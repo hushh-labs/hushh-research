@@ -151,6 +151,45 @@ def compose_route_context_note(context: dict[str, Any]) -> str | None:
 
 def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
     """Keep only bounded, redacted UI state for tool availability decisions."""
+    # Typed Agent Chat sends the shared structured screen context, whose
+    # canonical action snapshot is nested under ``one_voice_context``. Live
+    # sockets already flatten that snapshot before transport. Normalize both
+    # shapes here so chat cannot fall into a compatibility-permissive context
+    # merely because it used the shared builder directly.
+    snapshot = payload.get("one_voice_context")
+    if isinstance(snapshot, dict):
+        route = snapshot.get("route") if isinstance(snapshot.get("route"), dict) else {}
+        ui = snapshot.get("ui") if isinstance(snapshot.get("ui"), dict) else {}
+        cache = snapshot.get("cache") if isinstance(snapshot.get("cache"), dict) else {}
+        persona = snapshot.get("persona") if isinstance(snapshot.get("persona"), dict) else {}
+        voice = snapshot.get("voice") if isinstance(snapshot.get("voice"), dict) else {}
+        auth = snapshot.get("auth") if isinstance(snapshot.get("auth"), dict) else {}
+        revisions = snapshot.get("revisions") if isinstance(snapshot.get("revisions"), dict) else {}
+        payload = {
+            **payload,
+            "context_id": payload.get("context_id") or snapshot.get("snapshot_id"),
+            "screen": payload.get("screen") or route.get("screen"),
+            "route_family": payload.get("route_family") or route.get("route_family"),
+            "context_revision": payload.get("context_revision")
+            or f"{revisions.get('route', '')}:{revisions.get('ui', '')}",
+            "signed_in": payload.get("signed_in") is True or auth.get("signed_in") is True,
+            "persona": payload.get("persona") or persona.get("active"),
+            "voice_state": payload.get("voice_state") or voice.get("state"),
+            "available_action_ids": payload.get("available_action_ids")
+            or snapshot.get("available_action_ids"),
+            "visible_modules": payload.get("visible_modules") or ui.get("visible_modules"),
+            "visible_control_ids": payload.get("visible_control_ids")
+            or ui.get("visible_control_ids"),
+            "interaction_layer": payload.get("interaction_layer") or ui.get("interaction_layer"),
+            "pending_settlement": payload.get("pending_settlement") is True
+            or snapshot.get("pending_settlement") is True,
+            "cache_freshness": payload.get("cache_freshness") or cache.get("freshness"),
+            "vault_ready": payload.get("vault_ready") is True or cache.get("vault_ready") is True,
+            "portfolio_ready": payload.get("portfolio_ready") is True
+            or cache.get("portfolio_ready") is True,
+            "busy_operations": payload.get("busy_operations") or cache.get("busy_operations"),
+            "onboarding": payload.get("onboarding") or snapshot.get("onboarding"),
+        }
     cache_freshness = bounded_text(payload.get("cache_freshness"), 32)
     route_family = bounded_text(payload.get("route_family"))
     route_entry = resolve_route_orchestration_entry(route_family)
@@ -355,10 +394,14 @@ def sanitize_action_settlement(
     status_value = bounded_text(payload.get("status"), 16)
     if status_value not in ACTION_SETTLEMENT_STATUSES:
         return None
+    context_revision = bounded_text(payload.get("contextRevision"), 256)
+    if not context_revision:
+        return None
     issued_directives.pop(directive_id, None)
     return {
         "directive_id": directive_id,
         "action_id": action_id,
+        "context_revision": context_revision,
         "status": status_value,
         "summary": bounded_text(payload.get("summary"), 320) or "The app returned no detail.",
         "reason": bounded_text(payload.get("reason"), 96),

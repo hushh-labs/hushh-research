@@ -19,7 +19,7 @@ import React, {
   type MouseEvent,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { AudioLines, Monitor, Moon, Sun, X } from "lucide-react";
+import { AudioLines, MessageCircle, Monitor, Moon, Sun, X } from "lucide-react";
 import { useTheme } from "next-themes";
 
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
@@ -38,6 +38,7 @@ import {
   getAgentVoiceStatusLabel,
   useAgentVoiceState,
 } from "@/lib/agent/agent-voice-state";
+import { AGENT_CONVERSATION_REQUEST_EVENT } from "@/lib/agent/agent-voice-settings";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { validateMorphyAxAssessment } from "@/lib/morphy-ax";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
@@ -97,6 +98,8 @@ type PendingVoiceConfirmation = {
   ledgerSessionId: string;
   actionRunId: string;
   transport: RealtimeVoiceTransport | null;
+  contextRevision: string;
+  receipt?: string;
 };
 
 function readBrowserVoiceRoute() {
@@ -336,9 +339,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       pending.transport?.reportActionSettlement?.({
         directiveId: pending.directiveId,
         actionId: pending.actionId,
+        contextRevision: pending.contextRevision,
         status: "blocked",
         summary,
         reason,
+        receipt: pending.receipt,
       });
       appInteractionCoordinator.settleDirective(
         pending.ledgerSessionId,
@@ -442,6 +447,13 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         ) {
           return;
         }
+        // A new utterance is new intent, never implicit confirmation of the
+        // card already on screen. Disarm that directive server-side before
+        // One processes the replacement request.
+        abandonPendingConfirmation(
+          "superseded_by_new_turn",
+          "The prior confirmation was cancelled because the person said something else.",
+        );
         lastTranscriptRef.current = { text: transcript, atMs: Date.now() };
         appendMirrorEvent({
           role: "user",
@@ -469,6 +481,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               ? event.directive.payload.actionId
               : null;
           if (actionId) {
+            abandonPendingConfirmation(
+              "superseded_by_new_directive",
+              "The prior confirmation was replaced by a newer action proposal.",
+            );
             // Capture the issuer. A later session must never receive a
             // settlement produced by this transport's async action work.
             const directiveTransport = liveClientRef.current;
@@ -481,8 +497,13 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               typeof event.directive.payload.slots === "object"
                 ? (event.directive.payload.slots as Record<string, unknown>)
                 : undefined;
-            const needsConfirmation =
-              event.directive.payload?.needsConfirmation === true;
+            const contextRevision =
+              typeof event.directive.payload?.contextRevision === "string"
+                ? event.directive.payload.contextRevision
+                : null;
+            // A model-selected action is always a proposal. Nothing executes
+            // until the person confirms from this trusted UI surface.
+            const needsConfirmation = true;
             const goalId =
               typeof event.directive.payload?.goalId === "string"
                 ? event.directive.payload.goalId
@@ -491,8 +512,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               goalId === "goal.analysis.start_debate" &&
               actionId === "analysis.start" &&
               runtime?.appRuntimeState.route.screen === "kai_analysis";
-            if (!directiveId) {
-              console.warn("[AgentBar] Rejected action directive without a directive ID.");
+            if (!directiveId || !contextRevision) {
+              console.warn(
+                "[AgentBar] Rejected action directive without server confirmation binding.",
+              );
               return;
             }
             const directiveLedgerSessionId =
@@ -511,7 +534,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               directiveTransport?.reportActionSettlement?.({
                 directiveId,
                 actionId,
+                contextRevision,
                 ...settlement,
+                receipt: pendingConfirmationRef.current?.receipt,
               });
               appInteractionCoordinator.settleDirective(
                 directiveLedgerSessionId,
@@ -540,6 +565,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                 directiveTransport?.reportActionSettlement?.({
                   directiveId,
                   actionId,
+                  contextRevision,
                   ...directiveLease.settlement,
                 });
               }
@@ -611,6 +637,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                 ledgerSessionId: directiveLedgerSessionId,
                 actionRunId: actionRun.id,
                 transport: directiveTransport,
+                contextRevision,
               };
               pendingConfirmationRef.current = pending;
               setPendingConfirmation(pending);
@@ -836,7 +863,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         pending.transport?.reportActionSettlement?.({
           directiveId: pending.directiveId,
           actionId: pending.actionId,
+          contextRevision: pending.contextRevision,
           ...settlement,
+          receipt: pending.receipt,
         });
         appInteractionCoordinator.settleDirective(
           pending.ledgerSessionId,
@@ -855,6 +884,42 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           reason: "user_cancelled",
         });
         setVoiceStatus("listening", "Listening");
+        return;
+      }
+      if (!pending.receipt) {
+        const confirmDirective = pending.transport?.confirmActionDirective;
+        if (!confirmDirective) {
+          reportPendingSettlement({
+            status: "failed",
+            summary: "The confirmation service was unavailable.",
+            reason: "confirmation_authority_unavailable",
+          });
+          return;
+        }
+        setVoiceStatus("thinking", "Authorizing confirmation");
+        void confirmDirective({
+          directiveId: pending.directiveId,
+          actionId: pending.actionId,
+          contextRevision: pending.contextRevision,
+        })
+          .then((confirmation) => {
+            if (voiceLeaseRef.current?.id !== pending.leaseId) return;
+            const authorized = { ...pending, receipt: confirmation.receipt };
+            pendingConfirmationRef.current = authorized;
+            setPendingConfirmation(authorized);
+            appInteractionCoordinator.updateActionRun(pending.actionRunId, {
+              phase: "awaiting_confirmation",
+              message: "Authorized. Tap Run to execute.",
+            });
+            setVoiceStatus("thinking", "Tap Run to execute");
+          })
+          .catch(() => {
+            reportPendingSettlement({
+              status: "failed",
+              summary: "That confirmation expired or was already used.",
+              reason: "confirmation_rejected",
+            });
+          });
         return;
       }
       const runtimeState = runtime?.appRuntimeState;
@@ -1098,6 +1163,27 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     },
     [startConversation],
   );
+
+  useEffect(() => {
+    const handleConversationRequest = () => {
+      void startConversation();
+    };
+    window.addEventListener(
+      AGENT_CONVERSATION_REQUEST_EVENT,
+      handleConversationRequest,
+    );
+    return () => {
+      window.removeEventListener(
+        AGENT_CONVERSATION_REQUEST_EVENT,
+        handleConversationRequest,
+      );
+    };
+  }, [startConversation]);
+
+  const openAgentChat = useCallback(() => {
+    if (conversationActive) return;
+    agentPopover?.openAgent();
+  }, [agentPopover, conversationActive]);
 
   useEffect(() => {
     return onGeminiRuntimeConfigurationChanged(() => {
@@ -1413,6 +1499,13 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
 
   // During onboarding and on foundation public routes, show the theme and accent toggles
   const showToggles = onboardingGreeterMode || isOneSetupRoute(pathname || "") || isFoundationPublic;
+  const showAgentChatAction = Boolean(
+    user?.uid &&
+      !focusedOnboardingVoiceOnly &&
+      !isHomeRoute &&
+      !isLoginRoute &&
+      !isFoundationPublic,
+  );
   // Pill contents for the frosted bar, one JSX source across all modes so
   // the voice/theme controls and test ids never fork.
   const pillContents = conversationActive ? (
@@ -1502,6 +1595,24 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           <MaterialRipple variant="gradient" effect="fill" />
         </span>
       </button>
+      {showAgentChatAction ? (
+        <button
+          type="button"
+          data-testid="one-agent-chat-open"
+          onClick={openAgentChat}
+          aria-label={`Open Agent Chat. ${hint}`}
+          title="Open Agent Chat"
+          className="relative grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full bg-current/[0.055] text-current transition-colors duration-200 hover:bg-current/[0.09]"
+        >
+          <MessageCircle className="h-[17px] w-[17px]" />
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+          >
+            <MaterialRipple variant="gradient" effect="fill" />
+          </span>
+        </button>
+      ) : null}
       {/* Theme toggle stays available on signed-in surfaces too, matching the
           pre-auth greeter row. */}
       {showToggles ? (
@@ -1551,7 +1662,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
             {pendingActionNeedsTrustedActivation
               ? "This tap opens the provider window and keeps One active here."
-              : "Sensitive values are hidden. Nothing runs until you confirm."}
+              : pendingConfirmation.receipt
+                ? "Authorization is ready. This tap runs only the action shown above."
+                : "Sensitive values are hidden. Nothing runs until you confirm."}
           </p>
           <div className="mt-4 grid grid-cols-2 gap-2">
             <button
@@ -1567,8 +1680,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               className="h-10 rounded-full bg-primary text-[14px] font-semibold text-primary-foreground"
             >
               {pendingActionNeedsTrustedActivation
-                ? pendingActionLabel
-                : "Confirm"}
+                ? pendingConfirmation.receipt
+                  ? pendingActionLabel
+                  : "Authorize"
+                : pendingConfirmation.receipt
+                  ? "Run"
+                  : "Confirm"}
             </button>
           </div>
         </div>

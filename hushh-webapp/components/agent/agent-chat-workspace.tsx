@@ -63,6 +63,7 @@ import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
 import { useAuth } from "@/hooks/use-auth";
 import {
   executeAgentGatewayAction,
+  executeTrustedActivationGatewayAction,
   type AgentActionRuntimeResult,
 } from "@/lib/agent/agent-action-runtime";
 import {
@@ -82,27 +83,20 @@ import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
+import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 import {
-  AGENT_VOICE_STT_TIMEOUT_MS,
-  AgentVoiceClient,
-  transcribeAgentVoice,
-} from "@/lib/services/agent-voice-client";
-import {
-  useAgentVoiceState,
-  type AgentVoiceStatus,
-} from "@/lib/agent/agent-voice-state";
-import { handleAgentVoiceTranscriptTurn } from "@/lib/agent/agent-voice-turn";
-import { AgentTtsQueue, markdownToSpeechText } from "@/lib/agent/agent-voice-tts";
-import {
-  AGENT_CONVERSATION_REQUEST_EVENT,
-  DEFAULT_AGENT_GEMINI_TTS_VOICE,
   isAgentGeminiVoiceEnabled,
+  requestAgentConversation,
 } from "@/lib/agent/agent-voice-settings";
 import {
+  cancelAgentChatAction,
+  confirmAgentChatAction,
+  consumeAgentChatAction,
   deleteAgentChatConversation,
   getAgentChatHistory,
   listAgentChatConversations,
   renameAgentChatConversation,
+  settleAgentChatAction,
   streamAgentChat,
   streamAgentIntro,
   type AgentChatConversation,
@@ -121,7 +115,6 @@ import { useVault } from "@/lib/vault/vault-context";
 import {
   appInteractionCoordinator,
   useActiveActionRun,
-  type VoiceSessionLease,
 } from "@/lib/interaction/interaction-intent-coordinator";
 import { FCM_MESSAGE_EVENT } from "@/lib/notifications";
 import {
@@ -192,12 +185,7 @@ type AgentPkmActivity = {
   status: "streaming" | "done" | "error";
 };
 
-type AgentVoiceTranscriptReview = {
-  transcript: string;
-  reason: string | null;
-};
-
-type AgentTurnSource = "typed" | "voice";
+type AgentTurnSource = "typed";
 type AgentRunTurnOptions = {
   source: AgentTurnSource;
   appendUserMessage?: boolean;
@@ -250,7 +238,6 @@ const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   updatedAt: null,
 };
 const AGENT_STREAM_RENDER_FRAME_MS = 32;
-const VOICE_PKM_CONTEXT_DEADLINE_MS = 650;
 
 function getConsentRequiredPayload(
   event: SpecialistDirectiveEvent | null,
@@ -508,8 +495,6 @@ function markConsentDirectiveItemRevoked(
     },
   };
 }
-const VOICE_AGENT_FIRST_EVENT_TIMEOUT_MS = 25_000;
-const VOICE_AGENT_IDLE_TIMEOUT_MS = 45_000;
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -530,10 +515,6 @@ async function withDeadline<T>(
       clearTimeout(timeoutId);
     }
   }
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError";
 }
 
 function formatNow(): string {
@@ -1174,33 +1155,30 @@ export function AgentChatWorkspace({
   // as an inline card; never auto-fired for kind:"action".
   const [pendingSpecialistDirective, setPendingSpecialistDirective] =
     useState<SpecialistDirectiveEvent | null>(null);
+  const [pendingAppAction, setPendingAppAction] = useState<{
+    event: AgentChatToolEvent;
+    receipt?: string;
+    authorize?: () => Promise<string>;
+    cancel?: () => Promise<void>;
+    execute: (receipt?: string) => Promise<AgentActionRuntimeResult>;
+  } | null>(null);
+  const [appActionBusy, setAppActionBusy] = useState(false);
   const [specialistBusy, setSpecialistBusy] = useState(false);
   const [specialistBusyItemId, setSpecialistBusyItemId] = useState<string | null>(null);
-  const [voiceState, setVoiceState] = useState<AgentVoiceStatus>("idle");
-  const [voiceTranscriptReview, setVoiceTranscriptReview] =
-    useState<AgentVoiceTranscriptReview | null>(null);
+  const voiceState = useAgentVoiceState((state) => state.status);
   const [hasPortfolioData, setHasPortfolioData] = useState(false);
   const [backgroundTaskState, setBackgroundTaskState] = useState(() =>
     AppBackgroundTaskService.getState()
   );
   const activeActionRun = useActiveActionRun();
-  const voiceClientRef = useRef<AgentVoiceClient | null>(null);
-  // Chat is a view/control of the app-wide voice resource. Its legacy
-  // capture/STT pipeline cannot run concurrently with One Live.
-  const voiceLeaseRef = useRef<VoiceSessionLease | null>(null);
-  const cancelChatVoiceRef = useRef<() => void>(() => {});
-  const voiceTtsQueueRef = useRef<AgentTtsQueue | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const historyDrawerRef = useRef<HTMLDivElement | null>(null);
   const historyDrawerReturnFocusRef = useRef<HTMLElement | null>(null);
-  const voiceTranscriptDialogRef = useRef<HTMLDivElement | null>(null);
-  const voiceTranscriptReturnFocusRef = useRef<HTMLElement | null>(null);
   const historyLoadKeyRef = useRef<string | null>(null);
+  const historyRestoreEpochRef = useRef(0);
+  const skipInitialHistoryLoadRef = useRef(false);
   const streamAbortControllerRef = useRef<AbortController | null>(null);
-  const voiceSttAbortControllerRef = useRef<AbortController | null>(null);
-  const voiceSessionEpochRef = useRef(0);
-  const voiceTtsSpeakingRef = useRef(false);
   const agentTurnSubmitLockRef = useRef(false);
   const handoffPromptSubmitRef = useRef<((prompt: string) => Promise<void>) | null>(null);
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
@@ -1234,10 +1212,6 @@ export function AgentChatWorkspace({
   const voiceActive = voiceState !== "idle";
   const voiceMuted = voiceState === "muted";
   const voiceLevel = useAgentVoiceState((state) => state.level);
-  const setGlobalVoiceActive = useAgentVoiceState((state) => state.setActive);
-  const setGlobalVoiceStatus = useAgentVoiceState((state) => state.setStatus);
-  const setGlobalVoiceLevel = useAgentVoiceState((state) => state.setLevel);
-  const resetGlobalVoiceState = useAgentVoiceState((state) => state.reset);
   const isToolWorking = activeFrontendToolCount > 0;
   const isPkmMemoryWorking = activePkmToolCount > 0;
   const tokenIsFresh = !tokenExpiresAt || Date.now() < tokenExpiresAt;
@@ -1245,8 +1219,6 @@ export function AgentChatWorkspace({
   const abortAgentTurnWork = useCallback(() => {
     streamAbortControllerRef.current?.abort();
     streamAbortControllerRef.current = null;
-    voiceSttAbortControllerRef.current?.abort();
-    voiceSttAbortControllerRef.current = null;
     for (const controller of pkmAbortControllersRef.current) {
       controller.abort();
     }
@@ -1268,9 +1240,9 @@ export function AgentChatWorkspace({
       return undefined;
     }
 
-    // Keep the first conversation turn responsive. The Agent workspace warms
-    // only its redacted, session-memory working set after it is visibly open;
-    // vault unlock itself does not broadly decrypt PKM.
+    // UnlockWarmOrchestrator normally starts this memory-only warmup after
+    // unlock. Keep this workspace effect as a coalesced fallback so direct
+    // routes and interrupted unlock warmups still prepare the first turn.
     const timeoutId = window.setTimeout(() => {
       void warmAgentPkmContext({
         userId: user.uid,
@@ -1428,9 +1400,7 @@ export function AgentChatWorkspace({
     !voiceActive &&
     input.trim().length > 0;
   const canToggleVoice =
-    agentVoiceEnabled &&
-    hasChatAccess &&
-    (!isVoiceConnecting || voiceActive);
+    agentVoiceEnabled && !isVoiceConnecting;
   const historyInteractionDisabled =
     isLoadingHistory ||
     isChatLoading ||
@@ -1513,31 +1483,10 @@ export function AgentChatWorkspace({
   }, [isHistoryDrawerOpen]);
 
   useEffect(() => {
-    if (!voiceTranscriptReview) return;
-    voiceTranscriptReturnFocusRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    window.requestAnimationFrame(() => {
-      const focusable = getFocusableElements(voiceTranscriptDialogRef.current);
-      const preferred = voiceTranscriptReview.transcript.trim() ? focusable.at(-1) : focusable[0];
-      preferred?.focus();
-    });
     return () => {
-      voiceTranscriptReturnFocusRef.current?.focus();
-      voiceTranscriptReturnFocusRef.current = null;
-    };
-  }, [voiceTranscriptReview]);
-
-  useEffect(() => {
-    return () => {
-      voiceSessionEpochRef.current += 1;
       abortAgentTurnWork();
-      void voiceClientRef.current?.stop();
-      voiceClientRef.current = null;
-      voiceTtsQueueRef.current?.cancel();
-      voiceTtsQueueRef.current = null;
-      resetGlobalVoiceState();
     };
-  }, [abortAgentTurnWork, resetGlobalVoiceState]);
+  }, [abortAgentTurnWork]);
 
   useEffect(() => {
     const unsubscribe = AppBackgroundTaskService.subscribe((state) => {
@@ -1586,10 +1535,6 @@ export function AgentChatWorkspace({
 
   useEffect(() => {
     abortAgentTurnWork();
-    void voiceClientRef.current?.stop();
-    voiceClientRef.current = null;
-    voiceTtsQueueRef.current?.cancel();
-    voiceTtsQueueRef.current = null;
     setIsChatLoading(false);
     setIsLoadingHistory(false);
     setIsVoiceConnecting(false);
@@ -1598,21 +1543,38 @@ export function AgentChatWorkspace({
     setActivePkmToolCount(0);
     setPkmReviews([]);
     setPkmActivity([]);
-    setVoiceState("idle");
-    setVoiceTranscriptReview(null);
-    resetGlobalVoiceState();
     setConversationId(null);
     setConversations([]);
     setHistoryActionPendingId(null);
     setMessages([createGreetingMessage()]);
+    setPendingAppAction(null);
+    setAppActionBusy(false);
     setPendingSpecialistDirective(null);
     setSpecialistBusy(false);
     setSpecialistBusyItemId(null);
     releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
     historyLoadKeyRef.current = null;
+    historyRestoreEpochRef.current += 1;
+    skipInitialHistoryLoadRef.current = false;
     latestVisibleTurnIdRef.current = null;
     inlineConsentRequestIdsRef.current.clear();
-  }, [abortAgentTurnWork, resetGlobalVoiceState, user?.uid, isVaultUnlocked]);
+  }, [abortAgentTurnWork, user?.uid, isVaultUnlocked]);
+
+  const handleCreateNewChat = useCallback(() => {
+    abortAgentTurnWork();
+    historyRestoreEpochRef.current += 1;
+    latestVisibleTurnIdRef.current = null;
+    setConversationId(null);
+    setMessages([createGreetingMessage()]);
+    setInput("");
+    setIsLoadingHistory(false);
+    setPkmReviews([]);
+    setPkmActivity([]);
+    setPendingAppAction(null);
+    setAppActionBusy(false);
+    setPendingSpecialistDirective(null);
+    setSpecialistBusy(false);
+  }, [abortAgentTurnWork]);
 
   const updateMessage = (
     messageId: string,
@@ -1652,6 +1614,9 @@ export function AgentChatWorkspace({
     const assistantText = handoff.assistantText?.trim();
     const resultSummary = handoff.resultSummary?.trim();
     if (handoff.reason === "user_requested" && transcript) {
+      const shouldSkipInitialHistoryLoad = historyLoadKeyRef.current === null;
+      handleCreateNewChat();
+      skipInitialHistoryLoadRef.current = shouldSkipInitialHistoryLoad;
       setQueuedHandoffPrompt(transcript);
       consumeHandoff(handoff.id);
       return;
@@ -1682,7 +1647,7 @@ export function AgentChatWorkspace({
     }
     setMessages((current) => [...current, ...nextMessages]);
     consumeHandoff(handoff.id);
-  }, [consumeHandoff, handoff]);
+  }, [consumeHandoff, handoff, handleCreateNewChat]);
 
   useEffect(() => {
     if (!user?.uid || !isVaultUnlocked) return;
@@ -1818,8 +1783,15 @@ export function AgentChatWorkspace({
   useEffect(() => {
     if (!hasChatAccess || !user?.uid || !vaultOwnerToken) return;
     const loadKey = `${user.uid}:${vaultOwnerToken.slice(0, 12)}`;
+    if (skipInitialHistoryLoadRef.current) {
+      skipInitialHistoryLoadRef.current = false;
+      historyLoadKeyRef.current = loadKey;
+      setIsLoadingHistory(false);
+      return;
+    }
     if (historyLoadKeyRef.current === loadKey) return;
     historyLoadKeyRef.current = loadKey;
+    const restoreEpoch = historyRestoreEpochRef.current;
     let cancelled = false;
 
     const loadRecentConversation = async () => {
@@ -1830,7 +1802,7 @@ export function AgentChatWorkspace({
           vaultOwnerToken,
           limit: 20,
         });
-        if (cancelled) return;
+        if (cancelled || restoreEpoch !== historyRestoreEpochRef.current) return;
         setConversations(conversations);
         const latest = conversations[0];
         if (!latest) {
@@ -1843,18 +1815,18 @@ export function AgentChatWorkspace({
           vaultOwnerToken,
           limit: 50,
         });
-        if (cancelled) return;
+        if (cancelled || restoreEpoch !== historyRestoreEpochRef.current) return;
         const restored = history
           .map(storedMessageToAgentMessage)
           .filter((message): message is AgentMessage => Boolean(message));
         setConversationId(latest.id);
         setMessages(restored.length > 0 ? restored : [createGreetingMessage()]);
       } catch {
-        if (!cancelled) {
+        if (!cancelled && restoreEpoch === historyRestoreEpochRef.current) {
           historyLoadKeyRef.current = null;
         }
       } finally {
-        if (!cancelled) {
+        if (!cancelled && restoreEpoch === historyRestoreEpochRef.current) {
           setIsLoadingHistory(false);
         }
       }
@@ -1899,18 +1871,6 @@ export function AgentChatWorkspace({
     setConversations(nextConversations);
     return nextConversations;
   }, [getVaultOwnerToken, user?.uid]);
-
-  const handleCreateNewChat = useCallback(() => {
-    abortAgentTurnWork();
-    latestVisibleTurnIdRef.current = null;
-    setConversationId(null);
-    setMessages([createGreetingMessage()]);
-    setInput("");
-    setPkmReviews([]);
-    setPkmActivity([]);
-    setPendingSpecialistDirective(null);
-    setSpecialistBusy(false);
-  }, [abortAgentTurnWork]);
 
   const handleSelectConversation = useCallback(
     async (nextConversationId: string) => {
@@ -2093,7 +2053,7 @@ export function AgentChatWorkspace({
           setPkmReviews((current) => current.filter((item) => item.id !== reviewId));
           void loadAgentPkmContext({
             userId: user.uid,
-            vaultOwnerToken: token,
+            vaultOwnerToken: token!,
             vaultKey,
             forceRefresh: true,
           }).catch(() => undefined);
@@ -2128,14 +2088,13 @@ export function AgentChatWorkspace({
   ) => {
     const text = textInput.trim();
     if (!text || !hasChatAccess || !user?.uid) return;
+    // A new user turn supersedes any unconfirmed proposal. Never let a stale
+    // action card remain armed after the person asks for something else.
+    setPendingAppAction(null);
 
     const userId = user.uid;
     const token = getVaultOwnerToken();
-    const isVoiceTurn = options.source === "voice";
     const appendUserMessage = options.appendUserMessage ?? true;
-    const voiceTurnEpoch = isVoiceTurn ? voiceSessionEpochRef.current : null;
-    let voiceAssistantMarkdown = "";
-    let voiceReceiptSpoken = false;
     const timestamp = formatNow();
     const turnId = Date.now();
     const debugTurnId = `agent_turn_${turnId}`;
@@ -2143,48 +2102,10 @@ export function AgentChatWorkspace({
     const executedToolCalls = new Set<string>();
     let toolStatusMessageId: string | null = null;
     let pkmStatusItemId: string | null = null;
-    let voiceTtsFailureReported = false;
     let turnPkmContext = EMPTY_PKM_CONTEXT;
     let pkmAddToolHandled = false;
     let pendingAssistantDelta = "";
     let assistantFlushFrame: number | null = null;
-    if (isVoiceTurn && token) {
-      voiceTtsQueueRef.current?.cancel();
-      voiceTtsQueueRef.current = new AgentTtsQueue({
-        userId,
-        vaultOwnerToken: token,
-        // One speaks with a single fixed voice identity across surfaces
-        // (matches the Gemini Live relay's server-side voice posture).
-        voice: DEFAULT_AGENT_GEMINI_TTS_VOICE,
-        onStateChange: (state) => {
-          if (state === "speaking") {
-            voiceTtsSpeakingRef.current = true;
-            voiceClientRef.current?.setCapturePaused(true);
-            setAgentVoiceStatus("speaking");
-            return;
-          }
-          voiceTtsSpeakingRef.current = false;
-          resumeAgentVoiceCapture(voiceTurnEpoch);
-        },
-        onError: (failure) => {
-          console.warn("[Agent voice] TTS failure", failure);
-          if (failure.stage === "fallback") {
-            if (!voiceTtsFailureReported) {
-              voiceTtsFailureReported = true;
-              addErrorMessage("Agent voice playback failed. The text response is still available.");
-            }
-            return;
-          }
-          if (!voiceTtsFailureReported) {
-            voiceTtsFailureReported = true;
-            toast.error("Agent voice audio failed. Falling back to browser speech.");
-          }
-        },
-      });
-      voiceTtsQueueRef.current.resetStream();
-      setAgentVoiceStatus("thinking");
-    }
-
     const flushAssistantDelta = () => {
       assistantFlushFrame = null;
       const delta = pendingAssistantDelta;
@@ -2204,25 +2125,6 @@ export function AgentChatWorkspace({
       assistantFlushFrame = window.requestAnimationFrame(flushAssistantDelta);
     };
 
-    const queueVoiceAssistantDelta = (delta: string) => {
-      if (!isVoiceTurn || !voiceTtsQueueRef.current) return;
-      voiceAssistantMarkdown += delta;
-      voiceTtsQueueRef.current.pushMarkdownSnapshot(voiceAssistantMarkdown);
-    };
-
-    const speakVoiceReceipt = (messageText: string) => {
-      if (!isVoiceTurn || !voiceTtsQueueRef.current) return;
-      const cleanReceipt = markdownToSpeechText(messageText);
-      if (!cleanReceipt) return;
-      const currentAssistantSpeech = markdownToSpeechText(voiceAssistantMarkdown);
-      if (currentAssistantSpeech.includes(cleanReceipt)) {
-        voiceReceiptSpoken = true;
-        return;
-      }
-      voiceReceiptSpoken = true;
-      voiceTtsQueueRef.current.speakNow(cleanReceipt);
-    };
-
     const cancelAssistantFlush = () => {
       if (assistantFlushFrame !== null) {
         window.cancelAnimationFrame(assistantFlushFrame);
@@ -2233,13 +2135,9 @@ export function AgentChatWorkspace({
 
     const finishCanceledTurn = () => {
       flushAssistantDelta();
-      if (isVoiceTurn) {
-        voiceTtsQueueRef.current?.cancel();
-        voiceTtsSpeakingRef.current = false;
-      }
       updateMessage(assistantMessageId, (message) => ({
         ...message,
-        text: message.text || (isVoiceTurn ? "Voice turn canceled." : "Agent turn canceled."),
+        text: message.text || "Agent turn canceled.",
         status: "done",
         streamEvents: [],
       }));
@@ -2397,14 +2295,24 @@ export function AgentChatWorkspace({
       }
     };
 
-    const executeFrontendTool = async (toolEvent: AgentChatToolEvent) => {
-      if (!toolEvent.actionId) return;
+    const executeFrontendTool = async (
+      toolEvent: AgentChatToolEvent,
+    ): Promise<AgentActionRuntimeResult> => {
+      if (!toolEvent.actionId) {
+        throw new Error("The proposed action has no action ID.");
+      }
       appendDebugEvent(debugTurnId, "frontend_execute_start", toolEvent);
 
       if (toolEvent.actionId === "pkm.add") {
         pkmAddToolHandled = true;
         await executePkmAddTool(toolEvent);
-        return;
+        return {
+          status: "succeeded",
+          actionId: toolEvent.actionId,
+          label: toolEvent.label,
+          routeBefore: pathname,
+          resultSummary: "PKM review prepared.",
+        };
       }
 
       setActiveFrontendToolCount((count) => count + 1);
@@ -2417,7 +2325,11 @@ export function AgentChatWorkspace({
       });
       try {
         appInteractionCoordinator.updateActionRun(actionRun.id, { phase: "executing" });
-        const result = await executeAgentGatewayAction({
+        const execute =
+          action?.activation_policy === "trusted_activation_required"
+            ? executeTrustedActivationGatewayAction
+            : executeAgentGatewayAction;
+        const result = await execute({
           actionId: toolEvent.actionId,
           slots: toolEvent.slots,
           userId,
@@ -2444,12 +2356,10 @@ export function AgentChatWorkspace({
         });
         appendDebugEvent(debugTurnId, "tool_result", result);
         upsertToolStatusMessage(result.resultSummary, toolResultStatus(result));
-        if (voiceReceiptSpoken === false) {
-          speakVoiceReceipt(result.resultSummary);
-        }
         if (shouldMinimizeForNavigationResult(result)) {
           onNavigationActionComplete?.(result);
         }
+        return result;
       } catch (error) {
         const message =
           error instanceof Error && error.message
@@ -2465,17 +2375,94 @@ export function AgentChatWorkspace({
           tool: toolEvent,
         });
         upsertToolStatusMessage(message, "error");
+        return {
+          status: "failed",
+          actionId: toolEvent.actionId,
+          label: toolEvent.label,
+          routeBefore: pathname,
+          resultSummary: message,
+          reason: "frontend_execution_failed",
+        };
       } finally {
         setActiveFrontendToolCount((count) => Math.max(0, count - 1));
       }
     };
 
-    const executeToolIfNeeded = (toolEvent: AgentChatToolEvent) => {
+    const stageToolForConfirmation = (toolEvent: AgentChatToolEvent) => {
       const callKey = toolEvent.callId || `${toolEvent.actionId || "unknown"}-${turnId}`;
       if (executedToolCalls.has(callKey)) return;
       if (toolEvent.execution !== "frontend" || !toolEvent.actionId) return;
-      executedToolCalls.add(callKey);
-      void executeFrontendTool(toolEvent);
+      const directiveId = toolEvent.directiveId;
+      const conversationId = toolEvent.conversationId;
+      const contextRevision = toolEvent.contextRevision;
+      if (!directiveId || !conversationId || !contextRevision) return;
+      setPendingAppAction({
+        event: toolEvent,
+        cancel: async () => {
+          if (
+            !toolEvent.directiveId ||
+            !toolEvent.conversationId ||
+            !toolEvent.contextRevision
+          ) {
+            return;
+          }
+          await cancelAgentChatAction({
+            directiveId: toolEvent.directiveId,
+            userId,
+            conversationId: toolEvent.conversationId,
+            actionId: toolEvent.actionId!,
+            contextRevision: toolEvent.contextRevision,
+            reasonCode: "user_cancelled",
+            vaultOwnerToken: token!,
+          });
+        },
+        authorize: async () => {
+          if (executedToolCalls.has(callKey)) {
+            throw new Error("This action was already consumed.");
+          }
+          const confirmation = await confirmAgentChatAction({
+            directiveId,
+            userId,
+            conversationId,
+            actionId: toolEvent.actionId!,
+            contextRevision,
+            trustedActivation: true,
+            vaultOwnerToken: token!,
+          });
+          await consumeAgentChatAction({
+            directiveId,
+            userId,
+            conversationId,
+            actionId: toolEvent.actionId!,
+            contextRevision,
+            receipt: confirmation.receipt,
+            vaultOwnerToken: token!,
+          });
+          return confirmation.receipt;
+        },
+        execute: async (receipt) => {
+          if (!receipt) {
+            throw new Error("This action needs a fresh confirmation before it can run.");
+          }
+          if (executedToolCalls.has(callKey)) {
+            throw new Error("This action was already consumed.");
+          }
+          executedToolCalls.add(callKey);
+          const result = await executeFrontendTool(toolEvent);
+          const succeeded = ["succeeded", "started", "noop"].includes(result.status);
+          await settleAgentChatAction({
+            directiveId,
+            userId,
+            receipt,
+            actionId: toolEvent.actionId!,
+            contextRevision,
+            status: succeeded ? "succeeded" : "failed",
+            reasonCode: succeeded ? "completed" : result.reason || result.status,
+            vaultOwnerToken: token!,
+          });
+          return result;
+        },
+      });
     };
 
     const runPkmMemoryCapture = async (
@@ -2609,40 +2596,7 @@ export function AgentChatWorkspace({
     const streamAbortController = new AbortController();
     streamAbortControllerRef.current?.abort();
     streamAbortControllerRef.current = streamAbortController;
-    let voiceStreamTimeoutMessage: string | null = null;
-    let voiceStreamWatchdog: ReturnType<typeof setTimeout> | null = null;
     let specialistDirectiveReceived = false;
-
-    const clearVoiceStreamWatchdog = () => {
-      if (voiceStreamWatchdog !== null) {
-        clearTimeout(voiceStreamWatchdog);
-        voiceStreamWatchdog = null;
-      }
-    };
-
-    const armVoiceStreamWatchdog = (timeoutMs: number, message: string) => {
-      if (!isVoiceTurn || streamAbortController.signal.aborted) return;
-      clearVoiceStreamWatchdog();
-      voiceStreamWatchdog = setTimeout(() => {
-        voiceStreamTimeoutMessage = message;
-        streamAbortController.abort();
-      }, timeoutMs);
-    };
-
-    const finishVoiceTimedOutTurn = (message: string) => {
-      flushAssistantDelta();
-      updateMessage(assistantMessageId, (current) => ({
-        ...current,
-        text: current.text || message,
-        status: "error",
-        streamEvents: [],
-      }));
-      voiceTtsQueueRef.current?.flushStream();
-      voiceTtsQueueRef.current?.speakNow(message);
-      setIsChatLoading(false);
-      setIsStreaming(false);
-      setAgentVoiceStatus(voiceClientRef.current?.isActive ? "error" : "idle", message);
-    };
 
     const loadTurnPkmContext = async (): Promise<AgentPkmContext> => {
       if (!vaultKey) return EMPTY_PKM_CONTEXT;
@@ -2662,13 +2616,21 @@ export function AgentChatWorkspace({
       }
 
       upsertPkmStatusMessage("Loading your saved context…", "streaming");
-      const contextPromise = loadAgentPkmContext({
+      const contextPromise = warmAgentPkmContext({
         userId,
         vaultOwnerToken: token,
         vaultKey,
-        message: text,
-      });
-      const deadlineMs = isVoiceTurn ? VOICE_PKM_CONTEXT_DEADLINE_MS : 900;
+      }).then(
+        () =>
+          peekAgentPkmContext({ userId, message: text }) ??
+          loadAgentPkmContext({
+            userId,
+            vaultOwnerToken: token,
+            vaultKey,
+            message: text,
+          }),
+      );
+      const deadlineMs = 900;
       const result = await withDeadline(contextPromise, deadlineMs);
       if (!result.timedOut) {
         upsertPkmStatusMessage("", "done");
@@ -2701,11 +2663,7 @@ export function AgentChatWorkspace({
         agentPkmContext = await loadTurnPkmContext();
         turnPkmContext = agentPkmContext;
         if (streamAbortController.signal.aborted) {
-          if (voiceStreamTimeoutMessage) {
-            finishVoiceTimedOutTurn(voiceStreamTimeoutMessage);
-          } else {
-            finishCanceledTurn();
-          }
+          finishCanceledTurn();
           return;
         }
         if (agentPkmContext.text) {
@@ -2727,10 +2685,6 @@ export function AgentChatWorkspace({
         });
       }
 
-      armVoiceStreamWatchdog(
-        VOICE_AGENT_FIRST_EVENT_TIMEOUT_MS,
-        "Agent voice response timed out before it started. Please try again."
-      );
       const runtimeConnection = await resolveGeminiRuntimeConnection({
         userId,
         vaultKey,
@@ -2756,56 +2710,31 @@ export function AgentChatWorkspace({
         handlers: {
           onStart: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
-            armVoiceStreamWatchdog(
-              VOICE_AGENT_IDLE_TIMEOUT_MS,
-              "Agent voice response stalled. Please try again."
-            );
             if (nextConversationId) {
               setConversationId(nextConversationId);
             }
           },
           onToolStart: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
-            armVoiceStreamWatchdog(
-              VOICE_AGENT_IDLE_TIMEOUT_MS,
-              "Agent voice tool call stalled. Please try again."
-            );
             appendDebugEvent(debugTurnId, "tool_start", toolEvent);
             upsertTurnStreamEvent(agentToolEventToVisibleStreamEvent("start", toolEvent));
           },
           onToolWaiting: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
-            armVoiceStreamWatchdog(
-              VOICE_AGENT_IDLE_TIMEOUT_MS,
-              "Agent voice tool call stalled. Please try again."
-            );
             appendDebugEvent(debugTurnId, "tool_waiting", toolEvent);
             const visibleEvent = agentToolEventToVisibleStreamEvent("waiting", toolEvent);
             upsertTurnStreamEvent(visibleEvent);
-            speakVoiceReceipt(visibleEvent.message);
-            executeToolIfNeeded(toolEvent);
+            stageToolForConfirmation(toolEvent);
           },
           onToolResult: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
-            armVoiceStreamWatchdog(
-              VOICE_AGENT_IDLE_TIMEOUT_MS,
-              "Agent voice tool result stalled. Please try again."
-            );
             appendDebugEvent(debugTurnId, "tool_result", toolEvent);
             const visibleEvent = agentToolEventToVisibleStreamEvent("result", toolEvent);
             upsertTurnStreamEvent(visibleEvent);
-            if (toolEvent.execution === "blocked" || toolEvent.status === "blocked") {
-              speakVoiceReceipt(visibleEvent.message || "That action needs attention.");
-            }
           },
           onToken: (delta) => {
             if (streamAbortController.signal.aborted) return;
-            armVoiceStreamWatchdog(
-              VOICE_AGENT_IDLE_TIMEOUT_MS,
-              "Agent voice response stalled. Please try again."
-            );
             queueAssistantDelta(delta);
-            queueVoiceAssistantDelta(delta);
           },
           onSpecialistDirective: (event) => {
             if (streamAbortController.signal.aborted) return;
@@ -2838,12 +2767,7 @@ export function AgentChatWorkspace({
           },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
-            clearVoiceStreamWatchdog();
             flushAssistantDelta();
-            if (isVoiceTurn) {
-              voiceTtsQueueRef.current?.flushStream();
-              scheduleAgentVoiceCaptureResume(voiceTurnEpoch);
-            }
             if (nextConversationId) {
               setConversationId(nextConversationId);
             }
@@ -2857,12 +2781,7 @@ export function AgentChatWorkspace({
           },
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
-            clearVoiceStreamWatchdog();
             flushAssistantDelta();
-            if (isVoiceTurn) {
-              voiceTtsQueueRef.current?.flushStream();
-              voiceTtsQueueRef.current?.speakNow(message);
-            }
             updateMessage(assistantMessageId, (current) => ({
               ...current,
               text: current.text || message,
@@ -2875,21 +2794,12 @@ export function AgentChatWorkspace({
         },
       });
       if (streamAbortController.signal.aborted) {
-        if (voiceStreamTimeoutMessage) {
-          finishVoiceTimedOutTurn(voiceStreamTimeoutMessage);
-        } else {
-          finishCanceledTurn();
-        }
+        finishCanceledTurn();
         return;
       }
-      clearVoiceStreamWatchdog();
       flushAssistantDelta();
       if (streamResult.conversationId) {
         setConversationId(streamResult.conversationId);
-      }
-      if (isVoiceTurn) {
-        voiceTtsQueueRef.current?.flushStream();
-        scheduleAgentVoiceCaptureResume(voiceTurnEpoch);
       }
       updateMessage(assistantMessageId, (message) => {
         if (message.status === "error") return message;
@@ -2915,11 +2825,7 @@ export function AgentChatWorkspace({
       setIsStreaming(false);
     } catch (error) {
       if (streamAbortController.signal.aborted) {
-        if (voiceStreamTimeoutMessage) {
-          finishVoiceTimedOutTurn(voiceStreamTimeoutMessage);
-        } else {
-          finishCanceledTurn();
-        }
+        finishCanceledTurn();
         return;
       }
       flushAssistantDelta();
@@ -2933,21 +2839,13 @@ export function AgentChatWorkspace({
         status: "error",
         streamEvents: [],
       }));
-      if (isVoiceTurn) {
-        voiceTtsQueueRef.current?.flushStream();
-        voiceTtsQueueRef.current?.speakNow(message);
-      }
       void loadConversationList().catch(() => undefined);
       setIsChatLoading(false);
       setIsStreaming(false);
     } finally {
-      clearVoiceStreamWatchdog();
       cancelAssistantFlush();
       if (streamAbortControllerRef.current === streamAbortController) {
         streamAbortControllerRef.current = null;
-      }
-      if (isVoiceTurn) {
-        scheduleAgentVoiceCaptureResume(voiceTurnEpoch);
       }
     }
   };
@@ -3226,34 +3124,39 @@ export function AgentChatWorkspace({
     streamAbortControllerRef.current?.abort();
     streamAbortControllerRef.current = streamAbortController;
 
-    const runIntroNavigation = (toolEvent: AgentChatToolEvent) => {
+    const stageIntroNavigation = (toolEvent: AgentChatToolEvent) => {
       if (toolEvent.execution !== "frontend" || !toolEvent.actionId) return;
       // The informational tier only forwards route.* actions, but guard anyway.
       if (!toolEvent.actionId.startsWith("route.")) return;
       const callKey = toolEvent.callId || `${toolEvent.actionId}-${turnId}`;
       if (executedNavCalls.has(callKey)) return;
-      executedNavCalls.add(callKey);
-      const action = getKaiActionById(toolEvent.actionId);
-      const actionRun = appInteractionCoordinator.startActionRun({
-        actionId: toolEvent.actionId,
-        label: action?.label ?? "your request",
-        source: "search",
-        directiveId: toolEvent.callId ?? null,
-      });
-      appInteractionCoordinator.updateActionRun(actionRun.id, { phase: "executing" });
-      void executeAgentGatewayAction({
-        actionId: toolEvent.actionId,
-        slots: toolEvent.slots,
-        userId: user?.uid ?? "",
-        router,
-        appRuntimeState: appRuntimeStateRef.current,
-        surfaceMetadata: getVoiceSurfaceMetadata(),
-        hasPortfolioData,
-        busyOperations,
-        setAnalysisParams,
-        switchPersona,
-      })
-        .then((result) => {
+      setPendingAppAction({
+        event: toolEvent,
+        execute: async () => {
+          if (executedNavCalls.has(callKey)) {
+            throw new Error("This navigation was already used.");
+          }
+          executedNavCalls.add(callKey);
+          const action = getKaiActionById(toolEvent.actionId!);
+          const actionRun = appInteractionCoordinator.startActionRun({
+            actionId: toolEvent.actionId!,
+            label: action?.label ?? "your request",
+            source: "search",
+            directiveId: toolEvent.callId ?? null,
+          });
+          appInteractionCoordinator.updateActionRun(actionRun.id, { phase: "executing" });
+          const result = await executeAgentGatewayAction({
+            actionId: toolEvent.actionId!,
+            slots: toolEvent.slots,
+            userId: user?.uid ?? "",
+            router,
+            appRuntimeState: appRuntimeStateRef.current,
+            surfaceMetadata: getVoiceSurfaceMetadata(),
+            hasPortfolioData,
+            busyOperations,
+            setAnalysisParams,
+            switchPersona,
+          });
           if (result.routeAfter) {
             appInteractionCoordinator.updateActionRun(actionRun.id, {
               phase: "navigating",
@@ -3270,13 +3173,9 @@ export function AgentChatWorkspace({
           if (shouldMinimizeForNavigationResult(result)) {
             onNavigationActionComplete?.(result);
           }
-        })
-        .catch(() => {
-          appInteractionCoordinator.updateActionRun(actionRun.id, {
-            phase: "failed",
-            message: "The app could not complete that action.",
-          });
-        });
+          return result;
+        },
+      });
     };
 
     try {
@@ -3294,7 +3193,7 @@ export function AgentChatWorkspace({
             assistantHasToken = true;
             queueAssistantDelta(delta);
           },
-          onToolWaiting: runIntroNavigation,
+          onToolWaiting: stageIntroNavigation,
           onComplete: () => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
@@ -3395,357 +3294,14 @@ export function AgentChatWorkspace({
     })();
   }, [isChatLoading, isStreaming, queuedHandoffPrompt]);
 
-  const setAgentVoiceStatus = useCallback((status: AgentVoiceStatus, message?: string | null) => {
-    setVoiceState(status);
-    setGlobalVoiceStatus(status, message ?? null);
-  }, [setGlobalVoiceStatus]);
-
-  function resumeAgentVoiceCapture(expectedEpoch?: number | null) {
-    if (expectedEpoch !== undefined && expectedEpoch !== null) {
-      if (expectedEpoch !== voiceSessionEpochRef.current) return;
-    }
-    const client = voiceClientRef.current;
-    if (!client?.isActive || voiceTtsSpeakingRef.current) return;
-    if (voiceTtsQueueRef.current?.hasPendingSpeech) return;
-    client.setCapturePaused(false);
-    setAgentVoiceStatus(client.isMuted ? "muted" : "listening");
-  }
-
-  function scheduleAgentVoiceCaptureResume(expectedEpoch?: number | null) {
-    window.setTimeout(() => resumeAgentVoiceCapture(expectedEpoch), 0);
-  }
-
-  const handleCancelVoice = useCallback(async () => {
-    voiceSessionEpochRef.current += 1;
-    abortAgentTurnWork();
-    voiceTtsQueueRef.current?.cancel();
-    voiceTtsQueueRef.current = null;
-    voiceTtsSpeakingRef.current = false;
-    await voiceClientRef.current?.stop();
-    voiceClientRef.current = null;
-    voiceLeaseRef.current?.release("agent_chat_voice_stopped");
-    voiceLeaseRef.current = null;
-    setIsVoiceConnecting(false);
-    setIsChatLoading(false);
-    setIsStreaming(false);
-    setVoiceTranscriptReview(null);
-    setVoiceState("idle");
-    resetGlobalVoiceState();
-  }, [abortAgentTurnWork, resetGlobalVoiceState]);
-  cancelChatVoiceRef.current = () => {
-    void handleCancelVoice();
-  };
-
-  // The popover may remain mounted through its exit motion so conversation
-  // history survives a close/reopen. A hidden workspace must never retain a
-  // microphone, STT request, or TTS queue while that motion runs.
   useEffect(() => {
     if (!isPopover || !isSurfaceClosing) return;
     setIsHistoryDrawerOpen(false);
-    setVoiceTranscriptReview(null);
-    if (voiceActive || isVoiceConnecting || voiceClientRef.current) {
-      void handleCancelVoice();
-    }
-  }, [handleCancelVoice, isPopover, isSurfaceClosing, isVoiceConnecting, voiceActive]);
+  }, [isPopover, isSurfaceClosing]);
 
-  const handleVoiceTranscriptAccepted = (transcript: string) => {
-    setVoiceTranscriptReview(null);
-    if (!voiceClientRef.current?.isActive) return;
-    void runAgentTurn(transcript, { source: "voice" }).finally(() => {
-      voiceClientRef.current?.setMuted(false);
-      resumeAgentVoiceCapture();
-    });
-  };
-
-  const handleVoiceTranscriptRetry = useCallback(() => {
-    setVoiceTranscriptReview(null);
-    const client = voiceClientRef.current;
-    if (!client?.isActive) return;
-    client.setMuted(false);
-    client.setCapturePaused(false);
-    setAgentVoiceStatus("listening");
-  }, [setAgentVoiceStatus]);
-
-  const handleToggleVoice = async () => {
-    if (!agentVoiceEnabled) {
-      addErrorMessage("Agent Gemini voice is disabled for this environment.");
-      return;
-    }
-    if (!hasChatAccess || !user?.uid) return;
-
-    if (voiceLeaseRef.current && isVoiceConnecting) {
-      // Coalesce native double taps while microphone setup is in flight.
-      return;
-    }
-    if (voiceActive) {
-      voiceClientRef.current?.toggleMuted();
-      if (voiceTtsSpeakingRef.current) {
-        setAgentVoiceStatus("speaking");
-      }
-      return;
-    }
-
-    const token = getVaultOwnerToken();
-    if (!token) {
-      addErrorMessage("Vault access expired. Unlock again to continue.");
-      return;
-    }
-
-    const lease = appInteractionCoordinator.acquireVoiceLease({
-      owner: "agent_chat",
-      onRevoked: () => cancelChatVoiceRef.current(),
-    });
-    voiceLeaseRef.current = lease;
-
-    setIsVoiceConnecting(true);
-    setGlobalVoiceActive(true);
-    voiceSessionEpochRef.current += 1;
-    voiceTtsSpeakingRef.current = false;
-    setAgentVoiceStatus("connecting");
-
-    try {
-      if (!voiceClientRef.current) {
-        voiceClientRef.current = new AgentVoiceClient();
-      }
-      await voiceClientRef.current.start({
-        onStatus: (status, message) => {
-          if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) return;
-          setAgentVoiceStatus(status, message);
-          if (status !== "connecting") {
-            setIsVoiceConnecting(false);
-          }
-        },
-        onLevel: (level) => {
-          if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) return;
-          setGlobalVoiceLevel(level);
-        },
-        onUtterance: async ({ audio, durationMs, nativeTranscript }) => {
-          if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) return;
-          const voiceSessionEpoch = voiceSessionEpochRef.current;
-          const sttAbortController = new AbortController();
-          voiceSttAbortControllerRef.current?.abort();
-          voiceSttAbortControllerRef.current = sttAbortController;
-          const sttStartedAt = performance.now();
-          setAgentVoiceStatus("transcribing");
-          try {
-            const nativeCandidate = nativeTranscript?.transcript.trim()
-              ? nativeTranscript
-              : null;
-            let transcriptionSource:
-              | "browser_native"
-              | "backend_gemini"
-              | "browser_native_uncertain"
-              | "empty" = "empty";
-            let result = nativeCandidate && !nativeCandidate.uncertain ? nativeCandidate : null;
-
-            if (result) {
-              transcriptionSource = "browser_native";
-            } else if (audio.size > 0) {
-              result = await transcribeAgentVoice({
-                userId: user.uid,
-                vaultOwnerToken: token,
-                audio,
-                signal: sttAbortController.signal,
-                timeoutMs: AGENT_VOICE_STT_TIMEOUT_MS,
-              });
-              transcriptionSource = "backend_gemini";
-            } else if (nativeCandidate) {
-              result = nativeCandidate;
-              transcriptionSource = "browser_native_uncertain";
-            } else {
-              result = {
-                transcript: "",
-                uncertain: true,
-                reason: "No speech was captured.",
-              };
-            }
-            console.info("[Agent voice] STT timing", {
-              source: transcriptionSource,
-              mime_type: audio.type || "unknown",
-              audio_bytes: audio.size,
-              captured_ms: Math.round(durationMs),
-              stt_ms: Math.round(performance.now() - sttStartedAt),
-              native_transcript_chars: nativeCandidate?.transcript.length ?? 0,
-              native_uncertain: nativeCandidate?.uncertain ?? null,
-              native_reason: nativeCandidate?.reason ?? null,
-              transcript_chars: result.transcript.length,
-              uncertain: result.uncertain,
-              reason: result.reason,
-            });
-            if (
-              sttAbortController.signal.aborted ||
-              voiceSessionEpoch !== voiceSessionEpochRef.current ||
-              !voiceClientRef.current?.isActive
-            ) {
-              return;
-            }
-
-            await handleAgentVoiceTranscriptTurn({
-              result,
-              runTurn: async (transcript) => {
-                if (
-                  sttAbortController.signal.aborted ||
-                  voiceSessionEpoch !== voiceSessionEpochRef.current ||
-                  !voiceClientRef.current?.isActive
-                ) {
-                  return;
-                }
-                voiceClientRef.current.setCapturePaused(true);
-                setAgentVoiceStatus("thinking");
-                void runAgentTurn(transcript, { source: "voice" })
-                  .catch((error) => {
-                    const message =
-                      error instanceof Error && error.message
-                        ? error.message
-                        : "Agent voice turn failed.";
-                    addErrorMessage(message);
-                    setAgentVoiceStatus("error", message);
-                  })
-                  .finally(() => {
-                    if (
-                      voiceSessionEpoch !== voiceSessionEpochRef.current ||
-                      !voiceClientRef.current?.isActive
-                    ) {
-                      return;
-                    }
-                    resumeAgentVoiceCapture(voiceSessionEpoch);
-                  });
-              },
-              requestReview: (transcript, reason) => {
-                if (
-                  sttAbortController.signal.aborted ||
-                  voiceSessionEpoch !== voiceSessionEpochRef.current ||
-                  !voiceClientRef.current?.isActive
-                ) {
-                  return;
-                }
-                voiceClientRef.current?.setMuted(true);
-                setVoiceTranscriptReview({ transcript, reason });
-              },
-            });
-          } catch (error) {
-            if (
-              sttAbortController.signal.aborted ||
-              voiceSessionEpoch !== voiceSessionEpochRef.current
-            ) {
-              return;
-            }
-            if (isAbortError(error)) {
-              throw new Error("Voice transcription timed out. Please try again.");
-            }
-            throw error;
-          } finally {
-            if (voiceSttAbortControllerRef.current === sttAbortController) {
-              voiceSttAbortControllerRef.current = null;
-            }
-          }
-        },
-        onError: (message) => {
-          if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) return;
-          addErrorMessage(message);
-          setIsVoiceConnecting(false);
-          setAgentVoiceStatus("error", message);
-        },
-      });
-      if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) {
-        await voiceClientRef.current?.stop();
-        return;
-      }
-      setIsVoiceConnecting(false);
-    } catch (error) {
-      voiceSttAbortControllerRef.current?.abort();
-      voiceSttAbortControllerRef.current = null;
-      voiceTtsSpeakingRef.current = false;
-      const message =
-        error instanceof Error && error.message
-          ? error.message
-          : "Voice session failed.";
-      addErrorMessage(message);
-      setIsVoiceConnecting(false);
-      setAgentVoiceStatus("idle");
-      resetGlobalVoiceState();
-      await voiceClientRef.current?.stop();
-      voiceClientRef.current = null;
-      if (voiceLeaseRef.current?.id === lease.id) {
-        lease.release("agent_chat_voice_start_failed");
-        voiceLeaseRef.current = null;
-      }
-    }
-  };
-
-  useEffect(() => {
-    if (!voiceActive) return;
-    if (
-      agentVoiceEnabled &&
-      user?.uid &&
-      isVaultUnlocked &&
-      vaultOwnerToken &&
-      tokenIsFresh
-    ) {
-      return;
-    }
-    void handleCancelVoice();
-  }, [
-    agentVoiceEnabled,
-    handleCancelVoice,
-    isVaultUnlocked,
-    tokenIsFresh,
-    user?.uid,
-    vaultOwnerToken,
-    voiceActive,
-  ]);
-
-  // Keep a live reference to the latest voice toggle so the conversation-request
-  // listener (registered once) always invokes the current handler. Full-duplex
-  // realtime voice lives on the One ADK live relay (AgentBar / gemini-live-client);
-  // this workspace owns only the turn-based chat voice path.
-  const startConversationalVoice = () => handleToggleVoice();
-  const handleToggleVoiceRef = useRef(startConversationalVoice);
-  handleToggleVoiceRef.current = startConversationalVoice;
-
-  // The agent bar's conversational-mode control dispatches a request event after
-  // opening the surface. Auto-start a voice turn once the workspace is ready and
-  // not already in a voice session. Honors the same access gates as the in-chat
-  // voice button (vault unlock, fresh token, voice feature flag).
-  const conversationVoiceEnabled = agentVoiceEnabled;
-  const conversationReady =
-    conversationVoiceEnabled && hasChatAccess && !voiceActive && !isVoiceConnecting;
-  const conversationReadyRef = useRef(conversationReady);
-  conversationReadyRef.current = conversationReady;
-  const pendingConversationRequestRef = useRef(false);
-
-  const tryStartPendingConversation = useCallback(() => {
-    if (!pendingConversationRequestRef.current) return;
-    if (!conversationReadyRef.current) return;
-    pendingConversationRequestRef.current = false;
-    void handleToggleVoiceRef.current();
-  }, []);
-
-  useEffect(() => {
-    const handleConversationRequest = () => {
-      pendingConversationRequestRef.current = true;
-      tryStartPendingConversation();
-    };
-    window.addEventListener(
-      AGENT_CONVERSATION_REQUEST_EVENT,
-      handleConversationRequest,
-    );
-    return () => {
-      window.removeEventListener(
-        AGENT_CONVERSATION_REQUEST_EVENT,
-        handleConversationRequest,
-      );
-      pendingConversationRequestRef.current = false;
-    };
-  }, [tryStartPendingConversation]);
-
-  // If the request arrived before the workspace was ready (e.g. vault still
-  // unlocking), retry once readiness flips true.
-  useEffect(() => {
-    if (conversationReady) {
-      tryStartPendingConversation();
-    }
-  }, [conversationReady, tryStartPendingConversation]);
+  // Agent Chat never owns audio. Its microphone affordance delegates to the
+  // persistent Agent Bar, which is the sole owner of One Live and native audio.
+  const startConversationalVoice = requestAgentConversation;
 
   // The single agent bar always works. Before the vault is unlocked it runs the
   // informational tier (help + navigation), so the access banner is a soft,
@@ -3893,17 +3449,6 @@ export function AgentChatWorkspace({
     }
     trapFocusWithin(event, historyDrawerRef.current);
   }, []);
-  const handleVoiceTranscriptDialogKeyDown = useCallback(
-    (event: ReactKeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        handleVoiceTranscriptRetry();
-        return;
-      }
-      trapFocusWithin(event, voiceTranscriptDialogRef.current);
-    },
-    [handleVoiceTranscriptRetry]
-  );
   const renderHistorySidebar = (
     sidebarClassName?: string,
     onClose?: () => void,
@@ -4214,6 +3759,49 @@ export function AgentChatWorkspace({
                   onDismiss={() => handleDismissPkmReview(review.id)}
                 />
               ))}
+
+              {pendingAppAction ? (
+                <SpecialistDirectiveCard
+                  summary={
+                    pendingAppAction.event.message ||
+                    `One is ready to ${pendingAppAction.event.label || "continue"}. Nothing runs until you confirm.`
+                  }
+                  confirmLabel={
+                    pendingAppAction.authorize && !pendingAppAction.receipt
+                      ? "Authorize"
+                      : pendingAppAction.event.label || "Run"
+                  }
+                  busy={appActionBusy}
+                  onConfirm={async () => {
+                    const pending = pendingAppAction;
+                    if (!pending || appActionBusy) return;
+                    setAppActionBusy(true);
+                    try {
+                      if (pending.authorize && !pending.receipt) {
+                        const receipt = await pending.authorize();
+                        setPendingAppAction((current) =>
+                          current === pending ? { ...current, receipt } : current,
+                        );
+                        toast.success("Authorized. Tap Run to execute.");
+                        return;
+                      }
+                      await pending.execute(pending.receipt);
+                      setPendingAppAction(null);
+                    } catch {
+                      setPendingAppAction(null);
+                      addErrorMessage("The app could not complete the confirmed action.");
+                    } finally {
+                      setAppActionBusy(false);
+                    }
+                  }}
+                  onCancel={() => {
+                    const pending = pendingAppAction;
+                    setPendingAppAction(null);
+                    void pending.cancel?.().catch(() => undefined);
+                    toast.info("Action cancelled. Nothing was changed.");
+                  }}
+                />
+              ) : null}
 
               {pendingSpecialistDirective ? (
                 getConsentRequiredPayload(pendingSpecialistDirective) ? (
@@ -4577,51 +4165,6 @@ export function AgentChatWorkspace({
             </div>
           </div>
 
-          {voiceTranscriptReview ? (
-            <div className="absolute inset-0 z-20 grid place-items-end bg-black/25 p-4 backdrop-blur-[2px] dark:bg-black/40 sm:place-items-center">
-              <div
-                ref={voiceTranscriptDialogRef}
-                className="w-full max-w-sm rounded-xl border border-black/10 bg-white p-4 shadow-xl dark:border-white/10 dark:bg-[#15171c]"
-                role="dialog"
-                aria-modal="true"
-                aria-label="Confirm voice transcript"
-                onKeyDown={handleVoiceTranscriptDialogKeyDown}
-              >
-                <p className="text-xs font-medium uppercase tracking-[0.16em] text-primary">
-                  Confirm voice transcript
-                </p>
-                <p className="mt-2 text-sm text-foreground">
-                  {voiceTranscriptReview.transcript || "I could not hear a clear transcript."}
-                </p>
-                {voiceTranscriptReview.reason ? (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {voiceTranscriptReview.reason}
-                  </p>
-                ) : null}
-                <div className="mt-3 flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleVoiceTranscriptRetry}
-                  >
-                    Retry
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={!voiceTranscriptReview.transcript.trim()}
-                    onClick={() =>
-                      handleVoiceTranscriptAccepted(voiceTranscriptReview.transcript)
-                    }
-                  >
-                    Continue
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
           <form
             onSubmit={handleSubmit}
             className={cn(
@@ -4641,11 +4184,9 @@ export function AgentChatWorkspace({
                     status={voiceState}
                     level={voiceLevel}
                     muted={voiceMuted}
-                    disabled={!hasChatAccess || isVoiceConnecting}
-                    onToggleMute={handleToggleVoice}
-                    onCancel={() => {
-                      void handleCancelVoice();
-                    }}
+                    disabled={isVoiceConnecting}
+                    onToggleMute={startConversationalVoice}
+                    onCancel={startConversationalVoice}
                   />
                 </div>
               ) : (

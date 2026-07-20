@@ -389,10 +389,21 @@ export class OneKycService {
     workflowId,
     draftBody,
     instruction,
+    approvedScopes,
+    requestText,
+    domains,
   }: AuthInput & {
     workflowId: string;
     draftBody: string;
     instruction: string;
+    approvedScopes: string[];
+    requestText: string;
+    domains: Array<{
+      domain: string;
+      scope: string;
+      exportRevision: number;
+      domainData: Record<string, unknown>;
+    }>;
   }): Promise<{ rewritten_body: string }> {
     return apiJson<{ rewritten_body: string }>(
       `/api/one/kyc/workflows/${encodeURIComponent(workflowId)}/redraft-full`,
@@ -403,6 +414,14 @@ export class OneKycService {
           user_id: userId,
           draft_body: draftBody,
           instruction,
+          approved_scopes: approvedScopes,
+          request_text: requestText,
+          domains: domains.map((entry) => ({
+            domain: entry.domain,
+            scope: entry.scope,
+            export_revision: entry.exportRevision,
+            domain_data: entry.domainData,
+          })),
         }),
       }
     );

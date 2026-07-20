@@ -6,8 +6,8 @@ description: Advanced financial analyst that orchestrates fundamental, sentiment
 model:
   provider: gemini
   name: gemini-3.5-flash
-  mode: byok
-  credential_ref: pkm:runtime_secrets.llm.gemini_api_key
+  mode: hushh_managed_vertex
+  credential_ref: null
 credential_policy:
   default: hushh_managed_vertex
   allowed:
@@ -92,3 +92,80 @@ outputs:
     type: string
   - name: recommendation
     type: string
+
+runtime:
+  kind: adk
+  factory: hushh_mcp.one_adk.agent_tree._build_finance_agent
+  adk_mode: task
+  transport:
+    - in_process
+    - chat
+    - a2a
+authorities:
+  invocation:
+    - agent.kai.analyze
+  data:
+    - consented_financial_projection
+  actions: []
+privacy:
+  context_allowlist:
+    - hussh:pkm_context
+  plaintext_telemetry: false
+telemetry_namespace: agent.kai
+subagents:
+  - id: agent_ria
+    name: RIA
+    description: Advisor-workspace subagent owned by Kai Finance.
+    model:
+      provider: gemini
+      name: gemini-3.5-flash
+      mode: hushh_managed_vertex
+    runtime:
+      kind: adk
+      adk_mode: task
+      transport:
+        - in_process
+    system_instruction: |
+      You are RIA, Kai Finance's advisor-workspace subagent. Handle advisor
+      client, pick, and request framing only from explicitly supplied context.
+      Never read the account holder's personal portfolio projection unless the
+      turn authority explicitly includes it, and never claim an action ran.
+    privacy:
+      context_allowlist: []
+      plaintext_telemetry: false
+    telemetry_namespace: agent.kai.ria
+    performance:
+      latency_p95_ms: 4000
+      max_output_tokens: 2048
+    rollout:
+      kill_switch: HUSHH_RIA_AGENT_DISABLED
+      strategy: canary
+      rollback: Disable RIA delegation and keep the Finance head active.
+  - id: agent_investor
+    name: Investor
+    description: Personal portfolio-review subagent owned by Kai Finance.
+    model:
+      provider: gemini
+      name: gemini-3.5-flash
+      mode: hushh_managed_vertex
+    runtime:
+      kind: adk
+      adk_mode: task
+      transport:
+        - in_process
+    system_instruction: |
+      You are Investor, Kai Finance's personal-investing subagent. Review only
+      the consented financial projection supplied for this turn. Never infer
+      omitted holdings or claim an analysis run or trade executed.
+    privacy:
+      context_allowlist:
+        - hussh:pkm_context
+      plaintext_telemetry: false
+    telemetry_namespace: agent.kai.investor
+    performance:
+      latency_p95_ms: 4000
+      max_output_tokens: 2048
+    rollout:
+      kill_switch: HUSHH_INVESTOR_AGENT_DISABLED
+      strategy: canary
+      rollback: Disable Investor delegation and keep the Finance head active.

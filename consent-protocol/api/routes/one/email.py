@@ -98,6 +98,13 @@ class ExtractDraftRequest(WorkflowUserRequest):
     domains: list[dict] | None = Field(default=None, max_length=8)
 
 
+class FullRedraftDomain(BaseModel):
+    domain: str = Field(min_length=1, max_length=120)
+    scope: str = Field(min_length=1, max_length=256)
+    export_revision: int = Field(ge=1)
+    domain_data: dict = Field(default_factory=dict)
+
+
 class ConfirmProposalRequest(WorkflowUserRequest):
     approved_scopes: list[str] = Field(min_length=1, max_length=8)
 
@@ -642,6 +649,9 @@ async def one_kyc_redraft_llm(
 class FullRedraftRequest(WorkflowUserRequest):
     draft_body: str = Field(min_length=1, max_length=20000)
     instruction: str = Field(min_length=1, max_length=1000)
+    approved_scopes: list[str] = Field(min_length=1, max_length=8)
+    request_text: str = Field(min_length=1, max_length=12000)
+    domains: list[FullRedraftDomain] = Field(min_length=1, max_length=8)
 
 
 @router.post("/kyc/workflows/{workflow_id}/redraft-full")
@@ -657,6 +667,9 @@ async def one_kyc_redraft_full(
             workflow_id=workflow_id,
             draft_body=payload.draft_body,
             instruction=payload.instruction,
+            approved_scopes=payload.approved_scopes,
+            request_text=payload.request_text,
+            domains=[domain.model_dump() for domain in payload.domains],
             consent_token=token_data.get("token", ""),
         )
     except Exception as exc:

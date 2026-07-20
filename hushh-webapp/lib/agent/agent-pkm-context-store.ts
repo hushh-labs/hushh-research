@@ -40,6 +40,7 @@ const MAX_ARRAY_ITEMS = 8;
 const MAX_DEPTH = 5;
 
 const workingSets = new Map<string, AgentPkmWorkingSet>();
+const workingSetLoads = new Map<string, Promise<AgentPkmWorkingSet | null>>();
 const workingSetGenerations = new Map<string, number>();
 let globalWorkingSetGeneration = 0;
 let pkmChangeListenerInstalled = false;
@@ -105,7 +106,7 @@ function shouldUseBroadContext(message: string): boolean {
   return containsAny(text, [
     /\b(?:show|summari[sz]e|explain|list|display|read)\b.*\b(?:all|everything|entire|full)\b.*\b(?:pkm|personal knowledge|memory|memories|what kai knows)\b/,
     /\b(?:what|which)\b.*\b(?:is|are|stuff|details|data|information)\b.*\b(?:in|inside)\b.*\b(?:my )?(?:pkm|personal knowledge|memory|memories)\b/,
-    /\b(?:can you|could you)?\s*(?:see|access|read|summari[sz]e|explain)\b.*\b(?:my )?(?:pkm|personal knowledge|memory|memories)\b/,
+    /\b(?:can you|could you)?\s*(?:see|access|read|summari[sz]e|explain|list(?: down)?(?: a)? summary)\b.*\b(?:my )?(?:pkm|personal knowledge|memory|memories)\b/,
     /\bwhat\b.*\b(?:kai|agent|you)\b.*\bknow\b.*\b(?:about me|from my pkm)\b/,
   ]);
 }
@@ -345,10 +346,12 @@ function buildContextText(params: {
 export class AgentPkmContextStore {
   static clear(userId?: string): void {
     if (userId) {
+      workingSetLoads.delete(userId);
       invalidateWorkingSet(userId);
       return;
     }
     workingSets.clear();
+    workingSetLoads.clear();
     globalWorkingSetGeneration += 1;
   }
 
@@ -363,7 +366,7 @@ export class AgentPkmContextStore {
   }): AgentPkmWorkingContext | null {
     ensurePkmChangeListener();
     const cached = workingSets.get(params.userId);
-    if (!cached || Date.now() - cached.loadedAt >= SESSION_TTL_MS) {
+    if (!cached) {
       return null;
     }
 
@@ -383,46 +386,79 @@ export class AgentPkmContextStore {
     maxChars?: number;
   }): Promise<AgentPkmWorkingContext | null> {
     ensurePkmChangeListener();
-    const generation = currentGeneration(params.userId);
-    const metadata = await PersonalKnowledgeModelService.getMetadata(
-      params.userId,
-      params.forceRefresh === true,
-      params.vaultOwnerToken
-    );
-    if (generation !== currentGeneration(params.userId)) {
-      return null;
-    }
     const cached = workingSets.get(params.userId);
-    const metadataUpdatedAt = metadata.lastUpdated || null;
-    const cacheFresh =
-      cached &&
-      Date.now() - cached.loadedAt < SESSION_TTL_MS &&
-      cached.metadataUpdatedAt === metadataUpdatedAt;
+    const cacheFresh = Boolean(
+      cached && Date.now() - cached.loadedAt < SESSION_TTL_MS,
+    );
+    if (!params.forceRefresh && cached && cacheFresh) {
+      return buildContextText({
+        workingSet: cached,
+        message: params.message || "",
+        maxChars: params.maxChars || DEFAULT_MAX_CONTEXT_CHARS,
+      });
+    }
 
-    const workingSet =
-      !params.forceRefresh && cacheFresh
-        ? cached
-        : await (async (): Promise<AgentPkmWorkingSet | null> => {
-            const fullBlob = await PersonalKnowledgeModelService.loadFullBlob({
-              userId: params.userId,
-              vaultKey: params.vaultKey,
-              vaultOwnerToken: params.vaultOwnerToken,
-            });
-            if (generation !== currentGeneration(params.userId)) {
-              return null;
-            }
-            return {
-              userId: params.userId,
-              metadata,
-              fullBlob,
-              memorySnapshot: buildPkmMemorySnapshot({
-                metadata,
-                fullBlob,
-              }),
-              loadedAt: Date.now(),
-              metadataUpdatedAt,
-            };
-          })();
+    const existingLoad = workingSetLoads.get(params.userId);
+    if (existingLoad) {
+      const sharedWorkingSet = await existingLoad;
+      if (!sharedWorkingSet) return null;
+      return buildContextText({
+        workingSet: sharedWorkingSet,
+        message: params.message || "",
+        maxChars: params.maxChars || DEFAULT_MAX_CONTEXT_CHARS,
+      });
+    }
+
+    const generation = currentGeneration(params.userId);
+    const load = (async (): Promise<AgentPkmWorkingSet | null> => {
+      const metadata = await PersonalKnowledgeModelService.getMetadata(
+        params.userId,
+        params.forceRefresh === true,
+        params.vaultOwnerToken
+      );
+      if (generation !== currentGeneration(params.userId)) return null;
+
+      const metadataUpdatedAt = metadata.lastUpdated || null;
+      if (
+        !params.forceRefresh &&
+        cached &&
+        cached.metadataUpdatedAt === metadataUpdatedAt
+      ) {
+        return {
+          ...cached,
+          metadata,
+          loadedAt: Date.now(),
+        };
+      }
+
+      const fullBlob = await PersonalKnowledgeModelService.loadFullBlob({
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
+      });
+      if (generation !== currentGeneration(params.userId)) return null;
+      return {
+        userId: params.userId,
+        metadata,
+        fullBlob,
+        memorySnapshot: buildPkmMemorySnapshot({
+          metadata,
+          fullBlob,
+        }),
+        loadedAt: Date.now(),
+        metadataUpdatedAt,
+      };
+    })();
+    workingSetLoads.set(params.userId, load);
+
+    let workingSet: AgentPkmWorkingSet | null;
+    try {
+      workingSet = await load;
+    } finally {
+      if (workingSetLoads.get(params.userId) === load) {
+        workingSetLoads.delete(params.userId);
+      }
+    }
 
     if (!workingSet || generation !== currentGeneration(params.userId)) {
       return null;

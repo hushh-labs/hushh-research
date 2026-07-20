@@ -33,6 +33,7 @@ function printUsage() {
   console.log("  hushh-mcp --print-remote-config");
   console.log("  hushh-mcp --print-gateway-manifest");
   console.log("  hushh-mcp --print-agentforce-manifest");
+  console.log("  hushh-mcp --print-mulesoft-exchange-manifest");
   console.log("  hushh-mcp --print-mulesoft-agentforce-handoff");
   console.log("");
   console.log("Environment:");
@@ -375,6 +376,11 @@ if (args.includes("--print-gateway-manifest")) {
 
 if (args.includes("--print-agentforce-manifest")) {
   printGatewayManifest("hushh-agentforce-mcp-manifest.json");
+  process.exit(0);
+}
+
+if (args.includes("--print-mulesoft-exchange-manifest")) {
+  printGatewayManifest("hushh-mulesoft-exchange-mcp-schema.json");
   process.exit(0);
 }
 

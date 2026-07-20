@@ -262,33 +262,40 @@ async def run_app_action(
             "message": missing["prompt"],
         }
 
-    directive_payload: dict[str, Any] = {"actionId": clean_id, "slots": clean_slots}
-    if policy == "confirm_required" or activation_policy == "trusted_activation_required":
-        directive_payload["needsConfirmation"] = True
-        if activation_policy == "trusted_activation_required":
-            directive_payload["trustedActivationRequired"] = True
-        tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:{clean_id}"] = {
-            "kind": "action",
-            "payload": directive_payload,
-        }
-        logger.info("one_adk_action_decision action=%s status=confirm_pending", clean_id)
-        return {
-            "status": "confirm_pending",
-            "message": (
-                f"The app will present the exact {label} action for a trusted tap."
-                if activation_policy == "trusted_activation_required"
-                else f"The app will ask the user to confirm {label}."
-            ),
-        }
+    if clean_id == "kyc.draft.request_redraft":
+        instruction = clean_slots.get("instruction")
+        instruction = instruction.strip() if isinstance(instruction, str) else ""
+        if not instruction or len(instruction) > 1000:
+            return {
+                "status": "input_needed",
+                "missing_slot": "instruction",
+                "message": "How should I revise the current response draft?",
+            }
+        # This action admits one bounded model slot only. Workflow IDs, draft
+        # bodies, exports, and scopes are resolved by the mounted KYC handler.
+        clean_slots = {"instruction": instruction}
 
+    # A model-selected action is a proposal, never user activation. Every
+    # generated app action, including navigation, waits for an explicit tap in
+    # chat or voice. The gateway still enforces the authored risk policy.
+    directive_payload: dict[str, Any] = {
+        "actionId": clean_id,
+        "slots": clean_slots,
+        "needsConfirmation": True,
+        "trustedActivationRequired": True,
+    }
     tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:{clean_id}"] = {
         "kind": "action",
         "payload": directive_payload,
     }
-    logger.info("one_adk_action_decision action=%s status=ok", clean_id)
+    logger.info("one_adk_action_decision action=%s status=confirm_pending", clean_id)
     return {
-        "status": "ok",
-        "message": f"Running {label}.",
+        "status": "confirm_pending",
+        "message": (
+            f"The app will present the exact {label} action for a trusted tap."
+            if activation_policy == "trusted_activation_required"
+            else f"The app will ask the user to confirm {label}."
+        ),
         "action_id": clean_id,
         # Proactive-prompting: like open_screen, this text is the tool
         # RESULT the model reads on its next turn - there is no separate
@@ -296,7 +303,8 @@ async def run_app_action(
         # One offers a next step after every governed action it runs, not
         # only after an onboarding screen change.
         "next_step": (
-            "Wait for the correlated browser action settlement before saying "
+            "Wait for explicit confirmation and the correlated browser action "
+            "settlement before saying "
             f"{label} completed. Then acknowledge only the reported outcome "
             "and, if there is an obvious next step, offer it before waiting to "
             "be asked."

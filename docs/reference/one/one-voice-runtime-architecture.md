@@ -175,6 +175,10 @@ What shipped:
 Voice responder contract (who makes LLM calls, who speaks):
 
 - The root Live model is the ONLY audio producer. Specialists never speak.
+- Agent Chat has no microphone transport, STT adapter, TTS queue, or browser
+  speech fallback. Its microphone affordance requests the persistent Agent
+  Bar's existing One Live owner, so a chat surface can never overlap or replace
+  native-audio playback.
 - `AgentTool(finance)` / `AgentTool(ria)` consults run ONE nested text-mode
   `run_async` call on the specialist model inside the live turn; the root
   model folds the result into its spoken answer.
@@ -185,6 +189,39 @@ Voice responder contract (who makes LLM calls, who speaks):
   A2A: anonymous sign-in cannot require vault or consent authority. It sees
   only redacted journey state and returns permitted next actions; One retains
   conversational ownership. See [One Voice Onboarding Journey](./one-voice-onboarding-journey.md).
+
+### Current Gemini workload matrix
+
+The authored manifests and runtime registry follow Google's current model
+catalog rather than a single blanket default:
+
+| Workload | Model | Reason |
+| --- | --- | --- |
+| One typed Agent Chat, semantic action selection, and agentic specialists | `gemini-3.5-flash` | Current Flash agentic/tool-use head |
+| Bounded summary reduction, receipt extraction, and runtime readiness probes | `gemini-3.1-flash-lite` | Lower-cost, lower-latency bounded work |
+| Agent Bar bidirectional speech | `gemini-live-2.5-flash-native-audio` | Current native-audio Live model; served from the configured Live region |
+
+Text models are explicitly marked `supports_native_realtime=false`; only the
+named Live model can acquire the realtime transport. Gemini 3.5 Flash is not a
+Live model and must never be substituted into the Agent Bar based on its name.
+The source catalog is [Google models](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/google-models).
+
+### PKM and Connected Systems boundary
+
+- The browser decrypts the approved PKM projection only after vault unlock,
+  keeps it in session memory, and passes the bounded turn context to One's
+  `gemini-3.5-flash` text head. One treats it as information, never as
+  instructions or exhaustive truth.
+- The identical bounded projection is available to the Finance specialist when
+  relevant; omitted vault domains, credentials, exports, and CRM records cannot
+  be inferred.
+- Connected Systems and CRM remain an explicit `agent_connected_systems` A2A
+  specialist path. One invocation is not record authority: route admission,
+  attenuated consent authority, schema validation, and visible confirmation
+  still gate read/create/update work. CRM delete remains unavailable.
+- The Live head may semantically choose that specialist, but it receives the
+  same fail-closed result when the current route or authority is insufficient.
+  Audio transport never grants PKM or CRM access.
 
 Current delegation limit: only Location, Nav, and Personal Information are
 registered for a Live turn today. Email, Connections, and Connected Systems

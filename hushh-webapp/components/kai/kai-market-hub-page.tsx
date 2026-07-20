@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { AppPageContentRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
@@ -84,8 +84,7 @@ export function KaiMarketHubPage() {
     <AppPageShell
       as="div"
       width="reading"
-      className="relative pb-32"
-      style={{ "--one-gutter": "0px" } as CSSProperties}
+      className="relative !px-0 pb-32"
       data-finance-workspace="true"
       nativeTest={{
         routeId: KAI_MARKET_PATH,
@@ -99,6 +98,7 @@ export function KaiMarketHubPage() {
         activeValue={activeTab}
         options={FINANCE_TAB_DEFINITION.tabs}
         onSelectionChange={(value) => setActiveTab(value as PortfolioTab)}
+        panelInset="page"
       >
         <div className="h-full w-full">
           <AppPageContentRegion><KaiPreviewRouter /></AppPageContentRegion>

@@ -11,11 +11,39 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   PersonalKnowledgeModelService: { loadRuntimeSecret: mocks.loadRuntimeSecret },
 }));
 
-import { resolveGeminiRuntimeConnection } from "@/lib/connections/gemini-runtime-configuration";
+import {
+  clearGeminiRuntimeConnectionCache,
+  resolveGeminiRuntimeConnection,
+} from "@/lib/connections/gemini-runtime-configuration";
 
 describe("Gemini runtime configuration", () => {
   beforeEach(() => {
     mocks.loadRuntimeSecret.mockReset();
+    clearGeminiRuntimeConnectionCache();
+  });
+
+  it("single-flights and caches unlocked runtime reads in memory", async () => {
+    mocks.loadRuntimeSecret
+      .mockResolvedValueOnce("byok")
+      .mockResolvedValueOnce("test-key")
+      .mockResolvedValueOnce("developer_api")
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    const input = {
+      userId: "user_1",
+      vaultKey: "vault-key",
+      vaultOwnerToken: "owner-token",
+    };
+
+    const [first, second] = await Promise.all([
+      resolveGeminiRuntimeConnection(input),
+      resolveGeminiRuntimeConnection(input),
+    ]);
+    const third = await resolveGeminiRuntimeConnection(input);
+
+    expect(first).toEqual(second);
+    expect(third).toEqual(first);
+    expect(mocks.loadRuntimeSecret).toHaveBeenCalledTimes(5);
   });
 
   it("uses managed mode without attempting a vault read while locked", async () => {

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import {
   AppPageContentRegion,
@@ -18,10 +18,12 @@ import {
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildConnectedSystemRoute, ROUTES } from "@/lib/navigation/routes";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { useVault } from "@/lib/vault/vault-context";
 
 export function ConnectedSystemsOnboardingSetupClient() {
+  const router = useRouter();
   const params = useSearchParams();
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
@@ -34,8 +36,22 @@ export function ConnectedSystemsOnboardingSetupClient() {
     skipActionId: "setup.skip_connected_systems",
   });
   const systemId = params.get("system")?.trim() || null;
+  const completedSetup = Boolean(
+    coordinator.isReady &&
+      user?.uid &&
+      PreVaultUserStateService.isSetupResolved(
+        PreVaultUserStateService.getCachedBootstrapState(user.uid),
+      ),
+  );
 
-  if (!coordinator.isReady) return <SetupCapabilityLoading label="Preparing external systems…" />;
+  useEffect(() => {
+    if (!completedSetup) return;
+    router.replace(buildConnectedSystemRoute(systemId));
+  }, [completedSetup, router, systemId]);
+
+  if (!coordinator.isReady || completedSetup) {
+    return <SetupCapabilityLoading label="Preparing external systems…" />;
+  }
 
   return (
     <AppPageShell as="main" width="standard" className="space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]">
