@@ -3633,9 +3633,9 @@
       "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.one.setup.connected.systems",
-        "purpose": "Link an active CRM record before explicitly finishing or skipping setup.",
+        "purpose": "Connect an active CRM record before explicitly finishing or skipping setup.",
         "screen": "one_setup_connected_systems",
-        "entry_cue": "Choose a CRM to find or create your record, or say skip linking setup.",
+        "entry_cue": "Choose a CRM to find or create your record, or say skip CRM setup.",
         "proactivity": "on_entry",
         "primary_action_id": "setup.skip_connected_systems",
         "happy_path_action_ids": [
@@ -3651,7 +3651,7 @@
           "callback_error": "Return to linked systems setup without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Linked systems setup finishes only after an active CRM record binding and hub settlement.",
+        "completion_boundary": "CRM setup finishes only after an active CRM record binding and hub settlement.",
         "next_route": "/one/setup",
         "return_policy": "return_to_hub",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3725,9 +3725,9 @@
       "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.one.setup.email",
-        "purpose": "Set up KYC review and the connector One uses to draft with you.",
+        "purpose": "Choose whether One automatically prepares KYC responses for review.",
         "screen": "one_setup_email",
-        "entry_cue": "Set up KYC review, or say skip KYC setup.",
+        "entry_cue": "Choose automatic response preparation, or say skip KYC setup.",
         "proactivity": "on_entry",
         "primary_action_id": "setup.skip_email",
         "happy_path_action_ids": [
@@ -3743,7 +3743,7 @@
           "callback_error": "Use the verified current route and its generated actions only.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "KYC setup finishes only after KYC readiness and the client connector are ready.",
+        "completion_boundary": "KYC setup finishes after the automatic response-preparation preference has loaded and the hub route settles.",
         "next_route": "/one/setup",
         "return_policy": "return_to_hub",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
