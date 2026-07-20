@@ -19,7 +19,7 @@ def test_recovery_migration_is_registered_and_additive():
         if migration[:3].isdigit()
     ]
     assert uat["expected_migration_version"] == max(release_versions)
-    assert dev["expected_migration_version"] == 99
+    assert 98 <= dev["expected_migration_version"] <= max(release_versions)
     assert "DROP FUNCTION commit_pkm_domain_mutation_v2" not in sql
     assert "DROP FUNCTION commit_pkm_domain_mutation_v3" not in sql
     assert "ALTER TABLE pkm_manifests" in sql

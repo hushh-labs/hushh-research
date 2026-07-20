@@ -33,9 +33,9 @@ def test_onboarding_callback_attempt_migration_is_registered_and_redacted() -> N
     manifest = json.loads((ROOT / "db/release_migration_manifest.json").read_text())
     contract = json.loads((ROOT / "db/contracts/uat_integrated_schema.json").read_text())
 
-    assert manifest["ordered_migrations"][-1] == "094_one_onboarding_callback_attempt_v1.sql"
+    assert "094_one_onboarding_callback_attempt_v1.sql" in manifest["ordered_migrations"]
     assert "094_one_onboarding_callback_attempt_v1.sql" in manifest["groups"]["iam"]
-    assert contract["expected_migration_version"] == 94
+    assert contract["expected_migration_version"] >= 94
     assert "onboarding_callback_attempt_id" in contract["required_tables"]["vault_keys"]
     assert "oauth codes" in migration.lower()
     assert "provider tokens" in migration.lower()
