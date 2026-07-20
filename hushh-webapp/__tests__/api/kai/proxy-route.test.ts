@@ -22,14 +22,6 @@ function createRequest(url: string, init: RequestInit): NextRequest {
   return new NextRequest(url, init);
 }
 
-async function waitForFetchCall(fetchSpy: ReturnType<typeof vi.spyOn>) {
-  for (let index = 0; index < 10; index += 1) {
-    if (fetchSpy.mock.calls.length > 0) return;
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-  expect(fetchSpy).toHaveBeenCalled();
-}
-
 describe("/api/kai/[...path] proxy", () => {
   it("forwards Authorization header for JSON POST routes", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
