@@ -120,6 +120,28 @@ describe("setup warm-transition contract", () => {
     expect(coordinator).toContain("setCallbackReadiness(true)");
   });
 
+  it("lets resolved Finance re-entry start Plaid without setup callback writes", () => {
+    const flow = read("components/kai/kai-flow.tsx");
+    const plaidConnect = flow.slice(
+      flow.indexOf("const handleConnectPlaid"),
+      flow.indexOf("useEffect(() => {\n    if (!resumePlaidAfterVault)"),
+    );
+
+    expect(flow).toContain("function isActiveFinanceSetupJourney");
+    expect(plaidConnect).toContain("let shouldSettleSetupSource = false;");
+    expect(plaidConnect).toContain("if (isActiveFinanceSetupJourney(journey))");
+    expect(plaidConnect).toContain(
+      "} else if (!PreVaultUserStateService.isSetupResolved(journey))",
+    );
+    expect(plaidConnect).toContain(
+      "Resolved-root re-entry is explicit user intent",
+    );
+    expect(plaidConnect).toContain("returnPath: shouldSettleSetupSource");
+    expect(plaidConnect).toContain(
+      "if (onSetupSourceSettled && !shouldSettleSetupSource)",
+    );
+  });
+
   it("does not send an unconfirmed Finance source choice to Kai", () => {
     const flow = read("components/kai/kai-flow.tsx");
     const settlement = flow.slice(
