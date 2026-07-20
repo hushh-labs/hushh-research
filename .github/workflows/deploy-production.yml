@@ -250,6 +250,44 @@ jobs:
           echo "backup_object_uri=${BACKUP_OBJECT_URI}" >> "$GITHUB_OUTPUT"
           echo "backup_completed_at=${BACKUP_COMPLETED_AT}" >> "$GITHUB_OUTPUT"
 
+      - name: Apply production release migrations
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SERVICE_JSON="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format=json)"
+
+          # Keep the production DB migration runner aligned with the UAT deploy lane:
+          # apply the canonical release manifest before deploying code that reads it.
+          DB_HOST="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_HOST") | .value // empty' | tail -n 1)"
+          DB_PORT="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_PORT") | .value // empty' | tail -n 1)"
+          DB_NAME="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_NAME") | .value // empty' | tail -n 1)"
+          DB_HOST="${DB_HOST:-aws-1-us-east-1.pooler.supabase.com}"
+
+          DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${{ env.GCP_PROJECT_ID }}")"
+          DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${{ env.GCP_PROJECT_ID }}")"
+          echo "::add-mask::${DB_USER}"
+          echo "::add-mask::${DB_PASSWORD}"
+
+          if [ -z "${DB_HOST}" ] || [ -z "${DB_USER}" ] || [ -z "${DB_PASSWORD}" ]; then
+            echo "Failed to resolve DB credentials/host for production release migrations."
+            exit 1
+          fi
+
+          export DB_HOST DB_USER DB_PASSWORD
+          export DB_PORT="${DB_PORT:-5432}"
+          export DB_NAME="${DB_NAME:-postgres}"
+          export DB_SSLMODE=require
+
+          (
+            cd consent-protocol
+            "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release
+          )
+
       - name: Migration governance and DB drift gate
         if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
